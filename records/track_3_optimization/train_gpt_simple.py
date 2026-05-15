@@ -494,7 +494,7 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True, pp_iterations=2, pp_beta
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     pre_polar_m = update.float()
-    update = aurora_orthogonalize(update, pp_iterations=pp_iterations, pp_beta=pp_beta)
+    update = zeropower_via_newtonschulz5(update)
     if contra_coeff != 0.0:
         target_scale = float(min(pre_polar_m.shape[-2], pre_polar_m.shape[-1])) ** 0.5
         m_fro = pre_polar_m.norm().clamp_min(1e-12)
@@ -620,7 +620,7 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -650,15 +650,16 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
-            # Aurora + Contra-Muon + u/w-floor (record #17) hyperparameters.
-            "muon_lr": 0.0375,
-            "muon_weight_decay": 0.0,
-            "aurora_pp_iterations": 2,
-            "aurora_pp_beta": 0.5,
-            "contra_coeff": CONTRA_COEFF,
-            "target_uw_floor": TARGET_UW,
+            # Vanilla Muon (NS5) baseline hyperparameters (true vanilla).
+            "muon_lr": 0.035,
+            "muon_weight_decay": 0.025,
+            "aurora_pp_iterations": 0,
+            "aurora_pp_beta": 0.0,
+            "contra_coeff": 0.0,
+            "target_uw_floor": 0.0,
             "ns_iterations": 12,
-            "muon_method": "aurora+contra-muon+uw-floor",
+            "muon_method": "vanilla-muon-ns5",
+            "compile_mode": "dynamic=True",
         },
     )
 
@@ -670,7 +671,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = 3350
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -695,8 +696,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.0375, weight_decay=0, pp_iterations=2, pp_beta=0.5,
-                      contra_coeff=CONTRA_COEFF, target_uw=TARGET_UW)
+                      lr=0.035, weight_decay=0.025, pp_iterations=2, pp_beta=0.5,
+                      contra_coeff=0.0, target_uw=0.0)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
