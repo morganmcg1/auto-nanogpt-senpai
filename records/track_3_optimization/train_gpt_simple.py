@@ -30,6 +30,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=3325)
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -180,7 +181,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # torch.linspace returns float32; for tensors with numel beyond float32's
+        # mantissa precision (~2**24), the endpoint can round up past numel-1, producing
+        # out-of-bounds indices. Clamp to be safe.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -458,11 +463,31 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
-class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+
+@torch.no_grad()
+def scale_invariant_update_(param: Tensor, update: Tensor, lr: float, eps: float = 1e-10) -> None:
+    """Hyperball-constrained step: take a Muon-orthogonalised update of size lr * ||param||,
+    then renormalise back onto the Frobenius sphere of the parameter's initial radius.
+    Preserves ||param|| exactly across training; the invariant lets us drop weight decay on
+    hidden matrices entirely (the constraint already prevents norm growth)."""
+    p_norm = param.norm()
+    u_norm = update.norm()
+    new_param = param - lr * update * p_norm / torch.clamp(u_norm, min=eps)
+    new_norm = torch.clamp(new_param.norm(), min=eps)
+    param.copy_(new_param / new_norm * p_norm)
+
+
+class MuonH(torch.optim.Optimizer):
+    """MuonH: same Newton-Schulz orthogonalised direction as Muon, applied via a Frobenius-
+    norm-preserving hyperball projection. Used here for ALL hidden 2D weight matrices —
+    q, k, v, mlp.fc, attn.proj, mlp.proj — under non-zero (Kaiming-derived) init.
+
+    Reference: record #5 (3325 steps, mu=3.2782, n=10). The hyperball constraint preserves
+    ||param|| exactly across training, which lets us drop weight_decay entirely."""
+    def __init__(self, params, lr=0.018, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, mu=mu)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -479,8 +504,7 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    scale_invariant_update_(p, update, group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -563,18 +587,31 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
-    # initialize model parameters
+    # initialize model parameters. Per-module multipliers on the residual-side projections
+    # so MuonH has non-zero matrices to operate on from step 0 (the hyperball step divides by
+    # ||p|| and is undefined at zero norm). The qkv weights keep the Kaiming-equivalent default
+    # init. The top-level vocab head (`proj.weight`) and all "proj" biases stay zero so the
+    # initial logits are zero.
+    #   attn.proj.weight (fan_in=768):  default × 1.25 → std ≈ 0.026
+    #   mlp.proj.weight  (fan_in=3072): default × 3.0  → std ≈ 0.031
+    #   mlp.fc.weight    (fan_in=768):  default × 1.5  → std ≈ 0.031
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
+            if name == "proj.weight":
+                w.zero_()  # vocab head, trained by AdamW
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # Kaiming-equivalent std
+                if name.endswith(".attn.proj.weight"):
+                    w.mul_(1.25)
+                elif name.endswith(".mlp.proj.weight"):
+                    w.mul_(3.0)
+                elif name.endswith(".mlp.fc.weight"):
+                    w.mul_(1.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -582,31 +619,55 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
+    # split block-level 2D weights by module class. Each shape class gets its own MuonH
+    # instance (same hyperparameters, but separate optimizers) so each shape gets its own
+    # torch.compile cache for the Newton-Schulz path.
+    named_block_params = [(n, p) for n, p in model.named_parameters()
+                          if n.startswith("blocks.") and p.ndim >= 2]
+    qkv_params = [p for n, p in named_block_params
+                  if n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight") or n.endswith(".attn.v.weight")]
+    mlp_fc_params = [p for n, p in named_block_params if n.endswith(".mlp.fc.weight")]
+    attn_proj_params = [p for n, p in named_block_params if n.endswith(".attn.proj.weight")]
+    mlp_proj_params = [p for n, p in named_block_params if n.endswith(".mlp.proj.weight")]
+
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    optimizer2 = MuonH(qkv_params, lr=0.018, mu=0.95)
+    optimizer2.param_groups[0]["name"] = "muonh_qkv"
+    optimizer3 = MuonH(mlp_fc_params, lr=0.018, mu=0.95)
+    optimizer3.param_groups[0]["name"] = "muonh_mlp_fc"
+    optimizer4 = MuonH(attn_proj_params, lr=0.018, mu=0.95)
+    optimizer4.param_groups[0]["name"] = "muonh_attn_proj"
+    optimizer5 = MuonH(mlp_proj_params, lr=0.018, mu=0.95)
+    optimizer5.param_groups[0]["name"] = "muonh_mlp_proj"
+    optimizers = [optimizer1, optimizer2, optimizer3, optimizer4, optimizer5]
+    for opt in (optimizer2, optimizer3, optimizer4, optimizer5):
+        for group in opt.param_groups:
+            group["schedule_type"] = "h"
+    for group in optimizer1.param_groups:
+        group["schedule_type"] = "aux"
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then decay. The h (MuonH) groups use full linear cooldown
+    # over the entire run (cooldown_frac=1.0); the aux (AdamW) group uses a shorter cooldown
+    # (cooldown_frac=0.4) to keep the embed/head learning longer before tapering.
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
+                cooldown_frac = 1.0 if group["schedule_type"] == "h" else 0.4
+                if progress < 1 - cooldown_frac:
+                    eta = 1.0
+                else:
+                    eta = (1 - progress) / cooldown_frac
                 group["lr"] = group["initial_lr"] * eta
 
 
