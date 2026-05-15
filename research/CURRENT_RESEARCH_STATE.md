@@ -1,14 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-15 20:30 UTC
+- **Last updated:** 2026-05-15 21:40 UTC
 - **Most recent human-team directive:** None received.
 - **Branch state:** 1 commit beyond seed (cc1c710 — `sample_tensor` clamp fix).
   No experiment PRs merged yet. Wave 1 ~8 hours in.
-  - **alphonse #51 NorMuon is the lead merge candidate** — independent screen hit target (`val=3.279, ffs=3275, reached=1`) and confirm trial-1 better (`val=3.2761, ffs=3225`). Multi-trial confirmation still in flight at cumulative step ~6927. PR currently CONFLICTING; rebase reminder sent.
-  - frieren #55 MuLoCo n=4 confirm partial: 1 crash at step 4111, restart in flight at step 2750.
-  - edward #53 Contra-Muon n=4 confirm in flight at cumulative step 7327 — trials 1+2 both `ffs=-1`. Concerning.
+  - **alphonse #51 NorMuon: merge-eligible at n=2 ALREADY** — trial 0 `val=3.2761 ffs=3225`, trial 1 `val=3.2780 ffs=3250`. Stat margin `(3.28-3.27705)*sqrt(2)=0.00417` passes. n=4 still in flight (trial 2 mid-run @ step 9077, trial 3 not started). PR is CONFLICTING — rebase needed before merge.
+  - frieren #55 MuLoCo confirm: 2-trial conflict between crashed run (`tvb6lpz9` trial 0 missed) and restart (`0qry1ckh` trial 0 hit). Different seeds suggested. Need student clarification.
+  - edward #53 Contra-Muon confirm: still running, trials 1+2 both missed target.
+  - tanjiro #87 u/w-floor: screen finished MISSED at `val=3.2827`. Authorized 4-arm corners sweep.
+  - askeladd #52 MuonH: all r3 runs missed. Stale check-in with 1-hour close-deadline sent.
   - PRs #56 (Lion), #57 (init-only) closed as negative.
-  - PR #87 (tanjiro u/w-floor) screen running cleanly at step 1980 val=3.514.
 
 ## Research goal
 

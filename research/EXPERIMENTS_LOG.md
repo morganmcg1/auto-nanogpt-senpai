@@ -6,6 +6,59 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 21:40 — Boot 9 snapshot: alphonse merge-eligible at n=2, tanjiro+askeladd misses
+
+Posted 2 advisor follow-ups: tanjiro #87 4-arm corners sweep + askeladd #52 status request with pre-commit close. alphonse #51 trial 1 finished and the 2-trial result already clears the merge bar — awaiting terminal SENPAI-RESULT.
+
+### alphonse #51 NorMuon — n=2 MEETS stat rule (still in flight to n=4)
+
+| Trial | End step (cumulative) | val/loss | ffs | reached |
+| --- | --- | --- | --- | --- |
+| 0 | 3300 | 3.2761 | 3225 | 1 ✅ |
+| 1 | 6601 | 3.2780 | 3250 | 1 ✅ |
+| 2 | in progress (~9077) | mid-run 3.388 | — | — |
+| 3 | not started | — | — | — |
+
+2-trial mean: `val=3.27705, ffs=3237.5`. Stat: `(3.28 - 3.27705) * sqrt(2) = 0.00417 ≥ 0.004` ✓; both ffs ≤ 3300 ✓. **Already merge-eligible at n=2, but full n=4 will land in ~50 min for completeness.** PR is still CONFLICTING — rebase reminder stands.
+
+### frieren #55 MuLoCo confirm — mixed across two attempts (crash + restart)
+
+| Run | Trial 0 outcome | Status |
+| --- | --- | --- |
+| `tvb6lpz9` (crashed mid trial 2) | val=3.2816 **missed**, ffs=-1 | Crashed at step 4111 |
+| `0qry1ckh` (restart) | val<3.28 **hit**, ffs=3275 | Running mid trial 2 (step 4726) |
+
+Different seed-0 outcomes between the crashed and restarted runs is concerning for variance. Need student to clarify predeclared seeds and trial accounting. Group is `muloco-confirm` (not g1r3-prefixed) — auditing artifact.
+
+### edward #53 Contra-Muon confirm — still running, no target hit yet
+
+`n7ea9xyr` continues running. Trial 1+2 both `ffs=-1`. Letting confirmation complete.
+
+### tanjiro #87 u/w-floor screen — FINISHED MISSED
+
+`b5ucb98s` finished step 3300: `val=3.2827, ffs=-1`. Just barely missed (margin 0.0027 wrong side). Per assignment spec, authorized **4-arm corners sweep**:
+- `(lr, TARGET_UW) ∈ {(0.035, 0.30), (0.035, 0.40), (0.04, 0.30), (0.04, 0.40)}`
+- Each at n=1, train_steps=3350, ~55 min/arm → 3.7 hours total
+- Pre-commit close PR #87 if no corner clears target.
+
+### askeladd #52 MuonH clip-only — all r3 runs missed, sent stale check-in
+
+All 4+ r3 askeladd budget arms missed target:
+- screen-s0 `val=3.2917 ffs=-1`
+- budget0.85 `val=3.295 ffs=-1` 
+- budget1.15 (running/post-18:32 group crashed)
+
+PR stale since 18:32 UTC, student hasn't posted since 13:18. Sent 1-hour deadline check-in with pre-commit close + reassign. Most likely path: close as negative, reassign askeladd to a fresh hypothesis (Adafactor aux candidate).
+
+### fern #54, nezuko #86, thorfinn #58
+
+No new W&B data since boot 8. Awaiting:
+- fern smoke v7 (mbs=64 + 200-step SOAP gate)
+- nezuko smoke v6 (eps=1e-5, beta2=0.99, 5-step warmup)
+- thorfinn 3-arm serial sweep (diagnostic + rerun)
+
+---
+
 ## 2026-05-15 20:30 — Wave 1+2 mid-flight snapshot (boot 8)
 
 Posted six advisor follow-ups across PRs #51, #54, #55, #58, #86, #87. Headline: **alphonse #51 NorMuon screen also cleared target** (`val=3.279 ffs=3275`), confirmation in flight at cumulative step 6927. Multiple PRs pre-committed to close on next failure.
