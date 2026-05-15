@@ -59,3 +59,20 @@ isolate which axes are reproducible on our single-GPU setup before stacking.
   non-cherry-picked runs.
 - Early-kill is permitted only for crashes, non-finite losses, or hopeless
   smoke tests — never as val-peeking.
+
+## Known starter bugs (pending fix on advisor branch)
+
+- **sample_tensor OOB** in `records/track_3_optimization/train_gpt_simple.py`
+  line 183. `torch.linspace(0, N-1, M, device='cuda').long()` may round the
+  endpoint to `N` for tensors with `N > 2^25` (e.g. embed/proj at 38.6M), which
+  triggers a CUDA device-side assert during the first `log_histograms` call.
+  Fix is a one-liner: `.long().clamp_(max=values.numel() - 1)`. Reported in PR
+  #76 by g1r2-edward and (independently) in r1 by g1r1-alphonse. Will be
+  cherry-picked into `auto-nanogpt-1gpu-r2` once Edward pushes commit c1347c2.
+
+- **`torch.compile` step-3 NaN on Blackwell + torch 2.10** (analogous to the
+  A100 + torch 2.10 issue called out in the official track-3 README). Workaround
+  is to disable model compile (and the `@torch.compile` decorator on
+  `muon_update`) on Blackwell pods. Slows per-step ~3×; benchmark metric is
+  step-count, not wall-clock, so this is acceptable. Edward (PR #76) is running
+  with the workaround.
