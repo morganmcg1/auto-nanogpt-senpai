@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-15 23:20 — PR #79: MuLoCo on plain Muon — sweep arm si=15 (terminal)
+- Branch: `g1r2-frieren/muloco-muon`
+- Hypothesis: MuLoCo outer Nesterov SGD wrapper around plain Muon may accelerate
+  convergence by adding momentum at a longer timescale.
+- W&B run: `ecohqy9o` (`wandb-applied-ai-team/modded-nanogpt-senpai/runs/ecohqy9o`)
+  | num_trials=1 | train_steps=3300 | sync_interval=15, outer_lr=0.7
+- Result: terminal **val/loss=3.2815 @ step 3300**,
+  `speedrun/final_first_step_to_target=-1`, `speedrun/final_reached_target=0`.
+  **Did NOT cross 3.28.**
+- Context: 3rd consecutive single-seed screen to miss — `bqfv4523`=3.2829,
+  `q57yhybv`=3.2810, `ecohqy9o`=3.2815. All at or above 3.281 margin.
+- Conclusion: MuLoCo on plain Muon appears break-even or slightly worse than
+  starter at train_steps=3300. si=60/lr=0.5 corner still pending. If that
+  corner also misses ≥ 3.281, MuLoCo-on-plain-Muon is dead and frieren will
+  be pivoted to MuLoCo wrapping a confirmed inner optimizer (NorMuon or
+  Contra-Muon, per the approach of public record #13).
+- Status: WIP. si=60 sweep arm pending.
+
 ## 2026-05-15 22:45 — PR #80: Muon² (Adam variance BEFORE Newton-Schulz) — single-seed screen
 - Branch: `g1r2-nezuko/muon-sq`
 - Hypothesis: Per-element Adam variance applied to gradients *before* the
