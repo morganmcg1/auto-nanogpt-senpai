@@ -24,6 +24,7 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+COOLDOWN_POWER = 1.2  # power-law cooldown exponent; w**COOLDOWN_POWER (1.0 = linear).
 
 
 def parse_args():
@@ -565,7 +566,8 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+# dynamic=True avoids Inductor NaN-seeds bug at step 1 (PR #59).
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -602,6 +604,8 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "muon_method": "pmuon-bilateral-cov-precond",
+            "cooldown_frac": 0.7,
+            "cooldown_power": COOLDOWN_POWER,
         },
     )
 
@@ -613,7 +617,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = 3200
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -647,14 +651,15 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: stable then power-law cooldown (record #20).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            w = (1 - progress) / cooldown_frac
+            eta = w ** COOLDOWN_POWER
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
