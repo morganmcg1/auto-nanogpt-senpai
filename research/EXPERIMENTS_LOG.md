@@ -6,6 +6,68 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 22:10 — Boot 10 snapshot: alphonse top-up launched, two PR labels swapped back, frieren near-miss
+
+Boot 10 focus was triaging two premature `status:review` swaps and routing a student crash response. No new terminal SENPAI-RESULTs yet. Posted 4 advisor comments (#51 alphonse, #87 tanjiro, #58 thorfinn, #55 frieren) all via GraphQL (REST rate-limited until 22:19 UTC). All 8 r3 student pods healthy 1/1.
+
+### alphonse #51 NorMuon — n=2 confirmed positive; top-up to n=4 launched
+
+`8yocwc35` died mid trial 2 around 21:23 UTC. **No NaN, no non-finite grad** — external `SIGTERM` from `torch.distributed.elastic`. Pod-restart-pattern operational kill, not algorithmic.
+
+Completed trials in `8yocwc35`:
+
+| Trial | val/loss | ffs | reached |
+| --- | --- | --- | --- |
+| 0 | 3.27609 | 3225 | 1 ✅ |
+| 1 | 3.27803 | 3250 | 1 ✅ |
+
+n=2 mean: `val=3.27706, ffs=3237.5`. Stat `(3.28 - 3.27706) * sqrt(2) = 0.00416` (passes 0.004 hairline).
+
+Student launched fresh `40g9f47i` with `--num_trials 2` on the rebased branch to get to n=4 total. ETA ~3-4h. Rebase took advisor side on state-docs conflict, kept own version on `train_gpt_simple.py`. **Advisor decision: wait for n=4, do not merge on partial n=2** — the 0.00416 margin is too narrow to risk a one-outlier flip past 3.278.
+
+### frieren #55 MuLoCo confirm — crash root-cause identified, merge math concerning
+
+Student's crash forensics show `tvb6lpz9` died from external SIGTERM at step 841/3300 of trial 2 (not NaN, not OOM). `tvb6lpz9` trial 1 finished cleanly:
+
+| Run | Trial | val/loss | ffs | reached |
+| --- | --- | --- | --- | --- |
+| `tvb6lpz9` | 1 | 3.28159 | -1 | 0 ❌ |
+| `0qry1ckh` | 0..3 (fresh) | (in flight, trial 1 at step 2975 val=3.31429) | — | — |
+
+Student's accounting plan is correct: report `0qry1ckh` trials 0..3 only; `tvb6lpz9` trial 1 is a sanity-check sample, excluded from statistic. No explicit `torch.manual_seed` in script, so the 4 trials are "trial-index initializations on the same CUDA PRNG stream" (same definition the public records use).
+
+**Merge math concern**: `tvb6lpz9` trial 1's `val=3.28159` and `0qry1ckh` trial 1's trajectory match within 0.002 at step 2975. If all 4 `0qry1ckh` trials land in 3.281-3.285, mean ≈ 3.282, merge gate at n=4 needs `mu ≤ 3.278` → **likely fails**. Pre-commit close as `negative` if mean(val) > 3.278.
+
+### tanjiro #87 u/w-floor — label corrected back to status:wip
+
+Student swapped to `status:review` after posting the screen-miss table (val=3.28266 ffs=-1), but the 4-arm corners sweep I authorized 21:39 UTC is the actual deliverable. Swapped back to `status:wip` via GraphQL `removeLabelsFromLabelable` + `addLabelsToLabelable`. Comment posted clarifying the labeling rule (terminal SENPAI-RESULT required).
+
+Telemetry sub-finding worth noting: student's screen showed `scale_max` climbing to 135x by step 3300 (spec expected `<5`). On plain Muon (no NorMuon precond underneath), the floor mechanic drives training almost entirely from step ~875 onward (`cur_uw_mean` stabilizes at 0.017, 20× below `TARGET_UW`). The lever still worked directionally but operates in a different regime than public #9 (combined-with-NorMuon).
+
+### thorfinn #58 cooldown sweep — diagnostic accepted, v1 mass failures = codebase bugs
+
+Student diagnostic shows v1's 26-run carnage was NOT a launcher bug:
+- 12 fast-fails at val=10.8258 (signature of `sample_tensor` OOB-at-step-0, fixed by `cc1c710`)
+- 2 NaN-at-mid-run (plain-Muon-1-GPU instability, fixed by per-module init)
+- 1 unknown crash (pre per-module init relaunch)
+
+v2 IS producing signal — my prior audit miscounted "missed (ffs=-1)" as "failed". `cooldown-linear-0.5-s0` finished at `val=3.28503 ffs=-1` (~0.005 above target). `cooldown-linear-0.7-s0` still running at step 1825/3350. Label swapped back to `status:wip`; terminal SENPAI-RESULT pending.
+
+Pre-commit: if `linear-0.7` also misses (likely given linear-0.5 missed by 0.005), close as `negative: cooldown shape lever inconclusive at this scale`. Cooldown shape is ~25-step lever at best, per-module init free-rider is the real win.
+
+### askeladd #52 MuonH clip-only — still no response, deadline 22:40 UTC
+
+Sent 1-hour pre-commit-close check-in at 21:39 UTC. No student post yet. ~30 min until deadline. Pre-commit: close as `negative: clip-only MuonH stuck above 3.29` and reassign to Adafactor-aux wave-2 candidate.
+
+### fern #54, nezuko #86, edward #53
+
+No new student responses since boot 8/9. Awaiting:
+- fern smoke v7 (mbs=64 + 200-step SOAP precond gate)
+- nezuko smoke v6 (eps=1e-5, beta2=0.99, 5-step MuonSq warmup)
+- edward confirmation (Contra-Muon, `n7ea9xyr` ongoing)
+
+---
+
 ## 2026-05-15 21:40 — Boot 9 snapshot: alphonse merge-eligible at n=2, tanjiro+askeladd misses
 
 Posted 2 advisor follow-ups: tanjiro #87 4-arm corners sweep + askeladd #52 status request with pre-commit close. alphonse #51 trial 1 finished and the 2-trial result already clears the merge bar — awaiting terminal SENPAI-RESULT.

@@ -1,14 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-15 21:40 UTC
+- **Last updated:** 2026-05-15 22:10 UTC
 - **Most recent human-team directive:** None received.
 - **Branch state:** 1 commit beyond seed (cc1c710 — `sample_tensor` clamp fix).
-  No experiment PRs merged yet. Wave 1 ~8 hours in.
-  - **alphonse #51 NorMuon: merge-eligible at n=2 ALREADY** — trial 0 `val=3.2761 ffs=3225`, trial 1 `val=3.2780 ffs=3250`. Stat margin `(3.28-3.27705)*sqrt(2)=0.00417` passes. n=4 still in flight (trial 2 mid-run @ step 9077, trial 3 not started). PR is CONFLICTING — rebase needed before merge.
-  - frieren #55 MuLoCo confirm: 2-trial conflict between crashed run (`tvb6lpz9` trial 0 missed) and restart (`0qry1ckh` trial 0 hit). Different seeds suggested. Need student clarification.
-  - edward #53 Contra-Muon confirm: still running, trials 1+2 both missed target.
-  - tanjiro #87 u/w-floor: screen finished MISSED at `val=3.2827`. Authorized 4-arm corners sweep.
-  - askeladd #52 MuonH: all r3 runs missed. Stale check-in with 1-hour close-deadline sent.
+  No experiment PRs merged yet. Wave 1 ~9 hours in.
+  - **alphonse #51 NorMuon**: n=2 already passes stat rule (trial 0 `val=3.2761 ffs=3225`, trial 1 `val=3.2780 ffs=3250`; margin 0.00417). Original `8yocwc35` died mid trial 2 from external SIGTERM (operational, not NaN). Student launched `40g9f47i` top-up n=2 to reach n=4 total. ETA ~3-4h. Rebased branch.
+  - frieren #55 MuLoCo confirm: `tvb6lpz9` SIGTERM root-cause confirmed; trial 1 cleanly missed at val=3.28159. Restart `0qry1ckh` running n=4. Trial 1 at step 2975 val=3.31429 — trajectory matches tvb6lpz9 within 0.002. **Merge math concern**: if all 4 trials land 3.281-3.285, mean ~3.282 > 3.278 (n=4 merge bar). Pre-commit close as negative if mean > 3.278.
+  - edward #53 Contra-Muon confirm: still running, trials 1+2 both missed target. No new state.
+  - tanjiro #87 u/w-floor: status:review premature (sweep not done) — swapped back to status:wip. Screen miss at val=3.28266. 4-arm corners sweep still authorized; awaiting student launch.
+  - thorfinn #58 cooldown sweep: status:review premature — swapped back to status:wip. Diagnostic accepted (v1 mass failures = `sample_tensor` bug + Muon-1-GPU instability, not launcher). v2 `linear-0.5` finished missed (val=3.28503); `linear-0.7` still running.
+  - askeladd #52 MuonH: deadline 22:40 UTC; no student response yet.
   - PRs #56 (Lion), #57 (init-only) closed as negative.
 
 ## Research goal
@@ -22,19 +23,19 @@ Optimizer, schedule, init, telemetry editable.
 
 | PR | Student | Lever | W&B signal | Advisor action |
 | --- | --- | --- | --- | --- |
-| #51 | alphonse | NorMuon (canonical 1D post-NS) | Screen `2t6x8z6v` `val=3.279 ffs=3275 reached=1`; confirm `8yocwc35` step 6927 cumulative, latest `ffs=3250` | Awaiting terminal SENPAI-RESULT; rebase reminder sent |
-| #52 | askeladd | MuonH clip-only | `budget0.85` finished `val=3.295 ffs=-1` (missed); `budget1.15` running | Let sweep continue |
-| #53 | edward | Contra-Muon | `n7ea9xyr` confirm at step 7327; trials 1+2 `ffs=-1` | Let confirmation complete; pre-commit close if all 4 miss |
+| #51 | alphonse | NorMuon (canonical 1D post-NS) | n=2 confirmed `mu=3.27706 ffs=3237.5` (stat 0.00416). `8yocwc35` SIGTERM'd mid trial 2; `40g9f47i` top-up n=2 running, rebased | **Wait for n=4** terminal SENPAI-RESULT; do not merge on n=2 |
+| #52 | askeladd | MuonH clip-only | All r3 runs missed (budget0.85 `val=3.295`, budget1.15 missed, post-18:32 crashed) | Deadline 22:40 UTC; pre-commit close + reassign if no response |
+| #53 | edward | Contra-Muon | `n7ea9xyr` confirm; trials 1+2 `ffs=-1` | Let confirmation complete; pre-commit close if all 4 miss |
 | #54 | fern | SOAP-MLP precond before NS | smoke v6c clean at mbs=32 (CONTRACT VIOLATION); v7 plan: mbs=64 + 200-step SOAP gate | Authorized smoke v7; pre-commit close if v7 NaNs |
-| #55 | frieren | MuLoCo outer Nesterov | `tvb6lpz9` crashed step 4111; `0qry1ckh` restart at step 2750 val=3.342 | Crash-mode check requested |
-| #58 | thorfinn | Cooldown shape × frac sweep | 26 sweep runs: 8 crashed, 15 failed, 2 finished both `ffs=-1` | Asked to diagnose + 3-arm serial; pre-commit close on next failure |
+| #55 | frieren | MuLoCo outer Nesterov | `tvb6lpz9` SIGTERM (trial 1 missed `val=3.28159`); `0qry1ckh` n=4 fresh, trial 1 mid-cooldown step 2975 | Crash accounting OK; pre-commit close as negative if n=4 mean > 3.278 |
+| #58 | thorfinn | Cooldown shape × frac sweep | v2 `linear-0.5` finished `val=3.28503` missed; `linear-0.7` step 1825 running | Diagnostic accepted; pre-commit close as negative if linear-0.7 misses |
 
 ## Wave 2 — running
 
 | PR | Student | Lever | W&B signal | Advisor action |
 | --- | --- | --- | --- | --- |
 | #86 | nezuko | MuonSquared | 5 smokes all NaN/OOM through both fallbacks | Authorized smoke v6 (`eps=1e-5, beta2=0.99, 5-step warmup`); pre-commit close if v6 NaNs |
-| #87 | tanjiro | u/w-floor | screen `b5ucb98s` step 1980 val=3.514 (clean trajectory) | Status check-in sent |
+| #87 | tanjiro | u/w-floor | screen `b5ucb98s` finished MISSED `val=3.28266 ffs=-1` (margin 0.0027 wrong side) | Authorized 4-arm corners sweep `(lr ∈ {0.035, 0.04}) × (TARGET_UW ∈ {0.30, 0.40})`; label corrected back to status:wip |
 
 ## Key learnings carried forward
 
@@ -49,9 +50,15 @@ Optimizer, schedule, init, telemetry editable.
 
 ## Current research focus and themes
 
-- **Imminent merge candidate**: alphonse #51 (NorMuon). Awaiting terminal SENPAI-RESULT to merge.
-- **Backup candidates**: frieren #55 (MuLoCo) once crash is resolved; tanjiro #87 (u/w-floor) once screen completes.
-- **At-risk PRs (pre-commit close)**: fern #54 (SOAP) if v7 NaNs; thorfinn #58 (cooldown sweep) if next attempt crashes; nezuko #86 (MuonSq) if v6 NaNs; edward #53 (Contra-Muon) if all 4 trials miss.
+- **Imminent merge candidate**: alphonse #51 (NorMuon). n=2 passes already; waiting for n=4 terminal SENPAI-RESULT after `40g9f47i` top-up completes (~3-4h).
+- **Backup candidates**: tanjiro #87 (u/w-floor) if a corner of 4-arm sweep clears target; edward #53 (Contra-Muon) if n=4 mean clears.
+- **At-risk PRs (pre-commit close)**:
+  - **#55 frieren** (MuLoCo) as negative if n=4 mean > 3.278 (likely given trial-1 trajectory).
+  - **#58 thorfinn** (cooldown sweep) as negative if `linear-0.7` also misses.
+  - **#52 askeladd** (MuonH clip-only) if no student response by 22:40 UTC.
+  - **#54 fern** (SOAP) if v7 NaNs.
+  - **#86 nezuko** (MuonSq) if v6 NaNs.
+  - **#53 edward** (Contra-Muon) if all 4 trials miss.
 
 ## Next research directions (wave 3 candidates)
 
