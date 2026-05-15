@@ -6,6 +6,63 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 20:00 — Wave 1 in-flight snapshot (boot 6)
+
+Posted three advisor follow-ups: alphonse check-in (#51), thorfinn 12-arm sweep greenlight (#58), fern @torch.compile fallback escalation (#54). Headline: **alphonse #51 NorMuon is the first wave-1 PR to clear target with margin in-run** — pending terminal result.
+
+### alphonse #51 NorMuon — promising signal mid-flight
+
+W&B run `8yocwc35` `normuon-clean-confirm3300` (group `g1r2-alphonse/normuon-clean` — r2-prefixed despite r3 branch, flagged to student):
+- `speedrun/final_first_step_to_target = 3225`, `final_reached_target = 1`, `best_val_loss = 3.2761`.
+- Currently at cumulative step ~3876 → reading as multi-trial run mid trial 2.
+- Public #10 NorMuon reference: `ffs=3250 mean=3.2789 n=20`. alphonse seed 1 tracks better.
+- Advisor asked alphonse to (1) confirm `--num_trials`/`train_steps`/variant, (2) pin `g1r3-` wandb_group on future launches, (3) post terminal SENPAI-RESULT with per-seed table when all trials finish, (4) swap label `wip → review`.
+
+### frieren #55 MuLoCo — n=1 screen positive, n=4 confirmation queued
+
+- W&B run `cbjch81g` `muloco-outer-screen-s0` finished at step 3350: `val/loss=3.2793, ffs=3325`. Clean run, no NaN.
+- n=1 doesn't satisfy stat rule (`mu < 3.276` needed for n=1; got 3.2793).
+- Student rebased onto advisor tip + added `--train_steps` CLI flag (commit `f4d2720`, 18:21 UTC). Confirmation run `g1r3-frieren/muloco-outer-confirm-3300-n4` not yet seen in W&B — student is mid-setup.
+- No advisor action needed; the screen result + rebase is on the right path.
+
+### edward #53 Contra-Muon — confirmation trial 1 missed target
+
+- W&B run `n7ea9xyr` `contra-muon-confirm-3225-n4` at cumulative step 3826 with `speedrun=-1`, `val/loss=3.8372`.
+- Trial 1 ran 3225 steps with `speedrun=-1` (target not reached). Now in trial 2 (~step 601 of trial 2 in train phase).
+- This is concerning: the n=4 confirmation may not satisfy the stat rule if trials uniformly miss. Wait for terminal.
+- No advisor action: student knows the protocol; trial 1 missing is data, not a failure.
+
+### thorfinn #58 cooldown sweep — smoke A passed, 12-arm sweep greenlit
+
+- W&B run `cooldown-linear-0.5-s0` (after pod restart, with per-module init) — `smoke-a-init-only-linear-0.7` finished step 300, `val/loss=4.0854`, no NaN.
+- Student killed the pre-revision sweep arms, applied per-module init via `WARMUP_STEPS=0` env override (commit `506c162`).
+- Advisor greenlit the 12-arm sweep (shapes ∈ {linear, cosine, sqrt, quadratic} × cooldown_frac ∈ {0.5, 0.7, 1.0}) at `train_steps=3350` n=1 per arm, group `g1r3-thorfinn/cooldown-shape-sweep-v3`. Kill if ≥3 arms NaN.
+
+### fern #54 SOAP-MLP — smoke v5 still NaN, escalating to @torch.compile disable
+
+- W&B runs `v2rxl8a0` and `rsiuhxi5` `soap-mlp-smoke-v5-s0`: `val/loss=NaN`, `grad_norm=0`. Per-module init alone didn't stabilize.
+- Advisor escalated: disable `@torch.compile` on `train_step` (defense-in-depth with per-module init). Smoke v6 at 300 steps; screen at 3350 if v6 clean.
+- Compute spent so far: ~30 min on diagnostics; another ~65 min to v6 + screen.
+
+### nezuko #86 MuonSquared, tanjiro #87 u/w-floor — wave-2 smokes just started
+
+- `nezuko muonsq-smoke` at step 0 (init), running.
+- `tanjiro uwfloor-smoke` at step 125, `val/loss=4.799`, `grad_norm=115k` (high but not NaN yet).
+- No advisor action — let smokes complete.
+
+### askeladd #52 MuonH — budget0.85 in flight
+
+- W&B run `pg5tves8` `muonh-hyperball-budget0.85-s0` at step 1850, `val/loss=3.5834`. Tracking.
+- Prior full screen `t4zxp2sf` reached `val/loss=3.2917` at 3350 with `ffs=-1` (missed target). The budget sweep is asking whether a tighter Frobenius ball changes that. No advisor action.
+
+### Operational note
+
+- 8/8 students have active WIP PRs. Zero idle GPUs.
+- Most likely first merge candidate: **alphonse #51 NorMuon** once terminal result posts.
+- Backup candidates: **frieren #55 MuLoCo** (n=4 confirmation in setup) and **edward #53 Contra-Muon** (n=4 in flight but trial 1 missed).
+
+---
+
 ## 2026-05-15 19:35 — PRs #56 and #57 closed; wave-2 assignments #86 and #87 created
 
 ### PR #56 g1r3-nezuko — Lion replacing AdamW + Muon (CLOSED: negative)

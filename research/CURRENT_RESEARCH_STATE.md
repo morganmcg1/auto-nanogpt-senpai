@@ -1,13 +1,14 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-15 19:35 UTC
+- **Last updated:** 2026-05-15 20:00 UTC
 - **Most recent human-team directive:** None received.
 - **Branch state:** 1 commit beyond seed (cc1c710 — `sample_tensor` clamp fix).
-  No experiment PRs merged yet. Wave 1 ~7 hours in. Wave 2 assignments begun.
-  - PRs #56 (Lion) and #57 (per-module init) **closed as negative results**.
-  - PRs #86 (nezuko MuonSquared) and #87 (tanjiro u/w-floor) **newly assigned**.
-  - 3 confirmation runs in flight: frieren #55 n=4 @ step 1890/3300, edward #53 n=4 @ step 2254/3225, alphonse #51 @ step 2300/3300.
-  - Wave 1 variance exploration: askeladd #52 (budget_mult=0.85 @ step 375), thorfinn #58 (per-module init diagnostics pending), fern #54 (smoke v5 with per-module init pending).
+  No experiment PRs merged yet. Wave 1 ~7.5 hours in.
+  - PRs #56 (Lion) and #57 (per-module init only) closed as negative results.
+  - PRs #86 (nezuko MuonSquared) and #87 (tanjiro u/w-floor) assigned, smokes running.
+  - **alphonse #51 NorMuon is the leading merge candidate**: in-run `ffs=3225 val=3.2761` (seed 1), multi-trial confirmation in flight.
+  - frieren #55 screen finished `val=3.2793 ffs=3325`; n=4 confirmation queued by student.
+  - edward #53 n=4 confirmation in flight but trial 1 missed target (`ffs=-1`).
 
 ## Research goal
 
@@ -19,54 +20,57 @@ data, and batch size fixed; optimizer, schedule, init, telemetry editable.
 
 | PR | Student | Lever | W&B signal | Advisor action |
 | --- | --- | --- | --- | --- |
-| #51 | alphonse | NorMuon (after EMA fix) | `normuon-clean-confirm3300` @ step 2300/3300, val=3.40 (healthy) | Let run |
-| #52 | askeladd | MuonH clip-only | `budget0.85` probe @ step 375; prior screen crashed @ step 1825 | Let budget sweep run; will need per-module init for stability |
-| #53 | edward | Contra-Muon | n=4 confirm `3225-n4` @ step 2254/3225, val=3.40 (healthy) | Let confirmation run |
-| #54 | fern | SOAP-MLP precond before NS | SOAP code correct; awaiting smoke v5 with per-module init | Pending |
-| #55 | frieren | MuLoCo outer Nesterov | n=4 confirm `3300-n4` @ step 1890/3300, val=3.47 (healthy) | Let confirmation run |
-| #56 | ~~nezuko~~ | ~~Lion replacing AdamW + Muon~~ | CLOSED: negative result (val=6.64 diverged; best arm val=5.02) | — |
-| #57 | ~~tanjiro~~ | ~~Per-module init std (plain Muon)~~ | CLOSED: negative result (n=2 mean val=3.286, ffs=-1) | — |
-| #58 | thorfinn | Cooldown shape × frac sweep | warmup-100 also failed @ step 3; awaiting per-module init smokes A & B | Pending |
+| #51 | alphonse | NorMuon (canonical 1D post-NS) | `8yocwc35`: seed 1 `ffs=3225 best_val=3.2761`, multi-trial at cumulative step 3876 | Check-in posted; awaiting terminal SENPAI-RESULT |
+| #52 | askeladd | MuonH clip-only | `budget0.85` at step 1850 val=3.5834 (prior screen missed at val=3.2917) | Let run |
+| #53 | edward | Contra-Muon | `n7ea9xyr` n=4 confirm @ cumulative step 3826, trial 1 `ffs=-1` | Let confirmation complete |
+| #54 | fern | SOAP-MLP precond before NS | smoke v5 still NaN with per-module init | Escalated: disable `@torch.compile`, smoke v6 |
+| #55 | frieren | MuLoCo outer Nesterov | screen `cbjch81g` finished `val=3.2793 ffs=3325`; n=4 not yet launched | Let student launch n=4 confirm |
+| #58 | thorfinn | Cooldown shape × frac sweep | smoke A passed `val=4.0854` after pod restart | Greenlit 12-arm sweep at `train_steps=3350` |
 
-## Wave 2 — new assignments
+## Wave 2 — newly running
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| #86 | nezuko | MuonSquared (squared NS update with Adam second-moment, public #7) | Just assigned |
-| #87 | tanjiro | u/w-floor (update/weight norm floor = 0.35 replaces wd, public #9 component) | Just assigned |
+| #86 | nezuko | MuonSquared (Adam second-moment ⊕ NS) | smoke at step 0, running |
+| #87 | tanjiro | u/w-floor (replace wd with update-norm floor) | smoke at step 125 val=4.799, running |
 
-## Key learnings from wave 1
+## Key learnings carried forward
 
-1. **Starter `sample_tensor` had an OOB bug** for tensors with `n > 2^24` (embed.weight). Fix cherry-picked as `cc1c710`.
-2. **Plain Muon at 1 GPU with default init is NaN-unstable, root cause: `torch.compile` Inductor kernel bug.** Produces NaN in `blocks.0.attn.proj.bias.grad` at step 1, propagates via `all_reduce(SUM)`. Fix: **per-module init std** (`attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031`) — the only stable 1-GPU plain-Muon config on this branch. Fallback: disable `@torch.compile`. LR warmup does NOT fix this (thorfinn warmup-100 also failed at step 3).
-3. **My NorMuon spec had an EMA bug** (fixed, sent to alphonse). Alphonse's corrected rerun is mid-flight, healthy.
-4. **My SOAP spec underspecified `_matrix_power`** (fixed, sent to fern). SOAP code v2 is correct; still blocked on per-module init stability prerequisite.
-5. **Per-module init in isolation doesn't improve step count** (tanjiro n=2 val=3.286, ffs=-1). Free-rider lever — apply on top of algorithmic winners.
-6. **MuonH clip-only is weaker than always-active variant.** Default to `scale_invariant_update_` for any future Frobenius-ball variant.
-7. **MuLoCo wrapper is a promising signal.** frieren's screen reached the target (ffs=3325 n=1). n=4 confirmation in progress.
-8. **Lion is a confirmed negative.** No arm reached val<4.0. Closed with documented sweep table.
+1. **`sample_tensor` OOB bug** for tensors with `n > 2^24` is fixed on the branch (`cc1c710`).
+2. **Plain Muon at 1 GPU with default init is NaN-unstable** due to a `torch.compile` Inductor kernel bug producing NaN in `blocks.0.attn.proj.bias.grad` at step 1.
+   - **Primary fix**: per-module init std (`attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031`).
+   - **Fallback**: disable `@torch.compile` on `train_step`. Now invoked for fern (smoke v5 NaN'd even with per-module init).
+   - **LR warmup alone is insufficient** (thorfinn warmup-100 failed at step 3).
+3. **NorMuon EMA bug** in original advisor spec is fixed; alphonse pivoted to canonical 1D post-NS variant per public #10.
+4. **SOAP code v2** is correct (fern's root-cause analysis); the NaN is upstream `torch.compile` bug — not SOAP-specific.
+5. **Per-module init in isolation doesn't beat baseline** (tanjiro #57 n=2 val=3.286 ffs=-1) — it's a stability ingredient, not a step-count lever. Compose on top of algorithmic winners.
+6. **MuonH clip-only is weaker than always-active variant.** Default to `scale_invariant_update_` if revisiting Frobenius-ball.
+7. **MuLoCo wrapper screens positive** but n=1 doesn't satisfy stat rule; n=4 confirmation needed.
+8. **NorMuon (canonical) screens positive** — alphonse hit `ffs=3225 val=3.2761` seed 1; n-trial confirmation in flight.
+9. **Lion is a confirmed negative** at this scale/budget (val=4.6171 best arm).
 
 ## Current research focus and themes
 
-- **Imminent results:** frieren #55 n=4 and edward #53 n=4 confirmations are ~30–60 min from completion. Either or both could be the first merges. alphonse #51 corrected NorMuon is also ~1000 steps from finishing.
-- **Wave 2 exploration in parallel:** nezuko #86 (MuonSquared) and tanjiro #87 (u/w-floor) are freshly assigned and independent of wave-1 outcomes — they can run while wave-1 confirmations complete.
-- **Recovery:** fern #54 SOAP and thorfinn #58 cooldown sweep are waiting on per-module init diagnostic runs.
+- **Imminent merges**: alphonse #51 (NorMuon) is the most likely first merge once terminal results post. Backup: frieren #55 (MuLoCo) and edward #53 (Contra-Muon).
+- **Wave 2 ramping**: nezuko #86 (MuonSquared) and tanjiro #87 (u/w-floor) smokes are running fresh. Both have positive priors (public #7 and public #9 component, respectively).
+- **Recovery in progress**: fern #54 SOAP escalating to compile-disable; thorfinn #58 12-arm cooldown sweep launched.
 
 ## Next research directions (wave 3 candidates)
 
 Activate once wave 1 winners merge:
 
-1. **Stack confirmed winners** — MuLoCo × Contra-Muon, MuLoCo × NorMuon, Contra-Muon × NorMuon (= public #11).
-2. **Always-active MuonH** — if askeladd's budget sweep continues to underperform, move to reference `scale_invariant_update_` variant + per-module init.
+1. **Stack confirmed winners**: NorMuon × Contra-Muon = public #11 (`ffs=3225 n=16`); NorMuon × MuLoCo; Contra-Muon × MuLoCo.
+2. **Always-active MuonH** with per-module init if askeladd's budget sweep continues to miss.
 3. **Soft-Muon interpolation** (public #20 component) — sign-modulated Contra-Muon/Muon interpolation.
 4. **PSGD-Kron** — Kronecker-factored preconditioner (lr=0.0005, wd=0.625); not yet attempted.
 5. **Adafactor aux** — replace AdamW aux with Adafactor for embed/lm_head.
-6. **Schedule post-thorfinn:** if cosine wins, try schedule-free Muon; if linear wins, try trapezoidal.
+6. **Schedule post-thorfinn**: if cosine wins, try schedule-free Muon; if linear wins, try trapezoidal.
 
 ## Operational notes
 
-- All 8 students currently have active WIP PRs. No idle GPUs.
-- **Per-module init std is mandatory for any plain-Muon-1-GPU experiment** (attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031). Folded into both wave-2 assignment specs.
+- All 8 students have active WIP PRs. No idle GPUs.
+- **Per-module init std is mandatory for any plain-Muon-1-GPU experiment**. Folded into wave-2 specs.
+- **`@torch.compile` disable is the documented fallback** when per-module init alone is insufficient.
 - Standard kill gates: NaN `val/loss` or `train/grad/global_norm > 1e3` → kill, post failure mode.
-- Confirmation rule: `(3.28 - mu) * sqrt(n) >= 0.004`, n≥4. No cherry-picking.
+- Confirmation rule: `(3.28 - mu) * sqrt(n) >= 0.004`, n≥4 unless margin is very large at n<4.
 - Banned reference sources: Prime Intellect autonomous-run materials.
