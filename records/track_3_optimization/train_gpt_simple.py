@@ -435,6 +435,19 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+# Per-module init std (PR #89 Wave 2): block 2D weights get per-module-type stds aligned
+# with the public-record-5 family. The baseline init currently uses w.zero_() for any
+# weight whose name contains "proj" (so attn.proj.weight and mlp.proj.weight both start
+# at zero) and std=sqrt(0.33)/sqrt(in_features) for q/k/v and mlp.fc. With per-module
+# init the proj layers move from 0 to non-zero — this is a much larger change than the
+# nominal "0.02 → 0.026" ratio in the PR description (which assumed a uniform 0.02
+# baseline). embed.weight and the top-level proj.weight (lm_head) keep their existing
+# init (torch default normal and zero respectively).
+INIT_STD_ATTN_QKV = 0.02
+INIT_STD_ATTN_PROJ = 0.026
+INIT_STD_MLP_FC = 0.031
+INIT_STD_MLP_PROJ = 0.031
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -565,7 +578,9 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+# dynamic=True works around an Inductor compile bug on RTX PRO 6000 Blackwell
+# (NaN early-step amplification; PR #59 alphonse root cause, confirmed clean on run 83qeloh9).
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -602,6 +617,14 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "muon_method": "pmuon-bilateral-cov-precond",
+            # Per-module init (PR #89 Wave 2).
+            "init_method": "per-module-record-5-family",
+            "init_std_attn_qkv": INIT_STD_ATTN_QKV,
+            "init_std_attn_proj": INIT_STD_ATTN_PROJ,
+            "init_std_mlp_fc": INIT_STD_MLP_FC,
+            "init_std_mlp_proj": INIT_STD_MLP_PROJ,
+            "init_embed": "torch_default_normal",
+            "init_lm_head": "zero",
         },
     )
 
@@ -615,22 +638,78 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
 
-    # initialize model parameters
+    # initialize model parameters — per-module init (PR #89 Wave 2)
+    # Block 2D weights get explicit per-module stds. The top-level proj.weight (lm_head)
+    # stays zero-init. embed.weight stays torch default normal. Biases zero. RMSNorm
+    # gains stay at 1.
+    init_assignments: dict[str, str] = {}
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if "blocks." in name and "attn.proj.weight" in name:
+                w.normal_(mean=0.0, std=INIT_STD_ATTN_PROJ)
+                init_assignments[name] = f"attn_proj:std={INIT_STD_ATTN_PROJ}"
+            elif "blocks." in name and "mlp.fc.weight" in name:
+                w.normal_(mean=0.0, std=INIT_STD_MLP_FC)
+                init_assignments[name] = f"mlp_fc:std={INIT_STD_MLP_FC}"
+            elif "blocks." in name and "mlp.proj.weight" in name:
+                w.normal_(mean=0.0, std=INIT_STD_MLP_PROJ)
+                init_assignments[name] = f"mlp_proj:std={INIT_STD_MLP_PROJ}"
+            elif "blocks." in name and ("attn.q.weight" in name
+                                        or "attn.k.weight" in name
+                                        or "attn.v.weight" in name):
+                w.normal_(mean=0.0, std=INIT_STD_ATTN_QKV)
+                init_assignments[name] = f"attn_qkv:std={INIT_STD_ATTN_QKV}"
+            elif "proj" in name:
+                # Top-level proj.weight (lm_head): zero-init unchanged.
                 w.zero_()
+                init_assignments[name] = "lm_head:zero"
             elif "embed" in name:
                 w.normal_()  # default torch init
+                init_assignments[name] = "embed:torch_default_normal"
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
+                init_assignments[name] = f"fallback:std=sqrt(0.33)/sqrt({w.size(-1)})"
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Verify per-module init applied as expected. Catches silent fallthroughs in the
+    # named-parameter pattern matching (e.g. if torch.compile renamed parameters).
+    if dist.get_rank() == 0:
+        init_metrics: dict[str, float] = {"trial": trial_idx, "init/snapshot": 1.0}
+        print0("Per-module init assignments:", console=True)
+        for name, assignment in init_assignments.items():
+            print0(f"  {name}: {assignment}", console=True)
+        for category, substrings, expected in [
+            ("attn.q.weight", ("attn.q.weight",), INIT_STD_ATTN_QKV),
+            ("attn.k.weight", ("attn.k.weight",), INIT_STD_ATTN_QKV),
+            ("attn.v.weight", ("attn.v.weight",), INIT_STD_ATTN_QKV),
+            ("attn.proj.weight", ("attn.proj.weight",), INIT_STD_ATTN_PROJ),
+            ("mlp.fc.weight", ("mlp.fc.weight",), INIT_STD_MLP_FC),
+            ("mlp.proj.weight", ("mlp.proj.weight",), INIT_STD_MLP_PROJ),
+        ]:
+            tensors = [p.data for n, p in model.named_parameters()
+                       if "blocks." in n and all(s in n for s in substrings)]
+            if tensors:
+                concat = torch.cat([t.flatten().float() for t in tensors])
+                observed_std = float(concat.std().item())
+                ratio = observed_std / expected if expected > 0 else float("nan")
+                print0(
+                    f"  init_check/{category}: observed_std={observed_std:.5f} "
+                    f"expected_std={expected:.5f} ratio={ratio:.3f}",
+                    console=True,
+                )
+                init_metrics[f"init/std_check/{category}/observed"] = observed_std
+                init_metrics[f"init/std_check/{category}/expected"] = expected
+                init_metrics[f"init/std_check/{category}/ratio"] = ratio
+        for name, p in model.named_parameters():
+            stats = tensor_stats(p.data)
+            init_metrics.update(prefixed(f"init/weight_param/{clean_metric_name(name)}", stats))
+        wandb.log(init_metrics, step=trial_idx * (train_steps + 1))
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
