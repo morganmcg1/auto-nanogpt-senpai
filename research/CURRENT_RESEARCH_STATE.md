@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (post-dispatch poll #2)
+- **Last updated:** 2026-05-15 (post-dispatch poll #3, ~16:45 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -9,30 +9,57 @@
     to renormalize per-shape `base_lr` (multipliers: linear/cosine=1.000,
     power_α1.2=1.051, power_α0.6=0.881, trapezoidal=0.765). Cosine remains
     the cleanest single-arm comparison.
+  - **PR #45 (edward, Muon²) — bad PR description by advisor.** Original
+    instructions described Muon² as a sharper Newton–Schulz polynomial,
+    but the reference recipe (record #7, `results/20260501_muonsq/`) keeps
+    the **standard** NS coefficients `a,b,c=2,-1.5,0.5`, 12 iterations,
+    and adds **Adam-style second-moment preconditioning of the momentum
+    buffer before NS**. Correction comment posted on PR #45 at 16:34 UTC
+    with the correct `muon_sq_update` mechanism (`v` buffer with
+    `β₂=0.95, ε=1e-10`, divide update by `sqrt(v)+ε` *before* the
+    unmodified NS) and hyperparameters (`lr=0.10, wd=0.0125, μ=0.95`).
+    Sent back to `status:wip`. Edward burned ~10 NaN smoke runs trying to
+    sharpen the NS polynomial in bf16 before the correction landed — that
+    blow-up was a direct consequence of the bad description, not a
+    student-side bug.
 
-## Wave-1 in-flight screening signal (single-seed; **not** terminal)
+## Wave-1 in-flight signal (poll #3; single-seed unless noted; **not** terminal)
 
-Single-seed screening results visible in W&B as of poll #2:
+Live W&B status as of 2026-05-15T16:45Z. All 7 of 8 wave-1 students have
+healthy live runs; only edward (Muon²) is still stuck pending the recipe
+correction above.
 
-| PR | Student | Run                             | Step  | val/loss | first_step_to_target | Note                                  |
-| -- | ------- | ------------------------------- | ----- | -------- | -------------------- | ------------------------------------- |
-| 43 | alphonse| `normuonh-screen`               | 3250  | 3.2788   | **3225**             | matches public record #11 ballpark    |
-| 44 | askeladd| `contra-muon-screening`         | 3350  | 3.2784   | 3325                 | isolated Contra-Muon ≈ baseline       |
-| 49 | tanjiro | `lookahead-k5-a0.5-seed0`       | 3350  | 3.2893   | -1 (missed)          | this cell does not reach target       |
+| PR | Student  | Live run                                  | Step  | val/loss | Notes                                          |
+| -- | -------- | ----------------------------------------- | ----- | -------- | ---------------------------------------------- |
+| 43 | alphonse | `normuonh-confirm`                        | 2800  | 3.3466   | confirmation seed in progress                  |
+| 44 | askeladd | `contra-muon-confirmation-n8-3350`        | 2050  | 3.4453   | confirmation seed in progress                  |
+| 45 | edward   | `muon-squared-smoke` (latest)             | crash | —        | pre-correction smoke; correction posted 16:34  |
+| 46 | fern     | `soap-mlp-isolated`                       | 1975  | 3.4530   | screening in progress                          |
+| 47 | frieren  | `muonh-screen3325-s1`                     | 125   | 4.8532   | restarted with grad clip; clean grads          |
+| 48 | nezuko   | `cooldown-linear-seed42`                  | 3015  | 3.3112   | post-fix linear baseline ~ on track            |
+| 49 | tanjiro  | `lookahead-k5-a0.8-seed0`                 | 2409  | 3.3864   | second cell of k×α grid                        |
+| 50 | thorfinn | `polyak-tau0.10-beta0.999`                | 3225  | 3.3018   | tail-EMA window now active                     |
 
-Active confirmation/training runs (no terminal call yet):
-- alphonse `normuonh-confirm` running ~step 700
-- nezuko `cooldown-linear-seed42` running ~step 625 (post-fix rerun)
-- thorfinn `polyak-tau0.10-beta0.999` running ~step 1050
-- tanjiro `lookahead-smoke-k10-a0.5` running (no metrics yet)
-- frieren / edward — just re-fetched assignments after the rate-limit gap;
-  earlier loss-at-step-1 runs were pre-recovery debug iterations, not real
-  failures.
+Earlier single-seed screens from poll #2 still hold (alphonse NorMuonH
+matched record #11; askeladd isolated Contra-Muon ≈ baseline; tanjiro
+k=5/α=0.5 missed at step 3350). Each of those runs is now followed by a
+confirmation or next-cell run as the screening matrix continues.
 
 **Important:** all of the above are single-seed screening numbers. Treat
 them as *signal that the recipe runs and approaches the target*, **not as
 record claims**. Terminal verdicts wait for the predeclared n-seed
 confirmation batches the PRs asked for.
+
+## Pre-existing starter bug — `sample_tensor` / histogram telemetry
+
+Three independent students (alphonse on PR #43, askeladd on PR #44, fern on
+PR #46) hit and fixed the same crash in
+`records/track_3_optimization/train_gpt_simple.py`: `sample_tensor` (used
+by histogram logging) computed sample indices with a path that could
+produce CUDA `IndexKernel ... in` assertion failures on the very first
+histogram log. The fix is small and orthogonal to any optimizer
+hypothesis. Cherry-pick the cleanest student bug-fix commit into the
+advisor branch so it is no longer rediscovered by every wave-1 student.
 
 ## Infrastructure note — rate-limit-induced polling stalls
 
