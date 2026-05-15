@@ -7,8 +7,23 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-Local baseline not yet confirmed. PR #TBD (g1r1-alphonse, vanilla Muon + AdamW
-at lr=0.035 wd=0.025 with `train_steps=3350`) will be the first local anchor.
+### 2026-05-15 — PR #68: Aurora + Contra-Muon + u/w floor (g1r1-tanjiro)
+
+- **speedrun/final_first_step_to_target:** 3175
+- **val/loss:** 3.274438 (margin +0.005562 ≥ 0.004 ✓, n=1)
+- **W&B run:** `lg4xdlkt`
+- **Key config:** Muon lr=0.0375, weight_decay=0, Aurora pp_iterations=2 pp_beta=0.5, CONTRA_COEFF=0.2, TARGET_UW=0.35, train_steps=3250, cooldown_frac=0.7
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "g1r1-tanjiro/aurora-contra" \
+    --wandb_group "g1r1-tanjiro/aurora"
+  ```
+- **Notes:** n=1 single-trial result; margin clears the 0.004 floor. Matches public Record #17 mechanism (3175 steps, n=20 mean 3.2789). `sample_tensor` linspace fp32 bug patched (`.clamp_(max=values.numel()-1)`). Full Aurora + Contra-Muon + Skylight u/w floor variant confirmed locally.
+
+Prior to first winner: local anchor was unconfirmed (alphonse vanilla run diverged).
 
 ## Public records to beat (track 3 official, snapshot in repo)
 
