@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-15 (late evening — #63/#69 closed, edward/thorfinn reassigned)
+- **Last update:** 2026-05-15 (night — PR #64 winner pending rebase; PR #83 SOAP-MLP integration sent back)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3175 steps (local best) toward the public record of 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -9,16 +9,26 @@
 **3175 steps, val/loss 3.274438** — PR #68 (g1r1-tanjiro, Aurora + Contra-Muon + Skylight u/w floor, n=1, margin +0.005562 ✓).
 W&B run: `lg4xdlkt`. Merged 2026-05-15.
 
+### Pending merge: PR #64 winner
+
+**PR #64 (g1r1-fern, PMuon) is a confirmed winner at 3150 steps** (val 3.27447, n=1, margin +0.00553 ≥ 0.004 ✓, W&B run `vx0r7rp2`). Currently CONFLICTING with `auto-nanogpt-1gpu-r1` due to the #68 merge — fern needs to rebase before we can squash-merge.
+
+**Cascade note when #64 merges:** PMuon replaces the NS polar step entirely, so it's *incompatible with the Aurora+Contra+u/w mechanism* in #68. Either:
+- Fern's rebase keeps PMuon and drops Aurora+Contra+u/w (cleanest attribution; result stays 3150 PMuon-alone) — preferred.
+- Fern's rebase combines both (untested stack; would invalidate the 3150 number until re-run).
+
+In-flight Wave 2 PRs (#83, #84, #85, #88, #89) all stack on the Aurora+Contra+u/w code from #68. They will not auto-rebase when #64 merges; their results compare to their pre-rebase baseline (3175). That's fine for screening — we cherry-pick the best winner across the wave.
+
 ## Active experiments (status:wip)
 
 | PR  | Student     | Mechanism                                      | Wave | Note |
 | --- | ----------- | ---------------------------------------------- | ---- | ---- |
-| #83 | tanjiro     | Aurora + Contra-Muon + **SOAP-MLP** (target sub-3150) | 2 | in training |
+| #83 | tanjiro     | Aurora + Contra-Muon + **SOAP-MLP** (target sub-3150) | 2 | **DESTABILIZED**: val 5.67 at step 1500 (run `avn3wrne`), sent back with 3-tier stability-guard debug plan |
 | #84 | askeladd    | Aurora + Contra-Muon + u/w + **NorMuon short-axis** | 2 | in training |
 | #85 | nezuko      | **Power-law cooldown** (γ=1.2) on Aurora+Contra+u/w base | 2 | in training |
 | #88 | edward      | **Soft-Muon** (p=0.1, cooldown-only) on Aurora+Contra+u/w base | 2 | just assigned |
 | #89 | thorfinn    | **Per-module init std** (attn.proj=0.026, mlp=0.031) on Aurora+Contra+u/w base | 2 | just assigned |
-| #64 | fern        | PMuon streaming covariance preconditioning      | 1 | step 3025 val 3.2923 (close to crossing) |
+| #64 | fern        | PMuon streaming covariance preconditioning      | 1 | **WINNER pending rebase: 3150 steps, val 3.27447, margin 0.0055 ✓** |
 | #65 | frieren     | MuonH hyperball — sent back with fp32-NS-cast decision | 1 | resuming |
 | #59 | alphonse    | Vanilla baseline — compile-bug debug (try `dynamic=True` etc) | 1 | resuming |
 
