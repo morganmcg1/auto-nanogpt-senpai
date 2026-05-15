@@ -1,116 +1,60 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-15 (early afternoon)
+- **Last update:** 2026-05-15 (afternoon, post-merge)
 - **Most recent direction from humans:** None (no GitHub issues open).
-- **Target:** Push `speedrun/final_first_step_to_target` below current public
-  best of 3030 steps (Record #20, Contra-Soft-Muon stack). Local baseline not
-  yet established — the alphonse vanilla anchor diverged (see below).
+- **Target:** Push `speedrun/final_first_step_to_target` below 3175 steps (local best) toward the public record of 3030 steps (Record #20, Contra-Soft-Muon stack).
+
+## Current local baseline
+
+**3175 steps, val/loss 3.274438** — PR #68 (g1r1-tanjiro, Aurora + Contra-Muon + Skylight u/w floor, n=1, margin +0.005562 ✓).
+W&B run: `lg4xdlkt`. Merged 2026-05-15.
+
+## Active experiments (status:wip)
+
+| PR  | Student     | Mechanism                                      | Wave | Note |
+| --- | ----------- | ---------------------------------------------- | ---- | ---- |
+| #83 | tanjiro     | Aurora + Contra-Muon + **SOAP-MLP** (target sub-3150) | 2 | just assigned |
+| #84 | askeladd    | Aurora + Contra-Muon + u/w + **NorMuon short-axis** | 2 | just assigned |
+| #63 | edward      | u/w floor only (Skylight) — needs n=3 seed batch | 1 | 3275 steps n=1, margin too thin |
+| #64 | fern        | PMuon streaming covariance preconditioning      | 1 | in training |
+| #65 | frieren     | MuonH hyperball — diverged, sent back for debug | 1 | awaiting response |
+| #67 | nezuko      | SOAP-MLP only (isolation, no Aurora/Contra)     | 1 | restarted, step ~75 |
+| #69 | thorfinn    | KL-SOAP-H (full SOAP replacing NS)             | 1 | step 1890, val 5.68 (concerning) |
+| #59 | alphonse    | Vanilla baseline — diverged, sent back for debug | 1 | awaiting response |
+
+## Closed this session
+
+| PR  | Student  | Result | Decision |
+| --- | -------- | ------ | -------- |
+| #61 | askeladd | NorMuon standalone: 3275 steps, val 3.27920 (n=1, doesn't beat 3175 baseline) | Closed; NorMuon confirmed on hardware, now stacking in #84 |
 
 ## Current focus and themes
 
-- **Wave 1 priority:** Establish a local baseline at the starter-script
-  settings (vanilla Muon + aux Adam, lr=0.035 wd=0.025, `train_steps=3350`).
-  Simultaneously screen single-feature additions from the strongest historical
-  records, so we know which mechanisms transfer reliably to our local hardware
-  before stacking them.
+**Wave 2 stacking strategy** — build on the Aurora+Contra+u/w foundation (PR #68) by adding one mechanism at a time:
+- #83: + SOAP-MLP (targets sub-3150, ~75-step gain expected based on #11→#14 public trajectory)
+- #84: + NorMuon short-axis (targets ~3125–3150, stacking on confirmed NorMuon signal)
 
-## Wave 1 observations (snapshot 2026-05-15 mid-day)
+**Wave 1 completions still pending:** edward (n=3 seeds), fern (PMuon), nezuko (SOAP-MLP isolation), thorfinn (KL-SOAP-H), alphonse/frieren (debug). Only edward and potentially nezuko/fern are expected to reach target; thorfinn may not.
 
-| PR | Student | Mechanism | Status | Best result so far |
-| -- | ------- | --------- | ------ | ----------------- |
-| #59 | alphonse | vanilla Muon | **DIVERGED** — step-1 gnorm 234K, NaN by step 25; sent back | n/a |
-| #61 | askeladd | NorMuon short-axis | training, step 1500, val 3.52 | n/a |
-| #63 | edward | u/w floor | **reached target**, step 3275, val 3.2781 (n=1, margin 0.0019 < 0.004) | 3275 (n=1) |
-| #64 | fern | PMuon | training, step 1300, val 3.56; bug-fix landed in PR | n/a |
-| #65 | frieren | MuonH hyperball | **DIVERGED** (same pattern as alphonse) | n/a |
-| #67 | nezuko | SOAP-MLP | training, step 75 (just restarted) | n/a |
-| #68 | tanjiro | Aurora + Contra-Muon | **reached target**, step 3175, val 3.2744 (n=1, margin 0.0056 ≥ 0.004) ✓ stat-sig | **3175 (n=1)** ★ |
-| #69 | thorfinn | KL-SOAP-H | training, step 1890, val 5.68 | n/a |
+## Key cross-cutting issues
 
-## Key cross-cutting issues found in wave 1
+1. **`sample_tensor` linspace bug** — FIXED in PR #68 merge. The `.clamp_(max=values.numel()-1)` patch is now on `auto-nanogpt-1gpu-r1`. All future runs on this branch are safe.
 
-1. **`sample_tensor` linspace bug** (records/track_3_optimization/train_gpt_simple.py:184):
-   `torch.linspace(0, numel-1, k)` in fp32 produces an out-of-range index for
-   tensors with > 2^24 elements, crashing the first histogram log via a CUDA
-   assert. Originally caught by g1r1-fern and g1r1-tanjiro. Fix is a
-   two-character change (`dtype=torch.float64` + `.clamp_(max=numel-1)`).
-   Both their PRs include the patch; we'll inherit it when one of them merges.
+2. **Muon weight_decay gotcha in BASELINE.md** — INCORRECT. The baseline `Muon.step` **does** apply WD via `p.mul_(1 - lr*wd)` (confirmed by askeladd PR #61). BASELINE.md will need a correction. The practical effect: effective WD at lr=0.035, wd=0.025 is 0.035×0.025=0.000875 per step — very small but not zero.
 
-2. **Step-1 gradient explosion on vanilla starter for some students.** PRs #59
-   (alphonse, vanilla) and #65 (frieren, MuonH) both show gnorm ~10^5 at step 1
-   and 100% NaN gradients by step 25, while PRs #61, #63, #64, #67, #68, #69
-   train cleanly on the same script. Suggests an environment- or pod-specific
-   issue, not a code issue. Investigation pending — both PRs sent back with
-   diagnostic instructions.
+3. **Step-1 gradient explosion** — PRs #59 (alphonse) and #65 (frieren) diverged (gnorm ~10^5, NaN by step 25). The same code trains fine for 6 other students. Sent back with diagnostic plans. Likely pod-specific bf16/precision environment issue.
 
-## Likely Wave 2 directions (after wave-1 closure)
+4. **thorfinn #69 val 5.68 at step 1890** — KL-SOAP-H is dramatically above target. Either the eigenbasis isn't stabilized yet or the approach needs a different lr. Monitor for natural convergence; may need to send back with lr scan instructions if still high at step 2500.
 
-- **Merge order if confirmed:** tanjiro Aurora+Contra-Muon (3175 steps,
-  stat-sig) → then layer u/w floor and NorMuon if those confirm. Edward needs
-  n>=3 seeds to clear the stat bar.
-- **Stacking targets:**
-  - Aurora + Contra-Muon + NorMuon short-axis (combines tanjiro's win with
-    askeladd's mechanism)
-  - Aurora + Contra-Muon + SOAP-MLP (closer to record #14 / #16)
-  - Soft-Muon mechanism (singular-value shrinkage p=0.1) blended in cooldown
-    (record #20)
-- **Schedule levers:** power-law cooldown `c * (t_end - step)^1.2` instead of
-  linear (record #20 schedule)
-- **Per-module init std** tuning, especially for proj layers
-- **MuLoCo outer Nesterov SGD** wrapper (record #13)
-- **PSGD-Kron** baseline (track-3 README mentions `lr=0.0005, wd=0.625`)
-- **Investigation track:** root-cause the step-1 gnorm explosion; if
-  reproducible across env, a baseline-level gradient clip floor is on the
-  table (with explicit advisor sign-off to keep within benchmark contract).
+## Wave 2 stacking roadmap (priority order)
 
-## Wave 1 portfolio (1 GPU/student × 8 students) — assigned 2026-05-15
+1. **Aurora+Contra+SOAP-MLP** (tanjiro #83) — highest expected gain, aligns with #11→#14 progression
+2. **Aurora+Contra+NorMuon** (askeladd #84) — NorMuon confirmed locally, clean stacking test
+3. **Aurora+Contra+NorMuon+SOAP-MLP** (Wave 3) — full Record #14 analog on the Aurora base; assign once #83/#84 confirm
+4. **Power-law cooldown** `c*(t_end-step)^1.2` — Record #20 uses this; assign when cooldown schedule becomes the next bottleneck
+5. **Soft-Muon** (singular-value shrinkage p=0.1 in cooldown) — Record #20 component
+6. **n=4 seed batch for 3175 baseline hardening** — low priority while frontier is being pushed; assign once a Wave 2 result either confirms or supersedes
 
-| PR | Student | Hypothesis | Mechanism | Public reference | Risk |
-| -- | ------- | ---------- | --------- | ---------------- | ---- |
-| #59 | alphonse | Local baseline | Vanilla Muon + aux Adam (`lr=0.035 wd=0.025 steps=3350`) | starter | low |
-| #61 | askeladd | NorMuon (short-axis EMA) | per-row variance EMA after NS | #10 / #8 | low |
-| #63 | edward | u/w floor (Skylight) | clamp `||u||/||w||` ≥ 0.35, no WD | #9 | low |
-| #64 | fern | PMuon | streaming L^{-γ} m R^{-γ} preconditioning | #18 | medium |
-| #65 | frieren | MuonH (hyperball) | scale-invariant param update, no WD | #5 | low |
-| #67 | nezuko | SOAP-MLP | Shampoo eigenbasis Adam preconditioning on MLP weights | #14 | medium |
-| #68 | tanjiro | Aurora + Contra-Muon | iterative row-norm equilibration before polar | #17 | medium |
-| #69 | thorfinn | KL-SOAP-H | replace NS entirely with SOAP-in-Q-basis update | #19 | high |
+## Statistical rule reminder
 
-## Logic of this portfolio
-
-- **Exploitation slot (alphonse):** Needed because we have no local anchor.
-  Without a baseline `val/loss` curve at the starter settings, we cannot judge
-  follow-up runs.
-- **Single-feature additions (askeladd, edward, frieren, tanjiro):** Each
-  isolates one mechanism so we learn what individually contributes. Stackable
-  in Wave 2.
-- **Preconditioner exploration (fern, nezuko, thorfinn):** Three different
-  preconditioning strategies — streaming covariance (PMuon), Shampoo-basis
-  Adam on MLP only (SOAP-MLP), and Shampoo-basis Adam replacing the entire NS
-  polar step (KL-SOAP-H). This balances safer subset-application against the
-  more radical full replacement.
-
-## Likely Wave 2 directions (depending on Wave 1 outcomes)
-
-- Stack the winners: e.g. NorMuon + u/w floor (Record #11), then add SOAP-MLP
-  (Record #14), then SOAP-attn trust gate (Record #16).
-- Soft-Muon mechanism (singular-value shrinkage with p≈0.1) blended in
-  cooldown (Record #20).
-- Power-law cooldown schedules: `c * (t_end - step)^1.2` instead of linear.
-- Per-module init std tuning (attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031),
-  applied with hyperball variants.
-- MuLoCo-style outer Nesterov SGD wrapper (Record #13), sync_interval=20–40.
-- PSGD-Kron baseline (lr=0.0005, wd=0.625) — explicitly mentioned in the
-  track 3 README but never reproduced in records.
-- Adam-style auxiliary group retuning when the inner optimizer changes
-  drastically (e.g. with KL-SOAP-H).
-
-## Constraints to remember
-
-- Statistical rule `(3.28 - mu) * sqrt(n) >= 0.004` applies for final claims.
-  Single-trial screening runs are fine for hypothesis filtering but a winner
-  ready for merge needs predeclared step count and seed batch.
-- The starter `Muon.step` ignores its stored `weight_decay`. Document this in
-  hypotheses where WD matters.
-- One forward-backward per optimizer step. No third-party optimizer libs in
-  final code — copy needed code inline.
+`(3.28 - mu) * sqrt(n) >= 0.004` required for final claims. All current Wave 2 assignments are single-trial screening runs (n=1). Winners need n>=3 (ideally n>=4) seed confirmation before paper-grade claims.

@@ -59,8 +59,8 @@ references. Our portfolio aims to reproduce the mechanisms and combine them.
   experiment specifies otherwise.
 - Per-run early stopping based on val loss is forbidden.
 
-## Important gotcha
+## Weight decay note (CORRECTION)
 
-`MUON_WEIGHT_DECAY=0.025` appears in param groups but the baseline `Muon.step`
-does not consume it — effective Muon weight decay is 0. If a hypothesis depends
-on weight decay being applied, add the `p.mul_(1 - lr*wd)` line explicitly.
+The baseline `Muon.step` **does** apply weight decay via `p.mul_(1 - lr*wd)`.
+At `lr=0.035, wd=0.025`, effective per-step decay is `1 - 0.000875 ≈ 0.999125` — very small but not zero.
+Confirmed by PR #61 (askeladd). Prior note in this file claiming WD was unused was incorrect.
