@@ -179,8 +179,12 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
-    if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+    n = values.numel()
+    if n > max_samples:
+        # float64 + clamp: float32 linspace endpoint rounds up for n > ~2^24 (e.g. embed.weight),
+        # producing an OOB index that trips IndexKernel.cu at step 0 in log_histograms.
+        idx = torch.linspace(0, n - 1, max_samples, dtype=torch.float64, device=values.device).long()
+        idx.clamp_(0, n - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
