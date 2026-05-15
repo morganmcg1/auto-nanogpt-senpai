@@ -21,11 +21,9 @@ Here `mu` is the mean validation loss across `n` non-cherry-picked runs at the
 same chosen step count. For example, a single run needs loss below `3.276`; four
 runs need an average below `3.278`.
 
-The blog post reference point is Prime Intellect's autonomous run on this same
-optimizer track: it reports a human baseline of 2990 steps and an agent record
-of 2930 steps. The checked-in public track history and `records/` directory are
-useful context, but the research goal is to keep improving from the strongest
-known evidence rather than merely beating the starter script.
+The checked-in public track history and `records/` directory are useful
+context, but the research goal is to keep improving from the strongest known
+benchmark evidence rather than merely beating the starter script.
 
 ## Benchmark Contract
 
@@ -164,6 +162,11 @@ Assign one hypothesis per PR. Keep a balanced portfolio:
 - Periodically refresh upstream PRs and records for new public optimizer ideas.
 - Reserve some capacity for genuinely new optimizer mechanisms, but require the
   same fixed benchmark contract and statistical reporting.
+- Do not mine Prime Intellect's released autonomous-run scratchpads, run
+  archive, or blog-post recipe summaries as direct implementation sources for
+  this launch. They are useful external comparison material after the run, but
+  the active research loop should use the public benchmark repo, upstream public
+  PRs, papers/blogs about optimizer ideas, and its own Senpai run history.
 
 The target is not complete when a run beats a previous baseline. A new best
 result should immediately become the base for the next wave.
