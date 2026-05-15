@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (post-dispatch poll #5, ~18:00 UTC)
+- **Last updated:** 2026-05-15 (post-dispatch poll #7, ~19:30 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -37,23 +37,51 @@ their screening or confirmation matrices. Best completed single-seed screen
 | 49 | tanjiro  | `lookahead-k5-a0.8-seed0`       | 3.282    | -1       | k=5,α=0.8 missed at full 3350 budget; k=10,α=0.5 running  |
 | 50 | thorfinn | `polyak-tau0.10-beta0.999`      | 3.297    | -1       | tail EMA missed target; tau=0.20 now running              |
 
-Active confirmation/screening runs as of ~18:00 UTC (all 8 students healthy):
-- alphonse `normuonh-confirm` at step ~5976 (multi-seed run, ~1.8 seeds in)
-- askeladd `contra-muon-confirmation-n8-3350` at step ~5026, `ffs=3300`
-  already logged for at least one seed within the batch
-- fern `soap-mlp-isolated` at step ~5051, `ffs=3200` logged for at least
-  one seed within the batch
-- nezuko `cooldown-cosine-seed42` at step ~2700, val/loss 3.340
-- thorfinn `polyak-tau0.20-beta0.999` at step ~2800, val/loss 3.348
-- tanjiro `lookahead-k10-a0.5-seed0` at step ~2198, val/loss 3.400 (silent
-  on the PR, but training cleanly — `stale_wip` flag is a false positive)
-- frieren `muonh-record5-repro-confirm-n8` **just launched at 18:25** —
-  smoke `muonh-smoke300` finished clean at 17:35 after picking up the
-  torch 2.11 + reference-recipe guidance
-- edward `muon-squared-3325-smoke` running at step ~120 — smoke
-  `muon-squared-smoke300` finished clean at 17:36 (val/loss 4.128, no
-  NaN), confirming both the corrected v-buffer mechanism and the torch
-  2.11 fix were the right calls
+Active confirmation/screening runs as of ~19:30 UTC. **Exploit-side
+exploitations (NorMuonH/Contra-Muon/SOAP-MLP/MuonH) are still in flight;
+explore-side ideas (Lookahead/Polyak/cooldown-shape) are accumulating
+single-seed negative signal**:
+
+- alphonse `normuonh-confirm` at step ~8027 (mid-seed-2 of 8); screen
+  `ffs=3225` confirmed; confirmation batch ~30% done
+- askeladd `contra-muon-confirmation-n8-3350` at step ~7102 (~26% done);
+  seed 1 of 8 logged `ffs=3300` ≈ baseline
+- fern `soap-mlp-isolated` at step ~7052 (~26% done); seed 1 logged
+  `ffs=3200` — the only single-seed sub-3225 signal so far in wave-1
+- frieren `muonh-record5-repro-confirm-n8` at step ~2175 (~8% done);
+  healthy after the earlier crash + advisor follow-up
+- edward `muon-sq-smoke-300` at step ~270; **still in smoke phase**
+  after multiple recovery iterations on torch 2.11 + v-buffer mechanism
+  (each prior crash recovered without escalation)
+- nezuko (cooldown shape sweep): linear cell `ffs=3300` ≈ baseline,
+  cosine cell `val/loss=3.2846 ffs=-1` **missed target**, now running
+  `power_alpha0p6-seed42` at step ~1350
+- tanjiro (Lookahead k×α grid): 3 of 4 cells finished, **all missed**:
+  k=5/α=0.5 `val=3.289`, k=5/α=0.8 `val=3.282` (closest miss, by 0.002),
+  k=10/α=0.5 `val=3.289`; k=10/α=0.8 now running at step ~880
+- thorfinn (Polyak/SWA τ×β grid): 2 of 4 cells finished, **both missed**:
+  τ=0.10/β=0.999 `val=3.297`, τ=0.20/β=0.999 `val=3.303`; τ=0.20/β=0.995
+  now running at step ~1300
+
+### Forming wave-1 verdicts (single-seed; still tentative)
+
+| PR | Hypothesis             | Direction so far                                      |
+| -- | ---------------------- | ----------------------------------------------------- |
+| 43 | NorMuonH               | **on-target reproduction** (screen ffs=3225 = rec #8) |
+| 44 | Contra-Muon isolated   | ≈ baseline; confirms isolation does not help          |
+| 45 | Muon²                  | unclear — still in smoke phase                        |
+| 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200, faster than rec #14)      |
+| 47 | MuonH reproduction     | unclear — n=8 confirmation just 8% in                 |
+| 48 | Cooldown shape sweep   | **so far no shape beats linear**; 2 cells left        |
+| 49 | Lookahead k×α          | **likely negative**; 3 of 4 cells miss target         |
+| 50 | Polyak/SWA τ×β         | **likely negative**; 2 of 4 cells miss target        |
+
+The explore-side ideas (49, 50, 48) look like they will return clean
+negative results from the screening seed. Treat those as honest evidence
+that the explore lever does **not** independently beat plain Muon at the
+starter LR — they may still be useful when stacked onto a stronger
+underlying optimizer (Polyak/SWA over NorMuonH especially), which we can
+revisit as wave-2 ideas.
 
 **Important:** all of the above are single-seed screening numbers. Treat
 them as *signal that the recipe runs and approaches the target*, **not as
