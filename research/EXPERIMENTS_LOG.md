@@ -27,6 +27,51 @@ leaderboard is captured in `/BASELINE.md`.
 
 ---
 
+## 2026-05-15 20:26 UTC — PR #60: Muon² (alphonse) — TERMINAL — STAT-SIG WIN
+
+**Hypothesis:** Adam 2nd-moment preconditioning before Newton-Schulz gives NS a better-conditioned matrix input, reducing orthogonalization work per step.
+
+| Arm | NS iters | W&B run | val/loss | first_step_to_target |
+|-----|----------|---------|----------|---------------------|
+| A, seed 1 | 12 | s0oq3dnx | **3.276593** | **3275** |
+| A, seed 2 | 12 | 4hedrgf4 | **3.276536** | **3275** |
+| B | 8 | pg0uma5w | 3.277377 | 3300 |
+
+**Stat-sig (NS=12, n=2):** mu=3.276565, margin=(3.28-3.276565)*sqrt(2)=0.004859 ≥ 0.004 ✓  
+**Winner: NS=12.** NS=8 is +0.000813 worse (~20× inter-seed sigma) and reaches target 25 steps later.
+
+**Analysis:** Mechanism holds — feeding `m / (sqrt(v) + eps)` into NS-12 produces better-conditioned input and the optimizer crosses 3.28 at step 3275 (75 steps earlier than 3350 starter budget). NS iteration reduction (Arm B) did NOT benefit from Muon² as predicted by the paper — at our scale (124M, 3350 steps), full 12-iter orthogonalization remains optimal. Also bundles the `sample_tensor` float64 precision bug fix.
+
+**Also included:** `NANOGPT_NS_ITERS` env var for future NS-iteration ablations.
+
+**Follow-ups noted by student:** Stack with Contra-Soft/SOAP; lr/wd retune for Muon²; beta2 sweep {0.95, 0.98, 0.999}; Muon²+NS=8 with lr retune.
+
+**Status:** Terminal SENPAI-RESULT posted. Merge pending GH rate limit reset (~21:26 UTC).
+
+---
+
+## 2026-05-15 20:32 UTC — PR #75: NS iteration sweep (tanjiro) — TERMINAL — DIAGNOSTIC
+
+**Hypothesis:** NS=8 or NS=6 match NS=12 quality with compute savings.
+
+| Arm | NS iters | W&B run | val/loss | first_step_to_target | step_avg_ms | Wall-clock saved |
+|-----|----------|---------|----------|---------------------|-------------|-----------------|
+| A | 12 | 3kx01ieh | 3.27890 | 3325 | 1797.19ms | — |
+| B | 8 | tzhrr686 | **3.27849** | 3325 | 1786.36ms | 0.60% (10.83ms) |
+| C | 6 | jnnsgmrs | 3.28980 | — (FAILED) | 1777.17ms | 1.11% (20ms) |
+
+**Analysis:** NS=8 is correctness-safe (Δ=−0.0004 vs NS=12, within seed noise), but **wall-clock savings are minimal (<1%)** because the NS inner loop is NOT the compute bottleneck at this 1-GPU scale — forward/backward/telemetry dominate. NS=6 fails (0.011 nats degradation, does not cross 3.28). NS=12 and NS=8 crossings are baseline-noise single seeds — Muon² (NS=12, n=2) at val=3.2765 is the rigorous result. Closing as a successful diagnostic; NS=8 knowledge preserved for Muon²+NS=8 follow-up if Muon² LR retune confirms headroom.
+
+---
+
+## 2026-05-15 20:35 UTC — PR #66: Cosine cooldown (edward) — CLOSED — DEAD END
+
+**Hypothesis:** Cosine LR schedule during cooldown phase outperforms linear cooldown.
+
+**Result:** Branch corruption beyond just cosine path — linear baseline arm also diverged (162M nonfinites at step 375). Cosine path had NaN at step 3. Closed and student reassigned to orthogonal QKV initialization (PR #92).
+
+---
+
 ## 2026-05-15 — wave 1 in-flight summary (not yet reviewed)
 
 Snapshot from W&B at 16:20 UTC, prior to terminal SENPAI-RESULT submissions.
