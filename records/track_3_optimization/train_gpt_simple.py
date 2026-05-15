@@ -30,7 +30,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
-    parser.add_argument("--train_steps", type=int, default=None, help="Override the per-trial train_steps")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -41,6 +40,9 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
+    parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -456,22 +458,11 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, second_momentum, mu=0.95, beta2=0.95,
-                nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    norm = update.norm(dim=(-2, -1), keepdim=True)
-    if grad.size(-2) >= grad.size(-1):
-        v_mean = (update * update).mean(dim=-1, keepdim=True)
-    else:
-        v_mean = (update * update).mean(dim=-2, keepdim=True)
-    second_momentum.lerp_(v_mean.float(), 1 - beta2)
-    step_size = second_momentum.clamp_min(1e-10).rsqrt().to(update.dtype)
-    update.mul_(step_size)
-    norm_new = update.norm(dim=(-2, -1), keepdim=True)
-    update.mul_(norm / norm_new.clamp_min(1e-10))
     return update
 
 class Muon(torch.optim.Optimizer):
@@ -494,8 +485,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        state["second_momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["second_momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -648,6 +638,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "muonh_budget_mult": args.muonh_budget_mult,
+            "muonh_lr": args.muonh_lr,
+            "train_steps": args.train_steps,
         },
     )
 
@@ -659,7 +652,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = args.train_steps if args.train_steps is not None else 3350
+    train_steps = args.train_steps
 
     # Per-module init std: gives MuonH non-zero matrices to operate on from step 0
     # while keeping the LM head (model.proj.weight) at zero so initial logits are 0.
@@ -699,8 +692,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=0.018, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=1.0)
+                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                       hyperball=True, budget_mult=args.muonh_budget_mult)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
