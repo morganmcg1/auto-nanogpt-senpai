@@ -40,11 +40,23 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")),
+                        help="Total optimizer steps per trial; cooldown window scales with this.")
+    parser.add_argument("--cooldown_power", type=float, default=float(os.environ.get("NANOGPT_COOLDOWN_POWER", "1.0")),
+                        help="Exponent p in lr(step)=initial_lr*(remaining/cooldown_length)**p. p=1.0 recovers the linear cooldown.")
+    parser.add_argument("--cooldown_frac", type=float, default=float(os.environ.get("NANOGPT_COOLDOWN_FRAC", "0.7")),
+                        help="Fraction of train_steps that the active cooldown window occupies.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.train_steps < 1:
+        raise ValueError("--train_steps must be positive")
+    if args.cooldown_power <= 0:
+        raise ValueError("--cooldown_power must be positive")
+    if not (0 < args.cooldown_frac <= 1):
+        raise ValueError("--cooldown_frac must be in (0, 1]")
     return args
 
 
@@ -552,6 +564,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps": args.train_steps,
+            "cooldown_power": args.cooldown_power,
+            "cooldown_frac": args.cooldown_frac,
         },
     )
 
@@ -563,7 +578,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -597,14 +612,20 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: flat, then power-law cooldown
+    # eta = (remaining / cooldown_length) ** cooldown_power
+    # power=1.0 recovers the original linear cooldown; power>1 keeps lr higher
+    # for longer and then drops faster (the PR287 / contra-soft-muon shape uses
+    # power=1.2). Applied uniformly to all optimizer groups.
+    def set_hparams(step, cooldown_frac=args.cooldown_frac, power=args.cooldown_power):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            remaining = train_steps - step
+            cooldown_length = cooldown_frac * train_steps
+            eta = (remaining / cooldown_length) ** power
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
