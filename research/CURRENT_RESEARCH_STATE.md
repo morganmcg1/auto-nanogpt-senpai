@@ -32,14 +32,24 @@ Wave 1 is an **establishment wave** — we have zero in-repo runs and need to:
 
 ## Potential next research directions
 
-- Stack composition (SOAP-MLP on top of NorMuon/MuonH once those are stable).
-- Soft-Muon and Contra-Muon (records #20 and #11) once we have NorMuon working.
-- KL-SOAP w/ hyperball (record #19) once SOAP machinery is in place.
-- PMuon-style bilateral streaming preconditioning (record #18) as an
-  independent fresh-mechanism arm.
-- Initialization scaling laws — embedding scale, RMSNorm gain init.
-- Schedule innovations: WSD vs trapezoidal vs warmup-free with Muon.
-- Wider exploration via the researcher-agent (see `research/RESEARCH_IDEAS_*`).
+Detailed brainstorm in `research/RESEARCH_IDEAS_2026-05-15_advisor-boot.md`.
+The 13-idea list ranked by expected value/GPU-hour. Top candidates for wave 2,
+contingent on wave-1 results:
+
+- **PSGD Kron** (replaces Muon, lr=0.0005 wd=0.625 — independent optimizer
+  family with high upside, medium implementation cost).
+- **Contra-Muon + Soft-Muon stack on NorMuon**, contingent on alphonse's
+  NorMuon landing (path toward record #20 territory).
+- **AdEMAMix slow-EMA buffer inside Muon** (small, additive mechanism).
+- **EMA weight averaging for eval** (low risk, purely additive, tests whether
+  the cooldown is doing redundant work).
+- **Schedule-Free AdamW on Adam groups only** (isolated risk; tests whether
+  the embed/lm-head cooldown is a bottleneck).
+- **Depth-scaled LR** (layerwise-LR-decay on Muon, very cheap).
+- **NS-iteration count scaling** (cheaper compute, low risk).
+
+Other candidates kept on the bench: Lion, GaLore-on-MLP-fc, Sophia-H,
+LaProp on Adam groups, Adan. Wave-3+ material.
 
 ## Operating notes
 
