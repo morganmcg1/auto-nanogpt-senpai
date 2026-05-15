@@ -180,7 +180,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # float32 has only 24 bits of mantissa, so linspace can round the upper
+        # endpoint past numel-1 for tensors larger than ~16M elements; clamp to keep
+        # the gather in-bounds (the lm_head and embedding hit this).
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -459,10 +463,10 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.95, eps=1e-10):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -472,6 +476,8 @@ class Muon(torch.optim.Optimizer):
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            beta2 = group["beta2"]
+            eps = group["eps"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -479,6 +485,23 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # NorMuon: short-axis per-row second-moment EMA + Frobenius renormalization
+                    short_axis = 0 if update.shape[0] < update.shape[1] else 1
+                    long_axis = 1 - short_axis
+                    if "nu" not in state:
+                        state["nu"] = torch.zeros(update.shape[short_axis], device=update.device, dtype=torch.float32)
+                    nu = state["nu"]
+                    update_f32 = update.float()
+                    row_sq = update_f32.square().mean(dim=long_axis)
+                    nu.mul_(beta2).add_(row_sq, alpha=1 - beta2)
+                    scale = (nu + eps).rsqrt().to(update.dtype)
+                    pre_norm = update_f32.norm()
+                    if short_axis == 0:
+                        update.mul_(scale.view(-1, 1))
+                    else:
+                        update.mul_(scale.view(1, -1))
+                    post_norm = update.float().norm()
+                    update.mul_((pre_norm / (post_norm + 1e-12)).to(update.dtype))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -563,7 +586,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = 3300
 
     # initialize model parameters
     for name, p in model.named_parameters():
