@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -40,11 +41,24 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--cooldown_schedule", default=os.environ.get("NANOGPT_COOLDOWN_SCHEDULE", "linear"),
+                        choices=["linear", "cosine"],
+                        help="Shape of the LR cooldown segment.")
+    parser.add_argument("--cooldown_min_eta", type=float,
+                        default=float(os.environ.get("NANOGPT_COOLDOWN_MIN_ETA", "0.0")),
+                        help="Floor of the LR multiplier at end of cooldown (fraction of initial_lr).")
+    parser.add_argument("--cooldown_frac", type=float,
+                        default=float(os.environ.get("NANOGPT_COOLDOWN_FRAC", "0.7")),
+                        help="Fraction of training spent in cooldown.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not (0.0 <= args.cooldown_min_eta < 1.0):
+        raise ValueError("--cooldown_min_eta must be in [0, 1)")
+    if not (0.0 < args.cooldown_frac <= 1.0):
+        raise ValueError("--cooldown_frac must be in (0, 1]")
     return args
 
 
@@ -180,7 +194,12 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # NB: float32 linspace endpoints round-up for large numel (e.g. 50304*768),
+        # producing indices == numel that crash boolean/integer indexing downstream.
+        # Use float64 then clamp to be safe.
+        idx = torch.linspace(0, values.numel() - 1, max_samples,
+                             device=values.device, dtype=torch.float64).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +571,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "cooldown_schedule": args.cooldown_schedule,
+            "cooldown_min_eta": args.cooldown_min_eta,
+            "cooldown_frac": args.cooldown_frac,
         },
     )
 
@@ -597,14 +619,22 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then decay (linear or cosine cooldown)
+    def set_hparams(step, cooldown_frac=args.cooldown_frac,
+                    schedule=args.cooldown_schedule, min_eta=args.cooldown_min_eta):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            # progress within the cooldown segment: 0.0 at start, 1.0 at end
+            t = (progress - (1 - cooldown_frac)) / cooldown_frac
+            if schedule == "cosine":
+                eta = min_eta + (1.0 - min_eta) * 0.5 * (1.0 + math.cos(math.pi * t))
+            elif schedule == "linear":
+                eta = max(min_eta, 1.0 - t)
+            else:
+                raise ValueError(schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
