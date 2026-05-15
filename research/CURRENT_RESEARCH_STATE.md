@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (post-dispatch poll #4, ~17:25 UTC)
+- **Last updated:** 2026-05-15 (post-dispatch poll #5, ~18:00 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -37,18 +37,23 @@ their screening or confirmation matrices. Best completed single-seed screen
 | 49 | tanjiro  | `lookahead-k5-a0.8-seed0`       | 3.282    | -1       | k=5,α=0.8 missed at full 3350 budget; k=10,α=0.5 running  |
 | 50 | thorfinn | `polyak-tau0.10-beta0.999`      | 3.297    | -1       | tail EMA missed target; tau=0.20 now running              |
 
-Active runs (no terminal verdict yet):
-- alphonse `normuonh-confirm` running (confirmation seed in progress)
-- askeladd `contra-muon-confirmation-n8-3350` at step ~3225, val/loss 3.285
-- fern `soap-mlp-isolated` at step ~3125, val/loss 3.285 (clean grads)
-- nezuko `cooldown-cosine-seed42` at step ~775, ramp phase
-- thorfinn `polyak-tau0.20-beta0.999` at step ~1000, ramp phase
-- tanjiro `lookahead-k10-a0.5-seed0` at step ~200, ramp phase
-- frieren `muonh-screen3325-s1` **crashed at step ~600** — advisor comment
-  posted requesting torch 2.11 confirmation + per-layer grad-norm trace
-- edward — no post-correction runs yet; advisor follow-up posted (#45)
-  pointing them at both the corrected Muon² mechanism AND the torch 2.11
-  fix nezuko diagnosed
+Active confirmation/screening runs as of ~18:00 UTC (all 8 students healthy):
+- alphonse `normuonh-confirm` at step ~5976 (multi-seed run, ~1.8 seeds in)
+- askeladd `contra-muon-confirmation-n8-3350` at step ~5026, `ffs=3300`
+  already logged for at least one seed within the batch
+- fern `soap-mlp-isolated` at step ~5051, `ffs=3200` logged for at least
+  one seed within the batch
+- nezuko `cooldown-cosine-seed42` at step ~2700, val/loss 3.340
+- thorfinn `polyak-tau0.20-beta0.999` at step ~2800, val/loss 3.348
+- tanjiro `lookahead-k10-a0.5-seed0` at step ~2198, val/loss 3.400 (silent
+  on the PR, but training cleanly — `stale_wip` flag is a false positive)
+- frieren `muonh-record5-repro-confirm-n8` **just launched at 18:25** —
+  smoke `muonh-smoke300` finished clean at 17:35 after picking up the
+  torch 2.11 + reference-recipe guidance
+- edward `muon-squared-3325-smoke` running at step ~120 — smoke
+  `muon-squared-smoke300` finished clean at 17:36 (val/loss 4.128, no
+  NaN), confirming both the corrected v-buffer mechanism and the torch
+  2.11 fix were the right calls
 
 **Important:** all of the above are single-seed screening numbers. Treat
 them as *signal that the recipe runs and approaches the target*, **not as
