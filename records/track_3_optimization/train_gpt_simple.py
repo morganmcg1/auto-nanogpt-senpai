@@ -180,8 +180,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        # Clamp to guard against float32 linspace rounding pushing the last index past numel-1.
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long().clamp_(max=values.numel() - 1)
+        # float64 + clamp: linspace at fp32 default loses precision above 2^24 and can
+        # produce an end index of numel (one past last) for large tensors like embeddings.
+        idx = torch.linspace(
+            0, values.numel() - 1, max_samples, dtype=torch.float64, device=values.device
+        ).long().clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -432,10 +435,6 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-# Aurora + Contra-Muon + u/w-floor hyperparameters (record #17 reproduction).
-CONTRA_COEFF = 0.2  # Contra-Muon: subtract this fraction of operator-normalized momentum direction.
-TARGET_UW = 0.35    # u/w-floor target ratio: ||u||_F / ||w||_F >= this.
-
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -455,86 +454,54 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-def aurora_orthogonalize(G: Tensor, pp_iterations: int = 2, pp_beta: float = 0.5,
-                         eps: float = 1e-7) -> Tensor:
-    """Aurora: leverage-uniform polar via diagonal preconditioning.
 
-    Reference: tilde-research/aurora-release and record #17.
-    For tall G [m, n] with m > n, returns polar(D * G) where the positive diagonal
-    D is chosen so the result's row norms are uniformly sqrt(n / m). For wide G,
-    transpose to tall, apply, transpose back. For square G, reduces to standard polar.
-    """
-    m, n = G.size(-2), G.size(-1)
-    if m == n:
-        return zeropower_via_newtonschulz5(G)
-    transposed = m < n
-    if transposed:
-        G = G.mT
-        m, n = n, m
-    G32 = G.to(torch.float32)
-    target_row_sq = n / m
-    row_norm = G32.norm(dim=-1, keepdim=True).clamp_(min=eps)
-    D = 1.0 / row_norm
-    for k in range(pp_iterations):
-        U = zeropower_via_newtonschulz5(D * G32)
-        if k < pp_iterations - 1:
-            row_sq = U.to(torch.float32).pow(2).sum(dim=-1, keepdim=True).clamp_(min=eps * eps)
-            D = D * (target_row_sq / row_sq).pow(pp_beta)
-    return U.mT if transposed else U
+def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
+    # Symmetric PSD M -> M^{-gamma} via eigendecomposition; eps clamp handles rank deficiency.
+    M = 0.5 * (M + M.T)
+    eigvals, eigvecs = torch.linalg.eigh(M)
+    eigvals = eigvals.clamp_min(eps).pow(-gamma)
+    return (eigvecs * eigvals) @ eigvecs.T
 
-@torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True, pp_iterations=2, pp_beta=0.5,
-                contra_coeff: float = 0.2):
-    """Aurora polar + Contra-Muon correction + spectral aspect-ratio scale.
 
-    Contra-Muon follows record #17 / Contra-Muon paper: subtract `contra_coeff` times
-    the Frobenius-normalized post-Nesterov momentum, scaled to Frobenius norm
-    sqrt(min(m,n)) so the perturbation has the same magnitude as the polar.
-    """
+def pmuon_update(
+    grad: Tensor,
+    momentum: Tensor,
+    L_cov: Tensor,
+    R_cov: Tensor,
+    mu: float = 0.95,
+    beta_cov: float = 0.95,
+    gamma: float = 0.3,
+    eps: float = 1e-12,
+    nesterov: bool = True,
+) -> Tensor:
+    # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
+    g32 = grad.detach().float()
+    L_cov.mul_(beta_cov).add_(g32 @ g32.T)
+    R_cov.mul_(beta_cov).add_(g32.T @ g32)
+
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    pre_polar_m = update.float()
-    update = aurora_orthogonalize(update, pp_iterations=pp_iterations, pp_beta=pp_beta)
-    if contra_coeff != 0.0:
-        target_scale = float(min(pre_polar_m.shape[-2], pre_polar_m.shape[-1])) ** 0.5
-        m_fro = pre_polar_m.norm().clamp_min(1e-12)
-        contra_dir = pre_polar_m * (target_scale / m_fro)
-        update = update - contra_coeff * contra_dir.to(update.dtype)
+
+    L_neg = matrix_neg_power(L_cov, gamma, eps)
+    R_neg = matrix_neg_power(R_cov, gamma, eps)
+    m_pre = (L_neg @ update.float()) @ R_neg
+
+    update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
     return update
 
-class Muon(torch.optim.Optimizer):
-    """Aurora + Contra-Muon optimizer with u/w-floor (applied in step).
 
-    Args:
-        params: list of parameters to optimize (must be 2D+).
-        lr: learning rate.
-        weight_decay: should be 0 (u/w-floor replaces wd's role here).
-        mu: momentum decay.
-        pp_iterations / pp_beta: Aurora diagonal-preconditioning hyperparameters.
-        contra_coeff: Contra-Muon coefficient (0 disables Contra-Muon).
-        target_uw: u/w-floor target ratio (0 disables u/w-floor).
-    """
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95,
-                 pp_iterations=2, pp_beta=0.5,
-                 contra_coeff: float = 0.2, target_uw: float = 0.35):
+class Muon(torch.optim.Optimizer):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        assert pp_iterations >= 1
-        assert 0.0 < pp_beta <= 1.0
-        assert contra_coeff >= 0.0
-        assert target_uw >= 0.0
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        pp_iterations=pp_iterations, pp_beta=pp_beta,
-                        contra_coeff=contra_coeff, target_uw=target_uw)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
         super().__init__(params, defaults)
-        self.last_row_norm_stats = None
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        first_param_logged = False
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -544,40 +511,18 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
-                                         pp_iterations=group["pp_iterations"],
-                                         pp_beta=group["pp_beta"],
-                                         contra_coeff=group["contra_coeff"])
-                    # Sample row-norm uniformity stats on the first param (largest, an MLP weight)
-                    # before u/w-floor scaling.
-                    if not first_param_logged and rank == 0 and base_i == 0:
-                        with torch.no_grad():
-                            u32 = update.detach().float()
-                            # Row norms along the long axis: for tall matrix rows live at dim=-2.
-                            row_norms = u32.norm(dim=-1) if u32.size(-2) >= u32.size(-1) else u32.norm(dim=-2)
-                            mean_rn = float(row_norms.mean().item())
-                            std_rn = float(row_norms.std().item()) if row_norms.numel() > 1 else 0.0
-                            self.last_row_norm_stats = {
-                                "mean": mean_rn,
-                                "std": std_rn,
-                                "min": float(row_norms.min().item()),
-                                "max": float(row_norms.max().item()),
-                                "ratio_std_over_mean": std_rn / max(mean_rn, 1e-12),
-                                "long_axis": u32.shape[-2] if u32.size(-2) >= u32.size(-1) else u32.shape[-1],
-                                "short_axis": u32.shape[-1] if u32.size(-2) >= u32.size(-1) else u32.shape[-2],
-                            }
-                        first_param_logged = True
-                    # u/w-floor: scale update so ||u||_F / ||w||_F >= target_uw.
-                    target_uw = group["target_uw"]
-                    if target_uw > 0.0:
-                        p_fro = p.float().norm().clamp_min(1e-8)
-                        u_fro = update.float().norm().clamp_min(1e-8)
-                        cur_uw = u_fro / p_fro
-                        scale = torch.where(cur_uw < target_uw,
-                                            target_uw * p_fro / u_fro,
-                                            torch.ones_like(p_fro))
-                        update = update * scale.to(update.dtype)
-                    # weight_decay=0 (u/w-floor replaces decoupled weight decay).
+                        state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
+                        state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    update = pmuon_update(
+                        p.grad,
+                        state["momentum"],
+                        state["L"],
+                        state["R"],
+                        mu=group["mu"],
+                        beta_cov=group["beta_cov"],
+                        gamma=group["gamma"],
+                    )
+                    p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
@@ -650,15 +595,13 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
-            # Aurora + Contra-Muon + u/w-floor (record #17) hyperparameters.
-            "muon_lr": 0.0375,
-            "muon_weight_decay": 0.0,
-            "aurora_pp_iterations": 2,
-            "aurora_pp_beta": 0.5,
-            "contra_coeff": CONTRA_COEFF,
-            "target_uw_floor": TARGET_UW,
+            # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
+            "muon_lr": 0.035,
+            "muon_weight_decay": 0.025,
+            "pmuon_beta_cov": 0.95,
+            "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "muon_method": "aurora+contra-muon+uw-floor",
+            "muon_method": "pmuon-bilateral-cov-precond",
         },
     )
 
@@ -695,8 +638,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.0375, weight_decay=0, pp_iterations=2, pp_beta=0.5,
-                      contra_coeff=CONTRA_COEFF, target_uw=TARGET_UW)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -841,13 +783,6 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
-        if dist.get_rank() == 0 and telemetry_due and optimizer2.last_row_norm_stats is not None:
-            aurora_metrics = {
-                "trial": trial_idx,
-                "train/step": train_step,
-            }
-            aurora_metrics.update(prefixed("train/aurora/row_norm_sample", optimizer2.last_row_norm_stats))
-            wandb.log(aurora_metrics, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
