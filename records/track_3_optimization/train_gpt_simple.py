@@ -569,9 +569,11 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3350
-    # cooldown lever for PR #58 sweep: shape in {"linear","cosine","sqrt","quadratic"}
-    cooldown_frac = 0.7
-    shape = "linear"
+    # cooldown lever for PR #58 sweep: shape in {"linear","cosine","sqrt","quadratic"}.
+    # Default values match the starter (linear, 0.7); env override lets the sweep launcher
+    # pick each arm without editing source per arm.
+    cooldown_frac = float(os.environ.get("COOLDOWN_FRAC", 0.7))
+    shape = os.environ.get("COOLDOWN_SHAPE", "linear")
     # 100-step warmup applied uniformly to all arms (advisor-mandated for 1-GPU stability)
     warmup_steps = 100
 
@@ -820,5 +822,10 @@ for trial_idx in range(args.num_trials):
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
+    run_id = wandb.run.id if wandb.run is not None else ""
+    print(f"SUMMARY shape={shape} frac={cooldown_frac} warmup={warmup_steps} "
+          f"nan_killed_at={nan_killed_at} nan_reason={nan_killed_reason or 'none'} "
+          f"best_val_loss={best_val_loss:.5f} first_step_to_target={first_step_to_target} "
+          f"run_id={run_id}", flush=True)
     wandb.finish()
 dist.destroy_process_group()
