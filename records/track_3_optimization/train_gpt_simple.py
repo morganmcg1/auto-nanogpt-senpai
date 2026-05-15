@@ -180,7 +180,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # float32 linspace loses precision for indices > ~16M (e.g. embed/proj
+        # weights have ~38M elements), which can produce a final index that
+        # rounds out of bounds. Clamp to keep gather indices in range.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -220,6 +224,29 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            # Schedule-Free diagnostics (only present on SF-wrapped optimizers).
+            if "ckp1" in group:
+                metrics[f"train/sf/{group_name}/ckp1"] = float(group["ckp1"])
+                metrics[f"train/sf/{group_name}/weight_sum"] = float(group["weight_sum"])
+                metrics[f"train/sf/{group_name}/lr_max"] = float(group.get("lr_max", -1.0))
+                metrics[f"train/sf/{group_name}/train_mode"] = int(bool(group["train_mode"]))
+                # ‖z - y‖ and ‖z‖ across the SF-managed params (sanity check that x is not drifting away).
+                z_sq_sum, diff_sq_sum, total_elems = 0.0, 0.0, 0
+                for p in group["params"]:
+                    state = opt.state.get(p, {})
+                    z = state.get("z")
+                    if z is None:
+                        continue
+                    z_f = z.detach().float()
+                    y_f = p.data.detach().float()
+                    z_sq_sum += float(z_f.square().sum().item())
+                    diff_sq_sum += float((z_f - y_f).square().sum().item())
+                    total_elems += z_f.numel()
+                if total_elems > 0:
+                    metrics[f"train/sf/{group_name}/z_rms"] = (z_sq_sum / total_elems) ** 0.5
+                    metrics[f"train/sf/{group_name}/z_minus_y_rms"] = (diff_sq_sum / total_elems) ** 0.5
+                    metrics[f"train/sf/{group_name}/z_norm"] = z_sq_sum ** 0.5
+                    metrics[f"train/sf/{group_name}/z_minus_y_norm"] = diff_sq_sum ** 0.5
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -484,6 +511,106 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class ScheduleFreeMuon(torch.optim.Optimizer):
+    """Schedule-Free Muon (Polyak-Ruppert averaging around Muon NS update).
+
+    Defazio & Mishchenko 2024 (arXiv:2405.15682). Implicit-x form following
+    facebookresearch/schedule_free: p.data holds y (the forward/training point),
+    z is persistent state, x (running average) is implicit:
+        y = (1 - beta)*z + beta*x   =>   x = (y - (1-beta)*z) / beta
+
+    Per step (with c_t = lr**wlp / sum lr**wlp the running-average mixing weight):
+        u = NS5(momentum-EMA(grad@y)) + wd*y     # Muon orthogonalized + decoupled WD
+        y_{t+1} = (1-c_t)*y_t + c_t*z_t + lr*u*(beta*(1-c_t) - 1)
+        z_{t+1} = z_t - lr*u
+
+    eval():  p (=y) -> x via p.lerp_(z, 1 - 1/beta)
+    train(): p (=x) -> y via p.lerp_(z, 1 - beta)
+    """
+
+    def __init__(self, params, lr=0.035, weight_decay=0.025, mu=0.95,
+                 sf_beta=0.9, sf_weight_lr_power=2.0):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(
+            lr=lr, weight_decay=weight_decay, mu=mu,
+            sf_beta=sf_beta, sf_weight_lr_power=sf_weight_lr_power,
+            weight_sum=0.0, ckp1=0.0, lr_max=-1.0, train_mode=True,
+        )
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def _swap(self, target_train_mode: bool):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        for group in self.param_groups:
+            if group["train_mode"] == target_train_mode:
+                continue
+            sf_beta = group["sf_beta"]
+            lerp_w = (1.0 - sf_beta) if target_train_mode else (1.0 - 1.0 / sf_beta)
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if "z" in state:
+                        p.lerp_(state["z"], lerp_w)
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+            group["train_mode"] = target_train_mode
+
+    @torch.no_grad()
+    def train(self):
+        self._swap(True)
+
+    @torch.no_grad()
+    def eval(self):
+        self._swap(False)
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        for group in self.param_groups:
+            assert group["train_mode"], "ScheduleFreeMuon must be in train mode for step()"
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            mu = group["mu"]
+            sf_beta = group["sf_beta"]
+            wlp = group["sf_weight_lr_power"]
+
+            # Track lr_max so weighted averaging weights are based on peak LR.
+            # During warmup, current `lr` is below peak; weighting by `lr` directly
+            # would over-weight low-LR (early, high-loss) iterates. Weighting by
+            # max(lr_seen_so_far) makes warmup steps contribute near-zero weight
+            # — matching the schedule_free reference impl.
+            group["lr_max"] = max(lr, group["lr_max"])
+            weight = group["lr_max"] ** wlp
+            group["weight_sum"] = group["weight_sum"] + weight
+            ckp1 = weight / group["weight_sum"] if group["weight_sum"] > 0 else 0.0
+            group["ckp1"] = ckp1
+            y_alpha = lr * (sf_beta * (1.0 - ckp1) - 1.0)
+
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state["momentum"] = torch.zeros_like(p)
+                        state["z"] = p.data.clone()
+                    z = state["z"]
+                    update = muon_update(p.grad, state["momentum"], mu=mu)
+                    if wd != 0:
+                        update.add_(p.data, alpha=wd)
+                    # Order matters: lerp uses old z; z update comes after.
+                    p.lerp_(z, ckp1)
+                    p.add_(update, alpha=y_alpha)
+                    z.sub_(update, alpha=lr)
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -552,6 +679,15 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "optimizer/block": "ScheduleFreeMuon",
+            "optimizer/aux": "AdamW",
+            "lr_schedule": "linear_warmup_constant",
+            "cooldown_frac": 0.0,
+            "sf_beta": float(os.environ.get("NANOGPT_SF_MUON_BETA", "0.9")),
+            "sf_weight_lr_power": float(os.environ.get("NANOGPT_SF_MUON_WLP", "2.0")),
+            "sf_muon_lr": float(os.environ.get("NANOGPT_SF_MUON_LR", "0.035")),
+            "sf_muon_mu": float(os.environ.get("NANOGPT_SF_MUON_MU", "0.95")),
+            "sf_warmup_steps": int(os.environ.get("NANOGPT_SF_WARMUP_STEPS", "200")),
         },
     )
 
@@ -563,7 +699,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -587,9 +723,19 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    sf_muon_lr = float(os.environ.get("NANOGPT_SF_MUON_LR", "0.035"))
+    sf_muon_beta = float(os.environ.get("NANOGPT_SF_MUON_BETA", "0.9"))
+    # mu=0 disables Muon's Nesterov EMA buffer. With Schedule-Free providing its
+    # own averaging via the y/x/z blend, the base optimizer's momentum is
+    # redundant. facebookresearch/schedule_free wrap_schedulefree.py docs:
+    # "you can disable the base optimizer's momentum, as it's no longer
+    # necessary when using our wrapper's momentum."
+    sf_muon_mu = float(os.environ.get("NANOGPT_SF_MUON_MU", "0.95"))
+    sf_muon_wlp = float(os.environ.get("NANOGPT_SF_MUON_WLP", "2.0"))
+    optimizer2 = ScheduleFreeMuon([p for p in model.blocks.parameters() if p.ndim >= 2],
+                                  lr=sf_muon_lr, weight_decay=0.025, mu=sf_muon_mu,
+                                  sf_beta=sf_muon_beta, sf_weight_lr_power=sf_muon_wlp)
+    optimizer2.param_groups[0]["name"] = "sf_muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -597,14 +743,20 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    sf_warmup_steps = int(os.environ.get("NANOGPT_SF_WARMUP_STEPS", "200"))
+
+    # learning rate schedule: linear warmup then constant LR (no cooldown).
+    # Schedule-Free does its own implicit averaging-based "decay"; the linear
+    # warmup keeps early high-loss iterates from polluting the running average
+    # because `lr_max` tracking gives them tiny weight (weight = lr_max**wlp).
+    # AdamW groups follow the same eta so their LR is consistent across groups.
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+        if sf_warmup_steps > 0 and step < sf_warmup_steps:
+            eta = (step + 1) / sf_warmup_steps
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta = 1.0
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -640,6 +792,11 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # Schedule-Free: swap params from y (training point) to x (averaged iterate)
+            # before validation; swap back to y afterwards.
+            for opt in optimizers:
+                if hasattr(opt, "eval"):
+                    opt.eval()
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -674,6 +831,10 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
+            # Schedule-Free: swap params back from x to y for further training.
+            for opt in optimizers:
+                if hasattr(opt, "train"):
+                    opt.train()
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
