@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -24,6 +25,30 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+
+# Cooldown schedule globals. Override with --cooldown_shape / --cooldown_frac /
+# --train_steps at the CLI for sweeps.
+COOLDOWN_SHAPE = "linear"
+COOLDOWN_FRAC = 0.7
+TRAIN_STEPS = 3350
+COOLDOWN_SHAPES = ("linear", "cosine", "quadratic", "sqrt", "cube")
+
+
+def cooldown_eta(progress: float, cooldown_frac: float, shape: str) -> float:
+    if progress < 1 - cooldown_frac:
+        return 1.0
+    x = (1 - progress) / cooldown_frac  # 1 -> 0 as we cool
+    if shape == "linear":
+        return x
+    if shape == "cosine":
+        return 0.5 * (1 - math.cos(math.pi * x))
+    if shape == "quadratic":
+        return x * x
+    if shape == "sqrt":
+        return x ** 0.5
+    if shape == "cube":
+        return x ** 3
+    raise ValueError(shape)
 
 
 def parse_args():
@@ -40,11 +65,21 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--cooldown_shape", default=os.environ.get("NANOGPT_COOLDOWN_SHAPE", COOLDOWN_SHAPE),
+                        choices=COOLDOWN_SHAPES)
+    parser.add_argument("--cooldown_frac", type=float,
+                        default=float(os.environ.get("NANOGPT_COOLDOWN_FRAC", str(COOLDOWN_FRAC))))
+    parser.add_argument("--train_steps", type=int,
+                        default=int(os.environ.get("NANOGPT_TRAIN_STEPS", str(TRAIN_STEPS))))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not 0 < args.cooldown_frac <= 1:
+        raise ValueError("--cooldown_frac must be in (0, 1]")
+    if args.train_steps < 1:
+        raise ValueError("--train_steps must be positive")
     return args
 
 
@@ -180,7 +215,12 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # Build indices in float64 then clamp; float32 linspace loses integer
+        # precision past 2**24 and can produce out-of-bounds indices for large
+        # parameters (e.g. the 50304*768 embedding).
+        idx = torch.linspace(0, values.numel() - 1, max_samples,
+                             device=values.device, dtype=torch.float64).long()
+        idx = idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +592,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "cooldown_shape": args.cooldown_shape,
+            "cooldown_frac": args.cooldown_frac,
+            "train_steps": args.train_steps,
         },
     )
 
@@ -563,7 +606,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -597,14 +640,11 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then shape-parameterized cooldown
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
+        eta = cooldown_eta(progress, args.cooldown_frac, args.cooldown_shape)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
