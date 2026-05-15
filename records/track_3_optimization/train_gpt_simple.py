@@ -40,6 +40,9 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--train_steps", type=int, default=3000)
+    parser.add_argument("--cooldown_frac", type=float, default=0.2)
+    parser.add_argument("--warmup_steps", type=int, default=40)
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -179,8 +182,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
-    if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+    n = values.numel()
+    if n > max_samples:
+        # float32 linspace overflows the upper bound when n-1 exceeds the 24-bit mantissa
+        # (e.g. embed/lm_head with ~3.8e7 entries), so compute indices in int64.
+        idx = (torch.arange(max_samples, device=values.device, dtype=torch.long) * n) // max_samples
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +558,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps": args.train_steps,
+            "cooldown_frac": args.cooldown_frac,
+            "warmup_steps": args.warmup_steps,
         },
     )
 
@@ -563,7 +572,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -597,14 +606,16 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: linear warmup, stable, then linear decay (trapezoidal)
+    def set_hparams(step, cooldown_frac=args.cooldown_frac, warmup_steps=args.warmup_steps):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+        if step < warmup_steps:
+            eta = (step + 1) / warmup_steps  # linear warmup from 1/warmup_steps to 1
+        elif progress < 1 - cooldown_frac:
+            eta = 1.0  # stable phase
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta = (1 - progress) / cooldown_frac  # linear decay
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
