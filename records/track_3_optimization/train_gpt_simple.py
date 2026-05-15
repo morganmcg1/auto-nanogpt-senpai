@@ -42,6 +42,7 @@ def parse_args():
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
+    parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -491,20 +492,36 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+def scale_invariant_update_(param, update, lr, eps=1e-10):
+    """Always-active hyperball step: rescale update to param's current norm scale,
+    take the step, then renormalise the result back onto the sphere of radius
+    ||initial param||. Holds Frobenius norm exactly constant across training."""
+    p_norm = param.norm()
+    u_norm = update.norm()
+    new_param = param - lr * update * p_norm / torch.clamp(u_norm, min=eps)
+    new_norm = torch.clamp(new_param.norm(), min=eps)
+    param.copy_(new_param / new_norm * p_norm)
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
-    After the regular Muon step, project the parameter back into a ball of radius
-    R = (initial Frobenius norm) * budget_mult. The projection replaces weight
-    decay as the implicit regularizer; when hyperball=True the recommended
-    weight_decay is 0.
+    mode="clip": after the regular Muon step, project the parameter back into a
+    ball of radius R = (initial Frobenius norm) * budget_mult only when the norm
+    exceeds R. The projection replaces weight decay as the implicit regularizer.
+
+    mode="scale_invariant": always-active variant from the bundled reference -
+    rescale the update to the param's current norm scale, then renormalise the
+    new param back onto the sphere of radius ||initial param||. Holds Frobenius
+    norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0):
+                 hyperball=True, budget_mult=1.0, mode="clip"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -523,6 +540,7 @@ class MuonH(torch.optim.Optimizer):
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
+            mode = group["mode"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -532,22 +550,28 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
-                    if hb:
-                        R = state["hyperball_radius"]
-                        norm = p.data.norm().item()
+                    if hb and mode == "scale_invariant":
+                        # Always-active variant: norm is held at initial value by construction.
+                        scale_invariant_update_(p.data, update, group["lr"])
                         total_count_local += 1
-                        if R > 0:
-                            r_over_n = R / max(norm, 1e-30)
-                            n_over_r = norm / R
-                            if r_over_n > max_r_over_n_local:
-                                max_r_over_n_local = r_over_n
-                            if n_over_r > max_n_over_r_local:
-                                max_n_over_r_local = n_over_r
-                        if norm > R:
-                            p.data.mul_(R / norm)
-                            clip_count_local += 1
+                        clip_count_local += 1  # by definition projection is always active
+                    else:
+                        p.mul_(1 - group["lr"] * group["weight_decay"])
+                        p.add_(update, alpha=-group["lr"])
+                        if hb:
+                            R = state["hyperball_radius"]
+                            norm = p.data.norm().item()
+                            total_count_local += 1
+                            if R > 0:
+                                r_over_n = R / max(norm, 1e-30)
+                                n_over_r = norm / R
+                                if r_over_n > max_r_over_n_local:
+                                    max_r_over_n_local = r_over_n
+                                if n_over_r > max_n_over_r_local:
+                                    max_n_over_r_local = n_over_r
+                            if norm > R:
+                                p.data.mul_(R / norm)
+                                clip_count_local += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         if world_size > 1:
             counts = torch.tensor([clip_count_local, total_count_local],
@@ -640,6 +664,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
+            "muonh_mode": args.muonh_mode,
             "train_steps": args.train_steps,
         },
     )
@@ -693,7 +718,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult)
+                       hyperball=True, budget_mult=args.muonh_budget_mult,
+                       mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
