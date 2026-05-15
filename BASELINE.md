@@ -11,17 +11,17 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 - **speedrun/final_first_step_to_target:** 3150
 - **val/loss:** 3.27447 (margin +0.00553 ≥ 0.004 ✓, n=1)
-- **W&B run:** `rcixigyb`
-- **Key config:** PMuon (bilateral EMA covariance preconditioning, gamma=0.3, beta_cov=0.9), Muon lr=0.035, weight_decay=0.025, train_steps=3250, cooldown_frac=0.7; built on Aurora+Contra+u/w-floor base (PR #68)
+- **W&B run:** `vx0r7rp2`
+- **Key config:** PMuon (bilateral EMA covariance preconditioning, gamma=0.3, beta_cov=0.95), Muon lr=0.035, weight_decay=0.025, train_steps=3250, cooldown_frac=0.7. **PMuon REPLACES the Newton-Schulz path entirely** — Aurora row-norm equilibration, Contra-Muon momentum subtraction, and u/w-floor (all from prior PR #68 baseline) were dropped during rebase since PMuon is incompatible with them.
 - **Reproduce:**
   ```bash
   cd target
   torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
     records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
-    --wandb_name "g1r1-fern/pmuon-precon" \
+    --wandb_name "g1r1-fern/pmuon-cov-precond" \
     --wandb_group "g1r1-fern/pmuon"
   ```
-- **Notes:** PMuon replaces `polar(m)` with `polar(L^{-γ} m R^{-γ})` where `L, R` are bilateral gradient covariance EMAs computed via `torch.linalg.eigh`. 3150 steps beats prior local best of 3175 (PR #68). Matches public Record #14 step-count (3150). `sample_tensor` linspace fp64+clamp fix included. Compile bug workaround (`dynamic=True`) included.
+- **Notes:** PMuon replaces `polar(m)` with `polar(L^{-γ} m R^{-γ})` where `L, R` are bilateral gradient covariance EMAs computed via `torch.linalg.eigh`. 3150 steps beats prior local best of 3175 (PR #68). Matches public Record #18 mechanism family (PMuon, 3225 mean at n=9) and beats it by 75 steps on a single seed. `sample_tensor` linspace fp64+clamp fix included. **Inductor compile bug (`dynamic=False` → NaN on RTX PRO 6000 Blackwell) is NOT fixed in this PR** — the run survived because PMuon's covariance whitening appears to damp the seed-NaN amplitude empirically, but this is unguaranteed; subsequent PMuon-base work should either fix compile or carry an update floor.
 
 ### 2026-05-15 — PR #68: Aurora + Contra-Muon + u/w floor (g1r1-tanjiro)
 
