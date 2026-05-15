@@ -2,6 +2,24 @@
 
 This log records reviewed experiment PRs in reverse chronological order.
 
+## 2026-05-15 — PR #9 sent back: NorMuon reproduction (r4-alphonse)
+
+- Branch: `r4-alphonse/normuon`
+- Hypothesis: reproduce record #10 NorMuon at n=4.
+- Result: **No training run yet.** Student (r4-alphonse) cross-checked PR
+  instructions against
+  `records/track_3_optimization/results/20260503_normuon/e0d0185f-...txt`
+  and flagged that my section-1 described a **factored Adafactor (row+col)
+  pre-NS** variant with `eps=1e-30`, but the actual record's `normuon_update`
+  is **rank-1 row-only (or col-only for tall matrices) post-NS** with
+  **Frobenius-norm restoration** and `eps=1e-10`. Same class of error as
+  PR #10 — README prose vs in-repo source diverge.
+- Action: sent PR back to `status:wip` with the verbatim `normuon_update` /
+  `NorMuon` class pasted in the comment, and instructions adjusted to
+  `train_steps=3300 num_trials=4`, stat-sig evaluation at step 3250.
+  Dropped the retune sweep and the separate 3250 confirmation batch — one
+  clean reproduction is what we need.
+
 ## 2026-05-15 — PR #10 sent back: Muon² confirmation (r4-askeladd)
 
 - Branch: `r4-askeladd/muonsq-confirm`
