@@ -6,6 +6,88 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 19:05 — Wave 1 fern PR #54 root-cause checkpoint
+
+Fern delivered a clean root-cause analysis of the SOAP NaN. Headline:
+**SOAP-MLP-Muon code is correct**; the NaN cascade originates upstream of
+SOAPMuon, in plain Muon at default init on 1 GPU. This matches the
+operational pattern we already had: every plain-Muon-on-1-GPU run on this
+branch NaNs unless an experimental clamp / smaller init / preconditioner
+is in place.
+
+### What fern proved (W&B runs `dlv7rkck`, `tce8dakn`, `zoqo0l97`)
+
+| Step | `train/loss` | `grad/global_norm` | `grad/all/nonfinite_count` |
+| --- | --- | --- | --- |
+| 1 | 10.826 | **235,491** | 0 |
+| 25 | NaN | 0 | **147,758,208** (≈100%) |
+| 50 | NaN | 0 | 148,010,880 |
+
+Three isolation runs reproduce the same signature:
+- v4 with full SOAPMuon (`dlv7rkck`) — NaN by step 125, all 24 attempted
+  eigh refreshes silently caught (warmup gate kept SOAP off till step 50).
+- Split params, plain Muon on both groups (`tce8dakn`) — NaN by step 25.
+- Single Muon on all block params (baseline-equivalent) (`zoqo0l97`) — NaN
+  by step 25, identical 147M nonfinite-grad signature.
+
+Fern's cross-reference: matches alphonse's PR #59 on `auto-nanogpt-1gpu-r1`
+which root-caused a `torch.compile` Inductor kernel-emission bug producing
+NaN in `blocks.0.attn.proj.bias.grad` at step 1, then propagating via
+`dist.all_reduce(SUM)` to every rank and through Muon's NS matmuls to all
+params by step ~25.
+
+### Stable counter-example on our branch
+
+`g1r3-tanjiro/per-module-init-screen-s0` runs plain Muon at 1 GPU with
+**per-module init std** (no LR warmup, no compile change, no internal
+clamp). It trained 3350 steps stably to `val/loss = 3.2858`. Compared to
+fern's three NaN-by-step-25 runs, the only differentiator is the init.
+
+### Conclusion + operational rule
+
+**Per-module init std is mandatory for any plain-Muon-on-1-GPU experiment
+on this branch.** Specifically:
+- `attn.proj.weight.std = 0.026`
+- `mlp.proj.weight.std = 0.031`
+- `mlp.fc.weight.std = 0.031`
+- (qkv stays at the current default, proj weights stay zero-initialized
+  as in the starter)
+
+This supersedes my earlier "add 100-step LR warmup" rule — warmup alone
+doesn't fix it (thorfinn's warmup-100 also failed at step 3).
+
+### Advisor action on PR #54
+
+- Reset label `status:review → status:wip` (PR is asking a question, not
+  proposing a merge).
+- Sent: apply per-module init std on top of v2 SOAPMuon; re-run smoke v5
+  at 300 steps. Fallback if smoke still NaNs: disable `@torch.compile` on
+  `train_step` (justifiable since the comparison axis is step count, not
+  wallclock).
+- Declined: `nan_to_num` mask before `all_reduce` (two reasons — masks a
+  real numerical failure mode for SOAP-specific bugs; and the right-layer
+  fix is init).
+
+### What this means for other PRs
+
+- **thorfinn #58** (cooldown sweep): my prior advice was Smoke A
+  (per-module init only) and Smoke B (init + warmup) before the 12-arm
+  sweep. The operational rule now strengthens this — Smoke A IS the path,
+  warmup is a secondary lever.
+- **alphonse #51** (NorMuon, after EMA fix): NorMuon's row/col variance
+  preconditioner inherently damps NaN-tinged gradients (1/sqrt(var)
+  collapses toward zero on a NaN row), so it may run without per-module
+  init. The new `confirm3300` run is at step ~25 — let it reach step 300+
+  before deciding.
+- **frieren #55** (MuLoCo): the screen ran cleanly — either MuLoCo's
+  outer Nesterov averaging masks the upstream NaN, or frieren got a
+  lucky seed. n=4 confirmation will surface intermittent failures.
+- **askeladd #52, edward #53**: both screens ran cleanly without
+  per-module init — their experimental code (MuonH clip, Contra-Muon
+  coordinated update) effectively damps the cascade.
+
+---
+
 ## 2026-05-15 18:35 — Wave 1 second-checkpoint snapshot
 
 Roughly 6 hours into wave 1 (launched ~12:35 UTC). W&B audit of all 8 PRs.

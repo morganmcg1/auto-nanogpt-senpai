@@ -1,15 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-15 18:35 UTC
+- **Last updated:** 2026-05-15 19:05 UTC
 - **Most recent human-team directive:** None received.
 - **Branch state:** 1 commit beyond seed (cc1c710 — `sample_tensor` clamp fix).
-  No experiment PRs merged yet. Wave 1 is ~6 hours in:
+  No experiment PRs merged yet. Wave 1 is ~6.5 hours in:
   - 1 PR has a clean target-reaching single-seed run (frieren #55 MuLoCo, val=3.2793 ffs=3325). In n=4 confirmation.
   - 1 PR finished sub-target (askeladd #52 MuonH clip-only, val=3.2917 ffs=-1). Variant follow-ups requested.
   - 1 PR is a confirmed negative (nezuko #56 Lion-everywhere). Asked to close.
   - 1 PR is finishing 2nd seed of a weak-lever isolation (tanjiro #57 per-module init).
   - 1 PR has a 4-seed confirmation in flight (edward #53 Contra-Muon).
-  - 3 PRs are still iterating on stability fixes: alphonse #51 (NorMuon, after EMA fix), fern #54 (SOAP, still NaN), thorfinn #58 (cooldown sweep, warmup-100 also failed).
+  - 1 PR delivered a clean root-cause diagnosis (fern #54 SOAP): SOAPMuon is correct, the NaN is the upstream `torch.compile`/plain-Muon-default-init bug. Sent: apply per-module init + smoke v5; fallback = disable `@torch.compile`.
+  - 2 PRs are still iterating on stability fixes: alphonse #51 (NorMuon, after EMA fix), thorfinn #58 (cooldown sweep, warmup-100 also failed).
 
 ## Research goal
 
@@ -24,7 +25,7 @@ data, and batch size fixed; optimizer, schedule, init, telemetry editable.
 | #51 | alphonse | NorMuon (after EMA fix) | New `confirm3300` run @ step 25 | Let run; check at step 300+ |
 | #52 | askeladd | MuonH clip-only | Screen finished val=3.2917 ffs=-1 (miss) | Sent: budget_mult sweep + per-module init; then always-active variant |
 | #53 | edward | Contra-Muon | n=4 confirmation @ 3225 launched, step 1 | Let confirmation run |
-| #54 | fern | SOAP-MLP precond before NS | Latest smoke still NaN @ step 200; 2 fresh smokes starting | Wait; escalate with eigval traces if both NaN |
+| #54 | fern | SOAP-MLP precond before NS | Root-caused NaN to upstream `torch.compile` plain-Muon bug; SOAP code is correct | Sent: apply per-module init + smoke v5; fallback = disable `@torch.compile` |
 | #55 | frieren | MuLoCo outer Nesterov | Screen finished val=3.2793 ffs=3325 (n=1, miss stat rule) | Sent: n=4 confirm @ 3300; sweep outer_lr×outer_momentum if miss |
 | #56 | nezuko | Lion replacing AdamW + Muon | LR sweep diverged (val=6.64); best Lion-flavored val=3.31 (worse than baseline) | Sent: stop, post negative SENPAI-RESULT, swap to review for close |
 | #57 | tanjiro | Per-module init std (plain Muon) | s0 finished val=3.2858 ffs=-1; s1 mid-run | Sent: let s1 finish, post 2-seed negative, close |
@@ -33,7 +34,7 @@ data, and batch size fixed; optimizer, schedule, init, telemetry editable.
 ## Key learnings from wave 1 so far
 
 1. **Starter `sample_tensor` had an OOB bug** for tensors with `n > 2^24` (embed.weight). Three students caught it; cherry-picked the fix (commit `cc1c710`) so wave 2 inherits a clean starter.
-2. **Plain Muon at 1 GPU with default init is NaN-unstable, and the unstable lever is *init*, not the schedule.** thorfinn's 100-step LR warmup failed at step 3, while tanjiro's per-module-init plain Muon (no warmup, no compile change) is the only stable 1-GPU plain-Muon configuration on this branch. For any future plain-Muon 1-GPU experiment, **fold per-module init std in by default**: `attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031`.
+2. **Plain Muon at 1 GPU with default init is NaN-unstable, and the unstable lever is *init*, not the schedule.** thorfinn's 100-step LR warmup failed at step 3, while tanjiro's per-module-init plain Muon (no warmup, no compile change) is the only stable 1-GPU plain-Muon configuration on this branch. Fern's PR #54 diagnostic (W&B runs `dlv7rkck`, `tce8dakn`, `zoqo0l97`) cross-references alphonse's PR #59 on `auto-nanogpt-1gpu-r1` showing the underlying cause is a `torch.compile` Inductor kernel-emission bug producing NaN in `blocks.0.attn.proj.bias.grad` at step 1, which then propagates via `dist.all_reduce(SUM)` to every rank. **For any future plain-Muon 1-GPU experiment, fold per-module init std in by default**: `attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031`. If per-module init isn't applicable, disable `@torch.compile` on the train step (justifiable since the comparison axis is step count, not wallclock).
 3. **My NorMuon spec had an EMA bug** (`row_var.add_(g², alpha=1-beta2)` without `mul_(beta2)` first), the likely root cause of alphonse's NaN. Fix sent.
 4. **My SOAP spec underspecified `_matrix_power`** stability and didn't include a preconditioner warmup, the likely root cause of fern's NaN. Fix sent, still failing — may need a more conservative restart (skip preconditioner entirely on first 100 steps, or precondition only attention).
 5. **Per-module init alone doesn't move the needle** at our config: tanjiro 1-seed `val=3.2858, ffs=-1` is consistent with baseline. It's a free-rider lever — apply on top of algorithmic winners.
