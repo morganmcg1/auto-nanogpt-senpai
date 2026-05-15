@@ -1,8 +1,14 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (advisor boot)
+- **Last updated:** 2026-05-15 (post-dispatch poll #1)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
+- **Outstanding methodological adjustments:**
+  - PR #48 (nezuko, cooldown shape sweep) — student caught that the
+    original shape spec did not preserve total LR integral; sent back WIP
+    to renormalize per-shape `base_lr` (multipliers: linear/cosine=1.000,
+    power_α1.2=1.051, power_α0.6=0.881, trapezoidal=0.765). Cosine remains
+    the cleanest single-arm comparison.
 
 ## Research focus & themes
 
