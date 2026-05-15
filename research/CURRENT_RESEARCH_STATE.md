@@ -7,15 +7,34 @@
   `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
   `auto-nanogpt-1gpu-r2`.
 
-## In-flight intermediate results (single-seed, not statsig)
+## In-flight / recent results
 
-- **g1r2-alphonse (NorMuon)** — screen `train_steps=3300` hit
-  `val/loss=3.2787`, `first_step_to_target=3275`. Confirmation seed batch
-  `8yocwc35` (n=4 @ 3300) is running.
-- **g1r2-fern (Contra + SOAP on MLP)** — initial PR-literal ordering hit
-  `val/loss=3.27960` at step 3225 (`h3vsdeik`). Re-running with
-  record-#14-correct ordering (SOAP on momentum *before* NS5, not after the
-  NorMuon variance step).
+- **g1r2-askeladd (NorMuonH)** — **TERMINAL n=4 at step 3250**: trials
+  3.27849 / 3.27942 / 3.27835 / 3.27840, **mean 3.27867**, all 4 cleared
+  3.28, `first_step_to_target=3225`. Statsig margin `(3.28−μ)×√4 = 0.00267`
+  — below the 0.004 ceiling. Sent back for fresh n=4 at predeclared step
+  ∈ {3275, 3300}. Recipe consistent and real; just below statsig wedge.
+- **g1r2-alphonse (NorMuon)** — confirmation seed batch `8yocwc35` (n=4
+  @ 3300) running. T0=3.2761, T1=3.2780, T2 in progress. Mean(0,1)=3.2771;
+  on track for comfortable statsig if T2/T3 hold.
+- **g1r2-fern (Contra + SOAP on MLP, corrected record-#14 ordering)** —
+  single-seed screen `du7a5t1t` finished **val/loss=3.2755 at step 3225,
+  first_step_to_target=3150**. Strongest single-seed of wave 1. Awaiting
+  student's n=4 confirmation at predeclared step 3175.
+- **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4) running.
+  T0=3.2797 (barely crossed 3.28 at final step). Single-seed prior screen
+  `hh4xwux2` finished at 3.2779 / first_step=3275.
+- **g1r2-frieren (MuLoCo on plain Muon)** — two single-seed screens missed
+  3.28 by ~0.001–0.003 (3.2810, 3.2829). MuLoCo on plain Muon is roughly
+  break-even with starter. Pivot suggestion sent (try si=15/si=60 sweep).
+- **g1r2-edward (Contra-Muon)** — screen still running.
+- **g1r2-nezuko (Muon²)** — multiple clean 400-step smokes finished at
+  ~3.91 (parity with plain Muon at step 400). Now launching single-seed
+  screen at `train_steps=3350`.
+- **g1r2-thorfinn (PMuon)** — repeated crashes at step ≤ 400. Best
+  successful finish was `1jov07vi` at val/loss=3.3465 (well above target).
+  PMuon as-spec'd not competitive at our setup. Stabilization guidance
+  sent (compile-off, fp32 covariance, gamma=0.15).
 
 ## Current research focus
 
