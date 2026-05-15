@@ -180,7 +180,10 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # linspace defaults to float32; for numel > 2^24 the float32 cast of
+        # numel-1 can round up out of bounds, so clamp explicitly.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -458,12 +461,84 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+# SOAP-MLP preconditioning hyperparameters
+SOAP_BETA2 = 0.90
+SOAP_EPS = 1e-10
+SOAP_PRECOND_FREQ = 10
+
+
+def _safe_eigh(symmetric: Tensor) -> Tensor:
+    """Return eigenvectors of a symmetric matrix with fp64 fallback on failure."""
+    try:
+        _, Q = torch.linalg.eigh(symmetric)
+        if not torch.isfinite(Q).all():
+            raise RuntimeError("non-finite eigenvectors")
+        return Q
+    except Exception:
+        _, Q64 = torch.linalg.eigh(symmetric.double())
+        return Q64.float()
+
+
+def muon_update_soap(grad: Tensor, momentum: Tensor, state: dict, mu: float = 0.95, nesterov: bool = True) -> Tensor:
+    """Muon update with SOAP (Shampoo-eigenbasis Adam) preconditioning applied to
+    the Nesterov-blended momentum before the Newton-Schulz polar step.
+
+    Maintains Shampoo covariance EMAs L_cov = EMA(g g^T) and R_cov = EMA(g^T g),
+    refreshes eigenbases Q_L, Q_R every SOAP_PRECOND_FREQ steps, applies Adam
+    second-moment scaling in the (Q_L, Q_R)-rotated basis, then projects back
+    and Frobenius-renormalizes to match the pre-SOAP update magnitude.
+    """
+    if "L_cov" not in state:
+        state["L_cov"] = torch.zeros(grad.shape[0], grad.shape[0], device=grad.device, dtype=torch.float32)
+        state["R_cov"] = torch.zeros(grad.shape[1], grad.shape[1], device=grad.device, dtype=torch.float32)
+        state["Q_L"] = torch.eye(grad.shape[0], device=grad.device, dtype=torch.float32)
+        state["Q_R"] = torch.eye(grad.shape[1], device=grad.device, dtype=torch.float32)
+        state["exp_avg_sq"] = torch.zeros(grad.shape[0], grad.shape[1], device=grad.device, dtype=torch.float32)
+        state["soap_step"] = 0
+
+    g32 = grad.float()
+    state["L_cov"].mul_(SOAP_BETA2).add_(g32 @ g32.T, alpha=1 - SOAP_BETA2)
+    state["R_cov"].mul_(SOAP_BETA2).add_(g32.T @ g32, alpha=1 - SOAP_BETA2)
+    state["soap_step"] += 1
+
+    if state["soap_step"] % SOAP_PRECOND_FREQ == 0:
+        eye_L = torch.eye(state["L_cov"].shape[0], device=grad.device, dtype=torch.float32).mul_(1e-30)
+        eye_R = torch.eye(state["R_cov"].shape[0], device=grad.device, dtype=torch.float32).mul_(1e-30)
+        L_sym = 0.5 * (state["L_cov"] + state["L_cov"].T) + eye_L
+        R_sym = 0.5 * (state["R_cov"] + state["R_cov"].T) + eye_R
+        state["Q_L"] = _safe_eigh(L_sym)
+        state["Q_R"] = _safe_eigh(R_sym)
+
+    # Standard momentum + Nesterov blend (matches muon_update; in-place on grad)
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+
+    # SOAP preconditioning of the Nesterov-blended momentum
+    m32 = update.float()
+    Q_L = state["Q_L"]
+    Q_R = state["Q_R"]
+    m_in_basis = Q_L.T @ m32 @ Q_R
+    state["exp_avg_sq"].mul_(SOAP_BETA2).addcmul_(m_in_basis, m_in_basis, value=1 - SOAP_BETA2)
+    m_scaled = m_in_basis / (state["exp_avg_sq"].sqrt() + SOAP_EPS)
+    m_back = Q_L @ m_scaled @ Q_R.T
+    pre_norm = m32.norm().clamp_min(1e-12)
+    post_norm = m_back.norm().clamp_min(1e-12)
+    m_back.mul_(pre_norm / post_norm)
+    update = m_back.to(grad.dtype)
+
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self.soap_target_ids: set[int] = set()
 
     @torch.no_grad()
     def step(self):
@@ -476,9 +551,12 @@ class Muon(torch.optim.Optimizer):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
-                    if len(state) == 0:
+                    if "momentum" not in state:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if id(p) in self.soap_target_ids:
+                        update = muon_update_soap(p.grad, state["momentum"], state, mu=group["mu"])
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -552,6 +630,14 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "soap_beta2": SOAP_BETA2,
+            "soap_eps": SOAP_EPS,
+            "soap_precond_freq": SOAP_PRECOND_FREQ,
+            "soap_targets": "mlp.fc.weight, mlp.proj.weight",
+            "muon_lr": 0.035,
+            "muon_weight_decay": 0.025,
+            "cooldown_frac": 0.7,
+            "ns_iterations": 12,
         },
     )
 
@@ -563,7 +649,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = 3250
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -590,6 +676,16 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Mark MLP fc/proj weights for SOAP preconditioning; attn Q/K/V/proj stay on plain Muon.
+    soap_target_ids: set[int] = set()
+    soap_target_names: list[str] = []
+    for name, p in model.blocks.named_parameters():
+        if p.ndim >= 2 and ("mlp.fc.weight" in name or "mlp.proj.weight" in name):
+            soap_target_ids.add(id(p))
+            soap_target_names.append(name)
+    optimizer2.soap_target_ids = soap_target_ids
+    if dist.get_rank() == 0:
+        print0(f"SOAP-MLP targeting {len(soap_target_ids)} params: {soap_target_names[:4]}...", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
