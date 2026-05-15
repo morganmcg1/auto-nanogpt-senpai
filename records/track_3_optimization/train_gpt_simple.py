@@ -454,7 +454,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-@torch.compile
+# @torch.compile disabled for v6: Blackwell+torch.compile Inductor bug causes
+# step-1 grad NaN cascade. See PR #54 advisor comment 2026-05-15.
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
@@ -669,11 +670,16 @@ print0("="*100)
 
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
-mbs = 64
+# mbs reduced from 64 to 32 because disabling model.compile() materializes the
+# full [mbs, seq, vocab] fp32 logits tensor inside cross_entropy (~12.6GiB at
+# mbs=64), OOM'ing at step 1. mbs=32 ~= 6.3GiB logits, fits in 95GiB Blackwell.
+mbs = int(os.environ.get("MBS", "32"))
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+# model.compile disabled for v6: Blackwell+torch.compile Inductor bug causes
+# step-1 grad NaN cascade. See PR #54 advisor comment 2026-05-15.
+# model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -728,22 +734,36 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("TRAIN_STEPS", "3350"))
 
-    # initialize model parameters
+    # initialize model parameters (per-module init std, public #5 / tanjiro #57)
+    init_log: list[tuple[str, float]] = []
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name == "proj.weight":
+                # LM head — keep zero init exactly as the starter
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+            elif "attn.proj" in name:
+                w.normal_(std=0.026)
+            elif "mlp.proj" in name:
+                w.normal_(std=0.031)
+            elif "mlp.fc" in name:
+                w.normal_(std=0.031)
+            elif "qkv" in name or "attn." in name:
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+        init_log.append((name, float(p.data.norm().item())))
+    print0("init scales after per-module init:", console=False)
+    for n, norm_val in init_log:
+        print0(f"  {n}: norm={norm_val:.4f}", console=False)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
