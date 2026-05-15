@@ -7,6 +7,22 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
+### 2026-05-15 — PR #64: PMuon (bilateral covariance EMA preconditioning) (g1r1-fern)
+
+- **speedrun/final_first_step_to_target:** 3150
+- **val/loss:** 3.27447 (margin +0.00553 ≥ 0.004 ✓, n=1)
+- **W&B run:** `rcixigyb`
+- **Key config:** PMuon (bilateral EMA covariance preconditioning, gamma=0.3, beta_cov=0.9), Muon lr=0.035, weight_decay=0.025, train_steps=3250, cooldown_frac=0.7; built on Aurora+Contra+u/w-floor base (PR #68)
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "g1r1-fern/pmuon-precon" \
+    --wandb_group "g1r1-fern/pmuon"
+  ```
+- **Notes:** PMuon replaces `polar(m)` with `polar(L^{-γ} m R^{-γ})` where `L, R` are bilateral gradient covariance EMAs computed via `torch.linalg.eigh`. 3150 steps beats prior local best of 3175 (PR #68). Matches public Record #14 step-count (3150). `sample_tensor` linspace fp64+clamp fix included. Compile bug workaround (`dynamic=True`) included.
+
 ### 2026-05-15 — PR #68: Aurora + Contra-Muon + u/w floor (g1r1-tanjiro)
 
 - **speedrun/final_first_step_to_target:** 3175
