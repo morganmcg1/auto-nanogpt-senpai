@@ -1,0 +1,88 @@
+# Baseline — auto-nanogpt-1gpu-r3
+
+## Primary metric
+
+`speedrun/final_first_step_to_target` — lowest training step at which the run
+first reached `val/loss <= 3.28`. Direction: **lower is better** (`-1` means the
+run never reached the target).
+
+Final-claim statistical rule (from `program.md` and the track 3 README):
+
+```
+(3.28 - mu) * sqrt(n) >= 0.004
+```
+
+So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
+`mean < 3.278`; `n=10` runs need `mean < 3.27873`.
+
+## Current baseline (this branch)
+
+The starter `records/track_3_optimization/train_gpt_simple.py` is **unmodified**.
+That makes the baseline the *plain Muon + aux AdamW* configuration at the
+hyperparameters of public result #12.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3350 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Hidden optimizer | `Muon(lr=0.035, weight_decay=0.025, mu=0.95)` on `model.blocks.parameters() if p.ndim >= 2` |
+| Embed optimizer | `AdamW(lr=0.3)` on `model.embed.weight` |
+| LM-head optimizer | `AdamW(lr=1/320)` on `model.proj.weight` |
+| Scalar optimizer | `AdamW(lr=0.01)` on `p for p in model.parameters() if p.ndim < 2` |
+| Aux AdamW shared | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` |
+| Init | `proj`-named weights zero; other weights torch default normal; biases zero; gains 1 |
+| LR schedule | Stable then linear cooldown, `cooldown_frac=0.7` (cooldown starts at 30% progress) |
+| Expected `val/loss` | ~3.279 (matches public result #12: 3.2790 at n=20) |
+| Expected `speedrun/final_first_step_to_target` | ~3300 |
+| Baseline W&B run | (to be filled after first confirmation run) |
+| Baseline PR | starter script @ `auto-nanogpt-1gpu-r3` |
+
+### Reproduce baseline
+
+```bash
+cd target/
+pip install -r requirements.txt
+python data/cached_fineweb10B.py 20
+torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
+  records/track_3_optimization/train_gpt_simple.py 1 \
+  --wandb_name "$STUDENT_NAME/baseline-confirm" \
+  --wandb_group "baseline"
+```
+
+## Strongest public records (track 3, bundled snapshot)
+
+Public history from `records/track_3_optimization/README.md`. For ideas only —
+each `results/<dir>/*.txt` log contains the full Python source needed to
+reproduce. Some directories also include cleaned reference scripts
+(e.g. `train_gpt_simple_muonh.py`, `train_gpt_simple_contra_muon_2.py`).
+
+| # | Steps | Loss (n) | Description | Log dir |
+| --- | --- | --- | --- | --- |
+| 20 | 3030(!) | 3.2790 (n=30) | Contra-Muon + Soft-Muon interp + SOAP MLP + SOAP attn trust gate + tuned schedule | `20260509_contra_soft_muon/` |
+| 19 | 3125 | 3.2780 (n=6) | KL-SOAP with hyperball, precond_freq=1 | `20260508_klsoap_h_clean_tuple_sweep/` |
+| 16 | 3125(!) | 3.2784 (n=8) | #14 + SOAP precond for attention + trust gate | `20260506_trustlight/` |
+| 14 | 3150(!) | 3.2776 (n=4) | Contra-Muon + SOAP-Muon for MLP | `20260504_contra_muon_mlp_soapish/` |
+| 13 | 3210(!) | 3.2785 (n=10) | NorMuonH wrapped in MuLoCo-style outer Nesterov SGD | `20260504_muloco_normuonh/` |
+| 11 | 3225(!) | 3.2785 (n=16) | NorMuon (#9 setup) + Contra-Muon | `20260501_contra_muon/` |
+| 10 | 3250 | 3.2789 (n=20) | NorMuon lr=0.035 wd=0.025, end 50 steps early | `20260503_normuon/` |
+| 9 | 3250(!) | 3.2771 (n=8) | NorMuon + u/w-floor, lr=.0375 | `20260501_skylight001/` |
+| 8 | 3250 | 3.2778 (n=10) | NorMuonH + per-module init std | `20260430_normuonh/` |
+| 7 | 3325 | 3.2752 (n=1) | Muon² with aux Adam, lr=.10 wd=.0125 | `20260501_muonsq/` |
+| 5 | 3325(!) | 3.2782 (n=10) | MuonH (hyperball) + per-module init std | `20260430_muonh/` |
+| 12 | 3325 | 3.2790 (n=20) | Plain Muon + aux Adam lr=.025 wd=.025 (= starter equiv) | `1bd8db7a-...txt` |
+| 4 | 4875 | 3.2741 (n=5) | AdamH (hyperball-AdamW) + per-module init | `20260430_adamh/` |
+
+### Useful per-100-step value gap
+
+From the public README: lowering step count of result #12 by 200 steps moves
+mean loss from 3.2790 (n=20) up to 3.2881 (n=8). That is ~0.0045 loss per 100
+steps. So a method beating baseline by 0.001 in val loss is worth about
+22 steps. Use this when ranking close results.
+
+## Update policy
+
+When a PR merges that beats this baseline on `speedrun/final_first_step_to_target`
+at a satisfying step count and seed setup, update this file with the new
+configuration (optimizer, lr, wd, schedule, init, train_steps) and the merged
+PR/W&B run id.
