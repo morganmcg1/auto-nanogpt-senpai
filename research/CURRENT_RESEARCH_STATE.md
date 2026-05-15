@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (post-dispatch poll #7, ~19:30 UTC)
+- **Last updated:** 2026-05-15 (post-dispatch poll #8, ~20:45 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -42,17 +42,19 @@ exploitations (NorMuonH/Contra-Muon/SOAP-MLP/MuonH) are still in flight;
 explore-side ideas (Lookahead/Polyak/cooldown-shape) are accumulating
 single-seed negative signal**:
 
-- alphonse `normuonh-confirm` at step ~8027 (mid-seed-2 of 8); screen
-  `ffs=3225` confirmed; confirmation batch ~30% done
-- askeladd `contra-muon-confirmation-n8-3350` at step ~7102 (~26% done);
-  seed 1 of 8 logged `ffs=3300` ≈ baseline
-- fern `soap-mlp-isolated` at step ~7052 (~26% done); seed 1 logged
-  `ffs=3200` — the only single-seed sub-3225 signal so far in wave-1
-- frieren `muonh-record5-repro-confirm-n8` at step ~2175 (~8% done);
-  healthy after the earlier crash + advisor follow-up
-- edward `muon-sq-smoke-300` at step ~270; **still in smoke phase**
-  after multiple recovery iterations on torch 2.11 + v-buffer mechanism
-  (each prior crash recovered without escalation)
+- alphonse `normuonh-confirm` at step ~9702 (seed 3/8 of n=8); **seed 1
+  AND seed 2 both logged `ffs=3225`** — record #8 ballpark holding across
+  two independent seeds now; strongest exploit-side signal
+- askeladd `contra-muon-confirmation-n8-3350` at step ~8802 (seed 3/8);
+  **3 seeds in and none have reached target (`ffs=-1`)** — Contra-Muon
+  isolated may not hold up at confirmation despite the screen `ffs=3325`
+- fern `soap-mlp-isolated` at step ~8702 (seed 3/8); seed 1 logged
+  `ffs=3200` — promising; subsequent seed ffs values not yet visible
+- frieren `muonh-record5-repro-confirm-n8` at step ~3801 (≈ mid-seed-2);
+  no terminal seed yet; running cleanly with no NaN cascades
+- edward `muon-sq-screen-3325` **launched** (step ~75) — smoke phase
+  complete, single-seed screening seed now in flight; this is the first
+  time edward has gotten past smoke
 - nezuko (cooldown shape sweep): linear cell `ffs=3300` ≈ baseline,
   cosine cell `val/loss=3.2846 ffs=-1` **missed target**, now running
   `power_alpha0p6-seed42` at step ~1350
@@ -65,16 +67,16 @@ single-seed negative signal**:
 
 ### Forming wave-1 verdicts (single-seed; still tentative)
 
-| PR | Hypothesis             | Direction so far                                      |
-| -- | ---------------------- | ----------------------------------------------------- |
-| 43 | NorMuonH               | **on-target reproduction** (screen ffs=3225 = rec #8) |
-| 44 | Contra-Muon isolated   | ≈ baseline; confirms isolation does not help          |
-| 45 | Muon²                  | unclear — still in smoke phase                        |
-| 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200, faster than rec #14)      |
-| 47 | MuonH reproduction     | unclear — n=8 confirmation just 8% in                 |
-| 48 | Cooldown shape sweep   | **so far no shape beats linear**; 2 cells left        |
-| 49 | Lookahead k×α          | **likely negative**; 3 of 4 cells miss target         |
-| 50 | Polyak/SWA τ×β         | **likely negative**; 2 of 4 cells miss target        |
+| PR | Hypothesis             | Direction so far                                                      |
+| -- | ---------------------- | --------------------------------------------------------------------- |
+| 43 | NorMuonH               | **strongest signal**: 2 of 8 confirmation seeds at `ffs=3225`         |
+| 44 | Contra-Muon isolated   | **softening**: 3 of 8 confirmation seeds miss target (ffs=-1)         |
+| 45 | Muon²                  | unclear — screening seed just launched after smoke recovery           |
+| 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200, faster than rec #14)                      |
+| 47 | MuonH reproduction     | unclear — n=8 confirmation ≈ 14% in (mid-seed-2 of 8)                 |
+| 48 | Cooldown shape sweep   | so far no shape beats linear; power_α0.6 / trapezoidal still TBD      |
+| 49 | Lookahead k×α          | **likely negative**: 3 of 4 cells miss; k=10/α=0.8 still running      |
+| 50 | Polyak/SWA τ×β         | **likely negative**: 2 of 4 cells miss; τ=0.20/β=0.995 still running  |
 
 The explore-side ideas (49, 50, 48) look like they will return clean
 negative results from the screening seed. Treat those as honest evidence
