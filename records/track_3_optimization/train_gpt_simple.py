@@ -19,6 +19,7 @@ from torch import Tensor, nn
 from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
+import numpy as np
 import wandb
 
 TARGET_VAL_LOSS = 3.28
@@ -30,6 +31,16 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=3350)
+    parser.add_argument("--cooldown_frac", type=float, default=0.7)
+    parser.add_argument("--lr_block", type=float, default=2e-4)
+    parser.add_argument("--lr_embed", type=float, default=3e-3)
+    parser.add_argument("--lr_lm_head", type=float, default=3e-4)
+    parser.add_argument("--lr_scalars", type=float, default=2e-4)
+    parser.add_argument("--wd_block", type=float, default=0.1)
+    parser.add_argument("--beta1", type=float, default=0.9)
+    parser.add_argument("--beta2", type=float, default=0.99)
+    parser.add_argument("--lr_block_sweep", default="", help="Comma-separated list of lr_block values; one per trial")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -41,10 +52,22 @@ def parse_args():
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
     args = parser.parse_args()
-    args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
+    sweep = [float(x) for x in args.lr_block_sweep.split(",") if x.strip()]
+    if sweep:
+        args.lr_block_sweep = sweep
+        args.num_trials = args.num_trials if args.num_trials is not None else len(sweep)
+        if args.num_trials != len(sweep):
+            raise ValueError(f"--num_trials ({args.num_trials}) must match length of --lr_block_sweep ({len(sweep)})")
+    else:
+        args.lr_block_sweep = None
+        args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.train_steps < 1:
+        raise ValueError("--train_steps must be positive")
+    if not (0 < args.cooldown_frac <= 1):
+        raise ValueError("--cooldown_frac must be in (0, 1]")
     return args
 
 
@@ -179,8 +202,12 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
-    if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+    n = values.numel()
+    if n > max_samples:
+        # float64 linspace + clamp: float32 silently rounds n-1 up to n for
+        # n > 2^24 (~16.7M elems), producing OOB indices on big params.
+        idx = torch.linspace(0, n - 1, max_samples, dtype=torch.float64, device=values.device).long()
+        idx.clamp_(max=n - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -252,6 +279,18 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def _safe_wandb_histogram(values: Tensor):
+    # Cast to float64 so numpy.histogram's (max - min) doesn't overflow when
+    # float32 grad/weight magnitudes are wide (e.g. 1e30 vs -1e30).
+    arr = np.asarray(values.numpy(), dtype=np.float64)
+    if arr.size == 0:
+        return None
+    try:
+        return wandb.Histogram(arr)
+    except (ValueError, OverflowError, FloatingPointError):
+        return None
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -275,19 +314,27 @@ def log_histograms(
         if sample.numel() > 0:
             weight_samples.append(sample)
     if grad_samples:
-        metrics["train/grad_hist/all"] = wandb.Histogram(torch.cat(grad_samples).numpy())
+        hist = _safe_wandb_histogram(torch.cat(grad_samples))
+        if hist is not None:
+            metrics["train/grad_hist/all"] = hist
     if weight_samples:
-        metrics["train/weight_hist/all"] = wandb.Histogram(torch.cat(weight_samples).numpy())
+        hist = _safe_wandb_histogram(torch.cat(weight_samples))
+        if hist is not None:
+            metrics["train/weight_hist/all"] = hist
     largest_params = sorted(model.named_parameters(), key=lambda item: item[1].numel(), reverse=True)
     for name, p in largest_params[:param_histogram_limit]:
         clean_name = clean_metric_name(name)
         if p.grad is not None:
             sample = sample_tensor(p.grad, histogram_samples)
             if sample.numel() > 0:
-                metrics[f"train/grad_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+                hist = _safe_wandb_histogram(sample)
+                if hist is not None:
+                    metrics[f"train/grad_hist_param/{clean_name}"] = hist
         sample = sample_tensor(p.data, histogram_samples)
         if sample.numel() > 0:
-            metrics[f"train/weight_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+            hist = _safe_wandb_histogram(sample)
+            if hist is not None:
+                metrics[f"train/weight_hist_param/{clean_name}"] = hist
     wandb.log(metrics, step=wandb_step)
 
 
@@ -458,6 +505,67 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+class Lion(torch.optim.Optimizer):
+    """Lion (EvoLved Sign Momentum, Chen et al. 2023, arXiv:2302.06675).
+
+    Update:
+        u = sign(beta1 * exp_avg + (1 - beta1) * grad)
+        p <- (1 - lr*wd) * p - lr * u
+        exp_avg <- beta2 * exp_avg + (1 - beta2) * grad
+    """
+
+    def __init__(self, params, lr=2e-4, weight_decay=0.0, betas=(0.9, 0.99)):
+        defaults = dict(lr=lr, weight_decay=weight_decay, betas=betas)
+        super().__init__(params, defaults)
+        self._cached_diagnostics: dict = {}
+        self._diag_block_group_name = "lion_blocks"
+
+    @torch.no_grad()
+    def step(self, compute_diagnostics: bool = False):
+        flip_acc = None
+        flip_total = 0
+        rms_sq_acc = None
+        rms_count = 0
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            is_block_diag = compute_diagnostics and group.get("name") == self._diag_block_group_name
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "exp_avg" not in state:
+                    state["exp_avg"] = torch.zeros_like(p)
+                exp_avg = state["exp_avg"]
+                update = (exp_avg * beta1 + g * (1 - beta1)).sign_()
+                if is_block_diag:
+                    if "last_sign" in state:
+                        flips = (update != state["last_sign"]).sum()
+                        flip_acc = flips if flip_acc is None else (flip_acc + flips)
+                        flip_total += update.numel()
+                    state["last_sign"] = update.detach().clone()
+                    sq = exp_avg.float().square().sum()
+                    rms_sq_acc = sq if rms_sq_acc is None else (rms_sq_acc + sq)
+                    rms_count += exp_avg.numel()
+                p.mul_(1 - lr * wd).add_(update, alpha=-lr)
+                exp_avg.mul_(beta2).add_(g, alpha=1 - beta2)
+        if compute_diagnostics:
+            diag: dict = {}
+            if flip_total > 0 and flip_acc is not None:
+                diag["sign_flip_fraction"] = float(flip_acc.item()) / flip_total
+                diag["sign_flip_pair_count"] = flip_total
+            if rms_count > 0 and rms_sq_acc is not None:
+                diag["exp_avg_rms_blocks"] = float((rms_sq_acc / rms_count).sqrt().item())
+            self._cached_diagnostics = diag
+
+    def pop_diagnostics(self) -> dict:
+        diag = self._cached_diagnostics
+        self._cached_diagnostics = {}
+        return diag
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -563,7 +671,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -582,23 +690,43 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
-    # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    # per-trial lr_block (supports comma-separated sweep)
+    lr_block = args.lr_block_sweep[trial_idx] if args.lr_block_sweep else args.lr_block
+
+    # create the optimizer (Lion on everything)
+    optimizer = Lion(
+        [
+            dict(params=[model.embed.weight], lr=args.lr_embed, name="lion_embed", weight_decay=0.0),
+            dict(params=[model.proj.weight], lr=args.lr_lm_head, name="lion_lm_head", weight_decay=0.0),
+            dict(params=[p for p in model.blocks.parameters() if p.ndim >= 2],
+                 lr=lr_block, name="lion_blocks", weight_decay=args.wd_block),
+            dict(params=[p for p in model.parameters() if p.ndim < 2],
+                 lr=args.lr_scalars, name="lion_scalars", weight_decay=0.0),
+        ],
+        betas=(args.beta1, args.beta2),
+    )
+    optimizers = [optimizer]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    if dist.get_rank() == 0:
+        wandb.log({
+            "trial": trial_idx,
+            "config/lr_block": lr_block,
+            "config/lr_embed": args.lr_embed,
+            "config/lr_lm_head": args.lr_lm_head,
+            "config/lr_scalars": args.lr_scalars,
+            "config/wd_block": args.wd_block,
+            "config/beta1": args.beta1,
+            "config/beta2": args.beta2,
+            "config/train_steps": train_steps,
+            "config/cooldown_frac": args.cooldown_frac,
+        }, step=trial_idx * (train_steps + 1))
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -724,7 +852,10 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
-            opt.step()
+            if isinstance(opt, Lion):
+                opt.step(compute_diagnostics=telemetry_due and dist.get_rank() == 0)
+            else:
+                opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -733,6 +864,13 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            lion_metrics: dict = {"trial": trial_idx, "train/step": train_step}
+            for opt in optimizers:
+                if isinstance(opt, Lion):
+                    for key, value in opt.pop_diagnostics().items():
+                        lion_metrics[f"train/lion/{key}"] = value
+            if len(lion_metrics) > 2:
+                wandb.log(lion_metrics, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
