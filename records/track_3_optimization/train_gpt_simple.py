@@ -488,6 +488,153 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+def _matrix_inv_fourth_with_stats(mat: Tensor, eps: float) -> tuple[Tensor, float, float, float] | None:
+    """Compute mat^(-1/4) via eigendecomposition with defensive clamping.
+
+    Symmetrizes mat first (removes asymmetry from float accumulation), then clamps
+    eigenvalues to max(eps, eigvals.max() * 1e-12) before raising to the -1/4 power.
+    The relative-to-max clamp catches the case where one tiny eigenvalue would
+    otherwise dominate the inverse. Returns (preconditioner, eigval_min_raw,
+    eigval_max_raw, cond_clamped) or None on eigh failure.
+    """
+    mat = 0.5 * (mat + mat.transpose(-1, -2))
+    try:
+        eigvals, eigvecs = torch.linalg.eigh(mat)
+    except Exception:
+        return None
+    eigval_max = float(eigvals.max().item())
+    eigval_min = float(eigvals.min().item())
+    floor = max(eps, eigval_max * 1e-12)
+    clamped = eigvals.clamp_min(floor)
+    cond = float((clamped.max() / clamped.min()).item())
+    inv_fourth = clamped.pow(-0.25)
+    precond = (eigvecs * inv_fourth.unsqueeze(0)) @ eigvecs.transpose(-1, -2)
+    return precond, eigval_min, eigval_max, cond
+
+
+class SOAPMuon(torch.optim.Optimizer):
+    """Muon with two-sided Shampoo (SOAP-style) preconditioning before NS-orthogonalization.
+
+    For each 2D param with gradient G of shape [m, n], maintains float64 EMA stats:
+      L = EMA(G G^T)  shape [m, m]
+      R = EMA(G^T G)  shape [n, n]
+
+    Every `precond_freq` steps (after `warmup_steps`), refreshes preconditioners
+    L_inv4, R_inv4 via eigendecomposition. The preconditioned gradient
+    `L_inv4 @ G @ R_inv4` feeds Muon's NS-orthogonalized momentum update.
+
+    During warmup (step <= warmup_steps) the preconditioner is bypassed and the
+    plain Muon NS direction is used, allowing L and R to accumulate signal before
+    the first refresh takes over. Preconditioner state is held in float64 for the
+    wide dynamic range of the G G^T outer-product accumulation.
+    """
+
+    def __init__(self, params, lr=0.035, weight_decay=0.025, mu=0.95,
+                 soap_beta=0.95, precond_freq=32, eps=1e-30, warmup_steps=50):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        soap_beta=soap_beta, precond_freq=precond_freq,
+                        eps=eps, warmup_steps=warmup_steps)
+        super().__init__(params, defaults)
+        self._L_conds: list[float] = []
+        self._R_conds: list[float] = []
+        self._L_eigval_mins: list[float] = []
+        self._L_eigval_maxs: list[float] = []
+        self._R_eigval_mins: list[float] = []
+        self._R_eigval_maxs: list[float] = []
+        self._refresh_time_ms: float = 0.0
+        self._refresh_count: int = 0
+        self._refresh_fail_count: int = 0
+
+    def get_and_reset_metrics(self) -> dict:
+        if self._refresh_count == 0 and self._refresh_fail_count == 0:
+            return {}
+        metrics = {
+            "train/soap/precond_refresh_time_ms": self._refresh_time_ms,
+            "train/soap/precond_refresh_count": float(self._refresh_count),
+            "train/soap/precond_refresh_fail_count": float(self._refresh_fail_count),
+        }
+        if self._refresh_count > 0:
+            metrics["train/soap/L_cond"] = sum(self._L_conds) / len(self._L_conds)
+            metrics["train/soap/R_cond"] = sum(self._R_conds) / len(self._R_conds)
+            metrics["train/soap/L_cond_max"] = max(self._L_conds)
+            metrics["train/soap/R_cond_max"] = max(self._R_conds)
+            metrics["train/soap/L_eigval_min"] = min(self._L_eigval_mins)
+            metrics["train/soap/L_eigval_max"] = max(self._L_eigval_maxs)
+            metrics["train/soap/R_eigval_min"] = min(self._R_eigval_mins)
+            metrics["train/soap/R_eigval_max"] = max(self._R_eigval_maxs)
+        self._L_conds.clear()
+        self._R_conds.clear()
+        self._L_eigval_mins.clear()
+        self._L_eigval_maxs.clear()
+        self._R_eigval_mins.clear()
+        self._R_eigval_maxs.clear()
+        self._refresh_time_ms = 0.0
+        self._refresh_count = 0
+        self._refresh_fail_count = 0
+        return metrics
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        for group in self.param_groups:
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            soap_beta = group["soap_beta"]
+            precond_freq = group["precond_freq"]
+            eps = group["eps"]
+            warmup_steps = group["warmup_steps"]
+            mu = group["mu"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    g = p.grad
+                    if len(state) == 0:
+                        m, n = g.shape
+                        state["L"] = torch.eye(m, device=g.device, dtype=torch.float64)
+                        state["R"] = torch.eye(n, device=g.device, dtype=torch.float64)
+                        state["L_inv4"] = state["L"].clone()
+                        state["R_inv4"] = state["R"].clone()
+                        state["momentum"] = torch.zeros_like(p)
+                        state["step"] = 0
+                    g_d = g.double()
+                    state["L"].mul_(soap_beta).addmm_(g_d, g_d.T, alpha=1 - soap_beta)
+                    state["R"].mul_(soap_beta).addmm_(g_d.T, g_d, alpha=1 - soap_beta)
+                    state["step"] += 1
+                    if state["step"] % precond_freq == 0:
+                        torch.cuda.synchronize()
+                        t0 = time.perf_counter()
+                        L_result = _matrix_inv_fourth_with_stats(state["L"], eps)
+                        R_result = _matrix_inv_fourth_with_stats(state["R"], eps)
+                        torch.cuda.synchronize()
+                        self._refresh_time_ms += 1000 * (time.perf_counter() - t0)
+                        if L_result is not None and R_result is not None:
+                            state["L_inv4"], L_min, L_max, cond_L = L_result
+                            state["R_inv4"], R_min, R_max, cond_R = R_result
+                            self._L_conds.append(cond_L)
+                            self._R_conds.append(cond_R)
+                            self._L_eigval_mins.append(L_min)
+                            self._L_eigval_maxs.append(L_max)
+                            self._R_eigval_mins.append(R_min)
+                            self._R_eigval_maxs.append(R_max)
+                            self._refresh_count += 1
+                        else:
+                            self._refresh_fail_count += 1
+                    if state["step"] > warmup_steps:
+                        g_precond = (state["L_inv4"] @ g_d @ state["R_inv4"]).to(g.dtype)
+                    else:
+                        g_precond = g
+                    update = muon_update(g_precond, state["momentum"], mu=mu)
+                    p.mul_(1 - lr * wd)
+                    p.add_(update, alpha=-lr)
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -556,6 +703,18 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps_override": int(os.environ.get("TRAIN_STEPS", "3350")),
+            "optimizer/muon_attn/lr": 0.035,
+            "optimizer/muon_attn/weight_decay": 0.025,
+            "optimizer/muon_attn/mu": 0.95,
+            "optimizer/soap_muon_mlp/lr": 0.035,
+            "optimizer/soap_muon_mlp/weight_decay": 0.025,
+            "optimizer/soap_muon_mlp/mu": 0.95,
+            "optimizer/soap_muon_mlp/soap_beta": 0.95,
+            "optimizer/soap_muon_mlp/precond_freq": 32,
+            "optimizer/soap_muon_mlp/eps": 1e-30,
+            "optimizer/soap_muon_mlp/warmup_steps": 50,
+            "optimizer/soap_muon_mlp/precond_dtype": "float64",
         },
     )
 
@@ -567,7 +726,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = int(os.environ.get("TRAIN_STEPS", "3350"))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -591,10 +750,16 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    mlp_block_params = [p for n, p in model.blocks.named_parameters()
+                        if p.ndim >= 2 and (n.endswith("mlp.fc.weight") or n.endswith("mlp.proj.weight"))]
+    attn_block_params = [p for n, p in model.blocks.named_parameters()
+                         if p.ndim >= 2 and not (n.endswith("mlp.fc.weight") or n.endswith("mlp.proj.weight"))]
+    optimizer2 = Muon(attn_block_params, lr=0.035, weight_decay=0.025, mu=0.95)
+    optimizer2.param_groups[0]["name"] = "muon_attn"
+    optimizer3 = SOAPMuon(mlp_block_params, lr=0.035, weight_decay=0.025, mu=0.95,
+                          soap_beta=0.95, precond_freq=32, eps=1e-30, warmup_steps=50)
+    optimizer3.param_groups[0]["name"] = "soap_muon_mlp"
+    optimizers = [optimizer1, optimizer2, optimizer3]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -729,6 +894,12 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            soap_metrics = optimizer3.get_and_reset_metrics()
+            if soap_metrics:
+                soap_metrics["trial"] = trial_idx
+                soap_metrics["train/step"] = train_step
+                wandb.log(soap_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
