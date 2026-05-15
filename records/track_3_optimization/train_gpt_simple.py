@@ -30,6 +30,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override the per-trial training step count (default: 3350).")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -254,6 +256,41 @@ def log_weight_telemetry(
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
     wandb.log(metrics, step=wandb_step)
+
+
+def log_adafactor_telemetry(
+    model: nn.Module,
+    adafactor: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    param_names = {id(p): name for name, p in model.named_parameters()}
+    metrics = {"trial": trial_idx, "train/step": step}
+    for group in adafactor.param_groups:
+        group_name = group.get("name", "adafactor")
+        v_rms_tensors: list[Tensor] = []
+        for p in group["params"]:
+            state = adafactor.state.get(p, {})
+            if not state:
+                continue
+            name = param_names.get(id(p), "unknown").replace(".", "/")
+            if "row_var" in state:
+                metrics[f"train/adafactor/{name}/row_var_rms"] = float(
+                    state["row_var"].pow(2).mean().sqrt().item()
+                )
+            if "col_var" in state:
+                metrics[f"train/adafactor/{name}/col_var_rms"] = float(
+                    state["col_var"].pow(2).mean().sqrt().item()
+                )
+            if "v" in state:
+                v_rms_tensors.append(state["v"].pow(2).mean().sqrt())
+        if v_rms_tensors:
+            metrics[f"train/adafactor/{group_name}/v_rms_mean"] = float(
+                torch.stack(v_rms_tensors).mean().item()
+            )
+    if len(metrics) > 2:
+        wandb.log(metrics, step=wandb_step)
 
 
 def log_histograms(
@@ -488,6 +525,64 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class Adafactor(torch.optim.Optimizer):
+    """Adafactor (Shazeer & Stern 2018) without scale_parameter/relative_step.
+
+    Factored second-moment EMA for ndim>=2 tensors; Adam-style EMA for ndim<2.
+    Per-tensor RMS clip of the update to clip_threshold. State stored in fp32.
+    eps2 is added inside g**2 before the EMA update (canonical eps1 role).
+    """
+    def __init__(self, params, lr=1e-3, eps2=1e-3, clip_threshold=1.0,
+                 decay_rate=-0.8, weight_decay=0.0):
+        defaults = dict(lr=lr, eps2=eps2, clip_threshold=clip_threshold,
+                        decay_rate=decay_rate, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            decay_rate = group["decay_rate"]
+            eps2 = group["eps2"]
+            clip_threshold = group["clip_threshold"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                state["step"] += 1
+                beta2_t = 1.0 - state["step"] ** decay_rate
+                g = p.grad.to(torch.float32)
+                g_sq = g.pow(2).add_(eps2)
+                if g.dim() >= 2:
+                    if "row_var" not in state:
+                        state["row_var"] = torch.zeros(g.shape[:-1], dtype=torch.float32, device=g.device)
+                        state["col_var"] = torch.zeros(g.shape[:-2] + g.shape[-1:], dtype=torch.float32, device=g.device)
+                    row_var = state["row_var"]
+                    col_var = state["col_var"]
+                    row_var.mul_(beta2_t).add_(g_sq.mean(dim=-1), alpha=1.0 - beta2_t)
+                    col_var.mul_(beta2_t).add_(g_sq.mean(dim=-2), alpha=1.0 - beta2_t)
+                    # V[i,j] ~ R[i] * C[j] / mean(R)  =>  1/sqrt(V) = sqrt(mean(R)) / (sqrt(R) * sqrt(C))
+                    r_rsqrt = row_var.rsqrt().unsqueeze(-1)
+                    c_rsqrt = col_var.rsqrt().unsqueeze(-2)
+                    update = g.mul_(r_rsqrt).mul_(c_rsqrt).mul_(row_var.mean().sqrt())
+                else:
+                    if "v" not in state:
+                        state["v"] = torch.zeros_like(g, dtype=torch.float32)
+                    v = state["v"]
+                    v.mul_(beta2_t).add_(g_sq, alpha=1.0 - beta2_t)
+                    update = g.mul_(v.rsqrt())
+                # Per-tensor RMS clip to clip_threshold
+                rms = update.pow(2).mean().sqrt()
+                clip_factor = torch.clamp(rms / clip_threshold, min=1.0)
+                update.div_(clip_factor)
+                if wd > 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -567,12 +662,18 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3350
 
-    # initialize model parameters
+    # initialize model parameters (per-module init std; mandatory for plain-Muon-1-GPU stability)
     for name, p in model.named_parameters():
         w = p.data
-        if name.endswith("weight"):
+        if name.endswith("attn.proj.weight"):
+            w.normal_(std=0.026)
+        elif name.endswith("mlp.proj.weight"):
+            w.normal_(std=0.031)
+        elif name.endswith("mlp.fc.weight"):
+            w.normal_(std=0.031)
+        elif name.endswith("weight"):
             if "proj" in name:
                 w.zero_()
             elif "embed" in name:
@@ -587,10 +688,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = Adafactor(
+        [dict(params=[model.embed.weight], lr=0.3, name="adafactor_embed"),
+         dict(params=[model.proj.weight], lr=1/320, name="adafactor_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adafactor_scalars")],
+        eps2=1e-3, clip_threshold=1.0, decay_rate=-0.8, weight_decay=0,
+    )
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -733,6 +836,13 @@ for trial_idx in range(args.num_trials):
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+            log_adafactor_telemetry(
+                model=model,
+                adafactor=optimizer1,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
