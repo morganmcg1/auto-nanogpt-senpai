@@ -9,32 +9,40 @@
 
 ## In-flight / recent results
 
-- **g1r2-askeladd (NorMuonH)** — **TERMINAL n=4 at step 3250**: trials
-  3.27849 / 3.27942 / 3.27835 / 3.27840, **mean 3.27867**, all 4 cleared
-  3.28, `first_step_to_target=3225`. Statsig margin `(3.28−μ)×√4 = 0.00267`
-  — below the 0.004 ceiling. Sent back for fresh n=4 at predeclared step
-  ∈ {3275, 3300}. Recipe consistent and real; just below statsig wedge.
-- **g1r2-alphonse (NorMuon)** — confirmation seed batch `8yocwc35` (n=4
-  @ 3300) running. T0=3.2761, T1=3.2780, T2 in progress. Mean(0,1)=3.2771;
-  on track for comfortable statsig if T2/T3 hold.
-- **g1r2-fern (Contra + SOAP on MLP, corrected record-#14 ordering)** —
-  single-seed screen `du7a5t1t` finished **val/loss=3.2755 at step 3225,
-  first_step_to_target=3150**. Strongest single-seed of wave 1. Awaiting
-  student's n=4 confirmation at predeclared step 3175.
-- **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4) running.
-  T0=3.2797 (barely crossed 3.28 at final step). Single-seed prior screen
-  `hh4xwux2` finished at 3.2779 / first_step=3275.
-- **g1r2-frieren (MuLoCo on plain Muon)** — two single-seed screens missed
-  3.28 by ~0.001–0.003 (3.2810, 3.2829). MuLoCo on plain Muon is roughly
-  break-even with starter. Pivot suggestion sent (try si=15/si=60 sweep).
-- **g1r2-edward (Contra-Muon)** — screen still running.
-- **g1r2-nezuko (Muon²)** — multiple clean 400-step smokes finished at
-  ~3.91 (parity with plain Muon at step 400). Now launching single-seed
-  screen at `train_steps=3350`.
-- **g1r2-thorfinn (PMuon)** — repeated crashes at step ≤ 400. Best
-  successful finish was `1jov07vi` at val/loss=3.3465 (well above target).
-  PMuon as-spec'd not competitive at our setup. Stabilization guidance
-  sent (compile-off, fp32 covariance, gamma=0.15).
+- **g1r2-edward (Contra-Muon)** — single-seed screen `qxzuvfmm` finished
+  **val/loss=3.2746 at step 3275, first_step_to_target=3200**. Strongest
+  single-seed of wave 1 (already statsig at n=1, margin 0.0054). Asked to
+  launch n=4 confirmation at predeclared step 3225.
+- **g1r2-fern (Contra + SOAP on MLP, corrected ordering)** — single-seed
+  screen `du7a5t1t` finished val/loss=**3.2755** @ step 3225 / ffs=3150.
+  n=4 confirmation `6bbhoxm1` at train_steps=3175 in flight (T0 step ~1850/3175).
+- **g1r2-alphonse (NorMuon)** — confirmation `8yocwc35` (n=4 @ 3300)
+  running. T0=3.2761, T1=3.2780, T2=3.2791, T3 in progress. Mean(0–2)=3.2778
+  — exactly at the n=4 statsig boundary. T3 will decide.
+- **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4 @ 3275)
+  running. T0=3.2797, T1=3.2787. Mean(0,1)=3.2792 — projecting non-statsig
+  similar to askeladd. Prior single-seed screen `hh4xwux2`: 3.2779 @ 3325.
+- **g1r2-askeladd (NorMuonH)** — first n=4 conf at 3250 finished at
+  mean **3.27867** (non-statsig, margin 0.00267). New n=4 conf `6rf3nerz`
+  at train_steps=3275 launched per advisor request.
+- **g1r2-frieren (MuLoCo on Muon)** — Two prior single-seed screens
+  3.2810 / 3.2829 (both miss). One sweep arm `ecohqy9o` (si=15, lr=0.7)
+  running at step 1825/3300, val 3.491 / not at target. Waiting on terminal.
+- **g1r2-nezuko (Muon²)** — screen `n18mqjfy` at train_steps=3350, currently
+  step 3175/3350 with val/loss=**3.293**. Concerning — hasn't reached
+  3.28 yet with 175 steps remaining. May just barely cross or miss.
+- **g1r2-thorfinn (PMuon)** — stabilized variant `w3ure8fc` (compile-off
+  + fp32 covariance + gamma=0.15) running at step 1000/3275, val 3.632.
+  Slow (~2.7s/step) but no crash. ~88 min ETA. Prior `1jov07vi` finished
+  at 3.3465 (well above target).
+
+## Single-seed leaderboard so far (informational, not statsig)
+| student | recipe | run | val/loss @ step | ffs | margin n=1 |
+| --- | --- | --- | --- | --- | --- |
+| edward | Contra-Muon | `qxzuvfmm` | 3.2746 @ 3275 | 3200 | **0.0054** ✓ |
+| fern | Contra+SOAP-MLP (record-#14 ord) | `du7a5t1t` | 3.2755 @ 3225 | 3150 | 0.0045 ✓ |
+| alphonse | NorMuon (T0 of n=4) | `8yocwc35` T0 | 3.2761 @ 3300 | 3225 | 0.0039 |
+| tanjiro | Newton-Muon (prior screen) | `hh4xwux2` | 3.2779 @ 3325 | 3275 | 0.0021 |
 
 ## Current research focus
 
