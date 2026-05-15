@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (post-dispatch poll #3, ~16:45 UTC)
+- **Last updated:** 2026-05-15 (post-dispatch poll #4, ~17:25 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -23,43 +23,73 @@
     blow-up was a direct consequence of the bad description, not a
     student-side bug.
 
-## Wave-1 in-flight signal (poll #3; single-seed unless noted; **not** terminal)
+## Wave-1 in-flight signal (poll #4; single-seed unless noted; **not** terminal)
 
-Live W&B status as of 2026-05-15T16:45Z. All 7 of 8 wave-1 students have
-healthy live runs; only edward (Muon²) is still stuck pending the recipe
-correction above.
+Live W&B status as of 2026-05-15T17:25Z. 7 of 8 students continue to advance
+their screening or confirmation matrices. Best completed single-seed screen
+**`final_first_step_to_target`** numbers so far:
 
-| PR | Student  | Live run                                  | Step  | val/loss | Notes                                          |
-| -- | -------- | ----------------------------------------- | ----- | -------- | ---------------------------------------------- |
-| 43 | alphonse | `normuonh-confirm`                        | 2800  | 3.3466   | confirmation seed in progress                  |
-| 44 | askeladd | `contra-muon-confirmation-n8-3350`        | 2050  | 3.4453   | confirmation seed in progress                  |
-| 45 | edward   | `muon-squared-smoke` (latest)             | crash | —        | pre-correction smoke; correction posted 16:34  |
-| 46 | fern     | `soap-mlp-isolated`                       | 1975  | 3.4530   | screening in progress                          |
-| 47 | frieren  | `muonh-screen3325-s1`                     | 125   | 4.8532   | restarted with grad clip; clean grads          |
-| 48 | nezuko   | `cooldown-linear-seed42`                  | 3015  | 3.3112   | post-fix linear baseline ~ on track            |
-| 49 | tanjiro  | `lookahead-k5-a0.8-seed0`                 | 2409  | 3.3864   | second cell of k×α grid                        |
-| 50 | thorfinn | `polyak-tau0.10-beta0.999`                | 3225  | 3.3018   | tail-EMA window now active                     |
+| PR | Student  | Best completed screen           | val/loss | `ffs`    | Note                                                      |
+| -- | -------- | ------------------------------- | -------- | -------- | --------------------------------------------------------- |
+| 43 | alphonse | `normuonh-screen` (3250 steps)  | 3.2785   | **3225** | matches record #8 ballpark (record #8 mu=3.2778 n=10)     |
+| 44 | askeladd | `contra-muon-screening`         | 3.2784   | 3325     | isolated Contra-Muon ≈ baseline                           |
+| 48 | nezuko   | `cooldown-linear-seed42`        | 3.2784   | 3300     | post-fix linear baseline; cosine seed now running         |
+| 49 | tanjiro  | `lookahead-k5-a0.8-seed0`       | 3.282    | -1       | k=5,α=0.8 missed at full 3350 budget; k=10,α=0.5 running  |
+| 50 | thorfinn | `polyak-tau0.10-beta0.999`      | 3.297    | -1       | tail EMA missed target; tau=0.20 now running              |
 
-Earlier single-seed screens from poll #2 still hold (alphonse NorMuonH
-matched record #11; askeladd isolated Contra-Muon ≈ baseline; tanjiro
-k=5/α=0.5 missed at step 3350). Each of those runs is now followed by a
-confirmation or next-cell run as the screening matrix continues.
+Active runs (no terminal verdict yet):
+- alphonse `normuonh-confirm` running (confirmation seed in progress)
+- askeladd `contra-muon-confirmation-n8-3350` at step ~3225, val/loss 3.285
+- fern `soap-mlp-isolated` at step ~3125, val/loss 3.285 (clean grads)
+- nezuko `cooldown-cosine-seed42` at step ~775, ramp phase
+- thorfinn `polyak-tau0.20-beta0.999` at step ~1000, ramp phase
+- tanjiro `lookahead-k10-a0.5-seed0` at step ~200, ramp phase
+- frieren `muonh-screen3325-s1` **crashed at step ~600** — advisor comment
+  posted requesting torch 2.11 confirmation + per-layer grad-norm trace
+- edward — no post-correction runs yet; advisor follow-up posted (#45)
+  pointing them at both the corrected Muon² mechanism AND the torch 2.11
+  fix nezuko diagnosed
 
 **Important:** all of the above are single-seed screening numbers. Treat
 them as *signal that the recipe runs and approaches the target*, **not as
 record claims**. Terminal verdicts wait for the predeclared n-seed
 confirmation batches the PRs asked for.
 
-## Pre-existing starter bug — `sample_tensor` / histogram telemetry
+**Most promising direction so far:** alphonse `NorMuonH` (record #8
+reproduction). One-seed screen hit `ffs=3225` at 3250 steps, in line with
+the record #8 mu=3.2778 across n=10. If the n=10 confirmation seed batch
+holds, this is on track to match a known strong recipe and is the natural
+backbone to start stacking Contra-Muon / SOAP-MLP onto in wave 2.
 
-Three independent students (alphonse on PR #43, askeladd on PR #44, fern on
-PR #46) hit and fixed the same crash in
-`records/track_3_optimization/train_gpt_simple.py`: `sample_tensor` (used
-by histogram logging) computed sample indices with a path that could
-produce CUDA `IndexKernel ... in` assertion failures on the very first
-histogram log. The fix is small and orthogonal to any optimizer
-hypothesis. Cherry-pick the cleanest student bug-fix commit into the
-advisor branch so it is no longer rediscovered by every wave-1 student.
+## Pre-existing starter bugs — fixed in-flight by wave-1 students
+
+Two orthogonal infrastructure bugs were discovered and fixed by students
+during wave-1; both will ride into the advisor branch via the squash merge
+of the first winning wave-1 PR. Advisor comments acknowledging both fixes
+posted on the relevant PRs.
+
+1. **`sample_tensor` float32 rounding** (PRs #43, #44, #46 independently
+   fixed; #48 documented root cause). In
+   `records/track_3_optimization/train_gpt_simple.py` →
+   `sample_tensor`, `torch.linspace(0, n-1, max_samples, dtype=float32,
+   device='cuda').long()` rounds the last index *up* to `n` when `n >
+   2^24`, which then triggers a CUDA `IndexKernel ... in` assertion in
+   `log_histograms`. Fix: cast `linspace` through `float64`. Fires on
+   the larger embed / proj weight tensors only, so smaller tensors mask
+   the bug until those are histogrammed.
+
+2. **`torch==2.10` + `model.compile` produces NaN at step 2** (diagnosed
+   by g1r5-nezuko, PR #48). The starter README warns about this for A100;
+   it reproduces on the Blackwell node too — grad/max_abs explodes to
+   ~`bf16-max` at step 2 regardless of optimizer or seed. Fix:
+   `pip install torch==2.11` (also update `requirements.txt`). nezuko
+   verified clean training curves on 2.11. This is **the most likely
+   cause of every student's ~147M-nonfinite smoke run** observed earlier;
+   it is *not* a Muon² polynomial issue, not a MuonH init issue, not a
+   SOAP-MLP issue — it is a torch/`model.compile` issue. Wall-clock cost
+   ~3.0 s/step on 2.11 vs. ~1.9 s/step on 2.10 (still well inside the
+   timeout). The advisor has informed edward (#45) and frieren (#47),
+   both of whom may have been hitting this rather than recipe issues.
 
 ## Infrastructure note — rate-limit-induced polling stalls (recurring)
 
