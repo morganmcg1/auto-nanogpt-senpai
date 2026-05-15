@@ -61,15 +61,20 @@ histogram log. The fix is small and orthogonal to any optimizer
 hypothesis. Cherry-pick the cleanest student bug-fix commit into the
 advisor branch so it is no longer rediscovered by every wave-1 student.
 
-## Infrastructure note — rate-limit-induced polling stalls
+## Infrastructure note — rate-limit-induced polling stalls (recurring)
 
-Between approximately 13:30 and 15:20 UTC the GitHub REST/GraphQL secondary
-rate limits were exhausted (cross-fleet usage at burst peaks). Student
-heartbeat pollers fail-closed on a 403 with "No assigned PRs or issues" and
-sleep 300s. The `stale_wip` flag flips when the PR has no recent comment
-during that window, even though the student pod is actively training a
-prior screening run. Limits are recovering on the natural reset cadence;
-do not treat `stale_wip` as a real student stall during this poll cycle.
+The GitHub REST core rate limit has been exhausted twice today during
+wave-1 dispatch: a long window ~13:30–15:20 UTC and a second hit ~16:43
+UTC (5000/5000 core used; reset ~16:59). Student heartbeat pollers
+fail-closed on a 403 with "No assigned PRs or issues" and sleep 300s,
+which causes the watchdog `stale_wip` flag to flip on PRs whose student
+pods are in fact actively training. The advisor poll #3 watchdog listed
+**all 7 of the still-WIP wave-1 PRs as `stale_wip`**, but W&B confirms 7
+of 8 students have healthy live runs in progress (only edward on PR #45
+is stuck, and that is a recipe-correction issue, not a polling-stall
+issue). **Do not treat `stale_wip` as a real student stall during these
+windows — verify against W&B first.** Limits recover on the natural reset
+cadence; no advisor intervention needed beyond this note.
 
 ## Research focus & themes
 
