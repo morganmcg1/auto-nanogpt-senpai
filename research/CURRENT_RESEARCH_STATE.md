@@ -13,16 +13,17 @@
 
 ## Wave 1 portfolio (assigned 2026-05-15)
 
-| PR  | Student     | Slug                          | Family            | Notes |
-| --- | ----------- | ----------------------------- | ----------------- | ----- |
-| #12 | r1-alphonse | lookahead-on-baseline         | outer-loop        | Edited from #20-stack version → simple-baseline Lookahead sweep |
-| #18 | r1-askeladd | trapezoidal-lr-short-cooldown | schedule          | `cooldown_frac` 0.7 → 0.2 + 40-step warmup |
-| #27 | r1-edward   | normuon-port                  | preconditioner    | Pivoted from #20 ablation → NorMuon port (records #8/#10) |
-| #28 | r1-fern     | schedule-free-muon            | schedule          | Polyak iterate averaging, constant LR for Muon group |
-| #29 | r1-frieren  | mup-perlayer-lr-scaling       | optimizer-hparam  | Split Muon into attn vs MLP groups, scale MLP lr ×0.5 |
-| #30 | r1-nezuko   | post-ns-nesterov              | optimizer-update  | Apply Nesterov in orthogonalized space (after NS, not before) |
-| #31 | r1-tanjiro  | spectral-weight-decay         | regularization    | Rank-1 spectral WD vs L2 WD on Muon params |
-| #32 | r1-thorfinn | adopt-aux-optimizer           | optimizer         | ADOPT instead of AdamW for embed/lm_head/scalar aux groups |
+| PR  | Student     | Slug                          | Family            | Status   | Notes |
+| --- | ----------- | ----------------------------- | ----------------- | -------- | ----- |
+| #12 | r1-alphonse | lookahead-on-baseline         | outer-loop        | WIP      | Lookahead sweep on simple baseline |
+| #18 | r1-askeladd | trapezoidal-lr-short-cooldown | schedule          | **closed (failed)** | cf=0.2 val/loss 3.329 vs target 3.28; cooldown is load-bearing. Bug fix cherry-picked. |
+| #27 | r1-edward   | normuon-port                  | preconditioner    | WIP      | Paper-faithful post-NS single-axis after advisor send-back |
+| #28 | r1-fern     | schedule-free-muon            | schedule          | WIP      | Polyak iterate averaging, constant LR for Muon group |
+| #29 | r1-frieren  | mup-perlayer-lr-scaling       | optimizer-hparam  | WIP      | Attn vs MLP LR split |
+| #30 | r1-nezuko   | post-ns-nesterov              | optimizer-update  | WIP      | Nesterov applied in orthogonalized space |
+| #31 | r1-tanjiro  | spectral-weight-decay         | regularization    | WIP      | Rank-1 spectral WD vs L2 WD on Muon params |
+| #32 | r1-thorfinn | adopt-aux-optimizer           | optimizer         | WIP      | ADOPT replaces AdamW for embed/lm_head/scalar aux groups |
+| #41 | r1-askeladd | pmuon-bilateral-cov-precond   | preconditioner    | WIP      | Port PMuon (record #18) — bilateral streaming cov precond before polar |
 
 ## Themes for the opening wave
 
