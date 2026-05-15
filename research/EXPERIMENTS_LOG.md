@@ -6,6 +6,55 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 22:30 — Boot 11 snapshot: 3 PRs closed as negative, 3 fresh hypotheses assigned, askeladd SI pivot detected
+
+Major boot. Pre-commit closes triggered for 3 PRs based on W&B audit + new assignments created for the freed students. alphonse n=4 top-up still running cleanly.
+
+### Closures (3)
+
+**PR #58 thorfinn (Cooldown shape sweep) — CLOSED negative**
+- `cooldown-linear-0.5-s0` (`36879rn9`): finished `val=3.28503 ffs=-1`
+- `cooldown-linear-0.7-s0` (`4p7md0ss`): finished `val=3.2857 ffs=-1`
+- Both arms missed by 0.005-0.006. Cooldown shape is at most a ~25-step lever and can't close the gap on plain Muon. Per-module init lever (the real win from this PR's diagnostic) is already free-riding into every other student's experiment via `cc1c710` + documented std values.
+
+**PR #54 fern (SOAP-MLP precond before NS) — CLOSED negative**
+- Smoke v7 (`20tfdpcn`): `val=NaN` at step 300; `train/grad/nonfinite_count = 147,553,152` (massive explosion)
+- Despite 200-step preconditioner-skip gate + float64 SOAP state + per-module init + `expandable_segments`, the optimizer still NaN'd. 6+ NaN'd smokes total across v2..v7. **SOAP-MLP at 1 GPU mbs=64 is fundamentally NaN-unstable** — likely due to L/R precond matrix conditioning degenerating when only 1 fwd-bwd per optim step accumulates the inner-product. Multi-GPU SOAP would work but violates the benchmark contract.
+
+**PR #86 nezuko (MuonSquared) — CLOSED negative**
+- Smoke v6 (`1yadafph`): NaN'd at step 50, `train/grad/nonfinite_count = 147,758,208`
+- Despite combined `eps=1e-5 + beta2=0.99 + 5-step warmup gate`, MuonSquared still divergent. 6+ NaN'd smokes. **The structural issue**: MuonSquared divides `update / (sqrt(v) + eps)` BEFORE NS5, amplifying noise non-linearly in iter-2 to iter-6. Compared to NorMuon's canonical 1D post-NS variant which divides AFTER NS5 (and works), the pre-NS division is incompatible at 1 GPU mbs=64.
+
+### New assignments (3)
+
+**PR #99 fern ← Adafactor aux**: Replace AdamW for `embed.weight + proj.weight + scalars` aux groups with inline Adafactor (factored row+col second-moment EMA). Orthogonal to block-side Muon, so stacks with NorMuon merge. Per-module init applied. Expected free ~0.001-0.005 val/loss improvement on the aux-dominated paths.
+
+**PR #100 nezuko ← Sign-Muon**: `update = NS5(sign(momentum))` instead of `NS5(momentum)`. Sign bounds NS5 input at ±1 per element, avoiding the magnitude variability that killed MuonSquared. 2-arm screen at `lr ∈ {0.035, 0.05}`. Hypothesis: NaN-stable spectral-orthogonalization with bounded inputs, competitive with plain Muon.
+
+**PR #101 thorfinn ← Polyak EMA**: Maintain EMA-averaged weights, eval val/loss from EMA at each val event (live weights for training). 3-arm decay sweep `{0.995, 0.999, 0.9995}`. Hypothesis: EMA smooths final-cooldown noise, ~25-75 step improvement on `ffs` for free. Stacks with NorMuon.
+
+### askeladd #52 — SI pivot detected (Option A), deadline held
+
+Student launched `5tecoakm` "muonh-hyperball-si-screen-s0" at 21:38 UTC — one minute BEFORE my 21:39 UTC deadline check-in. The `-si-` in the name indicates the always-active `scale_invariant_update_` variant (Option A from my 21:39 message). Run is at step 1450/3350, healthy. **Held the deadline close** and posted ack requesting a brief PR comment + audit findings.
+
+### alphonse #51 top-up — still running clean
+
+`40g9f47i` at cumulative step 1450/3300 of trial 0 (of 2 in this top-up). `val=3.5465` (mid-trajectory). `nonfinite_count=0`. ETA ~2.5h for both trials to complete and reach n=4 total (combined with 2 from `8yocwc35`).
+
+### tanjiro #87 4-arm sweep — arm 1 running
+
+Student launched serial sweep at 22:23 UTC with the 4 corners I authorized. Arm 1 `(lr=0.035, TARGET_UW=0.30)` running. ETA ~3.7h for all 4 arms.
+
+### frieren #55 — `0qry1ckh` running, no new advisor action
+
+Still on track to fail merge bar per boot-10 analysis. No student post since.
+
+### edward #53 — still running confirmation
+
+`n7ea9xyr` continues. Trials 1+2 both missed. No new state.
+
+---
+
 ## 2026-05-15 22:10 — Boot 10 snapshot: alphonse top-up launched, two PR labels swapped back, frieren near-miss
 
 Boot 10 focus was triaging two premature `status:review` swaps and routing a student crash response. No new terminal SENPAI-RESULTs yet. Posted 4 advisor comments (#51 alphonse, #87 tanjiro, #58 thorfinn, #55 frieren) all via GraphQL (REST rate-limited until 22:19 UTC). All 8 r3 student pods healthy 1/1.

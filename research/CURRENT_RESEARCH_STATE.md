@@ -1,16 +1,17 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-15 22:10 UTC
+- **Last updated:** 2026-05-15 22:30 UTC
 - **Most recent human-team directive:** None received.
 - **Branch state:** 1 commit beyond seed (cc1c710 — `sample_tensor` clamp fix).
-  No experiment PRs merged yet. Wave 1 ~9 hours in.
-  - **alphonse #51 NorMuon**: n=2 already passes stat rule (trial 0 `val=3.2761 ffs=3225`, trial 1 `val=3.2780 ffs=3250`; margin 0.00417). Original `8yocwc35` died mid trial 2 from external SIGTERM (operational, not NaN). Student launched `40g9f47i` top-up n=2 to reach n=4 total. ETA ~3-4h. Rebased branch.
-  - frieren #55 MuLoCo confirm: `tvb6lpz9` SIGTERM root-cause confirmed; trial 1 cleanly missed at val=3.28159. Restart `0qry1ckh` running n=4. Trial 1 at step 2975 val=3.31429 — trajectory matches tvb6lpz9 within 0.002. **Merge math concern**: if all 4 trials land 3.281-3.285, mean ~3.282 > 3.278 (n=4 merge bar). Pre-commit close as negative if mean > 3.278.
-  - edward #53 Contra-Muon confirm: still running, trials 1+2 both missed target. No new state.
-  - tanjiro #87 u/w-floor: status:review premature (sweep not done) — swapped back to status:wip. Screen miss at val=3.28266. 4-arm corners sweep still authorized; awaiting student launch.
-  - thorfinn #58 cooldown sweep: status:review premature — swapped back to status:wip. Diagnostic accepted (v1 mass failures = `sample_tensor` bug + Muon-1-GPU instability, not launcher). v2 `linear-0.5` finished missed (val=3.28503); `linear-0.7` still running.
-  - askeladd #52 MuonH: deadline 22:40 UTC; no student response yet.
-  - PRs #56 (Lion), #57 (init-only) closed as negative.
+  No experiment PRs merged yet. Wave 1 ~9.5 hours in. Boot 11 closed 3 PRs as negative and assigned 3 fresh hypotheses.
+  - **alphonse #51 NorMuon**: n=2 already passes stat rule. `40g9f47i` top-up running clean at step 1450 of trial 0 (of 2 in this top-up). ETA ~01:00 UTC for n=4 terminal.
+  - **PRs CLOSED as negative (boot 11)**: #54 fern SOAP-MLP (smoke v7 NaN), #58 thorfinn cooldown sweep (both arms missed), #86 nezuko MuonSquared (smoke v6 NaN at step 50).
+  - **PRs NEW (boot 11)**: #99 fern Adafactor aux, #100 nezuko Sign-Muon, #101 thorfinn Polyak EMA. All 3 fresh wave-2 hypotheses, orthogonal to NorMuon, can run immediately without waiting for alphonse merge.
+  - frieren #55 MuLoCo: `0qry1ckh` running n=4. Pre-commit close negative if mean > 3.278.
+  - edward #53 Contra-Muon: still running confirmation. Pre-commit close if all 4 trials miss.
+  - tanjiro #87 u/w-floor: 4-arm corners sweep launched 22:23 UTC. ETA ~02:00 UTC.
+  - askeladd #52 MuonH: launched SI variant (Option A) `5tecoakm` at 21:38 UTC. Held deadline close; audit confirms healthy progress.
+  - PRs #56 (Lion), #57 (init-only) closed as negative previously.
 
 ## Research goal
 
@@ -23,19 +24,20 @@ Optimizer, schedule, init, telemetry editable.
 
 | PR | Student | Lever | W&B signal | Advisor action |
 | --- | --- | --- | --- | --- |
-| #51 | alphonse | NorMuon (canonical 1D post-NS) | n=2 confirmed `mu=3.27706 ffs=3237.5` (stat 0.00416). `8yocwc35` SIGTERM'd mid trial 2; `40g9f47i` top-up n=2 running, rebased | **Wait for n=4** terminal SENPAI-RESULT; do not merge on n=2 |
-| #52 | askeladd | MuonH clip-only | All r3 runs missed (budget0.85 `val=3.295`, budget1.15 missed, post-18:32 crashed) | Deadline 22:40 UTC; pre-commit close + reassign if no response |
+| #51 | alphonse | NorMuon (canonical 1D post-NS) | n=2 confirmed `mu=3.27706 ffs=3237.5` (stat 0.00416). `40g9f47i` top-up running clean, step 1450 of trial 0 | **Wait for n=4** terminal SENPAI-RESULT; do not merge on n=2 |
+| #52 | askeladd | MuonH (Option A: SI always-active) | `5tecoakm` SI screen running, step 1450/3350. Healthy | Held deadline close; audit pending screen completion (~50 min) |
 | #53 | edward | Contra-Muon | `n7ea9xyr` confirm; trials 1+2 `ffs=-1` | Let confirmation complete; pre-commit close if all 4 miss |
-| #54 | fern | SOAP-MLP precond before NS | smoke v6c clean at mbs=32 (CONTRACT VIOLATION); v7 plan: mbs=64 + 200-step SOAP gate | Authorized smoke v7; pre-commit close if v7 NaNs |
-| #55 | frieren | MuLoCo outer Nesterov | `tvb6lpz9` SIGTERM (trial 1 missed `val=3.28159`); `0qry1ckh` n=4 fresh, trial 1 mid-cooldown step 2975 | Crash accounting OK; pre-commit close as negative if n=4 mean > 3.278 |
-| #58 | thorfinn | Cooldown shape × frac sweep | v2 `linear-0.5` finished `val=3.28503` missed; `linear-0.7` step 1825 running | Diagnostic accepted; pre-commit close as negative if linear-0.7 misses |
+| #55 | frieren | MuLoCo outer Nesterov | `tvb6lpz9` SIGTERM (trial 1 missed `val=3.28159`); `0qry1ckh` n=4 fresh, trial 1 mid-cooldown step 2975 | Pre-commit close as negative if n=4 mean > 3.278 |
+| #54 fern, #58 thorfinn, #86 nezuko | — | (CLOSED) | All closed as negative this boot | See `EXPERIMENTS_LOG.md` boot-11 entry |
 
-## Wave 2 — running
+## Wave 2 — running (fresh-assigned in boot 11)
 
 | PR | Student | Lever | W&B signal | Advisor action |
 | --- | --- | --- | --- | --- |
-| #86 | nezuko | MuonSquared | 5 smokes all NaN/OOM through both fallbacks | Authorized smoke v6 (`eps=1e-5, beta2=0.99, 5-step warmup`); pre-commit close if v6 NaNs |
-| #87 | tanjiro | u/w-floor | screen `b5ucb98s` finished MISSED `val=3.28266 ffs=-1` (margin 0.0027 wrong side) | Authorized 4-arm corners sweep `(lr ∈ {0.035, 0.04}) × (TARGET_UW ∈ {0.30, 0.40})`; label corrected back to status:wip |
+| #87 | tanjiro | u/w-floor | 4-arm sweep launched 22:23 UTC, arm 1 running | Awaiting per-arm table at halfway point |
+| #99 | fern | Adafactor aux for embed/lm_head/scalars | (assigned) | Awaiting smoke launch |
+| #100 | nezuko | Sign-Muon (sign before NS5) | (assigned) | Awaiting smoke launch |
+| #101 | thorfinn | Polyak EMA weights at val time | (assigned) | Awaiting smoke launch |
 
 ## Key learnings carried forward
 
@@ -50,25 +52,27 @@ Optimizer, schedule, init, telemetry editable.
 
 ## Current research focus and themes
 
-- **Imminent merge candidate**: alphonse #51 (NorMuon). n=2 passes already; waiting for n=4 terminal SENPAI-RESULT after `40g9f47i` top-up completes (~3-4h).
-- **Backup candidates**: tanjiro #87 (u/w-floor) if a corner of 4-arm sweep clears target; edward #53 (Contra-Muon) if n=4 mean clears.
+- **Imminent merge candidate**: alphonse #51 (NorMuon). n=2 passes already; waiting for n=4 terminal SENPAI-RESULT after `40g9f47i` top-up completes (~2.5h, ETA ~01:00 UTC).
+- **Backup candidates**: tanjiro #87 (u/w-floor) if a corner of 4-arm sweep clears target; askeladd #52 SI variant if screen clears; edward #53 (Contra-Muon) if n=4 mean clears.
 - **At-risk PRs (pre-commit close)**:
   - **#55 frieren** (MuLoCo) as negative if n=4 mean > 3.278 (likely given trial-1 trajectory).
-  - **#58 thorfinn** (cooldown sweep) as negative if `linear-0.7` also misses.
-  - **#52 askeladd** (MuonH clip-only) if no student response by 22:40 UTC.
-  - **#54 fern** (SOAP) if v7 NaNs.
-  - **#86 nezuko** (MuonSq) if v6 NaNs.
+  - **#52 askeladd** (MuonH SI) if screen also misses target (close as `negative: MuonH at 1 GPU misses with both clip-only and SI variants`).
   - **#53 edward** (Contra-Muon) if all 4 trials miss.
+- **Wave-2 fresh hypotheses (just assigned, boot 11)**:
+  - #99 fern: Adafactor aux (orthogonal to block-side; stacks with NorMuon)
+  - #100 nezuko: Sign-Muon (bounded NS5 input; alternative to MuonSquared)
+  - #101 thorfinn: Polyak EMA (smooths final-cooldown noise; stacks with NorMuon)
 
 ## Next research directions (wave 3 candidates)
 
 Activate once alphonse #51 merges:
 
-1. **Stack winners**: NorMuon × Contra-Muon (= public #11, `ffs=3225 n=16`); NorMuon × MuLoCo; NorMuon × u/w-floor (= public #9, `ffs=3250 n=8`).
-2. **Stack-aware schedule**: cosine vs linear cooldown on top of NorMuon (replaces thorfinn's standalone schedule sweep).
-3. **Adafactor aux**: replace AdamW for embed/lm_head — should be orthogonal to block-side levers.
-4. **Soft-Muon interpolation** (public #20 component) — sign-modulated Contra-Muon/Muon interpolation.
-5. **PSGD-Kron** — only attempt if torch.compile compile-mode bug is bypassed (low priority given SOAP struggles).
+1. **Stack winners**: NorMuon × Contra-Muon (= public #11, `ffs=3225 n=16`); NorMuon × MuLoCo (if frieren #55 closes negative, this becomes a wave-3 stack-up rather than confirmation); NorMuon × u/w-floor (= public #9, `ffs=3250 n=8`); NorMuon × Adafactor aux (if fern #99 lands).
+2. **Stack-aware schedule**: cosine vs linear cooldown on top of NorMuon (replaces thorfinn's closed standalone schedule sweep).
+3. **Stack EMA**: thorfinn #101 EMA × NorMuon — orthogonal levers, should compound.
+4. **Soft-Muon interpolation** (public #20 component) — sign-modulated Contra-Muon/Muon interpolation. Note: nezuko #100 Sign-Muon is a simpler related variant.
+5. **PSGD-Kron** — only attempt if torch.compile compile-mode bug is bypassed (low priority given SOAP struggles documented in closed #54).
+6. **Init lever**: per-module init has been the silent free-rider — try lower qkv init std (currently default) as a follow-on.
 
 ## Operational notes
 
