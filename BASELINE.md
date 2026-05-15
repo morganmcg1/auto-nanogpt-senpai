@@ -38,3 +38,4 @@ rule, using the fixed track 3 contract (architecture, data, batch size,
 | Date | PR | Steps | Mean loss (n) | Notes |
 | -    | -  | -     | -             | -     |
 | boot | —  | 3030  | 3.2790 (30)   | inherited from public record history |
+| 2026-05-15 | #60 | 3275 | 3.2766 (2)   | Muon² (Adam v-EMA before NS, NS=12). First branch stat-sig crossing of 3.28; runs s0oq3dnx, 4hedrgf4. Bundled `sample_tensor` float64 precision fix and `NANOGPT_NS_ITERS` env var. |
