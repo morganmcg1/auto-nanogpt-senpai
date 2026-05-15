@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-15 (afternoon, post-merge)
+- **Last update:** 2026-05-15 (late afternoon — compile-bug discovery from alphonse)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3175 steps (local best) toward the public record of 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -42,7 +42,11 @@ W&B run: `lg4xdlkt`. Merged 2026-05-15.
 
 2. **Muon weight_decay gotcha in BASELINE.md** — INCORRECT. The baseline `Muon.step` **does** apply WD via `p.mul_(1 - lr*wd)` (confirmed by askeladd PR #61). BASELINE.md will need a correction. The practical effect: effective WD at lr=0.035, wd=0.025 is 0.035×0.025=0.000875 per step — very small but not zero.
 
-3. **Step-1 gradient explosion** — PRs #59 (alphonse) and #65 (frieren) diverged (gnorm ~10^5, NaN by step 25). The same code trains fine for 6 other students. Sent back with diagnostic plans. Likely pod-specific bf16/precision environment issue.
+3. **Step-1 gradient explosion — ROOT-CAUSED (alphonse PR #59).** `torch.compile(model, dynamic=False)` (the default in `train_gpt_simple.py`) NaNs the gradient of `blocks.0.attn.proj.bias` at step 1 *only on RTX PRO 6000 Blackwell GPUs*. All other layers compute identical, finite gradients (~2.6e+04). With compile disabled, training is healthy at ~6244 ms/step. This is an Inductor kernel bug, not a code bug.
+   - **Why other students train fine:** update/weight floors (u/w floor, Frobenius renorm, Aurora equilibration) clamp out the seed NaN before it propagates through `dist.all_reduce` and NS. The bug is *present but masked* in their runs.
+   - **Implication for Wave 2:** any future stack that drops floors (e.g. pure KL-SOAP-H, plain SOAP-MLP without surrounding renorm) is vulnerable on the affected pods.
+   - **Workaround under investigation:** alphonse is testing `dynamic=True`, `mode="reduce-overhead"`, `mode="max-autotune"`. If any compile mode produces clean grads, we keep `train_steps=3350` and proceed.
+   - **Fallback:** disable compile and truncate the run (~6244 ms/step × 1500 steps ≈ 156 min; full 3350 steps would exceed timeout).
 
 4. **thorfinn #69 val 5.68 at step 1890** — KL-SOAP-H is dramatically above target. Either the eigenbasis isn't stabilized yet or the approach needs a different lr. Monitor for natural convergence; may need to send back with lr scan instructions if still high at step 2500.
 
