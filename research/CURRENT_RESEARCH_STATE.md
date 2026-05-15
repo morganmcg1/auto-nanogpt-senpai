@@ -1,82 +1,72 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-15 20:35 UTC (wave 1 terminal results received)
+- **Date:** 2026-05-15 21:30 UTC (wave 2 launched, wave 1 merged)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
-- **Current best (public leaderboard):** 3030 steps (record #20 — Contra-Soft-Muon + KL-SOAP + trust gate + u/w-floor)
-- **Wave 1 CONFIRMED WIN (pending merge):** alphonse Muon² at **3275 steps** (n=2 stat-sig, mu=3.276565)
+- **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — **alphonse Muon² merged 2026-05-15**
+- **Public leaderboard best:** 3030 steps (record #20 — Contra-Soft-Muon + KL-SOAP + trust gate + u/w-floor)
 
-## CONFIRMED WINNER — alphonse Muon² (#60) — READY TO MERGE
+## Merged winner — alphonse Muon² (#60) — NOW BASELINE
 
-- Arm-A NS=12, seed 1: val=3.276593, first_step=3275 (run s0oq3dnx)
-- Arm-A NS=12, seed 2: val=3.276536, first_step=3275 (run 4hedrgf4)
-- Arm-B NS=8, seed 1: val=3.277377, first_step=3300 (run pg0uma5w)
-- **n=2 stat-sig (NS=12)**: mu=3.276565, (3.28-3.276565)*sqrt(2)=0.004859 >= 0.004 ✓
-- **NS=12 wins over NS=8**: gap is 0.000813 (~20× inter-seed sigma), not a close call at this scale
-- **Branch first stat-sig crossing** of 3.28 in fewer than 3350 steps on a simple stack
-- Merge blocked by GH rate limit — will merge at ~21:26 UTC reset
+**Mechanism:** Adam v-EMA applied to raw momentum BEFORE Newton-Schulz orthogonalization.
+- 2 seeds, both first_step_to_target=3275, val≈3.2766
+- n=2 stat-sig: mu=3.276565, margin=0.004859 ≥ 0.004 ✓
+- First branch stat-sig crossing of 3.28 in < 3350 steps
 
-## Wave 1 closed PRs
+## Wave 1 final status
 
 | PR | Student | Result |
 |----|---------|--------|
-| #62 | askeladd | SF-Muon FAILED (best 3.3638). Cooldown is load-bearing — SF can't substitute. |
-| #77 | thorfinn | Lion aux groups FAILED (best 3.3109). AdamW better for small aux groups. |
-| #66 | edward | Cosine cooldown FAILED (NaN cascade + linear baseline diverged). Branch corruption. Reassigned. |
+| #60 | alphonse | **MERGED** — Muon² NS=12, 3275 steps, n=2 stat-sig |
+| #62 | askeladd | CLOSED — SF-Muon failed (3.3638). Cooldown is load-bearing. |
+| #66 | edward | CLOSED — Cosine/linear baseline both NaN/diverged. Branch corruption. |
+| #75 | tanjiro | CLOSED — NS=8 safe (within noise), NS=6 fails. Wall-clock savings < 1%. |
+| #77 | thorfinn | CLOSED — Lion aux groups failed (3.3109). |
 
-## Wave 1 diagnostic complete — tanjiro NS sweep (#75)
-
-| Arm | NS iters | val/loss | first_step | Wall-clock saved |
-|-----|----------|----------|------------|-----------------|
-| A | 12 | 3.27890 | 3325 | — |
-| B | 8 | 3.27849 | 3325 | 0.60% (10.83ms/step) |
-| C | 6 | 3.28980 | — (FAILED) | 1.11% (20ms/step) |
-
-**Conclusion**: NS=8 is correctness-safe (matches NS=12 within seed noise) but wall-clock savings are minimal (<1%) because NS inner loop is not the bottleneck on this 1-GPU setup. NS=6 fails. Both NS=12 and NS=8 crossings are baseline-noise — Muon² (NS=12 n=2) is the rigorous result.
-
-## Active wave 1 PRs (still running)
+## Active PRs (wave 1 still running + wave 2)
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #70 | fern | Cooldown frac=0.5/0.6/0.7 | Confirmation seed 3 complete; n=3 mean=3.27917 < threshold 3.2777 — NOT stat-sig; WIP |
-| #72 | frieren | Nesterov mu sweep 0.90–0.98 | mu screening still running |
-| #73 | nezuko | WD warmup schedule | Arm-B running |
-| #90 | askeladd | muP LR sweep (0.025/0.030/0.035/0.042) | Arm-A running; b/c/d had precision bug |
-| #91 | thorfinn | Adaptive aspect-ratio scaling | Corrected formula (min denominator) sent; WIP |
-| #92 | edward | Orthogonal QKV initialization | Just assigned |
+| #70 | fern | Cooldown frac=0.5 | Confirm-s4 running (step 2345); n=3 mean=3.279, NOT stat-sig even with seed 4 likely |
+| #72 | frieren | Nesterov mu sweep 0.90–0.98 | Screening done (best mu=0.92, val=3.3678); full 3350-step run at mu=0.92 + 0.95 requested |
+| #73 | nezuko | WD warmup schedule | In flight |
+| #90 | askeladd | muP LR sweep (0.025/0.030/0.035/0.042) | arm-a done (3.2784 @ lr=0.025); arms b/c/d blocked by precision bug (fix sent) |
+| #91 | thorfinn | Aspect-ratio formula | Corrected formula (min denominator) sent; WIP |
+| #92 | edward | Orthogonal QKV init | Just assigned |
+| **#96** | **alphonse** | **Muon² LR retune (0.030/0.0375/0.040)** | **JUST ASSIGNED — wave 2** |
+| **#97** | **tanjiro** | **Muon² beta2 sweep (0.95/0.98/0.999)** | **JUST ASSIGNED — wave 2** |
 
-## Current research focus and themes
+## Wave 2 focus: characterize the Muon² baseline
 
-The branch's baseline Muon recipe crossed 3.28 for the first time with Muon²:
-- **Mechanism confirmed**: Adam 2nd-moment preconditioning before NS produces better-conditioned input, enabling faster convergence.
-- **NS iteration floor**: NS=8 safe (< 1% wall-clock gain), NS=6 too few. NS=12 remains optimal for this scale.
-- **LR and mu sweeps** (askeladd/frieren) will jointly characterize the (lr, mu) hyperparameter grid at the new Muon² baseline.
-- **Orthogonal QKV init** (edward) — spectral initialization that starts attention weights with unit singular values.
-- **Aspect-ratio formula** (thorfinn) — calibration of Muon's per-matrix scale factor.
-- **Cooldown shape** (fern, frieren) — still active but single-seed crossings are within baseline noise.
+Wave 1 established:
+1. **Muon² (NS=12)** is the mechanism — Adam 2nd-moment preconditioning before NS, 75 steps faster than starter
+2. **NS=8 is safe** for compute headroom but < 1% wall-clock gain at this scale
+3. **NS=6 fails** (under-orthogonalization)
+4. **Cooldown shape**: fern's frac=0.5 shows positive signals but not stat-sig; not a clear win
 
-## Potential next research directions (wave 2 candidates)
+Wave 2 immediately explores the two hyperparameters in Muon² that are most likely to improve on the new baseline:
+- **LR retune** (alphonse #96): lr=0.035 was tuned for vanilla Muon; {0.030, 0.0375, 0.040} sweep
+- **beta2 sweep** (tanjiro #97): paper default 0.999 may be wrong for our small-batch/short-horizon regime; {0.95, 0.98, 0.999}
 
-**Highest priority (informed by wave 1)**:
-1. **Muon² + Contra-Soft stack** — alphonse's mechanism composes orthogonally with record #20's Contra-Soft + SOAP. Combine and target sub-3250.
-2. **Muon² + NS=8** — if the compute headroom is validated, stack Muon²+NS=8 and do a proper LR retune at NS=8. May unlock step savings + speed.
-3. **SOAP-Muon port** — biggest lever to close the gap to 3030; never tested on simple recipe.
-4. **Muon² + LR retune** — alphonse notes lr=0.035 was tuned for vanilla Muon; a sweep {0.030, 0.0375, 0.040} could cut another 25-50 steps.
-5. **Muon² + beta2 sweep** — the paper used beta2=0.999; a coarse sweep {0.95, 0.98, 0.999} is cheap and may tune the 2nd-moment EMA for our smaller-batch regime.
+## Potential next research directions (wave 3 candidates)
 
-**Diagnostic (wave 1 incomplete)**:
-- **muP LR scaling sweep** (askeladd #90 running) — confirms whether 0.035 is the LR peak
-- **Nesterov mu sweep** (frieren #72 running) — completes (lr, mu) grid with askeladd's LR sweep
-- **WD warmup** (nezuko #73) — low-priority, baseline noise crossings already seen without WD warmup
+**Highest priority**:
+1. **Muon² + Contra-Soft stack** — wave-1 winner + record #20's mechanism. Target sub-3250.
+2. **Muon² + SOAP-MLP** — biggest lever to close gap to 3030. Complex port but highest ceiling.
+3. **Muon² + LR + beta2 combined** — if wave 2 finds (lr*, beta2*) ≠ (0.035, 0.999), apply combined tuning.
+4. **Muon² + cooldown_frac=0.5** — compose cooldown finding with Muon² if fern's signal holds.
+
+**Diagnostic still needed**:
+- Nesterov mu (frieren #72 — awaiting full 3350-step runs)
+- muP LR for vanilla Muon (askeladd #90 — b/c/d blocked by bug)
+- Orthogonal QKV init (edward #92 — just assigned)
+- Aspect-ratio formula (thorfinn #91 — WIP)
 
 ## Notes
 
-- Banned during this launch: Prime Intellect autonomous-run materials
-  (`https://www.primeintellect.ai/auto-nanogpt` and the
-  `experiments-autonomous-speedrunning` repo).
+- Banned during this launch: Prime Intellect autonomous-run materials.
 - All matrix changes must keep dataset / batch size / architecture fixed.
 - No multiple fwd/bwd passes per step (rules out SAM).
-- No per-run val-loss early stopping.
-- Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`
-- Infrastructure: `sample_tensor` float32 OOB bug fix is in multiple student branches (nezuko canonical); will land on advisor branch when alphonse's #60 merges.
-- GitHub rate limit: cyclic issue — hit again at 20:34 UTC, reset ~21:26 UTC.
+- Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
+- Merged baseline: `sample_tensor` float64 fix + `NANOGPT_NS_ITERS` env var now in main branch.
+- GitHub rate limit: ~3597/5000 remaining at 21:22 UTC; reset at 1778883580 (~22:26 UTC).
