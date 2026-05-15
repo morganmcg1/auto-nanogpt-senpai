@@ -24,6 +24,7 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+NS_ITERATIONS = int(os.environ.get("NS_ITERATIONS", "8"))
 
 
 def parse_args():
@@ -180,7 +181,8 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # float64 to avoid the float32 endpoint rounding above ~2^24 indices producing OOB indices
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device, dtype=torch.float64).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -441,7 +443,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(NS_ITERATIONS):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -552,6 +554,7 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "ns_iterations": NS_ITERATIONS,
         },
     )
 
