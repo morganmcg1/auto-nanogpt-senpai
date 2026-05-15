@@ -568,25 +568,40 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = int(os.environ.get("TRAIN_STEPS", 3350))
     # cooldown lever for PR #58 sweep: shape in {"linear","cosine","sqrt","quadratic"}.
     # Default values match the starter (linear, 0.7); env override lets the sweep launcher
     # pick each arm without editing source per arm.
     cooldown_frac = float(os.environ.get("COOLDOWN_FRAC", 0.7))
     shape = os.environ.get("COOLDOWN_SHAPE", "linear")
-    # 100-step warmup applied uniformly to all arms (advisor-mandated for 1-GPU stability)
-    warmup_steps = 100
+    # Warmup steps: env-var controlled; 0 = disabled, default 100. Advisor-revised after
+    # the 100-step warmup alone failed at step 3; per-module init is now the primary
+    # stabilizer (Smoke A path), warmup retained as a fallback (Smoke B path).
+    warmup_steps = int(os.environ.get("WARMUP_STEPS", 100))
+    # Per-module init std applied uniformly across all 12 cooldown-shape arms (advisor
+    # direction: this is the actual 1-GPU plain-Muon stabilizer, per tanjiro #57 evidence).
+    attn_proj_std = 0.026
+    mlp_proj_std = 0.031
+    mlp_fc_std = 0.031
 
-    # initialize model parameters
+    # initialize model parameters (per-module init std on block weights)
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name == "proj.weight":
+                # LM head — keep zero init exactly as the starter
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # default torch init
+                w.normal_()  # torch default
+            elif "attn.proj" in name:
+                w.normal_(std=attn_proj_std)
+            elif "mlp.proj" in name:
+                w.normal_(std=mlp_proj_std)
+            elif "mlp.fc" in name:
+                w.normal_(std=mlp_fc_std)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                # qkv and any other linear weight: starter default
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -612,7 +627,7 @@ for trial_idx in range(args.num_trials):
     # learning rate schedule: warmup, then stable, then cooldown of selected shape
     def set_hparams(step, cooldown_frac=cooldown_frac, shape=shape, warmup_steps=warmup_steps):
         assert 0 <= step < train_steps
-        if step < warmup_steps:
+        if warmup_steps > 0 and step < warmup_steps:
             eta = (step + 1) / warmup_steps  # +1 so step=0 is non-zero
         else:
             eff_step = step - warmup_steps
