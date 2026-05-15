@@ -36,3 +36,9 @@ Survey the current state:
 
 Prioritize experiments that can reduce the step count while preserving the
 fixed benchmark contract and the statistical rule in `program.md`.
+
+Keep the portfolio balanced. Retune LR/WD and cooldowns when a new method needs
+fair treatment, but do not spend the whole run on scalar hyperparameter search.
+Assign fresh optimizer mechanisms, preconditioners, schedule ideas,
+initialization ideas, and clean ablations alongside exploitation of known
+strong records.

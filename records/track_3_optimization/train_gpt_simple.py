@@ -23,6 +23,7 @@ import wandb
 
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
+SLOPE_FRACTION = 0.10
 
 
 def parse_args():
@@ -136,6 +137,30 @@ def prefixed(prefix: str, stats: dict[str, float]) -> dict[str, float]:
     return {f"{prefix}/{key}": value for key, value in stats.items()}
 
 
+def loss_slope_stats(history: list[tuple[int, float]], window_steps: int) -> dict[str, float]:
+    if len(history) < 2:
+        return {}
+    current_step = history[-1][0]
+    window_start = current_step - window_steps
+    points = [(step, loss) for step, loss in history if step >= window_start]
+    if len(points) < 2:
+        return {}
+    xs = torch.tensor([step for step, _ in points], dtype=torch.float64)
+    ys = torch.tensor([loss for _, loss in points], dtype=torch.float64)
+    centered_xs = xs - xs.mean()
+    denom = centered_xs.square().sum()
+    if denom == 0:
+        return {}
+    slope = float((centered_xs * (ys - ys.mean())).sum().item() / denom.item())
+    return {
+        "loss_per_step": slope,
+        "loss_per_100_steps": 100 * slope,
+        "loss_delta": float(ys[-1].item() - ys[0].item()),
+        "window_steps": int(xs[-1].item() - xs[0].item()),
+        "points": len(points),
+    }
+
+
 def param_module_types(model: nn.Module) -> dict[str, str]:
     modules = dict(model.named_modules())
     out = {}
@@ -172,14 +197,24 @@ def log_training_telemetry(
     wandb_step: int,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
+    grad_stats = aggregate_stats(grads)
+    weight_stats = aggregate_stats([(name, p.data) for name, p in model.named_parameters()])
     metrics = {
         "trial": trial_idx,
         "train/step": step,
         "train/loss": train_loss,
         "speedrun/train_steps": train_steps,
         "speedrun/target_val_loss": TARGET_VAL_LOSS,
+        "train/grad/global_norm": grad_stats.get("norm", 0.0),
+        "train/grad/rms": grad_stats.get("rms", 0.0),
+        "train/grad/max_abs": grad_stats.get("max_abs", 0.0),
+        "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
+        "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
     }
-    metrics.update(prefixed("train/grad/all", aggregate_stats(grads)))
+    weight_norm = weight_stats.get("norm", 0.0)
+    if weight_norm:
+        metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
+    metrics.update(prefixed("train/grad/all", grad_stats))
     for opt_idx, opt in enumerate(optimizers):
         for group_idx, group in enumerate(opt.param_groups):
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
@@ -200,11 +235,16 @@ def log_weight_telemetry(
     wandb_step: int,
 ):
     weights = [(name, p.data) for name, p in model.named_parameters()]
+    weight_stats = aggregate_stats(weights)
     metrics = {
         "trial": trial_idx,
         "train/step": step,
+        "train/weight/global_norm": weight_stats.get("norm", 0.0),
+        "train/weight/rms": weight_stats.get("rms", 0.0),
+        "train/weight/max_abs": weight_stats.get("max_abs", 0.0),
+        "train/weight/nonfinite_count": weight_stats.get("nonfinite_count", 0.0),
     }
-    metrics.update(prefixed("train/weight/all", aggregate_stats(weights)))
+    metrics.update(prefixed("train/weight/all", weight_stats))
     for module_type, tensors in grouped_by_type(weights, module_types).items():
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
@@ -511,6 +551,7 @@ if dist.get_rank() == 0:
             "histogram_interval": args.histogram_interval,
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
+            "slope_fraction": SLOPE_FRACTION,
         },
     )
 
@@ -582,6 +623,10 @@ for trial_idx in range(args.num_trials):
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
+    slope_window_steps = max(100, slope_interval)
+    train_loss_history: list[tuple[int, float]] = []
+    val_loss_history: list[tuple[int, float]] = []
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -605,12 +650,13 @@ for trial_idx in range(args.num_trials):
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
             if dist.get_rank() == 0:
+                val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
                     best_val_loss = val_loss_float
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
-                wandb.log({
+                metrics = {
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
@@ -622,7 +668,9 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
-                }, step=trial_idx * (train_steps + 1) + step)
+                }
+                metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
@@ -649,9 +697,21 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
-        wandb_step = trial_idx * (train_steps + 1) + step + 1
+        slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
+        wandb_step = trial_idx * (train_steps + 1) + train_step
+        if dist.get_rank() == 0:
+            train_loss_history.append((train_step, train_loss))
+        if dist.get_rank() == 0 and slope_due:
+            slope_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/slope/window_target_steps": slope_window_steps,
+            }
+            slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
+            wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
                 model=model,
@@ -659,7 +719,7 @@ for trial_idx in range(args.num_trials):
                 module_types=module_types,
                 train_loss=train_loss,
                 trial_idx=trial_idx,
-                step=step + 1,
+                step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
@@ -670,14 +730,14 @@ for trial_idx in range(args.num_trials):
                 model=model,
                 module_types=module_types,
                 trial_idx=trial_idx,
-                step=step + 1,
+                step=train_step,
                 wandb_step=wandb_step,
             )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
                 trial_idx=trial_idx,
-                step=step + 1,
+                step=train_step,
                 wandb_step=wandb_step,
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,

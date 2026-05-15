@@ -47,6 +47,12 @@ Allowed research levers:
 - Model initialization.
 - Validation/logging telemetry that does not change the benchmark semantics.
 
+Do not let the research collapse into only learning-rate and weight-decay
+hill-climbing. Exploitation matters, especially when retuning a new method, but
+the biggest wins are likely to come from fresh optimizer mechanisms, clever
+preconditioners, schedule ideas, parameterization tricks, and principled
+ablations of complex stacks.
+
 ## Codebase
 
 - `records/track_3_optimization/train_gpt_simple.py` - primary editable
@@ -67,21 +73,22 @@ Allowed research levers:
 
 ## Running
 
-Install dependencies and prepare the default token cache:
+Use the same structure as the public speedrun quickstart, with W&B args added.
+Install dependencies, prepare the default token cache, then launch `torchrun`:
 
 ```bash
 pip install -r requirements.txt
 python data/cached_fineweb10B.py 20
-```
-
-Run the starter optimizer benchmark on all visible GPUs:
-
-```bash
 torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
   records/track_3_optimization/train_gpt_simple.py \
   --wandb_name "$STUDENT_NAME/<short-description>" \
   --wandb_group "<hypothesis-or-pr>"
 ```
+
+On Senpai pods, `python data/cached_fineweb10B.py 20` automatically uses the
+shared PVC cache at `$PVC_MOUNT_PATH/datasets/fineweb10B` when the PVC is
+mounted. It symlinks that cache to `data/fineweb10B`, so the `torchrun` command
+stays identical to the public benchmark command apart from the W&B flags.
 
 The script remains backward-compatible with the public benchmark's positional
 trial count:
@@ -102,7 +109,16 @@ The starter script logs rich telemetry on rank 0:
 - `speedrun/final_best_val_loss` and `speedrun/final_best_val_step`.
 - `val/target_margin` and `val/single_run_stat_sig_margin`.
 - `train/loss` - training cross-entropy for the just-completed optimizer step.
+- `train/slope/loss_per_step` and `train/slope/loss_per_100_steps` - least
+  squares training-loss slope over the trailing 10% of total steps, logged at
+  every 10% of the run and at the final step.
+- `val/slope/loss_per_step` and `val/slope/loss_per_100_steps` - matching
+  validation-loss slope at validation events when enough points are available.
 - `train/lr/*` and `train/weight_decay/*` - optimizer group schedules.
+- `train/grad/global_norm`, `train/grad/rms`, `train/grad/max_abs`, and
+  `train/grad/grad_to_weight_norm` - high-level gradient health aliases.
+- `train/weight/global_norm`, `train/weight/rms`, and `train/weight/max_abs` -
+  high-level parameter health aliases.
 - `train/grad/all/*`, `train/grad_type/*`, and `train/grad_param/*` - gradient
   norms, RMS, mean, mean absolute value, standard deviation, extrema,
   zero-fraction, and non-finite counts.
@@ -157,7 +173,11 @@ Also report:
 Assign one hypothesis per PR. Keep a balanced portfolio:
 
 - Build directly on the strongest public and in-repo records.
-- Retune learning rate and weight decay when testing a new optimizer idea.
+- Spend part of the portfolio exploiting strong records through retuning and
+  cleanup, but reserve serious capacity for new optimizer techniques and
+  mechanisms. A wave of only scalar hyperparameter tweaks is too conservative.
+- Retune learning rate and weight decay when testing a new optimizer idea; this
+  is support work for a technique, not a substitute for technique search.
 - Run pruning/removal experiments when a stack accumulates components.
 - Periodically refresh upstream PRs and records for new public optimizer ideas.
 - Reserve some capacity for genuinely new optimizer mechanisms, but require the

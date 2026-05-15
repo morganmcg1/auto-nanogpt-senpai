@@ -37,11 +37,16 @@ the PR is changing the benchmark contract.
 Use the command pattern in `program.md`, including W&B naming:
 
 ```bash
+pip install -r requirements.txt
+python data/cached_fineweb10B.py 20
 torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
   records/track_3_optimization/train_gpt_simple.py \
   --wandb_name "$STUDENT_NAME/<short-description>" \
   --wandb_group "<hypothesis-or-pr>"
 ```
+
+This intentionally mirrors the public speedrun quickstart, with only the W&B
+arguments added to the `torchrun` line.
 
 Choose debug, screening, and confirmation step counts thoughtfully. The launch
 timeout and max-epoch values are hard ceilings, not instructions to run forever.
