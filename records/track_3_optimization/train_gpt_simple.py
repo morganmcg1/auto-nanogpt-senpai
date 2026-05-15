@@ -256,6 +256,33 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def aggregate_contra_muon_telemetry(optimizers: list[torch.optim.Optimizer]) -> dict[str, float]:
+    # All ranks must call this together since it uses dist.all_reduce.
+    # Returns metrics dict (empty on non-rank-0 or when no ContraMuon present).
+    metrics: dict[str, float] = {}
+    for opt in optimizers:
+        if not isinstance(opt, ContraMuon):
+            continue
+        correction_sq = opt._correction_sq_sum.clone()
+        update_sq = opt._update_sq_sum.clone()
+        numel_tensor = torch.tensor(
+            [opt._correction_numel], dtype=torch.long, device=correction_sq.device
+        )
+        dist.all_reduce(correction_sq, op=dist.ReduceOp.SUM)
+        dist.all_reduce(update_sq, op=dist.ReduceOp.SUM)
+        dist.all_reduce(numel_tensor, op=dist.ReduceOp.SUM)
+        if dist.get_rank() != 0:
+            continue
+        numel = max(1, int(numel_tensor.item()))
+        correction_rms = float((correction_sq / numel).sqrt().item())
+        correction_norm = float(correction_sq.sqrt().item())
+        update_norm = float(update_sq.sqrt().clamp_min(1e-10).item())
+        metrics["train/contra_muon/correction_rms"] = correction_rms
+        metrics["train/contra_muon/correction_to_update_ratio"] = correction_norm / update_norm
+        metrics["train/contra_muon/contra_alpha"] = float(opt.param_groups[0]["contra_alpha"])
+    return metrics
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -454,6 +481,21 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
+    # Power iteration estimates the top singular value of G; divide by it so the
+    # returned matrix has unit operator norm. Used by Contra-Muon to obtain the
+    # operator-normalized momentum-grad that is subtracted from the NS update.
+    X = G.float()
+    v = torch.ones(X.size(-1), dtype=X.dtype, device=X.device)
+    v = v / torch.clamp(v.norm(), min=eps)
+    for _ in range(5):
+        u = X @ v
+        u = u / torch.clamp(u.norm(), min=eps)
+        v = X.mT @ u
+        v = v / torch.clamp(v.norm(), min=eps)
+    op_norm = torch.clamp((X @ v).norm(), min=eps)
+    return G / op_norm.to(G.dtype)
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -461,6 +503,31 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+@torch.compile
+def contra_muon_update(grad, momentum, mu=0.95, contra_alpha=0.5, nesterov=True):
+    # Contra-Muon (Nilin, https://github.com/nilin/contra-muon): subtract
+    # contra_alpha/2 * operator-normalized momentum-grad from the NS update,
+    # then Frobenius-rescale so the final update preserves the NS Frobenius
+    # norm. Matches records/track_3_optimization/results/20260501_contra_muon/
+    # train_gpt_simple_contra_muon_2.py without the NorMuon-lite per-row variance
+    # and u/w-floor postprocessing (so this is Contra-Muon layered on plain Muon).
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    normalized_grad = scale_to_unit_operator_norm(update.clone())
+    update = zeropower_via_newtonschulz5(update)
+    pre_correction_norm = update.norm()
+    correction_pre = (contra_alpha / 2) * normalized_grad
+    intermediate = update - correction_pre
+    rescale = pre_correction_norm / torch.clamp(intermediate.norm(), min=1e-10)
+    update = intermediate * rescale
+    # Apply the same Frobenius rescale to the correction so the telemetry shows
+    # the actual subtracted contribution (post-rescale) consistent with `update`.
+    correction = correction_pre * rescale
+    spectral_scale = max(1, grad.size(-2) / grad.size(-1))**0.5
+    update = update * spectral_scale
+    correction = correction * spectral_scale
+    return update, correction
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -483,6 +550,54 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                    p.add_(update, alpha=-group["lr"])
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+
+class ContraMuon(torch.optim.Optimizer):
+    # Muon with Nilin's contra-update mechanism layered on top of plain Muon.
+    #
+    # Note: the PR pseudocode described a held-buffer alternating split, but
+    # the canonical reference implementation (nilin/contra-muon and the
+    # 20260501_contra_muon result set in this repo) uses an instantaneous
+    # operator-normalized-grad subtraction. The PR instructs to match the
+    # reference if it differs; this class follows the reference mechanism.
+    def __init__(self, params, lr=0.035, weight_decay=0.025, mu=0.95, contra_alpha=0.5):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, contra_alpha=contra_alpha)
+        super().__init__(params, defaults)
+        # Telemetry: scalars accumulated each step for the rank-local params.
+        # The training loop all-reduces across ranks before logging.
+        device = self.param_groups[0]["params"][0].device
+        self._correction_sq_sum = torch.zeros((), dtype=torch.float64, device=device)
+        self._update_sq_sum = torch.zeros((), dtype=torch.float64, device=device)
+        self._correction_numel = 0
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        self._correction_sq_sum.zero_()
+        self._update_sq_sum.zero_()
+        self._correction_numel = 0
+        for group in self.param_groups:
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state["momentum"] = torch.zeros_like(p)
+                    update, correction = contra_muon_update(
+                        p.grad, state["momentum"],
+                        mu=group["mu"], contra_alpha=group["contra_alpha"],
+                    )
+                    self._correction_sq_sum.add_(correction.double().square().sum())
+                    self._update_sq_sum.add_(update.double().square().sum())
+                    self._correction_numel += correction.numel()
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -567,7 +682,9 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    # TRAIN_STEPS env var lets the student switch between smoke/screen/confirm budgets
+    # without editing the file each phase. Default matches the starter (3350).
+    train_steps = int(os.environ.get("TRAIN_STEPS", 3350))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -591,9 +708,24 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+    optimizer2 = ContraMuon([p for p in model.blocks.parameters() if p.ndim >= 2],
+                            lr=0.035, weight_decay=0.025, mu=0.95, contra_alpha=0.5)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if trial_idx == 0:
+        contra_alpha = optimizer2.param_groups[0]["contra_alpha"]
+        print0(f"ContraMuon lr={optimizer2.param_groups[0]['lr']}"
+               + f" weight_decay={optimizer2.param_groups[0]['weight_decay']}"
+               + f" mu={optimizer2.param_groups[0]['mu']}"
+               + f" contra_alpha={contra_alpha}"
+               + f" (op-norm-grad subtraction = {contra_alpha / 2})", console=True)
+        if dist.get_rank() == 0:
+            wandb.config.update({
+                "optimizer2": "ContraMuon",
+                "muon_lr": optimizer2.param_groups[0]["lr"],
+                "muon_weight_decay": optimizer2.param_groups[0]["weight_decay"],
+                "muon_mu": optimizer2.param_groups[0]["mu"],
+                "contra_alpha": contra_alpha,
+            }, allow_val_change=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -729,6 +861,13 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if telemetry_due:
+            # All ranks participate in the all-reduce; rank 0 gets the metrics back.
+            contra_metrics = aggregate_contra_muon_telemetry(optimizers)
+            if dist.get_rank() == 0 and contra_metrics:
+                contra_metrics["trial"] = trial_idx
+                contra_metrics["train/step"] = train_step
+                wandb.log(contra_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
