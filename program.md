@@ -179,14 +179,19 @@ Assign one hypothesis per PR. Keep a balanced portfolio:
 - Retune learning rate and weight decay when testing a new optimizer idea; this
   is support work for a technique, not a substitute for technique search.
 - Run pruning/removal experiments when a stack accumulates components.
-- Periodically refresh upstream PRs and records for new public optimizer ideas.
+- Use the benchmark snapshot present in this repository. Do not refresh,
+  browse, fetch, or mine new upstream PRs, branches, records, issues, or
+  post-launch updates during this run.
 - Reserve some capacity for genuinely new optimizer mechanisms, but require the
   same fixed benchmark contract and statistical reporting.
-- Do not mine Prime Intellect's released autonomous-run scratchpads, run
-  archive, or blog-post recipe summaries as direct implementation sources for
-  this launch. They are useful external comparison material after the run, but
-  the active research loop should use the public benchmark repo, upstream public
-  PRs, papers/blogs about optimizer ideas, and its own Senpai run history.
+- The following Prime Intellect sources are explicitly banned for agents during
+  this launch. Do not open, fetch, browse, search within, clone, cite, summarize,
+  or use them for implementation ideas:
+  `https://www.primeintellect.ai/auto-nanogpt`,
+  `https://github.com/PrimeIntellect-ai/experiments-autonomous-speedrunning`,
+  and any raw GitHub URLs, files, branches, issues, pull requests, or archives
+  under that repository. They are external comparison artifacts for humans after
+  the run, not part of the active experimental context.
 
 The target is not complete when a run beats a previous baseline. A new best
 result should immediately become the base for the next wave.
