@@ -454,8 +454,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-# @torch.compile disabled for v6: Blackwell+torch.compile Inductor bug causes
-# step-1 grad NaN cascade. See PR #54 advisor comment 2026-05-15.
+@torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
@@ -526,12 +525,13 @@ class SOAPMuon(torch.optim.Optimizer):
 
     During warmup (step <= warmup_steps) the preconditioner is bypassed and the
     plain Muon NS direction is used, allowing L and R to accumulate signal before
-    the first refresh takes over. Preconditioner state is held in float64 for the
+    the first refresh takes over and letting the early-training gradient regime
+    settle before SOAP engages. Preconditioner state is held in float64 for the
     wide dynamic range of the G G^T outer-product accumulation.
     """
 
     def __init__(self, params, lr=0.035, weight_decay=0.025, mu=0.95,
-                 soap_beta=0.95, precond_freq=32, eps=1e-30, warmup_steps=50):
+                 soap_beta=0.95, precond_freq=32, eps=1e-30, warmup_steps=200):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
@@ -670,16 +670,11 @@ print0("="*100)
 
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
-# mbs reduced from 64 to 32 because disabling model.compile() materializes the
-# full [mbs, seq, vocab] fp32 logits tensor inside cross_entropy (~12.6GiB at
-# mbs=64), OOM'ing at step 1. mbs=32 ~= 6.3GiB logits, fits in 95GiB Blackwell.
-mbs = int(os.environ.get("MBS", "32"))
+mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-# model.compile disabled for v6: Blackwell+torch.compile Inductor bug causes
-# step-1 grad NaN cascade. See PR #54 advisor comment 2026-05-15.
-# model.compile(dynamic=False)
+model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -719,7 +714,7 @@ if dist.get_rank() == 0:
             "optimizer/soap_muon_mlp/soap_beta": 0.95,
             "optimizer/soap_muon_mlp/precond_freq": 32,
             "optimizer/soap_muon_mlp/eps": 1e-30,
-            "optimizer/soap_muon_mlp/warmup_steps": 50,
+            "optimizer/soap_muon_mlp/warmup_steps": 200,
             "optimizer/soap_muon_mlp/precond_dtype": "float64",
         },
     )
@@ -777,7 +772,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon(attn_block_params, lr=0.035, weight_decay=0.025, mu=0.95)
     optimizer2.param_groups[0]["name"] = "muon_attn"
     optimizer3 = SOAPMuon(mlp_block_params, lr=0.035, weight_decay=0.025, mu=0.95,
-                          soap_beta=0.95, precond_freq=32, eps=1e-30, warmup_steps=50)
+                          soap_beta=0.95, precond_freq=32, eps=1e-30, warmup_steps=200)
     optimizer3.param_groups[0]["name"] = "soap_muon_mlp"
     optimizers = [optimizer1, optimizer2, optimizer3]
     assert set(p for opt in optimizers for group in opt.param_groups
