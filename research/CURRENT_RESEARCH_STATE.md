@@ -29,11 +29,12 @@ W&B run: `vx0r7rp2`. Merged 2026-05-15. PMuon REPLACES the Newton-Schulz path en
 | --- | ----------- | --------------------------------------------- | ------ |
 | #93 | fern        | + **NorMuon short-axis** post-NS              | just assigned (was idle after PR #64 merge) |
 | #94 | askeladd    | + **Skylight u/w-floor** (TARGET_UW=0.35)     | just assigned (PR #84 closed; reassigned here) |
+| #95 | alphonse    | + **Contra-Muon** (contra_coeff=0.2)          | just assigned (PR #59 vanilla closed; reassigned here) |
 | #85 | nezuko      | + **Power-law cooldown** γ=1.2                | nezuko already rebased to PMuon base 2026-05-15 20:39; in training |
 | #83 | tanjiro     | + **SOAP-MLP** (pending PMuon-base pivot)     | sent back to pivot; was destabilizing on broken Aurora+Contra+u/w base |
 | #88 | edward      | + **Soft-Muon** (p=0.1, cooldown-only)        | sent back to pivot; no prior activity (rate-limit silent fail earlier) |
 | #89 | thorfinn    | + **Per-module init std** (attn.proj=0.026, mlp=0.031) | sent back to pivot; no prior activity |
-| #65 | frieren     | MuonH hyperball + fp32-cast NS (independent diagnostic track) | resuming with bf16/fp32 fix |
+| #65 | frieren     | MuonH hyperball + PMuon-pivot (just pivoted)  | pivot comment posted; awaiting rebase |
 
 ## Closed this session
 
@@ -67,6 +68,7 @@ Wave 3 portfolio targets sub-3150 steps with single-mechanism additions on PMuon
 | --- | --------------- | ---------------- | ------- |
 | #93 | + NorMuon short-axis | Record #10 (3250, n=20) | PMuon pre-NS whitening + NorMuon post-NS magnitude scaling — orthogonal mechanisms |
 | #94 | + Skylight u/w-floor | Record #9 (3250, n=8) | Does u/w-floor still help when PMuon already provides scale via covariance whitening? |
+| #95 | + Contra-Muon (contra_coeff=0.2) | Record #11, #14 | Subtracts Frobenius-normalized pre-polar momentum — coordinated-update correction on PMuon polar |
 | #85 | + Power-law cooldown γ=1.2 | Record #20 component | Schedule lever — orthogonal to optimizer side |
 | #83 | + SOAP-MLP (pending pivot) | Record #14 (3150, n=4) | Eigenbasis-Adam preconditioning on MLP weights — pending tanjiro's rebase to PMuon base |
 | #88 | + Soft-Muon (pending pivot) | Record #20 component | SVD-level shrinkage in cooldown only — pending edward's rebase |
