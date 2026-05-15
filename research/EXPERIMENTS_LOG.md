@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-15 22:45 — PR #80: Muon² (Adam variance BEFORE Newton-Schulz) — single-seed screen
+- Branch: `g1r2-nezuko/muon-sq`
+- Hypothesis: Per-element Adam variance applied to gradients *before* the
+  Newton-Schulz orthogonalization should preserve NorMuon's variance-normalization
+  benefit while keeping the orthogonalization geometry clean. lr=0.10, wd=0.0125,
+  β₂=0.95, train_steps=3350 (per record #7 / nezuko PR body).
+- W&B run: `n18mqjfy`
+  (`wandb-applied-ai-team/modded-nanogpt-senpai/runs/n18mqjfy`) | num_trials=1 |
+  train_steps=3350.
+- Result: terminal **val/loss=3.2773 @ step 3350**,
+  `speedrun/final_first_step_to_target=3300`, `reached_target=1`.
+- Statsig at n=1 (informational): (3.28 − 3.2773) × √1 = 0.0027 — does NOT
+  clear the 0.004 single-seed bar, but is below 3.28 and on track for n=4
+  consideration with cooldown headroom.
+- Status: WIP. n=4 confirmation `7lxk02m6` launched (T0 early at step 275).
+  Single-seed margin smaller than edward/fern/alphonse, so n=4 statsig is
+  uncertain; will need mean ≤ 3.278 across 4 seeds.
+
 ## 2026-05-15 20:30 — PR #74: NorMuonH (row/col variance + hyperball + per-module init std)
 - Branch: `g1r2-askeladd/normuonh-perinit`
 - Hypothesis: NorMuon's row/col Adafactor-style variance combined with hyperball
