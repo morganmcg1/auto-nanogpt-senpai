@@ -40,11 +40,21 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lookahead_k", type=int, default=int(os.environ.get("NANOGPT_LOOKAHEAD_K", "0")),
+                        help="Lookahead sync interval k (steps). 0 disables Lookahead.")
+    parser.add_argument("--lookahead_alpha", type=float, default=float(os.environ.get("NANOGPT_LOOKAHEAD_ALPHA", "0.0")),
+                        help="Lookahead step size alpha in (0,1]. 0 disables Lookahead.")
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "0")),
+                        help="Override training step count. 0 keeps the in-script default (3350).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.lookahead_k < 0:
+        raise ValueError("--lookahead_k must be >= 0")
+    if not (0.0 <= args.lookahead_alpha <= 1.0):
+        raise ValueError("--lookahead_alpha must be in [0, 1]")
     return args
 
 
@@ -180,7 +190,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # Note: torch.linspace internally uses fp32 and can round its endpoint up,
+        # producing an index equal to values.numel() for large tensors (e.g. the
+        # 50304x768 embed weight). Clamp to a valid index to keep the gather safe.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_max_(values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +566,10 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_enabled": bool(args.lookahead_k > 0 and args.lookahead_alpha > 0),
+            "train_steps_arg": args.train_steps,
         },
     )
 
@@ -563,7 +581,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps > 0 else 3350
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -617,6 +635,38 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # Lookahead (Zhang et al. 2019, https://arxiv.org/abs/1907.08610) wraps the Muon
+    # hidden-matrix params. After every k Muon steps the slow buffer is moved toward
+    # the fast weights: slow ← (1-α)·slow + α·fast; fast ← slow. Validation copies
+    # slow values into p.data in-place (no Parameter storage swap) so torch.compile
+    # never sees a fresh storage pointer.
+    lookahead_enabled = args.lookahead_k > 0 and args.lookahead_alpha > 0
+    muon_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    if lookahead_enabled:
+        slow_buffers = [p.data.detach().clone() for p in muon_params]
+        fast_snapshots = [torch.empty_like(p.data) for p in muon_params]
+    else:
+        slow_buffers = None
+        fast_snapshots = None
+    lookahead_step_counter = 0
+    lookahead_sync_count = 0
+
+    def use_slow_weights():
+        """Save fast weights to snapshot buffer, load slow weights into params."""
+        if not lookahead_enabled:
+            return
+        for p, snap, slow in zip(muon_params, fast_snapshots, slow_buffers):
+            snap.copy_(p.data)
+            p.data.copy_(slow)
+
+    def restore_fast_weights():
+        """Restore fast weights from snapshot buffer."""
+        if not lookahead_enabled:
+            return
+        for p, snap in zip(muon_params, fast_snapshots):
+            p.data.copy_(snap)
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -640,6 +690,8 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # Lookahead: evaluate on slow weights, then restore fast weights for training.
+            use_slow_weights()
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -649,6 +701,7 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            restore_fast_weights()
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -725,6 +778,32 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+
+        # Lookahead sync: after every k Muon steps, move slow toward fast and reset
+        # fast to the new shared value.  Both ranks see identical params at this
+        # point (Muon all_gathers and AdamW updates are deterministic on synced
+        # state), so the sync stays in lockstep without extra communication.
+        lookahead_synced_now = False
+        if lookahead_enabled:
+            lookahead_step_counter += 1
+            if lookahead_step_counter >= args.lookahead_k:
+                with torch.no_grad():
+                    for i, p in enumerate(muon_params):
+                        p.data.mul_(args.lookahead_alpha).add_(slow_buffers[i], alpha=1.0 - args.lookahead_alpha)
+                        slow_buffers[i].copy_(p.data)
+                lookahead_step_counter = 0
+                lookahead_sync_count += 1
+                lookahead_synced_now = True
+
+        if dist.get_rank() == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lookahead/enabled": int(lookahead_enabled),
+                "lookahead/sync_event": int(lookahead_synced_now),
+                "lookahead/sync_count": lookahead_sync_count,
+                "lookahead/steps_since_sync": lookahead_step_counter,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -733,6 +812,21 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            if lookahead_enabled:
+                with torch.no_grad():
+                    sq_sum = 0.0
+                    elements = 0
+                    for p, slow in zip(muon_params, slow_buffers):
+                        diff = p.data.float() - slow.float()
+                        sq_sum += float(diff.square().sum().item())
+                        elements += diff.numel()
+                    if elements > 0:
+                        wandb.log({
+                            "trial": trial_idx,
+                            "train/step": train_step,
+                            "lookahead/fast_slow_l2": sq_sum ** 0.5,
+                            "lookahead/fast_slow_rms": (sq_sum / elements) ** 0.5,
+                        }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
