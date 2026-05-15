@@ -180,7 +180,10 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        n = values.numel()
+        # float32 linspace loses 1-ULP precision past 2^24, so the endpoint can round
+        # up to n and trip CUDA IndexKernel OOB on embed/proj.weight (38.6M elems).
+        idx = torch.linspace(0, n - 1, max_samples, device=values.device, dtype=torch.float64).long().clamp_(max=n - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -484,6 +487,60 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class ADOPT(torch.optim.Optimizer):
+    """ADOPT (Tamaki et al. 2024) — official Algorithm 2 with clipping.
+
+    Deviates from the PR pseudocode in three ways that the paper requires for
+    stability and that match Algorithm 2 of arXiv:2411.02853:
+      1. First step initializes v=g^2 and does NOT update params (paper's v_0=g_0^2).
+      2. Param update uses m_t directly (no outer /sqrt(v_t)).
+      3. Inner normalized gradient is clipped to c_t = t^0.25 before going into m.
+    Without (3), this hybrid blows up when v_{t-1} is near zero, which happens at
+    step 2 because proj.weight is zero-initialized so embed.grad ≈ 0 at step 1.
+    Without (2), even with clipping the outer /sqrt(v_t) still amplifies tiny v.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.9999), eps=1e-6,
+                 weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group['lr']
+            beta1, beta2 = group['betas']
+            eps = group['eps']
+            wd = group['weight_decay']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = 0
+                    state['m'] = torch.zeros_like(p)
+                    state['v'] = torch.zeros_like(p)
+                state['step'] += 1
+                t = state['step']
+                m, v = state['m'], state['v']
+                if t == 1:
+                    v.addcmul_(g, g)
+                else:
+                    if wd != 0:
+                        p.mul_(1 - lr * wd)
+                    denom_prev = v.sqrt().clamp(min=eps)
+                    c_t = t ** 0.25
+                    g_norm = (g / denom_prev).clamp_(-c_t, c_t)
+                    m.mul_(beta1).add_(g_norm, alpha=1 - beta1)
+                    p.add_(m, alpha=-lr)
+                    v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -583,10 +640,10 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    optimizer1 = ADOPT([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.9, 0.95), eps=1e-6, weight_decay=0)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
