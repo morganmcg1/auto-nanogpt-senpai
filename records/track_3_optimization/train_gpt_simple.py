@@ -21,9 +21,25 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+# cuDNN SDPA can fail to build an execution plan for this compiled causal-attention
+# layout on some PyTorch/CUDA/cuDNN combinations. Leave Flash/mem-efficient/math SDPA
+# enabled and only remove the cuDNN backend from consideration.
+torch.backends.cuda.enable_cudnn_sdp(False)
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+
+# Optimizer constants (Contra-Muon + NorMuon-lite + SOAP-MLP — reproduction of PR #14)
+SEED = int(os.environ.get("SEED", "0"))
+CONTRA_MUON = 0.4
+MU = 0.95
+MUON_LR = 0.0375
+MUON_WEIGHT_DECAY = 0.025  # Stored but not applied — matches PR #14 reference behavior.
+TARGET_UW = 0.35
+SOAP_BETA2 = 0.90
+SOAP_PRECONDITION_FREQUENCY = 10
+SOAP_EPS = 1e-8
 
 
 def parse_args():
@@ -180,7 +196,10 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # fp64 linspace: fp32 loses integer precision past 2**24, which made indexing
+        # the embed.weight gradient (~38.6M elements) produce out-of-bounds indices.
+        idx = torch.linspace(0, values.numel() - 1, max_samples,
+                              device=values.device, dtype=torch.float64).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -250,6 +269,70 @@ def log_weight_telemetry(
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
     wandb.log(metrics, step=wandb_step)
+
+
+def gather_soap_diagnostics(optimizer) -> dict[str, dict[str, float]]:
+    """Gather SOAP diagnostics (per-param row/col condition numbers, refresh counters,
+    factor norms) across all ranks. Returns the merged dict; only rank 0 needs to use it."""
+    local = optimizer.soap_diagnostics() if hasattr(optimizer, "soap_diagnostics") else {}
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return local
+    gathered: list = [None] * world_size
+    dist.all_gather_object(gathered, local)
+    merged: dict[str, dict[str, float]] = {}
+    for chunk in gathered:
+        if isinstance(chunk, dict):
+            merged.update(chunk)
+    return merged
+
+
+def soap_log_metrics(soap_diag: dict[str, dict[str, float]], trial_idx: int, step: int) -> dict[str, float]:
+    """Convert SOAP diagnostics dict into wandb metrics. Logs per-param stats plus
+    aggregated min/mean/max conditioning so the advisor can spot growing instability."""
+    metrics: dict[str, float] = {"trial": trial_idx, "train/step": step}
+    if not soap_diag:
+        return metrics
+    row_conds: list[float] = []
+    col_conds: list[float] = []
+    soap_steps: list[float] = []
+    refresh_counts: list[float] = []
+    exp_avg_sq_norms: list[float] = []
+    row_gg_norms: list[float] = []
+    col_gg_norms: list[float] = []
+    for name, stats in soap_diag.items():
+        clean = clean_metric_name(name)
+        prefix = f"soap_param/{clean}"
+        for key, value in stats.items():
+            metrics[f"{prefix}/{key}"] = value
+        row_conds.append(stats.get("row_cond", float("nan")))
+        col_conds.append(stats.get("col_cond", float("nan")))
+        soap_steps.append(stats.get("soap_step", 0.0))
+        refresh_counts.append(stats.get("soap_refresh_count", 0.0))
+        exp_avg_sq_norms.append(stats.get("exp_avg_sq_norm", 0.0))
+        row_gg_norms.append(stats.get("row_gg_norm", 0.0))
+        col_gg_norms.append(stats.get("col_gg_norm", 0.0))
+
+    def _finite(values: list[float]) -> list[float]:
+        return [v for v in values if v == v and v not in (float("inf"), float("-inf"))]
+
+    def _agg(values: list[float], label: str) -> None:
+        clean = _finite(values)
+        if not clean:
+            return
+        metrics[f"soap/{label}/mean"] = sum(clean) / len(clean)
+        metrics[f"soap/{label}/min"] = min(clean)
+        metrics[f"soap/{label}/max"] = max(clean)
+
+    _agg(row_conds, "row_cond")
+    _agg(col_conds, "col_cond")
+    _agg(soap_steps, "soap_step")
+    _agg(refresh_counts, "refresh_count")
+    _agg(exp_avg_sq_norms, "exp_avg_sq_norm")
+    _agg(row_gg_norms, "row_gg_norm")
+    _agg(col_gg_norms, "col_gg_norm")
+    metrics["soap/num_params"] = float(len(soap_diag))
+    return metrics
 
 
 def log_histograms(
@@ -450,18 +533,108 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-@torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
+    X = G.float()
+    v = torch.ones(X.size(-1), dtype=X.dtype, device=X.device)
+    v = v / torch.clamp(v.norm(), min=eps)
+    for _ in range(5):
+        u = X @ v
+        u = u / torch.clamp(u.norm(), min=eps)
+        v = X.mT @ u
+        v = v / torch.clamp(v.norm(), min=eps)
+    op_norm = torch.clamp((X @ v).norm(), min=eps)
+    return G / op_norm.to(G.dtype)
+
+
+def soap_eigenbasis(mat: Tensor) -> Tensor:
+    try:
+        _, q = torch.linalg.eigh(mat + 1e-30 * torch.eye(mat.size(0), device=mat.device))
+    except RuntimeError:
+        _, q = torch.linalg.eigh(mat.double() + 1e-30 * torch.eye(mat.size(0), device=mat.device))
+        q = q.float()
+    return torch.flip(q, [1])
+
+
+def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+    row_eig = torch.diag(q_row.T @ row_gg @ q_row)
+    row_sort = torch.argsort(row_eig, descending=True)
+    q_row = q_row[:, row_sort]
+    exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
+    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+
+    col_eig = torch.diag(q_col.T @ col_gg @ q_col)
+    col_sort = torch.argsort(col_eig, descending=True)
+    q_col = q_col[:, col_sort]
+    exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
+    q_col, _ = torch.linalg.qr(col_gg @ q_col)
+    return q_row, q_col, exp_avg_sq
+
+
+def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=SOAP_EPS):
+    update_f = update.float()
+    if state["q_row"] is None:
+        return update
+    q_row, q_col = state["q_row"], state["q_col"]
+    projected = q_row.T @ update_f @ q_col
+    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+    precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+    return precond.to(update.dtype)
+
+
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2,
+                               precondition_frequency=SOAP_PRECONDITION_FREQUENCY):
+    grad_f = grad.float()
+    state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
+    state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
+    if state["q_row"] is None:
+        state["q_row"] = soap_eigenbasis(state["row_gg"])
+        state["q_col"] = soap_eigenbasis(state["col_gg"])
+        state["soap_refresh_count"] = state.get("soap_refresh_count", 0) + 1
+    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+        )
+        state["soap_refresh_count"] = state.get("soap_refresh_count", 0) + 1
+    state["soap_step"] += 1
+
+
+# NorMuon-lite (port from track_1 2025-10-24): per-row variance EMA on top of NS,
+# normalize each row by 1/sqrt(EMA), then renormalize Frobenius back to original.
+# Contra-Muon subtracts CONTRA_MUON/2 * normalized_grad from the NS update before NorMuon.
+def muon_update(update, second_moment, beta2=0.95):
+    normalized_grad = scale_to_unit_operator_norm(update.clone())
     update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    opower_frobenius_norm = update.norm()
+
+    # https://github.com/nilin/contra-muon
+    update = update - CONTRA_MUON / 2 * normalized_grad
+    update = update * opower_frobenius_norm / torch.clamp(update.norm(), min=1e-10)
+    update *= max(1, update.size(-2) / update.size(-1))**0.5
+    # Per-row variance (or per-col if matrix is wide). Keep along the longer dim.
+    if update.size(-2) >= update.size(-1):
+        per_row_var = (update * update).mean(dim=-1, keepdim=True)  # shape (..., m, 1)
+    else:
+        per_row_var = (update * update).mean(dim=-2, keepdim=True)  # shape (..., 1, n)
+    second_moment.lerp_(per_row_var.float(), 1 - beta2)
+    vnorm = update.norm()
+    update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
+    vnorm_new = update.norm().clamp_min(1e-10)
+    update = update * (vnorm / vnorm_new)
     return update
 
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+        assert isinstance(named_params, list) and len(named_params) >= 1
+        # SOAP preconditioning applied to MLP fc/proj weights only; attention remains plain NorMuon.
+        self.soap_params = {
+            p for n, p in named_params
+            if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+        }
+        # Keep a stable name lookup so we can log SOAP diagnostics per parameter.
+        self._param_names = {p: n for n, p in named_params}
+        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
 
@@ -478,10 +651,77 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                        if p in self.soap_params:
+                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                            state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
+                            state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
+                            state["q_row"] = None
+                            state["q_col"] = None
+                            state["soap_step"] = 0
+                            state["soap_refresh_count"] = 0
+                        # Second-moment buffer matches per-row-or-col shape.
+                        if p.size(-2) >= p.size(-1):
+                            state["second_moment"] = torch.zeros((*p.shape[:-1], 1),
+                                dtype=torch.float32, device=p.device)
+                        else:
+                            state["second_moment"] = torch.zeros((*p.shape[:-2], 1, p.shape[-1]),
+                                dtype=torch.float32, device=p.device)
+                    grad = p.grad
+                    state["momentum"].lerp_(grad, 1 - group["mu"])
+                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    use_soap = p in self.soap_params
+                    if use_soap:
+                        momentum_update = soap_precondition_momentum(momentum_update, state)
+                    update = muon_update(momentum_update, state["second_moment"])
+                    # u/w-floor. If u/w would be below TARGET (0.35), scale UP to maintain 0.35.
+                    # If u/w >= TARGET (early training when weights are small), leave update alone.
+                    p_fro = p.float().norm().clamp_min(1e-8)
+                    u_fro = update.float().norm().clamp_min(1e-8)
+                    cur_uw = u_fro / p_fro
+                    scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
+                    update = update * scale.to(update.dtype)
+                    # WD stored on group but intentionally not applied — u/w-floor replaces its role.
                     p.add_(update, alpha=-group["lr"])
+                    if use_soap:
+                        soap_update_preconditioner(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    @torch.no_grad()
+    def soap_diagnostics(self):
+        """Compute SOAP diagnostics for SOAP params owned by this rank.
+
+        Each rank returns stats for its locally-owned SOAP params; the caller is
+        responsible for gathering across ranks before logging.
+        """
+        out: dict[str, dict[str, float]] = {}
+        if not self.soap_params:
+            return out
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p not in self.soap_params:
+                    continue
+                state = self.state.get(p, {})
+                if not state or state.get("q_row") is None:
+                    continue
+                try:
+                    row_eig = torch.linalg.eigvalsh(state["row_gg"]).abs()
+                    col_eig = torch.linalg.eigvalsh(state["col_gg"]).abs()
+                    row_cond = float((row_eig.max() / row_eig.clamp_min(1e-30).min()).item())
+                    col_cond = float((col_eig.max() / col_eig.clamp_min(1e-30).min()).item())
+                except RuntimeError:
+                    row_cond = float("nan")
+                    col_cond = float("nan")
+                name = self._param_names.get(p, f"param@{p.shape}")
+                out[name] = {
+                    "soap_step": float(state.get("soap_step", 0)),
+                    "soap_refresh_count": float(state.get("soap_refresh_count", 0)),
+                    "row_cond": row_cond,
+                    "col_cond": col_cond,
+                    "row_gg_norm": float(state["row_gg"].norm().item()),
+                    "col_gg_norm": float(state["col_gg"].norm().item()),
+                    "exp_avg_sq_norm": float(state["exp_avg_sq"].norm().item()),
+                }
+        return out
 
 
 ########################################
@@ -491,6 +731,7 @@ class Muon(torch.optim.Optimizer):
 # torchrun sets these env variables
 device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
 torch.cuda.set_device(device)
+torch.manual_seed(SEED)
 dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
@@ -552,18 +793,32 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "seed": SEED,
+            "optimizer": "contra_muon_normuon_soap_mlp",
+            "contra_muon": CONTRA_MUON,
+            "muon_mu": MU,
+            "muon_lr": MUON_LR,
+            "muon_weight_decay_stored": MUON_WEIGHT_DECAY,
+            "muon_weight_decay_effective": 0.0,
+            "target_uw": TARGET_UW,
+            "soap_beta2": SOAP_BETA2,
+            "soap_precondition_frequency": SOAP_PRECONDITION_FREQUENCY,
+            "soap_eps": SOAP_EPS,
         },
     )
 
 for trial_idx in range(args.num_trials):
 
+    # Re-seed per trial so trial_idx > 0 gets fresh random init / dataloader streams.
+    torch.manual_seed(SEED + trial_idx)
 
     ########################################
     #       Init & Optim Hyperparams       #
     ########################################
 
-    # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    # Predeclared step count for the PR #14 reproduction (override via TRAIN_STEPS env
+    # for smoke tests or the 3125-step follow-up).
+    train_steps = int(os.environ.get("TRAIN_STEPS", "3150"))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -587,8 +842,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+    # Contra-Muon + NorMuon-lite + SOAP-MLP (PR #14 reproduction): MLP fc/proj.weight get
+    # Shampoo-basis preconditioning before NS; attention weights take the plain NorMuon path.
+    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -725,6 +982,12 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if telemetry_due:
+            soap_diag = gather_soap_diagnostics(optimizer2)
+            if dist.get_rank() == 0:
+                soap_metrics = soap_log_metrics(soap_diag, trial_idx=trial_idx, step=train_step)
+                if soap_metrics:
+                    wandb.log(soap_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
