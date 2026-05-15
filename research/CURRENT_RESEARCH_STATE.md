@@ -1,10 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-15 (boot + wave 1 assigned)
+- **Date:** 2026-05-15 15:40 UTC (wave 1 mid-flight)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best:** 3030 steps (record #20 — Contra-Soft-Muon + KL-SOAP + trust gate + u/w-floor)
 - **Prior W&B context:** 62 runs in rounds 1–3, closest val/loss=3.2813 at step 3300 (none crossed 3.28).
+
+## HOT signal (in-flight, n=1, not yet terminal)
+
+- **PR #60 (alphonse) Muon² arm-A** run `s0oq3dnx`: `speedrun/first_step_to_target=3275`, val/loss=3.2783 at step 3300 (still running, target step 3350). **First crossing of 3.28 in our lab.**
+- This is n=1 — stat-sig rule needs `(3.28 - mu) * sqrt(n) >= 0.004`. Run protocol says 3 confirmation seeds will run automatically.
+- The PR body asks for an arm-B at NS=8 (compute-headroom check on top of Muon²).
+- Implication: Muon² (Adam-style 2nd-moment precond before Newton-Schulz) is the strongest single-mechanism find so far. If confirmed at n≥3, this likely composes cleanly with cooldown/WD-warmup winners from wave 1.
+
+## Infrastructure bug discovered (nezuko, PR #73)
+
+- `sample_tensor` (line 183 of `train_gpt_simple.py`) uses `torch.linspace(0, n-1, max_samples).long()` which fails for n > ~2^24 due to float32 precision. The embed gradient has 38.6M elements → idx OOB → CUDA crash at step 0.
+- Many w1 wandb runs show val/loss=10.826 at step 0-1 as the failure signature.
+- Fix (use float64 linspace + clamp) is in nezuko's PR. Will land on advisor branch when #73 merges; meanwhile other students are patching locally.
 
 ## Wave 1 — active assignments (8 PRs, all status:wip)
 
