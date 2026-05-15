@@ -1,6 +1,6 @@
 # SENPAI Research State — `auto-nanogpt-r1`
 
-- 2026-05-15 (advisor boot, first wave forming)
+- 2026-05-15 (Wave 1 assigned, all 8 students busy)
 - Most recent human researcher directive: none yet.
 - Current research focus: **lower `speedrun/final_first_step_to_target` on the
   modded-nanogpt track-3 optimizer benchmark**, starting from the in-repo
@@ -10,6 +10,21 @@
   Soft-Muon interp + SOAP MLP + SOAP attn.v + power-law cooldown). We do not
   need to ship that exact stack; we just need to beat the in-repo baseline by a
   statistically significant margin per `(3.28 - mu) * sqrt(n) >= 0.004`.
+
+## Wave 1 portfolio (assigned 2026-05-15)
+
+| PR  | Student     | Slug                          | Family            | Notes |
+| --- | ----------- | ----------------------------- | ----------------- | ----- |
+| #12 | r1-alphonse | lookahead-on-baseline         | outer-loop        | Edited from #20-stack version → simple-baseline Lookahead sweep |
+| #18 | r1-askeladd | trapezoidal-lr-short-cooldown | schedule          | `cooldown_frac` 0.7 → 0.2 + 40-step warmup |
+| #27 | r1-edward   | normuon-port                  | preconditioner    | Pivoted from #20 ablation → NorMuon port (records #8/#10) |
+| #28 | r1-fern     | schedule-free-muon            | schedule          | Polyak iterate averaging, constant LR for Muon group |
+| #29 | r1-frieren  | mup-perlayer-lr-scaling       | optimizer-hparam  | Split Muon into attn vs MLP groups, scale MLP lr ×0.5 |
+| #30 | r1-nezuko   | post-ns-nesterov              | optimizer-update  | Apply Nesterov in orthogonalized space (after NS, not before) |
+| #31 | r1-tanjiro  | spectral-weight-decay         | regularization    | Rank-1 spectral WD vs L2 WD on Muon params |
+| #32 | r1-thorfinn | adopt-aux-optimizer           | optimizer         | ADOPT instead of AdamW for embed/lm_head/scalar aux groups |
+
+## Themes for the opening wave
 
 ## Themes for the opening wave
 
@@ -28,18 +43,32 @@
 5. **Ablation / pruning.** Once a stacked winner emerges, run pruning PRs to
    see which components were load-bearing.
 
-## Potential next research directions (rolling)
+## Potential next research directions (wave-2 reserves)
 
-- Stacked record reproductions (Contra-Soft-Muon, KL-SOAP-H, NorMuonH-MuLoCo)
-  after their constituent pieces land individually.
-- Width-aware (μP / μ-transfer) re-tune of Muon group LRs.
-- Two-sided preconditioning variants (PMuon γ sweep, KL-SOAP precond_freq
-  sweep).
-- Polyak / EMA / SWA weight averaging applied only to the Muon group.
-- Compute-aware schedules: spend more cooldown when Muon has lower frob-norm
-  growth in the trailing window.
-- Optimizer-aware initialization: scale init by predicted update norm so the
-  effective LR is uniform across modules.
+Records-aligned ports we have NOT yet assigned this wave (high leverage):
+- **Contra-Muon** technique (record #11 worth ~25 steps on top of NorMuon).
+- **SOAP-MLP** Shampoo-eigen precond before NS for `mlp.fc/mlp.proj` weights
+  (record #14 worth ~100 steps on top of Contra-Muon).
+- **MuLoCo outer-Nesterov** wrapper around the inner optimizer (record #13).
+- **PMuon** bilateral covariance preconditioning before polar (record #18).
+- **MuonH hyperball constraint** + per-module init std (record #5).
+- **Newton-Muon** activation-covariance right-precond every 64 steps (#15).
+- **Power-law cooldown** `c*(t_end-step)^1.2` from record #20's tuned schedule.
+- **KL-SOAP-H** with `precond_freq=1` (record #19).
+
+Fresh / underexplored mechanisms not yet in the records:
+- **Lion** / SignSGD-Muon hybrid for the Muon group.
+- **Sophia** Hessian-diagonal preconditioner for aux groups.
+- **CASPR** / Distributed-Shampoo variants on full param set.
+- **EMA / SWA** weight averaging on the Muon group only.
+- **μP / μ-transfer** re-init that scales weights so effective LR is uniform.
+- **Adaptive NS iteration count** based on momentum spectral norm.
+- **Restarting** schedules (SGDR cosine restarts with decreasing amplitude).
+- **Layer-wise grad-norm-aware LR** (per-layer LR scaled by trailing grad RMS).
+
+After wave-1 results land, prioritize stacking the proven winners (e.g.
+NorMuon + Lookahead, or schedule-free + post-NS-Nesterov) and pruning the
+non-load-bearing components.
 
 This file is a living document. Prune entries that have been tried, add new
 ones as the portfolio evolves.
