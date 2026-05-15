@@ -24,6 +24,7 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+TARGET_UW = 0.35  # u/w floor: scale Muon update up if ||update|| / ||p|| < TARGET_UW
 
 
 def parse_args():
@@ -179,8 +180,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
-    if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+    n = values.numel()
+    if n > max_samples:
+        # default linspace dtype is float32; for large n the last value can round up past n-1
+        idx = torch.linspace(0, n - 1, max_samples, device=values.device, dtype=torch.float64).long()
+        idx.clamp_(0, n - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -459,18 +463,31 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, target_uw=TARGET_UW):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, target_uw=target_uw)
         super().__init__(params, defaults)
+        self._last_uw_tensors: dict[str, Tensor] | None = None
+        self._last_uw_total: int = 0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        device = self.param_groups[0]["params"][0].device
+        # Accumulate diagnostics on-device; defer host sync to flush_uw_stats().
+        sum_uw_pre = torch.zeros((), device=device, dtype=torch.float32)
+        sum_uw_post = torch.zeros((), device=device, dtype=torch.float32)
+        max_uw_pre = torch.zeros((), device=device, dtype=torch.float32)
+        min_uw_pre = torch.full((), float("inf"), device=device, dtype=torch.float32)
+        sum_scale = torch.zeros((), device=device, dtype=torch.float32)
+        max_scale = torch.ones((), device=device, dtype=torch.float32)
+        engaged = torch.zeros((), device=device, dtype=torch.float32)
+        total = 0
         for group in self.param_groups:
             params = group["params"]
+            target_uw = group.get("target_uw", TARGET_UW)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -479,9 +496,65 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # u/w floor — replaces weight decay.
+                    p_fro = p.detach().float().norm().clamp_min(1e-12)
+                    u_fro = update.detach().float().norm().clamp_min(1e-12)
+                    cur_uw = u_fro / p_fro
+                    scale = torch.where(
+                        cur_uw < target_uw,
+                        target_uw / cur_uw,
+                        torch.ones_like(cur_uw),
+                    )
+                    update = update * scale.to(update.dtype)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
+                    sum_uw_pre = sum_uw_pre + cur_uw
+                    sum_uw_post = sum_uw_post + cur_uw * scale
+                    max_uw_pre = torch.maximum(max_uw_pre, cur_uw)
+                    min_uw_pre = torch.minimum(min_uw_pre, cur_uw)
+                    sum_scale = sum_scale + scale
+                    max_scale = torch.maximum(max_scale, scale)
+                    engaged = engaged + (scale > 1.0 + 1e-9).float()
+                    total += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if total > 0:
+            self._last_uw_tensors = {
+                "engaged": engaged,
+                "sum_pre": sum_uw_pre,
+                "sum_post": sum_uw_post,
+                "min_pre": min_uw_pre,
+                "max_pre": max_uw_pre,
+                "sum_scale": sum_scale,
+                "max_scale": max_scale,
+            }
+            self._last_uw_total = total
+
+    def flush_uw_stats(self) -> dict[str, float]:
+        tensors = self._last_uw_tensors
+        total = self._last_uw_total
+        if tensors is None or total == 0:
+            return {}
+        stacked = torch.stack([
+            tensors["engaged"],
+            tensors["sum_pre"],
+            tensors["sum_post"],
+            tensors["min_pre"],
+            tensors["max_pre"],
+            tensors["sum_scale"],
+            tensors["max_scale"],
+        ]).cpu().tolist()
+        engaged, sum_pre, sum_post, min_pre, max_pre, sum_scale, max_scale = stacked
+        return {
+            "uw/params_total": float(total),
+            "uw/params_engaged": engaged,
+            "uw/engaged_fraction": engaged / total,
+            "uw/mean_pre": sum_pre / total,
+            "uw/mean_post": sum_post / total,
+            "uw/min_pre": min_pre,
+            "uw/max_pre": max_pre,
+            "uw/mean_scale": sum_scale / total,
+            "uw/max_scale": max_scale,
+        }
 
 
 ########################################
@@ -552,6 +625,7 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "target_uw": TARGET_UW,
         },
     )
 
@@ -563,7 +637,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = 3300
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -588,7 +662,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.0375, weight_decay=0, target_uw=TARGET_UW)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -733,6 +807,15 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            for opt in optimizers:
+                flush = getattr(opt, "flush_uw_stats", None)
+                stats = flush() if callable(flush) else {}
+                if stats:
+                    wandb.log(
+                        {f"train/muon/{k}": v for k, v in stats.items()}
+                        | {"trial": trial_idx, "train/step": train_step},
+                        step=wandb_step,
+                    )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
