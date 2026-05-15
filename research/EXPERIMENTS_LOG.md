@@ -6,6 +6,91 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 20:30 — Wave 1+2 mid-flight snapshot (boot 8)
+
+Posted six advisor follow-ups across PRs #51, #54, #55, #58, #86, #87. Headline: **alphonse #51 NorMuon screen also cleared target** (`val=3.279 ffs=3275`), confirmation in flight at cumulative step 6927. Multiple PRs pre-committed to close on next failure.
+
+### alphonse #51 NorMuon — first wave-1 positive (still pending terminal)
+
+| Run | Phase | val/loss | ffs | reached | State |
+| --- | --- | --- | --- | --- | --- |
+| `2t6x8z6v` "normuon-screen" | screen n=1 | 3.279 | 3275 | 1 | FINISHED |
+| `8yocwc35` "normuon-clean-confirm3300" | confirm n=4 | (in flight) | latest 3250 | — | RUNNING step 6927 cumulative |
+
+- Screen n=1 cleared target with `(3.28-3.279)*sqrt(1)=0.001`, just under the 0.004 stat rule — confirmation is needed.
+- Confirm trial 1 (per prior boot): `val=3.2761 ffs=3225`. Latest `ffs=3250` suggests trial 2 also hit.
+- PR is `CONFLICTING` against advisor branch (state doc files). Sent rebase reminder.
+- Pre-committed merge: stat rule `(3.28-mu)*sqrt(4) >= 0.004 ⇒ mu <= 3.278`.
+
+### nezuko #86 MuonSquared — 5 smokes failed, authorized smoke v6 numerical fix
+
+Student ran 5 smoke variants, all NaN or OOM:
+- v1 (per-module init, compile on): NaN before step 25
+- v2 (per-module init, model.compile off): OOM step 0
+- v3 (reference init, compile on): NaN before step 5
+- v4 (reference init, `@torch.compile` on `muon_sq_update` off): NaN iter 3 forward
+- v5 (reference init, model.compile off + expandable_segments): OOM step 0
+
+Diagnostic: iter 2's MuonSq optimizer step turns finite grads + buffers into NaN weights. Root-cause: `update / (sqrt(v) + eps)` division at step 2 with `eps=1e-10` and `beta2=0.95` explodes when individual gradient entries are small.
+
+Authorized **smoke v6** with all three numerical adjustments combined:
+- `eps=1e-10 → 1e-5` (5 orders of magnitude division floor)
+- `beta2=0.95 → 0.99` (smoother early-step `v` ramp)
+- 5-step MuonSq warmup gate (plain Muon for steps 1-5, MuonSq from step 6+)
+
+Pre-commit close if v6 NaNs. Label swapped `review → wip` (PR is in mid-debugging, not result-ready).
+
+### fern #54 SOAP-MLP — smoke v6c clean BUT mbs=32 contract violation
+
+Smoke v6c at `mbs=32 + compile-off + per-module init`:
+- `val=4.240` at step 300, no NaN, SOAP refresh stable (0 eigh failures over 216 events).
+- Wallclock: 6.84 s/step → 3350-step screen ~6.4 hours (way past 60-min hard budget).
+
+**Problem: `mbs=32` is a contract violation** — doubles fwd-bwd passes per optim step (8→16), so val/loss measurements aren't comparable to public records.
+
+Authorized **smoke v7** at `mbs=64 + compile-on + per-module init + 200-step SOAP-precond gate`:
+- Plain Muon for steps 1-200 (no SOAP L/R precond), full SOAP-MLP from step 201+.
+- Concept: the documented step-1 `attn.proj.bias.grad` spike is concentrated in the first ~50 steps; the 200-step gate lets the model reach a healthier regime before engaging SOAP.
+
+Pre-commit close PR #54 if v7 NaNs.
+
+### thorfinn #58 cooldown sweep — 26 runs / 23 failed, asked to diagnose
+
+Across all thorfinn groups: 8 crashed at step 1, 15 failed, 2 finished (both `ffs=-1`). Mass instability looks like launcher / parallel-on-1-GPU collision, not a model issue.
+
+Authorized **3-arm SERIAL sweep** {linear, cosine, sqrt} × cooldown_frac=0.7 at `train_steps=3350` n=1, only after thorfinn diagnoses the v1/v2 crash mode. Pre-commit close PR #58 if 3-arm serial also has > 1 crash.
+
+### frieren #55 MuLoCo confirm — partial restart, crash check requested
+
+- `tvb6lpz9` "muloco-n4-confirm" crashed step 4111 (mid trial 2 ≈ step 811 of trial 2).
+- `0qry1ckh` restart at step 2750 val=3.342.
+
+Asked for crash mode + trial accounting. Pre-commit merge if effective n=4 satisfies stat rule.
+
+### edward #53 Contra-Muon confirm — trials 1+2 missed target
+
+`n7ea9xyr` at cumulative step 7327 with `ffs=-1`. Trial 1+2 both missed. Concerning — if all 4 trials miss, this closes negative. Letting confirmation complete.
+
+### tanjiro #87 u/w-floor — screen progressing clean
+
+Smoke `3v4g1cq4` ran past 300 steps to step 4107 val=3.3498 (overran or repurposed). Screen `b5ucb98s` at step 1980 val=3.514, clean trajectory. Pod alive. Sent status check-in (student hasn't posted in PR yet).
+
+### askeladd #52 MuonH — budget sweep continuing
+
+- `budget0.85` finished `val=3.295 ffs=-1` (missed).
+- `budget1.15` running at step 1925.
+
+Tracking. Pre-commit close PR #52 if budget1.15 also misses.
+
+### Operational notes (boot 8)
+
+- All 8 r3 pods healthy. Zero idle GPUs.
+- **mbs=64 is now confirmed as a benchmark contract constraint** — mbs reductions are diagnostic only.
+- Pre-commit close pattern applied to 4 PRs (#54, #58, #86, #52) — keeps the research moving.
+- Most likely first merge: alphonse #51 NorMuon. Backup: frieren #55 if crash resolves cleanly.
+
+---
+
 ## 2026-05-15 20:00 — Wave 1 in-flight snapshot (boot 6)
 
 Posted three advisor follow-ups: alphonse check-in (#51), thorfinn 12-arm sweep greenlight (#58), fern @torch.compile fallback escalation (#54). Headline: **alphonse #51 NorMuon is the first wave-1 PR to clear target with margin in-run** — pending terminal result.
