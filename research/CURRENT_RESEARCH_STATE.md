@@ -1,10 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-15
+- **Last update:** 2026-05-15 (early afternoon)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below current public
   best of 3030 steps (Record #20, Contra-Soft-Muon stack). Local baseline not
-  yet established.
+  yet established — the alphonse vanilla anchor diverged (see below).
 
 ## Current focus and themes
 
@@ -13,6 +13,55 @@
   Simultaneously screen single-feature additions from the strongest historical
   records, so we know which mechanisms transfer reliably to our local hardware
   before stacking them.
+
+## Wave 1 observations (snapshot 2026-05-15 mid-day)
+
+| PR | Student | Mechanism | Status | Best result so far |
+| -- | ------- | --------- | ------ | ----------------- |
+| #59 | alphonse | vanilla Muon | **DIVERGED** — step-1 gnorm 234K, NaN by step 25; sent back | n/a |
+| #61 | askeladd | NorMuon short-axis | training, step 1500, val 3.52 | n/a |
+| #63 | edward | u/w floor | **reached target**, step 3275, val 3.2781 (n=1, margin 0.0019 < 0.004) | 3275 (n=1) |
+| #64 | fern | PMuon | training, step 1300, val 3.56; bug-fix landed in PR | n/a |
+| #65 | frieren | MuonH hyperball | **DIVERGED** (same pattern as alphonse) | n/a |
+| #67 | nezuko | SOAP-MLP | training, step 75 (just restarted) | n/a |
+| #68 | tanjiro | Aurora + Contra-Muon | **reached target**, step 3175, val 3.2744 (n=1, margin 0.0056 ≥ 0.004) ✓ stat-sig | **3175 (n=1)** ★ |
+| #69 | thorfinn | KL-SOAP-H | training, step 1890, val 5.68 | n/a |
+
+## Key cross-cutting issues found in wave 1
+
+1. **`sample_tensor` linspace bug** (records/track_3_optimization/train_gpt_simple.py:184):
+   `torch.linspace(0, numel-1, k)` in fp32 produces an out-of-range index for
+   tensors with > 2^24 elements, crashing the first histogram log via a CUDA
+   assert. Originally caught by g1r1-fern and g1r1-tanjiro. Fix is a
+   two-character change (`dtype=torch.float64` + `.clamp_(max=numel-1)`).
+   Both their PRs include the patch; we'll inherit it when one of them merges.
+
+2. **Step-1 gradient explosion on vanilla starter for some students.** PRs #59
+   (alphonse, vanilla) and #65 (frieren, MuonH) both show gnorm ~10^5 at step 1
+   and 100% NaN gradients by step 25, while PRs #61, #63, #64, #67, #68, #69
+   train cleanly on the same script. Suggests an environment- or pod-specific
+   issue, not a code issue. Investigation pending — both PRs sent back with
+   diagnostic instructions.
+
+## Likely Wave 2 directions (after wave-1 closure)
+
+- **Merge order if confirmed:** tanjiro Aurora+Contra-Muon (3175 steps,
+  stat-sig) → then layer u/w floor and NorMuon if those confirm. Edward needs
+  n>=3 seeds to clear the stat bar.
+- **Stacking targets:**
+  - Aurora + Contra-Muon + NorMuon short-axis (combines tanjiro's win with
+    askeladd's mechanism)
+  - Aurora + Contra-Muon + SOAP-MLP (closer to record #14 / #16)
+  - Soft-Muon mechanism (singular-value shrinkage p=0.1) blended in cooldown
+    (record #20)
+- **Schedule levers:** power-law cooldown `c * (t_end - step)^1.2` instead of
+  linear (record #20 schedule)
+- **Per-module init std** tuning, especially for proj layers
+- **MuLoCo outer Nesterov SGD** wrapper (record #13)
+- **PSGD-Kron** baseline (track-3 README mentions `lr=0.0005, wd=0.625`)
+- **Investigation track:** root-cause the step-1 gnorm explosion; if
+  reproducible across env, a baseline-level gradient clip floor is on the
+  table (with explicit advisor sign-off to keep within benchmark contract).
 
 ## Wave 1 portfolio (1 GPU/student × 8 students) — assigned 2026-05-15
 
