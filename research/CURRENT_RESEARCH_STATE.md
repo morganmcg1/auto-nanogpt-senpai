@@ -14,18 +14,18 @@
   records, so we know which mechanisms transfer reliably to our local hardware
   before stacking them.
 
-## Wave 1 portfolio (1 GPU/student × 8 students)
+## Wave 1 portfolio (1 GPU/student × 8 students) — assigned 2026-05-15
 
-| Student | Hypothesis | Mechanism | Public reference | Risk |
-| ------- | ---------- | --------- | ---------------- | ---- |
-| alphonse | Local baseline | Vanilla Muon + aux Adam | starter | low |
-| askeladd | NorMuon (short-axis EMA) | per-row variance EMA after NS | #10 / #8 | low |
-| edward | u/w floor (Skylight) | clamp `||u||/||w||` ≥ 0.35, no WD | #9 | low |
-| fern | PMuon | streaming L^{-γ} m R^{-γ} preconditioning | #18 | medium |
-| frieren | MuonH (hyperball) | scale-invariant param update, no WD | #5 | low |
-| nezuko | SOAP-MLP | Shampoo eigenbasis Adam preconditioning on MLP weights | #14 | medium |
-| tanjiro | Aurora | iterative row-norm equilibration before polar | #17 | medium |
-| thorfinn | KL-SOAP-H | replace NS entirely with SOAP-in-Q-basis update | #19 | high |
+| PR | Student | Hypothesis | Mechanism | Public reference | Risk |
+| -- | ------- | ---------- | --------- | ---------------- | ---- |
+| #59 | alphonse | Local baseline | Vanilla Muon + aux Adam (`lr=0.035 wd=0.025 steps=3350`) | starter | low |
+| #61 | askeladd | NorMuon (short-axis EMA) | per-row variance EMA after NS | #10 / #8 | low |
+| #63 | edward | u/w floor (Skylight) | clamp `||u||/||w||` ≥ 0.35, no WD | #9 | low |
+| #64 | fern | PMuon | streaming L^{-γ} m R^{-γ} preconditioning | #18 | medium |
+| #65 | frieren | MuonH (hyperball) | scale-invariant param update, no WD | #5 | low |
+| #67 | nezuko | SOAP-MLP | Shampoo eigenbasis Adam preconditioning on MLP weights | #14 | medium |
+| #68 | tanjiro | Aurora + Contra-Muon | iterative row-norm equilibration before polar | #17 | medium |
+| #69 | thorfinn | KL-SOAP-H | replace NS entirely with SOAP-in-Q-basis update | #19 | high |
 
 ## Logic of this portfolio
 
