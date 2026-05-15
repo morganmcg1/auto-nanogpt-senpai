@@ -50,6 +50,14 @@ def parse_args():
 
 args = parse_args()
 
+# MuLoCo outer Nesterov SGD config (Algorithm 1, K=1).
+# Env-driven so we can run ablations (disable, sweep) without code changes.
+USE_OUTER_OPTIMIZER = os.environ.get("USE_OUTER_OPTIMIZER", "1") == "1"
+OUTER_LR = float(os.environ.get("OUTER_LR", "0.7"))
+OUTER_MOMENTUM = float(os.environ.get("OUTER_MOMENTUM", "0.5"))
+SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
+TRAIN_STEPS = int(os.environ.get("TRAIN_STEPS", "3350"))
+
 
 def clean_metric_name(name: str) -> str:
     return name.replace(".", "/")
@@ -519,6 +527,12 @@ print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0("="*100)
+if USE_OUTER_OPTIMIZER:
+    print0(f"MuLoCo outer optimizer ENABLED: outer_lr={OUTER_LR} outer_momentum={OUTER_MOMENTUM} "
+           f"sync_interval={SYNC_INTERVAL} train_steps={TRAIN_STEPS}", console=True)
+else:
+    print0(f"MuLoCo outer optimizer DISABLED. train_steps={TRAIN_STEPS}", console=True)
+print0("="*100)
 
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
@@ -556,6 +570,11 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps": TRAIN_STEPS,
+            "muloco_outer_enabled": USE_OUTER_OPTIMIZER,
+            "muloco_outer_lr": OUTER_LR,
+            "muloco_outer_momentum": OUTER_MOMENTUM,
+            "muloco_sync_interval": SYNC_INTERVAL,
         },
     )
 
@@ -567,7 +586,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = TRAIN_STEPS
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -621,6 +640,18 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # MuLoCo outer Nesterov SGD state. Snapshot after broadcast so all ranks agree
+    # on the anchor. Velocity starts at zero (identical across ranks). Reset every
+    # trial so each trial begins from a clean anchor.
+    if USE_OUTER_OPTIMIZER:
+        outer_state = {n: p.detach().clone() for n, p in model.named_parameters()}
+        outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+    else:
+        outer_state = None
+        outer_velocity = None
+    outer_applied_steps = 0
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -747,6 +778,40 @@ for trial_idx in range(args.num_trials):
                 param_histogram_limit=args.param_histogram_limit,
             )
         model.zero_grad(set_to_none=True)
+
+        # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every SYNC_INTERVAL
+        # inner steps. All ranks hold identical p.data after Muon's all_gather and
+        # AdamW's identical-on-all-ranks update, so the outer step computes the same
+        # result on every rank without explicit syncing.
+        if USE_OUTER_OPTIMIZER and train_step % SYNC_INTERVAL == 0 and train_step < train_steps:
+            log_outer = (dist.get_rank() == 0)
+            if log_outer:
+                delta_sq = torch.zeros((), device=device)
+                velocity_sq = torch.zeros((), device=device)
+                total_count = 0
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    delta = outer_state[n] - p.data
+                    outer_velocity[n].mul_(OUTER_MOMENTUM).add_(delta)
+                    p.data.copy_(outer_state[n] - OUTER_LR *
+                                 (OUTER_MOMENTUM * outer_velocity[n] + delta))
+                    outer_state[n].copy_(p.data)
+                    if log_outer:
+                        delta_sq = delta_sq + delta.float().square().sum()
+                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        total_count += delta.numel()
+            outer_applied_steps += 1
+            if log_outer:
+                delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
+                velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/outer/delta_rms": delta_rms,
+                    "train/outer/velocity_rms": velocity_rms,
+                    "train/outer/applied_steps": outer_applied_steps,
+                }, step=wandb_step)
+
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
