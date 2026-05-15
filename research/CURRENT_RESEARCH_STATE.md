@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (poll #9, ~21:35 UTC)
+- **Last updated:** 2026-05-15 (poll #10, ~22:05 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -87,7 +87,7 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200) but high variance                                          |
 | 47 | MuonH reproduction     | unclear — n=8 confirmation mid-seed-2                                                   |
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
-| 49 | Lookahead k×α          | **clean negative**: best cell = baseline; n=6 confirmation in flight at student choice |
+| 49 | Lookahead k×α          | **CLOSED (clean negative)**: best cell (k=10/α=0.8) = baseline ceiling; PR #49 closed 2026-05-15 22:00 |
 | 50 | Polyak/SWA τ×β         | **single-seed signal at noise floor**: τ=0.20/β=0.995 gave ffs=3300, 50-step gain      |
 
 The explore-side outcome is becoming clear: Lookahead is a clean
@@ -195,16 +195,22 @@ Known strong simple recipes between starter and the deepest stack:
 8 idle students → 8 fresh PRs on `auto-nanogpt-1gpu-r5`. Portfolio is 5
 exploitation reproductions of known strong recipes + 3 exploration ideas.
 
-| PR # | Student         | Hypothesis                                                            | Type         |
-| ---- | --------------- | --------------------------------------------------------------------- | ------------ |
-| 43   | g1r5-alphonse   | NorMuonH reproduction (record #8)                                     | exploit      |
-| 44   | g1r5-askeladd   | Contra-Muon isolated on plain Muon                                    | exploit      |
-| 45   | g1r5-edward     | Muon² sharper NS polynomial (record #7)                               | exploit      |
-| 46   | g1r5-fern       | SOAP-Muon for MLP weights only (component of #14)                     | exploit      |
-| 47   | g1r5-frieren    | MuonH reproduction (record #5)                                        | exploit      |
-| 48   | g1r5-nezuko     | Cooldown shape sweep on plain Muon (5 shapes × 2 seeds)               | explore      |
-| 49   | g1r5-tanjiro    | Lookahead wrapper over Muon (k×α grid)                                | explore      |
-| 50   | g1r5-thorfinn   | Polyak/SWA tail averaging (τ×β grid)                                  | explore      |
+| PR # | Student         | Hypothesis                                                            | Type    | Status       |
+| ---- | --------------- | --------------------------------------------------------------------- | ------- | ------------ |
+| 43   | g1r5-alphonse   | NorMuonH reproduction (record #8)                                     | exploit | WIP (confirm)|
+| 44   | g1r5-askeladd   | Contra-Muon isolated on plain Muon                                    | exploit | WIP (confirm)|
+| 45   | g1r5-edward     | Muon² sharper NS polynomial (record #7)                               | exploit | WIP (screen) |
+| 46   | g1r5-fern       | SOAP-Muon for MLP weights only (component of #14)                     | exploit | WIP (confirm)|
+| 47   | g1r5-frieren    | MuonH reproduction (record #5)                                        | exploit | WIP (confirm)|
+| 48   | g1r5-nezuko     | Cooldown shape sweep on plain Muon (5 shapes × 2 seeds)               | explore | WIP (screen) |
+| 49   | g1r5-tanjiro    | Lookahead wrapper over Muon (k×α grid)                                | explore | **CLOSED** (clean negative) |
+| 50   | g1r5-thorfinn   | Polyak/SWA tail averaging (τ×β grid)                                  | explore | WIP (confirm in flight)|
+
+## Wave 2 — assignments dispatched 2026-05-15 (tanjiro freed from PR #49)
+
+| PR # | Student         | Hypothesis                                                   | Type    | Status |
+| ---- | --------------- | ------------------------------------------------------------ | ------- | ------ |
+| 98   | g1r5-tanjiro    | Cautious-Muon: sign-agreement mask on NS update (lr sweep)   | explore | WIP    |
 
 All assignments specify:
 - inline-only optimizer code (no third-party packages),
