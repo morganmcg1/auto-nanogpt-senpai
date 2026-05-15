@@ -6,6 +6,109 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 18:35 — Wave 1 second-checkpoint snapshot
+
+Roughly 6 hours into wave 1 (launched ~12:35 UTC). W&B audit of all 8 PRs.
+Headline: **frieren MuLoCo** is the first PR with a clean target-reaching
+single-seed run, but `ffs=3325` is not yet a statistical winner so it's in
+n=4 confirmation. **askeladd MuonH** screen finished sub-target.
+**nezuko Lion** is a confirmed dead end and being asked to close.
+
+### PR #51 g1r3-alphonse — NorMuon (after EMA fix)
+- New run `g1r3-alphonse/normuon-clean-confirm3300` launched at ~16:26 UTC,
+  currently step ~25 with initial loss (10.83) — too early to read.
+- Prior smoke runs (pre-EMA-fix) all NaN at step 300; the latest one is
+  `normuon-impl-smoke-canonical`, finished NaN, confirming the bug
+  signature.
+- **Advisor action this iteration**: none — let the corrected rerun reach
+  step 300+ before assessing.
+
+### PR #52 g1r3-askeladd — MuonH clip-only
+- Screen `g1r3-askeladd/muonh-hyperball-screen-s0` finished at step 3350
+  with `val/loss = 3.2917`, `ffs = -1`. **Did not reach target.**
+- Public #5 (always-active variant + per-module init, n=10) hit
+  `val=3.2782, ffs=3325`. Our clip-only n=1 missed by ~0.014 in val and
+  the target line entirely.
+- Diagnosis: clip-only damps norms back to `R` (active_fraction ~0.99) but
+  doesn't actively pull them below `R` like `scale_invariant_update_`; no
+  per-module init compounds the miss.
+- **Sent**: Option 1 — budget_mult ∈ {0.85, 1.0, 1.15} sweep + per-module
+  init; Option 2 — always-active variant + per-module init. Run Option 1
+  first (cheaper).
+
+### PR #53 g1r3-edward — Contra-Muon
+- 4-seed confirmation `g1r3-edward/contra-muon-confirm-3225-n4` launched
+  at ~16:26 UTC, currently step 1 (initial loss). In flight.
+- Prior screen had landed at `val=3.2808, ffs=-1` (n=1 miss by 0.0008).
+- **Advisor action this iteration**: none — let confirmation run.
+
+### PR #54 g1r3-fern — SOAP-on-MLP precond before Muon NS
+- Latest g1r3-fern run `soap-mlp-smoke` still NaN at step 200 even after
+  the corrected `_matrix_power` + 50-step precond warmup + float64 state.
+- Two fresh smoke launches running: `soap-mlp-smoke-v4` (just started),
+  `g1r2-fern/contra-soap-mlp-smoke-fix` (just started).
+- **Advisor action this iteration**: none — give the new smokes a chance.
+  If both NaN, escalate with float64-precision eigenvalue traces.
+
+### PR #55 g1r3-frieren — MuLoCo outer Nesterov around plain Muon
+- Screen `g1r3-frieren/muloco-outer-screen-s0` **finished** at step 3350:
+  `val/loss = 3.2793`, **`ffs = 3325`** (reached target).
+- n=1 result doesn't satisfy the statistical rule
+  (`(3.28 - 3.2793) * sqrt(1) = 0.0007 < 0.004`), and `ffs=3325` is
+  slightly worse than the public #12 plain-Muon expectation (~3300).
+- **Sent**: n=4 confirmation at `train_steps=3300`; if mean misses, sweep
+  `outer_lr ∈ {0.5, 0.7, 1.0}` × `outer_momentum ∈ {0.3, 0.5, 0.7}` at n=1
+  before re-confirming. Public #13 NorMuonH-in-MuLoCo hit `ffs=3210` at
+  n=10 so the wrapper has more headroom.
+
+### PR #56 g1r3-nezuko — Lion replacing AdamW + Muon
+- `g1r3-nezuko/lion-everywhere-lr-sweep` at step 3686 with `val/loss = 6.6365`. Diverged. Best Lion-flavored arm anywhere in the project is `g1r4-thorfinn/lion-aux-arm-a` at `val=3.3144, ffs=-1` (worse than baseline; Lion only on aux slots).
+- **Confirmed negative result.** Lion-everywhere at this scale is not competitive.
+- **Sent**: stop the running smoke, post terminal `SENPAI-RESULT` with
+  `status="negative"` + LR-sweep table, swap to `status:review`. I'll
+  close and reassign from the wave-2 queue (PSGD-Kron or Muon²).
+
+### PR #57 g1r3-tanjiro — Per-module init std on plain Muon
+- Run history: `screen-s0` (n=1) finished at `val=3.2858, ffs=-1`;
+  second seed `screen-s0` instance running, currently step ~1775 with
+  `val=3.4949` (mid-run).
+- Init-only is a weak lever for plain Muon at this scale.
+- **Sent**: recommended path A — let s1 finish, post 2-seed table,
+  `status="negative"`, close. Init forward-rides onto wave-1 algorithmic
+  winners. (Option B = run 4 seeds was offered but discouraged.)
+
+### PR #58 g1r3-thorfinn — Cooldown shape × cooldown_frac sweep
+- 100-step warmup fix failed: `g1r3-thorfinn/smoke-warmup100-linear-0.7`
+  crashed at step 3.
+- Diagnostic cross-PR fact: tanjiro's plain-Muon-WITH-per-module-init
+  (no warmup, no compile change) is the only stable 1-GPU plain-Muon
+  config on this branch.
+- **Sent**: revised plan — Smoke A (per-module init only) and Smoke B
+  (per-module init + warmup) as 300-step diagnostics before committing
+  the 12-arm sweep. Escalate if both NaN; try lower Muon `mu=0.85` or
+  disable `@torch.compile` next.
+
+### Operational learnings this iteration
+
+- **frieren MuLoCo screen reaching the 3.28 line** is the first wave-1
+  signal that wrapping plain Muon in an outer Nesterov SGD actually
+  works on 1 GPU — encouraging, but needs multi-seed.
+- **askeladd's clip-only MuonH miss** suggests the clip-only/always-active
+  distinction is doing more work than I assumed when I wrote the
+  hypothesis. The bundled reference uses always-active; we should
+  default to always-active for any future Frobenius-ball variant.
+- **The 1-GPU plain-Muon NaN instability is tied to init std, not LR.**
+  thorfinn's warmup-100 fix failing at step 3 + tanjiro's per-module
+  init running cleanly with no warmup + no public 1-GPU runs using
+  default init = strong evidence the init lever is mandatory for any
+  plain-Muon-derived experiment at world_size=1.
+- **Per-module init is a free-rider lever.** It doesn't move the needle
+  in isolation but appears to be the stability prerequisite for plain
+  Muon at 1 GPU. Future PRs touching plain Muon at 1 GPU should fold
+  it in by default.
+
+---
+
 ## 2026-05-15 15:35 — Wave 1 in-flight snapshot (no merges yet)
 
 Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
