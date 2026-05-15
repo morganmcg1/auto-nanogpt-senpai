@@ -501,6 +501,85 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class MuonH(torch.optim.Optimizer):
+    """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
+
+    After the regular Muon step, project the parameter back into a ball of radius
+    R = (initial Frobenius norm) * budget_mult. The projection replaces weight
+    decay as the implicit regularizer; when hyperball=True the recommended
+    weight_decay is 0.
+    """
+    def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
+                 hyperball=True, budget_mult=1.0):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        hyperball=hyperball, budget_mult=budget_mult)
+        super().__init__(params, defaults)
+        self._last_active_fraction = 0.0
+        self._last_radius_to_norm_max = 0.0
+        self._last_norm_to_radius_max = 0.0
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        clip_count_local = 0
+        total_count_local = 0
+        max_r_over_n_local = 0.0
+        max_n_over_r_local = 0.0
+        for group in self.param_groups:
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            hb = group["hyperball"]
+            budget_mult = group["budget_mult"]
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state["momentum"] = torch.zeros_like(p)
+                        if hb:
+                            state["hyperball_radius"] = p.data.norm().item() * budget_mult
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                    p.add_(update, alpha=-group["lr"])
+                    if hb:
+                        R = state["hyperball_radius"]
+                        norm = p.data.norm().item()
+                        total_count_local += 1
+                        if R > 0:
+                            r_over_n = R / max(norm, 1e-30)
+                            n_over_r = norm / R
+                            if r_over_n > max_r_over_n_local:
+                                max_r_over_n_local = r_over_n
+                            if n_over_r > max_n_over_r_local:
+                                max_n_over_r_local = n_over_r
+                        if norm > R:
+                            p.data.mul_(R / norm)
+                            clip_count_local += 1
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if world_size > 1:
+            counts = torch.tensor([clip_count_local, total_count_local],
+                                  device="cuda", dtype=torch.float64)
+            dist.all_reduce(counts, op=dist.ReduceOp.SUM)
+            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
+                                  device="cuda", dtype=torch.float64)
+            dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            clip_count = float(counts[0].item())
+            total_count = float(counts[1].item())
+            max_r_over_n = float(ratios[0].item())
+            max_n_over_r = float(ratios[1].item())
+        else:
+            clip_count = float(clip_count_local)
+            total_count = float(total_count_local)
+            max_r_over_n = max_r_over_n_local
+            max_n_over_r = max_n_over_r_local
+        self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
+        self._last_radius_to_norm_max = max_r_over_n
+        self._last_norm_to_radius_max = max_n_over_r
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -582,16 +661,27 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps if args.train_steps is not None else 3350
 
-    # initialize model parameters
+    # Per-module init std: gives MuonH non-zero matrices to operate on from step 0
+    # while keeping the LM head (model.proj.weight) at zero so initial logits are 0.
+    # The "proj" substring matches both block proj weights and the LM head, so the
+    # LM head is special-cased by exact-name first.
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
-            elif "embed" in name:
-                w.normal_()  # default torch init
+            if name == "proj.weight":
+                w.zero_()  # LM head: keep zero like starter
+            elif name == "embed.weight":
+                w.normal_()  # token embedding: default torch init
+            elif "attn.proj" in name:
+                w.normal_(std=0.026)
+            elif "mlp.proj" in name:
+                w.normal_(std=0.031)
+            elif "mlp.fc" in name:
+                w.normal_(std=0.031)
+            elif "attn." in name:
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -600,30 +690,45 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
+    # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
+    # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
+    # projection now controls norm growth. AdamW aux groups match the starter
+    # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                       lr=0.018, weight_decay=0.0, mu=0.95,
+                       hyperball=True, budget_mult=1.0)
+    optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
+    # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
+    # embed / head keep learning for the first ~60% of training.
+    h_cooldown_frac = 1.0
+    aux_cooldown_frac = 0.4
+    for group in optimizer1.param_groups:
+        group["cooldown_frac"] = aux_cooldown_frac
+    for group in optimizer2.param_groups:
+        group["cooldown_frac"] = h_cooldown_frac
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then decay, with per-group cooldown_frac.
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
+                cooldown_frac = group["cooldown_frac"]
+                if progress < 1 - cooldown_frac:
+                    eta = 1.0
+                else:
+                    eta = (1 - progress) / cooldown_frac
                 group["lr"] = group["initial_lr"] * eta
 
 
@@ -742,6 +847,15 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            muonh_metrics = {"trial": trial_idx, "train/step": train_step}
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
+                    muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
+                    muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+            if len(muonh_metrics) > 2:
+                wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
