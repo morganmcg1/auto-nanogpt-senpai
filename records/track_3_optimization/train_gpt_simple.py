@@ -435,6 +435,11 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+# Soft-Muon shrinkage: blend the polar (orthogonalized) update with the
+# unit-normalized whitened-momentum direction, gated to the cooldown phase only.
+SOFTMUON_P = 0.1
+SOFTMUON_COOLDOWN_FRAC = 0.7
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -473,6 +478,7 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
+    softmuon_p: float = 0.0,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -487,22 +493,47 @@ def pmuon_update(
     m_pre = (L_neg @ update.float()) @ R_neg
 
     update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
+
+    if softmuon_p > 0.0:
+        # Soft-Muon: blend polar with Frobenius-normalized whitened-momentum
+        # direction, scaled to match polar's Frobenius norm sqrt(min(m, n)).
+        target_scale = float(min(m_pre.shape[-2], m_pre.shape[-1])) ** 0.5
+        m_norm = m_pre.norm().clamp_min(1e-12)
+        soft_dir = m_pre * (target_scale / m_norm)
+        update = (1 - softmuon_p) * update + softmuon_p * soft_dir.to(update.dtype)
+
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
     return update
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3,
+                 softmuon_p: float = 0.0, cooldown_frac: float = 0.7, train_steps: int = 1):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert softmuon_p >= 0.0
+        assert 0.0 <= cooldown_frac <= 1.0
+        assert train_steps >= 1
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
+                        softmuon_p=softmuon_p)
         super().__init__(params, defaults)
+        self.cooldown_frac = cooldown_frac
+        self.train_steps = train_steps
+        self.global_step = 0
+        self.last_softmuon_active = False
+        self.last_effective_softmuon_p = 0.0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        progress = self.global_step / max(1, self.train_steps)
+        in_cooldown = progress >= (1.0 - self.cooldown_frac)
+        self.last_softmuon_active = bool(in_cooldown and any(g["softmuon_p"] > 0.0 for g in self.param_groups))
+        max_effective_p = 0.0
         for group in self.param_groups:
+            effective_softmuon_p = group["softmuon_p"] if in_cooldown else 0.0
+            max_effective_p = max(max_effective_p, effective_softmuon_p)
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -521,10 +552,13 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        softmuon_p=effective_softmuon_p,
                     )
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self.last_effective_softmuon_p = max_effective_p
+        self.global_step += 1
 
 
 ########################################
@@ -565,7 +599,9 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+# dynamic=True works around Inductor NaN-at-~step-125 bug on RTX PRO 6000 Blackwell
+# (alphonse PR #59 root cause; confirmed clean for vanilla Muon by W&B run 83qeloh9).
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -601,7 +637,10 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            # Soft-Muon (Record #20 component) gated to cooldown phase only.
+            "softmuon_p": SOFTMUON_P,
+            "softmuon_cooldown_frac": SOFTMUON_COOLDOWN_FRAC,
+            "muon_method": "pmuon-bilateral-cov-precond+softmuon-cooldown",
         },
     )
 
@@ -638,7 +677,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3,
+                      softmuon_p=SOFTMUON_P, cooldown_frac=SOFTMUON_COOLDOWN_FRAC,
+                      train_steps=train_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -775,6 +816,13 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/softmuon/active": int(optimizer2.last_softmuon_active),
+                "train/softmuon/effective_p": optimizer2.last_effective_softmuon_p,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
