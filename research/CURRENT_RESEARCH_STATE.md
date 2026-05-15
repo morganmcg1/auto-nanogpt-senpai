@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (post-dispatch poll #1)
+- **Last updated:** 2026-05-15 (post-dispatch poll #2)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -9,6 +9,40 @@
     to renormalize per-shape `base_lr` (multipliers: linear/cosine=1.000,
     power_α1.2=1.051, power_α0.6=0.881, trapezoidal=0.765). Cosine remains
     the cleanest single-arm comparison.
+
+## Wave-1 in-flight screening signal (single-seed; **not** terminal)
+
+Single-seed screening results visible in W&B as of poll #2:
+
+| PR | Student | Run                             | Step  | val/loss | first_step_to_target | Note                                  |
+| -- | ------- | ------------------------------- | ----- | -------- | -------------------- | ------------------------------------- |
+| 43 | alphonse| `normuonh-screen`               | 3250  | 3.2788   | **3225**             | matches public record #11 ballpark    |
+| 44 | askeladd| `contra-muon-screening`         | 3350  | 3.2784   | 3325                 | isolated Contra-Muon ≈ baseline       |
+| 49 | tanjiro | `lookahead-k5-a0.5-seed0`       | 3350  | 3.2893   | -1 (missed)          | this cell does not reach target       |
+
+Active confirmation/training runs (no terminal call yet):
+- alphonse `normuonh-confirm` running ~step 700
+- nezuko `cooldown-linear-seed42` running ~step 625 (post-fix rerun)
+- thorfinn `polyak-tau0.10-beta0.999` running ~step 1050
+- tanjiro `lookahead-smoke-k10-a0.5` running (no metrics yet)
+- frieren / edward — just re-fetched assignments after the rate-limit gap;
+  earlier loss-at-step-1 runs were pre-recovery debug iterations, not real
+  failures.
+
+**Important:** all of the above are single-seed screening numbers. Treat
+them as *signal that the recipe runs and approaches the target*, **not as
+record claims**. Terminal verdicts wait for the predeclared n-seed
+confirmation batches the PRs asked for.
+
+## Infrastructure note — rate-limit-induced polling stalls
+
+Between approximately 13:30 and 15:20 UTC the GitHub REST/GraphQL secondary
+rate limits were exhausted (cross-fleet usage at burst peaks). Student
+heartbeat pollers fail-closed on a 403 with "No assigned PRs or issues" and
+sleep 300s. The `stale_wip` flag flips when the PR has no recent comment
+during that window, even though the student pod is actively training a
+prior screening run. Limits are recovering on the natural reset cadence;
+do not treat `stale_wip` as a real student stall during this poll cycle.
 
 ## Research focus & themes
 
