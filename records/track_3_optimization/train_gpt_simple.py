@@ -9,6 +9,7 @@ import os
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
+import argparse
 import uuid
 import time
 from pathlib import Path
@@ -18,6 +19,236 @@ from torch import Tensor, nn
 from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
+import wandb
+
+TARGET_VAL_LOSS = 3.28
+STAT_SIG_DELTA = 0.004
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
+    parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
+    parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
+    parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
+    parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
+    parser.add_argument("--wandb_entity", default=os.environ.get("WANDB_ENTITY", ""))
+    parser.add_argument("--wandb_tags", default=os.environ.get("WANDB_TAGS", ""))
+    parser.add_argument("--wandb_mode", default=os.environ.get("WANDB_MODE", "online"))
+    parser.add_argument("--telemetry_interval", type=int, default=int(os.environ.get("NANOGPT_TELEMETRY_INTERVAL", "25")))
+    parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
+    parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
+    parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    args = parser.parse_args()
+    args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
+    args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    if args.telemetry_interval < 1 or args.histogram_interval < 1:
+        raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    return args
+
+
+args = parse_args()
+
+
+def clean_metric_name(name: str) -> str:
+    return name.replace(".", "/")
+
+
+def tensor_stats(tensor: Tensor) -> dict[str, float]:
+    values = tensor.detach().float()
+    finite = torch.isfinite(values)
+    finite_count = int(finite.sum().item())
+    total_count = values.numel()
+    if finite_count == 0:
+        return {
+            "elements": total_count,
+            "finite_elements": 0,
+            "nonfinite_count": total_count,
+        }
+    finite_values = values if finite_count == total_count else values[finite]
+    return {
+        "elements": total_count,
+        "finite_elements": finite_count,
+        "nonfinite_count": total_count - finite_count,
+        "norm": float(finite_values.norm().item()),
+        "rms": float(finite_values.square().mean().sqrt().item()),
+        "mean": float(finite_values.mean().item()),
+        "mean_abs": float(finite_values.abs().mean().item()),
+        "std": float(finite_values.std(unbiased=False).item()) if finite_count > 1 else 0.0,
+        "min": float(finite_values.min().item()),
+        "max": float(finite_values.max().item()),
+        "max_abs": float(finite_values.abs().max().item()),
+        "zero_fraction": float((finite_values == 0).float().mean().item()),
+    }
+
+
+def aggregate_stats(named_tensors: list[tuple[str, Tensor]]) -> dict[str, float]:
+    total_count = 0
+    finite_count = 0
+    sum_values = 0.0
+    sum_abs = 0.0
+    sum_squares = 0.0
+    zero_count = 0
+    min_value = float("inf")
+    max_value = float("-inf")
+    max_abs = 0.0
+    for _, tensor in named_tensors:
+        values = tensor.detach().float()
+        total_count += values.numel()
+        finite = torch.isfinite(values)
+        count = int(finite.sum().item())
+        if count == 0:
+            continue
+        finite_values = values if count == values.numel() else values[finite]
+        finite_count += count
+        sum_values += float(finite_values.sum().item())
+        sum_abs += float(finite_values.abs().sum().item())
+        sum_squares += float(finite_values.square().sum().item())
+        zero_count += int((finite_values == 0).sum().item())
+        min_value = min(min_value, float(finite_values.min().item()))
+        max_value = max(max_value, float(finite_values.max().item()))
+        max_abs = max(max_abs, float(finite_values.abs().max().item()))
+    if finite_count == 0:
+        return {
+            "elements": total_count,
+            "finite_elements": 0,
+            "nonfinite_count": total_count,
+        }
+    mean = sum_values / finite_count
+    variance = max(0.0, sum_squares / finite_count - mean * mean)
+    return {
+        "elements": total_count,
+        "finite_elements": finite_count,
+        "nonfinite_count": total_count - finite_count,
+        "norm": sum_squares ** 0.5,
+        "rms": (sum_squares / finite_count) ** 0.5,
+        "mean": mean,
+        "mean_abs": sum_abs / finite_count,
+        "std": variance ** 0.5,
+        "min": min_value,
+        "max": max_value,
+        "max_abs": max_abs,
+        "zero_fraction": zero_count / finite_count,
+    }
+
+
+def prefixed(prefix: str, stats: dict[str, float]) -> dict[str, float]:
+    return {f"{prefix}/{key}": value for key, value in stats.items()}
+
+
+def param_module_types(model: nn.Module) -> dict[str, str]:
+    modules = dict(model.named_modules())
+    out = {}
+    for name, _ in model.named_parameters():
+        module_name = name.rsplit(".", 1)[0] if "." in name else ""
+        out[name] = modules.get(module_name, model).__class__.__name__
+    return out
+
+
+def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[str, str]):
+    groups: dict[str, list[tuple[str, Tensor]]] = {}
+    for name, tensor in named_tensors:
+        groups.setdefault(module_types[name], []).append((name, tensor))
+    return groups
+
+
+def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
+    values = tensor.detach().float().flatten()
+    if values.numel() > max_samples:
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        values = values[idx]
+    values = values[torch.isfinite(values)]
+    return values.cpu()
+
+
+def log_training_telemetry(
+    model: nn.Module,
+    optimizers: list[torch.optim.Optimizer],
+    module_types: dict[str, str],
+    train_loss: float,
+    trial_idx: int,
+    step: int,
+    train_steps: int,
+    wandb_step: int,
+):
+    grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "train/loss": train_loss,
+        "speedrun/train_steps": train_steps,
+        "speedrun/target_val_loss": TARGET_VAL_LOSS,
+    }
+    metrics.update(prefixed("train/grad/all", aggregate_stats(grads)))
+    for opt_idx, opt in enumerate(optimizers):
+        for group_idx, group in enumerate(opt.param_groups):
+            group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
+            metrics[f"train/lr/{group_name}"] = group["lr"]
+            metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+    for module_type, tensors in grouped_by_type(grads, module_types).items():
+        metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
+    for name, grad in grads:
+        metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_weight_telemetry(
+    model: nn.Module,
+    module_types: dict[str, str],
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    weights = [(name, p.data) for name, p in model.named_parameters()]
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+    }
+    metrics.update(prefixed("train/weight/all", aggregate_stats(weights)))
+    for module_type, tensors in grouped_by_type(weights, module_types).items():
+        metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
+    for name, weight in weights:
+        metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_histograms(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+    histogram_samples: int,
+    param_histogram_limit: int,
+):
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+    }
+    grad_samples = []
+    weight_samples = []
+    for _, p in model.named_parameters():
+        if p.grad is not None:
+            sample = sample_tensor(p.grad, max(1, histogram_samples // 16))
+            if sample.numel() > 0:
+                grad_samples.append(sample)
+        sample = sample_tensor(p.data, max(1, histogram_samples // 16))
+        if sample.numel() > 0:
+            weight_samples.append(sample)
+    if grad_samples:
+        metrics["train/grad_hist/all"] = wandb.Histogram(torch.cat(grad_samples).numpy())
+    if weight_samples:
+        metrics["train/weight_hist/all"] = wandb.Histogram(torch.cat(weight_samples).numpy())
+    largest_params = sorted(model.named_parameters(), key=lambda item: item[1].numel(), reverse=True)
+    for name, p in largest_params[:param_histogram_limit]:
+        clean_name = clean_metric_name(name)
+        if p.grad is not None:
+            sample = sample_tensor(p.grad, histogram_samples)
+            if sample.numel() > 0:
+                metrics[f"train/grad_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+        sample = sample_tensor(p.data, histogram_samples)
+        if sample.numel() > 0:
+            metrics[f"train/weight_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+    wandb.log(metrics, step=wandb_step)
 
 
 ########################################
@@ -253,10 +484,37 @@ val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/finew
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
 
+module_types = param_module_types(model)
+if dist.get_rank() == 0:
+    tags = ["track-3-optimization", "senpai"] + args.wandb_tags
+    if os.environ.get("RESEARCH_TAG"):
+        tags.append(os.environ["RESEARCH_TAG"])
+    if os.environ.get("STUDENT_NAME"):
+        tags.append(f"student:{os.environ['STUDENT_NAME']}")
+    wandb.init(
+        entity=args.wandb_entity or None,
+        project=args.wandb_project,
+        name=args.wandb_name or None,
+        group=args.wandb_group or os.environ.get("RESEARCH_TAG") or None,
+        tags=tags,
+        mode=args.wandb_mode,
+        config={
+            "benchmark": "modded-nanogpt-track-3-optimization",
+            "target_val_loss": TARGET_VAL_LOSS,
+            "stat_sig_delta": STAT_SIG_DELTA,
+            "num_trials": args.num_trials,
+            "world_size": dist.get_world_size(),
+            "batch_size_tokens": batch_size,
+            "microbatch_sequences": mbs,
+            "val_tokens": val_tokens,
+            "telemetry_interval": args.telemetry_interval,
+            "histogram_interval": args.histogram_interval,
+            "histogram_samples": args.histogram_samples,
+            "param_histogram_limit": args.param_histogram_limit,
+        },
+    )
 
-num_trials = int(sys.argv[-1]) if len(sys.argv) > 1 else 1
-
-for _ in range(num_trials):
+for trial_idx in range(args.num_trials):
 
 
     ########################################
@@ -284,12 +542,13 @@ for _ in range(num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3),
-                        dict(params=[model.proj.weight], lr=1/320),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01)],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
+    optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -320,6 +579,9 @@ for _ in range(num_trials):
     # start the clock
     training_time = 0
     last_val_step = 0
+    best_val_loss = float("inf")
+    best_val_step = -1
+    first_step_to_target = -1
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -334,13 +596,33 @@ for _ in range(num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = 0
+            val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
                     val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
+            val_loss_float = float(val_loss.item())
+            if dist.get_rank() == 0:
+                if val_loss_float < best_val_loss:
+                    best_val_loss = val_loss_float
+                    best_val_step = step
+                if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
+                    first_step_to_target = step
+                wandb.log({
+                    "trial": trial_idx,
+                    "val/step": step,
+                    "val/loss": val_loss_float,
+                    "val/best_loss": best_val_loss,
+                    "val/best_step": best_val_step,
+                    "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
+                    "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
+                    "speedrun/first_step_to_target": first_step_to_target,
+                    "speedrun/reached_target": int(first_step_to_target >= 0),
+                    "time/train_seconds": training_time,
+                    "time/step_avg_ms": 1000 * step_avg,
+                }, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
@@ -355,18 +637,70 @@ for _ in range(num_trials):
         inputs, targets = next(train_loader)
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
+        step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs]).backward()
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            step_loss += loss.detach()
+            loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
+        train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
+        histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
+        wandb_step = trial_idx * (train_steps + 1) + step + 1
+        if dist.get_rank() == 0 and telemetry_due:
+            log_training_telemetry(
+                model=model,
+                optimizers=optimizers,
+                module_types=module_types,
+                train_loss=train_loss,
+                trial_idx=trial_idx,
+                step=step + 1,
+                train_steps=train_steps,
+                wandb_step=wandb_step,
+            )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            log_weight_telemetry(
+                model=model,
+                module_types=module_types,
+                trial_idx=trial_idx,
+                step=step + 1,
+                wandb_step=wandb_step,
+            )
+        if dist.get_rank() == 0 and histogram_due:
+            log_histograms(
+                model=model,
+                trial_idx=trial_idx,
+                step=step + 1,
+                wandb_step=wandb_step,
+                histogram_samples=args.histogram_samples,
+                param_histogram_limit=args.param_histogram_limit,
+            )
         model.zero_grad(set_to_none=True)
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
 
+    if dist.get_rank() == 0:
+        print0(
+            f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
+            + f" first_step_to_target:{first_step_to_target}",
+            console=True,
+        )
+        wandb.log({
+            "trial": trial_idx,
+            "speedrun/final_best_val_loss": best_val_loss,
+            "speedrun/final_best_val_step": best_val_step,
+            "speedrun/final_first_step_to_target": first_step_to_target,
+            "speedrun/final_reached_target": int(first_step_to_target >= 0),
+        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+
+if dist.get_rank() == 0:
+    wandb.finish()
 dist.destroy_process_group()
