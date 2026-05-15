@@ -40,6 +40,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muon_mu", type=float, default=float(os.environ.get("NANOGPT_MUON_MU", "0.95")),
+                        help="Nesterov momentum coefficient for Muon (default 0.95).")
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")),
+                        help="Number of optimizer steps per trial.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -180,7 +184,9 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # fp64 avoids the linspace endpoint rounding up to numel() (OOB) for tensors
+        # whose size is not exactly representable in fp32, e.g. embed.weight (50304*768).
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device, dtype=torch.float64).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +558,8 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "muon_mu": args.muon_mu,
+            "train_steps": args.train_steps,
         },
     )
 
@@ -563,7 +571,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -588,7 +596,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=0.025, mu=args.muon_mu)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
