@@ -40,11 +40,15 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--wd_warmup_frac", type=float, default=float(os.environ.get("NANOGPT_WD_WARMUP_FRAC", "0.0")),
+                        help="Fraction of train_steps over which to linearly ramp Muon weight decay from 0 to initial_weight_decay.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.wd_warmup_frac < 0.0 or args.wd_warmup_frac >= 1.0:
+        raise ValueError("--wd_warmup_frac must be in [0.0, 1.0)")
     return args
 
 
@@ -180,7 +184,10 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # Use float64 + clamp to avoid float32 precision pushing the last index out of bounds
+        # (e.g. 50304*768 elements with float32 linspace lands on numel, not numel-1).
+        idx = torch.linspace(0, values.numel() - 1, max_samples, dtype=torch.float64, device=values.device).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +559,7 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "wd_warmup_frac": args.wd_warmup_frac,
         },
     )
 
@@ -596,8 +604,10 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+            group["initial_weight_decay"] = group.get("weight_decay", 0.0)
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: stable then decay; optional Muon WD warmup ramp
+    wd_warmup_frac = args.wd_warmup_frac
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -605,9 +615,12 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        wd_factor = min(1.0, progress / wd_warmup_frac) if wd_warmup_frac > 0 else 1.0
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if group.get("name") == "muon_blocks":
+                    group["weight_decay"] = group["initial_weight_decay"] * wd_factor
 
 
     ########################################
