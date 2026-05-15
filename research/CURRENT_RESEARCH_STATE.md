@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (poll #10, ~22:05 UTC)
+- **Last updated:** 2026-05-15 (poll #11, ~23:35 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -43,7 +43,8 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 46 | fern     | `soap-mlp-screen`            | (seed-1)    | **3200** | faster than rec #14                                   |
 | 48 | nezuko   | `cooldown-linear-seed42`     | 3.2784      | 3300     | linear ≈ baseline; other shapes worse                 |
 | 49 | tanjiro  | `lookahead-k10-a0.8-seed0`   | **3.27963** | 3350     | best cell = ceiling, ≈ plain Muon baseline (clean neg)|
-| 50 | thorfinn | `polyak-tau0.20-beta0.995`   | **3.27794** | **3300** | 50-step gain at noise floor; needs n=6 confirmation   |
+| 50 | thorfinn | `polyak-tau0.20-beta0.995`   | **3.2779**  | **3300** | best of 4-cell grid; n=6 confirmation in flight       |
+| 50 | thorfinn | `polyak-tau0.30-beta0.995`   | 3.2786      | **3300** | tied with τ=0.20 on ffs; 0.0007 nats worse on val     |
 
 ### Active runs as of ~21:35 UTC
 
@@ -68,14 +69,16 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   step ~1.55k; previous shapes: linear `ffs=3300`, cosine `ffs=-1`,
   power_α0.6 `val=3.28561 ffs=-1`. Two shapes still to run
   (power_α1.2 in flight, trapezoidal pending).
-- **tanjiro** (Lookahead k×α grid): **screening grid complete**, best
-  cell `k=10/α=0.8 val=3.27963 ffs=3350`. Confirmation `n=6` just
-  launched at step ~200 (student chose option B — run the predeclared
-  confirmation rather than skip; this is fine and will give us a clean
-  n=6 mu near baseline).
-- **thorfinn** (Polyak/SWA τ×β grid): 3 of 4 cells finished; best
-  `τ=0.20/β=0.995 val=3.27794 ffs=3300`. Fourth cell `τ=0.30/β=0.995`
-  in flight at step ~1.25k for grid completeness before confirmation.
+- **tanjiro** (PR #49 Lookahead): **CLOSED 2026-05-15 22:00** as clean
+  negative. Tanjiro reassigned to PR #98 Cautious-Muon (sign-agreement
+  masking on NS update, lr sweep ∈ {1.0, 1.5, 2.0}×).
+- **thorfinn** (Polyak/SWA τ×β grid): **grid complete (4/4 cells)**.
+  Results: (0.10,0.999) ffs=-1, (0.20,0.999) ffs=-1, **(0.20,0.995)
+  val=3.2779 ffs=3300**, **(0.30,0.995) val=3.2786 ffs=3300**. β=0.995
+  cells tied on ffs; τ in [0.20, 0.30] roughly fungible. **n=6
+  confirmation on (τ=0.20, β=0.995) launched** — running at step ~225
+  of 3350. Discriminating question: does n=6 mu clear `(3.28 - mu)
+  × sqrt(6) >= 0.004` (needs mu < 3.2784 with n=6 SE)? Borderline.
 
 ### Forming wave-1 verdicts (single-seed; still tentative)
 
@@ -88,7 +91,8 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 47 | MuonH reproduction     | unclear — n=8 confirmation mid-seed-2                                                   |
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
 | 49 | Lookahead k×α          | **CLOSED (clean negative)**: best cell (k=10/α=0.8) = baseline ceiling; PR #49 closed 2026-05-15 22:00 |
-| 50 | Polyak/SWA τ×β         | **single-seed signal at noise floor**: τ=0.20/β=0.995 gave ffs=3300, 50-step gain      |
+| 50 | Polyak/SWA τ×β         | grid complete; (τ=0.20,β=0.995) and (τ=0.30,β=0.995) tied at ffs=3300; n=6 confirmation in flight; borderline statsig |
+| 98 | Cautious-Muon (wave-2) | freshly dispatched 2026-05-15 22:30; smoke/screen pending                              |
 
 The explore-side outcome is becoming clear: Lookahead is a clean
 negative; Polyak has one in-noise screening cell that needs n=6 to
