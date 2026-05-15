@@ -43,3 +43,42 @@ student PRs inherit it.
   shortest-budget cooldown that still works.
 - Try cosine or `(1-progress)^2` decay shape at the same total budget.
 - Power-law cooldown `c*(t_end-step)^1.2` from record #20.
+
+## 2026-05-15 12:20 — PR #32: ADOPT optimizer for aux groups (embed, lm_head, scalars)
+
+- Branch: `r1-thorfinn/adopt-aux-optimizer` (closed)
+- Hypothesis: Replacing AdamW with ADOPT (Tamaki et al. 2024, arXiv:2411.02853)
+  on the aux param groups removes the `v_t/v_t` circularity Adam relies on, and
+  delivers a small step gain at no compute cost.
+- Setup: paper-faithful Algorithm 2 (`v_0 = g_0^2` init, inner clip `t^0.25`,
+  outer update `θ_t = θ_{t-1} - lr m_t`), betas=(0.9, 0.95), eps=1e-6, per-group
+  LRs unchanged (embed=0.3, lm_head=1/320, scalars=0.01). `train_steps=3350`.
+
+| Trial         | W&B run    | best val/loss | first_step_to_target |
+| ------------- | ---------- | ------------- | -------------------- |
+| seed 0        | `djhebu6s` | 3.28169       | -1                   |
+| seed 1        | `djhebu6s` | 3.28479       | -1                   |
+| **mean (n=2)**| —          | **3.28324**   | —                    |
+
+Statistical check: `(3.28 - 3.28324) * sqrt(2) = -0.00458` vs required `+0.004`.
+Hypothesis fails by ~2× the absolute margin.
+
+**Conclusion: hypothesis disproven.** ADOPT (Algorithm 2 with clip) on aux
+groups does not improve over the AdamW baseline at 3350 steps. The student's
+analysis is correct: aux params are a small fraction of total parameter mass
+relative to Muon-managed block weights, so swapping the aux optimizer has
+limited loss-leverage on this benchmark. Closed without merge.
+
+**Implementation note (student win).** The PR's stated pseudocode was unstable
+due to a cold-start interaction with `proj.weight` zero-init (gradient~0 →
+v~0 → 10^6 amplification on step 2). Student diagnosed this carefully and
+switched to paper-faithful Algorithm 2 before running. Good read-before-running
+discipline.
+
+**Suggested follow-ups (parked, lower leverage than unassigned record ports):**
+- ADOPT Algorithm 1 (no clip) with eps=1e-3 — tests whether the inner v-floor
+  is what mattered.
+- ADOPT on scalars-only — isolate the cold-start issue from the asymptotic
+  benefit hypothesis.
+- Lion / Schedule-Free on aux groups — cleaner replacements that need no v.
+- AdamW eps=1e-3 sanity baseline.

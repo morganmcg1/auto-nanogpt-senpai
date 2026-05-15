@@ -1,6 +1,6 @@
 # SENPAI Research State — `auto-nanogpt-r1`
 
-- 2026-05-15 (Wave 1 assigned, all 8 students busy)
+- 2026-05-15 (Wave 1 in progress, 8/8 students busy after pivots).
 - Most recent human researcher directive: none yet.
 - Current research focus: **lower `speedrun/final_first_step_to_target` on the
   modded-nanogpt track-3 optimizer benchmark**, starting from the in-repo
@@ -22,8 +22,9 @@
 | #29 | r1-frieren  | mup-perlayer-lr-scaling       | optimizer-hparam  | WIP      | Attn vs MLP LR split |
 | #30 | r1-nezuko   | post-ns-nesterov              | optimizer-update  | WIP      | Nesterov applied in orthogonalized space |
 | #31 | r1-tanjiro  | spectral-weight-decay         | regularization    | WIP      | Rank-1 spectral WD vs L2 WD on Muon params |
-| #32 | r1-thorfinn | adopt-aux-optimizer           | optimizer         | WIP      | ADOPT replaces AdamW for embed/lm_head/scalar aux groups |
+| #32 | r1-thorfinn | adopt-aux-optimizer           | optimizer         | **closed (failed)** | val/loss 3.28324 mean (n=2), stat margin -0.00458. Aux groups have low loss-leverage on this benchmark. |
 | #41 | r1-askeladd | pmuon-bilateral-cov-precond   | preconditioner    | WIP      | Port PMuon (record #18) — bilateral streaming cov precond before polar |
+| #42 | r1-thorfinn | soap-mlp-precond              | preconditioner    | WIP      | Port SOAP-MLP (record #14) — Shampoo eigenbasis precond before NS for mlp.fc/mlp.proj |
 
 ## Themes for the opening wave
 
@@ -48,8 +49,6 @@
 
 Records-aligned ports we have NOT yet assigned this wave (high leverage):
 - **Contra-Muon** technique (record #11 worth ~25 steps on top of NorMuon).
-- **SOAP-MLP** Shampoo-eigen precond before NS for `mlp.fc/mlp.proj` weights
-  (record #14 worth ~100 steps on top of Contra-Muon).
 - **MuLoCo outer-Nesterov** wrapper around the inner optimizer (record #13).
 - **PMuon** bilateral covariance preconditioning before polar (record #18).
 - **MuonH hyperball constraint** + per-module init std (record #5).
