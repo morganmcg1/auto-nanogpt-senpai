@@ -47,7 +47,12 @@
   train_steps=~3325 launched, currently step 275 (T0 early).
 - **g1r2-thorfinn (PMuon)** — stabilized variant `w3ure8fc` (compile-off
   + fp32 covariance + gamma=0.15) **CRASHED at step 1000**. PMuon recipe
-  declared dead across all variants. Pivoting student to a new hypothesis.
+  declared dead across all variants (17/18 runs crashed or finished above
+  target). PR #82 **closed** 2026-05-15. Student is **idle**; next
+  invocation should assign Soft-Muon (isolated) on plain Muon — single-axis
+  cubic shrinkage `O = ns5(M) - p × O × Oᵀ × O` for `p ∈ {0.05, 0.10, 0.15}`
+  sweep, train_steps=3300 screen + n=4 confirm at predeclared step. Slug:
+  `soft-muon-isolated`.
 
 ## Single-seed leaderboard so far (informational, not statsig)
 | student | recipe | run | val/loss @ step | ffs | margin n=1 |
