@@ -6,12 +6,20 @@
 - **Current best:** 3030 steps (record #20 — Contra-Soft-Muon + KL-SOAP + trust gate + u/w-floor)
 - **Prior W&B context:** 62 runs in rounds 1–3, closest val/loss=3.2813 at step 3300 (none crossed 3.28).
 
-## HOT signal (in-flight, n=1, not yet terminal)
+## HOT signals (in-flight, n=1, not yet terminal) — 17:25 UTC
 
-- **PR #60 (alphonse) Muon² arm-A** run `s0oq3dnx`: `speedrun/first_step_to_target=3275`, val/loss=3.2783 at step 3300 (still running, target step 3350). **First crossing of 3.28 in our lab.**
-- This is n=1 — stat-sig rule needs `(3.28 - mu) * sqrt(n) >= 0.004`. Run protocol says 3 confirmation seeds will run automatically.
-- The PR body asks for an arm-B at NS=8 (compute-headroom check on top of Muon²).
-- Implication: Muon² (Adam-style 2nd-moment precond before Newton-Schulz) is the strongest single-mechanism find so far. If confirmed at n≥3, this likely composes cleanly with cooldown/WD-warmup winners from wave 1.
+Four students have crossed val/loss < 3.28 in single seeds. Confirmation seeds are running for some but not all.
+
+| PR | Student | Recipe | val/loss | first_step_to_target | Seeds queued? |
+|----|---------|--------|---------:|---------------------:|---------------|
+| #60 | alphonse | **Muon² (NS=12)** | 3.2766 | **3275** | seed 2 at step 1725; needs 1 more |
+| #75 | tanjiro | NS=12 (baseline) | 3.2789 | 3325 | seed 2 + ns-8 arm running |
+| #70 | fern | cooldown frac=0.5 | 3.2790 | 3325 | seed 2 at step 1600 |
+| #73 | nezuko | wd_warmup_frac=0.00 (= baseline) | 3.2797 | 3350 | none — advisor asked to start arms B/C |
+
+**Critical methodology**: 2 of 4 crossings (tanjiro NS=12, nezuko wd_warmup=0.00) are the **unmodified starter recipe with different seeds**. Prior 62 W&B rounds of this baseline never crossed 3.28. So single-seed crossings are within seed noise of the baseline itself; stat-sig (`(3.28 - mu) * sqrt(n) >= 0.004`) is the binding constraint.
+
+Best real-mechanism candidate: **alphonse Muon²** at 3275 steps — 50 steps better than baseline crossings. If confirmed at n>=3 it's a worthwhile result (still far from SOTA 3030).
 
 ## Infrastructure bug discovered (nezuko, PR #73)
 
