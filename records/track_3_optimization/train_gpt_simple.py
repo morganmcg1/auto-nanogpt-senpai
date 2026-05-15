@@ -180,7 +180,12 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # float32 linspace loses integer precision past 2**24 and can produce
+        # out-of-bounds indices for large parameters (e.g. the 50304*768
+        # embedding). Build indices in float64 then clamp.
+        idx = torch.linspace(0, values.numel() - 1, max_samples,
+                             device=values.device, dtype=torch.float64).long()
+        idx = idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
