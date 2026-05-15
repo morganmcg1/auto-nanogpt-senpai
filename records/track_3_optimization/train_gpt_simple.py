@@ -40,11 +40,22 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")))
+    parser.add_argument("--lookahead_k", type=int, default=int(os.environ.get("LOOKAHEAD_K", "5")),
+                        help="Lookahead sync interval (slow update every k inner Muon steps)")
+    parser.add_argument("--lookahead_alpha", type=float, default=float(os.environ.get("LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead slow-weight interpolation factor in [0, 1]")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.train_steps < 1:
+        raise ValueError("--train_steps must be positive")
+    if args.lookahead_k < 1:
+        raise ValueError("--lookahead_k must be >= 1")
+    if not (0.0 <= args.lookahead_alpha <= 1.0):
+        raise ValueError("--lookahead_alpha must lie in [0, 1]")
     return args
 
 
@@ -180,7 +191,9 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # float64 avoids fp32 rounding that pushes the last linspace value to numel for
+        # large tensors (e.g. 50304*768 embed) which violates [0, numel-1].
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device, dtype=torch.float64).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -485,6 +498,57 @@ class Muon(torch.optim.Optimizer):
 
 
 ########################################
+#              Lookahead               #
+########################################
+
+class Lookahead:
+    """Lookahead wrapper (Zhang et al. 2019, arXiv:1907.08610).
+
+    Maintains slow weights for each wrapped parameter. Every k inner
+    optimizer steps the wrapper applies:
+        slow_w <- slow_w + alpha * (w - slow_w)
+        w      <- slow_w
+    Outside the sync window the parameters follow the inner optimizer.
+
+    Assumes the wrapped optimizer keeps p.data identical across ranks after
+    its step (Muon satisfies this via its built-in all_gather), so the slow
+    buffers stay synchronized without extra communication.
+    """
+
+    def __init__(self, params, k: int = 5, alpha: float = 0.5):
+        assert k >= 1
+        assert 0.0 <= alpha <= 1.0
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self.params = list(params)
+        self.slow = [p.data.detach().clone() for p in self.params]
+        self.inner_step_count = 0
+        self.sync_count = 0
+
+    @torch.no_grad()
+    def maybe_step(self):
+        self.inner_step_count += 1
+        if self.inner_step_count >= self.k:
+            self.inner_step_count = 0
+            self.sync_count += 1
+            for p, sw in zip(self.params, self.slow):
+                sw.lerp_(p.data, self.alpha)  # sw <- sw + alpha*(p.data - sw)
+                p.data.copy_(sw)
+
+    @torch.no_grad()
+    def distance_to_slow(self) -> float:
+        """Aggregate Frobenius norm sqrt(sum_i ||w_i - slow_w_i||^2)."""
+        if not self.params:
+            return 0.0
+        device = self.params[0].device
+        sq = torch.zeros((), device=device, dtype=torch.float32)
+        for p, sw in zip(self.params, self.slow):
+            diff = p.data.float() - sw.float()
+            sq = sq + diff.pow(2).sum()
+        return float(sq.sqrt().item())
+
+
+########################################
 #                Setup                 #
 ########################################
 
@@ -552,6 +616,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps": args.train_steps,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
         },
     )
 
@@ -563,7 +630,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -617,6 +684,18 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Lookahead wraps only the Muon-managed block 2D weights so the effect is
+    # attributable to Muon-side averaging. Aux AdamW params are left untouched.
+    lookahead = Lookahead(
+        optimizer2.param_groups[0]["params"],
+        k=args.lookahead_k,
+        alpha=args.lookahead_alpha,
+    )
+    print0(
+        f"Lookahead wrapper: k={lookahead.k} alpha={lookahead.alpha} "
+        f"wrapped_params={len(lookahead.params)} train_steps={train_steps}",
+        console=True,
+    )
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -725,6 +804,8 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Lookahead slow-weight pull-back fires every k Muon steps.
+        lookahead.maybe_step()
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -733,6 +814,15 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/lookahead/distance_to_slow": lookahead.distance_to_slow(),
+                "train/lookahead/sync_interval": lookahead.k,
+                "train/lookahead/alpha": lookahead.alpha,
+                "train/lookahead/sync_count": lookahead.sync_count,
+                "train/lookahead/inner_step_count": lookahead.inner_step_count,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
