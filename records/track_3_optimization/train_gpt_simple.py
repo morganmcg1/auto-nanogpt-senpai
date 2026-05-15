@@ -30,6 +30,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")))
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -45,6 +46,8 @@ def parse_args():
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.train_steps < 1:
+        raise ValueError("--train_steps must be positive")
     return args
 
 
@@ -433,6 +436,10 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+CONTRA_MUON = 0.4
+TARGET_UW = 0.35
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -452,25 +459,64 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-@torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+
+def scale_to_unit_operator_norm(G, eps=1e-10):
+    if G.size(-2) < G.size(-1):
+        norm = (G @ G.mT).norm().sqrt()
+    else:
+        norm = (G.mT @ G).norm().sqrt()
+    return G / norm.clamp_min(eps)
+
+
+_MUON_DEBUG_STATE = {"first_nonfinite_logged": False}
+
+
+_MUON_DISABLE_CONTRA = os.environ.get("MUON_DISABLE_CONTRA", "0") == "1"
+_MUON_DISABLE_SM = os.environ.get("MUON_DISABLE_SM", "0") == "1"
+_MUON_DISABLE_FLOOR = os.environ.get("MUON_DISABLE_FLOOR", "0") == "1"
+_MUON_USE_BASELINE_LR = os.environ.get("MUON_USE_BASELINE_LR", "0") == "1"
+
+
+def muon_update(grad, momentum, second_moment, mu=0.95, beta2=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if not _MUON_DISABLE_CONTRA:
+        normalized_grad = scale_to_unit_operator_norm(update.clone())
     update = zeropower_via_newtonschulz5(update)
+    if not _MUON_DISABLE_CONTRA:
+        opower_fro = update.norm()
+        update = update - (CONTRA_MUON / 2) * normalized_grad
+        update = update * opower_fro / update.norm().clamp_min(1e-10)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    if not _MUON_DISABLE_SM:
+        per_row_var = (update * update).mean(dim=-1, keepdim=True) \
+            if grad.size(-2) >= grad.size(-1) \
+            else (update * update).mean(dim=-2, keepdim=True)
+        second_moment.lerp_(per_row_var.float(), 1 - beta2)
+        vnorm = update.norm()
+        update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
+        vnorm_new = update.norm().clamp_min(1e-10)
+        update = update * (vnorm / vnorm_new)
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2)
         super().__init__(params, defaults)
+        self.last_diag: dict[str, float] = {}
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        local_uw_sum = 0.0
+        local_uw_count = 0
+        local_uw_min = float("inf")
+        local_uw_max = 0.0
+        local_floor_active = 0
+        local_nonfinite = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -480,10 +526,51 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        sm_shape = list(p.shape)
+                        if p.size(-2) >= p.size(-1):
+                            sm_shape[-1] = 1
+                        else:
+                            sm_shape[-2] = 1
+                        state["second_moment"] = torch.zeros(sm_shape, dtype=torch.float32, device=p.device)
+                    update = muon_update(p.grad, state["momentum"], state["second_moment"],
+                                         mu=group["mu"], beta2=group["beta2"])
+                    u_fro_raw = update.norm()
+                    if not torch.isfinite(u_fro_raw).item():
+                        print0(f"WARNING: non-finite Muon update for param of shape {tuple(p.shape)}; zeroing this step",
+                               console=True)
+                        update = torch.zeros_like(update)
+                        u_fro_raw = update.norm()
+                        local_nonfinite += 1
+                    u_fro = u_fro_raw.clamp_min(1e-10)
+                    p_fro = p.data.norm()
+                    cur_uw = u_fro / p_fro.clamp_min(1e-10)
+                    cur_uw_value = float(cur_uw.item())
+                    if not _MUON_DISABLE_FLOOR:
+                        scale = torch.where(cur_uw < TARGET_UW,
+                                            TARGET_UW * p_fro / u_fro,
+                                            torch.ones_like(p_fro))
+                        update = update * scale
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
+                    local_uw_sum += cur_uw_value
+                    local_uw_count += 1
+                    if cur_uw_value < local_uw_min:
+                        local_uw_min = cur_uw_value
+                    if cur_uw_value > local_uw_max:
+                        local_uw_max = cur_uw_value
+                    if cur_uw_value < TARGET_UW:
+                        local_floor_active += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if local_uw_count > 0:
+            self.last_diag = {
+                "muon/uw_mean": local_uw_sum / local_uw_count,
+                "muon/uw_min": local_uw_min,
+                "muon/uw_max": local_uw_max,
+                "muon/floor_active_frac": local_floor_active / local_uw_count,
+                "muon/nonfinite_count": local_nonfinite,
+                "muon/uw_target": TARGET_UW,
+                "muon/contra_muon": CONTRA_MUON,
+            }
 
 
 ########################################
@@ -520,11 +607,21 @@ print0("="*100)
 
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
-mbs = 64
+# Workaround for torch 2.10 + Blackwell + cuDNN 91002 model.compile NaN bug
+# (see PR #76 advisor comment): NANOGPT_COMPILE_MODE=off disables model.compile
+# and forces mbs<=32 + expandable_segments. NANOGPT_MBS overrides mbs explicitly.
+_COMPILE_MODE = os.environ.get("NANOGPT_COMPILE_MODE", "default").strip().lower()
+_COMPILE_ENABLED = _COMPILE_MODE not in {"off", "none", "disable", "disabled", ""}
+mbs = int(os.environ.get("NANOGPT_MBS", "64" if _COMPILE_ENABLED else "32"))
+assert batch_size % mbs == 0, f"batch_size={batch_size} must be divisible by mbs={mbs}"
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+if _COMPILE_ENABLED:
+    if _COMPILE_MODE in {"default", "on", "true", "1"}:
+        model.compile(dynamic=False)
+    else:
+        model.compile(dynamic=False, mode=_COMPILE_MODE)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -545,6 +642,7 @@ if dist.get_rank() == 0:
             "target_val_loss": TARGET_VAL_LOSS,
             "stat_sig_delta": STAT_SIG_DELTA,
             "num_trials": args.num_trials,
+            "train_steps": args.train_steps,
             "world_size": dist.get_world_size(),
             "batch_size_tokens": batch_size,
             "microbatch_sequences": mbs,
@@ -554,6 +652,14 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "optimizer": "contra-muon",
+            "contra_muon": CONTRA_MUON,
+            "target_uw": TARGET_UW,
+            "muon_lr": 0.0375,
+            "muon_wd": 0.025,
+            "muon_mu": 0.95,
+            "muon_beta2": 0.95,
+            "cooldown_frac": 0.7,
         },
     )
 
@@ -565,7 +671,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -590,7 +696,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=(0.035 if _MUON_USE_BASELINE_LR else 0.0375),
+                      weight_decay=0.025, mu=0.95, beta2=0.95)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -735,6 +842,13 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            muon_diag_metrics: dict[str, float] = {"trial": trial_idx, "train/step": train_step}
+            for opt in optimizers:
+                diag = getattr(opt, "last_diag", None)
+                if diag:
+                    muon_diag_metrics.update(diag)
+            if len(muon_diag_metrics) > 2:
+                wandb.log(muon_diag_metrics, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
