@@ -192,7 +192,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # Clamp to guard against float32 imprecision when numel > 2**24: the
+        # last linspace value can round up to numel after .long(), crashing
+        # the indexing kernel (e.g. GPT-2 embedding ~38.6M elements).
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx = idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
