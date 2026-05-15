@@ -40,6 +40,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muon_swd", type=float, default=None,
+                        help="Spectral weight decay coefficient for Muon (overrides default 0.025).")
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override in-script train_steps.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -180,7 +184,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # float32 cannot represent integers above 2^24 exactly; use float64
+        # for the linspace so the final index is not rounded to numel.
+        idx = torch.linspace(0, values.numel() - 1, max_samples,
+                             device=values.device, dtype=torch.float64).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -458,6 +466,33 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def spectral_wd_update(param, swd_coeff, state, num_iters=2):
+    """Apply rank-1 spectral weight decay to ``param`` in place.
+
+    Subtracts ``swd_coeff * sigma_max * outer(u, v)`` from the parameter,
+    the gradient of ``(1/2) * sigma_max(w)^2``. The left singular vector
+    estimate is cached in ``state`` across optimizer steps so power
+    iteration warm-starts (Miyato 2018; Spectra 2026). Zero-init proj
+    weights produce a u=0 fixed point; the cached vector is reseeded if
+    its norm has collapsed.
+    """
+    w = param.data
+    w2d = w.view(w.shape[0], -1) if w.ndim > 2 else w
+    u = state.get("spectral_u")
+    if u is None or u.shape[0] != w2d.shape[0] or u.norm() < 0.5:
+        u = torch.randn(w2d.shape[0], dtype=w2d.dtype, device=w2d.device)
+        u = u / (u.norm() + 1e-8)
+    for _ in range(num_iters):
+        v = w2d.mT @ u
+        v = v / (v.norm() + 1e-8)
+        u = w2d @ v
+        u = u / (u.norm() + 1e-8)
+    state["spectral_u"] = u
+    sigma = u @ w2d @ v
+    w2d.sub_(torch.outer(u, v) * (swd_coeff * sigma))
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -479,7 +514,7 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                    spectral_wd_update(p, group["lr"] * group["weight_decay"], state)
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
@@ -552,6 +587,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "muon_swd_override": args.muon_swd,
+            "train_steps_override": args.train_steps,
+            "regularizer": "spectral_wd_rank1",
         },
     )
 
@@ -563,7 +601,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3050
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -587,8 +625,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    muon_swd = args.muon_swd if args.muon_swd is not None else 0.025
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=muon_swd)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
