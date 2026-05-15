@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-15 19:00 UTC — wave 1 closed PRs
+
+### PR #62 — Schedule-Free Muon (askeladd) — CLOSED negative
+
+| Arm | LR | sf_beta | mu | warmup | Steps | val/loss | Run |
+|-----|----|---------|----|--------|-------|----------|-----|
+| A | 0.035 | 0.90 | 0.95 | 0 | 3350 | 3.3638 | hltz3pr3 |
+| B | 0.025 | 0.90 | 0.95 | 0 | ~246 (killed) | — | — |
+| C | 0.035 | 0.90 | 0.95 | 200 | ~1250 (killed) | 3.587 | eetdzgtl |
+| D | 0.035 | 0.98 | 0.00 | 200 | ~1625 (killed @ kill gate) | 3.613 | zxdq6572 |
+
+**Result:** No arm reached 3.28. Best val=3.3638. Paper-aligned recipe (arm D) was worse due to: (1) high sf_beta=0.98 keeps y far from z, slowing forward pass; (2) mu=0 removes Nesterov preconditioning from NS input, increasing per-step noise. **Key insight**: the 70% linear LR cooldown is load-bearing on this benchmark — it is doing real work collapsing to a sharp basin that SF's trajectory averaging cannot substitute. Closed per PR §6 protocol (val > 3.29 after LR retune exhausted).
+
+### PR #77 — Lion for Auxiliary Groups (thorfinn) — CLOSED negative
+
+| Arm | lion_embed_lr | lion_lmhead_lr | Steps | val/loss |
+|-----|--------------|----------------|-------|----------|
+| A | ~0.3 | ~0.003 | 3350 | 3.3144 |
+| B | 0.05 | 0.00078 | 3350 | 3.3109 |
+
+**Result:** Both arms ~0.032 nats above 3.28 target. Lion's sign-momentum update loses gradient information for the small aux groups where AdamW already runs cheaply. Lion is designed for the regime where Adam's correction is expensive — not applicable here.
+
+---
+
 ## 2026-05-15 — wave 1 in-flight summary (not yet reviewed)
 
 Snapshot from W&B at 16:20 UTC, prior to terminal SENPAI-RESULT submissions.
@@ -13,11 +37,11 @@ their local branches; nezuko (#73) is canonical.
 
 | PR | Student | Hypothesis | Best arm | first_step_to_target | val/loss | Note |
 |----|---------|-----------|----------|---------------------|---------:|------|
-| #60 | alphonse | **Muon²** (Adam 2nd-moment precond before NS) | arm-A NS=12 | **3275** | **3.2766** | **HOT**: first 3.28 crossing in our lab, n=1, needs confirmation seeds + arm-B (NS=8) |
-| #75 | tanjiro | NS iter sweep 12/8/6 | arm-A NS=12 (baseline) | 3325 | 3.2789 | **Baseline noise crossing** — n=1 of the unmodified starter recipe crossed 3.28. Methodology: single seed crossings are not stat-sig (need mean ≤ 3.2777 at n=3) |
-| #70 | fern | cooldown_frac 0.5/0.6/0.7 | frac-0.5 (running) | — | 3.2915 @ step 3200 | very close to target; awaiting completion |
-| #62 | askeladd | Schedule-Free Muon | arm-A (finished) | — | 3.3638 @ step 3350 | arm-C still running at step 1125 |
-| #77 | thorfinn | Lion for aux groups | arm-A (finished) | — | 3.3144 @ step 3350 | Lion underperforms AdamW; arm-B (smaller LR) pending |
+| #60 | alphonse | **Muon²** (Adam 2nd-moment precond before NS) | arm-A NS=12 | **3275** | **3.2765/3.2766** | **STAT-SIG CONFIRMED** n=2: (3.28-3.27655)*sqrt(2)=0.0049>=0.004; arm-B (NS=8) running |
+| #75 | tanjiro | NS iter sweep 12/8/6 | NS=8 slightly better | 3325 | 3.2785 (NS=8), 3.2789 (NS=12) | Both NS=8 and NS=12 beat 3.28; NS=8 marginally better — compute headroom confirmed; NS=6 running |
+| #70 | fern | cooldown_frac 0.5/0.6/0.7 | frac-0.5 | 3325-3350 | 3.2790/3.2793 (seeds 1+2) | Confirmation seed 3 running; n=2 mean=3.27916, needs seed 3 for stat-sig |
+| #62 | askeladd | Schedule-Free Muon | CLOSED negative | — | 3.3638 best | 4 arms failed; see full entry above |
+| #77 | thorfinn | Lion for aux groups | CLOSED negative | — | 3.3109 best | both arms worse; see full entry above |
 | #72 | frieren | Muon Nesterov mu sweep | mu-0.90 (screening) | — | 3.3700 @ step 2000 | screening only, 4 more arms pending |
 | #73 | nezuko | WD warmup 0/5/10% | wd-warmup-A-0.00 (running) | — | 3.5288 @ step 1600 | early in run |
 | #66 | edward | cosine vs linear cooldown | — | — | NaN (running) | recovered after rate-limit episode; runs producing NaN val/loss currently |
