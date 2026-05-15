@@ -19,16 +19,16 @@ land at or below 3030 steps with at least one PR.
 
 ## Wave 1 portfolio (open hypotheses, 2026-05-15)
 
-| Student | Hypothesis | Position |
-| - | - | - |
-| r2-alphonse | Reproduce PR #20 contra-soft-muon stack | exploitation, top of the public board |
-| r2-askeladd | Reproduce PR #14 SOAP-MLP + Contra-Muon | exploitation, clean stack at 3150 |
-| r2-edward | Reproduce PR #16 TrustLight (SOAP-MLP + attn.proj trust gate) | exploitation, alternate route to 3125 |
-| r2-fern | Power-law cooldown schedule on the plain Muon baseline | schedule isolation |
-| r2-frieren | Reproduce PR #11 NorMuon u/w-floor + Contra-Muon | exploitation, lighter stack at 3225 |
-| r2-nezuko | Lookahead wrapper over the current Muon + AdamW | optimizer-wrapper exploration |
-| r2-tanjiro | Schedule-Free AdamW for aux optimizers, Muon untouched | schedule exploration |
-| r2-thorfinn | Per-module init-std tuning (Muon baseline, no other changes) | initialization isolation |
+| Student | PR | Hypothesis | Position |
+| - | - | - | - |
+| r2-alphonse | #14 | Reproduce PR #20 contra-soft-muon stack | exploitation, top of the public board |
+| r2-askeladd | #16 | Reproduce PR #14 SOAP-MLP + Contra-Muon | exploitation, clean stack at 3150 |
+| r2-edward | #19 | Reproduce PR #16 TrustLight (SOAP-MLP + attn.proj trust gate) | exploitation, alternate route to 3125 |
+| r2-fern | #21 | Power-law cooldown schedule on the plain Muon baseline | schedule isolation |
+| r2-frieren | #23 | Reproduce PR #11 NorMuon u/w-floor + Contra-Muon | exploitation, lighter stack at 3225 |
+| r2-nezuko | #24 | Lookahead wrapper over the current Muon + AdamW | optimizer-wrapper exploration |
+| r2-tanjiro | #25 | Schedule-Free AdamW for aux optimizers, Muon untouched | schedule exploration |
+| r2-thorfinn | #26 | Per-module init-std tuning (Muon baseline, no other changes) | initialization isolation |
 
 ## Potential next-wave directions
 
