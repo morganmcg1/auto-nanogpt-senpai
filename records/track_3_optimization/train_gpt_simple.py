@@ -569,22 +569,52 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3350
 
-    # initialize model parameters
+    # initialize model parameters — per-module init std (Muon-family default)
+    init_summary: list[tuple[str, str, float]] = []
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name == "proj.weight":
+                # LM head — keep zero init exactly as the starter
                 w.zero_()
+                init_kind = "zero(lm_head)"
             elif "embed" in name:
-                w.normal_()  # default torch init
+                w.normal_()  # torch default
+                init_kind = "normal_default(embed)"
+            elif "attn.proj" in name:
+                w.normal_(std=0.026)
+                init_kind = "normal_std=0.026(attn.proj)"
+            elif "mlp.proj" in name:
+                w.normal_(std=0.031)
+                init_kind = "normal_std=0.031(mlp.proj)"
+            elif "mlp.fc" in name:
+                w.normal_(std=0.031)
+                init_kind = "normal_std=0.031(mlp.fc)"
+            elif "qkv" in name or "attn." in name:
+                std = 0.33**0.5 / w.size(-1)**0.5
+                w.normal_(std=std)
+                init_kind = f"normal_std={std:.5f}(attn.qkv)"
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                # any leftover linear weight
+                std = 0.33**0.5 / w.size(-1)**0.5
+                w.normal_(std=std)
+                init_kind = f"normal_std={std:.5f}(default)"
         elif name.endswith("bias"):
             w.zero_()
+            init_kind = "zero(bias)"
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
+            init_kind = "ones(gains)"
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+        init_summary.append((name, init_kind, float(p.data.norm().item())))
+
+    if trial_idx == 0:
+        print0("="*100, console=True)
+        print0(f"trial:{trial_idx} per-module init summary (name, init_kind, ||w||):", console=True)
+        for name, init_kind, norm in init_summary:
+            print0(f"  {name:<48s} {init_kind:<36s} norm={norm:.5f}", console=True)
+        print0("="*100, console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
