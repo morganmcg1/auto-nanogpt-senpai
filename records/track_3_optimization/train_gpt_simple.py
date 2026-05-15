@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -568,6 +569,11 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3350
+    # cooldown lever for PR #58 sweep: shape in {"linear","cosine","sqrt","quadratic"}
+    cooldown_frac = 0.7
+    shape = "linear"
+    # 100-step warmup applied uniformly to all arms (advisor-mandated for 1-GPU stability)
+    warmup_steps = 100
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -601,14 +607,29 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
-        progress = step / train_steps
-        assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+    # learning rate schedule: warmup, then stable, then cooldown of selected shape
+    def set_hparams(step, cooldown_frac=cooldown_frac, shape=shape, warmup_steps=warmup_steps):
+        assert 0 <= step < train_steps
+        if step < warmup_steps:
+            eta = (step + 1) / warmup_steps  # +1 so step=0 is non-zero
         else:
-            eta = (1 - progress) / cooldown_frac
+            eff_step = step - warmup_steps
+            eff_total = train_steps - warmup_steps
+            progress = eff_step / eff_total
+            if progress < 1 - cooldown_frac:
+                eta = 1.0
+            else:
+                t = (progress - (1 - cooldown_frac)) / cooldown_frac  # 0..1
+                if shape == "linear":
+                    eta = 1.0 - t
+                elif shape == "cosine":
+                    eta = 0.5 * (1.0 + math.cos(math.pi * t))
+                elif shape == "sqrt":
+                    eta = (1.0 - t) ** 0.5
+                elif shape == "quadratic":
+                    eta = (1.0 - t) ** 2
+                else:
+                    raise ValueError(shape)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -631,6 +652,8 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    nan_killed_at = -1
+    nan_killed_reason = ""
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -653,6 +676,20 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            if not math.isfinite(val_loss_float):
+                nan_killed_at = step
+                nan_killed_reason = "val_loss"
+                if dist.get_rank() == 0:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "val/step": step,
+                        "val/loss": val_loss_float,
+                        "speedrun/nan_killed_step": step,
+                    }, step=trial_idx * (train_steps + 1) + step)
+                    print0(f"NaN KILL trial={trial_idx} step={step} reason=val_loss value={val_loss_float}", console=True)
+                model.train()
+                dist.barrier()
+                break
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -699,6 +736,18 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        if not math.isfinite(train_loss):
+            nan_killed_at = step
+            nan_killed_reason = "train_loss"
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": step + 1,
+                    "train/loss": train_loss,
+                    "speedrun/nan_killed_step": step,
+                }, step=trial_idx * (train_steps + 1) + step + 1)
+                print0(f"NaN KILL trial={trial_idx} step={step} reason=train_loss value={train_loss}", console=True)
+            break
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
@@ -754,7 +803,7 @@ for trial_idx in range(args.num_trials):
     if dist.get_rank() == 0:
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
-            + f" first_step_to_target:{first_step_to_target}",
+            + f" first_step_to_target:{first_step_to_target} nan_killed_at:{nan_killed_at}",
             console=True,
         )
         wandb.log({
@@ -763,6 +812,11 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "speedrun/final_nan_killed_at": nan_killed_at,
+            "speedrun/final_nan_killed_ok": int(nan_killed_at < 0),
+            "cooldown/shape": shape,
+            "cooldown/frac": cooldown_frac,
+            "cooldown/warmup_steps": warmup_steps,
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
