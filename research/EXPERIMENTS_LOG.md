@@ -6,6 +6,45 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-15 19:35 — PRs #56 and #57 closed; wave-2 assignments #86 and #87 created
+
+### PR #56 g1r3-nezuko — Lion replacing AdamW + Muon (CLOSED: negative)
+
+Terminal `SENPAI-RESULT`: `{"terminal":true,"status":"negative","pending_arms":false,"wandb_run_ids":["e6t36yfr","vvh16yhr"],"primary_metric":{"name":"speedrun/final_first_step_to_target","value":-1},"test_metric":{"name":"val/loss","value":4.6171}}`
+
+| Trial | lr_block | terminal val/loss | terminal step | reached target | ffs |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 1e-4 | 5.0250 | 3350 (full) | no | -1 |
+| 1 | 2e-4 | 4.6171 | 1875 (SIGTERM) | no | -1 |
+| 2 | 4e-4 | not run (killed) | — | — | — |
+| 3 | 8e-4 | not run (killed) | — | — | — |
+
+- Best arm (val=4.6171 partial, arm 1) shows grad non-finite onset before step 1875.
+- 1.7+ nat gap to the 3.28 target. No Lion arm competitive at this scale.
+- Student correctly analyzed: Lion replaces the NS-orthogonalized update on hidden weights, losing the well-conditioned orthogonal update that drives Muon's performance. Sign-based methods need much smaller LR and longer schedules to compensate; 3350-step budget doesn't allow it.
+- **Closed.** Nezuko reassigned to **MuonSquared (PR #86)**.
+
+### PR #57 g1r3-tanjiro — Per-module init std on plain Muon (CLOSED: negative)
+
+Terminal `SENPAI-RESULT`: `{"terminal":true,"status":"negative","pending_arms":false,"wandb_run_ids":["0jf2cf7n","mvvtvcn6"],"primary_metric":{"name":"speedrun/final_first_step_to_target","value":-1},"test_metric":{"name":"val/loss","value":3.28554}}`
+
+| Seed | val/loss @ 3350 | ffs | time (s) |
+| --- | --- | --- | --- |
+| s0 (`0jf2cf7n`) | 3.28575 | -1 | 6020 |
+| s1 (`mvvtvcn6`) | 3.28534 | -1 | 6017 |
+
+- n=2 mean val=3.28554, σ=0.00029. Statistical margin `(3.28 - 3.28554) * sqrt(2) = -0.00784` (far from the +0.004 target). 0.007 worse than baseline expected.
+- Correct analysis from student: only `attn.proj` and `mlp.proj` actually change from the starter (since `qkv` and `mlp.fc` are already at `sqrt(0.33)/sqrt(768)` in the starter's default init). The real change is narrower than expected — and without NorMuon/MuonH/Contra-Muon underneath, the init shift is too small to overcome single-seed noise.
+- Cross-validated: the stable plain-Muon runs on this branch (frieren, askeladd, edward) all have an implicit update clamp in their experimental code that incidentally masks the torch.compile NaN bug. Per-module init is the explicit stability lever.
+- **Closed.** Tanjiro reassigned to **u/w-floor (PR #87)**.
+
+### Wave 2 assignments created
+
+- **PR #86** — g1r3-nezuko: MuonSquared (`lr=0.10, wd=0.0125, beta2=0.95, eps=1e-10`). Target: reproduce public #7 (`val=3.2752, ffs=3325 n=1`) and confirm at n=4 @ 3300 steps. Per-module init mandatory for stability.
+- **PR #87** — g1r3-tanjiro: u/w-floor (`TARGET_UW=0.35, lr=0.0375, wd=0`, plain Muon base). Target: reproduce public #9 component (`ffs=3250 n=8` with NorMuon stack) in isolated form. Per-module init mandatory for stability.
+
+---
+
 ## 2026-05-15 19:05 — Wave 1 fern PR #54 root-cause checkpoint
 
 Fern delivered a clean root-cause analysis of the SOAP NaN. Headline:
