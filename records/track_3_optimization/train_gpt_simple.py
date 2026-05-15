@@ -437,7 +437,11 @@ class GPT(nn.Module):
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
-    X = G.bfloat16()
+    orig_dtype = G.dtype
+    # NS iterations run in fp32: bf16 NS produced step-1 NaN gradients on this
+    # Blackwell pod (frieren PR #65 diagnostics). PMuon already feeds fp32 in
+    # via `m_pre.float()`, but explicit cast keeps the path safe.
+    X = G.to(torch.float32)
     if G.size(-2) > G.size(-1):
         X = X.mT
 
@@ -452,7 +456,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     if G.size(-2) > G.size(-1):
         X = X.mT
-    return X
+    return X.to(orig_dtype)
 
 
 def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
@@ -491,9 +495,31 @@ def pmuon_update(
     return update
 
 
+@torch.no_grad()
+def scale_invariant_update_(p: Tensor, update: Tensor, lr: float) -> None:
+    # MuonH hyperball: p -= lr * update * (||p|| / ||u||), then renormalize p
+    # back to its pre-update Frobenius norm. Replaces decoupled weight decay
+    # for hidden-matrix parameters that live on a fixed-norm hyperball.
+    pf = p.detach().float()
+    uf = update.detach().float()
+    pre_norm = pf.norm().clamp_min(1e-12)
+    u_norm = uf.norm().clamp_min(1e-12)
+    p.add_(update, alpha=-lr * (pre_norm / u_norm).item())
+    new_norm = p.detach().float().norm().clamp_min(1e-12)
+    p.mul_(pre_norm / new_norm)
+
+
 class Muon(torch.optim.Optimizer):
+    """PMuon + MuonH hyperball param update.
+
+    Bilateral covariance preconditioning (PMuon, record #18) produces a
+    matrix-valued update; instead of `p -= lr * update` plus decoupled WD,
+    `scale_invariant_update_` renormalizes ||p||_F back to its pre-update
+    value (MuonH hyperball). Weight decay therefore must be 0.
+    """
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert weight_decay == 0, "MuonH hyperball replaces weight decay; set weight_decay=0"
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
         super().__init__(params, defaults)
@@ -522,8 +548,7 @@ class Muon(torch.optim.Optimizer):
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                     )
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    scale_invariant_update_(p, update, group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -565,7 +590,10 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+# dynamic=True works around the Inductor compile bug surfaced by alphonse PR
+# #59 (confirmed by vanilla-Muon run 83qeloh9). PMuon doesn't carry the
+# u/w-floor mask, so the dynamic flag must be set explicitly here.
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -595,13 +623,17 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
-            # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
+            # MuonH-on-PMuon (PR #65 frieren): PMuon bilateral covariance
+            # preconditioning + hyperball renormalization replacing decoupled WD.
             "muon_lr": 0.035,
-            "muon_weight_decay": 0.025,
+            "muon_weight_decay": 0.0,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            "muon_method": "muonh-on-pmuon-hyperball",
+            "use_hyperball": True,
+            "ns_dtype": "float32",
+            "compile_dynamic": True,
         },
     )
 
@@ -615,11 +647,20 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
 
-    # initialize model parameters
+    # initialize model parameters.
+    # Hyperball requires non-zero init for hidden proj weights it operates on:
+    # `scale_invariant_update_` renormalizes back to the pre-update Frobenius
+    # norm, so a zero-init attn.proj/mlp.proj weight would stay clamped at 1e-12
+    # forever. Use the same `sqrt(0.33)/sqrt(fan_in)` std as q/k/v/mlp.fc — the
+    # minimum change required for MuonH to function. The vocab head
+    # (model.proj.weight, AdamW group) is still zeroed so initial logits stay
+    # uniform.
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name.endswith(".attn.proj.weight") or name.endswith(".mlp.proj.weight"):
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
+            elif "proj" in name:
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
@@ -638,7 +679,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0, beta_cov=0.95, gamma=0.3)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
