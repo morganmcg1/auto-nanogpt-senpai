@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 01:45 — PR #79: MuLoCo on plain Muon — CLOSED (all 4 corners missed)
+- Branch: `g1r2-frieren/muloco-muon`
+- Hypothesis: MuLoCo outer Nesterov SGD wrapper around plain Muon may accelerate
+  convergence by adding momentum at a longer timescale.
+- Final W&B sweep runs:
+
+| run | si | outer_lr | train_steps | val/loss | reached |
+| --- | --- | --- | --- | --- | --- |
+| `bqfv4523` | 15 | 0.5 | 3300 | 3.2829 | 0 |
+| `q57yhybv` | 30 | 0.7 | 3300 | 3.2810 | 0 |
+| `ecohqy9o` | 15 | 0.7 | 3300 | 3.2815 | 0 |
+| `v2wn0t8t` | 60 | 0.5 | 3300 | **3.2865** | 0 |
+
+- Conclusion: All 4 sweep corners failed to reach 3.28. The si=60/lr=0.5 corner
+  (meant to allow longer inner runs between outer steps) was actually the **worst**
+  result. Plain Muon's NS5 orthogonalization already smooths the gradient direction
+  — MuLoCo's outer Nesterov momentum provides no additional benefit. Public record
+  #13's success was likely driven by MuLoCo wrapping NorMuon (which has noisy
+  per-element variance), not plain Muon.
+- Status: **CLOSED (dead end)**. Frieren reassigned to MuLoCo+NorMuon (PR #109).
+
+## 2026-05-16 01:50 — PR #81: Newton-Muon — n=4 confirmation at train_steps=3275 (terminal, non-statsig)
+- Branch: `g1r2-tanjiro/newton-muon`
+- Hypothesis: Activation-covariance right-preconditioning applied to the Muon
+  gradient before Newton-Schulz (refresh every 64 steps).
+- W&B run: `xsb35b0m` | num_trials=4 | train_steps=3275
+
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.279715 | 3275 |
+| T1 | 3.278674 | 3250 |
+| T2 | **3.277678** | **3225** |
+| T3 | 3.281277 | -1 (missed) |
+| **n=4 mean** | **3.27934** | — |
+
+- Statsig check: `(3.28 - 3.27934) × √4 = 0.001328` — BELOW 0.004. **Non-statsig.**
+- Analysis: T0–T2 all cleared 3.28 individually, including T2 at 3.2777 (among
+  the best individual trials in wave 1). T3 was a bad seed — 3.2813 — above the
+  target, which dragged the mean to 3.279. The recipe is real but has high
+  seed variance. Needs more cooldown steps to tighten the distribution.
+- Status: WIP. Sent back for fresh n=4 at predeclared `train_steps=3325`.
+
 ## 2026-05-15 23:20 — PR #79: MuLoCo on plain Muon — sweep arm si=15 (terminal)
 - Branch: `g1r2-frieren/muloco-muon`
 - Hypothesis: MuLoCo outer Nesterov SGD wrapper around plain Muon may accelerate

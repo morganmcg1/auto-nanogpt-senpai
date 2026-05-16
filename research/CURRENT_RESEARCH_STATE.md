@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-16 01:00 — **First wave-1 statsig win**: alphonse NorMuon
+- 2026-05-16 01:45 — **First wave-1 statsig win**: alphonse NorMuon
   n=4 @ train_steps=3300 cleared with mean=3.27800, margin=0.00401 ≥ 0.004.
   PR #71 SENPAI-RESULT marker posted; sent back for rebase (merge conflicts).
   Once rebased, will squash-merge. Tanjiro Newton-Muon and edward Contra-Muon
@@ -19,8 +19,9 @@
   **val/loss=3.2746 @ 3275 / ffs=3200** (strongest in wave 1, margin 0.0054).
 
 - **g1r2-fern (Contra+SOAP on MLP)** — n=4 confirmation `6bbhoxm1` at
-  train_steps=3175. **T0=3.27920, ffs=3150** (terminal, unlucky seed). T1 in
-  progress (~43.7%). Need T1–T3 to average ≤ 3.27714 for n=4 statsig — steep.
+  train_steps=3175. T0=3.27920, **T1=3.27811** (ffs=3150 both). T2 in progress
+  (~56%). mean(T0,T1)=3.27866. For n=4 statsig, T2+T3 need mean ≤ 3.27735 —
+  steep. Likely non-statsig at 3175; plan is re-run at 3200-3225 steps.
 
 - **g1r2-alphonse (NorMuon) ✅ STATSIG WIN** — confirmation `8yocwc35`
   (n=4 @ 3300) **TERMINAL**. T0=3.276094, T1=3.278030, T2=3.279136,
@@ -29,21 +30,19 @@
   = 3256.25. SENPAI-RESULT marker posted on PR #71 at 00:29 UTC; sent back
   for rebase due to merge conflicts. Merge pending rebase completion.
 
-- **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4 @ 3275)
-  T0=3.27972, T1=3.27867, T2=**3.27768** (ffs=3225), T3 in progress
-  (total step ~11578/13100, ~88.4%). mean(T0-T2)=3.27869. For statsig T3
-  needs ≤ 3.27593 — projected non-statsig (~3.2767). Recipe is real; plan is
-  to re-run at train_steps=3300 if T3 lands in 3.278–3.279 range.
+- **g1r2-tanjiro (Newton-Muon)** — `xsb35b0m` (n=4 @ 3275) **TERMINAL,
+  non-statsig**. T0=3.27972, T1=3.27867, T2=3.27768, T3=**3.28128** (bad seed,
+  missed target). mean=3.27934, statsig margin=0.001328 < 0.004. Recipe is
+  real (3/4 seeds cleared 3.28, T2=3.2777 excellent). Sent back for fresh n=4
+  at **train_steps=3325** (predeclared). High seed variance needs more cooldown.
 
 - **g1r2-askeladd (NorMuonH)** — n=4 conf `6rf3nerz` at train_steps=3275:
   T0=3.27781, ffs=3225 (T1 in progress at total step ~4151).
 
-- **g1r2-frieren (MuLoCo on Muon)** — si=60/lr=0.5 single-seed `v2wn0t8t`
-  **running** at step 1975/3300 (59.8%). 3 prior screens all missed 3.28
-  (3.2829, 3.2810, 3.2815). This is the final corner — if it misses, MuLoCo
-  on plain Muon is dead and frieren pivots to MuLoCo wrapping a confirmed
-  inner optimizer. n=4 confirm `fxpwvh2w` was killed (auto-launch before sweep
-  plan was set).
+- **g1r2-frieren (MuLoCo+NorMuon)** — PR #79 CLOSED (all 4 plain-Muon corners
+  missed 3.28: 3.2829/3.2810/3.2815/3.2865). **New PR #109** (branch
+  `g1r2-frieren/muloco-normuon`) assigned. Hypothesis: MuLoCo outer-Nesterov
+  wrapping NorMuon (record #13 stack). Student picks up on next poll cycle.
 
 - **g1r2-nezuko (Muon²)** — n=4 confirmation `7lxk02m6` at train_steps=3325:
   T0=3.27788, ffs=3300 (T1 in progress at total step ~3901, ~29% T2).
@@ -78,15 +77,16 @@ narrowly (mean 3.27800, margin 0.00401). NorMuon is the new baseline.
 
 **Confirmed dead (non-reproducible) on this setup:**
 - PMuon (thorfinn): numerically unstable across all stabilization attempts.
-- MuLoCo on plain Muon (frieren, 3 screens all ≥3.281): break-even with
-  starter, final si=60 corner `v2wn0t8t` still running.
+- MuLoCo on plain Muon (frieren, 4 sweep corners all missed 3.28:
+  3.2829/3.2810/3.2815/3.2865). si=60/lr=0.5 was the worst corner.
+  Plain Muon's NS5 already smooths the gradient direction — outer Nesterov
+  adds no value. MuLoCo DOES work on NorMuon (record #13), which is next.
 
 **Next assignments queued:**
 - Thorfinn → Soft-Muon isolated (PR #103) — in progress.
 - Alphonse → rebase PR #71 to resolve merge conflicts, then immediate merge.
 - Tanjiro → fresh n=4 at train_steps=3300 expected after T3 lands non-statsig.
-- After frieren si=60 screen: if misses → pivot to MuLoCo wrapping NorMuon or
-  Contra-Muon.
+- Frieren now on MuLoCo+NorMuon (PR #109) — picking up next poll cycle.
 
 ## Wave 1 assignments
 
@@ -96,9 +96,9 @@ narrowly (mean 3.27800, margin 0.00401). NorMuon is the new baseline.
 | g1r2-askeladd | NorMuonH (NorMuon + hyperball + per-module init) | #74 | n=4 conf @3275 T1 running |
 | g1r2-edward | Contra-Muon (contra correction + u/w-floor) | #76 | n=4 conf @3225 early (8%) |
 | g1r2-fern | Contra-Muon + SOAP on MLP | #78 | n=4 conf @3175 T1 running |
-| g1r2-frieren | MuLoCo on Muon | #79 | si=60 final corner running |
+| g1r2-frieren | MuLoCo+NorMuon (record #13 stack) | #109 | **newly assigned** |
 | g1r2-nezuko | Muon² (Adam var before NS) | #80 | n=4 conf @3325 T1 running |
-| g1r2-tanjiro | Newton-Muon (act-cov right-precond) | #81 | n=4 conf T3 running |
+| g1r2-tanjiro | Newton-Muon (act-cov right-precond) | #81 | non-statsig @3275; re-run @3325 pending |
 | g1r2-thorfinn | Soft-Muon isolated | #103 | **newly assigned** |
 
 ## Potential next research directions
