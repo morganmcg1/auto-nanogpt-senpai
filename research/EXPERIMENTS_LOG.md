@@ -264,3 +264,49 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Mechanism analysis**: PR #45's v-buffer is applied BEFORE NS orthogonalization: `update = grad_nesterov / (sqrt(v) + eps)`. SOAP-MLP (merged baseline) applies covariance-based preconditioning to MLP params. The v-buffer and SOAP both do per-direction scaling — double-scaling with different statistics, causing the interference observed. For attn params (plain-Muon path), v-buffer applies without SOAP, but the lr=0.10 (vs baseline 0.035) is the likely cause of slower convergence on attn: with v-buffer normalizing magnitudes, lr=0.10 may be over-stepping in directions where v is still being estimated in early training.
 - **Key finding**: The 12-step cubic NS polynomial (`a=2, b=-1.5, c=0.5`) was already in the merged baseline — it is NOT the source of PR #45's delta. The ONLY actual delta from merged baseline was the v second-moment buffer + lr=0.10.
 - **Decision**: CLOSED as clean negative under new baseline (PR #45 closed 2026-05-16 ~13:15 UTC). Edward reassigned to PR #159 (Per-group LR sweep: test whether SOAP-managed MLP params can tolerate a higher base lr than plain-Muon attn params).
+
+## 2026-05-16 16:30 UTC — PR #116: SOAP-attn + trust gate on merged SOAP-MLP base — MERGED ✓ (NEW BASELINE)
+
+- Branch: `g1r5-fern/soap-attn-trustgate`
+- Student: g1r5-fern
+- Hypothesis: Extend SOAP preconditioning from MLP-only (baseline PR #46) to all attn projection weights (q, k, v, attn.proj). Add trust gate: falls back to plain Muon NS when `cos(u_soap, u_muon) < threshold` (default 0.0). One fused n=6 confirmation run.
+
+| trial | best_val_loss | best_val_step | first_step_to_target | hit target |
+|------:|--------------:|--------------:|---------------------:|:----------:|
+| 0     | 3.27518       | 3250          | 3175                 | ✅         |
+| 1     | 3.27375       | 3250          | 3150                 | ✅         |
+| 2     | 3.27448       | 3250          | 3150                 | ✅         |
+| 3     | 3.27210       | 3250          | 3125                 | ✅         |
+| 4     | 3.27406       | 3250          | 3150                 | ✅         |
+| 5     | 3.27284       | 3250          | 3150                 | ✅         |
+
+- **n**: 6 seeds, `train_steps=3250`
+- **mu (val/loss)**: **3.273735**, std=0.001116, SE=0.000455
+- **mean ffs**: **3150**, best ffs=**3125**
+- **Statsig vs 3.28 target**: `(3.28 - 3.273735) × sqrt(6) = 0.01535 ≥ 0.004` — **PASS** (3.8× margin)
+- **Statsig vs PR #46 baseline (mu=3.27744)**: Δmu=−0.003705, ~8σ improvement
+- **W&B run**: `c81z4php` (group: `g1r5-fern/soap-attn-trustgate`, `wandb-applied-ai-team/modded-nanogpt-senpai`)
+- **Trust gate telemetry**: fired_count=0/19500 steps (gate dormant). min cos_sim=0.033, mean MLP cos_sim=0.884, mean attn cos_sim=0.798. Attn eigenbases consistently 0.08 lower cos_sim than MLP — confirms attn gradient covariance less stable but never near fallback threshold. Gate acts as free safety net, not load-bearing mechanism. Eigendecomp refreshes: 203/trial × 6 trials = 1218 total. Zero NaN/divergence across 19500 steps.
+- **Analysis**: SOAP preconditioning extends cleanly from MLP to attn projections. The improvement is from the eigenspace preconditioning on attn weights, not the gate. Best trial ffs=3125 matches record #16 reference frontier. Trust gate threshold=0.0 is decorative on this stack; min observed cos_sim=+0.033 keeps SOAP direction always within same hemisphere as Muon. Future follow-up: explore positive threshold values (0.3–0.7) to probe cliff behavior.
+- **New merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 at n=6, ≤ 3.27245 at n=8
+- **Decision**: MERGED as new baseline 2026-05-16 16:30 UTC. ffs 3200→3150 (mean), 3200→3125 (best).
+
+## 2026-05-16 15:47 UTC — PR #147: Output Embedding Mean-Centering (mu-centering) — CLOSED (clean negative)
+
+- Branch: `g1r5-nezuko/mu-centering`
+- Student: g1r5-nezuko
+- Hypothesis: Post-step mean-centering of `lm_head.weight` (subtract column mean, dim=0/vocab axis) to remove gauge drift per Stollenwerk et al. translation invariance argument.
+
+| Trial | Seed | val/loss @ 3250 | ffs | hit target |
+|:-----:|:----:|:---------------:|:---:|:----------:|
+| 0     | 0    | 3.29977         | -1  | No         |
+| 1     | 1    | killed @step 400 | —  | —          |
+| 2-3   | 2-3  | not run         | —   | —          |
+
+- **n**: 1 effective (trial 0 complete, trial 1 kill-gate triggered)
+- **mu**: 3.29977 (trial 0 only)
+- **Statsig vs 3.28 target**: `(3.28 - 3.29977) × sqrt(1) = -0.020` — **FAIL** by 52σ above baseline
+- **W&B run IDs**: `ymlx5jyj` (screen), `7chk3jsb` (smoke)
+- **Mechanism diagnosis**: Softcap (line 435: `15*logits*(logits.sq+225).rsqrt()`) breaks the translation invariance Stollenwerk et al. require. Column-mean in `lm_head.weight` is NOT pure gauge drift — optimizer uses it for real work through softcap saturation behavior. Forcibly zeroing it costs 0.022 val_loss. Also: lm_head bias already provides 50304 d.o.f. to absorb constant logit shifts, making the gauge argument doubly moot.
+- **Kill gate**: step-500 train_loss 3.853 vs baseline 3.814 (+0.036, 12× threshold). Trial 1 killed at step 400 (trajectory worse than trial 0).
+- **Decision**: CLOSED as clean negative. Softcap-bearing GPTs are immune to column-mean centering gauge argument. Mu-centering on lm_head.weight is a hypothesis-level dead end for this architecture.

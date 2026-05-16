@@ -1,81 +1,85 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #29, ~13:55 UTC)
+- **Last updated:** 2026-05-16 (poll #38, ~16:35 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
-- **Current baseline**: `ffs=3200, mu=3.27744, n=6` (PR #46 SOAP-MLP isolated, merged 2026-05-16 04:00 UTC)
-- **Merge statsig rule**: `(3.27744 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27581 for n=6, ≤ 3.27603 for n=8.
+- **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
+- **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 for n=6, ≤ 3.27245 for n=8
 
-## Active Wave-2/3 Portfolio (all on merged SOAP-MLP base)
+## Active Wave-3 Portfolio (all on merged SOAP-MLP + SOAP-attn base)
 
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
-| 116  | g1r5-fern       | SOAP-attn + trust gate on merged SOAP-MLP base (→ record #16, ffs 3125) | exploit | WIP — conf run at ~56% last check. **Highest-priority** gradient-precond test in wave-2. |
-| 123  | g1r5-alphonse   | Newton-Muon: activation-covariance right-precond before NS on attn     | exploit | WIP — **STRONGEST SCREEN SIGNAL**: screen val=3.2714 (14-σ outlier). n=6 confirm running. Newton gate 8.3% active — mechanism uncertain. |
-| 130  | g1r5-askeladd   | Label smoothing on CE training loss (ε ∈ {0.05, 0.1, 0.15})           | explore | WIP — ε=0.1 smoke done. 3-cell screen pending/in-flight. |
-| 141  | g1r5-frieren    | Gradient Centralization in Muon update (pre-momentum row-mean sub)     | explore | WIP — freshly assigned poll #24. n=4 screen at 3200 steps. |
-| 147  | g1r5-nezuko     | Output Embedding Mean-Centering (mu-centering) post optimizer step     | explore | WIP — freshly assigned poll #25. Post-step `lm_head.weight -= mean`. n=4 screen, 3200 steps. |
-| 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (1/sqrt(2L) on attn.proj + mlp.proj)       | explore | WIP — reframed poll #26: replace zero-init with depth-scaled Gaussian on residual output projections (zero-init was a no-op with the literal spec). n=4 screen, 3200 steps. |
-| 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — freshly assigned poll #27. Wave-3 retry fixing the c_t=1/(t+1) uniform-averaging spec issue from PR #121. Fixed β=0.90, cooldown_frac=0, p sweep. 3-cell screen × n=1. |
-| 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — assigned poll #29 (PR #159 auto-closed by branch-merge mistake; PR #162 is the active assignment). Tests whether SOAP's covariance preconditioner enables a higher base lr for the MLP group than lr=0.035 inherited from pre-SOAP record #12. Control cell B enforces identity check. 4-cell × n=2 screen. |
+| 123  | g1r5-alphonse   | Newton-Muon: activation-covariance right-precond before NS on attn     | exploit | WIP — n=6 confirm running. 3 trials done: best_val=[3.27019, 3.27175, 3.27008], n=3 mu=3.270673. **Beats new baseline (3.273735)**. Likely merge candidate. ETA ~6h total. |
+| 130  | g1r5-askeladd   | Label smoothing on CE training loss (ε ∈ {0.05, 0.1, 0.15})           | explore | WIP — ε=0.05 done val=3.325, ε=0.10 done val=3.381, ε=0.15 running. All arms well above target. Likely clean negative. |
+| 141  | g1r5-frieren    | Gradient Centralization in Muon update (pre-momentum row-mean sub)     | explore | WIP — 2 trials done: best_val=[3.27880, 3.27902]. Both **above new baseline** 3.273735. Trending weak/negative. |
+| 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (replace zero-init with `1/sqrt(24)` Gaussian on residual output projections) | explore | WIP — trial 0 best_val=3.28093 (above target 3.28). Running n=4. Trending weak. |
+| 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — arm 1 val=3.341, arm 2 running. Trending negative vs even old baseline. |
+| 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — control smoke validated. Screen eabllnva at step 2525, past crash point. |
+| TBD  | g1r5-fern       | **IDLE** — completed PR #116, awaiting new assignment                  | —       | Researcher-agent generating new hypothesis. |
+| TBD  | g1r5-nezuko     | **IDLE** — PR #147 mu-centering closed clean negative                  | —       | Researcher-agent generating new hypothesis. |
 
 ## Closed PRs Summary
 
 | PR # | Hypothesis                         | Outcome                                                                              |
 |------|------------------------------------|--------------------------------------------------------------------------------------|
-| 43   | NorMuonH (record #8)               | **CLOSED** clean negative — n=8 mu=3.27962; environmental numerical failure         |
+| 43   | NorMuonH (record #8)               | **CLOSED** clean negative — n=8 mu=3.27962; numerical failure                       |
 | 44   | Contra-Muon isolated               | **CLOSED** clean negative — n=8 mu=3.27876; ffs=3325 +125 steps slow               |
-| 45   | Muon² (Adam v-buffer + NS, lr=0.10, record #7) | **CLOSED** clean negative — n=8 mu=3.27843, ffs=3300; passes 3.28 target rule but +100 steps slower than SOAP-MLP baseline. 12-step cubic NS was already in merged base — only delta was v-buffer + lr=0.10. |
-| 46   | SOAP-MLP isolated                  | **MERGED ✓** — ffs=3200, mu=3.27744, n=6; current baseline                          |
-| 47   | MuonH (record #5 reproduction)     | **CLOSED** clean negative — n=8 mu=3.28088; per-module init-multiplier env failure  |
-| 48   | Cooldown shape sweep (plain Muon)  | **CLOSED** clean negative — power_α1.2 best at mu=3.27827 n=2; linear at local optimum |
-| 49   | Lookahead k×α over Muon            | **CLOSED** clean negative — no speedup                                               |
-| 50   | Polyak/SWA tail averaging          | **CLOSED** clean negative — n=6 mu=3.27828; stable sub-target, above baseline       |
+| 45   | Muon² (Adam v-buffer + NS, lr=0.10)| **CLOSED** clean negative — n=8 mu=3.27843, +100 ffs slower than SOAP-MLP           |
+| 46   | SOAP-MLP isolated                  | **MERGED ✓** — ffs=3200, mu=3.27744, n=6; former baseline                          |
+| 47   | MuonH (record #5 reproduction)     | **CLOSED** clean negative — n=8 mu=3.28088                                          |
+| 48   | Cooldown shape sweep (plain Muon)  | **CLOSED** clean negative — linear at local optimum                                  |
+| 49   | Lookahead k×α over Muon            | **CLOSED** clean negative                                                             |
+| 50   | Polyak/SWA tail averaging          | **CLOSED** clean negative — above baseline                                           |
 | 98   | Cautious-Muon (sign-agreement mask)| **CLOSED** clean negative — mask harms NS                                           |
-| 121  | Schedule-free Muon (uniform c_t=1/(t+1)) | **CLOSED** clean negative on spec — best β=0.90 val_x=3.366; two failure modes: z diverges under constant LR + warmup mass dominates uniform Polyak-Ruppert averaging |
+| 116  | SOAP-attn + trust gate             | **MERGED ✓** — ffs=3150/3125, mu=3.273735, n=6; **current baseline**               |
+| 121  | Schedule-free Muon (uniform c_t)   | **CLOSED** clean negative — val_x=3.366; z diverges + warmup mass dominates        |
+| 147  | Output Embedding Mean-Centering    | **CLOSED** clean negative — val=3.29977 (52σ); softcap breaks gauge invariance      |
 
-## Research Focus & Themes (wave-2/3)
+## Research Focus & Themes (wave-3+)
 
-**Primary goal:** stack orthogonal mechanisms onto the merged SOAP-MLP base to push below ffs=3200 / mu=3.27744. Target trajectory: ffs=3150 → 3125 → beyond.
+**Primary goal:** Stack orthogonal mechanisms onto SOAP-MLP + SOAP-attn base to push below ffs=3125. Target trajectory: ffs=3100 → 3075 → beyond.
 
 **Active mechanism slots:**
 
-1. **Gradient-precond on attn** (fern PR #116 SOAP-attn trust gate) — targets record #16 trajectory. Conf run ~56% last check.
-2. **Activation-precond on attn** (alphonse PR #123 Newton-Muon) — STRONGEST SCREEN (val=3.2714, 14-σ). n=6 confirm running.
-3. **Pre-momentum gradient transform** (frieren PR #141 Gradient Centralization) — `grad -= grad.mean(dim=-1)`. n=4 screen.
-4. **Post-step embedding** (nezuko PR #147 mu-centering) — post-step `lm_head.weight -= mean`. n=4 screen.
-5. **Init** (thorfinn PR #148 depth-scaled init) — reframed: replace zero-init with `1/sqrt(24)` Gaussian on residual outputs. n=4 screen.
-6. **Schedule-free (polynomial c_t)** (tanjiro PR #155) — wave-3 retry with `c_t = (t+1)^p / Σ` concentrating weight on post-warmup iterates. p ∈ {2,4,6} sweep.
-7. **Loss layer** (askeladd PR #130 label smoothing) — ε screen pending.
-8. **Per-group LR exploitation** (edward PR #159) — FRESHLY ASSIGNED; tests whether SOAP-managed MLP params can use a higher base lr than the lr=0.035 inherited from pre-SOAP Muon.
+1. **Activation-precond on attn** (alphonse PR #123 Newton-Muon) — n=3 mu=3.270673 already beats new baseline. If n=6 confirms mu ≤ 3.27210, merge immediately.
+2. **Pre-momentum transform** (frieren PR #141 GC) — trending weak, both trials above new baseline.
+3. **Init** (thorfinn PR #148 depth-scaled) — trial 0 above 3.28 target, likely close.
+4. **Schedule-free poly** (tanjiro PR #155) — all arms trending negative.
+5. **Loss layer** (askeladd PR #130 label smooth) — all ε negative, close when ε=0.15 done.
+6. **Per-group LR** (edward PR #162) — screen in progress.
+7. **New exploits x2** (fern + nezuko) — researcher-agent generating wave-3 ideas.
 
-**Closed mechanism slots (do NOT re-open without strong prior):**
-- **Per-module init-multiplier family CLOSED**: NorMuonH (PR #43), MuonH (PR #47)
-- NS wrappers: Lookahead (PR #49), Cautious masking (PR #98), Contra-Muon isolated (PR #44)
-- Cooldown shape on plain Muon (PR #48): linear is at local optimum
-- **Polyak/SWA as standalone** (PR #50): above baseline
-- **Uniform schedule-free Muon (c_t=1/(t+1))** (PR #121): spec-level negative on this 3350-step from-scratch benchmark; wave-3 retry with polynomial c_t in progress (PR #155)
-- **Muon² v-buffer (PR #45)**: passes 3.28 target but +100 ffs slower than SOAP-MLP baseline. v-buffer × SOAP double-scaling diagnosis confirmed. 12-step cubic NS was already in merged baseline.
+**Closed mechanism slots (do NOT re-open):**
+- Per-module init-multiplier: NorMuonH, MuonH
+- NS wrappers: Lookahead, Cautious masking, Contra-Muon
+- Cooldown shape on plain Muon: linear at optimum
+- Polyak/SWA standalone
+- Uniform schedule-free Muon
+- Muon² v-buffer (double-scales with SOAP)
+- Output embedding mu-centering (softcap breaks gauge argument)
 
 ## Infrastructure Notes
 
-- **torch==2.11** required. Blackwell NaN at step 2 with model.compile on 2.10. In merged base.
-- **`sample_tensor` float64 linspace fix** in merged base. All branches inherit.
-- **stale_wip watchdog** is a recurring false positive tied to GitHub REST rate-limit resets. Always verify against W&B before acting.
-- **PR #148 reframe**: modded-nanogpt zero-initializes all `proj.weight` tensors (Fixup-style residual-zero-init). Literal `weight.mul_(1/sqrt(2L))` on zero is a no-op. Correct interpretation: replace zero-init with `normal_(std=(0.33/d)^0.5 / sqrt(2L))` on residual output projections only.
-- **12-step cubic NS confirmed in baseline**: `zeropower_via_newtonschulz5` in merged `train_gpt_simple.py` already uses `a=2, b=-1.5, c=0.5`, `range(12)`. The researcher-agent note about this being a Muon² addition was incorrect — it was already present before PR #45.
+- **torch==2.11** required. Blackwell NaN at step 2 with model.compile on 2.10.
+- **`sample_tensor` float64 linspace fix** in merged base.
+- **stale_wip watchdog** is a recurring false positive. Always verify against W&B.
+- **PR #148 reframe**: zero-init on all proj.weight; replace with depth-scaled Gaussian.
+- **12-step cubic NS** confirmed in baseline (a=2, b=-1.5, c=0.5, range(12)).
+- **SOAP-attn peak memory**: 75.23 GB / 80 GB (tight budget for further additions).
+- **Trust gate**: cos_sim always ≥ 0.033; gate at threshold=0.0 is decorative on current stack.
 
-## Next Research Directions (post wave-2/3 close-out)
+## Next Research Directions (post PR #116 merge)
 
-1. **Stack wave-2/3 winners** progressively onto merged base.
-2. **Polynomial-weighted schedule-free Muon** (PR #155) — if p sweep shows val_x ≤ 3.30, promote to n=4 confirm.
-3. **Per-group LR exploitation** (PR #159) — if lr_mlp > 0.035 beats control, merge and compound.
-4. **Polyak/SWA stacking wrapper over SOAP-MLP base** (not standalone — PR #50 closed that path).
-5. **KL-SOAP-H** (record #19) and **PMuon** (record #18) — wave-3/4 candidates.
-6. **Selective v-buffer on plain-Muon attn path** — deferred; wait for PR #116 (fern SOAP-attn) result first to clarify the attn-path preconditioning landscape.
+1. **Stack Newton-Muon on SOAP-attn base** (alphonse PR #123) — if n=6 mu ≤ 3.27210, merge immediately.
+2. **Precond_freq=8 on attn only** — attn cos_sim 0.08 lower than MLP; eigenbases may drift faster. Low-cost (smoke + n=4).
+3. **SOAP to lm_head.weight** — largest weight (currently AdamW). Memory at 75.23 GB; try precond_freq=32.
+4. **KL-SOAP-H / PMuon** (records #19/#18) — wave-3/4 candidates.
+5. **Asymmetric per-group WD** — wd_mlp vs wd_attn variation, orthogonal to LR sweep.
+6. **Close weak WIP**: PR #130/#141/#148/#155 trending negative; close promptly when terminal.
 
-## Standing Constraints (do not re-derive)
+## Standing Constraints
 
-- **Banned sources**: `primeintellect.ai/auto-nanogpt`, `PrimeIntellect-ai/experiments-autonomous-speedrunning`. Do not fetch, browse, cite, or use.
+- **Banned sources**: `primeintellect.ai/auto-nanogpt`, `PrimeIntellect-ai/experiments-autonomous-speedrunning`.
 - **Benchmark contract**: dataset, batch size, architecture, one fwd-bwd per step all fixed.
-- **Reporting rule**: every terminal result needs SENPAI-RESULT marker + predeclared n, mu, statsig margin, rule outcome.
-- **GPU budget**: 1× 96 GB per student, ~1.8-2.0 s/step.
+- **Reporting rule**: every terminal result needs SENPAI-RESULT marker + predeclared n, mu, statsig.
+- **GPU budget**: 1× H100 (~80 GB) per student, ~1.93 s/step.
