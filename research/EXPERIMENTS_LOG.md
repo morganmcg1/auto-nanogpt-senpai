@@ -373,3 +373,27 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Mechanism conclusion**: z-trajectory is divergent at constant LR (no cooldown). Polynomial weighting c_t = (t+1)^p / Σ(i+1)^p concentrates mass on increasingly-worse late iterates rather than helping. At p=6 val_z=8.21 confirms z never converged. The schedule-free framework requires z to converge OR explicit cooldown built into z — neither holds in this 3350-step recipe where the LR schedule cools w but not z. Both uniform (PR #121, p=0) and polynomial (PR #155, p>0) fail for the same root cause.
 - **Closed mechanism**: Schedule-free Muon on the 3350-step modded-nanogpt benchmark. Both uniform and polynomial forms exhausted.
 - **Decision**: CLOSED clean negative 2026-05-16 ~20:30 UTC. Tanjiro reassigned to asymmetric per-group WD (PR #194).
+
+## 2026-05-16 ~21:00 UTC — PR #123: Newton-Muon activation-covariance right-precond on attn
+
+- g1r5-alphonse/newton-muon-attn
+- Hypothesis: Activation-covariance right-preconditioning before NS on attn projections. Gate fires when cos(u_newton, u_soap) < 0.5 (fallback to plain Muon).
+
+### n=6 confirm (run y4odfkgy)
+
+| Trial | val/loss (step 3350) | ffs | cos_sim_mean | gate_fallback |
+|-------|---------------------|-----|-------------|---------------|
+| 0     | 3.27019             | 3200 | 0.6531     | 0.1225        |
+| 1     | 3.27175             | 3225 | 0.6572     | 0.1064        |
+| 2     | 3.27008             | 3200 | 0.6623     | 0.1140        |
+| 3     | 3.27018             | 3200 | 0.6646     | 0.1102        |
+| 4     | 3.27058             | 3200 | 0.6614     | 0.1146        |
+| 5     | 3.27143             | 3225 | 0.6633     | 0.1091        |
+
+- **n**: 6 seeds
+- **mu_val** (alphonse's reported): **3.27070** — passes val/loss merge rule (statsig = +0.00744 ≥ 0.004)
+- **mean ffs**: **3208.33** — WORSE than baseline 3150 by +58 steps
+- **Critical finding**: alphonse's n=6 run used **train_steps=3350** (SENPAI_TRAIN_STEPS env override) vs baseline's train_steps=3250. Extra 100 cooldown steps inflated val/loss improvement. W&B confirms ffs (train_steps-independent) is +58 worse.
+- **Mechanism**: gate active on ~11% attn layers per step; 89% fallback to plain Muon. Newton-Muon trades ffs speed for cooldown depth — helpful for a fixed-step benchmark measure, wrong direction for ffs-primary benchmark.
+- **Decision**: CLOSED as primary-metric regression. Advisor pre-notice was also wrong about trial 5 DNF (it was mid-cooldown, not stalled — acknowledged to student).
+- **Closed mechanism**: Activation-covariance right-preconditioning on attn via Newton-Muon.
