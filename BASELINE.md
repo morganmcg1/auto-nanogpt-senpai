@@ -7,6 +7,31 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
+### 2026-05-16 — PR #94: PMuon + Skylight u/w-floor (TARGET_UW=0.35) (g1r1-askeladd) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 3100
+- **val/loss:** 3.267696 (n=2 mean; individual seeds 3.267878 / 3.267513; range 0.000365)
+- **stat-sig margin:** (3.28 − 3.267696)·√2 = 0.01740 ≥ 0.004 ✓ (n=2)
+- **W&B runs:** `yeyewcj6` (n=1, finished 2026-05-15 21:34) and `205sycku` (n=2, finished 2026-05-16 07:22)
+- **Key config:** PMuon (gamma=0.3, beta_cov=0.95) + Skylight u/w-floor (TARGET_UW=0.35), Muon lr=0.035, weight_decay=0.025, train_steps=3250, cooldown_frac=0.7. `model.compile(dynamic=True)` applied.
+- **u/w-floor implementation:** after `pmuon_update(...)` returns and before `p.add_(update, alpha=-lr)`:
+  ```python
+  w_norm = p.norm()
+  if w_norm > 0:
+      ratio = update.norm() / w_norm
+      if 0 < ratio < TARGET_UW:
+          update.mul_(TARGET_UW / ratio)
+  ```
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=$(nvidia-smi -L | wc -l) \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "g1r1-askeladd/pmuon-uw-floor" \
+    --wandb_group "g1r1-askeladd/pmuon-uw"
+  ```
+- **Notes:** u/w-floor fires at 100% of eligible params every step — PMuon's bilateral L^{-γ} R^{-γ} whitening systematically shrinks update norms below 0.35·‖w‖. This means u/w-floor effectively functions as a per-param LR magnitude floor rather than a cooldown-phase guard. 50-step improvement (3150 → 3100) on top of PMuon base. Seed variance extremely tight (0.000365 val range), confirming mechanistic stability. Follow-up: TARGET_UW sweep {0.25, 0.30, 0.35, 0.40, 0.45} and γ × TARGET_UW joint probe.
+
 ### 2026-05-15 — PR #64: PMuon (bilateral covariance EMA preconditioning) (g1r1-fern)
 
 - **speedrun/final_first_step_to_target:** 3150
