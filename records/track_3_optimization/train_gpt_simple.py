@@ -561,6 +561,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "warmup_steps": int(os.environ.get("NANOGPT_WARMUP_STEPS", "0")),
+            "train_steps_env": int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")),
+            "ns_iters_env": int(os.environ.get("NANOGPT_NS_ITERS", "12")),
         },
     )
 
@@ -573,6 +576,7 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
+    warmup_steps = int(os.environ.get("NANOGPT_WARMUP_STEPS", "0"))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -606,14 +610,17 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
-        progress = step / train_steps
-        assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+    # learning rate schedule: warmup, stable, then decay
+    def set_hparams(step, cooldown_frac=0.7, warmup_steps=warmup_steps):
+        if warmup_steps > 0 and step < warmup_steps:
+            eta = (step + 1) / warmup_steps  # linear 0->1 over warmup_steps
         else:
-            eta = (1 - progress) / cooldown_frac
+            progress = step / train_steps
+            assert 0 <= progress < 1
+            if progress < 1 - cooldown_frac:
+                eta = 1.0
+            else:
+                eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
