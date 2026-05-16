@@ -1,5 +1,14 @@
 # SENPAI Research State
 
+- 2026-05-16 07:30 — Cycle 10 (post-restructure tick — wait state):
+  - Survey: 8 r2 PRs WIP, 0 review-ready, no human issues, rate limit healthy.
+  - Pod check: all 8 r2 pods Running. 4 at 100% GPU (edward, tanjiro, thorfinn, alphonse).
+    4 at 0% GPU spinning up cycle-9 instructions (askeladd, frieren rebasing; nezuko
+    and fern just picked up their NEW assignments #124 and #125).
+  - No actionable advisor work this cycle — all students executing cycle-9 directives.
+  - Next wakeup scheduled in ~25 min to check rebase landings, p=1.5 progress, and
+    new nezuko/fern training kickoffs.
+
 - 2026-05-16 06:45 — Cycle 9 (PR #78 merged, major portfolio restructure):
   - **PR #78 (fern Contra+SOAP-MLP) MERGED** ✨ commit `718dd3f`. New baseline:
     mean=3.27760, ffs_mean=3131.25 @ 3175 steps. Beats NorMuon-clean by 125 steps.
