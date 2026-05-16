@@ -471,9 +471,10 @@ def pmuon_update(
     mu: float = 0.95,
     beta_cov: float = 0.95,
     gamma: float = 0.3,
+    contra_coeff: float = 0.2,
     eps: float = 1e-12,
     nesterov: bool = True,
-) -> Tensor:
+) -> tuple[Tensor, Tensor]:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -481,27 +482,44 @@ def pmuon_update(
 
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    pre_polar_m = update.float()  # save for Contra-Muon
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
     update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
+    update_post_polar_norm = update.float().norm()
+    # Contra-Muon: subtract operator-norm-matched fraction of pre-polar momentum.
+    if contra_coeff != 0.0:
+        target_scale = float(min(pre_polar_m.shape[-2], pre_polar_m.shape[-1])) ** 0.5
+        m_fro = pre_polar_m.norm().clamp_min(1e-12)
+        contra_dir = pre_polar_m * (target_scale / m_fro)
+        contra_norm = contra_dir.norm()
+        update = update - contra_coeff * contra_dir.to(update.dtype)
+    else:
+        contra_norm = torch.zeros((), device=update.device, dtype=torch.float32)
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
-    return update
+    ratio = contra_norm / update_post_polar_norm.clamp_min(1e-12)
+    return update, ratio
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3,
+                 contra_coeff=0.2):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
+                        contra_coeff=contra_coeff)
         super().__init__(params, defaults)
+        self.last_dir_norm_ratio: Tensor | None = None
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        ratio_sum: Tensor | None = None
+        ratio_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -513,7 +531,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
-                    update = pmuon_update(
+                    update, ratio = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
@@ -521,10 +539,21 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        contra_coeff=group["contra_coeff"],
                     )
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
+                    ratio_sum = ratio if ratio_sum is None else ratio_sum + ratio
+                    ratio_count += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if ratio_sum is not None and ratio_count > 0:
+            ratio_count_t = torch.tensor(float(ratio_count), device=ratio_sum.device)
+            if world_size > 1:
+                dist.all_reduce(ratio_sum, op=dist.ReduceOp.SUM)
+                dist.all_reduce(ratio_count_t, op=dist.ReduceOp.SUM)
+            self.last_dir_norm_ratio = ratio_sum / ratio_count_t
+        else:
+            self.last_dir_norm_ratio = None
 
 
 ########################################
@@ -565,7 +594,7 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -595,13 +624,14 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
-            # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
+            # PMuon (bilateral covariance preconditioning) + Contra-Muon hyperparameters.
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
+            "contra_coeff": 0.1,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            "muon_method": "pmuon+contra-muon",
         },
     )
 
@@ -638,7 +668,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3,
+                      contra_coeff=0.1)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -783,6 +814,12 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            if optimizer2.last_dir_norm_ratio is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/contra/dir_norm_ratio": float(optimizer2.last_dir_norm_ratio.item()),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
