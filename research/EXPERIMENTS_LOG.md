@@ -1,5 +1,68 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 22:15 — Cycle 31: Edward Contra-Muon n=4 CLOSED (stronger-but-slower); Askeladd SFM MISS; fern/nezuko T3 started
+
+### Edward Contra-Muon n=4 @ 3225 steps — CLOSED, superseded (PR #76)
+
+W&B run `zsqazpmr` (`g1r2-edward/contra-muon`):
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27750 | 3175 |
+| T1 | 3.27599 | 3175 |
+| T2 | 3.27652 | 3175 |
+| T3 | 3.27607 | 3175 |
+| **n=4 mean** | **3.27652** | **3175** |
+| statsig | **(3.28−3.27652)×2 = 0.00696 ≥ 0.004 ✓** | |
+
+- Statsig PASS but ffs_mean=3175 > baseline 3131.25 — **FFS MISS**, does NOT beat merged baseline on primary metric.
+- "Stronger but slower" pattern (#3 instance this session: Soft-Muon, Newton-Muon, now Contra-Muon-only).
+- Mechanism superseded by PR #78 (merged baseline already has Contra-Muon + SOAP-MLP; edward's PR is the Contra-Muon-only subset).
+- PR #76 closed. Edward reassigned to AdEMAMix-aux (PR #199).
+
+### Askeladd SFM uniform c_t screen — MISS, fallback triggered (PR #181)
+
+W&B run `groom2ym` (`g1r2-askeladd/sfm`):
+
+| Field | Value |
+|---|---|
+| Screen val/loss | 4.60499 |
+| ffs | -1 (MISS — never crossed 3.28) |
+| y_z_diff_fro (terminal) | ~2.2e9 (massive divergence) |
+| c_t at terminal | 0.00031 |
+
+Root cause: `c_t = 1/(t+1)` weighs early pre-warmup iterates near-equally with trained iterates. By step 3175, most of the Polyak average weight sits on random-init timesteps. The `||y − z||` norm grows to 2.2B — z has moved far from init but y averages it all back toward init.
+
+Fallback (pre-approved): `SFM_C_SCHEDULE=const`, `SFM_C_CONST=0.01` (EMA with ~100-step window). Screen `k3wkjy84` launched by student. This is a fundamentally sounder design — tracks recent trajectory rather than summing all history.
+
+### Fern Aurora n=4 T2 terminal — BORDERLINE (PR #125)
+
+W&B run `5kr7d0i5`:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27592 | 3100 |
+| T1 | 3.28172 | -1 (MISS) |
+| T2 | 3.27768 | 3125 |
+| n=3 mean | **3.27844** | — |
+
+n=3 mean=3.27844 > 3.27800 → statsig currently fails. For n=4 MERGE: T3 needs val ≤ 3.27668 AND ffs ≤ 3125. T1's MISS (-1) means if using train_steps for ffs calculation, ffs_mean ≥ 3131.25 even with perfect T3. **Merge path nearly closed.** T3 still running (step 878/3175).
+
+### Nezuko Attn-SOAP+trust-gate n=4 T2 terminal — OUTSTANDING (PR #124)
+
+W&B run `790h1llo`:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27743 | 3125 |
+| T1 | 3.27750 | 3125 |
+| T2 | 3.27758 | 3125 |
+| n=3 mean | **3.27750** | **3125** |
+
+All 3 trials within 0.00015 val! n=3 mean=3.27750 beats both baseline bars (≤3.27800 val, ≤3131.25 ffs). T3 needs val ≤ 3.27852 (generous bar). **MERGE NEAR-CERTAIN.** T3 at step 553/3175.
+
+---
+
 ## 2026-05-16 20:25 — Cycle 30 (cont): Tanjiro Lookahead CLOSED, nezuko/fern T0+T1 interim results
 
 ### Tanjiro Lookahead α=0.7 retry — MISS, PR #161 CLOSED

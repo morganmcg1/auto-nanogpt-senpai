@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-16 21:50 UTC — Cycle 31 (edward T3 ~97 steps from terminal; askeladd SFM diverging val=5.03; alphonse/nezuko/fern all mid-T2/T3 of n=4 confirms)
+- 2026-05-16 22:25 UTC — Cycle 31 cont (edward closed+reassigned AdEMAMix; askeladd SFM MISS → c_const=0.01 fallback launched; nezuko T3 started with merge near-certain; fern T3 started but merge nearly dead; alphonse T3 ~45min from terminal)
 
 ## Current baseline
 
@@ -12,102 +12,97 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 ### ALPHONSE #139 — CONTRA_MUON=0.5 n=4 (`db1rrfx3`) 🔥 MERGE NEAR-CERTAIN
 - T0=3.27830/3150, T1=3.27634/3125, T2=**3.27551/3100** (best n=4 trial of session)
 - n=3 mean=**3.27672**, ffs=**3125** — both bars BEATEN by margin
-- T3 in progress at step ~1128/3175. ETA terminal ~3-4h.
-- For mean to still pass at n=4: T3 ≤ 3.27884 (loose). For ffs_mean: any T3 ≤ ~3175 keeps mean ≤ 3131.25.
-- **Highest-confidence merge path of the session.**
+- T3 in progress at step ~2603/3175. ETA terminal **~45 min**.
+- For n=4 merge: T3 ≤ 3.27884 on val (very loose), ffs ≤ 3175 keeps mean ≤ 3131.25
+- **Highest-confidence merge path. Watching closely.**
 
-### FERN #125 — Aurora n=4 (`5kr7d0i5`) ⚠️ HIGH VARIANCE
-- T0=3.27592/3100 (excellent!), T1=3.28172/-1 (MISS — never crossed 3.28!)
-- T2 at step ~2727/3175 mid-cooldown val=3.346. T3 not yet started.
-- n=2 mean=3.27882, ffs_mean=3137.5 — currently above merge bar.
-- For merge: T2+T3 mean ≤ 3.27728 AND combined ffs_mean ≤ 3131.25 (T1's -1 means combined ffs ≥ 3225/4 if convention is to fall back to train_steps — tight).
-- Aurora seed-sensitivity is the key risk. ETA terminal ~3-4h.
-- Side-screen `lqwaozx7` (screen3) hit val=3.27706 ffs=3125 — independent confirmation single-seed FFS works, doesn't change n=4 verdict.
+### NEZUKO #124 — Attn-SOAP + trust gate n=4 (`790h1llo`) 🔥 MERGE NEAR-CERTAIN
+- T0=3.27743/3125, T1=3.27750/3125, T2=**3.27758/3125** — remarkable 0.00015 range across 3 trials
+- n=3 mean=**3.27750**, ffs=**3125** — well clear of both bars
+- T3 at step ~553/3175. ETA terminal **~3h**.
+- For n=4 merge: T3 ≤ 3.27852 on val (generous). Trust-gate mechanism absorbs seed noise.
 
-### NEZUKO #124 — Attn-SOAP + trust gate n=4 (`790h1llo`) 🔥 ON TRACK TO MERGE
-- T0=3.27743/3125, T1=3.27750/3125 — both beat baseline, variance ≤ 0.00007.
-- T2 at step ~2402/3175 mid-cooldown val=3.386.
-- n=2 mean=3.27747, ffs=3125 — if T2/T3 hold → MERGE.
-- ETA terminal ~4h.
+### FERN #125 — Aurora n=4 (`5kr7d0i5`) ⚠️ MERGE PATH NEARLY CLOSED
+- T0=3.27592/3100, T1=3.28172/-1 (MISS), T2=3.27768/3125
+- n=3 mean=**3.27844** — exceeds 3.27800 statsig bar
+- For n=4 merge: T3 needs val ≤ 3.27668 AND ffs ≤ 3125. T1's -1 ffs also makes ffs_mean borderline even with perfect T3.
+- T3 at step ~878/3175. ETA terminal ~3h. Run to completion — record the data.
 
-### EDWARD #76 — Contra-Muon n=4 @ train_steps=3225 (`zsqazpmr`)
-- T0=3.2775/3175, T1=3.2760/3175, T2=3.2765/3175
-- T3 at step ~3128/3225, val=3.283 — 97 steps from terminal. Will ffs hit?
-- Mean projection ~3.2766 (statsig PASS). ffs_mean=3175 >> 3131.25 → NO MERGE (stronger but slower).
-- Closes this cycle as confirmed CLOSED.
+### EDWARD #199 — AdEMAMix dual-EMA on AdamW aux groups (NEW)
+- Just assigned. Awaiting smoke + screen.
+- Mechanism: replace AdamW on embeddings+lm_head with dual-EMA (fast β1=0.9, slow β3=0.999, α=5.0 mixing)
+- Orthogonal to Muon stack — first time aux groups have been targeted
+- Paper (NeurIPS 2024): 1.5-2× faster LM convergence vs AdamW
 
-### TANJIRO #187 — PMuon bilateral streaming covariance power preconditioning
-- Smoke `971z1am3` FINISHED clean (val=3.811 @ 400 steps).
-- Screen `eafhrglu` running at step 150 val=4.526. ETA terminal ~4-5h.
-- Mechanism: Σ_L/Σ_R streaming covariance, γ=0.3 power preconditioning stacked after NS5.
+### ASKELADD #181 — Schedule-Free Muon fallback: c_const=0.01
+- Fallback screen `k3wkjy84` running at step 100 val=10.83 (warmup)
+- Original uniform c_t screen MISSED badly (val=4.605, ||y−z||=2.2e9 divergence)
+- Root cause confirmed: 1/(t+1) weighting assigns near-equal weight to random-init iterates
+- c_const=0.01 = EMA with ~100-step window; tracks recent trajectory properly
+- Pre-approved — no additional action needed. ETA screen terminal ~4-5h.
 
-### ASKELADD #181 — Schedule-Free Muon (SFM) — DIVERGING
-- Screen `groom2ym` at step 1950/3175 val=**5.029** (rising, far above baseline 3.39 at same step).
-- MISS already certain; predeclared path: complete screen to terminal, then trigger pre-approved fallback `SFM_C_SCHEDULE=const`, `SFM_C_CONST=0.01` (EMA-style ~100-step window).
-- Underlying issue: uniform c_t=1/(t+1) gives Polyak average dominated by random init in early iterations.
-
-### FRIEREN #177 — Soft-Muon annealing on merged base
-- Smoke clean (val=3.81 @ 400). Screen `dhqwygng` at step 1125/3175 val=3.642 — healthy descent.
-- Mechanism: annealed Soft-Muon NS5 (p_start=0.10 → p_end=0.0 over first half of training).
-- ETA terminal ~3-4h.
+### FRIEREN #177 — Soft-Muon annealing screen (`dhqwygng`)
+- Step 2475/3175 val=3.387 — in cooldown, healthy descent
+- ETA terminal **~1.5h**
 
 ### THORFINN #178 — cooldown_frac retune sweep
-- Smoke `bpzwtah0` FINISHED clean (val=3.812 @ 400).
-- Screen `5z6cau3h` (cooldown_frac=0.70) running. Other arms (0.65, 0.75) launching.
-- ETA terminals ~4h.
+- Screen `5z6cau3h` (frac=0.70 ref arm) at step 1275 val=3.607 — early training
+- Other arms (0.65, 0.75) expected to follow. ETA screens ~3-4h.
+
+### TANJIRO #187 — PMuon bilateral streaming covariance screen (`eafhrglu`)
+- Step 900/3175 val=3.687 — early training, healthy descent
+- ETA terminal ~3h
 
 ## Key patterns observed
 
-1. **"Stronger but slower"** — Edward Contra-Muon n=4 will close as another instance (3.2766/3175). Pattern: mechanisms that lower terminal val/loss consistently hit ffs > 3131.25. Only mechanisms that ADD variance reduction OR REDUCE constraints (CONTRA_MUON tuning, Aurora leverage equalization) improve FFS.
+1. **"Stronger but slower"** — Confirmed 3× this session (Soft-Muon p=0.05 n=4, Newton-Muon n=4, Contra-Muon-only n=4). Mechanisms that lower terminal val consistently hit ffs > 3131.25. Only mechanisms reducing effective update constraints or adding variance reduction improve FFS.
 
-2. **CONTRA_MUON=0.5 sweep** (alphonse #139): T0/T1/T2 all beat baseline on both bars. n=3 mean=3.27672/3125. This is the strongest merge candidate in months.
+2. **CONTRA_MUON=0.5 sweep** (alphonse #139): n=3 mean=3.27672/3125. Best per-trial val of session (3.27551). MERGE NEAR-CERTAIN.
 
-3. **Aurora leverage-equalization** (fern #125): T0 stunning (3.27592/3100) but T1 missed entirely (3.28172/-1). High seed-variance suggests the mechanism is unstable across initializations.
+3. **Trust-gate variance suppression** (nezuko #124): T0/T1/T2 range = 0.00015. Unprecedented consistency across seeds. Mechanism absorbs init noise via gating.
 
-4. **Attn-SOAP + trust gate** (nezuko #124): T0/T1 remarkably consistent (variance 0.00007). Trust gate mechanism appears to absorb seed noise. On track to merge.
+4. **Aurora seed-sensitivity**: T0=3.27592/3100 (stunning), T1 MISSED, T2=3.27768/3125. Diagonal leverage-score equalization is sensitive to random initialization direction.
 
-5. **Schedule-Free Muon failure mode**: Polyak averaging with c_t=1/(t+1) is dominated by random init bias for first ~100 steps. Even with warmup=100, the early bias never washes out enough by step ~2000 to recover. Need const c_t (~0.01 EMA) to match Muon's noise scale.
+5. **Uniform Polyak averaging failure**: SFM with c_t=1/(t+1) assigns ~50% weight to the first t/2 iterates. At t=3175, those early iterates dominated the eval point y, giving val=4.6 (near-random). EMA-style c_const=0.01 should fix this by exponentially downweighting old iterates.
 
 ## Closed this session
 
-- **Thorfinn #103 (Soft-Muon p=0.05 n=4)**: stronger-but-slower. Reassigned to cooldown_frac retune (#178).
-- **Frieren #109 (MuLoCo+NorMuon n=4)**: mean=3.28095, only T2 hit target. Reassigned to Soft-Muon annealing (#177).
-- **Askeladd #166 (KL-SOAP+H screen)**: val=3.295, ffs=-1 MISS. Reassigned to SFM (#181).
-- **Askeladd #74 (NorMuonH n=4)**: better val, worse FFS. Reassigned earlier.
-- **Tanjiro #161 (Lookahead)**: both α=0.5 and α=0.7 screens MISSED. Reassigned to PMuon (#187).
+- **Edward #76 (Contra-Muon n=4)**: mean=3.27652/ffs=3175. Statsig PASS, FFS MISS. Superseded by merged baseline #78. Reassigned to AdEMAMix-aux (#199).
+- **Thorfinn #103 (Soft-Muon p=0.05)**: stronger-but-slower. Reassigned to cooldown_frac (#178).
+- **Frieren #109 (MuLoCo+NorMuon)**: mean=3.28095. Reassigned to Soft-Muon annealing (#177).
+- **Askeladd #166 (KL-SOAP+H)**: val=3.295 MISS. Reassigned to SFM (#181).
+- **Tanjiro #161 (Lookahead α=0.5 and 0.7)**: both MISSED. Reassigned to PMuon (#187).
 - **Tanjiro #81 (Newton-Muon)**: stronger-but-slower. Closed earlier.
 
 ## Upcoming decisions / expected results
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~22:00 | Edward | T3 terminal | Stronger-but-slower confirmed CLOSE (ffs=3175 > 3131.25) |
-| ~22:30 | Askeladd | SFM screen terminal | MISS confirmed → trigger c_const=0.01 fallback screen |
-| ~01:00 | Alphonse | T3 terminal | **MERGE EXPECTED** — n=3 mean already 3.27672/3125 |
-| ~02:00 | Fern | T2 terminal | Variance-driven — if T2 ≥ 3.279, merge dead |
-| ~02:00 | Nezuko | T2 terminal | On track if val ≤ 3.278 |
-| ~03:00 | Frieren | Screen terminal | Aggressive descent — could be FFS-winning |
-| ~03:00 | Tanjiro | PMuon screen terminal | Open — record #18 single-seed strength uncertain on stack |
+| ~23:10 | Alphonse | T3 terminal | **MERGE EXPECTED** — n=3 mean already 3.27672/3125 |
+| ~01:30 | Frieren | Screen terminal | Aggressive mechanism — could be FFS-winning |
+| ~01:30 | Nezuko | T3 terminal | **MERGE EXPECTED** — n=3 mean 3.27750/3125, consistent seeds |
+| ~01:30 | Fern | T3 terminal | Merge path nearly closed (need val ≤ 3.27668) |
+| ~02:00 | Tanjiro | PMuon screen | Open — bilateral power preconditioning |
+| ~02:00 | Thorfinn | cooldown-frac screens | 3 comparison arms (0.65/0.70/0.75) |
+| ~03:00 | Askeladd | SFM c_const=0.01 | Should recover vs uniform; borderline FFS uncertain |
 
 ## Research programme direction
 
 No human-researcher directives received this session.
 
-Primary goal: beat global best record #20 (3030 steps, Contra+Soft-Muon+power-law LR). Our current best is 3131 steps (Contra+SOAP-MLP). Gap: 101 steps / ~3.2% headroom.
+Primary goal: beat record #20 (3030 steps). Current best is 3131 steps. Gap = 101 steps / ~3.2%.
 
-Most promising path to close that gap:
-1. **Alphonse CONTRA_MUON=0.5 n=4** (~01:00 UTC) — MERGE NEAR-CERTAIN (n=3 mean 3.27672/3125)
-2. **Nezuko Attn-SOAP+trust n=4** (~02:00 UTC) — high consistency, MERGE LIKELY
-3. **Fern Aurora n=4** (~02:00 UTC) — variance-bound, MERGE UNCERTAIN
-4. **Frieren Soft-Muon annealing** — direct mechanism class of record #20
-5. **Thorfinn cooldown_frac retune** — cheap scalar tune
-6. **Tanjiro PMuon** — record #18 stack test
-7. **Askeladd SFM fallback** (c_const=0.01) — schedule-free with EMA averaging
+Most promising path:
+1. **Alphonse T3 terminal** (~45min) — merge imminent → new baseline ffs ~3125
+2. **Nezuko T3** (~3h) — second independent merge candidate
+3. **Frieren Soft-Muon-anneal screen** — mechanism directly matching record #20's design philosophy
+4. **Thorfinn cooldown_frac** — if shifting ffs 50+ steps, cheap and fast signal
+5. **Tanjiro PMuon** — bilateral power preconditioning, novel mechanism class
+6. **Edward AdEMAMix-aux** — aux-group momentum upgrade, orthogonal direction
 
 ## Operational notes
 
 - W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
-- Group naming inconsistency: `g1r2-nezuko/attn-soap-gate` (not `attn-soap-trust-gate`); `g1r2-fern/aurora-r17` (not `contra-soap-aurora`); `g1r2-askeladd/sfm` (not `schedule-free-muon`).
-- All n=4 runs: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800
-- Primary metric: `ffs_mean` (lower is better), tie-break: `val/loss mean`
-- For merge: BOTH mean ≤ 3.27760 AND ffs_mean ≤ 3131.25 vs current merged baseline
+- Group naming: `g1r2-nezuko/attn-soap-gate`; `g1r2-fern/aurora-r17`; `g1r2-askeladd/sfm`
+- All n=4: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800; ffs_mean ≤ 3131.25
+- For ffs_mean when a trial missed: count -1 trials as train_steps for mean calc (conservative)
