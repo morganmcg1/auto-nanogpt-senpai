@@ -444,6 +444,18 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 
+# Lookahead outer wrapper. After each optimizer step, every K steps we set
+#   slow <- slow + alpha * (fast - slow);  fast <- slow
+# applied to all trainable params. There is no LR warmup in this schedule
+# (eta=1.0 immediately, then linear cooldown over the last cooldown_frac of
+# train_steps), so LOOKAHEAD_WARMUP defaults to 0. Set LOOKAHEAD_ENABLE=0 to
+# disable the wrapper for ablations.
+LOOKAHEAD_ENABLE = int(os.environ.get("LOOKAHEAD_ENABLE", 1))
+LOOKAHEAD_K = int(os.environ.get("LOOKAHEAD_K", 5))
+LOOKAHEAD_ALPHA = float(os.environ.get("LOOKAHEAD_ALPHA", 0.5))
+LOOKAHEAD_WARMUP = int(os.environ.get("LOOKAHEAD_WARMUP", 0))
+LOOKAHEAD_DIAG_INTERVAL = int(os.environ.get("LOOKAHEAD_DIAG_INTERVAL", 1))  # log diagnostic every Nth sync
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -700,6 +712,11 @@ if dist.get_rank() == 0:
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "lookahead/enable": LOOKAHEAD_ENABLE,
+            "lookahead/k": LOOKAHEAD_K,
+            "lookahead/alpha": LOOKAHEAD_ALPHA,
+            "lookahead/warmup_steps": LOOKAHEAD_WARMUP,
+            "lookahead/diag_interval": LOOKAHEAD_DIAG_INTERVAL,
         },
     )
 
@@ -765,6 +782,17 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Lookahead slow weights, reset every trial AFTER param init + broadcast so
+    # every rank starts with identical slow weights (matches p.data exactly).
+    if LOOKAHEAD_ENABLE:
+        slow_weights = {
+            name: p.data.detach().clone()
+            for name, p in model.named_parameters()
+            if p.requires_grad
+        }
+    else:
+        slow_weights = {}
+    lookahead_sync_count = 0
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -873,6 +901,29 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # ----- Lookahead outer step (after ALL inner optimizer updates) -----
+        # Every K inner steps: log diagnostic (||fast-slow||_Fro), then
+        #   slow <- slow + alpha * (fast - slow);  fast <- slow.
+        if LOOKAHEAD_ENABLE and step >= LOOKAHEAD_WARMUP:
+            inner_steps_since_warmup = step - LOOKAHEAD_WARMUP + 1
+            if inner_steps_since_warmup % LOOKAHEAD_K == 0:
+                lookahead_sync_count += 1
+                if dist.get_rank() == 0 and lookahead_sync_count % LOOKAHEAD_DIAG_INTERVAL == 0:
+                    diff_sq_sum = torch.zeros((), device=device, dtype=torch.float32)
+                    for name, p in model.named_parameters():
+                        if p.requires_grad and name in slow_weights:
+                            diff = p.data.float() - slow_weights[name].float()
+                            diff_sq_sum += diff.pow(2).sum()
+                    diff_fro_value = float(diff_sq_sum.sqrt().item())
+                    wandb.log({
+                        "lookahead/sync_step": train_step,
+                        "lookahead/sync_count": lookahead_sync_count,
+                        "lookahead/slow_fast_diff_fro": diff_fro_value,
+                    }, step=wandb_step)
+                for name, p in model.named_parameters():
+                    if p.requires_grad and name in slow_weights:
+                        slow_weights[name].lerp_(p.data, LOOKAHEAD_ALPHA)
+                        p.data.copy_(slow_weights[name])
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
