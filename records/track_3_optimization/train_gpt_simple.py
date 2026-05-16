@@ -44,6 +44,14 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
+    # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
+    # snapshots an anchor at trial start, then every sync_interval inner steps
+    # computes delta = anchor - p, integrates Nesterov velocity, and steps the
+    # model toward anchor - lr*(mu*v + delta). Inner optimizer state is NOT reset.
+    parser.add_argument("--use_outer_optimizer", type=int, default=int(os.environ.get("USE_OUTER_OPTIMIZER", "1")))
+    parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
+    parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -624,6 +632,12 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+if args.use_outer_optimizer:
+    print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
+           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+else:
+    print0("MuLoCo outer optimizer DISABLED", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -666,6 +680,10 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "train_steps": args.train_steps,
+            "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
+            "muloco_outer_lr": args.outer_lr,
+            "muloco_outer_momentum": args.outer_momentum,
+            "muloco_sync_interval": args.sync_interval,
         },
     )
 
@@ -758,6 +776,22 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
+    # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
+    # trainable params so the outer pull is applied uniformly across MuonH-SI
+    # (block 2D weights), AdamW (embed / lm_head / scalars), and any biases or
+    # gains. Inner optimizer state (MuonH momentum, AdamW exp_avg) is NOT reset
+    # at outer-step boundaries — matches public ref #13 and closed PR #55.
+    use_outer = bool(args.use_outer_optimizer)
+    if use_outer:
+        outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
+        outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+    else:
+        outer_anchor = None
+        outer_velocity = None
+    outer_applied_steps = 0
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -893,6 +927,45 @@ for trial_idx in range(args.num_trials):
                 param_histogram_limit=args.param_histogram_limit,
             )
         model.zero_grad(set_to_none=True)
+
+        # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
+        # inner steps, never on the final step (we want the last inner update to
+        # remain the live state). All ranks hold identical p.data after MuonH's
+        # all_gather and AdamW's identical-on-all-ranks update, so the outer step
+        # computes the same result on every rank without explicit syncing.
+        # MuonH-SI interaction note: outer step pulls live weights off the
+        # initial-Frobenius sphere; the next MuonH-SI inner step reads
+        # ``param.norm()`` at that step and preserves the new norm. Acceptable
+        # behavior — the goal is trajectory smoothing, not strict norm invariance.
+        if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            log_outer = (dist.get_rank() == 0)
+            if log_outer:
+                delta_sq = torch.zeros((), device=device)
+                velocity_sq = torch.zeros((), device=device)
+                total_count = 0
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    delta = outer_anchor[n] - p.data
+                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    outer_anchor[n].copy_(p.data)
+                    if log_outer:
+                        delta_sq = delta_sq + delta.float().square().sum()
+                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        total_count += delta.numel()
+            outer_applied_steps += 1
+            if log_outer:
+                delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
+                velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/muloco/outer_step": outer_applied_steps,
+                    "train/muloco/delta_rms": delta_rms,
+                    "train/muloco/velocity_rms": velocity_rms,
+                }, step=wandb_step)
+
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
