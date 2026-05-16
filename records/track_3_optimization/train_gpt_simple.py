@@ -456,12 +456,14 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 
-def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
+def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> tuple[Tensor, Tensor]:
     # Symmetric PSD M -> M^{-gamma} via eigendecomposition; eps clamp handles rank deficiency.
+    # Also returns the smallest raw eigenvalue (pre-clamp) as a singularity diagnostic.
     M = 0.5 * (M + M.T)
     eigvals, eigvecs = torch.linalg.eigh(M)
+    min_eigval = eigvals[0].detach()  # eigh returns eigvals in ascending order
     eigvals = eigvals.clamp_min(eps).pow(-gamma)
-    return (eigvecs * eigvals) @ eigvecs.T
+    return (eigvecs * eigvals) @ eigvecs.T, min_eigval
 
 
 def pmuon_update(
@@ -474,7 +476,7 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
-) -> Tensor:
+) -> tuple[Tensor, Tensor, Tensor]:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -483,13 +485,16 @@ def pmuon_update(
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
 
-    L_neg = matrix_neg_power(L_cov, gamma, eps)
-    R_neg = matrix_neg_power(R_cov, gamma, eps)
+    L_neg, L_min_eig = matrix_neg_power(L_cov, gamma, eps)
+    R_neg, R_min_eig = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
     update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
-    return update
+    return update, L_min_eig, R_min_eig
+
+
+PMUON_BETA_COV = 0.95  # ARM B (control, matches merged baseline) | A=0.90, C=0.99
 
 
 class Muon(torch.optim.Optimizer):
@@ -507,6 +512,8 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        lcov_min_eigvals: list[Tensor] = []
+        rcov_min_eigvals: list[Tensor] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -518,7 +525,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
-                    update = pmuon_update(
+                    update, L_min_eig, R_min_eig = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
@@ -527,6 +534,8 @@ class Muon(torch.optim.Optimizer):
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                     )
+                    lcov_min_eigvals.append(L_min_eig)
+                    rcov_min_eigvals.append(R_min_eig)
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
@@ -538,6 +547,14 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        if lcov_min_eigvals:
+            self._pmuon_diag = {
+                "lcov_min_eigval": torch.stack(lcov_min_eigvals).min(),
+                "rcov_min_eigval": torch.stack(rcov_min_eigvals).min(),
+                "beta_cov": self.param_groups[0]["beta_cov"],
+            }
+        else:
+            self._pmuon_diag = None
 
 
 ########################################
@@ -611,14 +628,14 @@ if dist.get_rank() == 0:
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
-            "pmuon_beta_cov": 0.95,
+            "pmuon_beta_cov": PMUON_BETA_COV,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "muon_method": "pmuon-uw-floor-power-cool-bcov-scan",
         },
     )
 
@@ -655,7 +672,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=PMUON_BETA_COV, gamma=0.3)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -823,6 +840,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            pmuon_diag = getattr(optimizer2, "_pmuon_diag", None)
+            if pmuon_diag is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/pmuon/bcov": pmuon_diag["beta_cov"],
+                    "train/pmuon/lcov_eigh_min": float(pmuon_diag["lcov_min_eigval"].item()),
+                    "train/pmuon/rcov_eigh_min": float(pmuon_diag["rcov_min_eigval"].item()),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
