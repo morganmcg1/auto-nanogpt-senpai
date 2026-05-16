@@ -25,6 +25,11 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
+# Lookahead outer optimizer (Zhang et al. 2019) — k steps forward, 1 step back.
+# Applied to Muon-target parameters only (optimizer2.param_groups[0]["params"]).
+LOOKAHEAD_K = 10
+LOOKAHEAD_ALPHA = 0.5
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -614,7 +619,9 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "lookahead_k": LOOKAHEAD_K,
+            "lookahead_alpha": LOOKAHEAD_ALPHA,
+            "muon_method": "pmuon-uw-lookahead",
         },
     )
 
@@ -680,6 +687,13 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Lookahead slow-weight clones for Muon-target parameters only (all ranks identical after broadcast).
+    muon_params = optimizer2.param_groups[0]["params"]
+    slow_weights = {id(p): p.data.detach().clone() for p in muon_params}
+    lookahead_step_counter = 0
+    lookahead_sync_counter = 0
+    lookahead_rep_param = model.blocks[0].mlp.fc.weight
+    lookahead_prev_inner_update = None
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -816,6 +830,37 @@ for trial_idx in range(args.num_trials):
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,
             )
+        # Lookahead outer step: every K inner steps, blend slow weights with fast and snap fast to new slow.
+        lookahead_step_counter += 1
+        if lookahead_step_counter % LOOKAHEAD_K == 0:
+            with torch.no_grad():
+                rep_diff_norm = 0.0
+                cosine_drift = 0.0
+                if dist.get_rank() == 0:
+                    rep_slow = slow_weights[id(lookahead_rep_param)]
+                    rep_inner_update = (lookahead_rep_param.data - rep_slow).flatten().float()
+                    rep_diff_norm = float(rep_inner_update.norm().item())
+                    if lookahead_prev_inner_update is not None:
+                        prev_norm = float(lookahead_prev_inner_update.norm().item())
+                        curr_norm = rep_diff_norm
+                        if prev_norm > 0 and curr_norm > 0:
+                            cosine_drift = float(
+                                torch.dot(rep_inner_update, lookahead_prev_inner_update).item()
+                            ) / (curr_norm * prev_norm)
+                    lookahead_prev_inner_update = rep_inner_update.clone()
+                for p in muon_params:
+                    slow = slow_weights[id(p)]
+                    slow.add_(p.data - slow, alpha=LOOKAHEAD_ALPHA)
+                    p.data.copy_(slow)
+                if dist.get_rank() == 0:
+                    lookahead_sync_counter += 1
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/lookahead/sync_step": lookahead_sync_counter,
+                        "train/lookahead/diff_norm": rep_diff_norm,
+                        "train/lookahead/cosine_drift": cosine_drift,
+                    }, step=wandb_step)
         model.zero_grad(set_to_none=True)
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
