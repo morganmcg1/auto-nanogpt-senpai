@@ -1,10 +1,13 @@
 # SENPAI Research State
 
-- 2026-05-15 23:30 — wave 1 mid-flight; first terminal n=4 confirmation
-  (askeladd NorMuonH) **non-statsig** at mean 3.27867 (margin 0.00267);
-  several n=4 confirmations in progress; PMuon dead + Soft-Muon assigned;
-  frieren MuLoCo si=15 sweep arm missed (3.2815); advisor-branch
-  `sample_tensor` fix landed as commit `d3bf1a4`.
+- 2026-05-16 00:30 — **First wave-1 statsig win**: alphonse NorMuon
+  n=4 @ train_steps=3300 cleared with mean=3.27800, margin=0.00401 ≥ 0.004.
+  PR #71 awaiting student SENPAI-RESULT marker, then merge. Tanjiro
+  Newton-Muon and edward Contra-Muon n=4 confirmations still in flight;
+  several other recipes' confirmations still progressing. PMuon dead,
+  Soft-Muon isolated assigned to thorfinn (PR #103). Frieren MuLoCo on
+  plain Muon broken at single-seed across 3 corners; pivot pending si=60
+  result. Advisor-branch `sample_tensor` fix at commit `d3bf1a4`.
 - No human-researcher directives recorded.
 - Advisor branch: `auto-nanogpt-1gpu-r2`. W&B
   `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
@@ -24,19 +27,23 @@
   — on the unlucky side of seed variance. Need T1–T3 to average ≤ 3.2776
   for n=4 statsig.
 
-- **g1r2-alphonse (NorMuon)** — confirmation `8yocwc35` (n=4 @ 3300) in
-  progress. T0=3.2761, T1=3.2780, T2=3.2791, **T3 in progress** at total
-  step ~12453/13200. Mean(0–2)=3.27775 — at the n=4 statsig boundary.
-  T3 needs val ≤ 3.27875 for n=4 statsig clearance. Outcome TBD.
+- **g1r2-alphonse (NorMuon) ✅ STATSIG WIN** — confirmation `8yocwc35`
+  (n=4 @ 3300) **TERMINAL**. T0=3.276094, T1=3.278030, T2=3.279136,
+  T3=3.278725, **mean=3.27800**. Statsig margin
+  `(3.28 − 3.27800) × √4 = 0.00401` ≥ 0.004 — **passes**. ffs mean
+  = 3256.25 (T0=3225, T1=3250, T2=3275, T3=3275). 50 steps below starter,
+  ~1.5% speedup. Awaiting student SENPAI-RESULT marker on PR #71, then
+  merge into advisor branch.
 
-- **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4 @ 3275) in
-  progress. T0=3.27972, T1=3.27867, **T2 in progress** at total
-  step ~9252/13100. Mean(0,1)=3.27920 — projecting non-statsig
-  (would need T2+T3 average ≤ 3.276805, unlikely given T0/T1 at 3.279).
+- **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4 @ 3275)
+  T0=3.27972, T1=3.27867, T2=3.27768, **T3 in progress** (total
+  step ~11053/13100). Mean(0-2)=3.27869 — projecting non-statsig at this
+  step count (T3 would need ≤ 3.27593 to clear, below T2's 3.27768
+  minimum). All 3 trials cleared 3.28 — recipe is real.
 
 - **g1r2-askeladd (NorMuonH)** — first n=4 conf at 3250: mean 3.27867
-  (non-statsig). New n=4 conf `6rf3nerz` at train_steps=3275, currently
-  at total step ~1825 (T0 still in training phase, no terminal yet).
+  (non-statsig). New n=4 conf `6rf3nerz` at train_steps=3275:
+  T0=3.27781, ffs=3225 (T1 in progress at total step ~3626).
 
 - **g1r2-frieren (MuLoCo on Muon)** — 3 out of 3 single-seed screens missed
   the 3.28 target: `bqfv4523`=3.2829, `q57yhybv`=3.2810, `ecohqy9o` (si=15,
@@ -45,9 +52,11 @@
   result. n=4 confirm `fxpwvh2w` was correctly killed (auto-launch before
   sweep plan was set). Advisor asked frieren to launch si=60/lr=0.5 next.
 
-- **g1r2-nezuko (Muon²)** — screen `n18mqjfy` terminal at val/loss=**3.2773
-  / ffs=3300** (margin 0.0027). n=4 confirmation `7lxk02m6` at predeclared
-  train_steps=3325 running at total step ~1575 (T0 training phase).
+- **g1r2-nezuko (Muon²)** — screen `n18mqjfy` terminal at val/loss=3.2773
+  (margin 0.0027). n=4 confirmation `7lxk02m6` at predeclared
+  train_steps=3325: T0=3.27788, ffs=3300 (T1 in progress at total step
+  ~3351). T0 is close to the n=4 statsig ceiling already; T1-T3 need to
+  average ≤ 3.27804 to clear.
 
 - **g1r2-thorfinn (Soft-Muon isolated)** — PMuon closed (PR #82, all variants
   crashed). Now assigned **Soft-Muon isolated** (PR #103, branch
