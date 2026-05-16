@@ -1,0 +1,5 @@
+[launcher] launching arm-c (lr=0.035, USE_MUON2=0) at 2026-05-16T00:42:10Z
+[launcher] arm-c exited rc=0 at 2026-05-16T02:30:06Z
+[launcher] launching arm-d (lr=0.042, USE_MUON2=0) at 2026-05-16T02:30:26Z
+[launcher] arm-d exited rc=0 at 2026-05-16T04:18:23Z
+[launcher] arms c/d complete at 2026-05-16T04:18:23Z
