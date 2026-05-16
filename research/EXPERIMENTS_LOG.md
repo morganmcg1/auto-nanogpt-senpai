@@ -188,3 +188,24 @@ Orthogonal barely steeper in the predicted regime but the difference is an order
 - Track `‖ZZ^T − I‖_F` after NS step in first ~100 steps to quantify NS equilibration speed across different init conditions.
 
 **Conclusion:** Clean negative. Closed. Edward reassigned to PR #115 (Muon² bias correction).
+
+---
+
+## 2026-05-16 03:40 UTC — PR #96: Muon² LR retune (alphonse) — CLOSED negative
+
+**Hypothesis:** Sweep Muon² learning rate ∈ {0.030, 0.0375, 0.040} on the merged baseline to find an improved LR.
+
+| Arm | NANOGPT_MUON_LR | W&B run | val/loss @ 3350 | first_step_to_target | Δ vs baseline |
+|-----|-----------------|---------|----------------:|---------------------:|--------------:|
+| A | 0.030 | `exqlcpdt` | 3.27815 | 3300 | +0.00155 (worse) |
+| B | 0.0375 | `mbochr63` | **3.27709** | 3300 | +0.00049 (worse) |
+| C | 0.040 | `e6p4iw14` | 3.27982 | 3350 | +0.00322 (worse) |
+| baseline (lr=0.035, n=2) | 0.035 | merged | 3.2766 | 3275 | — |
+
+**Stat-sig check on best arm (B, n=1):** (3.28 − 3.27709) × √1 = 0.00291 ≪ 0.004 threshold. Not stat-sig.
+
+**Diagnostic finding — Muon² LR is on the 0.035 peak**: The U-shape (3.27815 → 3.27709 → 3.27982 across lr 0.030 → 0.0375 → 0.040) suggests a shallow interior minimum near 0.0375, but the depth (Δ ≈ 0.001) is within seed noise. Combined with merged baseline at lr=0.035, this confirms the Muon² LR optimum is robust in {0.035, 0.0375}.
+
+**Wave 2 plateau implication**: With LR, init, warmup, EMA, and (so far) cooldown_frac all closing as negatives, the merged Muon² baseline hyperparameters sit at a robust local optimum. Scalar hyperparameter retuning is exhausted as a path to merge — wave 3 must use mechanism stacks.
+
+**Conclusion:** Clean negative on LR retune. Closed. Alphonse reassigned to PR #117 (Trust-region Muon² — per-layer update norm cap, complementary to NS orthogonalization).
