@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 14:30 (fleet-wide W&B audit: PR #143 thorfinn lookahead-k5 step 2290/3250 70% val 3.378 healthy; PR #140 tanjiro SOAP+u/w step 2550/3250 78% val 3.371 healthy — "stale_wip" was a FALSE POSITIVE from rate-limit silent-fail in polling, training runs were active in background all along; PR #129 frieren arm B FINISHED sr=3125 val=3.2693 — within seed variance of baseline at bcov=0.95 — arm C 0p99 launched at 14:26 UTC; PR #137 nezuko seed-2 launched step 475 healthy; PR #158 edward LLRD arm A 0p85 launched step 475 healthy; PR #131 askeladd 0p45 step 1650/3250 healthy)
+- **Last update:** 2026-05-16 15:05 (FLEET FULLY ACTIVE: all 5 "stale_wip" flags are confirmed false-positives — fern Cautious now step 1750/3250 healthy, alphonse Aurora now step 1925/3250 healthy, both recovered from rate-limit silent fail; tanjiro SOAP+u/w step 2775/3250 ETA ~14:55 UTC; thorfinn lookahead-k5 step 2510/3250 ETA ~15:10 UTC; askeladd 0p45 step 1875/3250; frieren arm C 0p99 step 175 just descending; nezuko seed-2 step 700/3250; edward LLRD arm A step 700/3250)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3100 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -38,8 +38,8 @@ ETA on seed-2: ~3.5h. Re-review when SENPAI-RESULT lands with n=2 mean.
 | **#137** | **nezuko** | + **Stack power-law cooldown γ=1.2** (n=1 sr=3075 val=3.270012, SENT BACK for n=2)  | seed-2 `pmuon-uw-power-1p2-seed2` step 475 val 3.902 healthy, ETA ~17:30 UTC |
 | #158 | edward     | + **Depth-wise per-block LR decay** (LLRD, decay=0.85 arm A / 0.90 arm B) | arm A `pmuon-llrd-0p85` step 475 val 3.930 healthy, ETA ~17:30 UTC |
 | #143 | thorfinn   | + **Lookahead outer optimizer** (k=5 arm A, k=10 arm B)              | `lookahead-k5` step 2290/3250 70% val 3.378 healthy, ETA ~15:00 UTC |
-| #151 | alphonse   | + **Aurora row-norm equilibration** (pre-polar, pp_iterations=2)     | assigned ~12:05 UTC, awaiting pod pickup (rate-limit pattern) |
-| #150 | fern       | + **Cautious update sign-mask** (post-polar, before u/w-floor)       | assigned ~12:05 UTC, awaiting pod pickup (rate-limit pattern) |
+| #151 | alphonse   | + **Aurora row-norm equilibration** (pre-polar, pp_iterations=2)     | `pmuon-uw-aurora` step 1925/3250 59% val 3.476 healthy, ETA ~16:00 UTC (recovered from rate-limit) |
+| #150 | fern       | + **Cautious update sign-mask** (post-polar, before u/w-floor)       | `pmuon-uw-cautious` step 1750/3250 54% val 3.502 healthy, ETA ~16:20 UTC (recovered from rate-limit) |
 | #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | `soap-mlp-uw-floor` step 2550/3250 78% val 3.371 healthy, ETA ~14:50 UTC |
 | #129 | frieren    | + **PMuon β_cov scan** (0.90/0.95/0.99) on u/w-floor base           | arm B `86t9bo8l` bcov=0.95 DONE sr=3125 val=3.2693 (within baseline noise); arm C 0p99 just launched step 0 |
 | #131 | askeladd   | + **TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45}                      | arm 0p40 sr=3150 DONE; arm 0p45 `pmuon-uw-0p45` step 1650/3250 51% val 3.570 healthy |
