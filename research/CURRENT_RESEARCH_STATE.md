@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #16, ~04:15 UTC)
+- **Last updated:** 2026-05-16 (poll #17, ~03:40 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -77,11 +77,16 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   multi-seed confirmation phase (linear is the only shape that hit
   target on single seed). Likely needs n=2-4 on linear vs. quick
   n=1 recheck on other shapes for verdict.
-- **tanjiro** (PR #98 Cautious-Muon, wave-2): **lrx1.0 finished**
-  `val=3.3183 ffs=-1` (missed by 0.04 nats). `lrx1.5` in flight at
-  step ~2.2k of 3350 (val 3.505 — descending normally). `lrx2.0`
-  pending after lrx1.5. If both miss, this is a clean negative for
-  cautious masking on plain Muon at starter recipe.
+- **tanjiro** (PR #98 Cautious-Muon, wave-2): **lrx1.0 + lrx1.5 both
+  finished as clean negatives** (val=3.3183/3.3237, ffs=[-1, -1]).
+  lrx2.0 running at step ~1175/3350, already trailing lrx1.0 at same
+  step (val=3.7495 vs lrx1.0=3.6989 at step ~1125). Mask telemetry
+  HEALTHY (global mask.mean = 0.60–0.65 across all groups, all cells,
+  squarely in the paper's 0.4–0.7 band) — mechanism IS engaging
+  correctly. Matches the assignment's pre-declared falsifying signal
+  (`ffs > 3350 at all three LR multipliers`). Advisor status ack
+  posted recommending Option A: early-terminate lrx2.0, post terminal
+  `SENPAI-RESULT` as clean negative, save ~60 GPU-minutes.
 - **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995)
   at global step ~5.0k (seed-1 of 6 in flight at step ~1.7k of 3350).
   Seed-0 terminal `val=3.2779 ffs=3300` (matches screening single-seed
@@ -100,7 +105,7 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
 | 49 | Lookahead k×α          | **CLOSED (clean negative)**: best cell (k=10/α=0.8) = baseline ceiling; PR #49 closed 2026-05-15 22:00 |
 | 50 | Polyak/SWA τ×β         | grid complete; (τ=0.20,β=0.995) and (τ=0.30,β=0.995) tied at ffs=3300; n=6 confirmation in flight; borderline statsig |
-| 98 | Cautious-Muon (wave-2) | freshly dispatched 2026-05-15 22:30; smoke/screen pending                              |
+| 98 | Cautious-Muon (wave-2) | **trending to clean negative**: lrx1.0=3.3183/-1, lrx1.5=3.3237/-1, lrx2.0 in flight & trailing; mask engages (0.60–0.65) — mechanism works, recipe doesn't help |
 
 The explore-side outcome is becoming clear: Lookahead is a clean
 negative; Polyak has one in-noise screening cell that needs n=6 to
@@ -132,14 +137,14 @@ wait for the predeclared n-seed confirmation batches the PRs asked for.
 **Most promising direction going forward:** Stacking SOAP-attn (PR #116) + NorMuonH + Contra-Muon progressively toward record #16 → #20 trajectory.
 
 **Watch list for next poll:**
-- alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate (≈mid-seed-5/8)
-- thorfinn Polyak n=6 mu on (τ=0.20, β=0.995) — borderline statsig; (≈seed-3/6)
-- frieren MuonH n=8 mu — softening at seeds 1-3; may indicate incomplete reproduction
-- fern SOAP-MLP n mu — high-variance, latest val approaching 3.280
-- askeladd Contra-Muon n=8 mu — likely matches plain Muon baseline
-- edward Muon² confirm progress — verify screen → confirm transition
-- nezuko per-shape multi-seed verification (linear cell first)
-- tanjiro Cautious-Muon screen grid (lrx 1.0/1.5/2.0)
+- alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate; needs mu < 3.27744 to beat new baseline
+- edward Muon² n=8 mu — strongest wave-1 signal; two terminal seeds val=[3.2793, 3.2777] ffs=[3325, 3300]; mu must come in below 3.27744 to be merge-eligible
+- thorfinn Polyak n=6 mu on (τ=0.20, β=0.995) — borderline; seed-0=3.2779 ffs=3300, tied with new baseline (unlikely to merge)
+- frieren MuonH n=8 mu — softening at seeds 1-3; possible incomplete reproduction
+- askeladd Contra-Muon n=8 mu — isolated Contra-Muon ≈ plain Muon ffs=3325 (won't beat new baseline)
+- nezuko per-shape multi-seed verification (linear cell first; cooldown sweep likely negative)
+- tanjiro Cautious-Muon: **awaiting student's terminal SENPAI-RESULT** (Option A early-abort vs Option B lrx2.0 completion)
+- fern PR #116 SOAP-attn + trust gate (dispatched 03:26Z) — smoke/screen pending; aims for record #16 trajectory
 
 ## Pre-existing starter bugs — fixed in-flight by wave-1 students
 
