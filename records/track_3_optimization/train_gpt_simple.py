@@ -199,6 +199,7 @@ def log_training_telemetry(
     wandb_step: int,
     pre_clip_grad_norm: Tensor | None = None,
     clip_norm: float = 0.0,
+    per_group_pre_clip: dict[str, Tensor] | None = None,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -221,6 +222,14 @@ def log_training_telemetry(
         metrics["train/grad/clip_norm_threshold"] = clip_norm
         metrics["train/grad/clip_activated"] = int(pre_clip_val > clip_norm)
         metrics["train/grad/clip_scale_factor"] = min(1.0, clip_norm / (pre_clip_val + 1e-12))
+    if per_group_pre_clip is not None and clip_norm > 0:
+        for group_name, raw_norm_tensor in per_group_pre_clip.items():
+            raw_val = float(raw_norm_tensor.item())
+            metrics[f"train/clip_ext/per_group_grad_norm_{group_name}"] = raw_val
+            metrics[f"train/clip_ext/per_group_active_{group_name}"] = int(raw_val > clip_norm)
+            metrics[f"train/clip_ext/effective_aux_lr_ratio_{group_name}"] = (
+                min(1.0, clip_norm / (raw_val + 1e-12))
+            )
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
@@ -716,10 +725,19 @@ for trial_idx in range(args.num_trials):
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         if NANOGPT_GRAD_CLIP > 0:
+            # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
+            # rescales them in place. Mechanism: under global clip the scale factor is
+            # min(1, clip_norm / global_norm); these per-group norms tell us where each
+            # group sits relative to the threshold (effective_aux_lr_ratio).
+            per_group_pre_clip = {
+                "embed": model.embed.weight.grad.detach().norm(),
+                "lmhead": model.proj.weight.grad.detach().norm(),
+            }
             pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), max_norm=NANOGPT_GRAD_CLIP)
         else:
             pre_clip_grad_norm = None
+            per_group_pre_clip = None
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
@@ -751,6 +769,7 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
+                per_group_pre_clip=per_group_pre_clip,
             )
         for opt in optimizers:
             opt.step()
