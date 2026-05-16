@@ -40,6 +40,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--contra_coeff", type=float, default=float(os.environ.get("NANOGPT_CONTRA_COEFF", "0.0")),
+                        help="Measured-scale Contra-Muon coefficient (PR #119). 0 disables.")
+    parser.add_argument("--contra_warmup_steps", type=int, default=int(os.environ.get("NANOGPT_CONTRA_WARMUP", "200")),
+                        help="Linear ramp steps for contra_coeff; effective = contra_coeff * min(1, step/warmup).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -471,9 +475,10 @@ def pmuon_update(
     mu: float = 0.95,
     beta_cov: float = 0.95,
     gamma: float = 0.3,
+    contra_coeff: float = 0.0,
     eps: float = 1e-12,
     nesterov: bool = True,
-) -> Tensor:
+) -> tuple[Tensor, dict[str, float]]:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -482,27 +487,67 @@ def pmuon_update(
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
 
+    # PR #119: snapshot pre-whitening Nesterov momentum for measured-scale Contra-Muon.
+    # Per advisor: "Pre-polar momentum direction (the input to NS5, before bilateral
+    # whitening if you have access; otherwise use m_pre)" — we use the pre-whitening one.
+    m_pre_raw = update.detach().clone().float() if contra_coeff > 0.0 else None
+
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
     update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
-    return update
+
+    diagnostics: dict[str, float] = {}
+    if contra_coeff > 0.0 and m_pre_raw is not None:
+        update_f32 = update.float()
+        update_norm = update_f32.norm().clamp_min(eps)
+        m_pre_norm = m_pre_raw.norm().clamp_min(eps)
+        update_dir = update_f32 / update_norm
+        m_pre_dir = m_pre_raw / m_pre_norm
+        cos = (m_pre_dir * update_dir).sum()
+        contra_dir = m_pre_dir - cos * update_dir
+        contra_norm_pre = contra_dir.norm().clamp_min(eps)
+        # MEASURED SCALE: normalize contra_dir to actual ||update||_F (not sqrt(min(m,n))).
+        # This is the calibration fix from PR #95's negative-result diagnosis: PMuon's
+        # whitened polar produces ||update||_F ≈ 0.62 * sqrt(min(m,n)), so the naive
+        # target_scale=sqrt(min(m,n)) over-perturbs by ~1.6x.
+        contra_dir = contra_dir * (update_norm / contra_norm_pre)
+        update = update - (contra_coeff * contra_dir).to(update.dtype)
+        diagnostics = {
+            "update_frob": float(update_norm.item()),
+            "contra_frob": float(contra_dir.norm().item()),
+            "effective_perturb": float((contra_coeff * contra_dir.norm() / update_norm).item()),
+            "cos_update_mpre": float(cos.item()),
+        }
+    return update, diagnostics
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3,
+                 contra_coeff=0.0, contra_warmup_steps=200):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
+                        contra_coeff=contra_coeff, contra_warmup_steps=contra_warmup_steps)
         super().__init__(params, defaults)
+        self.contra_diagnostics: list[dict[str, float]] = []
+        self._step_count = 0
 
     @torch.no_grad()
     def step(self):
+        self.contra_diagnostics = []
+        self._step_count += 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
+            # PR #119 warmup ramp: structural Contra-Muon × PMuon incompatibility at step 1–100
+            # (arm A loss=18 at step25, arm B crashed step 846 from ill-cond eigh) means the
+            # perturbation must engage only after the bilateral covariance EMAs have settled.
+            warmup = max(1, group.get("contra_warmup_steps", 0))
+            ramp = min(1.0, self._step_count / warmup) if warmup > 0 else 1.0
+            effective_contra_coeff = group["contra_coeff"] * ramp
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -513,7 +558,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
-                    update = pmuon_update(
+                    update, diag = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
@@ -521,7 +566,11 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        contra_coeff=effective_contra_coeff,
                     )
+                    if diag:
+                        diag["ramp"] = ramp
+                        self.contra_diagnostics.append(diag)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -565,7 +614,7 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -601,7 +650,10 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            "muon_method": "pmuon-contra-measured" if args.contra_coeff > 0.0 else "pmuon-bilateral-cov-precond",
+            "contra_coeff": args.contra_coeff,
+            "contra_scale": "measured-update-frob" if args.contra_coeff > 0.0 else "none",
+            "contra_warmup_steps": args.contra_warmup_steps if args.contra_coeff > 0.0 else 0,
         },
     )
 
@@ -638,7 +690,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3,
+                      contra_coeff=args.contra_coeff,
+                      contra_warmup_steps=args.contra_warmup_steps)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -775,6 +829,15 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due and getattr(optimizer2, "contra_diagnostics", None):
+            diags = optimizer2.contra_diagnostics
+            contra_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+            }
+            for key in diags[0].keys():
+                contra_metrics[f"train/contra_v2/{key}"] = sum(d[key] for d in diags) / len(diags)
+            wandb.log(contra_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
