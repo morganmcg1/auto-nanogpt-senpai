@@ -502,3 +502,24 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 - **Closure rationale**: Per-layer policy degenerates to uniform; uniform NS≥16 monotonically worse. Adaptive policy moot. Family closed.
 - **Cross-validation context**: tanjiro #185 arm-A (constant NS=14) actually FINISHED val=3.2748/fs=3250 = **BEATS baseline**, demonstrating NS=14 is the right uniform value, but the per-layer mechanism in nezuko's #145 was not the right way to reach it. The benefit comes from a uniform NS-iter increase, not from per-layer adaptation.
 - **Follow-up action**: nezuko assigned #204 (Cooldown shape sweep — different mechanism axis, tests LR-decay curve shape during cooldown, orthogonal to her closed #106 which tested cooldown_frac timing).
+
+## 2026-05-16 23:30 UTC — PR #115: Muon² Adam bias correction stack (edward) — CLOSED clean negative on new baseline
+
+- **Branch:** g1r4-edward/muon-bias-correction
+- **Hypothesis:** Adam-style bias correction in Muon² preconditioner `v / (1 - beta2^t)` allows safe use of beta2=0.98 (rather than 0.999), tightening the second-moment estimator's adaptation to changing gradient statistics. Pre-#105 result on the OLD baseline (no clip): mu(n=3)=3.27532 — n=3 stat-sig PASS.
+- **Retest on new clip=5.0 merged baseline:**
+
+| Run | bias_corr | beta2 | W&B | val/loss | first_step | vs control | vs merged baseline (3.27527 / 3266.7) |
+|-----|-----------|-------|-----|---------:|-----------:|-----------:|--------------------------------------:|
+| control | OFF | 0.999 | `tak4oqhf` | 3.27637 | 3275 | (control) | +0.00110, +8 steps |
+| BC seed1 | ON | 0.98 | `7cmgw7ym` | 3.27906 | 3325 | +0.00269, +50 steps | +0.00379, +58 steps |
+| BC seed2 | ON | 0.98 | `thrpa2mm` | 3.27704 | 3300 | +0.00067, +25 steps | +0.00177, +33 steps |
+| BC seed3 | ON | 0.98 | `mjnkjfts` | 3.27814 | 3300 | +0.00177, +25 steps | +0.00287, +33 steps |
+
+- **n=3 BC mean: 3.27808** (seeds: 3.27906/3.27704/3.27814)
+- **Statistical**: (3.28 − 3.27808) × √3 = 0.00333 < 0.004 → **FAIL stat-sig vs target**
+- **Mean fs(BC, n=3) = 3308.33** vs baseline 3266.7 = +41.7 steps WORSE
+- **Mechanism interpretation**: BC and clip=5.0 are redundant interventions targeting the same root cause (early-step preconditioner instability). clip=5.0 already dominates the early-step instability (raw lm_head norm ≈ 33827 → clipped at step 0 every step), making BC's `v / (1 − beta2^t)` boost an over-correction. BC's original mechanism (allow safe beta2=0.98) is moot because the underlying instability has been removed at the gradient stage by clipping.
+- **Cross-result**: same mechanism, two baselines, opposite outcomes — pre-#105 BC won by 0.0013 (n=3 mu=3.27532 vs old 3.27649); post-#105 BC loses by 0.0017 (n=3 mu=3.27808 vs new 3.27637). Clean example of how a mechanism's value depends on the rest of the recipe.
+- **Important downstream implication**: On the merged baseline, **beta2=0.999 (default) is safe to keep** — no BC needed, no beta2=0.98 retune needed. Subsequent PRs in the wave-3 frontier do not need to consider BC variants.
+- **Follow-up action**: edward assigned #206 (Per-group gradient clipping — decisive test of the clip-as-aux-LR-rescaler mechanism story; complements alphonse #188 aux LR sweep on the same mechanism axis).
