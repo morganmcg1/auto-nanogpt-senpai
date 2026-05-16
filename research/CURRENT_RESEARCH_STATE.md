@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 20:35 UTC (boot 56)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC (Issue #164) — alphonse/nezuko/tanjiro on new nodes gd103cc/gc8bcf4/gd125a8.
+- **Last updated:** 2026-05-16 20:55 UTC (boot 57)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC (Issue #164). Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — re-rotation requested.
 - **Branch state:** PR #52 MuonH-SI MERGED. Baseline: val=3.27737, ffs=3275 (n=4, deterministic).
 
 ## Current branch baseline (MuonH-SI, PR #52)
@@ -45,15 +45,15 @@ Active screens all use `--muonh_mode scale_invariant`. Default is `clip` — cau
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
 | **#114** | frieren | MuLoCo × MuonH-SI n=4 confirm | **2/4 TERMINAL, T2 BEATS baseline (3.27574)**, T3-T4 in progress |
-| **#107** | edward | Cautious-Muon cs sweep {0.0, 0.1, 0.25} | cs=0.0 ✓ baseline-clone (3.27820); **cs=0.1 RUNNING**; cs=0.25 queued |
+| **#107** | edward | Cautious-Muon cs sweep {0.0, 0.1, 0.25} | cs=0.0 ✓ baseline-clone (3.27820); cs=0.1 ✓ **NEGATIVE** (3.27995, worse); **cs=0.25 RUNNING** step ~600 |
 | **#174** | askeladd | NS5 polynomial coefficient sweep | A1 (3.4445,-4.775,2.0315) ✓ baseline-clone (3.27859); **A2 RUNNING** step ~1225/3325; A3 (2.5,-2.5,0.75) queued |
 | **#182** | thorfinn | Lookahead × MuonH-SI (k=5, k=10) | Smoke k=5 ✓ (val=4.42@300); screen k=0/5/10 LAUNCH PENDING |
 | **#183** | fern | Aux AdamW betas sweep (0.8,0.95)/(0.9,0.999)/(0.95,0.99) | NEWLY ASSIGNED — no student response yet |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} | NEWLY ASSIGNED (post-rotation, smoke gate Step 1) |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} | **BLOCKED — smoke gate NaN at step 125 on rotated node `gd103cc`, re-rotation requested on Issue #164** |
 | **#191** | tanjiro | Aux AdamW embed lr_mult sweep {0.15, 0.3, 0.5} | NEWLY ASSIGNED (post-rotation, smoke gate Step 1) |
 | **#192** | nezuko | Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6} | NEWLY ASSIGNED (post-rotation, smoke gate Step 1) |
 
-**8/8 students active.** Zero idle GPUs.
+**7/8 students active** — alphonse blocked pending second re-rotation. Zero true idle GPUs.
 
 ## Closed this session (cumulative)
 
