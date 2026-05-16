@@ -36,6 +36,9 @@ def parse_args():
     parser.add_argument("--wandb_entity", default=os.environ.get("WANDB_ENTITY", ""))
     parser.add_argument("--wandb_tags", default=os.environ.get("WANDB_TAGS", ""))
     parser.add_argument("--wandb_mode", default=os.environ.get("WANDB_MODE", "online"))
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")))
+    parser.add_argument("--muon_lr", type=float, default=float(os.environ.get("NANOGPT_MUON_LR", "0.0375")))
+    parser.add_argument("--target_uw", type=float, default=float(os.environ.get("NANOGPT_TARGET_UW", "0.35")))
     parser.add_argument("--telemetry_interval", type=int, default=int(os.environ.get("NANOGPT_TELEMETRY_INTERVAL", "25")))
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
@@ -253,6 +256,56 @@ def log_weight_telemetry(
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_uw_telemetry(
+    muon_uw_optimizer: torch.optim.Optimizer,
+    param_names: dict[int, str],
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Log u/w-floor stats from MuonUW, separated for mlp vs attn block params."""
+    buckets = {"all": [], "mlp": [], "attn": []}
+    scale_buckets = {"all": [], "mlp": [], "attn": []}
+    target_uw = None
+    for group in muon_uw_optimizer.param_groups:
+        target_uw = group["target_uw"]
+        for p in group["params"]:
+            state = muon_uw_optimizer.state.get(p, {})
+            if "last_cur_uw" not in state:
+                continue
+            cur_uw = float(state["last_cur_uw"].item())
+            scale = float(state["last_scale"].item())
+            name = param_names.get(id(p), "")
+            buckets["all"].append(cur_uw)
+            scale_buckets["all"].append(scale)
+            if "mlp." in name:
+                buckets["mlp"].append(cur_uw)
+                scale_buckets["mlp"].append(scale)
+            elif "attn." in name:
+                buckets["attn"].append(cur_uw)
+                scale_buckets["attn"].append(scale)
+    if not buckets["all"]:
+        return
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "train/uw/target_uw": target_uw if target_uw is not None else float("nan"),
+    }
+    for b, vals in buckets.items():
+        if not vals:
+            continue
+        sm = scale_buckets[b]
+        active = sum(1 for v in vals if v < (target_uw or 0.0))
+        suffix = "" if b == "all" else f"_{b}"
+        metrics[f"train/uw/cur_uw_mean{suffix}"] = sum(vals) / len(vals)
+        metrics[f"train/uw/cur_uw_min{suffix}"] = min(vals)
+        metrics[f"train/uw/cur_uw_max{suffix}"] = max(vals)
+        metrics[f"train/uw/active_fraction{suffix}"] = active / len(vals)
+        metrics[f"train/uw/scale_max{suffix}"] = max(sm)
+        metrics[f"train/uw/scale_mean{suffix}"] = sum(sm) / len(sm)
     wandb.log(metrics, step=wandb_step)
 
 
@@ -488,6 +541,48 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class MuonUW(torch.optim.Optimizer):
+    """Muon variant with u/w-floor: scales each update so ||u||_F / ||p||_F >= target_uw.
+
+    Replaces decoupled weight decay (wd should be 0). When ||p|| grows so that
+    ||u||/||p|| < target_uw, the update is scaled up uniformly per-parameter to
+    restore the floor; otherwise the update passes through unchanged.
+    """
+    def __init__(self, params, lr=0.0375, weight_decay=0, mu=0.95, target_uw=0.35):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert weight_decay == 0, "MuonUW expects weight_decay=0; u/w-floor replaces decoupled WD."
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, target_uw=target_uw)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        for group in self.param_groups:
+            params = group["params"]
+            target_uw = group["target_uw"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state["momentum"] = torch.zeros_like(p)
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    p_fro = p.float().norm().clamp_min(1e-8)
+                    u_fro = update.float().norm().clamp_min(1e-8)
+                    cur_uw = u_fro / p_fro
+                    scale = torch.where(cur_uw < target_uw,
+                                        target_uw * p_fro / u_fro,
+                                        torch.ones_like(p_fro))
+                    update = update * scale.to(update.dtype)
+                    state["last_cur_uw"] = cur_uw.detach()
+                    state["last_scale"] = scale.detach()
+                    p.add_(update, alpha=-group["lr"])
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -567,32 +662,50 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
-    # initialize model parameters
+    # initialize model parameters with per-module init std (matches public Muon-family records).
+    # Required for plain Muon stability on 1 GPU (per wave-1 evidence: PRs #54, #57, #58).
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name == "proj.weight":
+                # LM head — keep zero init exactly as the starter
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+            elif "attn.proj" in name:
+                w.normal_(std=0.026)
+            elif "mlp.proj" in name:
+                w.normal_(std=0.031)
+            elif "mlp.fc" in name:
+                w.normal_(std=0.031)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                # qkv and any leftover linear weight: keep starter default
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+    # diagnostic: record per-weight init norms so smoke logs capture the init scale.
+    if dist.get_rank() == 0 and trial_idx == 0:
+        for name, p in model.named_parameters():
+            if name.endswith("weight"):
+                print0(f"init/{name}: norm={float(p.data.float().norm().item()):.4f}", log=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+    # MuonUW: u/w-floor replaces decoupled WD (wd=0 mandatory). lr=0.0375 follows public #9.
+    muon_block_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    muon_block_param_id_set = {id(p) for p in muon_block_params}
+    muon_block_param_names = {id(p): name for name, p in model.named_parameters()
+                              if id(p) in muon_block_param_id_set}
+    optimizer2 = MuonUW(muon_block_params, lr=args.muon_lr, weight_decay=0, mu=0.95, target_uw=args.target_uw)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -733,6 +846,13 @@ for trial_idx in range(args.num_trials):
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+            log_uw_telemetry(
+                muon_uw_optimizer=optimizer2,
+                param_names=muon_block_param_names,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
