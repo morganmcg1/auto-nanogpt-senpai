@@ -502,6 +502,10 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
+        TARGET_UW = 0.35
+        floor_fired_count = 0
+        floor_eligible_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -522,9 +526,17 @@ class Muon(torch.optim.Optimizer):
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                     )
+                    floor_eligible_count += 1
+                    w_norm = p.norm()
+                    if w_norm > 0:
+                        ratio = update.norm() / w_norm
+                        if 0 < ratio < TARGET_UW:
+                            floor_fired_count += 1
+                            update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
 
 
 ########################################
@@ -565,7 +577,7 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -601,7 +613,8 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            "target_uw_floor": 0.35,
+            "muon_method": "pmuon+uw-floor",
         },
     )
 
@@ -783,6 +796,17 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            floor_diag = getattr(optimizer2, "_floor_diag", None)
+            if floor_diag is not None:
+                eligible = floor_diag.get("eligible", 0)
+                fired = floor_diag.get("fired", 0)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/uw_floor/eligible": eligible,
+                    "train/uw_floor/fired": fired,
+                    "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
