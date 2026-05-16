@@ -565,7 +565,11 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+model.compile(dynamic=True)
+
+# PMuon γ-scan: bilateral covariance preconditioning strength.
+# Wave 3 PR #110 tests γ=0.25 (less whitening) and γ=0.35 (more whitening) vs baseline γ=0.30.
+PMUON_GAMMA = 0.35
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -599,9 +603,9 @@ if dist.get_rank() == 0:
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
-            "pmuon_gamma": 0.3,
+            "pmuon_gamma": PMUON_GAMMA,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            "muon_method": "pmuon-gamma-scan",
         },
     )
 
@@ -638,7 +642,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
