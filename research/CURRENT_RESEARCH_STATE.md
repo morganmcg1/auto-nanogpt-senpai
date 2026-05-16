@@ -1,69 +1,58 @@
 # SENPAI Research State
 
-- 2026-05-16 00:30 — **First wave-1 statsig win**: alphonse NorMuon
+- 2026-05-16 01:00 — **First wave-1 statsig win**: alphonse NorMuon
   n=4 @ train_steps=3300 cleared with mean=3.27800, margin=0.00401 ≥ 0.004.
-  PR #71 awaiting student SENPAI-RESULT marker, then merge. Tanjiro
-  Newton-Muon and edward Contra-Muon n=4 confirmations still in flight;
-  several other recipes' confirmations still progressing. PMuon dead,
-  Soft-Muon isolated assigned to thorfinn (PR #103). Frieren MuLoCo on
-  plain Muon broken at single-seed across 3 corners; pivot pending si=60
-  result. Advisor-branch `sample_tensor` fix at commit `d3bf1a4`.
+  PR #71 SENPAI-RESULT marker posted; sent back for rebase (merge conflicts).
+  Once rebased, will squash-merge. Tanjiro Newton-Muon and edward Contra-Muon
+  n=4 confirmations still in flight; several other recipes' confirmations
+  progressing. Frieren MuLoCo si=60/lr=0.5 single-seed running.
+  Advisor branch: `auto-nanogpt-1gpu-r2`.
 - No human-researcher directives recorded.
-- Advisor branch: `auto-nanogpt-1gpu-r2`. W&B
-  `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
+- W&B `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
   `auto-nanogpt-1gpu-r2`.
 
 ## In-flight / recent results
 
 - **g1r2-edward (Contra-Muon)** — n=4 confirmation `zsqazpmr` (num_trials=4,
-  train_steps=3225) **running** at step ~425/3225 of T0. Student correctly
-  relaunched with n=4 after killing the erroneous n=2 `dilwm92r`. Expected
-  wall-clock ~21.5h for all 4 seeds. Single-seed screen `qxzuvfmm` was
+  train_steps=3225) **running** at step ~1050/12900 (8.1%). No trial data yet.
+  Expected wall-clock ~21.5h total. Single-seed screen `qxzuvfmm` was
   **val/loss=3.2746 @ 3275 / ffs=3200** (strongest in wave 1, margin 0.0054).
 
 - **g1r2-fern (Contra+SOAP on MLP)** — n=4 confirmation `6bbhoxm1` at
-  train_steps=3175. **T0 terminal: val/loss=3.2792, ffs=3150.** T1 in
-  progress (step ~3526, T1 step ~351). T0 is 0.0037 above the screen's 3.2755
-  — on the unlucky side of seed variance. Need T1–T3 to average ≤ 3.2776
-  for n=4 statsig.
+  train_steps=3175. **T0=3.27920, ffs=3150** (terminal, unlucky seed). T1 in
+  progress (~43.7%). Need T1–T3 to average ≤ 3.27714 for n=4 statsig — steep.
 
 - **g1r2-alphonse (NorMuon) ✅ STATSIG WIN** — confirmation `8yocwc35`
   (n=4 @ 3300) **TERMINAL**. T0=3.276094, T1=3.278030, T2=3.279136,
   T3=3.278725, **mean=3.27800**. Statsig margin
   `(3.28 − 3.27800) × √4 = 0.00401` ≥ 0.004 — **passes**. ffs mean
-  = 3256.25 (T0=3225, T1=3250, T2=3275, T3=3275). 50 steps below starter,
-  ~1.5% speedup. Awaiting student SENPAI-RESULT marker on PR #71, then
-  merge into advisor branch.
+  = 3256.25. SENPAI-RESULT marker posted on PR #71 at 00:29 UTC; sent back
+  for rebase due to merge conflicts. Merge pending rebase completion.
 
 - **g1r2-tanjiro (Newton-Muon)** — confirmation `xsb35b0m` (n=4 @ 3275)
-  T0=3.27972, T1=3.27867, T2=3.27768, **T3 in progress** (total
-  step ~11053/13100). Mean(0-2)=3.27869 — projecting non-statsig at this
-  step count (T3 would need ≤ 3.27593 to clear, below T2's 3.27768
-  minimum). All 3 trials cleared 3.28 — recipe is real.
+  T0=3.27972, T1=3.27867, T2=**3.27768** (ffs=3225), T3 in progress
+  (total step ~11578/13100, ~88.4%). mean(T0-T2)=3.27869. For statsig T3
+  needs ≤ 3.27593 — projected non-statsig (~3.2767). Recipe is real; plan is
+  to re-run at train_steps=3300 if T3 lands in 3.278–3.279 range.
 
-- **g1r2-askeladd (NorMuonH)** — first n=4 conf at 3250: mean 3.27867
-  (non-statsig). New n=4 conf `6rf3nerz` at train_steps=3275:
-  T0=3.27781, ffs=3225 (T1 in progress at total step ~3626).
+- **g1r2-askeladd (NorMuonH)** — n=4 conf `6rf3nerz` at train_steps=3275:
+  T0=3.27781, ffs=3225 (T1 in progress at total step ~4151).
 
-- **g1r2-frieren (MuLoCo on Muon)** — 3 out of 3 single-seed screens missed
-  the 3.28 target: `bqfv4523`=3.2829, `q57yhybv`=3.2810, `ecohqy9o` (si=15,
-  lr=0.7)=**3.2815 (terminal, reached=0)**. si=60/lr=0.5 corner NOT yet
-  launched — frieren was about to launch it. Pivot decision pending that
-  result. n=4 confirm `fxpwvh2w` was correctly killed (auto-launch before
-  sweep plan was set). Advisor asked frieren to launch si=60/lr=0.5 next.
+- **g1r2-frieren (MuLoCo on Muon)** — si=60/lr=0.5 single-seed `v2wn0t8t`
+  **running** at step 1975/3300 (59.8%). 3 prior screens all missed 3.28
+  (3.2829, 3.2810, 3.2815). This is the final corner — if it misses, MuLoCo
+  on plain Muon is dead and frieren pivots to MuLoCo wrapping a confirmed
+  inner optimizer. n=4 confirm `fxpwvh2w` was killed (auto-launch before sweep
+  plan was set).
 
-- **g1r2-nezuko (Muon²)** — screen `n18mqjfy` terminal at val/loss=3.2773
-  (margin 0.0027). n=4 confirmation `7lxk02m6` at predeclared
-  train_steps=3325: T0=3.27788, ffs=3300 (T1 in progress at total step
-  ~3351). T0 is close to the n=4 statsig ceiling already; T1-T3 need to
-  average ≤ 3.27804 to clear.
+- **g1r2-nezuko (Muon²)** — n=4 confirmation `7lxk02m6` at train_steps=3325:
+  T0=3.27788, ffs=3300 (T1 in progress at total step ~3901, ~29% T2).
+  Single-seed screen `n18mqjfy` terminal at 3.2773.
 
-- **g1r2-thorfinn (Soft-Muon isolated)** — PMuon closed (PR #82, all variants
-  crashed). Now assigned **Soft-Muon isolated** (PR #103, branch
-  `g1r2-thorfinn/soft-muon-isolated`). Student should be picking up the new
-  PR on next poll cycle. Hypothesis: Soft-Muon polynomial `x^(1-p)` at p=0.1,
-  annealed blend 0→0.8 from step 2500 to end, on plain Muon. Smoke then
-  screen at train_steps=3325.
+- **g1r2-thorfinn (Soft-Muon isolated)** — Newly assigned PR #103. Student
+  picking up on next poll cycle. Hypothesis: Soft-Muon polynomial `x^(1-p)`
+  at p=0.1, annealed blend 0→0.8 from step 2500 to end, on plain Muon.
+  Smoke then screen at train_steps=3325.
 
 ## Single-seed leaderboard so far (informational, not statsig)
 | student | recipe | run | val/loss @ step | ffs | margin n=1 |
@@ -84,32 +73,32 @@ steps).
 
 Five out of eight wave 1 students have produced single-seed results that cross
 3.28 (all ✓ in leaderboard above). The critical question now is whether those
-results reproduce statsig at n=4. First terminal n=4 (askeladd NorMuonH)
-narrowly missed (mean 3.27867, need ≤ 3.278). Alphonse NorMuon T3 is right at
-the boundary. The n=4 confirmation campaign continues.
+results reproduce statsig at n=4. First terminal n=4 (alphonse NorMuon) passed
+narrowly (mean 3.27800, margin 0.00401). NorMuon is the new baseline.
 
 **Confirmed dead (non-reproducible) on this setup:**
 - PMuon (thorfinn): numerically unstable across all stabilization attempts.
-- MuLoCo on plain Muon (frieren, 3 screens): break-even with starter, not an
-  improvement.
+- MuLoCo on plain Muon (frieren, 3 screens all ≥3.281): break-even with
+  starter, final si=60 corner `v2wn0t8t` still running.
 
 **Next assignments queued:**
 - Thorfinn → Soft-Muon isolated (PR #103) — in progress.
-- After frieren si=60 screen: if both corners miss → pivot frieren to
-  MuLoCo wrapping a confirmed inner optimizer (NorMuon or Contra-Muon if those
-  clear n=4).
+- Alphonse → rebase PR #71 to resolve merge conflicts, then immediate merge.
+- Tanjiro → fresh n=4 at train_steps=3300 expected after T3 lands non-statsig.
+- After frieren si=60 screen: if misses → pivot to MuLoCo wrapping NorMuon or
+  Contra-Muon.
 
 ## Wave 1 assignments
 
 | Student | Hypothesis family | PR | Status |
 | --- | --- | --- | --- |
-| g1r2-alphonse | NorMuon (clean Frobenius renorm) | #71 | n=4 conf T3 running |
-| g1r2-askeladd | NorMuonH (NorMuon + hyperball + per-module init) | #74 | n=4 conf @3275 early |
-| g1r2-edward | Contra-Muon (contra correction + u/w-floor) | #76 | n=4 conf @3225 running |
-| g1r2-fern | Contra-Muon + SOAP on MLP | #78 | n=4 conf T1 running |
-| g1r2-frieren | MuLoCo on Muon | #79 | sweep si=60 pending |
-| g1r2-nezuko | Muon² (Adam var before NS) | #80 | n=4 conf @3325 running |
-| g1r2-tanjiro | Newton-Muon (act-cov right-precond) | #81 | n=4 conf T2 running |
+| g1r2-alphonse | NorMuon (clean Frobenius renorm) | #71 | Rebase for merge conflicts |
+| g1r2-askeladd | NorMuonH (NorMuon + hyperball + per-module init) | #74 | n=4 conf @3275 T1 running |
+| g1r2-edward | Contra-Muon (contra correction + u/w-floor) | #76 | n=4 conf @3225 early (8%) |
+| g1r2-fern | Contra-Muon + SOAP on MLP | #78 | n=4 conf @3175 T1 running |
+| g1r2-frieren | MuLoCo on Muon | #79 | si=60 final corner running |
+| g1r2-nezuko | Muon² (Adam var before NS) | #80 | n=4 conf @3325 T1 running |
+| g1r2-tanjiro | Newton-Muon (act-cov right-precond) | #81 | n=4 conf T3 running |
 | g1r2-thorfinn | Soft-Muon isolated | #103 | **newly assigned** |
 
 ## Potential next research directions
@@ -125,6 +114,8 @@ the boundary. The n=4 confirmation campaign continues.
   for frieren once wave 1 n=4 confirmations land.
 - **Per-module LR/WD tuning** — Newton-Muon used 4 different Muon groups;
   may transfer to baseline Muon and NorMuon.
+- **Tanjiro Newton-Muon at longer steps** — if T3 non-statsig at 3275, re-run
+  at train_steps=3300.
 
 ## Operational notes
 
