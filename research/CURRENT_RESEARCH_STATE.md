@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #13, ~01:55 UTC)
+- **Last updated:** 2026-05-16 (poll #14, ~02:30 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -66,9 +66,13 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   Kaiming init?). Run is clean (no NaNs, no crashes post torch 2.11);
   the "7 crashes" any surface W&B scan reports are all pre-torch-2.11
   stale smokes from earlier in the day, NOT active failures.
-- **edward** `muon-squared-3325-confirm` at step ~4.1k (per W&B —
-  may have moved from screen → confirm; verify next poll). val/loss
-  descending normally, no NaN cascade.
+- **edward** `muon-squared-3325-confirm` (n=8) at step ~6.1k
+  (≈seed-2 of 8). **Trial 0 terminal: val=3.2793, ffs=3325** —
+  hit target. Trial-1 trajectory tracking trial-0 within 0.001 nats
+  at every checkpoint, suggesting reproducible recipe. Reference rec
+  #7 mu=3.2752 (n=1) — trial-0 is 0.0041 above, within single-seed
+  variance. Zero NaN/nonfinite events. First wave-1 student with a
+  confirmed terminal seed at target.
 - **nezuko** (cooldown sweep): all 5 shapes have screened. New run
   `cooldown-linear-seed43` at step ~300 — appears to be per-shape
   multi-seed confirmation phase (linear is the only shape that hit
@@ -91,7 +95,7 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | -- | ---------------------- | ------------------------------------------------------------------------------------- |
 | 43 | NorMuonH               | **leading exploit-side**, but softening (seeds [3225, 3225, -1, 3250] of 8)           |
 | 44 | Contra-Muon isolated   | tentative — wait for n=8 mu                                                            |
-| 45 | Muon²                  | unclear — first clean screen mid-flight                                                |
+| 45 | Muon²                  | **strong signal**: trial-0 hit val=3.2793 ffs=3325; trial-1 tracking trial-0 cleanly; n=8 mid-seed-2 |
 | 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200) but high variance                                          |
 | 47 | MuonH reproduction     | **softening**: seeds 1-3 final val/loss [3.287, 3.301, 3.305], 0.009-0.027 above rec #5 mu; n=8 mid-seed-4 |
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
