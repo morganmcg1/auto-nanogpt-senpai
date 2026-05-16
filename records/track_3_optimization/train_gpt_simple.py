@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -614,7 +615,9 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "muon_method": "pmuon-uw-cosine",
+            "cooldown_shape": "cosine",
+            "cooldown_frac": 0.7,
         },
     )
 
@@ -660,17 +663,19 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: stable then cosine cooldown (PR #168 hypothesis)
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac  # 0 -> 1
+            eta = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))             # 1 -> 0 (cosine half-period)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+        return eta
 
 
     ########################################
@@ -759,7 +764,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        eta = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -767,6 +772,11 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/cooldown/eta": eta,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
