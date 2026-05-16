@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #14, ~02:30 UTC)
+- **Last updated:** 2026-05-16 (poll #15, ~03:30 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -66,28 +66,27 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   Kaiming init?). Run is clean (no NaNs, no crashes post torch 2.11);
   the "7 crashes" any surface W&B scan reports are all pre-torch-2.11
   stale smokes from earlier in the day, NOT active failures.
-- **edward** `muon-squared-3325-confirm` (n=8) at step ~6.1k
-  (≈seed-2 of 8). **Trial 0 terminal: val=3.2793, ffs=3325** —
-  hit target. Trial-1 trajectory tracking trial-0 within 0.001 nats
-  at every checkpoint, suggesting reproducible recipe. Reference rec
-  #7 mu=3.2752 (n=1) — trial-0 is 0.0041 above, within single-seed
-  variance. Zero NaN/nonfinite events. First wave-1 student with a
-  confirmed terminal seed at target.
+- **edward** `muon-squared-3325-confirm` (n=8) at global step ~7.5k
+  (trial-2 of 8 in flight). **Trial 0**: val=3.2793, ffs=3325.
+  **Trial 1**: val=**3.2777**, ffs=**3300** — faster than trial-0,
+  also below 3.28. Two-seed mean val=3.2785 (right at the n=8 statsig
+  threshold of 3.2786). Reference rec #7 mu=3.2752. Zero NaN/nonfinite
+  events. **Strongest wave-1 signal so far.**
 - **nezuko** (cooldown sweep): all 5 shapes have screened. New run
   `cooldown-linear-seed43` at step ~300 — appears to be per-shape
   multi-seed confirmation phase (linear is the only shape that hit
   target on single seed). Likely needs n=2-4 on linear vs. quick
   n=1 recheck on other shapes for verdict.
 - **tanjiro** (PR #98 Cautious-Muon, wave-2): **lrx1.0 finished**
-  `val=3.3183 ffs=-1` (missed target by 0.04 nats — large miss).
-  Confirms the cautious mask is significantly filtering the NS
-  direction, so LR compensation is essential. `lrx1.5` running at
-  step ~375; `lrx2.0` pending. If neither lrx1.5 nor lrx2.0 reaches
-  target, this is a clean negative for cautious masking on plain Muon.
+  `val=3.3183 ffs=-1` (missed by 0.04 nats). `lrx1.5` in flight at
+  step ~2.2k of 3350 (val 3.505 — descending normally). `lrx2.0`
+  pending after lrx1.5. If both miss, this is a clean negative for
+  cautious masking on plain Muon at starter recipe.
 - **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995)
-  near completion of seed-3 of 6 (latest run at step 3351 ≈ end of
-  3350-step seed). Two confirmed terminal seeds at ffs=3300 so far.
-  Batch could complete in ~1-2 hours at current pace.
+  at global step ~5.0k (seed-1 of 6 in flight at step ~1.7k of 3350).
+  Seed-0 terminal `val=3.2779 ffs=3300` (matches screening single-seed
+  value). **Prior poll-12 estimate of "2/6 seeds done" was over-count
+  — actual is 1/6 done**, batch ETA ~7-8 hours.
 
 ### Forming wave-1 verdicts (single-seed; still tentative)
 
@@ -95,7 +94,7 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | -- | ---------------------- | ------------------------------------------------------------------------------------- |
 | 43 | NorMuonH               | **leading exploit-side**, but softening (seeds [3225, 3225, -1, 3250] of 8)           |
 | 44 | Contra-Muon isolated   | tentative — wait for n=8 mu                                                            |
-| 45 | Muon²                  | **strong signal**: trial-0 hit val=3.2793 ffs=3325; trial-1 tracking trial-0 cleanly; n=8 mid-seed-2 |
+| 45 | Muon²                  | **STRONGEST WAVE-1 SIGNAL**: trial-0 val=3.2793 ffs=3325; trial-1 val=3.2777 ffs=3300; mean=3.2785 ≈ statsig threshold; n=8 mid-trial-3 |
 | 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200) but high variance                                          |
 | 47 | MuonH reproduction     | **softening**: seeds 1-3 final val/loss [3.287, 3.301, 3.305], 0.009-0.027 above rec #5 mu; n=8 mid-seed-4 |
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
@@ -115,13 +114,20 @@ partial-confirmation numbers. Treat them as *signal that the recipe runs
 and approaches the target*, **not as record claims**. Terminal verdicts
 wait for the predeclared n-seed confirmation batches the PRs asked for.
 
-**Most promising direction so far:** alphonse `NorMuonH` (record #8
-reproduction). Seed history `[3225, 3225, -1, 3250]` of the n=8
-confirmation; if the remaining seeds keep `mu` near 3.2780 the run
-matches record #8 ballpark and is the natural backbone to start stacking
-Contra-Muon / SOAP-MLP onto in wave 2. The seed-3 miss (`-1`) and
-seed-4 `3250` are mild softening — wait for the full n=8 mu before
-forming a verdict.
+**Most promising directions (poll #15 update):**
+
+1. **edward Muon² (PR #45)** — first wave-1 student with consistent
+   target hits. Two seeds in at val=[3.2793, 3.2777], both ffs ≤ 3325.
+   Two-seed mean 3.2785 is right at the n=8 statsig threshold (3.2786).
+   This is the wave-1 winner candidate if the remaining 6 seeds hold.
+
+2. **alphonse NorMuonH (PR #43)** — seed history `[3225, 3225, -1,
+   3250, ...]`. Strongest ffs hits in wave-1 (3225 is faster than any
+   other student), but seed-3 miss and seed-4 mild softening introduce
+   variance concern. Wait for full n=8.
+
+3. **thorfinn Polyak (PR #50)** — seed-0 of 6 hit val=3.2779. n=6 mu
+   needed to clear `mu < 3.2784` for statsig. ETA ~7 hours.
 
 **Watch list for next poll:**
 - alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate (≈mid-seed-5/8)
