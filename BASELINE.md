@@ -17,27 +17,29 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
-**Merged 2026-05-16 ~01:30 UTC — PR #51 alphonse NorMuon.** The NorMuon implementation (1D post-NS row/col second-moment preconditioning) is now the branch baseline. Passes stat rule at n=6 with margin 0.0050.
+**Merged 2026-05-16 ~08:40 UTC — PR #52 askeladd MuonH-SI.** MuonH (Frobenius-ball + scale-invariant projection) replaces NorMuon's row/col second-moment preconditioning. Passes stat rule at n=4 with margin 0.00526. ffs is deterministic across all 4 trials.
 
 | Field | Value |
 | --- | --- |
-| `train_steps` | 3300 |
+| `train_steps` | 3350 |
 | Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
 | Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
-| Hidden optimizer | `NorMuon(lr=0.035, weight_decay=0.025, mu=0.95, beta2=0.95)` on `model.blocks.parameters() if p.ndim >= 2` |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant', budget_mult=1.0)` on `model.blocks.parameters() if p.ndim >= 2` |
 | Embed optimizer | `AdamW(lr=0.3)` on `model.embed.weight` |
 | LM-head optimizer | `AdamW(lr=1/320)` on `model.proj.weight` |
 | Scalar optimizer | `AdamW(lr=0.01)` on `p for p in model.parameters() if p.ndim < 2` |
 | Aux AdamW shared | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` |
 | Init | per-module: `attn.proj=0.026`, `mlp.proj=0.031`, `mlp.fc=0.031`; biases zero; gains 1 |
-| LR schedule | Stable then linear cooldown, `cooldown_frac=0.7` |
-| `val/loss` | **3.27795** (n=6 mean; min 3.27609, max 3.27914) |
-| `speedrun/final_first_step_to_target` | **3258** (n=6 mean; min 3225, max 3275) |
-| stat margin | `(3.28 - 3.27795) * sqrt(6) = 0.0050` ≥ 0.004 ✓ |
-| Baseline W&B runs | `8yocwc35` (n=4) + `40g9f47i` (n=2 top-up) |
-| Baseline PR | [#51](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/51) |
+| LR schedule | Stable then linear cooldown; `cooldown_frac=1.0` for MuonH, `0.4` for aux AdamW |
+| `val/loss` | **3.27737** (n=4 mean; all trials within 0.002) |
+| `speedrun/final_first_step_to_target` | **3275** (deterministic across all 4 trials) |
+| stat margin | `(3.28 - 3.27737) * sqrt(4) = 0.00526` ≥ 0.004 ✓ |
+| Baseline W&B run | `rwpbmxj7` (n=4) |
+| Baseline PR | [#52](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/52) |
 
-### Reproduce NorMuon baseline
+**Key MuonH-SI mechanism**: `scale_invariant_update_` rescales the NS5 update to the param's current Frobenius-norm scale, takes the gradient step (Nesterov momentum), then renormalises the param back to its initial Frobenius norm. Replaces NorMuon's 1D `second_momentum` preconditioning.
+
+### Reproduce MuonH-SI baseline
 
 ```bash
 cd target/
@@ -46,10 +48,23 @@ python data/cached_fineweb10B.py 20
 git checkout auto-nanogpt-1gpu-r3
 torchrun --standalone --nproc_per_node=1 \
   records/track_3_optimization/train_gpt_simple.py \
-  --num_trials 4 --train_steps 3300 \
-  --wandb_name "g1r3-<student>/normuon-baseline-confirm" \
-  --wandb_group "g1r3-<student>/normuon-baseline"
+  --num_trials 4 --train_steps 3350 \
+  --wandb_name "g1r3-<student>/muonh-si-baseline-confirm" \
+  --wandb_group "g1r3-<student>/muonh-si-baseline"
 ```
+
+## Previous baseline — PR #51 NorMuon (2026-05-16 ~01:30 UTC)
+
+NorMuon (1D post-NS row/col second-moment preconditioning). Passed stat rule at n=6 with margin 0.0050. Superseded by PR #52.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3300 |
+| Hidden optimizer | `NorMuon(lr=0.035, weight_decay=0.025, mu=0.95, beta2=0.95)` |
+| `val/loss` | 3.27795 (n=6 mean) |
+| `speedrun/final_first_step_to_target` | 3258 (n=6 mean; min 3225) |
+| Baseline W&B runs | `8yocwc35` (n=4) + `40g9f47i` (n=2 top-up) |
+| Baseline PR | [#51](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/51) |
 
 ## Previous baseline (pre-PR #51)
 
