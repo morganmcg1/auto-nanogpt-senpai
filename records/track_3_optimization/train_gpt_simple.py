@@ -443,6 +443,27 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+USE_POLAR_EXPRESS = bool(int(os.environ.get("NANOGPT_USE_POLAR_EXPRESS", "0")))
+
+# Polar Express degree-5 coefficient table from Amsel et al. 2026 ("The Polar
+# Express", arXiv:2505.16932, ICLR 2026 Oral), Implementation 1. Coefficients
+# were precomputed offline (Implementation 2) via Remez minimax in fp64 with
+# l=1e-3, u=1, and the 0.024 cushion. The 1.01 safety factor (Section 3.4) is
+# applied to every entry except the asymptotic last entry.
+_POLAR_EXPRESS_RAW = [
+    (8.28721201814563,    -23.595886519098837, 17.300387312530933),
+    (4.107059111542203,    -2.9478499167379106, 0.5448431082926601),
+    (3.9486908534822946,   -2.908902115962949,  0.5518191394370137),
+    (3.3184196573706015,   -2.488488024314874,  0.51004894012372),
+    (2.300652019954817,    -1.6689039845747493, 0.4188073119525673),
+    (1.891301407787398,    -1.2679958271945868, 0.37680408948524835),
+    (1.8750014808534479,   -1.2500016453999487, 0.3750001645474248),
+    (1.875,                -1.25,               0.375),
+]
+_POLAR_EXPRESS_COEFFS = [
+    (a / 1.01, b / 1.01**3, c / 1.01**5) for (a, b, c) in _POLAR_EXPRESS_RAW[:-1]
+] + [_POLAR_EXPRESS_RAW[-1]]
+
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -463,6 +484,33 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
         X = X.mT
     return X
 
+
+def zeropower_via_polar_express(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
+    """Polar Express orthogonalization (Amsel et al. 2026, arXiv:2505.16932).
+
+    Same Horner-form matmul structure as Newton-Schulz5 but with precomputed
+    per-iteration quintic coefficients chosen by minimax to converge in fewer
+    iterations on the worst-case singular value range.
+    """
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+
+    # Frobenius normalization with the paper's 1.01 spectral-margin factor.
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) * 1.01 + 1e-7)
+    last = _POLAR_EXPRESS_COEFFS[-1]
+    for t in range(ns_iters):
+        a, b, c = _POLAR_EXPRESS_COEFFS[t] if t < len(_POLAR_EXPRESS_COEFFS) else last
+        A = X @ X.mT
+        B = b * A + c * A @ A
+        X = a * X + B @ X
+
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
+
 @torch.compile
 def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -470,9 +518,18 @@ def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
-    update = zeropower_via_newtonschulz5(update)
+    if USE_POLAR_EXPRESS:
+        update = zeropower_via_polar_express(update)
+    else:
+        update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+# Updated every Muon.step() with singular-value stats of the orthogonalized
+# update for `_muon_sv_watch_param`. Read by the training-loop telemetry block.
+_muon_sv_watch_param: "torch.nn.Parameter | None" = None
+_muon_sv_stats: dict[str, float] = {}
+
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -497,6 +554,15 @@ class Muon(torch.optim.Optimizer):
                         state["v"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if _muon_sv_watch_param is not None and p is _muon_sv_watch_param:
+                        # Undo the aspect-ratio scaling inside muon_update so the
+                        # SVs measure orthogonalization quality (should be ~1).
+                        scale = max(1, p.size(-2) / p.size(-1)) ** 0.5
+                        svs = torch.linalg.svdvals(update.detach().float() / scale)
+                        _muon_sv_stats["max"] = float(svs[0].item())
+                        _muon_sv_stats["min"] = float(svs[-1].item())
+                        _muon_sv_stats["mean"] = float(svs.mean().item())
+                        _muon_sv_stats["range"] = _muon_sv_stats["max"] - _muon_sv_stats["min"]
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -574,7 +640,14 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "use_polar_express": USE_POLAR_EXPRESS,
+            "orthogonalization": "polar_express" if USE_POLAR_EXPRESS else "newton_schulz5",
         },
+    )
+    print0(
+        f"ORTHOGONALIZATION: {'Polar Express' if USE_POLAR_EXPRESS else 'classical NS5'} "
+        f"iters={NS_ITERS}",
+        console=True,
     )
 
 for trial_idx in range(args.num_trials):
@@ -612,6 +685,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+
+    # Pick a representative Muon param to watch for orthogonalization quality
+    # (max/min singular value of the orthogonalized update each step).
+    _muon_sv_watch_param = model.blocks[0].attn.q.weight
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -762,6 +839,15 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            if _muon_sv_stats:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/muon/u_singular_max_block0_q": _muon_sv_stats["max"],
+                    "train/muon/u_singular_min_block0_q": _muon_sv_stats["min"],
+                    "train/muon/u_singular_mean_block0_q": _muon_sv_stats["mean"],
+                    "train/muon/u_singular_range_block0_q": _muon_sv_stats["range"],
+                }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
