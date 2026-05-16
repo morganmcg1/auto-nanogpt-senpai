@@ -30,6 +30,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=None, help="Override the per-trial train_steps")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -453,11 +454,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, second_momentum, mu=0.95, beta2=0.95,
+                nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    norm = update.norm(dim=(-2, -1), keepdim=True)
+    if grad.size(-2) >= grad.size(-1):
+        v_mean = (update * update).mean(dim=-1, keepdim=True)
+    else:
+        v_mean = (update * update).mean(dim=-2, keepdim=True)
+    second_momentum.lerp_(v_mean.float(), 1 - beta2)
+    step_size = second_momentum.clamp_min(1e-10).rsqrt().to(update.dtype)
+    update.mul_(step_size)
+    norm_new = update.norm(dim=(-2, -1), keepdim=True)
+    update.mul_(norm / norm_new.clamp_min(1e-10))
     return update
 
 class Muon(torch.optim.Optimizer):
@@ -480,7 +492,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        state["second_momentum"] = torch.zeros_like(p)
+                    update = muon_update(p.grad, state["momentum"], state["second_momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -565,7 +578,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3350
 
     # initialize model parameters
     for name, p in model.named_parameters():
