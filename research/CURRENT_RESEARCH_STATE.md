@@ -72,11 +72,11 @@
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
 | **#176** | **frieren (NEW)** | **NS Iteration Schedule** — cooldown boost | just assigned — boost NS iters during cooldown only (arms A=NS12, B=NS12→16, C=NS12→20, D=NS8→12). Directly motivated by #138 finding that arms diverge ONLY in cooldown. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | **arm-A `5u60l2v0` FINISHED val=3.2780** (+0.0027 vs new baseline; ~OLD baseline parity if snapshot lacks clip). arm-B (K=50) `u5kdw0z9` step 1675/3350 running. Arms C/D queued. Branch rebased clean. |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A `lfcnprqg`=3.27595 ✓ baseline parity. **arm-B `8ym5zef8` (embed-only)=3.27978 — WORSE by 0.005**. arm-C `82mx9xwy` (full SOAP) step 2050/3350 ETA ~35min. Branch rebased. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A `z2ygnqxh` val=3.27841/fs=3325 ✓. **Spread saturates → arms degenerate to uniform NS={14,16,18} sweep**. arm-B `mxzk59qm` step 1950/3350 ETA ~45min. Filed #173 (torch requirements bug fix) — MERGED. Still needs rebase. |
-| **#172** | **askeladd** | **Cautious Update Mask** (Bansal & Schaul 2024) | just assigned — apply Muon² update only when grad·momentum > 0. Tests fern's #154 staleness finding via signal-mask. 4 arms: off/after_ns/before_ns/soft. Awaiting student pickup. |
-| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A (clip=5.0 sanity) `f6ym89r7` step 1125/3350 running. Arms B/C/D (clip=10/25/50) queued. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). **arm-B (K=50) FINISHED val=3.2930 — CATASTROPHIC REGRESSION (+0.0177)**. arm-C (K=200) `myuurop0` step 550/3350. K=50 falsifies aggressive-reset hypothesis. |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A=3.2760 ✓. arm-B (embed-only)=3.2798 WORSE. **arm-C (full SOAP) FINISHED val=3.2794 WORSE**. arm-D (freq=100) `r4644zpc` step 950/3350. ALL SOAP arms regress — likely SOAP rotation degrades sparse-token aux. |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. **arm-B (NS=16) FINISHED val=3.2799 — REGRESSES**. arm-C (NS=14) step 425/3350. NS>12 appears to hurt. Needs rebase (CONFLICTING). |
+| **#180** | **askeladd (NEW)** | **Adafactor for AdamW aux groups** | just assigned — factored row/col second moments for embed/lm_head. Tests whether AdamW's full-v is over-precise for sparse aux params. 4 arms: adamw/adafactor_no_mom/adafactor_mom/adafactor_mom_clip. |
+| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A `f6ym89r7` step 3025/3350 (near terminal). stale_wip pinged. Arms B/C/D queued. |
 
 ## Infra-blocked
 
