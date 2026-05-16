@@ -6,6 +6,58 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 07:25 — Boot 21: askeladd #52 W&B confirmed PASS, sent back for rebase; 2 new assignments
+
+**PR #52 askeladd MuonH-SI confirm n=4 — W&B AUDIT PASS, merge blocked by rebase conflict**
+- Run `rwpbmxj7` (SI mode, lr=0.018, budget_mult=1.0, train_steps=3325, n=4) FINISHED (step 13303).
+- Per-trial final results from W&B history scan:
+
+| Trial | best_val_loss | ffs |
+| --- | --- | --- |
+| 0 | 3.27763 | 3275 |
+| 1 | 3.27781 | 3275 |
+| 2 | 3.27670 | 3275 |
+| 3 | 3.27732 | 3275 |
+| **n=4 mean** | **3.27737** | **3275 (deterministic)** |
+
+- stat margin: `(3.28 - 3.27737) × √4 = 0.00526` ✓ (need ≥ 0.004)
+- vs NorMuon baseline 3.27795: **beats by 0.00059** — clear merge winner
+- All 4 ffs=3275 deterministic — extremely low variance, tighter than NorMuon (min 3225, max 3275)
+- **Merge blocked**: branch started at pre-NorMuon base (d7e67a0), conflicts with post-#51 advisor in `muon_update`. Sent back for rebase with explicit `git checkout --theirs` resolution guidance. Pod was rate-limited and idle during the rate limit window — should pick up rebase request on next poll cycle.
+- **Key mechanism insights from diff**: MuonH-SI = (1) replaces `muon_update` with plain Muon NS5 (drops NorMuon's second_momentum preconditioning); (2) adds `scale_invariant_update_` which rescales update to param's norm scale then renormalises param to initial Frobenius norm after each step; (3) per-module init std (attn.proj=0.026, mlp.proj/fc=0.031); (4) per-group cooldown_frac (MuonH=1.0, aux=0.4). Bundle wins even while dropping NorMuon preconditioning.
+- **New assignments queued** for when #52 merges: tanjiro (NorMuon×MuonH-SI stack, wave-3 #1), nezuko (Contra-Muon×MuonH-SI), alphonse (MuonH budget_mult sweep), thorfinn (MuonH mu sweep). PR bodies ready in /tmp/.
+
+---
+
+**PR #87 tanjiro u/w-floor sweep — CLOSED negative (boot 20)**
+- 4-arm sweep (UW ∈ {0.20,0.30,0.40}, lr ∈ {0.035, 0.040}): 0/4 arms hit ffs target.
+- Arm A3 had val=3.2787 at final step (just below 3.28) but ffs=-1 (never crossed 3.28 during a val checkpoint).
+- **Conclusion**: Update-norm floor as weight-decay replacement doesn't reliably hit the speedrun target at 1-GPU mbs=64.
+- **New assignment**: PR #128 tanjiro → NorMuon beta2 sweep (beta2 ∈ {0.90, 0.95, 0.98}).
+
+---
+
+**PR #100 nezuko Sign-Muon — CLOSED negative (boot 20)**
+- 5+ NaN smokes across multiple attempts. Sign(momentum) before NS5 produces all-sign tensors; NS5 can't orthogonalize pure sign matrices at 1-GPU batch size.
+- **New assignment**: PR #127 nezuko → Contra-Muon × NorMuon (gradient-direction alignment).
+
+---
+
+**Wave-3 in-progress screens (boot 21 — 07:22 UTC)**
+
+| PR | Student | Mechanism | W&B state | Step | val/loss |
+| --- | --- | --- | --- | --- | --- |
+| #113 | alphonse | Cautious-NorMuon | running | ~200/3300 | 4.99 (early) |
+| #114 | frieren | NorMuon × MuLoCo | running | ~180/3300 | 4.58 (early) |
+| #111 | fern | AdamAtan2 aux smoke-v2 | running | ~90/300 | 10.8 (early) |
+| #107 | edward | Cautious-Muon screen | CRASHED | 3075/3350 | 3.34 (partial) |
+
+- edward's crash at 3075 (91% complete) is pod instability, not code. Relaunch request posted.
+- alphonse and frieren screens just launched (~07:22 UTC), ETA terminal ~10-11 UTC.
+- fern smoke-v2 is the post-init-fix relaunch; ETA smoke result ~07:45 UTC.
+
+---
+
 ## 2026-05-16 05:50 — Boot 19: PR #101 closed negative; thorfinn reassigned #122; fern impl debugged
 
 **PR #101 thorfinn Polyak EMA (d=0.995) — CLOSED negative**
