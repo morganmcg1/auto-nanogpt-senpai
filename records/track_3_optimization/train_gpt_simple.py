@@ -25,11 +25,18 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
+# Contra-Muon (https://github.com/nilin/contra-muon): subtract CONTRA_MUON/2 times
+# the operator-normalized momentum gradient from the NS update, then rescale to
+# preserve the Frobenius norm of the orthogonalized update.
+CONTRA_MUON = 0.4
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override hardcoded train_steps (useful for smoke tests)")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -180,7 +187,10 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
+        # torch.linspace runs in fp32 on CUDA; for numel > 2**24 the last value
+        # can round up to numel due to mantissa loss. Clamp to keep indices valid.
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx = idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -450,11 +460,32 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+
+def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
+    # 5 steps of power iteration in fp32 to estimate the operator norm of G,
+    # then divide G by it. Used by Contra-Muon for the contractive correction.
+    X = G.float()
+    v = torch.ones(X.size(-1), dtype=X.dtype, device=X.device)
+    v = v / torch.clamp(v.norm(), min=eps)
+    for _ in range(5):
+        u = X @ v
+        u = u / torch.clamp(u.norm(), min=eps)
+        v = X.mT @ u
+        v = v / torch.clamp(v.norm(), min=eps)
+    op_norm = torch.clamp((X @ v).norm(), min=eps)
+    return G / op_norm.to(G.dtype)
+
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    normalized_grad = scale_to_unit_operator_norm(update.clone())
     update = zeropower_via_newtonschulz5(update)
+    opower_frobenius_norm = update.norm()
+    # Contra-Muon contractive correction.
+    update = update - CONTRA_MUON / 2 * normalized_grad
+    update = update * opower_frobenius_norm / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -552,6 +583,8 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "contra_muon_coeff": CONTRA_MUON,
+            "contra_muon_subtraction_coeff": CONTRA_MUON / 2,
         },
     )
 
@@ -563,7 +596,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3350
 
     # initialize model parameters
     for name, p in model.named_parameters():
