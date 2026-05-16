@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
     parser.add_argument("--train_steps", type=int, default=None, help="Override the per-trial train_steps")
+    parser.add_argument("--muon_lr", type=float, default=0.035, help="Sign-Muon LR for the muon_blocks group")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -257,6 +258,58 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_sign_muon_telemetry(
+    optimizers: list[torch.optim.Optimizer],
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    # Sign-Muon health: report per-layer sign_density (fraction of momentum
+    # elements with |x| > 1e-7) and post_sign_norm / sqrt(numel) so we can
+    # confirm NS5 always sees a near-full-rank ±1 matrix. If sign_density ≈ 1
+    # and the norm ratio is ≈ 1, NS5 is well-conditioned and the optimizer is
+    # behaving as designed.
+    param_to_name = {id(p): name for name, p in model.named_parameters()}
+    metrics: dict[str, float] = {
+        "trial": trial_idx,
+        "train/step": step,
+    }
+    densities: list[float] = []
+    norm_ratios: list[float] = []
+    for opt in optimizers:
+        for group in opt.param_groups:
+            if not str(group.get("name", "")).startswith("muon"):
+                continue
+            for p in group["params"]:
+                state = opt.state.get(p)
+                if not state or "momentum" not in state:
+                    continue
+                name = param_to_name.get(id(p), "unknown")
+                clean_name = clean_metric_name(name)
+                m = state["momentum"].detach().float()
+                numel = m.numel()
+                if numel == 0:
+                    continue
+                sign_density = float((m.abs() > 1e-7).float().mean().item())
+                post_sign_norm = float(m.sign().norm().item())
+                expected = numel ** 0.5
+                densities.append(sign_density)
+                if expected > 0:
+                    norm_ratios.append(post_sign_norm / expected)
+                metrics[f"train/sign_muon/sign_density/{clean_name}"] = sign_density
+                metrics[f"train/sign_muon/post_sign_norm/{clean_name}"] = post_sign_norm
+                metrics[f"train/sign_muon/expected_post_sign_norm/{clean_name}"] = expected
+    if densities:
+        metrics["train/sign_muon/mean_sign_density"] = sum(densities) / len(densities)
+        metrics["train/sign_muon/min_sign_density"] = min(densities)
+    if norm_ratios:
+        metrics["train/sign_muon/mean_norm_ratio"] = sum(norm_ratios) / len(norm_ratios)
+        metrics["train/sign_muon/min_norm_ratio"] = min(norm_ratios)
+    if len(metrics) > 2:
+        wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -456,22 +509,31 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, second_momentum, mu=0.95, beta2=0.95,
-                nesterov=True):
+def muon_update(grad, momentum, mu=0.95):
+    # Sign-Muon: replace plain Muon's `update = NS5(momentum)` with
+    # `update = NS5(sign(momentum))`.
+    #
+    # Ordering matters: an earlier draft took `sign` *before* the `lerp_`,
+    # which fed NS5 an all-zero tensor at step 0 (since momentum is initialised
+    # to zeros) → zero Frobenius norm → 0/0 in NS5 normalisation → NaN cascade
+    # across all weights. The fix is to update momentum first, then take the
+    # sign of the (non-zero) momentum.
+    #
+    # The two `torch.where` guards harden against the residual `sign(0) == 0`
+    # case (any element where momentum is exactly zero after the lerp_, or
+    # both momentum and grad are exactly zero) so NS5 always sees a ±1 matrix
+    # with Frobenius norm ≈ sqrt(numel).
+    #
+    # Nesterov is dropped because the sign() discards the magnitude information
+    # that Nesterov's grad/momentum blend would have preserved; `sign(grad)`
+    # vs `sign(grad.lerp_(momentum, mu))` differ only when the two have
+    # opposite signs, which is the regime momentum is meant to damp.
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    sign_mom = torch.sign(momentum)
+    sign_mom = torch.where(sign_mom == 0, torch.sign(grad), sign_mom)
+    sign_mom = torch.where(sign_mom == 0, torch.empty_like(sign_mom).bernoulli_(0.5) * 2 - 1, sign_mom)
+    update = zeropower_via_newtonschulz5(sign_mom)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    norm = update.norm(dim=(-2, -1), keepdim=True)
-    if grad.size(-2) >= grad.size(-1):
-        v_mean = (update * update).mean(dim=-1, keepdim=True)
-    else:
-        v_mean = (update * update).mean(dim=-2, keepdim=True)
-    second_momentum.lerp_(v_mean.float(), 1 - beta2)
-    step_size = second_momentum.clamp_min(1e-10).rsqrt().to(update.dtype)
-    update.mul_(step_size)
-    norm_new = update.norm(dim=(-2, -1), keepdim=True)
-    update.mul_(norm / norm_new.clamp_min(1e-10))
     return update
 
 class Muon(torch.optim.Optimizer):
@@ -494,8 +556,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        state["second_momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["second_momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -569,6 +630,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "muon_lr": args.muon_lr,
+            "train_steps_arg": args.train_steps,
+            "variant": "sign-muon",
         },
     )
 
@@ -583,10 +647,23 @@ for trial_idx in range(args.num_trials):
     train_steps = args.train_steps if args.train_steps is not None else 3350
 
     # initialize model parameters
+    # Per-module init std for the residual-projection weights is mandatory for
+    # plain-Muon-1-GPU stability — `research/EXPERIMENTS_LOG.md` records that
+    # zero-initialised `attn.proj` / `mlp.proj` cause Muon to NaN by step 25 at
+    # 1 GPU mbs=64. Sign-Muon drops the NorMuon row/col preconditioning, so it
+    # inherits the same instability and needs the same fix. The lm_head
+    # `proj.weight` (a top-level Linear, not a per-block residual projection)
+    # stays zero-initialised per the original starter rule.
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name.endswith("attn.proj.weight"):
+                w.normal_(std=0.026)
+            elif name.endswith("mlp.proj.weight"):
+                w.normal_(std=0.031)
+            elif name.endswith("mlp.fc.weight"):
+                w.normal_(std=0.031)
+            elif "proj" in name:
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
@@ -605,7 +682,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=args.muon_lr, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -746,6 +823,13 @@ for trial_idx in range(args.num_trials):
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+            log_sign_muon_telemetry(
+                optimizers=optimizers,
+                model=model,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
