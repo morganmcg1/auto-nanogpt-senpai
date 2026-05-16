@@ -3,3 +3,4 @@ pylog124M/
 __pycache__/
 logs/
 .DS_Store
+records/track_3_optimization/train_gpt_simple_thorfinn_frozen.py
