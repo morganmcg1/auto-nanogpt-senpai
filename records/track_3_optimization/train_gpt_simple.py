@@ -444,6 +444,16 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 
+# Aurora (record #17) hyperparameters: diagonal leverage-score equalization wrapping the
+# polar step inside contra_normuon_update. Replaces polar(G) with polar(D · G) where D is
+# the per-row inverse norm iteratively refined so the polar output has uniform row norms.
+# For square G the algorithm reduces to standard polar (no effect on attention weights).
+# AURORA_D_CLAMP bounds the absolute value of D entries to prevent fixed-point blowup
+# during low-LR cooldown if a row of U collapses to near-zero norm (row_sq -> 0).
+AURORA_PP_ITERATIONS = int(os.environ.get("AURORA_PP_ITERATIONS", "2"))
+AURORA_PP_BETA = float(os.environ.get("AURORA_PP_BETA", "0.5"))
+AURORA_D_CLAMP = float(os.environ.get("AURORA_D_CLAMP", "1.0e6"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -480,9 +490,13 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
 
 
 def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+    """Contra-Muon + NorMuon-lite: Aurora polar -> contra subtraction -> per-row variance normalize.
+
+    Aurora replaces standard polar(G) with polar(D * G) (diagonal leverage-score equalization).
+    For square matrices Aurora reduces to standard polar; effect is on non-square (MLP) weights.
+    """
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = aurora_orthogonalize(momentum_update)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -556,6 +570,44 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+def aurora_orthogonalize(
+    G: Tensor,
+    pp_iterations: int = AURORA_PP_ITERATIONS,
+    pp_beta: float = AURORA_PP_BETA,
+    eps: float = 1e-7,
+    d_clamp: float = AURORA_D_CLAMP,
+) -> Tensor:
+    """Aurora: leverage-uniform polar via diagonal preconditioning (record #17).
+
+    For tall G [m, n] with m > n, returns polar(D * G) where the positive diagonal D
+    is chosen so the result's row norms are uniformly sqrt(n / m). For wide G, transpose
+    to tall, apply, transpose back. For square G, reduces to standard polar.
+
+    D is clamped to [1 / d_clamp, d_clamp] both at init (in case some row of G has
+    near-zero norm) and after each fixed-point update (guards against runaway when a
+    polar row collapses near zero during cooldown, which would otherwise blow row_sq
+    to ~0 and D to ~inf).
+    """
+    m, n = G.size(-2), G.size(-1)
+    if m == n:
+        return zeropower_via_newtonschulz5(G)
+    transposed = m < n
+    if transposed:
+        G = G.mT
+        m, n = n, m
+    G32 = G.to(torch.float32)
+    target_row_sq = n / m
+    d_min, d_max = 1.0 / d_clamp, d_clamp
+    row_norm = G32.norm(dim=-1, keepdim=True).clamp_(min=eps)
+    D = (1.0 / row_norm).clamp_(d_min, d_max)
+    for k in range(pp_iterations):
+        U = zeropower_via_newtonschulz5(D * G32)
+        if k < pp_iterations - 1:
+            row_sq = U.to(torch.float32).pow(2).sum(dim=-1, keepdim=True).clamp_(min=eps * eps)
+            D = (D * (target_row_sq / row_sq).pow(pp_beta)).clamp_(d_min, d_max)
+    return U.mT if transposed else U
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
@@ -602,11 +654,13 @@ class Muon(torch.optim.Optimizer):
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
-                    # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
+                    # SOAP precondition applied to momentum BEFORE Aurora-polar+contra+NorMuon
                     # (matches public record #14 train_gpt_contra_normuon_soapish_mlp.py).
                     if use_soap:
                         momentum_update = soap_precondition(momentum_update, state)
-                    # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
+                    # Aurora polar (record #17) + contra + NorMuon row variance on the
+                    # (possibly SOAP-preconditioned) momentum. Aurora has no effect for square
+                    # matrices (attention weights); MLP weights get diagonal leverage equalization.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
@@ -699,7 +753,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/aurora_pp_iterations": AURORA_PP_ITERATIONS,
+            "optimizer/aurora_pp_beta": AURORA_PP_BETA,
+            "optimizer/aurora_d_clamp": AURORA_D_CLAMP,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + aurora-polar (record #17 leverage equalization, D-clamped)",
         },
     )
 
