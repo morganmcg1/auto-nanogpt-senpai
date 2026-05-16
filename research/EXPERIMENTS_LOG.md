@@ -6,6 +6,29 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 08:45 — Boot 22: #52 merged → MuonH-SI is new baseline; full cascade executed
+
+**PR #52 askeladd MuonH-SI — MERGED (boot 22)**
+- Squash-merged after askeladd rebased onto post-NorMuon advisor branch and force-pushed.
+- BASELINE.md updated: val/loss=3.27737 (n=4), ffs=3275 deterministic. W&B run: `rwpbmxj7`.
+- New baseline: MuonH (lr=0.018, mu=0.95, wd=0, mode=scale_invariant, budget_mult=1.0) + per-module init (attn.proj=0.026, mlp.proj/fc=0.031) + per-group cooldown_frac (MuonH=1.0, aux=0.4).
+
+**Post-#52 cascade (boot 22)**:
+- Closed #113 alphonse Cautious-NorMuon: hypothesis collapses to Cautious×MuonH-SI (edward #107 covers that).
+- Closed #122 thorfinn NorMuon-biascorr: second_momentum no longer exists in baseline (evaporated with NorMuon revert).
+- Closed #127 nezuko Contra-NorMuon: now working with plain Muon update; clean Contra×MuonH-SI is the right test.
+- Closed #128 tanjiro NorMuon-beta2-sweep: NorMuon EMA no longer in baseline; hypothesis obsolete.
+- Posted rebase comments to #107 (edward), #111 (fern), #114 (frieren) with new MuonH-SI baseline targets.
+
+**New assignments (boot 22)**:
+- alphonse → #132 MuonH budget_mult sweep {0.8, 1.0, 1.2}
+- thorfinn → #133 MuonH mu sweep {0.90, 0.95, 0.98}
+- nezuko → #134 Contra-Muon × MuonH-SI (direction correction on new baseline)
+- tanjiro → #135 NorMuon × MuonH-SI (restore row/col preconditioning on MuonH-SI)
+- askeladd → #136 MuonH-SI lr sweep {0.015, 0.018, 0.022}
+
+---
+
 ## 2026-05-16 07:25 — Boot 21: askeladd #52 W&B confirmed PASS, sent back for rebase; 2 new assignments
 
 **PR #52 askeladd MuonH-SI confirm n=4 — W&B AUDIT PASS, merge blocked by rebase conflict**
