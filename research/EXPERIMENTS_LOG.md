@@ -301,6 +301,25 @@ Single-seed stat-sig at n=1: (3.28−3.2755)*sqrt(1) = 0.00454 ≥ 0.004 ✓. 2 
 
 **Wave 3 mechanism hypothesis (if both confirm)**: bias correction touches v-EMA preconditioner; grad clip touches gradient before momentum — orthogonal mechanism slots, expected to stack cleanly. Final merge sequencing TBD pending confirmation seeds.
 
+## 2026-05-16 13:34 — PR #149: NS-iters annealing (tanjiro) — CLOSED infra-blocked (3rd confirmation)
+
+- **Branch:** g1r4-tanjiro/ns-anneal-v2
+- **Hypothesis:** Anneal NS-iters from 16 (high precision early) to 6/8 (compute-efficient late) over training; should match NS=12 quality with lower late-training cost
+- **Disposition:** Student executed mandatory 100-step smoke test on **unmodified merged baseline** before launching research arms. Result: **3rd consecutive reproduction of the tanjiro-pod NaN cascade signature** identical to #97 and #108.
+
+| Step | train/loss | grad/global_norm | nonfinite_count | val/loss |
+|------|------------|------------------|------------------|----------|
+| 0 | — | — | — | 10.8258 |
+| 1 | 10.8258 | **232102** | — | — |
+| 25 | NaN | 0.0 | **147,758,208** | — |
+| 100 | NaN | 0.0 | 147,097,728 | NaN |
+
+W&B run `viwzwtx6`. Pod UUID matches the previously-flagged 7998cef9-... pattern.
+
+**Mechanism analysis (forwarded to issue #160)**: Step-1 grad explosion (5 orders of magnitude above healthy) on the byte-identical merged baseline → silicon-binning bf16 instability on this physical GPU. Same model, driver, and cuDNN version as healthy peers. ECC clean.
+
+**Action**: Filed [issue #160](https://github.com/morganmcg1/modded-nanogpt-senpai/issues/160) requesting GPU rotation. Tanjiro held idle (no new assignments) until pod is healthy. Hypothesis valuable, just needs working hardware.
+
 ## 2026-05-16 13:35 — PR #120: Lookahead Muon² (askeladd) — CLOSED clean negative
 
 - **Branch:** g1r4-askeladd/lookahead-muon2

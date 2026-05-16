@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 13:40 UTC (wave 3 confirmation seeds in final stretch 🎯 — both edward #115 and thorfinn #105 on merge cusp; thorfinn confirm-1 finished val=3.2748/fs=3250, edward confirm-2 running step 750/3350)
+- **Date:** 2026-05-16 14:40 UTC (wave 3 confirmation seeds advancing 🎯 — edward confirm-2 step 1200/3350 ETA ~70 min, thorfinn confirm-2 step 475/3350 launched on schedule ETA ~110 min. Tanjiro pod 3rd-time confirmed broken — issue #160 filed.)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -51,6 +51,7 @@
 | #120 | askeladd | CLOSED — Lookahead Muon²: all arms within-noise or worse; arms A+D identical val=3.27731/fs=3300 (temporal-smoothing family CLOSED; same root cause as #104) |
 | #126 | fern | CLOSED — Contra-Soft element-wise: arm-A=3.27616/3275 EXACT baseline; conflict_fraction ≈ 0.50 across all phases proves element-wise signal is noise-dominated; clean negative with mechanistic diagnosis |
 | #146 | tanjiro | AUTO-MERGED accidentally (advisor-side merge bug); reassigned as #149 |
+| #149 | tanjiro | CLOSED infra-blocked — 3rd reproduction of pod NaN cascade on unmodified baseline (step-1 grad=232102, step-25 nonfinite=147M). Issue #160 filed for pod rotation. |
 
 ## Active PRs
 
@@ -58,8 +59,8 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** D=3.2768/3300. confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 750/3350. n=2 partial mu=3.27515 — plenty of margin. |
-| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** arm-B (clip=1.0)=3.2755/3275. confirm-1 (`yfhknwar`) **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 LAUNCHING NOW. n=2 partial mu=3.27450 — excellent margin. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** D=3.2768/3300. confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 1200/3350, val=3.604 healthy. ETA ~70 min. n=2 partial mu=3.27515 — plenty of margin. |
+| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** arm-B (clip=1.0)=3.2755/3275. confirm-1 (`yfhknwar`) **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 (`j4r186ws`) running step 475/3350 launched on schedule. ETA ~110 min. n=2 partial mu=3.27450 — excellent margin. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
 
@@ -68,15 +69,14 @@
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
 | #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 (within-noise baseline sanity ✓). arm-B (PE iters=12) running step ~1575, val=3.524 — tracking slightly behind arm-A at this step. arm-C/D queued. |
-| **#154** | **fern** | **Layer-aggregate Contra-Muon** | just assigned; smoke-test gate at step 500 required |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | student posted design clarifications (correct per-group LRs, exp_avg re-projection via option-b, right-rotate-only for tall matrices); implementing arm-A sanity |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | assigned, awaiting student start |
-| **#149** | **tanjiro** | **NS-iters annealing schedule** | assigned (reassigned from #146 bug); awaiting student start |
-| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | just assigned (follow-up: closes #120; tests if NS approximation error is load-bearing) |
+| **#154** | **fern** | **Layer-aggregate Contra-Muon** | smoke test `4vfw6ubf` running step 425/500, val=3.856 healthy. Awaiting smoke gate verdict. |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A SOAP sanity run `lfcnprqg` running step 1800, val=3.481 — on-track |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A sanity `z2ygnqxh` running step 2225, val=3.426. Also running smoke test `4ov863qm` |
+| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | just assigned (follow-up to #120; tests if NS approximation error is load-bearing). Awaiting student pickup. |
 
 ## Infra-blocked
 
-- **tanjiro** (GPU UUID 7998cef9-...): merged baseline diverges at step 25 (NaN, nonfinite=147M in both smoke tests). ECC clean, same hardware model as healthy pods. Likely silicon-binning bf16 issue. Not assigning new work until human/infra team rotates the pod. **tanjiro PR #149 is assigned but should include mandatory 100-step smoke gate — if smoke fails, tanjiro must escalate immediately.**
+- **tanjiro** (GPU UUID 7998cef9-...): **3rd reproduction confirmed 2026-05-16 13:34 UTC** — merged baseline diverges at step 25 (NaN, nonfinite=147M; step-1 grad_norm=232102) across #97/#108/#149 smoke tests. ECC clean, same hardware model as healthy pods. Silicon-binning bf16 issue. **Issue #160 filed** requesting GPU rotation. Not assigning new work until human/infra team rotates the pod — tanjiro slot is unproductive until then. NS-iter annealing hypothesis held in reserve.
 
 ## Wave 3 critical path — merge sequencing
 
