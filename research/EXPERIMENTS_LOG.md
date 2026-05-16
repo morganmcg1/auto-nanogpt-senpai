@@ -1,5 +1,64 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 15:55 — Cycle 24: Fern Aurora screen FFS-WINNING, alphonse n=4 launched, frieren n=4 confirmed clean negative
+
+### Fern Aurora screen — FFS-WINNING result on Contra+SOAP-MLP base (PR #125)
+
+After two prior crashes (`csj1tm5z` @ step 1475, `isi6y97w` @ step 575) and a clamp fix (`D.clamp_(1e-6, 1e6)`):
+
+| Run | Config | val/loss | ffs | Statsig (n=1) |
+|---|---|---|---|---|
+| `lqwaozx7` | Aurora on Contra+SOAP-MLP, 3175 steps | **3.27706** | **3125** | — |
+
+**SINGLE-SEED BEATS MERGED BASELINE ON BOTH METRICS:**
+- val 3.27706 < baseline 3.27760 (−0.00054)
+- ffs 3125 < baseline ffs_mean 3131.25 (−6.25)
+
+n=4 PREDECLARED at train_steps=3175 at 15:54 UTC. Fern to launch immediately. ETA terminal ~21:00-22:00 UTC.
+
+Aurora is the FIRST mechanism (alongside CONTRA_MUON=0.5 tuning) to produce a single-seed FFS win on the merged baseline. Critically, Aurora is a fundamentally different mechanism from CONTRA_MUON tuning — it's diagonal leverage-score equalization inside NS5 from record #17. If both n=4 confirmations pass, they could potentially be stacked.
+
+### Alphonse n=4 LAUNCHED — CONTRA_MUON=0.5 (PR #139)
+
+W&B run `db1rrfx3` launched 15:33 UTC, currently step ~350/3175 trial 0. Same configuration as merged baseline except CONTRA_MUON=0.4 → 0.5. ETA full n=4 terminal ~22:00-22:30 UTC.
+
+### Frieren n=4 MuLoCo+NorMuon — CLEAN NEGATIVE confirmed (PR #109)
+
+W&B run `jzsue46n` @ train_steps=3175:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.28240 | -1 (never crossed 3.28) |
+| T1 | 3.28196 | -1 (never crossed 3.28) |
+| T2 | running | — |
+| T3 | — | — |
+
+T0 and T1 both miss the 3.28 target at 3175 steps. T2/T3 in progress per binding predeclaration; ETA full terminal ~17:40 UTC. Mean would need ≤3.27587 across T2/T3 to salvage statsig — ~3σ unlikely. Clean negative. Will close PR after SENPAI-RESULT.
+
+Pattern: MuLoCo outer-Nesterov wrapping doesn't add to Contra+SOAP-MLP at 3175 steps. The original NorMuon-clean base achieved val=3.27688 ffs=3225 at 3275 steps in screen, but stacking MuLoCo doesn't compress further to 3175 steps.
+
+### Thorfinn Soft-Muon p=0.05 n=4 — strong val, FFS not competitive (PR #103)
+
+W&B run `6kjpjnvd` @ train_steps=3325 (plain Muon + NorMuon + Soft-Muon base):
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27423 | 3250 |
+| T1 | 3.27492 | 3250 |
+
+Remarkable T0/T1 agreement at ffs=3250. Excellent val/loss but ffs=3250 > merged baseline 3131.25 by 119 steps. Pattern: "stronger but slower" — same as Newton-Muon, NorMuonH. Will close PR after T2/T3 terminal (~17:40 UTC).
+
+### Edward Contra-Muon n=4 — statsig pass likely, FFS not competitive (PR #76)
+
+W&B run `zsqazpmr` @ train_steps=3225:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27750 | 3175 |
+| T1 | 3.27599 | 3175 |
+
+Excellent val (mean projection ~3.276), but ffs=3175 > merged baseline 3131. Pod showing slow step rate (~6010 ms/step) but GPU healthy at 100%. ETA terminal ~21:00 UTC. Will close after terminal.
+
 ## 2026-05-16 15:35 — Cycle 23: Alphonse CONTRA_MUON=0.5 screen beats baseline on both metrics
 
 ### Alphonse CONTRA_MUON=0.5 screen — BEATS merged baseline on BOTH val AND FFS (PR #139)
