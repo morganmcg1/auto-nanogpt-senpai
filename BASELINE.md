@@ -39,3 +39,4 @@ rule, using the fixed track 3 contract (architecture, data, batch size,
 | -    | -  | -     | -             | -     |
 | boot | —  | 3030  | 3.2790 (30)   | inherited from public record history |
 | 2026-05-15 | #60 | 3275 | 3.2766 (2)   | Muon² (Adam v-EMA before NS, NS=12). First branch stat-sig crossing of 3.28; runs s0oq3dnx, 4hedrgf4. Bundled `sample_tensor` float64 precision fix and `NANOGPT_NS_ITERS` env var. |
+| 2026-05-16 | #105 | **3266.7** | **3.27527 (3)** | Gradient clipping at 5.0 (`NANOGPT_GRAD_CLIP=5.0`). Full-time gradient rescaling on AdamW aux groups (embed/lm_head); Muon blocks unaffected (NS absorbs magnitude). n=3 seeds: arm-C 3utr1m71 (3.27415/3250), confirm-1 yfhknwar (3.27481/3250), confirm-2 j4r186ws (3.27684/3300). Stat-sig: (3.28−3.27527)×√3=0.00819≥0.004. |
