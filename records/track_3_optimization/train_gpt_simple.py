@@ -473,7 +473,9 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
-) -> Tensor:
+) -> tuple[Tensor, Tensor, Tensor]:
+    # Save raw gradient before subsequent in-place mutations (lerp_ on grad).
+    g_raw = grad.detach().clone()
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -488,7 +490,18 @@ def pmuon_update(
 
     update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
-    return update
+
+    # Cautious update (Liang et al. 2024): mask polar components whose sign
+    # disagrees with the raw gradient direction, then rescale to preserve the
+    # pre-mask norm so only direction (not magnitude) changes.
+    mask = (torch.sign(update) == torch.sign(g_raw)).to(update.dtype)
+    mask_fraction = mask.mean()
+    update_pre_norm = update.norm()
+    update = update * mask
+    update_post_norm = update.norm().clamp_min(1e-12)
+    rescale_factor = update_pre_norm / update_post_norm
+    update = update * rescale_factor
+    return update, mask_fraction, rescale_factor
 
 
 class Muon(torch.optim.Optimizer):
@@ -506,6 +519,9 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        cautious_mask_sum = 0.0
+        cautious_rescale_sum = 0.0
+        cautious_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -517,7 +533,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
-                    update = pmuon_update(
+                    update, mask_fraction, rescale_factor = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
@@ -526,6 +542,9 @@ class Muon(torch.optim.Optimizer):
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                     )
+                    cautious_mask_sum += mask_fraction.item()
+                    cautious_rescale_sum += rescale_factor.item()
+                    cautious_count += 1
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
@@ -537,6 +556,14 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        if cautious_count > 0:
+            self._cautious_diag = {
+                "mask_fraction_mean": cautious_mask_sum / cautious_count,
+                "rescale_factor_mean": cautious_rescale_sum / cautious_count,
+                "params_seen": cautious_count,
+            }
+        else:
+            self._cautious_diag = {"mask_fraction_mean": 0.0, "rescale_factor_mean": 0.0, "params_seen": 0}
 
 
 ########################################
@@ -614,7 +641,8 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "cautious_active": True,
+            "muon_method": "pmuon-uw-cautious",
         },
     )
 
@@ -806,6 +834,15 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
+            cautious_diag = getattr(optimizer2, "_cautious_diag", None)
+            if cautious_diag is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/cautious/mask_fraction": cautious_diag.get("mask_fraction_mean", 0.0),
+                    "train/cautious/rescale_factor": cautious_diag.get("rescale_factor_mean", 0.0),
+                    "train/cautious/params_seen": cautious_diag.get("params_seen", 0),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
