@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 15:05 (FLEET FULLY ACTIVE: all 5 "stale_wip" flags are confirmed false-positives — fern Cautious now step 1750/3250 healthy, alphonse Aurora now step 1925/3250 healthy, both recovered from rate-limit silent fail; tanjiro SOAP+u/w step 2775/3250 ETA ~14:55 UTC; thorfinn lookahead-k5 step 2510/3250 ETA ~15:10 UTC; askeladd 0p45 step 1875/3250; frieren arm C 0p99 step 175 just descending; nezuko seed-2 step 700/3250; edward LLRD arm A step 700/3250)
+- **Last update:** 2026-05-16 15:35 (PR #140 tanjiro SOAP+u/w-floor FINISHED in W&B sr=3125 val=3.2698 NULL (= seed-var of baseline) — awaiting SENPAI-RESULT post; PR #143 thorfinn lookahead-k5 at step 3125 val=3.2888 hasn't crossed 3.28 yet, projecting sr~3150 NULL; cross-cutting null pattern now at 8 consecutive add-on-mechanism nulls on PMuon+u/w base; remaining 6 runs all healthy)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3100 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -37,10 +37,10 @@ ETA on seed-2: ~3.5h. Re-review when SENPAI-RESULT lands with n=2 mean.
 | --- | ----------- | --------------------------------------------------------------------- | ------ |
 | **#137** | **nezuko** | + **Stack power-law cooldown γ=1.2** (n=1 sr=3075 val=3.270012, SENT BACK for n=2)  | seed-2 `pmuon-uw-power-1p2-seed2` step 475 val 3.902 healthy, ETA ~17:30 UTC |
 | #158 | edward     | + **Depth-wise per-block LR decay** (LLRD, decay=0.85 arm A / 0.90 arm B) | arm A `pmuon-llrd-0p85` step 475 val 3.930 healthy, ETA ~17:30 UTC |
-| #143 | thorfinn   | + **Lookahead outer optimizer** (k=5 arm A, k=10 arm B)              | `lookahead-k5` step 2290/3250 70% val 3.378 healthy, ETA ~15:00 UTC |
+| #143 | thorfinn   | + **Lookahead outer optimizer** (k=5 arm A, k=10 arm B)              | `lookahead-k5` step 3125 val 3.2888 NOT crossed 3.28 yet, projecting sr~3150 NULL; ~125 steps remaining |
 | #151 | alphonse   | + **Aurora row-norm equilibration** (pre-polar, pp_iterations=2)     | `pmuon-uw-aurora` step 1925/3250 59% val 3.476 healthy, ETA ~16:00 UTC (recovered from rate-limit) |
 | #150 | fern       | + **Cautious update sign-mask** (post-polar, before u/w-floor)       | `pmuon-uw-cautious` step 1750/3250 54% val 3.502 healthy, ETA ~16:20 UTC (recovered from rate-limit) |
-| #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | `soap-mlp-uw-floor` step 2550/3250 78% val 3.371 healthy, ETA ~14:50 UTC |
+| #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | `soap-mlp-uw-floor` FINISHED sr=3125 val=3.2698 NULL (= baseline noise); awaiting student SENPAI-RESULT post |
 | #129 | frieren    | + **PMuon β_cov scan** (0.90/0.95/0.99) on u/w-floor base           | arm B `86t9bo8l` bcov=0.95 DONE sr=3125 val=3.2693 (within baseline noise); arm C 0p99 just launched step 0 |
 | #131 | askeladd   | + **TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45}                      | arm 0p40 sr=3150 DONE; arm 0p45 `pmuon-uw-0p45` step 1650/3250 51% val 3.570 healthy |
 
@@ -118,9 +118,19 @@ This insight guides what to try: avoid more post-polar scaling/whitening; focus 
 **Closed at advisor:**
 8. **PR #129 frieren arm B (bcov=0.95) result:** sr=3125 val=3.2693. Same configuration as baseline (which is also bcov=0.95). Result essentially a 3rd seed of baseline → confirms baseline within noise. β_cov=0.95 is not the bottleneck.
 
-**Plateau watch:**
-- If PR #137 seed-2 confirms power-law cooldown wins, that's a schedule-shape gain.
-- If PRs #140, #143, #158 all null on PMuon+u/w base, that confirms the cross-cutting pattern (only schedule-shape and magnitude changes win on this base) and the next plateau-protocol step is needed.
+**Plateau watch (UPDATED 15:35 UTC):**
+- **Cross-cutting null tally on PMuon+u/w-floor base: 8 add-on-mechanism nulls so far:**
+  1. PR #83 SOAP-MLP on bare PMuon → NULL
+  2. PR #93 NorMuon row-wise → NULL
+  3. PR #110 γ-scan → NULL
+  4. PR #118 cooldown_frac scan → NULL
+  5. PR #119 Contra-Muon → NEGATIVE
+  6. PR #129 arm B (bcov=0.95) → NULL (3rd seed of baseline)
+  7. **PR #140 SOAP-MLP+u/w stack → NULL** (this loop)
+  8. **PR #143 lookahead-k5 → projecting NULL** (will confirm next loop)
+- Only PR #137 (power-law cooldown γ=1.2) has shown improvement (n=1 sr=3075, awaiting n=2 seed-2).
+- 4 in-flight unknowns: PR #150 fern Cautious, PR #151 alphonse Aurora, PR #158 edward LLRD, PR #131 askeladd 0p45.
+- **If 3+ of these 4 also land null, this is a plateau requiring a more radical research-direction shift.** Need to plan Wave 5 with categorically-different optimizers (Sophia/Hessian, Lion sign-based, Adafactor, SWA, trust-region, etc.) rather than more mechanism additions on PMuon+u/w base.
 
 ## Statistical rule reminder
 
