@@ -40,6 +40,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--cautious_muon", action="store_true", default=False,
+                        help="Enable Cautious sign-agreement masking on the Muon NS update")
+    parser.add_argument("--cautious_lr_mult", type=float, default=1.0,
+                        help="Multiplier applied to Muon LR when --cautious_muon is set")
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override training step count (defaults to in-script value)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -180,7 +186,7 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device, dtype=torch.float64).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -250,6 +256,49 @@ def log_weight_telemetry(
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
     wandb.log(metrics, step=wandb_step)
+
+
+CAUTIOUS_PARAM_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("attn_qkv", (".attn.q.", ".attn.k.", ".attn.v.")),
+    ("attn_proj", (".attn.proj.",)),
+    ("mlp_fc", (".mlp.fc.",)),
+    ("mlp_proj", (".mlp.proj.",)),
+)
+
+
+def categorize_param_name(name: str) -> str | None:
+    for category, patterns in CAUTIOUS_PARAM_CATEGORIES:
+        if any(pat in name for pat in patterns):
+            return category
+    return None
+
+
+def log_cautious_mask_means(
+    model: nn.Module,
+    muon_opt: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    grouped: dict[str, list[Tensor]] = {cat: [] for cat, _ in CAUTIOUS_PARAM_CATEGORIES}
+    for name, p in model.named_parameters():
+        cat = categorize_param_name(name)
+        if cat is None:
+            continue
+        mask_mean = muon_opt.last_mask_means.get(p)
+        if mask_mean is None:
+            continue
+        grouped[cat].append(mask_mean)
+    metrics: dict[str, float] = {"trial": trial_idx, "train/step": step}
+    all_values: list[Tensor] = []
+    for cat, values in grouped.items():
+        if not values:
+            continue
+        all_values.extend(values)
+        metrics[f"cautious/mask_mean/{cat}"] = float(torch.stack(values).mean().item())
+    if all_values:
+        metrics["cautious/mask_mean/global"] = float(torch.stack(all_values).mean().item())
+        wandb.log(metrics, step=wandb_step)
 
 
 def log_histograms(
@@ -458,18 +507,31 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+def cautious_ns_update(u_ns: Tensor, g: Tensor) -> tuple[Tensor, Tensor]:
+    """Mask NS update by sign-agreement with the raw gradient.
+
+    Returns (masked_update, mask_mean) where mask_mean is a scalar tensor on the
+    same device, useful for telemetry.
+    """
+    mask = (u_ns * g > 0).to(u_ns.dtype)
+    mask_mean = mask.mean().clamp(min=1e-8)
+    return u_ns * mask / mask_mean, mask_mean
+
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, cautious=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, cautious=cautious)
         super().__init__(params, defaults)
+        self.last_mask_means: dict[torch.nn.Parameter, Tensor] = {}
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
+            cautious = group.get("cautious", False)
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -478,7 +540,12 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                    if cautious:
+                        g_raw = p.grad.clone()
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if cautious:
+                        update, mask_mean = cautious_ns_update(update, g_raw)
+                        self.last_mask_means[p] = mask_mean.detach()
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -552,6 +619,8 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "cautious_muon": args.cautious_muon,
+            "cautious_lr_mult": args.cautious_lr_mult,
         },
     )
 
@@ -563,7 +632,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3350
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -587,8 +656,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    muon_base_lr = 0.035
+    muon_lr = muon_base_lr * (args.cautious_lr_mult if args.cautious_muon else 1.0)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=muon_lr, weight_decay=0.025, cautious=args.cautious_muon)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -725,6 +796,14 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due and args.cautious_muon:
+            log_cautious_mask_means(
+                model=model,
+                muon_opt=optimizer2,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
