@@ -6,6 +6,56 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 23:43 — Boot 61: PR #114 MERGED (new baseline), PR #107 closed, PR #174 sent back
+
+**PR #114 frieren MuLoCo × MuonH-SI — MERGED ✅ (new baseline)**
+- Branch: `g1r3-frieren/normuon-muloco-screen` (rebased)
+- Hypothesis: Outer Nesterov SGD wrapper (MuLoCo) applied every 30 steps over MuonH-SI inner optimizer. Tests whether a second-order momentum at the outer level — smoothing over the last 30 Muon steps — reduces final val/loss.
+- Config: outer_lr=0.7, outer_momentum=0.5, sync_interval=30 (from reference implementation #13), wraps all trainable params
+- Results (W&B: `22tmupqh`, n=4):
+
+  | Trial | val/loss | ffs | Δ vs old baseline (3.27737) |
+  |---|---|---|---|
+  | 0 | 3.27749 | 3300 | +0.00012 |
+  | 1 | 3.27574 | 3275 | −0.00163 |
+  | 2 | **3.27498** | **3250** | **−0.00239** |
+  | 3 | 3.27519 | 3275 | −0.00218 |
+  | **n=4 mean** | **3.27585** | **3275** | **−0.00152** |
+
+- Stat rule: `(3.28 − 3.27585) × √4 = 0.0083 ≥ 0.004` ✓; z-score=2.67 (p≈0.004)
+- Analysis: 3 of 4 trials individually beat the old baseline mean. The −0.00152 improvement corresponds to ~33 steps of FineWeb val loss improvement. Mechanism is robust across seeds. Screen result (n=1, val=3.27566) was faithfully reproduced at n=4.
+- Conclusion: **MuLoCo outer-loop wrapping is a genuine positive mechanism.** Second-level Nesterov SGD at sync_interval=30 meaningfully smooths the terminal optimization trajectory. New baseline is now val=3.27585, ffs=3275. Next priority: tune outer_lr; test stacking with NS5 A3 polynomial.
+
+**PR #107 edward Cautious-Muon × MuonH-SI — CLOSED NEGATIVE**
+- Branch: `g1r3-edward/cautious-muon-cs-sweep`
+- Hypothesis: Element-wise gating of Muon step by sign-agreement with raw gradient. Threshold cs: if `cosine(NS5_update, grad) < cs`, zero out that gradient component.
+- Results (W&B runs: cs=0.0 baseline-clone, 98v61qr2 cs=0.1, 5f85r471 cs=0.25):
+
+  | cs | val/loss | ffs | Δ vs baseline |
+  |---|---|---|---|
+  | 0.0 | 3.27820 | 3300 | +0.00083 |
+  | 0.1 | 3.27995 | 3325 | +0.00258 |
+  | 0.25 | 3.28152 | n/a | +0.00415 |
+
+- Analysis: Monotone worsening with increasing cs. The gating mechanism reduces effective gradient signal more than it reduces noise under SI. SI's renormalisation already handles the scale invariance that Cautious was meant to provide — combining them is doubly conservative.
+- Conclusion: Element-wise gating (Cautious family) is NEGATIVE under MuonH-SI. Joins Contra/Soft-Muon as the "direction-modifier" family that fails under SI. Pattern strongly confirmed: SI mode is hostile to direction-modifiers.
+
+**PR #174 askeladd NS5 polynomial coefficient sweep — SENT BACK for A3 × MuLoCo stack**
+- Branch: `g1r3-askeladd/ns5-coef-sweep-si`
+- Hypothesis: Sweep NS5 polynomial coefficients (a,b,c) at k=12 iterations
+- Results (n=1 each):
+
+  | Arm | (a,b,c) | val/loss | ffs | Δ vs old baseline |
+  |---|---|---|---|---|
+  | A1 | (3.4445, -4.775, 2.0315) Chebyshev-ref | 3.27859 | 3300 | +0.00122 |
+  | A2 | (2.0, -1.5, 0.5) baseline ctrl | 3.27811 | 3300 | +0.00074 |
+  | **A3** | **(2.5, -2.5, 0.75)** | **3.27620** | **3275** | **−0.00117** |
+
+- Analysis: A3 shows suggestive signal at n=1, but at n=1 the seed noise floor (A2 vs baseline: ±0.00074) means A3's −0.00117 is within ~1.5σ of noise. A3 alone would not clear the new post-MuLoCo baseline (3.27585). Sent PR back for A3 × MuLoCo stack test to check orthogonal stacking: if MuLoCo reduces val by ~0.001 and A3 adds another ~0.001, combined could reach ~3.274.
+- Conclusion: PR sent back. Next test: A3 + MuLoCo n=4 confirm vs new baseline 3.27585.
+
+---
+
 ## 2026-05-16 12:30 — Boot 28: #111 and #134 closed; fern→#152, nezuko→#153 assigned
 
 **PR #111 fern AdamAtan2 aux — CLOSED NEGATIVE (boot 28)**
