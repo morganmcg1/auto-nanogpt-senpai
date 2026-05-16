@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 13:25 (PR #118 edward CLOSED cooldown_frac null; PR #137 nezuko sr=3075 n=1 POTENTIAL WINNER — n=2 confirmation launched; PR #158 edward ASSIGNED LLRD scan; all 8 students active)
+- **Last update:** 2026-05-16 14:25 (PR #137 nezuko n=1 SENPAI-RESULT received sr=3075 val=3.270012 → SENT BACK for n=2 seed-2; PR #129 frieren arm B running step 2847 ETA 14:13, green light for arm C 0.99 + arm A clean 0.90; all 8 students active)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3100 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -13,34 +13,36 @@ n=2 stat-sig margin: (3.28 − 3.267696)·√2 = 0.01740 ✓
 
 **Key property:** u/w-floor fires at 100% of eligible params every step — the floor acts as a universal update magnitude multiplier, not a targeted safety catch. γ and TARGET_UW are coupled hyperparameters for the new base.
 
-## 🔥 POTENTIAL WINNER: PR #137 nezuko — n=2 confirmation in progress
+## 🔥 POTENTIAL WINNER: PR #137 nezuko — sent back for n=2 confirmation
 
-**W&B run `8quuvdrj` (power-law cooldown γ=1.2 on PMuon+u/w-floor base):**
+**W&B run `8quuvdrj` (power-law cooldown γ=1.2 on PMuon+u/w-floor base, n=1):**
 - `speedrun/final_first_step_to_target`: **3075** (25 steps better than baseline 3100) ✅
-- `final_best_val_loss`: **3.2700** (clears n=1 bar: margin 0.010 > 0.004)
+- val/loss at step 3250: **3.270012** (+0.00232 vs baseline n=2 mean 3.267696 — within 0.004)
+- n=1 stat-sig vs 3.28: margin 0.00999 > 0.004 ✓
 - `final_reached_target`: 1, no NaN/divergence
 - Config verified: power_cooldown_gamma=1.2, target_uw=0.35, beta_cov=0.95, gamma=0.30, cooldown_frac=0.70
 
-Advisor posted winner-confirmation note to nezuko PR #137 requesting:
-1. Terminal SENPAI-RESULT post
-2. Immediate n=2 seed launch (`pmuon-uw-power-seed2`)
+**Advisor decision: SENT BACK for seed-2 launch.** Three reasons recorded in PR #137 send-back comment:
+1. val/loss regression vs baseline mean is within 0.004 — triggers project's n=2 confirmation rule
+2. The 25-step sr gain is exactly 1 validation cadence tick → could be quantization noise without a second seed
+3. The student themselves flagged n=2 as priority #1 in their suggested follow-ups
 
-**Do NOT merge until n=2 confirmed.** Two-seed mean must satisfy `(3.28 − μ) × √2 ≥ 0.004`.
+**Mechanism interpretation (from student's analysis):** power-law cooldown γ=1.2 trades a small amount of final val/loss for earlier target attainment. The concave-down shape drops the lr faster in mid-cooldown (0.5^1.2=0.435 vs 0.5 linear), so the optimizer crosses 3.28 sooner but spends more time at near-zero lr at the end of training. For the speedrun benchmark this is the right trade — but only if it's not seed noise. Seed-2 will decide.
 
-**What this tells us:** Power-law cooldown (concave-down lr decay) hits the 3.28 threshold 25 steps faster on the primary metric. The final val/loss at step 3250 is 3.27 (vs baseline 3.2677) — slightly higher minimum, but faster initial crossing. The concave shape front-loads the lr decay, reaching the fine-tuning regime faster while spending less budget in the cooldown plateau. This is a schedule-shape win, distinct from the baseline's linear cosine cooldown.
+ETA on seed-2: ~3.5h. Re-review when SENPAI-RESULT lands with n=2 mean.
 
 ## Active experiments (status:wip) — Wave 4
 
 | PR  | Student     | Mechanism on PMuon + u/w-floor base                                  | Status (as of 13:25) |
 | --- | ----------- | --------------------------------------------------------------------- | ------ |
-| **#137** | **nezuko** | + **Stack power-law cooldown γ=1.2** (n=1 complete: sr=3075 🔥)  | awaiting SENPAI-RESULT post + n=2 seed launch |
-| #158 | edward     | + **Depth-wise per-block LR decay** (LLRD, decay=0.85 arm A / 0.90 arm B) | just assigned |
-| #143 | thorfinn   | + **Lookahead outer optimizer** (k=5 arm A, k=10 arm B)              | assigned 11:30 UTC, awaiting pod pickup |
+| **#137** | **nezuko** | + **Stack power-law cooldown γ=1.2** (n=1 sr=3075 val=3.270012, SENT BACK for n=2)  | seed-2 launch pending, ETA ~3.5h |
+| #158 | edward     | + **Depth-wise per-block LR decay** (LLRD, decay=0.85 arm A / 0.90 arm B) | just assigned 13:40 UTC, awaiting pod pickup |
+| #143 | thorfinn   | + **Lookahead outer optimizer** (k=5 arm A, k=10 arm B)              | stale_wip, no pickup yet since 11:30 UTC assignment |
 | #151 | alphonse   | + **Aurora row-norm equilibration** (pre-polar, pp_iterations=2)     | assigned ~12:05 UTC, awaiting pod pickup |
 | #150 | fern       | + **Cautious update sign-mask** (post-polar, before u/w-floor)       | assigned ~12:05 UTC, awaiting pod pickup |
-| #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | assigned ~10:40 UTC, awaiting pod pickup |
-| #129 | frieren    | + **PMuon β_cov scan** (0.90/0.95/0.99) on u/w-floor base           | `86t9bo8l` bcov=0.95 running; 0p99 arm needed after it finishes |
-| #131 | askeladd   | + **TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45}                      | arm 0p40 sr=3150 DONE; arm 0p45 pending launch; arms 0p25/0p30 after |
+| #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | stale_wip, no pickup yet since ~10:40 UTC assignment |
+| #129 | frieren    | + **PMuon β_cov scan** (0.90/0.95/0.99) on u/w-floor base           | arm B `86t9bo8l` bcov=0.95 step 2847 ETA 14:13; green-lit arm C 0.99 then arm A clean 0.90 |
+| #131 | askeladd   | + **TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45}                      | arm 0p40 sr=3150 DONE; arms 0p45/0p25/0p30 pending |
 
 ## Closed this session
 
@@ -96,14 +98,14 @@ Confirmed from PRs #83, #93, #110, #118, #119: **all post-polar direction-shapin
 
 This insight guides what to try: avoid more post-polar scaling/whitening; focus on outer-loop, pre-polar, magnitude, and schedule.
 
-## Wave 4 priorities (as of 13:25 UTC)
+## Wave 4 priorities (as of 14:25 UTC)
 
-1. **PR #137 nezuko power-law cooldown** — POTENTIAL WINNER at n=1 sr=3075. Top priority: wait for n=2 seed to complete (~3.5h), then review and merge if confirmed. If merged, power-law cooldown becomes the new baseline schedule.
-2. **PR #129 frieren β_cov scan** — bcov=0.95 `86t9bo8l` running; need arm 0p99 after it finishes.
-3. **PR #131 askeladd TARGET_UW sweep** — arm 0p45 needs launch; then 0p25/0p30.
-4. **PRs #140, #143, #150, #151 tanjiro/thorfinn/fern/alphonse** — awaiting pod pickup.
-5. **PR #158 edward LLRD scan** — just assigned, awaiting pickup.
-6. **n≥4 seed batch on new local best** after PR #137 confirms and merges.
+1. **PR #137 nezuko seed-2 launch** — POTENTIAL WINNER. SENT BACK to nezuko at 14:00 UTC for n=2 confirmation. Seed-2 ETA ~3.5h after pickup. If sr ≤ 3100 mean with n=2 stat-sig clear, merge — first speedrun improvement this session.
+2. **PR #129 frieren β_cov scan** — arm B bcov=0.95 step 2847 finishing ~14:13 UTC; advisor green-lit arm C 0.99 then arm A clean 0.90. Three-arm comparison after both finish.
+3. **PR #131 askeladd TARGET_UW sweep** — arm 0p45 needs launch (highest priority); then 0p25/0p30.
+4. **Stale pickups: PRs #140 tanjiro (SOAP+u/w), #143 thorfinn (Lookahead), #158 edward (LLRD)** — none have student comments yet, may need pickup nudges if still stale on next loop.
+5. **PRs #150 fern (Cautious), #151 alphonse (Aurora)** — awaiting pod pickup, only ~2h since assignment.
+6. **n≥4 seed batch on new local best** after PR #137 confirms (or after next winner emerges).
 
 ## Statistical rule reminder
 
