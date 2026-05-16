@@ -442,9 +442,11 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
+NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
 
-def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -464,13 +466,13 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -480,11 +482,28 @@ class Muon(torch.optim.Optimizer):
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
+        # Step-dependent NS iteration count. Set by the training loop before each step()
+        # using `set_ns_iters_this_step()`. Defaults to the static NS_ITERS env var.
+        self.ns_iters_this_step = NS_ITERS
+        # Optional reference to the parameter whose orthogonalized update we
+        # log spectral statistics for (e.g. blocks[0].attn.q.weight). When set,
+        # `step()` populates `self.spectral_stats` with svd-based metrics that
+        # the training loop reads back after the optimizer step.
+        self.spectral_telemetry_param: torch.nn.Parameter | None = None
+        self.spectral_stats: dict[str, float] | None = None
+
+    def set_ns_iters_this_step(self, ns_iters: int) -> None:
+        self.ns_iters_this_step = int(ns_iters)
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        ns_iters = self.ns_iters_this_step
+        spectral_target = self.spectral_telemetry_param
+        # Reset spectral_stats at the start of each step; only the rank that
+        # owns the tracked parameter on this round-robin shard will repopulate.
+        self.spectral_stats = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -496,7 +515,26 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
+                                         ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if spectral_target is not None and p is spectral_target:
+                        # Singular values of the orthogonalized (post-NS) update.
+                        # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
+                        # divide it out so the spectrum is the pure NS output.
+                        scale = max(1, p.grad.size(-2) / p.grad.size(-1))**0.5
+                        u_for_svd = (update.detach().float() / scale)
+                        try:
+                            svals = torch.linalg.svdvals(u_for_svd)
+                            self.spectral_stats = {
+                                "u_singular_max": float(svals.max().item()),
+                                "u_singular_min": float(svals.min().item()),
+                                "u_singular_mean": float(svals.mean().item()),
+                                "u_singular_range": float((svals.max() - svals.min()).item()),
+                                "u_singular_std": float(svals.std(unbiased=False).item()),
+                                "ns_iters_used": float(ns_iters),
+                            }
+                        except Exception:
+                            self.spectral_stats = None
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -534,6 +572,12 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+if NS_ITERS_COOLDOWN > 0:
+    print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
+           f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
+else:
+    print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
+           console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -574,6 +618,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
+            "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
         },
     )
 
@@ -612,6 +658,11 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Track orthogonalized-update spectrum on first block's attention q.weight
+    # to surface NS-schedule effects in W&B telemetry.
+    optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
+    ns_iters_history: list[int] = []
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -752,8 +803,36 @@ for trial_idx in range(args.num_trials):
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
             )
+        # NS iteration schedule: optionally swap to NS_ITERS_COOLDOWN in the
+        # last (1 - NS_COOLDOWN_START_FRAC) fraction of training.
+        if NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step:
+            ns_iters_this_step = NS_ITERS_COOLDOWN
+        else:
+            ns_iters_this_step = NS_ITERS
+        optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        if dist.get_rank() == 0:
+            ns_iters_history.append(ns_iters_this_step)
+            if len(ns_iters_history) > 100:
+                del ns_iters_history[:-100]
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            ns_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/ns_schedule/iters_this_step": ns_iters_this_step,
+                "train/ns_schedule/iters_avg_last_100_steps": (
+                    sum(ns_iters_history) / max(1, len(ns_iters_history))
+                ),
+                "train/ns_schedule/cooldown_start_step": cooldown_start_step,
+                "train/ns_schedule/in_cooldown": int(
+                    NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
+                ),
+            }
+            if optimizer2.spectral_stats is not None:
+                for k, v in optimizer2.spectral_stats.items():
+                    ns_metrics[f"train/ns_schedule/{k}"] = v
+            wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
