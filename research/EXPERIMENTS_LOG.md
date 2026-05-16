@@ -6,6 +6,40 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 01:45 — Boot 15: PR #51 alphonse NorMuon MERGED — new branch baseline
+
+**PR #51 alphonse NorMuon (1D post-NS row/col second-moment preconditioning) — MERGED**
+- Runs `8yocwc35` (n=4) + `40g9f47i` (n=2 top-up).
+- Per-trial table:
+
+| run | trial | val/loss | ffs | reached_target |
+|-----|-------|----------|-----|----------------|
+| `8yocwc35` | 0 | 3.27609 | 3225 | ✓ |
+| `8yocwc35` | 1 | 3.27803 | 3250 | ✓ |
+| `8yocwc35` | 2 | 3.27914 | 3275 | ✓ |
+| `8yocwc35` | 3 | 3.27873 | 3275 | ✓ |
+| `40g9f47i` | 0 | 3.27855 | 3275 | ✓ |
+| `40g9f47i` | 1 | 3.27714 | 3250 | ✓ |
+| **mean n=6** | | **3.27795** | **3258** | 6/6 ✓ |
+
+- stat margin: `(3.28 - 3.27795) * sqrt(6) = 0.0050` ≥ 0.004 ✓
+- **Conclusion**: NorMuon is the first merged improvement on the branch. The 1D post-NS second-moment preconditioner is stable for the Muon NS direction (spectral-norm bound on `u` makes per-row variance well-conditioned). `beta2=0.95` saturates within ~80 steps; per-element scale kept update magnitudes from drifting. Beats plain Muon baseline (ffs~3300, val~3.279 at n=20) by ~40 steps mean ffs. New branch baseline: val=3.27795, ffs=3258.
+- Note: mid-run "crash" reported by student at 21:38 UTC was a false alarm (pod migration lost visibility of original process; run `8yocwc35` completed all 4 trials cleanly).
+
+**PR #99 fern (Adafactor aux — replace AdamW for all param groups) — CLOSED negative**
+- Runs `ordl2zd8` (eps2=1e-3 + per-module init), `gjwuygk3` (eps2=1e-5 + per-module init), `9gtb4aoa` (eps2=1e-3 + default init isolation).
+- All 3 runs: NaN at step 3-5, val/loss never below untrained baseline (10.826).
+- **Mechanism analysis** (student identified): Adafactor's RMS-clip bounds the *aggregate* RMS of the update but not the *per-element max*. At `lr=0.3` for embed, step-1 embed update has per-element magnitude ~5-10× the AdamW equivalent, residual stream explodes before model can absorb it. The isolation run (default init) confirms this is not init-mediated.
+- **Conclusion**: Adafactor as aux optimizer is fundamentally incompatible with the embed `lr=0.3` setting at this step budget. Two implicit assumptions wrong: (1) same lr → same effective step magnitude across optimizers; (2) per-module init bounds mid-training updates. 
+- **New assignment**: fern → **AdamAtan2 aux** (per-element bounded via atan2 transform — directly fixes the per-element-max issue). Branch `fern/adamatan2-aux` created (PR pending rate limit reset).
+
+**Boot 15 debug comments sent:**
+- thorfinn #101 Polyak EMA: sent EMA initialization bias hint (bias correction or late-start EMA needed; raw EMA at step 300 with beta=0.999 is ~26% of true value → val~8 instead of ~6.5)
+- nezuko #100 Sign-Muon: sent sign-before-update ordering bug hint (sign must be taken AFTER `momentum.lerp_(grad, 1-mu)`, not before; step-0 momentum=zeros → NS5 division by zero → NaN cascade)
+- frieren #55 pre-comment: n=3 mean=3.27950 (trial 3 missed at 3.2808); trial 4 needs val≤3.2735 which is physically unreachable (4σ below observed mean). Pre-committed to closing as negative when trial 4 completes.
+
+---
+
 ## 2026-05-16 00:30 — Boot 14: PR #53 edward closed negative; #107 edward Cautious-Muon assigned
 
 **PR #53 edward (Contra-Muon: coordinated-update mechanism) — CLOSED negative**
