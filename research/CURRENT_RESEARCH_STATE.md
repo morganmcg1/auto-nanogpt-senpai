@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #22, ~08:35 UTC)
+- **Last updated:** 2026-05-16 (poll #23, ~09:25 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3200, mu=3.27744, n=6` (PR #46 SOAP-MLP isolated, merged 2026-05-16 04:00 UTC)
 - **Merge statsig rule**: `(3.27744 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27581 for n=6, ≤ 3.27603 for n=8.
@@ -9,13 +9,13 @@
 
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
-| 45   | g1r5-edward     | Muon² (Adam v-buffer + NS, lr=0.10, record #7)                          | exploit | WIP — n=8 trial-5/8 running (~ETA 12:15 UTC). 5-trial mu ≈ 3.2780, ffs trending 3325→3275. Needs mu ≤ 3.27603 to merge; borderline-unlikely given current mu. Full terminal verdict expected this poll. |
-| 47   | g1r5-frieren    | MuonH reproduction (hyperball + per-module init, record #5)             | exploit | WIP — n=8 in flight; seeds 1-3 final val/loss ≈ 3.287-3.305 (all miss target). Trending clean negative. |
-| 48   | g1r5-nezuko     | Cooldown shape sweep (5 shapes × 2 seeds, plain Muon)                  | explore | WIP — 7/8 cells done, best linear ffs=3300/mu=3.27797. Clean negative under new baseline. Awaiting terminal. |
-| 50   | g1r5-thorfinn   | Polyak/SWA tail averaging (τ×β grid, record #12-era)                   | explore | WIP — n=6 confirm at seed-4/6; partial n=4 mu=3.27816 std=0.00068 (fails statsig vs baseline by -0.00176). ETA ~1.5h to terminal. Will close as clean-negative-but-tight-reproduction. |
-| 116  | g1r5-fern       | SOAP-attn + trust gate on merged SOAP-MLP base (→ record #16, ffs 3125) | exploit | WIP — smoke done; screening in flight. **Highest-value remaining exploit in portfolio.** |
-| 121  | g1r5-tanjiro    | Schedule-free Muon (Defazio z/x iterate, no cooldown, merged base)     | explore | **WIP — kill-gate signal**: β=0.95 screen val/loss_x=3.432 (0.152 above target); diagnostic comment posted. Likely close as clean negative on spec issue — `c_t=1/(t+1)` Polyak–Ruppert uniform averaging dominated by warmup mass on this 3350-step from-scratch run. β=0.90/β=0.98 cells finishing for completeness. |
-| 123  | g1r5-alphonse   | Newton-Muon: activation-covariance right-precond before NS on attn     | exploit | WIP — freshly dispatched (06:30 UTC). Smoke pending. |
+| 45   | g1r5-edward     | Muon² (Adam v-buffer + NS, lr=0.10, record #7)                          | exploit | WIP — n=8 trial-5/8+ running (~ETA 12:15 UTC). 5-trial mu ≈ 3.2780, ffs trending 3325→3275. Needs mu ≤ 3.27603 to merge; borderline-unlikely given current mu. |
+| 47   | g1r5-frieren    | MuonH reproduction (hyperball + per-module init, record #5)             | exploit | **FINISHED**: n=8 done at 08:38 UTC (state=finished, runtime 14.2h). best val/loss=3.2814 (misses target by 0.00142). Awaiting terminal SENPAI-RESULT marker — nudge posted. Will land as clean negative. |
+| 48   | g1r5-nezuko     | Cooldown shape sweep (5 shapes × 2 seeds, plain Muon)                  | explore | WIP — 9/10 cells done, last cell (trapezoidal-seed43) at step 2700/3350 (~80%); ETA ~21 min. Best linear ffs=3300. Trending clean negative under new baseline. |
+| 50   | g1r5-thorfinn   | Polyak/SWA tail averaging (τ×β grid, record #12-era)                   | explore | WIP — n=6 confirm at seed-4/6 (last advisor check ~poll #22); partial n=4 mu=3.27816 std=0.00068 (fails statsig vs baseline by -0.00176). ETA ~1.5h to terminal. Will close as clean-negative-but-tight-reproduction. |
+| 116  | g1r5-fern       | SOAP-attn + trust gate on merged SOAP-MLP base (→ record #16, ffs 3125) | exploit | WIP — smoke done; screening in flight. |
+| 121  | g1r5-tanjiro    | Schedule-free Muon (Defazio z/x iterate, no cooldown, merged base)     | explore | **WIP — kill-gate signal** (poll #22): β=0.95 screen val/loss_x=3.432. `c_t=1/(t+1)` Polyak–Ruppert uniform averaging dominated by warmup mass. β=0.90/β=0.98 cells finishing for completeness. Likely close as clean negative on spec. |
+| 123  | g1r5-alphonse   | Newton-Muon: activation-covariance right-precond before NS on attn     | exploit | **WIP — STRONGEST SCREEN SIGNAL**: `newton-muon-attn-screen-seed0` finished at val/loss=**3.2714** (final-step, ffs=3225). +25 steps slower than baseline ffs=3200 but mu 0.0060 below baseline mu (14-σ outlier under baseline std=4.3e-4). HOWEVER `gate_fallback_rate=0.0833` and `cov_cond_max=1.37e8` suggest Newton mechanism largely inactive — gain may be SOAP-MLP base + hook-induced regularization or pure lucky-seed. n=6 confirmation requested. **Highest-value confirm in portfolio.** |
 | 130  | g1r5-askeladd   | Label smoothing on CE training loss (ε ∈ {0.05, 0.1, 0.15})           | explore | WIP — freshly dispatched (07:30 UTC). First loss-side modification; tests whether softcap=15 neutralizes margin saturation. Smoke pending. |
 
 ## Closed PRs Summary
@@ -34,11 +34,11 @@
 
 **Mechanism slots being tested:**
 
-1. **Gradient-precond on attn** (fern PR #116 SOAP-attn trust gate) — **highest-value exploit**, directly targets record #16
-2. **Activation-precond on attn** (alphonse PR #123 Newton-Muon) — activation-covariance right-precond, distinct from SOAP
-3. **Schedule layer** (tanjiro PR #121 Schedule-free Muon) — eliminates cosine cooldown via dual z/x iterate averaging
-4. **Loss layer** (askeladd PR #130 Label Smoothing) — **new in poll #21**; only change to what the optimizer minimizes; tests if Hessian conditioning near threshold improves under softcap=15
-5. **Gradient-precond on hidden weights before NS** (edward PR #45 Muon²) — Adam v-buffer + standard NS; borderline vs baseline
+1. **Activation-precond on attn** (alphonse PR #123 Newton-Muon) — **STRONGEST SCREEN SIGNAL THIS POLL**: val/loss=3.2714 (single seed, 14-σ outlier vs baseline). n=6 confirmation requested. Telemetry shows Newton gate firing only 8.3% — possible explanations: lucky seed (regress to baseline at n=6), genuine attention-layer activation-precond gain, or hook-induced implicit regularization. Disambiguates at confirm.
+2. **Gradient-precond on attn** (fern PR #116 SOAP-attn trust gate) — targets record #16 trajectory, screening in flight
+3. **Schedule layer** (tanjiro PR #121 Schedule-free Muon) — **kill-gate triggered**, spec issue with `c_t=1/(t+1)` averaging
+4. **Loss layer** (askeladd PR #130 Label Smoothing) — only change to what the optimizer minimizes; smoke pending
+5. **Gradient-precond on hidden weights before NS** (edward PR #45 Muon²) — Adam v-buffer + standard NS; borderline vs baseline at trial-5+/8
 6. **Schedule shape on plain Muon** (nezuko PR #48, thorfinn PR #50) — finishing n-seed confirms; clean negatives likely
 
 **Closed mechanism slots (do NOT re-open without strong prior):**
