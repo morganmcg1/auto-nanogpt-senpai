@@ -326,6 +326,20 @@ def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1
         yield inputs.view(-1, seq_len), targets.view(-1, seq_len)
 
 
+@torch.compiler.disable
+@torch.no_grad()
+def accum_xtx_(x: Tensor, accum: Tensor, count: Tensor):
+    """Activation-side covariance accumulator used by the Newton-Muon
+    right-preconditioner on attention weights.
+
+    For 2D `accum` (in_features x in_features), each call adds (1/N) * xᵀx
+    averaged over the batch dimension; `count` is incremented once per call.
+    """
+    x = x.detach().flatten(0, -2).float()
+    accum.add_(x.T @ x, alpha=1 / x.size(0))
+    count.add_(1)
+
+
 ########################################
 #             Architecture             #
 ########################################
@@ -372,8 +386,20 @@ class CausalSelfAttention(nn.Module):
         self.v = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
         self.rotary = Rotary(head_dim)
+        # Newton-Muon activation-cov accumulators (attention-only stack on top
+        # of Contra+SOAP-MLP). q/k/v share one (dim x dim) input stat; attn.proj
+        # has its own (hdim x hdim) input stat over the attention output.
+        self.register_buffer("qkv_xtx", torch.zeros(dim, dim, dtype=torch.float32), persistent=False)
+        self.register_buffer("qkv_count", torch.zeros((), dtype=torch.float32), persistent=False)
+        self.register_buffer("o_xtx", torch.zeros(hdim, hdim, dtype=torch.float32), persistent=False)
+        self.register_buffer("o_count", torch.zeros((), dtype=torch.float32), persistent=False)
+        # Python bool; Dynamo specializes one graph with accumulation and one
+        # without, so the compiled hot path has zero overhead when the flag is off.
+        self._precond_active = False
 
     def forward(self, x: Tensor):
+        if self._precond_active:
+            accum_xtx_(x, self.qkv_xtx, self.qkv_count)
         B, T = x.size(0), x.size(1)
         q = self.q(x).view(B, T, self.num_heads, self.head_dim)
         k = self.k(x).view(B, T, self.num_heads, self.head_dim)
@@ -383,6 +409,8 @@ class CausalSelfAttention(nn.Module):
         y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2),
                                            v.transpose(1, 2), scale=0.12, is_causal=True).transpose(1, 2)
         y = y.contiguous().view(B, T, self.num_heads * self.head_dim)
+        if self._precond_active:
+            accum_xtx_(y, self.o_xtx, self.o_count)
         y = self.proj(y)
         return y
 
@@ -428,6 +456,32 @@ class GPT(nn.Module):
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+
+
+def attach_precond_stats(model: "GPT"):
+    """Bind each attention-Linear weight to its activation-covariance accumulator.
+
+    q/k/v share one (dim x dim) accumulator per block (xᵀx of the block input).
+    attn.proj has its own (hdim x hdim) accumulator (xᵀx of the attention output).
+    MLP weights deliberately omitted — they keep SOAP (gradient-side) preconditioning.
+    """
+    for block in model.blocks:
+        a = block.attn
+        qkv = dict(accum=a.qkv_xtx, count=a.qkv_count)
+        o = dict(accum=a.o_xtx, count=a.o_count)
+        for mod, ref in ((a.q, qkv), (a.k, qkv), (a.v, qkv), (a.proj, o)):
+            mod.weight._stats_ref = ref
+
+
+def set_precond_active(model: "GPT", active: bool) -> None:
+    """Toggle activation-cov accumulation inside CausalSelfAttention forwards.
+
+    Flipping this Python bool causes Dynamo to recompile/swap between an
+    accum-free fast path (used in the normal compiled training forward) and an
+    accum-included path (used by the eager refresh-step forward).
+    """
+    for b in model.blocks:
+        b.attn._precond_active = active
 
 
 ########################################
@@ -556,20 +610,175 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+NEWTON_REFRESH_INTERVAL = 64
+NEWTON_ALPHA = 0.05
+NEWTON_DAMPING_FRAC = 0.2  # adaptive Tikhonov: 0.2 * mean(diag) + 1e-8
+
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                 newton_refresh_interval: int = NEWTON_REFRESH_INTERVAL):
         assert isinstance(named_params, list) and len(named_params) >= 1
         # Identify MLP weights (mlp.fc.weight / mlp.proj.weight) — only these receive SOAP preconditioning.
         self.soap_params = {
             p for n, p in named_params
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
+        # Identify attention weights (q/k/v/attn.proj) — only these receive Newton-Muon
+        # activation-cov right-preconditioning. q/k/v of a block share one accumulator.
+        self.newton_params = {
+            p for n, p in named_params
+            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
+        }
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self.newton_refresh_interval = newton_refresh_interval
+        self.global_step = 0
+        self._newton_attached = False
+        self._newton_has_inv = False
+        self._newton_stats = []
+        self._newton_K = None
+        self._newton_cov = None
+        self._newton_count = None
+        self._newton_matrix_count = None
+        self._newton_matrix_count_clamped = None
+        self._newton_matrix_stat_idx = None
+        self._newton_alpha = None
+        self._last_refresh_failures = 0
+
+    @staticmethod
+    def _eye_(x: Tensor, value: float):
+        x.zero_()
+        x.diagonal(dim1=-2, dim2=-1).fill_(value)
+
+    @torch.no_grad()
+    def attach_newton_preconditioner(self):
+        """Bind each newton_params parameter to its activation-covariance stat and
+        allocate the cov/inv working tensors. Idempotent across trials."""
+        self._newton_attached = True
+        self._newton_has_inv = False
+        stats = {}
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p not in self.newton_params:
+                    continue
+                ref = getattr(p, "_stats_ref", None)
+                assert ref is not None, f"Missing newton-precond stats for parameter {tuple(p.shape)}"
+                key = id(ref["accum"])
+                if key not in stats:
+                    stats[key] = dict(accum=ref["accum"], count=ref["count"])
+                self.state[p]["newton"] = stats[key]
+        self._newton_stats = list(stats.values())
+        if not self._newton_stats:
+            return
+        # All attention input stats are dim x dim or hdim x hdim. With head_dim=128
+        # and num_heads = dim/head_dim, hdim == dim for this architecture; so all
+        # stats share the same dim. Verify and pack into a single batched buffer.
+        d = self._newton_stats[0]["accum"].size(-1)
+        for s in self._newton_stats:
+            assert s["accum"].shape == (d, d), f"unexpected stat shape {s['accum'].shape}"
+        n = len(self._newton_stats)
+        device = self._newton_stats[0]["accum"].device
+        self._newton_K = torch.empty(n, d, d, device=device)
+        self._newton_cov = torch.empty_like(self._newton_K)
+        self._newton_count = torch.empty(n, device=device)
+        self._newton_matrix_count = torch.empty(n, device=device)
+        self._newton_matrix_count_clamped = torch.empty(n, device=device)
+        self._newton_matrix_stat_idx = torch.arange(n, device=device)
+        self._newton_alpha = torch.empty(n, 1, 1, device=device)
+        for i, s in enumerate(self._newton_stats):
+            s["cov"] = self._newton_cov[i]
+            s["inv"] = self._newton_K[i]
+            self._eye_(s["cov"], 0.001)
+            self._eye_(s["inv"], 1.0)
+            s["accum"].zero_()
+            s["count"].zero_()
+        self._last_refresh_failures = 0
+
+    def newton_refresh_due(self, step: int) -> bool:
+        return self._newton_attached and (int(step) + 1) % self.newton_refresh_interval == 0
+
+    @torch.no_grad()
+    def _refresh_newton(self):
+        if not self._newton_stats:
+            return
+        K = self._newton_K
+        d = K.size(-1)
+        for j, s in enumerate(self._newton_stats):
+            K[j].copy_(s["accum"])
+            self._newton_count[j].copy_(s["count"])
+        dist.all_reduce(K, op=dist.ReduceOp.SUM)
+        dist.all_reduce(self._newton_count, op=dist.ReduceOp.SUM)
+        torch.index_select(self._newton_count, 0, self._newton_matrix_stat_idx,
+                           out=self._newton_matrix_count)
+        self._newton_matrix_count_clamped.copy_(self._newton_matrix_count).clamp_min_(1)
+        K.div_(self._newton_matrix_count_clamped.view(-1, 1, 1))
+        # alpha=NEWTON_ALPHA on stats that received samples this window, else 0.
+        self._newton_alpha.copy_(self._newton_matrix_count.gt(0).view(-1, 1, 1)).mul_(NEWTON_ALPHA)
+        self._newton_cov.lerp_(K, self._newton_alpha)
+        # Adaptive Tikhonov damping: NEWTON_DAMPING_FRAC * mean diagonal + 1e-8.
+        diag = self._newton_cov.diagonal(dim1=-2, dim2=-1)
+        reg = (diag.sum(-1) / d * NEWTON_DAMPING_FRAC + 1e-8).unsqueeze(-1)
+        diag.add_(reg)
+        L, info = torch.linalg.cholesky_ex(self._newton_cov, upper=False, check_errors=False)
+        diag.sub_(reg)
+        torch.cholesky_inverse(L, upper=False, out=K)
+        failure_mask = info != 0
+        n_failures = int(failure_mask.sum().item())
+        if n_failures:
+            self._eye_(K[failure_mask], 1.0)
+        self._last_refresh_failures = n_failures
+        for s in self._newton_stats:
+            s["accum"].zero_()
+            s["count"].zero_()
+        self._newton_has_inv = True
+
+    @torch.no_grad()
+    def _precondition_newton_grads(self):
+        if not self._newton_has_inv:
+            return
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p not in self.newton_params or p.grad is None:
+                    continue
+                inv = self.state[p]["newton"]["inv"].to(p.grad.dtype)
+                p.grad.copy_(p.grad @ inv)
+
+    def newton_stats_summary(self) -> dict[str, float]:
+        """Light-weight summary of Newton-Muon preconditioner state for W&B (rank 0)."""
+        if not self._newton_has_inv:
+            return {}
+        cov = self._newton_cov
+        inv = self._newton_K
+        d = cov.size(-1)
+        diag = cov.diagonal(dim1=-2, dim2=-1)
+        trace = diag.sum(-1)
+        return {
+            "newton/refresh_step": int(self.global_step),
+            "newton/cholesky_failures": float(self._last_refresh_failures),
+            "newton/cov_trace_mean": float(trace.mean().item()),
+            "newton/cov_trace_max": float(trace.max().item()),
+            "newton/cov_diag_min": float(diag.min().item()),
+            "newton/cov_diag_max": float(diag.max().item()),
+            "newton/inv_fro_mean": float(inv.flatten(1).norm(dim=1).mean().item()),
+            "newton/inv_fro_max": float(inv.flatten(1).norm(dim=1).max().item()),
+            "newton/cov_dim": d,
+            "newton/num_stats": len(self._newton_stats),
+        }
 
     @torch.no_grad()
     def step(self):
+        # Newton-Muon refresh + right-precondition (attention-only, MLP keeps SOAP).
+        # Applied to RAW grad BEFORE momentum/Nesterov so all downstream stages
+        # (momentum EMA, contra, NorMuon-lite second-moment, u/w-floor) see the
+        # preconditioned gradient.
+        if self._newton_attached and self.newton_refresh_due(self.global_step):
+            self._refresh_newton()
+        if self._newton_attached:
+            self._precondition_newton_grads()
+
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -579,7 +788,7 @@ class Muon(torch.optim.Optimizer):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
-                    if len(state) == 0:
+                    if "momentum" not in state:
                         state["momentum"] = torch.zeros_like(p)
                         # NorMuon-lite per-row (or per-col) variance buffer.
                         if p.size(-2) >= p.size(-1):
@@ -620,6 +829,7 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self.global_step += 1
 
 
 ########################################
@@ -660,6 +870,9 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+# Bind newton-precond stat refs BEFORE compile so hooks/buffers are recognized
+# by Dynamo; the actual accumulation happens only when set_precond_active(True).
+attach_precond_stats(model)
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -699,7 +912,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/newton_refresh_interval": NEWTON_REFRESH_INTERVAL,
+            "optimizer/newton_alpha": NEWTON_ALPHA,
+            "optimizer/newton_damping_frac": NEWTON_DAMPING_FRAC,
+            "optimizer/recipe": "newton-muon-attn + contra-muon + normuon-lite + soap-on-mlp",
         },
     )
 
@@ -738,6 +954,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2.attach_newton_preconditioner()
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -831,6 +1048,18 @@ for trial_idx in range(args.num_trials):
 
         # --------------- TRAINING SECTION -----------------
         inputs, targets = next(train_loader)
+        # Newton-Muon refresh shim: on refresh steps, run an EAGER no_grad forward
+        # (via model.forward, bypassing the compiled wrapper) with the accumulation
+        # flag ON, then turn it off for the normal training forward/backward. This
+        # keeps the hot path's activation memory and runtime unchanged.
+        optimizer2.global_step = step
+        precond_refresh_due = optimizer2.newton_refresh_due(step)
+        if precond_refresh_due:
+            set_precond_active(model, True)
+            with torch.no_grad():
+                model.forward(inputs[:mbs], targets[:mbs])
+            set_precond_active(model, False)
+            torch.cuda.empty_cache()
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
@@ -873,6 +1102,12 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and precond_refresh_due:
+            newton_metrics = optimizer2.newton_stats_summary()
+            if newton_metrics:
+                newton_metrics["trial"] = trial_idx
+                newton_metrics["train/step"] = train_step
+                wandb.log(newton_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
