@@ -75,7 +75,7 @@
 | **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | smoke passed 14:51 UTC (K=50, val_loss=4.26 at step 200, cos_block0_q flipped +0.044 after resets). Arms A→D sequential via dispatcher (~6.4h). Rebase ping sent — branch CONFLICTING after #105 merge. |
 | **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A `lfcnprqg` finished val=3.27595/fs=3275 ✓ baseline parity. **arm-B `8ym5zef8` (embed-only) FINISHED val=3.27978 — WORSE than baseline by 0.005**. arm-C `82mx9xwy` (full SOAP) step 175/3350 ETA ~2.2h. Status ping sent. |
 | **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A `z2ygnqxh` finished val=3.27841/fs=3325 ✓. **Critical telemetry finding: spread saturates 11–25 ≫ midpoint=2.0 → arms B/C/D effectively fixed NS=16/14/18 uniform sweep, not adaptive**. arm-B `mxzk59qm` step 100 (warmup). Rebase ping sent (branch CONFLICTING). |
-| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | 6 smoke failures (v1-v4 step 0/1, v5/fp32 NaN at step 100). Diagnosed: degenerate SVD backward through near-equal singular values clustering near 1.0. **Decision ping sent: Path A (1 more debug attempt) or Path B (pivot to fresh experiment) — awaiting student choice**. |
+| **#172** | **askeladd (NEW)** | **Cautious Update Mask** (Bansal & Schaul 2024) | just assigned — apply Muon² update only when grad·momentum > 0. Tests fern's #154 staleness finding via signal-mask rather than erasure. 4 arms: off/after_ns/before_ns/soft. |
 | **#165** | **thorfinn** | **Clip value extension sweep** | just assigned 15:30 UTC — extends clip=5.0→{10,25,50}; awaiting student pickup |
 
 ## Infra-blocked
