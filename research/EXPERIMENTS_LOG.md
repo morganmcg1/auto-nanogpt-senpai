@@ -636,3 +636,37 @@ The motivating hypothesis (attention q/k/v have low effective rank → SOAP has 
 - PR #83 (SOAP-MLP standalone, null), PR #140 (SOAP-MLP × PMuon+u/w-floor, null), PR #167 (SOAP-attn × PMuon+u/w-floor, null) — three independent null results confirming the same mechanism.
 
 **Conclusion:** Closed as informative null. Tanjiro reassigned to Wave 5 NS coefficient scan (PR #193): sweeping (a, b, c) ∈ {Jordan-optimized (3.4445, -4.7750, 2.0315), cubic-Newton (1.5, -0.5, 0)} on the PMuon+u/w-floor+γ=1.2 base. Together with thorfinn PR #184 (NS iter count scan), this fully maps the NS polar hyperparameter space.
+
+---
+
+## 2026-05-16 21:05 UTC — PR #168 CLOSED: Cosine cooldown on PMuon+u/w-floor base — NULL vs new baseline (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-uw-cosine-cooldown`
+- Hypothesis: Cosine s-curve cooldown as alternative to power-law γ=1.2. Hypothesis: if γ=1.2 wins via "smoother lr trajectory" then cosine should be better; if from "mid-cooldown decay aggressiveness" cosine should be worse.
+- W&B run: `sf7fq2ul` (n=1, 3250 steps)
+
+| Metric | PR #168 Cosine (n=1) | PR #137 baseline γ=1.2 (n=2 mean) | Δ |
+| ------ | -------------------- | ---------------------------------- | - |
+| speedrun/final_first_step_to_target | 3075 | **3062.5** | **+12.5 steps (NULL vs baseline)** |
+| val/loss | 3.276583 | 3.269090 | +0.0075 (worse) |
+| (3.28−μ)·√n | 0.00342 | 0.01543 | **BELOW 0.004 bar (negative!)** |
+| vs PR #94 linear baseline | −25 sr | +0.0089 val | Beats linear on sr, worse on val |
+
+**Key mechanistic decomposition (from logged `train/cooldown/eta`):**
+
+At the crossing point (~step 3075, 92% cooldown progress):
+- Cosine eta: **0.0147** (5× lower than linear's 0.080)
+- γ=1.2 eta: **0.052** (~3.5× lower than linear)
+
+Both cosine and γ=1.2 cross at sr=3075 — same crossing step despite opposite decay shapes (back-loaded vs front-loaded). But post-crossing:
+- Cosine eta at step 3100: **0.011** → effectively dead, can't refine val
+- γ=1.2 eta at step 3100: **0.041** → continues refining val from 3.279 → 3.268
+
+**Insight: "any deviation from linear that lowers eta around the crossing window brings sr in by ~25 steps"** regardless of front-loaded vs back-loaded. Post-crossing val refinement requires preserved late-cooldown lr. This splits the schedule-shape effect into two separable mechanisms: (a) crossing sensitivity to integral of recent lr; (b) post-crossing refinement from late-lr preservation.
+
+**What hypothesis was tested:**
+- "Smoother lr trajectory (cosine)" — NOT confirmed (val worse despite smooth endpoints)
+- "Back-loaded decay helps vs front-loaded" — NOT confirmed (both shapes give same sr=3075)
+- **Discovered:** Both shapes lower eta around the crossing window, explaining the tie; but cosine's late collapse explains the val regression.
+
+**Conclusion:** Closed as informative null vs new baseline (sr regresses +12.5, val regresses +0.0075). Mechanistic framework motivates **cooldown_frac scan on γ=1.2 base** (PR #195). Fern's telemetry predicts: cf=0.85 (longer cooldown) should preserve late lr → better val; cf=0.5 (shorter) front-loads → may cross earlier but worse val. Direct test of PR #168's mechanistic decomposition.
