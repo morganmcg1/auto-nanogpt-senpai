@@ -42,6 +42,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--label_smoothing", type=float, default=0.0,
+                        help="Label smoothing epsilon applied to TRAIN CE loss only. Validation/eval uses raw CE (epsilon=0).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -425,13 +427,51 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, label_smoothing: float = 0.0):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum",
+                               label_smoothing=label_smoothing)
+
+    @torch.no_grad()
+    def compute_logit_diagnostics(self, inputs: Tensor, targets: Tensor, label_smoothing: float = 0.0):
+        x = self.norm1(self.embed(inputs))
+        for block in self.blocks:
+            x = block(x)
+        logits = self.proj(self.norm2(x)).float()
+        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        logits_flat = logits.view(targets.numel(), -1)
+        targets_flat = targets.view(-1)
+        n_tokens = targets.numel()
+        loss_smoothed_sum = F.cross_entropy(logits_flat, targets_flat, reduction="sum",
+                                            label_smoothing=label_smoothing)
+        if label_smoothing > 0.0:
+            loss_raw_sum = F.cross_entropy(logits_flat, targets_flat, reduction="sum")
+        else:
+            loss_raw_sum = loss_smoothed_sum
+        top2 = torch.topk(logits_flat, k=2, dim=-1).values
+        margin = top2[:, 0] - top2[:, 1]
+        logit_margin_mean = margin.mean()
+        abs_logits = logits_flat.abs()
+        logit_max_abs = abs_logits.max()
+        flat = abs_logits.flatten()
+        if flat.numel() > 1_000_000:
+            stride = max(1, flat.numel() // 1_000_000)
+            sample = flat[::stride]
+        else:
+            sample = flat
+        logit_max_abs_p99 = torch.quantile(sample.float(), 0.99)
+        return {
+            "loss_smoothed_per_token": float((loss_smoothed_sum / n_tokens).item()),
+            "loss_raw_per_token": float((loss_raw_sum / n_tokens).item()),
+            "logit_max_abs": float(logit_max_abs.item()),
+            "logit_max_abs_p99": float(logit_max_abs_p99.item()),
+            "logit_margin_mean": float(logit_margin_mean.item()),
+            "n_tokens": n_tokens,
+        }
 
 
 ########################################
@@ -641,6 +681,8 @@ if dist.get_rank() == 0:
             "soap_scope": "mlp.fc.weight,mlp.proj.weight",
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "label_smoothing": args.label_smoothing,
+            "train_steps": int(os.environ.get("SENPAI_TRAIN_STEPS", 3250)),
         },
     )
 
@@ -776,7 +818,8 @@ for trial_idx in range(args.num_trials):
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs],
+                         label_smoothing=args.label_smoothing)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -812,6 +855,19 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            diag = model.compute_logit_diagnostics(
+                inputs[:mbs], targets[:mbs], args.label_smoothing,
+            )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/loss_smoothed": diag["loss_smoothed_per_token"],
+                "train/loss_raw": diag["loss_raw_per_token"],
+                "train/loss_smoothed_minus_raw": diag["loss_smoothed_per_token"] - diag["loss_raw_per_token"],
+                "train/logit_max_abs": diag["logit_max_abs"],
+                "train/logit_max_abs_p99": diag["logit_max_abs_p99"],
+                "train/logit_margin_mean": diag["logit_margin_mean"],
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
