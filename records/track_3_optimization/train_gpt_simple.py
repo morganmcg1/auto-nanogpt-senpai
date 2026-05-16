@@ -443,6 +443,8 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+NANOGPT_EMBED_LR_SCALE = float(os.environ.get("NANOGPT_EMBED_LR_SCALE", "1.0"))
+NANOGPT_LMHEAD_LR_SCALE = float(os.environ.get("NANOGPT_LMHEAD_LR_SCALE", "1.0"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -534,6 +536,8 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(f"AUX_LR_SCALE: embed={NANOGPT_EMBED_LR_SCALE} lm_head={NANOGPT_LMHEAD_LR_SCALE}",
+       console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -574,6 +578,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "nanogpt_embed_lr_scale": NANOGPT_EMBED_LR_SCALE,
+            "nanogpt_lmhead_lr_scale": NANOGPT_LMHEAD_LR_SCALE,
         },
     )
 
@@ -609,6 +615,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    for group in optimizer1.param_groups:
+        if group.get("name") == "adam_embed":
+            group["lr"] = group["lr"] * NANOGPT_EMBED_LR_SCALE
+        elif group.get("name") == "adam_lm_head":
+            group["lr"] = group["lr"] * NANOGPT_LMHEAD_LR_SCALE
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -752,8 +763,27 @@ for trial_idx in range(args.num_trials):
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
             )
+        if dist.get_rank() == 0 and telemetry_due:
+            embed_pre = model.embed.weight.detach().clone()
+            lmhead_pre = model.proj.weight.detach().clone()
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            with torch.no_grad():
+                embed_delta = (model.embed.weight.detach() - embed_pre).float()
+                lmhead_delta = (model.proj.weight.detach() - lmhead_pre).float()
+                aux_lr_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/aux_lr/embed_update_norm": float(embed_delta.norm().item()),
+                    "train/aux_lr/embed_update_rms": float(embed_delta.square().mean().sqrt().item()),
+                    "train/aux_lr/lmhead_update_norm": float(lmhead_delta.norm().item()),
+                    "train/aux_lr/lmhead_update_rms": float(lmhead_delta.square().mean().sqrt().item()),
+                    "train/aux_lr/embed_lr_scale": NANOGPT_EMBED_LR_SCALE,
+                    "train/aux_lr/lmhead_lr_scale": NANOGPT_LMHEAD_LR_SCALE,
+                }
+                wandb.log(aux_lr_metrics, step=wandb_step)
+            del embed_pre, lmhead_pre
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
