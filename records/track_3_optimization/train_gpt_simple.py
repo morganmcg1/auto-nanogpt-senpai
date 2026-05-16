@@ -42,9 +42,21 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--schedule_free", action="store_true",
+                        help="Enable schedule-free averaging wrapper (Defazio et al. 2024, arXiv 2405.15682)")
+    parser.add_argument("--schedfree_beta", type=float, default=0.95,
+                        help="Schedule-free momentum: weight on x in y = beta*x + (1-beta)*z")
+    parser.add_argument("--cooldown_frac", type=float, default=None,
+                        help="Cosine cooldown fraction (default 0.7; forced to 0.0 when --schedule_free)")
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override train_steps (else SENPAI_TRAIN_STEPS env or built-in default)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    if args.cooldown_frac is None:
+        args.cooldown_frac = 0.0 if args.schedule_free else 0.7
+    if args.schedule_free and args.cooldown_frac != 0.0:
+        args.cooldown_frac = 0.0
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
     return args
@@ -641,6 +653,9 @@ if dist.get_rank() == 0:
             "soap_scope": "mlp.fc.weight,mlp.proj.weight",
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "schedule_free": args.schedule_free,
+            "schedfree_beta": args.schedfree_beta if args.schedule_free else None,
+            "cooldown_frac": args.cooldown_frac,
         },
     )
 
@@ -652,7 +667,15 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+    if args.train_steps is not None:
+        train_steps = args.train_steps
+    elif "SENPAI_TRAIN_STEPS" in os.environ:
+        train_steps = int(os.environ["SENPAI_TRAIN_STEPS"])
+    elif args.schedule_free:
+        # No cooldown when schedule-free; PR-spec budget for averaging to settle
+        train_steps = 3350
+    else:
+        train_steps = 3250
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -686,11 +709,11 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then (optional) cosine cooldown
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        if cooldown_frac <= 0.0 or progress < 1 - cooldown_frac:
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
@@ -706,6 +729,17 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Schedule-free state: z_t (optimizer iterate) and x_t (averaged iterate).
+    # Stored in float32 for numerical stability of the cumulative average (1/(t+1))
+    # over thousands of steps; only the model param dtype (bf16 for embed, fp32 else)
+    # is used for forward passes via copy_().
+    if args.schedule_free:
+        z_params = [p.data.detach().to(torch.float32).clone() for p in model.parameters()]
+        x_params = [p.data.detach().to(torch.float32).clone() for p in model.parameters()]
+        schedfree_beta = args.schedfree_beta
+    else:
+        z_params = None
+        x_params = None
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -730,6 +764,27 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+
+            # In schedule-free mode, p currently holds z (set after the previous opt.step).
+            # Eval on z first to get val/loss_z (diagnostic), then swap to x for the
+            # primary val/loss.  Cast back from the fp32 schedule-free state into p.dtype.
+            val_loss_z_float = None
+            if args.schedule_free:
+                # Make sure p == z exactly (cheap re-sync, also valid at step 0).
+                for p, z in zip(model.parameters(), z_params):
+                    p.data.copy_(z)
+                val_loss_z = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_z += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_z, op=dist.ReduceOp.SUM)
+                val_loss_z /= val_tokens
+                val_loss_z_float = float(val_loss_z.item())
+                # Swap to x for the canonical val/loss
+                for p, x in zip(model.parameters(), x_params):
+                    p.data.copy_(x)
+
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -738,6 +793,12 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+
+            # Restore p ← z so the next training step's forward sees z (we then mix
+            # in x to form y just before the forward pass).
+            if args.schedule_free:
+                for p, z in zip(model.parameters(), z_params):
+                    p.data.copy_(z)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -758,9 +819,14 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if args.schedule_free:
+                    metrics["val/loss_x"] = val_loss_float
+                    metrics["val/loss_z"] = val_loss_z_float
+                    metrics["val/loss_x_minus_z"] = val_loss_float - val_loss_z_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+            extra = f" val_loss_z:{val_loss_z_float:.5f}" if val_loss_z_float is not None else ""
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{extra} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
@@ -771,6 +837,16 @@ for trial_idx in range(args.num_trials):
             break
 
         # --------------- TRAINING SECTION -----------------
+        # Schedule-free: before the forward, set p ← y = beta*x + (1-beta)*z.  After
+        # backward we restore p ← z so the optimizer step updates z (not y).  The
+        # interpolation runs in p.dtype (bf16 for embed, fp32 elsewhere); fp32
+        # masters in z_params / x_params hold the exact running average.
+        if args.schedule_free:
+            for p, z, x in zip(model.parameters(), z_params, x_params):
+                # p = (1-beta)*z + beta*x
+                p.data.copy_(z)
+                p.data.mul_(1 - schedfree_beta).add_(x, alpha=schedfree_beta)
+
         inputs, targets = next(train_loader)
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
@@ -784,6 +860,12 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+
+        # Schedule-free: restore p ← z before optimizer.step so the update lands on z.
+        if args.schedule_free:
+            for p, z in zip(model.parameters(), z_params):
+                p.data.copy_(z)
+
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
@@ -814,6 +896,37 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+
+        # Schedule-free: copy updated p ← z, then advance the polynomial average
+        # x ← (1 - c_t) * x + c_t * z   with   c_t = 1 / (t+1).
+        if args.schedule_free:
+            c_t = 1.0 / (step + 1)
+            for p, z, x in zip(model.parameters(), z_params, x_params):
+                z.copy_(p.data)
+                x.mul_(1 - c_t).add_(z, alpha=c_t)
+            if dist.get_rank() == 0 and telemetry_due:
+                x_vs_z_sq = torch.zeros((), device=device, dtype=torch.float64)
+                z_sq = torch.zeros((), device=device, dtype=torch.float64)
+                x_sq = torch.zeros((), device=device, dtype=torch.float64)
+                for z, x in zip(z_params, x_params):
+                    diff = (x - z).to(torch.float64)
+                    x_vs_z_sq += diff.square().sum()
+                    z_sq += z.to(torch.float64).square().sum()
+                    x_sq += x.to(torch.float64).square().sum()
+                x_vs_z_norm = float(x_vs_z_sq.sqrt().item())
+                z_norm = float(z_sq.sqrt().item())
+                x_norm = float(x_sq.sqrt().item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "schedfree/x_vs_z_norm": x_vs_z_norm,
+                    "schedfree/z_norm": z_norm,
+                    "schedfree/x_norm": x_norm,
+                    "schedfree/x_vs_z_norm_over_z_norm": (x_vs_z_norm / z_norm) if z_norm > 0 else 0.0,
+                    "schedfree/c_t": c_t,
+                    "schedfree/beta": schedfree_beta,
+                }, step=wandb_step)
+
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
