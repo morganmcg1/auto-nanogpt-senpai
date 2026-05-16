@@ -507,6 +507,7 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     return X
 
 
+@torch._dynamo.disable
 def polar_exact_svd(G: Tensor) -> Tensor:
     """Exact polar decomposition via SVD: A = U S V^T -> P = U V^T.
 
@@ -514,6 +515,10 @@ def polar_exact_svd(G: Tensor) -> Tensor:
     not implemented), so the SVD itself always runs in fp32. POLAR_FP32
     controls only the dtype of the U @ Vh matmul: 0 -> downcast U/Vh to bf16
     before the matmul (Arm B); 1 -> keep fp32 through the matmul (Arm C).
+
+    Driver 'gesvd' (QR-based) is used for robustness; 'gesvdj' (default for
+    near-square) can fail with linalg error on ill-conditioned matrices and
+    inductor strips the driver kwarg when tracing.
     """
     assert G.ndim >= 2
     orig_dtype = G.dtype
@@ -522,7 +527,7 @@ def polar_exact_svd(G: Tensor) -> Tensor:
     if transposed:
         X = X.mT
     # No spectral-norm pre-scaling needed: SVD is scale-invariant in U V^T.
-    U, S, Vh = torch.linalg.svd(X, full_matrices=False)
+    U, S, Vh = torch.linalg.svd(X, full_matrices=False, driver="gesvd")
     if not POLAR_FP32:
         U = U.bfloat16()
         Vh = Vh.bfloat16()
