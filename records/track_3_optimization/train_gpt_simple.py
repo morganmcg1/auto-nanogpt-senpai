@@ -256,6 +256,47 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def log_attn_eigenval_concentration(
+    soap_params: list[torch.nn.Parameter],
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Spectral-skew diagnostic for SOAP-attn (PR #167).
+
+    Computes singular values of each attn q/k/v weight, then aggregates
+    top-k mass fractions and the participation ratio (effective rank).
+    """
+    if not soap_params:
+        return
+    top1_list, top8_list, top32_list, top128_list, prat_list = [], [], [], [], []
+    for p in soap_params:
+        w = p.detach().float()
+        s = torch.linalg.svdvals(w)
+        s2 = s * s
+        total = float(s2.sum().clamp_min(1e-20).item())
+        s2_sorted, _ = torch.sort(s2, descending=True)
+        top1_list.append(float(s2_sorted[:1].sum().item()) / total)
+        top8_list.append(float(s2_sorted[:8].sum().item()) / total)
+        top32_list.append(float(s2_sorted[:32].sum().item()) / total)
+        top128_list.append(float(s2_sorted[:128].sum().item()) / total)
+        sum_s = float(s.sum().item())
+        sum_s2 = float(s2.sum().clamp_min(1e-20).item())
+        prat_list.append((sum_s * sum_s) / sum_s2)
+    def mean(xs: list[float]) -> float:
+        return sum(xs) / len(xs) if xs else 0.0
+    wandb.log({
+        "trial": trial_idx,
+        "train/step": step,
+        "train/soap/attn_qkv/eigenval_top1_mass_mean": mean(top1_list),
+        "train/soap/attn_qkv/eigenval_top8_mass_mean": mean(top8_list),
+        "train/soap/attn_qkv/eigenval_top32_mass_mean": mean(top32_list),
+        "train/soap/attn_qkv/eigenval_top128_mass_mean": mean(top128_list),
+        "train/soap/attn_qkv/participation_ratio_mean": mean(prat_list),
+    }, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -491,12 +532,20 @@ def pmuon_update(
     return update
 
 
+SOAP_BETA2 = 0.99           # slow burn-in for SOAP second-moment EMA (validated in PR #83/#140)
+SOAP_EPS = 1e-10
+SOAP_PRECOND_FREQ = 10      # eigh refresh cadence for Q_L, Q_R
+SOAP_SCALE_CLAMP = 10.0     # clamp on Adam-scaled values in the eigenbasis
+SOAP_AMP_CAP = 1.5          # asymmetric Frobenius guard: caps upward amplification, allows shrinkage
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
         super().__init__(params, defaults)
+        self.soap_target_ids: set[int] = set()
 
     @torch.no_grad()
     def step(self):
@@ -506,6 +555,10 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        soap_eligible_count = 0
+        soap_amp_cap_fires = 0
+        soap_pre_norm_sum = 0.0
+        soap_post_norm_sum = 0.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -517,6 +570,26 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    is_soap = id(p) in self.soap_target_ids
+                    if is_soap and "soap_L_cov" not in state:
+                        state["soap_L_cov"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
+                        state["soap_R_cov"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        state["soap_Q_L"] = torch.eye(p.shape[0], device=p.device, dtype=torch.float32)
+                        state["soap_Q_R"] = torch.eye(p.shape[1], device=p.device, dtype=torch.float32)
+                        state["soap_exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                        state["soap_step"] = 0
+
+                    # SOAP eigenbasis covariances are built from the raw gradient before
+                    # pmuon_update mutates it via in-place lerp_ for the Nesterov blend.
+                    if is_soap:
+                        g_soap = p.grad.detach().float().clone()
+                        state["soap_L_cov"].mul_(SOAP_BETA2).add_(g_soap @ g_soap.T, alpha=1 - SOAP_BETA2)
+                        state["soap_R_cov"].mul_(SOAP_BETA2).add_(g_soap.T @ g_soap, alpha=1 - SOAP_BETA2)
+                        state["soap_step"] += 1
+                        if state["soap_step"] % SOAP_PRECOND_FREQ == 0:
+                            _, state["soap_Q_L"] = torch.linalg.eigh(0.5 * (state["soap_L_cov"] + state["soap_L_cov"].T))
+                            _, state["soap_Q_R"] = torch.linalg.eigh(0.5 * (state["soap_R_cov"] + state["soap_R_cov"].T))
+
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -526,6 +599,29 @@ class Muon(torch.optim.Optimizer):
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                     )
+
+                    # SOAP-attn: project the post-polar update into the gradient-covariance
+                    # eigenbasis, apply Adam-style normalization with clamp, project back,
+                    # then Frobenius-renormalize with an asymmetric cap on upward amplification.
+                    # Runs BEFORE the u/w-floor check so the floor sees SOAP-scaled magnitude.
+                    if is_soap:
+                        m32 = update.float()
+                        pre_norm = m32.norm().clamp_min(1e-12)
+                        m_in_basis = state["soap_Q_L"].T @ m32 @ state["soap_Q_R"]
+                        state["soap_exp_avg_sq"].mul_(SOAP_BETA2).addcmul_(m_in_basis, m_in_basis, value=1 - SOAP_BETA2)
+                        m_scaled = m_in_basis / (state["soap_exp_avg_sq"].sqrt() + SOAP_EPS)
+                        m_scaled.clamp_(min=-SOAP_SCALE_CLAMP, max=SOAP_SCALE_CLAMP)
+                        m_back = state["soap_Q_L"] @ m_scaled @ state["soap_Q_R"].T
+                        post_norm = m_back.norm().clamp_min(1e-12)
+                        raw_multiplier = pre_norm / post_norm
+                        multiplier = raw_multiplier.clamp_max(SOAP_AMP_CAP)
+                        soap_eligible_count += 1
+                        if raw_multiplier.item() > SOAP_AMP_CAP:
+                            soap_amp_cap_fires += 1
+                        soap_pre_norm_sum += pre_norm.item()
+                        update = (m_back * multiplier).to(update.dtype)
+                        soap_post_norm_sum += update.float().norm().item()
+
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
@@ -537,6 +633,12 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._soap_diag = {
+            "eligible": soap_eligible_count,
+            "amp_cap_fires": soap_amp_cap_fires,
+            "pre_norm_sum": soap_pre_norm_sum,
+            "post_norm_sum": soap_post_norm_sum,
+        }
 
 
 ########################################
@@ -614,7 +716,18 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "muon_method": "pmuon-uw-soap-attn",
+            # SOAP-attn add-on (PR #167): applied after NS5 polar, before u/w-floor check,
+            # restricted to attn q/k/v 2-D weights only. attn.proj and MLP weights go through
+            # plain PMuon + u/w-floor.
+            "soap_scope": "attn_qkv",
+            "soap_attn_active": True,
+            "soap_beta2": SOAP_BETA2,
+            "soap_eps": SOAP_EPS,
+            "soap_precond_freq": SOAP_PRECOND_FREQ,
+            "soap_scale_clamp": SOAP_SCALE_CLAMP,
+            "soap_amp_cap": SOAP_AMP_CAP,
+            "target_uw": 0.35,
         },
     )
 
@@ -653,6 +766,19 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # SOAP-attn targets: only the 36 attention q/k/v 2-D weight matrices inside transformer
+    # blocks (12 blocks × 3 projections). attn.proj and MLP weights take plain PMuon + u/w-floor.
+    soap_target_ids: set[int] = set()
+    soap_target_params: list[torch.nn.Parameter] = []
+    for name, p in model.blocks.named_parameters():
+        if p.ndim >= 2 and (
+            "attn.q.weight" in name
+            or "attn.k.weight" in name
+            or "attn.v.weight" in name
+        ):
+            soap_target_ids.add(id(p))
+            soap_target_params.append(p)
+    optimizer2.soap_target_ids = soap_target_ids
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -807,6 +933,29 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
                 }, step=wandb_step)
+            soap_diag = getattr(optimizer2, "_soap_diag", None)
+            if soap_diag is not None:
+                soap_elig = soap_diag.get("eligible", 0)
+                amp_fires = soap_diag.get("amp_cap_fires", 0)
+                pre_sum = soap_diag.get("pre_norm_sum", 0.0)
+                post_sum = soap_diag.get("post_norm_sum", 0.0)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/soap/attn_qkv/eligible": soap_elig,
+                    "train/soap/attn_qkv/amp_cap_fires": amp_fires,
+                    "train/soap/attn_qkv/amp_cap_fire_fraction": (amp_fires / soap_elig) if soap_elig > 0 else 0.0,
+                    "train/soap/attn_qkv/pre_norm_mean": (pre_sum / soap_elig) if soap_elig > 0 else 0.0,
+                    "train/soap/attn_qkv/post_norm_mean": (post_sum / soap_elig) if soap_elig > 0 else 0.0,
+                    "train/soap/attn_qkv/post_to_pre_ratio": (post_sum / pre_sum) if pre_sum > 0 else 0.0,
+                }, step=wandb_step)
+        if dist.get_rank() == 0 and (train_step == 1 or train_step % 250 == 0 or train_step == train_steps):
+            log_attn_eigenval_concentration(
+                soap_params=soap_target_params,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
