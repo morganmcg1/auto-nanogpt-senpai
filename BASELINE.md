@@ -8,7 +8,46 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
-### 2026-05-16 01:55 — PR #71: NorMuon-clean (squash-merged)
+### 2026-05-16 06:35 — PR #78: Contra-Muon + SOAP preconditioning on MLP weights (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Optimizer 2D | **Contra-Muon + SOAP-MLP**: NorMuon with operator-norm contra correction, u/w-floor, + SOAP eigenbasis preconditioner on MLP weights (SOAP applied to momentum BEFORE NS5) |
+| Contra-Muon HPs | `CONTRA_MUON=0.4`, `TARGET_UW=0.35`, `MUON_LR=0.0375`, `MUON_WEIGHT_DECAY=0.025`, `MU=0.95` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `precondition_frequency=10`; applies to `mlp.fc.weight` and `mlp.proj.weight` only |
+| NorMuon variance | `nm_beta2=0.95`, `nm_eps=1e-8`, `nm_renorm=frob`; Frobenius renorm post-NS5 |
+| Optimizer aux | AdamW: embed.weight lr=0.3; proj.weight lr=1/320; scalars lr=0.01; betas=(0.8, 0.95), eps=1e-10, wd=0 |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `6bbhoxm1` (n=4 confirmation, all 4 trials) |
+| **n=4 mean val/loss** | **3.27760** |
+| **n=4 statsig margin** | **0.00480** ≥ 0.004 — PASSES |
+| **ffs mean** | **3131.25** (T0=3150, T1=3150, T2=3100, T3=3125) |
+| **speedup vs NorMuon baseline** | **−125 mean ffs steps** (3256.25 → 3131.25) |
+| **speedup vs starter** | ~220 steps / ~6.5% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27920 | 3150 |
+| T1 | 3.27811 | 3150 |
+| T2 | 3.27522 | 3100 |
+| T3 | 3.27787 | 3125 |
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 1 \
+  --wandb_name "$STUDENT_NAME/contra-soap-mlp-repro" \
+  --wandb_group "contra-soap-mlp-repro"
+```
+*(Contra-Muon + SOAP-MLP HPs are baked into the merged `train_gpt_simple.py` on `auto-nanogpt-1gpu-r2`.)*
+
+---
+
+### 2026-05-16 01:55 — PR #71: NorMuon-clean (squash-merged, superseded)
 
 | Field | Value |
 | --- | --- |
