@@ -26,6 +26,16 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
 
+# Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
+# Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
+# Arm A (Jordan-optimized): (3.4445, -4.7750, 2.0315) — aggressive contraction from Muon paper.
+# Arm B (cubic Newton):     (1.5, -0.5, 0.0)        — degenerate quintic, classical Newton iteration.
+NS_A = 3.4445
+NS_B = -4.7750
+NS_C = 2.0315
+NS_ITERS = 12
+MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-jordan"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -436,7 +446,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -445,8 +455,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -474,6 +483,10 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
+    ns_a: float = NS_A,
+    ns_b: float = NS_B,
+    ns_c: float = NS_C,
+    polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -487,16 +500,33 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
-    update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
+    # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
+    if polar_diag is not None and "residual" not in polar_diag:
+        X = polar
+        m, n = X.shape[-2], X.shape[-1]
+        Xf = X.float()
+        if m <= n:
+            gram = Xf @ Xf.T
+            eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+        else:
+            gram = Xf.T @ Xf
+            eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
+        polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
+        polar_diag["sample_rows"] = m
+        polar_diag["sample_cols"] = n
+    update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3,
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -507,6 +537,7 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        polar_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -526,6 +557,10 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        ns_a=group["ns_a"],
+                        ns_b=group["ns_b"],
+                        ns_c=group["ns_c"],
+                        polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -538,6 +573,7 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._polar_diag = polar_diag
 
 
 ########################################
@@ -613,12 +649,15 @@ if dist.get_rank() == 0:
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
-            "ns_iterations": 12,
+            "ns_iterations": NS_ITERS,
+            "ns_coef_a": NS_A,
+            "ns_coef_b": NS_B,
+            "ns_coef_c": NS_C,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "muon_method": MUON_METHOD,
         },
     )
 
@@ -814,6 +853,18 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
+            polar_diag = getattr(optimizer2, "_polar_diag", None)
+            if polar_diag and "residual" in polar_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "polar/ortho_residual_sample": polar_diag["residual"],
+                    "polar/sample_rows": polar_diag.get("sample_rows", 0),
+                    "polar/sample_cols": polar_diag.get("sample_cols", 0),
+                    "polar/ns_coef_a": NS_A,
+                    "polar/ns_coef_b": NS_B,
+                    "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
