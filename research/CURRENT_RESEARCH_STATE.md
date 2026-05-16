@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 16:35 UTC — PR #151 alphonse Aurora pre-polar NULL closed; PR #150 fern Cautious NEGATIVE closed (+silent-fail duplicate flagged); PR #168 (fern cosine cooldown) and PR #169 (alphonse per-head polar) assigned; askeladd 0p45 done sr=3150 val=3.2716 NULL (moving to 0.30 arm); null tally now at 11 add-on/scalar nulls; **plateau watch CONFIRMED — Wave 5 pivot active**
+- **Last update:** 2026-05-16 17:42 UTC — **🏆 PR #137 nezuko n=2 CONFIRMED WINNER (sr=3062.5, val=3.269106 — clean merge candidate, awaiting SENPAI-RESULT + label swap from student); edward LLRD arm A NEGATIVE (sr=−1 val=3.3001); arm B (decay=0.90) running; PR #168 fern cosine cooldown and PR #169 alphonse per-head polar both launched and running**
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3100 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -13,29 +13,43 @@ n=2 stat-sig margin: (3.28 − 3.267696)·√2 = 0.01740 ✓
 
 **Key property:** u/w-floor fires at 100% of eligible params every step — the floor acts as a universal update magnitude multiplier, not a targeted safety catch.
 
-## 🔥 POTENTIAL WINNER: PR #137 nezuko — seed-2 running, ETA ~17:15 UTC
+## 🏆 CONFIRMED WINNER: PR #137 nezuko — n=2 result clear, awaiting merge
 
-**W&B run `8quuvdrj` (γ=1.2 power-law cooldown on PMuon+u/w-floor, n=1):**
-- `speedrun/final_first_step_to_target`: **3075** (25 better than baseline) ✅
-- val/loss at step 3250: **3.270012** (+0.00232 vs baseline, within 0.004)
-- n=1 stat-sig vs 3.28: 0.00999 > 0.004 ✓
+**Power-law cooldown γ=1.2 on PMuon + u/w-floor (n=2):**
 
-**Seed-2 `l5bdkm6e`:** step ~2250/3250 (69%), val 3.39, ETA ~17:15 UTC. This is the critical n=2 confirmation for the only improvement direction we have on this base.
+| metric | seed-1 (`8quuvdrj`) | seed-2 (`l5bdkm6e`) | **n=2 mean** | PR #94 baseline (n=2) | Δ |
+| ------ | --------- | --------- | --------- | --------- | --------- |
+| `speedrun/final_first_step_to_target` | 3075 | **3050** | **3062.5** | 3100 | **−37.5 steps** ✅ |
+| val/loss | 3.270012 | 3.2682 | **3.269106** | 3.267696 | +0.00141 (within seed-noise) |
+| `final_reached_target` | 1 | 1 | — | — | both clean |
 
-**Merge gate:** (3.28 − μ) × √2 ≥ 0.004 ⇒ μ ≤ 3.2772. Plenty of margin if seed-2 lands around 3.270 like seed-1.
+**n=2 stat-sig:** `(3.28 − 3.269106) × √2 = 0.01547 ≥ 0.004` ✓ **strong margin**.
+
+Seed-2 crossed 3.28 at step 3050 (one validation tick BETTER than seed-1's 3075). Cross trajectory confirmed: step 3025 val=3.2813 → step 3050 val=3.2788 (crossed).
+
+**Status:** Advisor has posted "merge ready" comment on PR #137 at 17:42 UTC. Awaiting student to:
+1. Post terminal SENPAI-RESULT comment with n=2 numbers
+2. Swap `status:wip` → `status:review`
+3. Mark PR ready (not draft)
+
+Once those land, run `senpai:merge-winner 137 target/`. New baseline becomes PMuon + u/w-floor + power-law cooldown γ=1.2 at sr=3062.5, val=3.269106.
+
+**Mechanistic story confirmed:** concave-down γ=1.2 cooldown trades a tiny amount of final-val for earlier target attainment. The 37.5-step speedrun gain is clean (~1.5× one validation tick) — not a quantization artifact.
+
+**Wave 5 priority #1 once merged:** γ × cooldown_frac joint surface scan (nezuko's seed-1 follow-up suggestion).
 
 ## Active experiments (status:wip)
 
 | PR  | Student     | Mechanism                                                              | Status (16:35 UTC) |
 | --- | ----------- | --------------------------------------------------------------------- | ------ |
-| **#137** | **nezuko** | + γ=1.2 power-law cooldown (seed-2 n=2 confirmation)              | `l5bdkm6e` step ~2250/3250 (69%), ETA ~17:15 UTC |
-| #167 | tanjiro    | + SOAP on attention q/k/v only (spectral-skew hypothesis)            | `sb4u7xhb` step ~0/3250 (picked up, just starting) |
-| #158 | edward     | + Depth-wise per-block LR decay (LLRD, arm A=0.85, arm B=0.90)       | arm A `8v3v2l4h` step 2350/3250 (72%), ETA ~17:15 UTC |
-| #143 | thorfinn   | + Lookahead outer optimizer (arm A k=5 NULL; arm B k=10 running)     | arm B `i4eb7s2p` step 630/3250 (19%), ETA ~19:30 UTC |
-| #129 | frieren    | + PMuon β_cov scan (arm A 0.90, arm B 0.95 DONE NULL; arm C 0.99)    | arm C `rnq53ele` step 1750/3250 (54%), ETA ~17:45 UTC |
-| #131 | askeladd   | + TARGET_UW sweep {0.25, 0.30, 0.40 DONE, 0.45 DONE}                 | arm 0.30 `dkxweoah` just started, then 0.25 |
-| **#168** | **fern**    | + **Cosine cooldown shape** (Wave 5 — schedule shape probe)         | just assigned, awaiting pickup |
-| **#169** | **alphonse**| + **Per-head polar projection on attention q/k/v** (Wave 5 — structural polar) | just assigned, awaiting pickup |
+| **#137** | **nezuko** | + γ=1.2 power-law cooldown — **n=2 CONFIRMED WIN** (sr=3062.5, val=3.269106) | **awaiting SENPAI-RESULT + label swap → MERGE** |
+| #167 | tanjiro    | + SOAP on attention q/k/v only (spectral-skew hypothesis)            | `sb4u7xhb` running, ~26% at 17:22 UTC |
+| #158 | edward     | + Depth-wise per-block LR decay (arm A=0.85 NEGATIVE, arm B=0.90 running) | arm A `8v3v2l4h` DONE: sr=−1 val=3.3001 NEGATIVE; arm B `z6xxow8s` step 225 (~7%) ETA ~20:50 UTC |
+| #143 | thorfinn   | + Lookahead outer optimizer (arm A k=5 NULL; arm B k=10 running)     | arm B `i4eb7s2p` step ~1440 (~44%), ETA ~19:30 UTC |
+| #129 | frieren    | + PMuon β_cov scan (arm A 0.90 not yet launched, arm B 0.95 DONE NULL; arm C 0.99 running) | arm C `rnq53ele` step ~2825/3250 (87%), ETA ~17:55 UTC |
+| #131 | askeladd   | + TARGET_UW sweep {0.25 pending, 0.30 running, 0.40 DONE NULL, 0.45 DONE NULL} | arm 0.30 `dkxweoah` step 850 (~26%), ETA ~20:00 UTC |
+| **#168** | **fern**    | + **Cosine cooldown shape** (Wave 5 — schedule shape probe)         | `sf7fq2ul` running, step 465 (~14%), ETA ~20:00 UTC |
+| **#169** | **alphonse**| + **Per-head polar projection on attention q/k/v** (Wave 5 — structural polar) | `8mgxsj35` just launched 17:24 UTC, step 0 |
 
 ## Closed this session
 
