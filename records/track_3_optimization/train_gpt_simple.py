@@ -434,8 +434,15 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+# Plain-Muon base toggle for the Soft-Muon isolation experiment (PR #103).
+# When PLAIN_MUON_BASE=1, Contra-Muon subtraction is disabled and SOAP preconditioning
+# on MLP weights is skipped — reproducing the NorMuon-clean baseline that the
+# `pzp8b4rq` p=0.05 screen was run against (pre-PR #78 merge). NorMuon row-variance
+# stays on either way. Default (off) keeps the merged Contra+SOAP-MLP recipe.
+PLAIN_MUON_BASE = os.environ.get("PLAIN_MUON_BASE", "0") == "1"
+
 # Contra-Muon + SOAP-on-MLP hyperparameters
-CONTRA_MUON = 0.4
+CONTRA_MUON = 0.0 if PLAIN_MUON_BASE else 0.4
 MU = 0.95
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
@@ -660,10 +667,14 @@ class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
         # Identify MLP weights (mlp.fc.weight / mlp.proj.weight) — only these receive SOAP preconditioning.
-        self.soap_params = {
-            p for n, p in named_params
-            if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
-        }
+        # When PLAIN_MUON_BASE=1, leave this set empty so no parameter ever runs through SOAP.
+        if PLAIN_MUON_BASE:
+            self.soap_params = set()
+        else:
+            self.soap_params = {
+                p for n, p in named_params
+                if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+            }
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -812,7 +823,12 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/recipe": (
+                "normuon-clean + soft-muon (plain-muon base, PR #103 isolated)"
+                if PLAIN_MUON_BASE else
+                "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)"
+            ),
+            "optimizer/plain_muon_base": PLAIN_MUON_BASE,
             "optimizer/soft_muon_enabled": SOFT_MUON_ENABLED,
             "optimizer/soft_muon_p": SOFT_MUON_P,
             "optimizer/soft_muon_ceil": SOFT_MUON_CEIL,
