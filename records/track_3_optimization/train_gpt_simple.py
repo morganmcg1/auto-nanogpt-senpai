@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -24,6 +25,28 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+COOLDOWN_SHAPES = ("linear", "cosine", "power_alpha1p2", "power_alpha0p6", "trapezoidal")
+# Per-shape LR multipliers chosen so total schedule integral matches linear
+# (0.65 over progress in [0,1]). Integrals:
+#   linear         cooldown_frac=0.7: 0.3 + 0.7*0.5     = 0.65   -> 1.000
+#   cosine         cooldown_frac=0.7: 0.3 + 0.7*0.5     = 0.65   -> 1.000
+#   power_alpha1p2 cooldown_frac=0.7: 0.3 + 0.7/2.2     = 0.6182 -> 1.0515
+#   power_alpha0p6 cooldown_frac=0.7: 0.3 + 0.7/1.6     = 0.7375 -> 0.8814
+#   trapezoidal    cooldown_frac=0.3: 0.7 + 0.3*0.5     = 0.85   -> 0.7647
+COOLDOWN_LR_MULTIPLIER = {
+    "linear":          1.000,
+    "cosine":          1.000,
+    "power_alpha1p2":  1.051,
+    "power_alpha0p6":  0.881,
+    "trapezoidal":     0.765,
+}
+COOLDOWN_RAW_INTEGRAL = {
+    "linear":          0.650,
+    "cosine":          0.650,
+    "power_alpha1p2":  0.6182,
+    "power_alpha0p6":  0.7375,
+    "trapezoidal":     0.850,
+}
 
 
 def parse_args():
@@ -40,6 +63,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--cooldown_shape", choices=COOLDOWN_SHAPES, default="linear",
+                        help="Shape of the LR/wd cooldown schedule (default: linear, matches starter)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Optional PyTorch manual seed for reproducible runs")
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override hard-coded train_steps (default 3350). Useful for smoke tests.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -49,6 +78,10 @@ def parse_args():
 
 
 args = parse_args()
+
+if args.seed is not None:
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
 
 
 def clean_metric_name(name: str) -> str:
@@ -179,8 +212,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
-    if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+    n = values.numel()
+    if n > max_samples:
+        # float64 linspace avoids float32 rounding that produces index n (out of bounds)
+        # for large tensors. E.g. linspace(0, 38633471, 4096, dtype=float32).long()[-1] == 38633472.
+        idx = torch.linspace(0, n - 1, max_samples, dtype=torch.float64, device=values.device).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +588,13 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "cooldown_shape": args.cooldown_shape,
+            "cooldown_frac": 0.3 if args.cooldown_shape == "trapezoidal" else 0.7,
+            "lr_multiplier": COOLDOWN_LR_MULTIPLIER[args.cooldown_shape],
+            "raw_shape_integral": COOLDOWN_RAW_INTEGRAL[args.cooldown_shape],
+            "total_lr_integral": COOLDOWN_RAW_INTEGRAL[args.cooldown_shape]
+                                 * COOLDOWN_LR_MULTIPLIER[args.cooldown_shape],
+            "seed": args.seed,
         },
     )
 
@@ -563,7 +606,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3350
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -593,18 +636,31 @@ for trial_idx in range(args.num_trials):
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
+    # Apply per-shape LR multiplier so total schedule integral matches linear.
+    # This decouples "schedule shape" from "total LR budget" for a fair comparison.
+    shape_lr_multiplier = COOLDOWN_LR_MULTIPLIER[args.cooldown_shape]
     for opt in optimizers:
         for group in opt.param_groups:
-            group["initial_lr"] = group["lr"]
+            group["initial_lr"] = group["lr"] * shape_lr_multiplier
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then decay, parameterized by shape
+    def set_hparams(step, shape=args.cooldown_shape, cooldown_frac=0.7):
+        # trapezoidal is "linear cooldown with cooldown_frac=0.3"; everything else uses 0.7
+        if shape == "trapezoidal":
+            cooldown_frac = 0.3
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+        u = max(0.0, (progress - (1 - cooldown_frac)) / cooldown_frac)  # 0 at cooldown start, 1 at end
+        if shape == "linear" or shape == "trapezoidal":
+            eta = 1.0 - u
+        elif shape == "cosine":
+            eta = 0.5 * (1.0 + math.cos(math.pi * u))
+        elif shape == "power_alpha1p2":
+            eta = (1.0 - u) ** 1.2
+        elif shape == "power_alpha0p6":
+            eta = (1.0 - u) ** 0.6
         else:
-            eta = (1 - progress) / cooldown_frac
+            raise ValueError(f"Unknown cooldown shape: {shape}")
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
