@@ -254,6 +254,55 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_polar_diagnostics(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Probe the active orthogonalize() path on a representative Muon-managed
+    weight matrix. Logs singular spectrum + ||A^T A - I||_F so we can compare
+    NS-12 vs SVD-exact convergence across arms.
+    """
+    sample = None
+    for name, param in model.named_parameters():
+        if "blocks.0" in name and param.ndim >= 2:
+            sample = (name, param)
+            break
+    if sample is None:
+        return
+    name, p = sample
+    with torch.no_grad():
+        x = p.data.detach().clone()
+        ortho = orthogonalize(x)
+        ortho_f = ortho.float()
+        sigmas = torch.linalg.svdvals(ortho_f)
+        m, n = ortho.shape[-2], ortho.shape[-1]
+        if m >= n:
+            gram = ortho_f.mT @ ortho_f
+            I = torch.eye(n, device=gram.device, dtype=gram.dtype)
+        else:
+            gram = ortho_f @ ortho_f.mT
+            I = torch.eye(m, device=gram.device, dtype=gram.dtype)
+        ortho_err = float((gram - I).norm().item())
+        metrics = {
+            "trial": trial_idx,
+            "train/step": step,
+            "train/polar/sample_param": name,
+            "train/polar/svd_max_singular_after": float(sigmas.max().item()),
+            "train/polar/svd_min_singular_after": float(sigmas.min().item()),
+            "train/polar/svd_singular_mean": float(sigmas.mean().item()),
+            "train/polar/svd_singular_std": float(sigmas.std().item()),
+            "train/polar/orthogonality_error": ortho_err,
+        }
+        if NS_PLUS_SVD:
+            ns_only = zeropower_via_newtonschulz5(x)
+            svd_exact = polar_exact_svd(x)
+            ns_res = float((ns_only.float() - svd_exact.float()).norm().item())
+            metrics["train/polar/ns_residual_block0_q_frobenius"] = ns_res
+        wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -434,6 +483,9 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+USE_POLAR_SVD = int(os.environ.get("NANOGPT_USE_POLAR_SVD", "0"))
+POLAR_FP32 = int(os.environ.get("NANOGPT_POLAR_FP32", "0"))
+NS_PLUS_SVD = int(os.environ.get("NANOGPT_NS_PLUS_SVD", "0"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -454,6 +506,46 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
         X = X.mT
     return X
 
+
+def polar_exact_svd(G: Tensor) -> Tensor:
+    """Exact polar decomposition via SVD: A = U S V^T -> P = U V^T.
+
+    torch.linalg.svd raises NotImplementedError on bf16 ("svd_cuda_gesvdj"
+    not implemented), so the SVD itself always runs in fp32. POLAR_FP32
+    controls only the dtype of the U @ Vh matmul: 0 -> downcast U/Vh to bf16
+    before the matmul (Arm B); 1 -> keep fp32 through the matmul (Arm C).
+    """
+    assert G.ndim >= 2
+    orig_dtype = G.dtype
+    X = G.float()
+    transposed = X.size(-2) > X.size(-1)
+    if transposed:
+        X = X.mT
+    # No spectral-norm pre-scaling needed: SVD is scale-invariant in U V^T.
+    U, S, Vh = torch.linalg.svd(X, full_matrices=False)
+    if not POLAR_FP32:
+        U = U.bfloat16()
+        Vh = Vh.bfloat16()
+    P = U @ Vh
+    if transposed:
+        P = P.mT
+    return P.to(orig_dtype)
+
+
+def orthogonalize(update: Tensor) -> Tensor:
+    if NS_PLUS_SVD:
+        # Arm D: NS first (NS_ITERS, e.g. 6) brings update close to polar,
+        # then SVD-exact computes the true polar factor of the partially
+        # orthogonalized matrix.
+        update = zeropower_via_newtonschulz5(update)
+        update = polar_exact_svd(update)
+    elif USE_POLAR_SVD:
+        update = polar_exact_svd(update)
+    else:
+        update = zeropower_via_newtonschulz5(update)
+    return update
+
+
 @torch.compile
 def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -461,7 +553,7 @@ def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
-    update = zeropower_via_newtonschulz5(update)
+    update = orthogonalize(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -561,6 +653,10 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "ns_iters": NS_ITERS,
+            "use_polar_svd": USE_POLAR_SVD,
+            "polar_fp32": POLAR_FP32,
+            "ns_plus_svd": NS_PLUS_SVD,
         },
     )
 
@@ -680,6 +776,12 @@ for trial_idx in range(args.num_trials):
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
+                log_polar_diagnostics(
+                    model=model,
+                    trial_idx=trial_idx,
+                    step=step,
+                    wandb_step=trial_idx * (train_steps + 1) + step,
+                )
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
