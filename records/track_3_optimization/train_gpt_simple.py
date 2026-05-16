@@ -655,11 +655,23 @@ for trial_idx in range(args.num_trials):
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
 
     # initialize model parameters
+    # Depth-scaled residual-output init: the residual-branch output projections
+    # (blocks.<i>.attn.proj.weight and blocks.<i>.mlp.proj.weight, 2L = 24 tensors)
+    # are initialized with a Gaussian of std = (0.33/d_in)^0.5 / sqrt(2L), giving
+    # each residual branch O(1/sqrt(2L)) variance at step 0 so the sum over all 2L
+    # branches stays O(1) (Radford et al., 2019 / Yang et al., 2025). The top-level
+    # LM head (model.proj, no `blocks.` prefix) keeps the modded-nanogpt zero-init.
+    num_layers = len(model.blocks)
+    residual_depth_scale = 1.0 / (2 * num_layers)**0.5
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                if name.startswith("blocks.") and name.endswith(".proj.weight"):
+                    std = (0.33**0.5 / w.size(-1)**0.5) * residual_depth_scale
+                    w.normal_(std=std)
+                else:
+                    w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
@@ -670,6 +682,36 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Telemetry: confirm depth-scaled init took effect on the right tensors.
+    _resid_proj_stds = []
+    _attn_proj_stds = []
+    _mlp_proj_stds = []
+    for name, p in model.named_parameters():
+        if name.startswith("blocks.") and name.endswith(".proj.weight"):
+            s = float(p.data.float().std().item())
+            _resid_proj_stds.append(s)
+            if ".attn.proj.weight" in name:
+                _attn_proj_stds.append(s)
+            elif ".mlp.proj.weight" in name:
+                _mlp_proj_stds.append(s)
+    init_residual_proj_weight_std_mean = (
+        sum(_resid_proj_stds) / len(_resid_proj_stds) if _resid_proj_stds else 0.0
+    )
+    init_attn_proj_weight_std_mean = (
+        sum(_attn_proj_stds) / len(_attn_proj_stds) if _attn_proj_stds else 0.0
+    )
+    init_mlp_proj_weight_std_mean = (
+        sum(_mlp_proj_stds) / len(_mlp_proj_stds) if _mlp_proj_stds else 0.0
+    )
+    if dist.get_rank() == 0:
+        print0(
+            f"[init] depth-scaled residual init: num_layers={num_layers} "
+            f"scale=1/sqrt(2L)={residual_depth_scale:.6f} "
+            f"resid_proj_std_mean={init_residual_proj_weight_std_mean:.6f} "
+            f"(attn={init_attn_proj_weight_std_mean:.6f} mlp={init_mlp_proj_weight_std_mean:.6f})",
+            console=True,
+        )
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
@@ -759,6 +801,11 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if step == 0:
+                    metrics["init/residual_proj_weight_std_pre_optimizer_step"] = init_residual_proj_weight_std_mean
+                    metrics["init/residual_attn_proj_weight_std"] = init_attn_proj_weight_std_mean
+                    metrics["init/residual_mlp_proj_weight_std"] = init_mlp_proj_weight_std_mean
+                    metrics["init/residual_depth_scale"] = residual_depth_scale
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
