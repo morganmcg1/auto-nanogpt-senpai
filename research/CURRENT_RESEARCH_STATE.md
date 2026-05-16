@@ -60,8 +60,8 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** D=3.2768/3300. confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 2475/3350, val=3.388 healthy. ETA ~28 min. n=2 partial mu=3.27515. |
-| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** arm-B (clip=1.0)=3.2755/3275. confirm-1 (`yfhknwar`) **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 (`j4r186ws`) running step 1750/3350, val=3.478 healthy. ETA ~50 min. n=2 partial mu=3.27450. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C val=3.2749/fs=3250 BEATS BASELINE.** confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 3100/3350, val=3.295 healthy. **ETA ~8 min**. n=2 partial mu=3.27515. |
+| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** confirm-1 **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 (`j4r186ws`) running step 2425/3350, val=3.39 healthy. ETA ~30 min. n=2 partial mu=3.27450. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
 
@@ -71,7 +71,7 @@
 |----|---------|-----------|--------|
 | #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 sanity ✓. **arm-B (PE iters=12)=3.2767 BASELINE PARITY** ✨ (`2li08zef`). arm-C (PE iters=8) running step 1425 val=3.55. arm-D (PE iters=6) queued. |
 | **#163** | **fern (NEW)** | **Decoupled Momentum Reset (DMR)** | just assigned — periodic momentum zeroing motivated by fern's #154 finding (grad·momentum<0 ~90% under Muon² = staleness hypothesis). |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A SOAP sanity `lfcnprqg` running step 3050/3350 val=3.30 — near terminal, on-track |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A finished val=3.27595/fs=3275 ✓ baseline parity. Arms B/C/D not yet launched. |
 | **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A finished val=3.27841/fs=3325 ✓ baseline reproduction. arms B/C/D not yet launched. |
 | **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | smoke tests v1/v2 failed at step 1 (bf16 SVD instability likely); v3 stalled at step 0. Pinged student for traceback + suggested jumping to arm-C fp32 smoke. |
 
