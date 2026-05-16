@@ -256,6 +256,47 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_perhead_attn_stats(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+    sample_block_idx: int = 0,
+):
+    """Log per-head SVD conditioning + inter-head subspace alignment for one sample attention block.
+
+    `perhead/{proj}/sv_max_min_ratio` is the headline diagnostic — lower means per-head polar
+    produced better-conditioned attention weights than full-matrix polar would.
+    `perhead/{proj}/inter_head_cos_abs_mean` measures whether the 6 heads' polar outputs converge to
+    similar bases (high) or genuinely different subspaces (low).
+    """
+    metrics = {"trial": trial_idx, "train/step": step}
+    block = model.blocks[sample_block_idx]
+    n_heads = block.attn.num_heads
+    h_dim = block.attn.head_dim
+    for proj_name in ("q", "k", "v"):
+        weight = getattr(block.attn, proj_name).weight.detach().float()
+        weight_per_head = weight.reshape(n_heads, h_dim, -1)
+        sv = torch.linalg.svdvals(weight_per_head)  # [n_heads, min(h_dim, dim)]
+        sv_max = sv[:, 0]
+        sv_min = sv[:, -1]
+        sv_ratio = sv_max / sv_min.clamp_min(1e-12)
+        metrics[f"perhead/{proj_name}/sv_max_min_ratio"] = float(sv_ratio.mean().item())
+        metrics[f"perhead/{proj_name}/sv_max_min_ratio_max_across_heads"] = float(sv_ratio.max().item())
+        metrics[f"perhead/{proj_name}/sv_max_mean"] = float(sv_max.mean().item())
+        metrics[f"perhead/{proj_name}/sv_min_mean"] = float(sv_min.mean().item())
+        # Inter-head Frobenius-cosine alignment between per-head weight matrices.
+        W_flat = weight_per_head.reshape(n_heads, -1)
+        W_normed = W_flat / (W_flat.norm(dim=-1, keepdim=True) + 1e-12)
+        sim = W_normed @ W_normed.T
+        off_diag_mask = ~torch.eye(n_heads, dtype=torch.bool, device=sim.device)
+        metrics[f"perhead/{proj_name}/inter_head_cos_abs_mean"] = float(sim[off_diag_mask].abs().mean().item())
+        # Reference: full-matrix conditioning of the same parameter for direct comparison.
+        sv_full = torch.linalg.svdvals(weight)
+        metrics[f"perhead/{proj_name}/global_sv_max_min_ratio"] = float((sv_full[0] / sv_full[-1].clamp_min(1e-12)).item())
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -473,8 +514,11 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
+    perhead_split: tuple = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
+    # Bilateral whitening always runs on the full matrix; only the NS polar step
+    # may be reshaped per-head when `perhead_split=(n_heads, h_dim)`.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
@@ -486,17 +530,26 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
+    if perhead_split is not None:
+        n_heads, h_dim = perhead_split
+        m_pre_reshaped = m_pre.reshape(n_heads, h_dim, -1)
+        polar_per_head = zeropower_via_newtonschulz5(m_pre_reshaped.to(update.dtype))
+        update = polar_per_head.reshape(grad.shape)
+    else:
+        update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
     return update
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3,
+                 perhead_info: dict = None):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
         super().__init__(params, defaults)
+        # Maps id(param) -> (n_heads, h_dim) for params that should use per-head polar.
+        self._perhead_info = perhead_info or {}
 
     @torch.no_grad()
     def step(self):
@@ -525,6 +578,7 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        perhead_split=self._perhead_info.get(id(p)),
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -614,7 +668,10 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "muon_method": "pmuon-uw-perhead-polar",
+            "polar_scope": "perhead_attn_qkv",
+            "perhead_num_heads": 6,
+            "perhead_head_dim": 128,
         },
     )
 
@@ -650,8 +707,17 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # Map attn.q/.k/.v weights to (n_heads, h_dim) so Muon applies per-head NS polar to them
+    # while leaving attn.proj and MLP weights at full-matrix polar.
+    perhead_info = {}
+    for block in model.blocks:
+        n_heads = block.attn.num_heads
+        h_dim = block.attn.head_dim
+        for proj_module in (block.attn.q, block.attn.k, block.attn.v):
+            perhead_info[id(proj_module.weight)] = (n_heads, h_dim)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3,
+                      perhead_info=perhead_info)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -734,6 +800,12 @@ for trial_idx in range(args.num_trials):
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
+                log_perhead_attn_stats(
+                    model=model,
+                    trial_idx=trial_idx,
+                    step=step,
+                    wandb_step=trial_idx * (train_steps + 1) + step,
+                )
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
