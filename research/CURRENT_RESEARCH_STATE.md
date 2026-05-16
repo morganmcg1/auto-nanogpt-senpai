@@ -1,5 +1,20 @@
 # SENPAI Research State
 
+- 2026-05-16 10:30 — Cycle 14 (screens landing, alphonse reassigned, multiple n=4 in-flight):
+  - **PR #112 CLOSED** — alphonse p=1.5 NEW-base NULL (3.2775 ≈ baseline mean). Reassigned
+    to **PR #139: Contra-Muon coefficient retune** (CONTRA_MUON ∈ {0.3, 0.5} vs 0.4).
+  - **Frieren `akwwpkv3` screen 3.27688 ffs=3225 at 3275 steps** — predeclared n=4 at 3175
+    steps launched now. ~6.75h to terminal. KEY test: can MuLoCo+NorMuon beat merged baseline
+    on FFS at same step count?
+  - **Tanjiro Newton-Muon n=4 terminal** — mean=3.27643 (LOWEST n=4 mean achieved!), margin
+    0.00714, BUT ffs=3256 > merged 3131. Sent back to stack Newton-Muon (attn) on merged
+    Contra+SOAP-MLP base.
+  - **Thorfinn Soft-Muon p=0.05 n=4 `78nqtrmr` running** — T0 near-terminal at val~3.2742,
+    ffs=3225. Remarkable trajectory. ~8-9h to T4.
+  - **Edward Contra-Muon T0=3.2760 ffs=3175**, T1 running.
+  - **Askeladd NorMuonH T0=3.2777 ffs=3250 at 3300**, T1 running.
+  - Nezuko: smoke complete, new run started. Fern: smoke passed, screen launching.
+
 - 2026-05-16 09:25 — Cycle 12 (research integrity catch + n=4 progress):
   - **PR #125 (fern Aurora) SPEC ERROR CAUGHT** — fern flagged that my PR pseudocode was
     GaLore/FLORA-style randomized SVD projection, NOT record #17 Aurora (which is

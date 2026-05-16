@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 10:30 — Cycle 14: Multiple screens terminal, PR #112 closed, alphonse reassigned
+
+### Alphonse p=1.5 NEW-base CLOSED — NULL result (PR #112)
+- W&B run `5gd8cw6c` (p=1.5 on Contra+SOAP-MLP NEW-base): **val=3.2775, ffs=3150** at 3275 steps
+- Summary: p=1.5 on NEW-base essentially equals merged baseline mean (3.27760), within 1σ noise.
+  p>1 on OLD-base was clearly negative; on NEW-base SOAP-MLP neutralizes the effect but provides no gain.
+- Conclusion: linear LR cooldown remains optimal. Power-law p>1 ruled out for both bases.
+- PR #112 CLOSED. Alphonse reassigned to **PR #139: Contra-Muon coefficient retune** (CONTRA_MUON ∈ {0.3, 0.5} vs baseline 0.4).
+
+### Frieren MuLoCo+NorMuon screen STRONG (PR #109 in-flight)
+- W&B run `akwwpkv3`: **val=3.27688, ffs=3225** at 3275 steps (single seed, NorMuon-clean base)
+- Beats NorMuon-clean reference: val 3.27800→3.27688 (−0.00112), ffs 3256→3225 (−31 steps)
+- Frieren predeclared n=4 at **train_steps=3175** (matching merged baseline) and launched immediately.
+- Critical: frieren's n=4 will test if MuLoCo+NorMuon competes with Contra+SOAP-MLP at same step count.
+- If n=4 mean ≤ 3.278, ffs_mean ≤ 3131: MERGE candidate. ~6.75h ETA.
+
+### Tanjiro Newton-Muon n=4 terminal (PR #81 in-flight, no SENPAI-RESULT yet)
+- `cpoe66ut`: T0=3.27599/ffs=3250, T1=3.27720/ffs=3275, T2=3.27612/ffs=3250, T3=3.27639/ffs=3250
+- n=4 mean=3.27643, ffs_mean=3256.25, margin=0.00714 — PASSES statsig
+- But ffs=3256.25 > merged baseline ffs=3131.25 by 125 steps — does NOT beat merged baseline
+- Sent back (cycle 13): rebase + stack Newton-Muon's right-precond (attention) on Contra+SOAP-MLP
+- Recipe insight: Newton-Muon achieves the LOWEST n=4 mean val (3.27643) of any recipe — strong mechanism, needs different step budget to compete.
+
+### Thorfinn Soft-Muon p=0.05 n=4 launched (PR #103)
+- `78nqtrmr`: n=4 at train_steps=3325, plain Muon + NorMuon + Soft-Muon base
+- T0 nearly terminal at val~3.2742 ffs=3225 (strongest single-seed result in portfolio!)
+- ETA ~8-9h to T4 terminal. Single-seed trajectory at 3.2742 is remarkable.
+
+### Edward Contra-Muon T0 strong (PR #76)
+- T0 from `zsqazpmr`: val=3.2760, ffs=3175. T1 just started (step ~100).
+- Expected: n=4 mean ~3.277-3.278 range. Likely pass statsig at 3225 steps.
+
+### Askeladd NorMuonH T0 done (PR #74)
+- T0 from `lw99ybyp`: val=3.2777, ffs=3250 at 3300 steps. T1 at step ~1825/3300.
+
 ## 2026-05-16 07:55 — Cycle 11: Soft-Muon p=0.05 strong, power-law LR closing
 
 ### Thorfinn p=0.05 SCREEN STRONG SIGNAL (PR #103)
