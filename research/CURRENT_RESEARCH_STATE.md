@@ -1,8 +1,8 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 08:50 UTC (boot 22)
-- **Most recent human-team directive:** None (issues disabled on repo; only PR-comment channel is open).
-- **Branch state:** PR #52 MuonH-SI **MERGED**. New baseline: val=3.27737, ffs=3275 (n=4, deterministic). Full cascade executed — all 8 students have active WIP PRs on the new MuonH-SI baseline.
+- **Last updated:** 2026-05-16 12:30 UTC (boot 28)
+- **Most recent human-team directive:** None (no open GH issues).
+- **Branch state:** PR #52 MuonH-SI MERGED. Baseline: val=3.27737, ffs=3275 (n=4, deterministic). Wave-3 cascade active — 8 students assigned.
 
 ## Current branch baseline (MuonH-SI, PR #52)
 
@@ -11,84 +11,73 @@
 | `val/loss` | **3.27737** (n=4 mean) |
 | `ffs` | **3275** (n=4 mean = min = max — deterministic) |
 | stat margin | `(3.28 - 3.27737) × √4 = 0.00526` ✓ |
-| Optimizer | MuonH (lr=0.018, mu=0.95, wd=0, mode=scale_invariant, budget_mult=1.0) + aux AdamW |
+| Optimizer | MuonH (lr=0.018, mu=0.95, wd=0, mode=scale_invariant, budget_mult=1.0) + aux AdamW(betas=(0.8, 0.95)) |
 | Per-module init | attn.proj=0.026, mlp.proj=0.031, mlp.fc=0.031 |
 | Cooldown | MuonH=1.0 (full linear), aux=0.4 |
 
-**Key MuonH-SI mechanism**: `scale_invariant_update_` rescales update to param's Frobenius-norm scale, takes gradient step (Nesterov momentum on NS5 output), renormalises param back to initial Frobenius norm. Replaces NorMuon's 1D `second_momentum` preconditioning.
+**Key MuonH-SI mechanism**: `scale_invariant_update_` rescales update to param's Frobenius-norm scale, takes gradient step (Nesterov momentum on NS5 output), renormalises param back to initial Frobenius norm.
 
-## Active experiments (boot 22 status — 08:50 UTC)
+## Active experiments (boot 28 status — 12:30 UTC)
 
-All experiments are on the **MuonH-SI baseline** (val=3.27737, ffs=3275).
+| PR | Student | Lever | Status |
+| --- | --- | --- | --- |
+| **#142** | alphonse | Soft-Muon × MuonH-SI, alpha ∈ {0.85, 0.90, 0.95} | Smoke a=0.85 NaN; advised to try a=0.95 first |
+| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | mu=0.98 smoke ✓ (val=4.20); mu=0.90 smoke running |
+| **#135** | tanjiro | NorMuon × MuonH-SI (row/col preconditioning restored) | New smoke relaunched (step=0); prior attempt NaN at step 180 |
+| **#136** | askeladd | MuonH-SI lr sweep {0.015, 0.018, 0.022} | **SCREEN RUNNING** lr=0.015 at step 1500 val=3.56 ✓ |
+| **#107** | edward | Cautious-Muon × MuonH-SI (sign-agreement mask) | Smoke ✓ (val=4.36); nudged to push rebase |
+| **#114** | frieren | MuLoCo × MuonH-SI | Smoke ✓ (val=4.07 step 300); screen not started |
+| **#152** | fern | MuonH-SI weight decay sweep {0, 1e-5, 5e-5, 1e-4} | Newly assigned (#111 closed) |
+| **#153** | nezuko | Aux AdamW betas sweep {(0.9,0.99), (0.95,0.99), (0.9,0.98)} | Newly assigned (#134 closed) |
 
-| PR | Student | Lever | Status | Next action |
-| --- | --- | --- | --- | --- |
-| **#132** | alphonse | MuonH budget_mult sweep {0.8, 1.0, 1.2} | Newly assigned | Monitor for smoke pickup |
-| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | Newly assigned | Monitor for smoke pickup |
-| **#134** | nezuko | Contra-Muon × MuonH-SI | Newly assigned | Monitor for smoke pickup |
-| **#135** | tanjiro | NorMuon × MuonH-SI (row/col preconditioning restored) | Newly assigned | Monitor for smoke pickup |
-| **#136** | askeladd | MuonH-SI lr sweep {0.015, 0.018, 0.022} | Newly assigned | Monitor for smoke pickup |
-| **#107** | edward | Cautious-Muon (sign-agreement mask) | Needs rebase to MuonH-SI; crashed at step 3075 | Rebase + relaunch screen |
-| **#111** | fern | AdamAtan2 aux optimizer | Needs rebase to MuonH-SI; smoke-v2 was running | Rebase + relaunch smoke |
-| **#114** | frieren | MuLoCo × MuonH-SI (adapted from NorMuon×MuLoCo) | Needs rebase + adapt | Rebase + relaunch smoke |
+## Screen progress
 
-## PRs closed this session (boot 22 cascade)
+- **Askeladd #136 lr=0.015 SCREEN RUNNING** at step 1500 val=3.56 — on track.
+- No other screens started yet for g1r3 wave-3.
 
-- **#113 alphonse Cautious-NorMuon**: Hypothesis collapses to edward's Cautious×MuonH-SI.
-- **#122 thorfinn NorMuon-biascorr**: second_momentum no longer exists in baseline (NorMuon removed).
-- **#127 nezuko Contra-NorMuon**: NorMuon no longer in baseline; replaced with Contra×MuonH-SI (#134).
-- **#128 tanjiro NorMuon-beta2-sweep**: NorMuon EMA gone; replaced with NorMuon×MuonH-SI stack (#135).
+## PRs closed this session (boots 23-28)
 
-## PRs closed earlier (pre-boot 22)
+- **#132 alphonse budget_mult sweep**: bm=0.8 AND bm=1.2 both NaN at step 150. SI mode requires bm=1.0. Closed negative.
+- **#111 fern AdamAtan2 aux**: 10+ NaN smokes over 7+ hours. Pristine baseline runs also NaN'd — pod state issues. Closed negative.
+- **#134 nezuko Contra-Muon × MuonH-SI**: 6 NaN smokes. contra_strength=0.025 (1/4 of original) still NaN. Mechanism incompatible with SI projection. Informative negative.
 
-- **#87 tanjiro u/w-floor sweep**: 0/4 arms hit ffs target. Closed negative.
-- **#100 nezuko Sign-Muon**: 5+ NaN smokes, method fragility.
-- **#101 thorfinn Polyak EMA**: val=3.2846, ffs=-1. Closed negative.
-- **#55 frieren MuLoCo**: Closed negative (n=4 mean=3.27990). Near-miss; MuLoCo×MuonH-SI is the retry.
-- **#53 edward Contra-Muon** (plain Muon base): n=4 mean=3.2835. Mechanism real but couldn't clear bar on plain Muon. Contra×MuonH-SI (#134) retries.
-- **#51 alphonse NorMuon**: MERGED as wave-2 baseline. Superseded by MuonH-SI (#52).
-
-## Key learnings
+## Key learnings (cumulative)
 
 1. **`sample_tensor` OOB bug** fixed (`cc1c710`).
-2. **Per-module init ordering matters**: students who add per-module init BEFORE the `"proj" in name → zero_()` branch break zero-proj → NaN smokes. The merged MuonH-SI baseline already includes per-module init correctly (no zero-proj in MuonH path).
-3. **mbs=64 is fixed benchmark contract** — no reductions.
-4. **NorMuon** (1D post-NS row/col second-moment preconditioning) — merged (PR #51). **Superseded by MuonH-SI.**
-5. **MuonH-SI** (PR #52) — MERGED, current baseline. val=3.27737/ffs=3275 deterministic n=4. Frobenius-ball scale-invariant projection: wins even while dropping NorMuon's preconditioning.
-6. **Deterministic ffs=3275**: All 4 MuonH-SI confirm trials hit exactly ffs=3275. This very low variance means n=1 screen arms give clean signal — no need to over-run.
-7. **Closed negative directions**: Lion, init-only, mbs=32, cooldown-shape, u/w-floor, Sign-Muon, Polyak-EMA, MuLoCo standalone.
-
-## Confirmed positives (merge bar cleared)
-
-1. **alphonse NorMuon — MERGED** (val=3.27795, ffs=3258, n=6). Superseded.
-2. **askeladd MuonH-SI — MERGED** (val=3.27737, ffs=3275, n=4). **Current baseline.**
+2. **Per-module init ordering matters** — must come after zero-proj branches.
+3. **mbs=64 is fixed benchmark contract**.
+4. **MuonH-SI ffs=3275 is deterministic** at n=4 — n=1 screens give clean signal.
+5. **Contra mechanism incompatible with SI projection** at any practical contra_strength. Confirmed negative at both cs=0.1 and cs=0.025.
+6. **budget_mult lever dead in SI mode** — per-module init calibrated for bm=1.0; ±20% NaN within 150 steps.
+7. **AdamAtan2 magnitude mismatch**: atan2-saturated updates are 100-1000x larger than AdamW; requires careful aux-lr calibration.
+8. **Closed negative directions**: Lion, init-only, mbs=32, cooldown-shape, u/w-floor, Sign-Muon, Polyak-EMA, MuLoCo standalone, budget_mult sweep, Contra×MuonH-SI, AdamAtan2.
 
 ## Wave-3 hypothesis portfolio (all on MuonH-SI base)
 
-### MuonH-SI hyperparameter sweeps (priority: quick clean signal):
-1. **MuonH budget_mult sweep** (alphonse #132): {0.8, 1.0, 1.2} — Frobenius-ball radius tuning
-2. **MuonH mu sweep** (thorfinn #133): {0.90, 0.95, 0.98} — Nesterov momentum coefficient
-3. **MuonH lr sweep** (askeladd #136): {0.015, 0.018, 0.022} — learning rate retune
+### HP sweeps (clean signal):
+- **MuonH mu sweep** (thorfinn #133): {0.90, 0.95, 0.98} — smoking
+- **MuonH lr sweep** (askeladd #136): {0.015, 0.018, 0.022} — **SCREEN lr=0.015 running**
+- **MuonH wd sweep** (fern #152): {0, 1e-5, 5e-5, 1e-4} — newly assigned
+- **Aux betas sweep** (nezuko #153): β₁/β₂ variants — newly assigned
 
-### Mechanism stacks (higher risk, higher reward):
-4. **NorMuon × MuonH-SI** (tanjiro #135): restore row/col preconditioning on MuonH-SI. Highest-priority stack — both mechanisms individually confirmed.
-5. **Contra-Muon × MuonH-SI** (nezuko #134): direction correction + norm preservation compound
-6. **Cautious-Muon × MuonH-SI** (edward #107): sign-agreement mask on NS5 output of MuonH
-7. **AdamAtan2 aux** (fern #111): bounded per-element update for embed/lm_head/scalars
-8. **MuLoCo × MuonH-SI** (frieren #114): outer Nesterov SGD wrapper on top of MuonH-SI
+### Mechanism stacks:
+- **NorMuon × MuonH-SI** (tanjiro #135): restore row/col preconditioning — highest priority if clears
+- **Cautious-Muon × MuonH-SI** (edward #107): sign-agreement mask — smoke healthy, needs push
+- **MuLoCo × MuonH-SI** (frieren #114): outer Nesterov SGD wrapper — smoke healthy
+- **Soft-Muon × MuonH-SI** (alphonse #142): alpha interpolation — a=0.85 NaN, try a=0.95
 
-## Next-priority watch points (next 3-5 hours)
+## Next-priority watch points
 
-1. **#107 edward rebase** (~09:30 UTC): Needs to rebase onto MuonH-SI base. Pod should have picked up comment.
-2. **#111 fern rebase** (~09:30 UTC): Same — rebase + smoke relaunch.
-3. **#114 frieren rebase + adapt** (~09:30 UTC): Drop NorMuon restore, keep MuLoCo wrapper, rebase.
-4. **#132-#136 smoke pickups** (~10:00-11:00 UTC): All 5 new assignments should start their smokes.
-5. **NorMuon × MuonH-SI screen terminal** (#135, ~15:00-16:00 UTC): If this clears the bar → highest-priority confirm run.
+1. **Askeladd #136 lr screen terminal** (~14:00-15:00 UTC): If lr=0.015 clears val<3.277 → n=4 confirm.
+2. **Thorfinn #133 mu screen launch** (~13:30-14:00 UTC): Once smokes done on all 3 arms.
+3. **Tanjiro #135 smoke recovery** (~13:00 UTC): New smoke at step=0; prior was NaN at step 180.
+4. **Edward #107 rebase push** (~13:00 UTC): Smoke healthy but branch not pushed yet.
+5. **Alphonse #142 smoke a=0.95** (~13:30 UTC): After a=0.85 NaN; try 0.95 next.
+6. **Fern #152 and nezuko #153 smoke pickups** (~13:30 UTC): New assignments from boot 28.
 
 ## Operational notes
 
 - All 8 students have active WIP PRs. **Zero idle students.**
 - Standard kill gates: NaN `val/loss` or `train/grad/global_norm > 1e3` → kill.
-- Confirmation rule: `(3.28 - mu) * sqrt(n) >= 0.004`, n≥4 by default.
-- **New merge bar**: `mu_val < 3.27737` at n=4 (MuonH-SI baseline).
+- Merge bar: `μ_val < 3.27737` at n=4, stat rule `(3.28 - μ) × √4 ≥ 0.004`.
 - Banned reference sources: Prime Intellect autonomous-run materials.

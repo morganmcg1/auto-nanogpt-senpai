@@ -6,6 +6,29 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 12:30 — Boot 28: #111 and #134 closed; fern→#152, nezuko→#153 assigned
+
+**PR #111 fern AdamAtan2 aux — CLOSED NEGATIVE (boot 28)**
+- Branch: `fern/adamatan2-aux`
+- Hypothesis: Replace AdamW aux optimizer with AdamAtan2 (atan2-saturated per-element bounded updates) for embed/lm_head/scalar param groups.
+- Results: 10+ NaN smokes over 7+ hours across 4 boots. Runs: `7guy5k69` (PRISTINE-300-si NaN), `2gmxmsp3` (PRISTINE-30-si NaN), `gs3wfgyn`, `iuqpjlx5`, `ftof0ext`, `89zvg6kj`, `gmdrsu1l`, `19g2qbge`, `zc8clqww`, `ut41todr` — all NaN at step ≤ 300.
+- Root cause analysis: AdamAtan2's atan2-saturation produces per-element updates of |update| ≤ 2/π ≈ 0.637, vs AdamW's typical O(1e-3). With aux lr=0.3 for embed, effective per-element scale ≈ 1188 — clear NaN trigger. Diagnostic (reduce aux lr by 1/300) was posted but not implemented within time budget. PRISTINE runs NaN'ing suggest pod local state degraded.
+- Conclusion: AdamAtan2 mechanism can work in principle but requires careful aux-lr calibration that exceeded acceptable iteration budget. Closed; not retried.
+
+**PR #134 nezuko Contra-Muon × MuonH-SI — CLOSED NEGATIVE (boot 28)**
+- Branch: `g1r3-nezuko/contra-muonh`
+- Hypothesis: Stack Contra-Muon (rotate NS5 direction toward raw gradient by subtracting projected component) on MuonH-SI. Mechanism orthogonal: contra modifies update direction; SI preserves param norm.
+- Results: 6 NaN smokes. `contra_strength=0.1` (5x NaN) and `contra_strength=0.025` (1x NaN, run `vd7m59oz`). All NaN before step 300.
+- Root cause: Contra rotation is fundamentally incompatible with SI projection. SI renormalizes the param after each step, amplifying small directional perturbations. Even 2.5% contra rotation is sufficient to produce compound instability.
+- Comparison: PR #53 (edward Contra on plain Muon) closed n=4 mean=3.2835 — mechanism is borderline on plain Muon, fatal with SI projection.
+- Conclusion: Informative negative. Contra × SI is a confirmed incompatibility. Not retried.
+
+**New assignments (boot 28)**:
+- fern → #152 MuonH-SI weight decay sweep {0, 1e-5, 5e-5, 1e-4} — wd directional effect on NS5 feed-in (SI nulls norm shrinkage but direction survives)
+- nezuko → #153 Aux AdamW betas sweep {(0.9,0.99), (0.95,0.99), (0.9,0.98)} — retune from default (0.8, 0.95) which may be suboptimal for MuonH-SI regime
+
+---
+
 ## 2026-05-16 08:45 — Boot 22: #52 merged → MuonH-SI is new baseline; full cascade executed
 
 **PR #52 askeladd MuonH-SI — MERGED (boot 22)**
