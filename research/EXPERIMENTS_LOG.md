@@ -230,3 +230,57 @@ torchrun --standalone --nproc_per_node=1 \
   --wandb_group "g1r1-nezuko/power-cooldown-confirm"
 ```
 with `train_steps=3250`. Confirmation run `u3o8j3yj` started 2026-05-16 01:22 UTC.
+
+---
+
+## 2026-05-16 03:29 — PR #88 CLOSED: Soft-Muon (p=0.1) in cooldown on PMuon base (g1r1-edward)
+
+- Branch: `g1r1-edward/soft-muon-cooldown`
+- Hypothesis: Blend post-polar update with momentum direction during cooldown phase (last 70%): `update = (1-p)*polar + p*(m_pre/||m_pre||_F * sqrt(min_dim))`. `p=0.1`, gated to steps 977-3250.
+- W&B run: `dezar21q` (n=1, train_steps=3250, dynamic=True compile fix applied)
+
+| Metric | This run | Baseline (`vx0r7rp2` PMuon) | Δ |
+| --- | --- | --- | --- |
+| speedrun/final_first_step_to_target | **3150** | 3150 | **0 (no improvement)** |
+| val/loss (step 3250) | 3.274323 | 3.274469 | −0.000146 (within noise) |
+| (3.28-μ)·√n margin (n=1) | 0.00568 | 0.00553 | both pass rule |
+
+**Analysis:** Soft-Muon gating verified correctly (`softmuon/active` toggles at step 977, `effective_p=0.1` throughout cooldown). Val/loss curves track on top of each other — minor lead in early cooldown (+0.001 to +0.003 above baseline steps 1000-1900), converging and slightly below baseline in final steps (−0.0001 to −0.0003 from step 2500+). The primary metric (speedrun step) is identical: no improvement. **The mechanism does not add lift on top of PMuon's bilateral whitening** — PMuon's `L^{-γ} ⊗ R^{-γ}` already implements much of the SVD-direction shrinkage that Soft-Muon targets in cooldown.
+
+**Conclusion:** CLOSED as clean null result. Reassigned edward to PR #118 (PMuon cooldown_frac scan: 0.5 vs 0.8).
+
+---
+
+## 2026-05-16 03:35 — PR #95 CLOSED: PMuon + Contra-Muon (both coeff=0.2 and 0.1 catastrophic) (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-contra-muon`
+- Hypothesis: Add Contra-Muon (subtract `contra_coeff` × Frobenius-normalized pre-polar momentum) to PMuon post-polar update. Coefficients 0.2 (prescribed) and 0.1 (fallback).
+- W&B runs: `2jslevyc` (coeff=0.2, killed ~step 1500), `3filu2p3` (coeff=0.1, killed step 1030)
+
+| run | contra_coeff | killed_at | val/loss@1000 | dir_norm_ratio (mean) | first_step_to_target |
+| --- | --- | --- | --- | --- | --- |
+| `2jslevyc` | 0.2 | ~step 1500 | ~7.54 | 1.59 | -1 |
+| `3filu2p3` | 0.1 | step 1030 | 7.331 | 1.59 | -1 |
+| baseline `vx0r7rp2` | n/a | finished | 3.62 | n/a | 3150 |
+
+**Analysis:** Both coefficients produce catastrophic divergence (train_loss spikes to 14.6+ at step ~100, grad_norm to 1e5-1e6+, no recovery). Root cause (student diagnosis): empirical `dir_norm_ratio ≈ 1.59` means PMuon's whitened polar has Frobenius ≈ 0.62× the `target_scale=sqrt(min(m,n))` that Contra-Muon assumes. Effective perturbation = `contra_coeff × 1.59 × ||update||_F` — a 32% off-direction perturbation at coeff=0.2 that destabilizes the optimizer.
+
+**Key insight:** To fix Contra-Muon on PMuon base, `contra_dir` must be scaled to the **actual** `||update||_F` rather than the assumed `sqrt(min(m,n))`. This makes the perturbation magnitude scale-coherent. This is the basis for the next PR (alphonse PR #119, measured-scale Contra-Muon).
+
+**Conclusion:** CLOSED as clean negative on the as-spec'd formulation. Reassigned alphonse to PR #119 (measured-scale Contra-Muon with calibrated target_scale).
+
+---
+
+## 2026-05-16 03:30 — PR #93 SENT BACK: PMuon + NorMuon (element-wise) — retry with row-wise (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-normuon-stack`
+- W&B run: `0x6cgq1a` (FINISHED), second arm `5d4u7d1n` (RUNNING — student-initiated n=2)
+
+| Metric | This run (element-wise) | Baseline (PMuon `vx0r7rp2`) | Δ |
+| --- | --- | --- | --- |
+| speedrun/final_first_step_to_target | **3225** | 3150 | **+75 steps (worse)** |
+| val/loss (step 3250) | 3.2789 | 3.27447 | +0.0044 (worse) |
+
+**Analysis:** Student correctly noted PR instructions were ambiguous (element-wise code vs short-axis text). Ran element-wise (Adam-style) interpretation as specified. Element-wise post-NS scaling on top of PMuon's bilateral whitening is redundant — PMuon already whitens row/col via `L^{-γ} ⊗ R^{-γ}`, so per-element scaling double-whitens and mildly hurts trajectory (+75 step regression).
+
+**Decision:** Send back for row-wise short-axis (PR #61 validated mechanism) retry. Row-wise NorMuon is mechanistically distinct from element-wise: per-neuron diagonal scaling vs full off-diagonal bilateral whitening. The PR #61 result at 3275 (standalone) establishes that row-wise NorMuon has a positive signal on vanilla Muon; on PMuon base it may or may not stack.
