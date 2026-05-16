@@ -6,7 +6,44 @@ optimizer speedrun track 3. Primary metric is
 cross-entropy on FineWeb reaches `<= 3.28`, lower is better. Final claims
 require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
-## Current advisor-branch baseline (starter script, unchanged)
+## Current advisor-branch baseline (updated)
+
+### 2026-05-16 01:55 — PR #71: NorMuon-clean (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3300 |
+| Optimizer 2D | **NorMuon**: Muon with post-NS5 Adafactor row/col variance + Frobenius renorm |
+| NorMuon HPs | `nm_beta2=0.95`, `nm_eps=1e-8`, `nm_renorm=frob`, `lr=0.035`, `wd=0.025` |
+| Optimizer aux | AdamW: embed.weight lr=0.3; proj.weight lr=1/320; scalars (ndim<2) lr=0.01; betas=(0.8, 0.95), eps=1e-10, wd=0 |
+| Newton-Schulz | 12 iters, (a, b, c) = (2, -1.5, 0.5), bfloat16 |
+| LR schedule | unified `cooldown_frac=0.7` |
+| W&B run | `8yocwc35` (n=4 confirmation, all 4 trials) |
+| **n=4 mean val/loss** | **3.27800** |
+| **n=4 statsig margin** | **0.00401** ≥ 0.004 — PASSES |
+| **ffs mean** | **3256.25** (T0=3225, T1=3250, T2=3275, T3=3275) |
+| **speedup vs starter** | ~50 steps / ~1.5% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.276094 | 3225 |
+| T1 | 3.278030 | 3250 |
+| T2 | 3.279136 | 3275 |
+| T3 | 3.278725 | 3275 |
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3300 --num_trials 1 \
+  --wandb_name "$STUDENT_NAME/normuon-repro" \
+  --wandb_group "normuon-repro"
+```
+*(NorMuon HPs are baked into the merged `train_gpt_simple.py` on `auto-nanogpt-1gpu-r2`.)*
+
+### Starter script baseline (historical reference)
 
 | Field | Value |
 | --- | --- |
@@ -14,14 +51,9 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 | Optimizer 2D | Muon (lr=0.035, wd=0.025, mu=0.95) on `model.blocks.parameters() ndim>=2` |
 | Optimizer aux | AdamW: embed.weight lr=0.3; proj.weight lr=1/320; scalars (ndim<2) lr=0.01; betas=(0.8, 0.95), eps=1e-10, wd=0 |
 | Newton-Schulz | 12 iters, (a, b, c) = (2, -1.5, 0.5), bfloat16 |
-| LR schedule | unified `cooldown_frac=0.7` (flat for first 30%, linear decay over last 70%) |
-| Init | proj weights zeroed; embed `normal_()`; rest `normal_(std=0.33**0.5 / fan_in**0.5)`; gains 1; biases 0 |
-| Batch (tokens) | 524288 (`8 * 64 * 1024`) per step |
+| LR schedule | unified `cooldown_frac=0.7` |
 | Val | 20 * 524288 ≈ 10.5M tokens |
-| Model | GPT, 12 layers, model_dim=768, head_dim=128 (6 heads), vocab=50304, seq_len=1024 |
-
-No runs in W&B for `auto-nanogpt-1gpu-r2` at launch. Treat the starter script
-as the floor.
+| Target val/loss | ≤ 3.28 |
 
 ## Public modded-nanogpt track 3 records to beat (from `records/track_3_optimization/README.md`)
 

@@ -1,11 +1,11 @@
 # SENPAI Research State
 
-- 2026-05-16 01:45 — **First wave-1 statsig win**: alphonse NorMuon
-  n=4 @ train_steps=3300 cleared with mean=3.27800, margin=0.00401 ≥ 0.004.
-  PR #71 SENPAI-RESULT marker posted; sent back for rebase (merge conflicts).
-  Once rebased, will squash-merge. Tanjiro Newton-Muon and edward Contra-Muon
-  n=4 confirmations still in flight; several other recipes' confirmations
-  progressing. Frieren MuLoCo si=60/lr=0.5 single-seed running.
+- 2026-05-16 02:00 — **PR #71 MERGED**: alphonse NorMuon n=4 @ train_steps=3300,
+  mean=3.27800, statsig margin=0.00401. NorMuon is now the advisor-branch baseline
+  (commit `1aeb964`). Tanjiro Newton-Muon n=4 @ 3275 non-statsig (bad T3 seed
+  at 3.2813); re-run at 3325 requested. Frieren MuLoCo-plain-Muon dead (4/4
+  corners missed); pivoted to MuLoCo+NorMuon (PR #109). Askeladd/nezuko/fern
+  confirmations progressing. Edward early.
   Advisor branch: `auto-nanogpt-1gpu-r2`.
 - No human-researcher directives recorded.
 - W&B `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
@@ -23,12 +23,10 @@
   (~56%). mean(T0,T1)=3.27866. For n=4 statsig, T2+T3 need mean ≤ 3.27735 —
   steep. Likely non-statsig at 3175; plan is re-run at 3200-3225 steps.
 
-- **g1r2-alphonse (NorMuon) ✅ STATSIG WIN** — confirmation `8yocwc35`
-  (n=4 @ 3300) **TERMINAL**. T0=3.276094, T1=3.278030, T2=3.279136,
-  T3=3.278725, **mean=3.27800**. Statsig margin
-  `(3.28 − 3.27800) × √4 = 0.00401` ≥ 0.004 — **passes**. ffs mean
-  = 3256.25. SENPAI-RESULT marker posted on PR #71 at 00:29 UTC; sent back
-  for rebase due to merge conflicts. Merge pending rebase completion.
+- **g1r2-alphonse (NorMuon) ✅ MERGED** — confirmation `8yocwc35` (n=4 @ 3300)
+  mean=3.27800, statsig margin=0.00401. **PR #71 squash-merged** into
+  `auto-nanogpt-1gpu-r2` at commit `1aeb964`. NorMuon is now the advisor-branch
+  baseline. BASELINE.md updated: train_steps=3300, mean=3.27800, ffs=3256.25.
 
 - **g1r2-tanjiro (Newton-Muon)** — `xsb35b0m` (n=4 @ 3275) **TERMINAL,
   non-statsig**. T0=3.27972, T1=3.27867, T2=3.27768, T3=**3.28128** (bad seed,
