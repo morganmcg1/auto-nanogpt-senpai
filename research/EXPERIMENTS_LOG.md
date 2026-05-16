@@ -209,3 +209,19 @@ Orthogonal barely steeper in the predicted regime but the difference is an order
 **Wave 2 plateau implication**: With LR, init, warmup, EMA, and (so far) cooldown_frac all closing as negatives, the merged Muon² baseline hyperparameters sit at a robust local optimum. Scalar hyperparameter retuning is exhausted as a path to merge — wave 3 must use mechanism stacks.
 
 **Conclusion:** Clean negative on LR retune. Closed. Alphonse reassigned to PR #117 (Trust-region Muon² — per-layer update norm cap, complementary to NS orthogonalization).
+
+## 2026-05-16 07:22 — PR #102: LR warmup sweep (fern)
+
+- **Branch:** g1r4-fern/lr-warmup-sweep
+- **Hypothesis:** LR warmup (0 → 50 → 100 → 200 steps) helps Muon² settle by preventing large early updates
+- **Results:**
+
+| Arm | warmup steps | W&B run | val/loss | first_step |
+|-----|-------------|---------|----------|-----------|
+| A | 0 (baseline) | qn0d50o2 | 3.27699 | 3300 |
+| B | 50 | ysomsvug | 3.28063 | -1 |
+| C | 100 | khagy2bs | 3.28153 | -1 |
+| D | 200 | ace7lfl3 | 3.28084 | -1 |
+
+- **Analysis:** Monotone negative. Each warmup arm strictly worse than no-warmup. Arms B/C/D all fail to cross val<3.28 threshold. The warmup hypothesis is falsified — Newton-Schulz already provides early-step directional stability (edward #92 finding: NS re-orthogonalizes within ~50 steps), so LR warmup just delays the productive high-LR window without providing additional stability. **CLOSED negative.**
+- **Impact:** Closes the LR-schedule axis in wave 2. Combined with LR retune (#96) also negative, the schedule space is exhausted.
