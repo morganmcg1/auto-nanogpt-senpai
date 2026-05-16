@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #15, ~03:30 UTC)
+- **Last updated:** 2026-05-16 (poll #16, ~04:15 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -95,7 +95,7 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 43 | NorMuonH               | **leading exploit-side**, but softening (seeds [3225, 3225, -1, 3250] of 8)           |
 | 44 | Contra-Muon isolated   | tentative — wait for n=8 mu                                                            |
 | 45 | Muon²                  | **STRONGEST WAVE-1 SIGNAL**: trial-0 val=3.2793 ffs=3325; trial-1 val=3.2777 ffs=3300; mean=3.2785 ≈ statsig threshold; n=8 mid-trial-3 |
-| 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200) but high variance                                          |
+| 46 | SOAP-MLP isolated      | **MERGED ✓** ffs=3200 mu=3.27744 n=6; new baseline; all 6 seeds hit target            |
 | 47 | MuonH reproduction     | **softening**: seeds 1-3 final val/loss [3.287, 3.301, 3.305], 0.009-0.027 above rec #5 mu; n=8 mid-seed-4 |
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
 | 49 | Lookahead k×α          | **CLOSED (clean negative)**: best cell (k=10/α=0.8) = baseline ceiling; PR #49 closed 2026-05-15 22:00 |
@@ -114,20 +114,22 @@ partial-confirmation numbers. Treat them as *signal that the recipe runs
 and approaches the target*, **not as record claims**. Terminal verdicts
 wait for the predeclared n-seed confirmation batches the PRs asked for.
 
-**Most promising directions (poll #15 update):**
+## 🏆 Wave-1 Winner — PR #46: SOAP-MLP isolated (MERGED 2026-05-16 04:00 UTC)
 
-1. **edward Muon² (PR #45)** — first wave-1 student with consistent
-   target hits. Two seeds in at val=[3.2793, 3.2777], both ffs ≤ 3325.
-   Two-seed mean 3.2785 is right at the n=8 statsig threshold (3.2786).
-   This is the wave-1 winner candidate if the remaining 6 seeds hold.
+**New baseline**: `ffs=3200, mu=3.27744, n=6, train_steps=3250`
+- Statsig margin = 0.00628 (>> 0.004 threshold)
+- All 6 seeds hit ffs=3200 — zero variance on primary metric
+- SOAP preconditioning on MLP fc/proj only; no Contra/NorMuon needed
+- Merged as commit 801c137; BASELINE.md created
 
-2. **alphonse NorMuonH (PR #43)** — seed history `[3225, 3225, -1,
-   3250, ...]`. Strongest ffs hits in wave-1 (3225 is faster than any
-   other student), but seed-3 miss and seed-4 mild softening introduce
-   variance concern. Wait for full n=8.
+**Fern (PR #116)** immediately reassigned to wave-2 follow-up: SOAP-attn + trust gate (→ record #16 trajectory, target ffs ≤ 3175).
 
-3. **thorfinn Polyak (PR #50)** — seed-0 of 6 hit val=3.2779. n=6 mu
-   needed to clear `mu < 3.2784` for statsig. ETA ~7 hours.
+**Remaining wave-1 candidates** must now beat ffs=3200 / mu=3.27744 to be merge-eligible:
+- edward Muon² (PR #45): ffs=[3325, 3300] so far — tied/marginally slower than new baseline; needs n=8 mu to come in low enough
+- alphonse NorMuonH (PR #43): ffs=[3225, 3225, -1, 3250, ...] — 3225 beats new baseline; watch n=8 mu
+- thorfinn Polyak (PR #50): ffs=3300 so far (1 seed) — tied with new baseline; unlikely to produce a merge-eligible result
+
+**Most promising direction going forward:** Stacking SOAP-attn (PR #116) + NorMuonH + Contra-Muon progressively toward record #16 → #20 trajectory.
 
 **Watch list for next poll:**
 - alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate (≈mid-seed-5/8)
@@ -230,6 +232,7 @@ exploitation reproductions of known strong recipes + 3 exploration ideas.
 | PR # | Student         | Hypothesis                                                   | Type    | Status |
 | ---- | --------------- | ------------------------------------------------------------ | ------- | ------ |
 | 98   | g1r5-tanjiro    | Cautious-Muon: sign-agreement mask on NS update (lr sweep)   | explore | WIP    |
+| 116  | g1r5-fern       | SOAP-attn + trust gate on merged SOAP-MLP base (→rec #16)    | exploit | WIP    |
 
 All assignments specify:
 - inline-only optimizer code (no third-party packages),
