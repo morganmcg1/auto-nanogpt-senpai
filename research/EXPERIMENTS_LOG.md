@@ -525,6 +525,27 @@ Arm B (k=10) is running (`u78x3cd3` launched ~15:30 UTC) — with longer inner s
 
 ---
 
+## 2026-05-16 19:34 — PR #143 CLOSED: Lookahead k=5/10 — confirmed NEGATIVE both arms (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/pmuon-uw-lookahead`
+- W&B runs: `ycmkbjrb` (arm A k=5), `i4eb7s2p` (arm B k=10)
+
+| Arm | k | val/loss | sr | (3.28−μ)·√n | Outcome |
+|---|---|---|---|---|---|
+| A | 5 | 3.28361 | −1 | −0.00361 | NEGATIVE |
+| B | 10 | 3.28390 | −1 | −0.00390 | NEGATIVE |
+| PR #137 baseline | — | 3.269090 | 3062.5 | +0.01546 | reference |
+
+**Both arms NEVER crossed 3.28 in 3250 steps.** Lookahead is fundamentally incompatible with PMuon+u/w-floor at any k value tested.
+
+**Mechanism (confirmed by thorfinn's `cosine_drift` telemetry, mean +0.75):** Lookahead's slow-weight pullback (α=0.5 blend every k steps) creates destructive interference with u/w-floor's persistent magnitude inflation. Three nested forces oscillate: PMuon whitening rotates direction → u/w-floor lifts magnitude → Lookahead snaps back → repeat. Per-step equilibrium drift = m·(1−α/k). At k=5: 0.9·m; at k=10: 0.95·m. Neither high enough to converge in 3250 steps.
+
+**Cross-cutting:** 2nd outer-loop NEGATIVE on PMuon+u/w-floor (joins PR #119 Contra-Muon). Combined with 11+ post-polar nulls, the pattern is clear: outer-loop and post-polar mechanism additions are all blocked by u/w-floor × bilateral-whitening interaction.
+
+**Conclusion:** CLOSED as confirmed NEGATIVE. Thorfinn pivots to NS iteration count scan (fundamental polar hyperparameter, never touched) — categorically new probe in core polar mechanism, not outer-loop or shape addition.
+
+---
+
 ## 2026-05-16 12:00 — PR #119 CLOSED: Measured-scale Contra-Muon × PMuon — final negative (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/pmuon-contra-measured`
