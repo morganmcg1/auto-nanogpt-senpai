@@ -240,3 +240,63 @@ Orthogonal barely steeper in the predicted regime but the difference is an order
 | D | 0 (disabled) | 2v0kauw1 | 3.27830 | 3.27830 | 3325 | 3325 |
 
 - **Analysis:** Hypothesis refuted. EMA val_loss ≥ live val_loss in every arm. Live val_loss invariant across arms (3.2749-3.2784, spread within seed noise). Arm C live=3.2749 is not attributable to EMA (EMA cannot affect live trajectory). Arm D=Arm A confirms test harness. Cooldown is load-bearing — EMA averages across cooldown boundary → off-floor. **CLOSED negative.**
+
+## 2026-05-16 10:30 — PR #117: Trust-region Muon² per-layer cap (alphonse) — CLOSED negative
+
+- **Branch:** g1r4-alphonse/trust-region-muon
+- **Hypothesis:** Cap each layer's NS-orthogonalized update by `radius × ||w||_F` to prevent rare-large excursions without touching the standard Muon² recipe
+- **Results:**
+
+| Arm | radius | W&B run | val/loss | first_step |
+|-----|--------|---------|----------|-----------|
+| A | 0.0 (disabled) | reugw0j8 | 3.27657 | 3275 |
+| B | 0.1 | nwn9iw8o | 5.69052 | -1 |
+| C | 0.3 | 7j5q7i9z | 5.69074 | -1 |
+| D | 1.0 | sic7r90w | 5.68109 | -1 |
+
+- **Analysis:** Arm-A reproduces merged baseline to 5th decimal (3.27657 vs 3.2766) — code path verified. Arms B/C/D all collapse onto val~5.69 within 0.003 at every step. Self-reinforcing feedback loop: cap activates at init (||u||_F ≈ ||w||_F ≈ 23-28 by construction) → shrinks updates → weights grow slow → ||w||_F stays small → cap stays tight forever. The cap design coupled to `||w||_F` is the wrong scale invariant for Muon² since NS already normalizes singular values to 1.
+- **Closes off:** trust-region cap by weight-norm fraction axis. Future trust-region work should use NS-natural invariant `sqrt(min(rows,cols))` with c>1 to clip only rare excursions. **CLOSED negative.**
+
+## 2026-05-16 10:30 — PR #106: Muon² cooldown_frac sweep (nezuko) — CLOSED negative
+
+- **Branch:** g1r4-nezuko/muon2-cooldown-sweep
+- **Hypothesis:** Extend fern PR #70's positive cooldown signal (vanilla Muon frac=0.5 trended positive) onto merged Muon² baseline
+- **Results (after arm-C bug retry):**
+
+| Arm | frac | W&B run | val/loss | first_step |
+|-----|------|---------|----------|-----------|
+| A | 0.4 | 0jnnm3mf | 3.28358 | -1 (failed) |
+| B | 0.5 | 2ah2vjlr | 3.27928 | 3350 |
+| C (retry) | 0.6 | 088ms8y1 | 3.27766 | 3300 |
+| D | 0.7 (baseline) | 2jr85a5w | 3.27965 | 3350 |
+
+- **Analysis:** Monotone: lower frac → worse or no-change. Frac=0.6 retry val=3.27766 indistinguishable from baseline 0.7 (range 0.00005). fern PR #70's positive frac=0.5 signal on vanilla Muon does NOT transfer to Muon². Mechanism: Muon²'s 2nd-moment preconditioning makes the cooldown tail do real, non-redundant work, so shortening it doesn't help.
+- **Bonus diagnostic:** Original arms C/D both hit branch-toggle-during-launch bug (entrypoint reverted file between arms B and C → ran with hardcoded frac=0.7), accidentally giving an n=2 frac=0.7 reproduction (mean=3.27761) that agrees with merged baseline (3.276565) to 0.001 — confirming environment health. Student adopted snapshot-before-launch pattern for retry.
+- **Closes off:** cooldown_frac axis on Muon². **CLOSED negative.**
+
+## 2026-05-16 10:30 — Wave 3 dual positive signals 🎯 (in flight)
+
+Two wave-3 mechanism stacks have produced **baseline-beating single-seed signals** awaiting confirmation:
+
+### PR #115 — Adam-style bias correction (edward)
+
+| Arm | bias_corr | beta2 | W&B run | val/loss | first_step | margin |
+|-----|-----------|-------|---------|----------|-----------|--------|
+| A | OFF | 0.999 | o5pk32x1 | 3.27928 | 3325 | +0.003 (within-noise) |
+| B | ON | 0.95 | nit5n8jo | 3.27720 | 3300 | +0.001 (no step-25 divergence ✓) |
+| **C** | **ON** | **0.98** | jp2lhp3r | **3.27490** | **3250** | **−0.002, −25 steps** ✨ |
+| D | ON | 0.999 | swdz145t (running step 2010) | — | — | testing bias_corr at baseline beta2 |
+
+Single-seed stat-sig at n=1: (3.28−3.2749)*sqrt(1) = 0.0051 ≥ 0.004 ✓. Predeclared confirmation rule triggered (val<3.275). 2 confirmation seeds queued at (bias_corr=on, beta2=0.98) after arm-D.
+
+### PR #105 — Gradient clipping sweep (thorfinn)
+
+| Arm | clip | W&B run | val/loss | first_step | margin |
+|-----|------|---------|----------|-----------|--------|
+| A | 0.0 (disabled) | q6law89d | 3.27890 | 3325 | +0.002 (within-noise) |
+| **B** | **1.0** | ogevgg65 | **3.27546** | **3275** | **−0.001, =0 steps** ✨ |
+| C | 5.0 | 3utr1m71 (running step 1800) | — | — | sweep continuation |
+
+Single-seed stat-sig at n=1: (3.28−3.2755)*sqrt(1) = 0.00454 ≥ 0.004 ✓. 2 confirmation seeds requested at clip=1.0 after arm-C finishes.
+
+**Wave 3 mechanism hypothesis (if both confirm)**: bias correction touches v-EMA preconditioner; grad clip touches gradient before momentum — orthogonal mechanism slots, expected to stack cleanly. Final merge sequencing TBD pending confirmation seeds.

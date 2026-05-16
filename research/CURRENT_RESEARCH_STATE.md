@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 06:22 UTC (wave 2 confirmed plateau; wave 3 mechanism stacks in flight; bias correction prevents step-25 divergence at beta2=0.95)
+- **Date:** 2026-05-16 10:40 UTC (wave 3 dual positive signals 🎯 — edward bias-corr arm-C val=3.2749/fs=3250, thorfinn clip=1.0 arm-B val=3.2755/fs=3275; both pending confirmation seeds)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -45,27 +45,22 @@
 | #96 | alphonse | CLOSED — Muon² LR retune: 0.035 peak confirmed, no retune gain |
 | #97 | tanjiro | CLOSED INCONCLUSIVE — pod-level GPU divergence on merged baseline |
 | #108 | tanjiro | CLOSED — smoke test re-confirmed pod broken; infra-block |
+| #102 | fern | CLOSED — LR warmup monotone WORSE; clean negative |
+| #104 | frieren | CLOSED — Polyak EMA at eval ≥ live val_loss in every arm; cooldown is load-bearing |
+| #106 | nezuko | CLOSED — Muon² cooldown_frac: frac=0.6 retry val=3.27766 indistinguishable from baseline; fern PR #70's vanilla-Muon positive does not transfer |
+| #117 | alphonse | CLOSED — Trust-region cap by ||w||_F: arm-A=3.27657/3275 EXACT baseline; arms B/C/D all collapse to val~5.69 (self-reinforcing choke loop) |
 
 ## Active PRs
 
-### Wave 2 closing (hyperparameter probes finishing)
+### Wave 3 mechanism stacks (5 in flight)
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #102 | fern | LR warmup sweep | arm-A=3.2770/3300, arm-B=3.2806, arm-C=3.2815, arm-D (warmup=200) running step 2680 — monotone WORSE; clean negative |
-| #104 | frieren | Polyak EMA averaging | arm-A=3.2784/3325 (decay=0.99), arm-B=3.2774/3300 (decay=0.999); arm-C (decay=0.9999) running step 1500 — EMA HURTS |
-| #105 | thorfinn | Grad clip sweep | arm-A (disabled)=3.2789/3325; arm-B (clip=1.0) running step 1650 |
-| #106 | nezuko | Muon² cooldown_frac sweep | arm-A=3.2836 fs=-1, arm-B=3.2793 fs=3350, **arm-C (frac=0.6)=3.2756 fs=3275** ← within-noise tie; arm-D running step 825 |
-
-**Wave 2 wave summary**: 18+ arms across 5 sweep PRs. NO arm has decisively beaten merged baseline (3.2766/3275). Plateau confirmed.
-
-### Wave 3 mechanism stacks (4 in flight)
-
-| PR | Student | Hypothesis | Status |
-|----|---------|-----------|--------|
-| #115 | edward | **Muon² + Adam bias correction** | arm-A=3.2793/3325 (within-noise of baseline). **arm-B (bias_corr=on, beta2=0.95) running step 1775, val=3.4775 — NO step-25 divergence! Mechanism works.** |
-| #117 | alphonse | **Trust-region Muon²** | **arm-A (disabled)=3.2766/3275 EXACT BASELINE MATCH** — code path verified. Arm B (radius=0.1) starting next |
-| #120 | askeladd | **Lookahead Muon² (k inner steps + α blend)** | arm-A (disabled) running step 1675 — sanity check in flight |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** arm-A=3.2793/3325, arm-B=3.2772/3300 (no step-25 divergence at beta2=0.95). arm-D (bias_corr=on, beta2=0.999) running step 2010. Confirmation seeds at beta2=0.98 queued. |
+| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-B (clip=1.0) val=3.27546/fs=3275 BEATS BASELINE.** arm-A (disabled)=3.2789/3325. arm-C (clip=5.0) running step 1800. Confirmation seeds at clip=1.0 requested. |
+| #120 | askeladd | **Lookahead Muon² (k inner steps + α blend)** | arm-A=3.2773/3350 (within-noise), arm-B (k=5,α=0.5)=3.2884 (WORSE). arm-C (k=10,α=0.5) running step 2685, val=3.3544 — tracking worse |
+| #126 | fern | **Contra-Soft momentum direction shaping** | arm-A (disabled)=3.2762/3275 EXACT baseline. arm-B (α=0.5) KILLED step 1600 val=4.06 (kill gate). arm-C (α=0.25) just launched step 100 — student following kill notice |
+| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A (classical NS sanity) running step 1050, val=3.6363 — healthy trajectory |
 
 ## Infra-blocked
 
@@ -77,16 +72,34 @@ The plateau protocol calls for mechanism extensions beyond hyperparameter tuning
 
 **In flight**:
 1. **#115 edward — Muon² + bias correction** (Adam-style v_hat) — fixes known mechanism flaw, may unlock lower beta2 values
-2. **#117 alphonse — Trust-region Muon²** — per-layer norm cap complementary to NS direction control
+2. **#117 alphonse — Trust-region Muon²** — CLOSED clean negative on ||w||_F-coupled cap (feedback loop)
 
-**Next-tier (assign after #115/#117 land)**:
-3. **Muon² + Contra-Soft momentum** — record #20's first component; targets momentum direction shaping
-4. **Muon² + SOAP-MLP for AdamW aux groups** — second-order preconditioning for LM head/embed; biggest theoretical lever to close 3275 → 3030 gap
-5. **Lookahead Muon²** — k inner steps + alpha blend (meta-optimizer wrapper); compatible with 1 fwd/bwd per step
-6. **Polar-decomposition Muon** — exact orthogonalization via SVD on smaller projections vs iterative NS
-7. **Muon for embed/lm_head** — apply Muon² to all params (not just blocks), unifying the optimizer
+### Critical path 🎯 — dual positive signals, confirmation seeds in flight
+
+**Both #115 (bias correction, beta2=0.98) and #105 (grad clip=1.0) produced single-seed baseline-beating results.** Mechanism orthogonality: bias correction touches v-EMA preconditioner; grad clip touches gradient before momentum — independent slots, expected to stack cleanly if both confirm.
+
+**Sequencing**:
+1. Edward #115: wait arm-D finish (~80 min) → launch 2 confirmation seeds at beta2=0.98
+2. If #115 confirms (mu(n=3) ≤ 3.2777) → merge first as cleanest mechanism win
+3. Thorfinn #105: wait arm-C finish → launch 2 confirmation seeds at clip=1.0
+4. If #105 also confirms → merge on top of #115
+5. Stack test: bias_corr=on + clip=1.0 combined-mechanism PR
+
+### Other in-flight
+- **#120 askeladd Lookahead** — arm-B (k=5, α=0.5) val=3.2884 WORSE; arm-C (k=10) tracking similar; likely closes negative
+- **#126 fern Contra-Soft** — arm-B (α=0.5) killed at val=4.06 (kill gate); arm-C (α=0.25) just launched; if also fails, element-wise direction-shaping closed (try layer-aggregate next)
+- **#138 frieren Polar Express NS** — adaptive NS coefficients (ICLR 2026 Oral); arm-A sanity in flight
+
+### Next-tier (assign as students become idle)
+- **Muon² + SOAP-MLP for AdamW aux groups** — second-order preconditioning for LM head/embed; biggest theoretical lever to close 3275 → 3030 gap
+- **Polar-decomposition Muon** — exact orthogonalization via SVD on smaller projections vs iterative NS
+- **Muon for embed/lm_head** — apply Muon² to all params (not just blocks), unifying the optimizer
+- **Contra-Muon layer-aggregate** — if fern #126 closes negative, try inner-product (per-layer) conflict score instead of element-wise sign
+- **Per-layer adaptive NS iterations** — log singular spread per block; spend more NS iters on poorly-conditioned blocks
 
 **Key insight (edward's #92 mechanism analysis)**: Newton-Schulz continuously re-orthogonalizes Muon-trained matrices within ~50 steps; init structure is irrelevant for those. Init experiments only matter for AdamW-trained matrices (embed/lm_head). This narrows the init-exploration space.
+
+**Failed-mechanism pattern to avoid**: magnitude-suppression that depends on current weight/update creates self-reinforcing feedback loops at init (alphonse #117 trust-region; fern #126 arm-B Contra-Soft α=0.5). Any future mechanism with this structure should delay activation past step N or use NS-natural scale invariants (sqrt(min(rows,cols)) not ||w||_F).
 
 ## Notes
 
