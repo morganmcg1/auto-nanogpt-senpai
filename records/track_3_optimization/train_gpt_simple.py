@@ -459,12 +459,14 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 
-def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
+def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12, return_min_eig: bool = False):
     # Symmetric PSD M -> M^{-gamma} via eigendecomposition; eps clamp handles rank deficiency.
     M = 0.5 * (M + M.T)
     eigvals, eigvecs = torch.linalg.eigh(M)
+    min_eig = float(eigvals[0].item()) if return_min_eig else None
     eigvals = eigvals.clamp_min(eps).pow(-gamma)
-    return (eigvecs * eigvals) @ eigvecs.T
+    result = (eigvecs * eigvals) @ eigvecs.T
+    return (result, min_eig) if return_min_eig else result
 
 
 def pmuon_update(
@@ -492,8 +494,16 @@ def pmuon_update(
     # whitening if you have access; otherwise use m_pre)" — we use the pre-whitening one.
     m_pre_raw = update.detach().clone().float() if contra_coeff > 0.0 else None
 
-    L_neg = matrix_neg_power(L_cov, gamma, eps)
-    R_neg = matrix_neg_power(R_cov, gamma, eps)
+    # PR #119: return min eigenvalue of L_cov and R_cov pre-clamp so we can detect
+    # covariance conditioning collapse during the contra warmup phase.
+    cov_min_eig = None
+    if contra_coeff > 0.0:
+        L_neg, L_min_eig = matrix_neg_power(L_cov, gamma, eps, return_min_eig=True)
+        R_neg, R_min_eig = matrix_neg_power(R_cov, gamma, eps, return_min_eig=True)
+        cov_min_eig = min(L_min_eig, R_min_eig)
+    else:
+        L_neg = matrix_neg_power(L_cov, gamma, eps)
+        R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
     update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
@@ -520,6 +530,7 @@ def pmuon_update(
             "contra_frob": float(contra_dir.norm().item()),
             "effective_perturb": float((contra_coeff * contra_dir.norm() / update_norm).item()),
             "cos_update_mpre": float(cos.item()),
+            "cov_eigh_min": float(cov_min_eig) if cov_min_eig is not None else 0.0,
         }
     return update, diagnostics
 
