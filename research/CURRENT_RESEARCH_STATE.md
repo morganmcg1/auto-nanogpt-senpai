@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 03:40 UTC (wave 2 closing → wave 3 mechanism stacks begin)
+- **Date:** 2026-05-16 06:22 UTC (wave 2 confirmed plateau; wave 3 mechanism stacks in flight; bias correction prevents step-25 divergence at beta2=0.95)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -52,18 +52,20 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #90 | askeladd | Vanilla-Muon muP LR sweep | 3 arms terminal; arm-D (lr=0.042-vanilla) running step 1875 — all worse than Muon² baseline |
-| #102 | fern | LR warmup sweep | arm-A=3.27699, arm-B=3.28063 (warmup=50 BAD); arm-C (warmup=100) running step 670 |
-| #104 | frieren | Polyak EMA averaging | arm-A=3.27839 (decay=0.99); arm-B (decay=0.999) running step 1650 |
-| #105 | thorfinn | Grad clip sweep | smoke test PASSED (`ot1tidd2`); 4 prior crashes attributed to transient SIGKILL on uncommitted code; relaunching with committed code |
-| #106 | nezuko | Muon² cooldown_frac sweep | arm-A (frac=0.4)=3.28358 fs=-1 BAD; arm-B (frac=0.5) running step 2250 |
+| #102 | fern | LR warmup sweep | arm-A=3.2770/3300, arm-B=3.2806, arm-C=3.2815, arm-D (warmup=200) running step 2680 — monotone WORSE; clean negative |
+| #104 | frieren | Polyak EMA averaging | arm-A=3.2784/3325 (decay=0.99), arm-B=3.2774/3300 (decay=0.999); arm-C (decay=0.9999) running step 1500 — EMA HURTS |
+| #105 | thorfinn | Grad clip sweep | arm-A (disabled)=3.2789/3325; arm-B (clip=1.0) running step 1650 |
+| #106 | nezuko | Muon² cooldown_frac sweep | arm-A=3.2836 fs=-1, arm-B=3.2793 fs=3350, **arm-C (frac=0.6)=3.2756 fs=3275** ← within-noise tie; arm-D running step 825 |
 
-### Wave 3 mechanism stacks (NEW)
+**Wave 2 wave summary**: 18+ arms across 5 sweep PRs. NO arm has decisively beaten merged baseline (3.2766/3275). Plateau confirmed.
+
+### Wave 3 mechanism stacks (4 in flight)
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #115 | edward | **Muon² + Adam bias correction** (tanjiro's #97 diagnostic fix) | Assigned, not yet picked up |
-| #117 | alphonse | **Trust-region Muon²** (per-layer update norm cap, complementary to NS) | Assigned, not yet picked up |
+| #115 | edward | **Muon² + Adam bias correction** | arm-A=3.2793/3325 (within-noise of baseline). **arm-B (bias_corr=on, beta2=0.95) running step 1775, val=3.4775 — NO step-25 divergence! Mechanism works.** |
+| #117 | alphonse | **Trust-region Muon²** | **arm-A (disabled)=3.2766/3275 EXACT BASELINE MATCH** — code path verified. Arm B (radius=0.1) starting next |
+| #120 | askeladd | **Lookahead Muon² (k inner steps + α blend)** | arm-A (disabled) running step 1675 — sanity check in flight |
 
 ## Infra-blocked
 
