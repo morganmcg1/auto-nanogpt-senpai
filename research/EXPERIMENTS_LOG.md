@@ -544,6 +544,33 @@ Arm B (k=10) is running (`u78x3cd3` launched ~15:30 UTC) — with longer inner s
 
 **Conclusion:** CLOSED as fundamental incompatibility (not tuning failure). 4 arms, 4 different failure or underperformance modes, all consistent with bilateral-whitening × orthogonal-perturbation conflict. Assigned alphonse PR #151 (Aurora row-norm equilibration — pre-polar mechanism, geometrically orthogonal).
 
+---
 
+## 2026-05-16 18:26 UTC — PR #137 MERGED: PMuon + u/w-floor + Power-Law Cooldown γ=1.2 — WINNER n=2 (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/pmuon-uw-power-1p2`
+- Hypothesis: Power-law cooldown shape `eta = ((1−progress)/cooldown_frac)^γ` with γ=1.2 on PMuon+u/w-floor base. Concave-down decay drops lr faster through mid-cooldown, predicted to accelerate descent across 3.28 at cost of slightly higher final val.
+- W&B runs: `8quuvdrj` (seed-1), `l5bdkm6e` (seed-2)
+
+| Metric | seed-1 | seed-2 | **n=2 mean** | PR #94 baseline (n=2) | Δ |
+| ------ | ------ | ------ | ------------ | --------------------- | - |
+| speedrun/final_first_step_to_target | 3075 | **3050** | **3062.5** | 3100 | **−37.5 steps ✅** |
+| val/loss (final) | 3.270012 | 3.268167 | **3.269090** | 3.267696 | +0.001394 (regression, within seed-noise) |
+| (3.28−μ)·√n | — | — | **0.01543** | 0.01740 | ✓ clears 0.004 bar |
+| `final_reached_target` | 1 | 1 | — | — | both clean |
+
+**Mechanistic analysis:**
+- Power-law γ=1.2 makes cooldown concave-down: at 50% cooldown progress, `eta=0.5^1.2=0.435` vs linear `eta=0.5`. This drops lr faster in mid-cooldown, pulling the model across the 3.28 boundary ~37.5 steps earlier on average.
+- Tradeoff: less time at moderate lr in late cooldown → slightly higher final val (+0.0014). This is the right trade for the speedrun benchmark.
+- `uw_floor/fired_fraction=1.0` on both seeds — u/w-floor and power-law cooldown compose cleanly, both active simultaneously throughout training.
+- Seed-2 (sr=3050) is 1 tick BETTER than seed-1 (sr=3075), showing the mechanism is consistent and reproducible.
+
+**Cross-cutting significance:**
+- FIRST improvement on PMuon+u/w-floor base in 10+ experiments.
+- ALL prior improvements were from optimizer-mechanism additions; this is a **schedule-shape** win.
+- Establishes that the schedule-shape dimension (γ parameter, cooldown curve family) is the open lever on this base.
+- Opens Wave 5: γ × cooldown_frac joint surface scan, cosine cooldown comparison (PR #168 running).
+
+**Conclusion:** MERGED as new baseline. sr=3062.5, val=3.269090. Nezuko freed → assigned Wave 5 γ scan (γ ∈ {1.1, 1.3} arms to probe curvature around the optimum).
 
 
