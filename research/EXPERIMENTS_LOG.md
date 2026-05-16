@@ -117,3 +117,24 @@ gh for assignment-state queries failed assignment polls for ~45 min:
   100% util) — the rate limit only affected new poll cycles, not in-flight
   Python processes.
 - All pods recovered at iter 30-36 (~16:21-16:24 UTC) once the token reset.
+
+---
+
+## 2026-05-15 23:50 UTC — PR #73: WD warmup (nezuko) — CLOSED negative
+
+**Hypothesis:** Deferring weight decay during the first ~10% of training lets Muon make faster initial progress; full WD applied through cooldown for regularization.
+
+| Arm | wd_warmup_frac | W&B run | val/loss @3350 | first_step_to_target |
+|-----|---------------:|---------|---------------:|---------------------:|
+| A   | 0.00 (baseline) | mpq9bfwk | 3.27969 | 3350 |
+| B-s1| 0.05            | 2qrloa5p | 3.27868 | 3325 |
+| C   | 0.10            | ix77c7mg | 3.27952 | 3350 |
+| B-s2| 0.05 (seed 2)   | sjcj2lfk | 3.27970 | 3350 |
+
+**Stat-sig check on best arm (Arm-B n=2):** mean=3.27919, margin=(3.28-3.27919)*sqrt(2)=0.00114 ≪ 0.004 threshold. **NOT stat-sig.**
+
+**Diagnostic:** Weight-norm trajectories across arms tracked within 0.1% of each other; early-descent slopes indistinguishable. At WD=0.025, weight decay simply isn't a meaningful early-training force compared to Muon's update magnitude. Mechanism does what it says (telemetry verified ramp on muon_blocks group) but produces no measurable benefit. Worse than merged Muon² baseline (3.27919 vs 3.2766).
+
+**Bundled finding (already in baseline):** nezuko's sample_tensor float64 fix was excellent diagnostic work, but it had already been independently cherry-picked into the merged Muon² PR #60 via alphonse. That's why this PR ended in merge-conflict state.
+
+**Conclusion:** WD warmup unlikely to help any recipe with final WD ≤ 0.025. Re-test only if a future recipe lands with WD ≥ 0.05.
