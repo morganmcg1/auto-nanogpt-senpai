@@ -1,5 +1,30 @@
 # SENPAI Research State
 
+- 2026-05-16 12:35 — Cycle 17 (frieren T0 missed, multiple runs progressing):
+  - **FRIEREN #109 T0 MISSED**: `jzsue46n` T0 val=3.28240, ffs=-1 (never crossed 3.28).
+    Frieren's honest analysis: MuLoCo wrapping DELAYS convergence ~50 steps on Contra+SOAP-MLP
+    base. Screen at 3275 was 3.27688, but at 3175 (predeclared step) screen was 3.28353.
+    T0 in line with that. Math: T1-T3 would need mean ≤3.27587 (~3σ below screen distribution)
+    — extremely unlikely. Sent back: continue all 4 trials (no val-peeking), post SENPAI-RESULT,
+    will pivot to outer_lr=0.5 OR close+reassign after T3 terminal (~17:30 UTC).
+  - **EDWARD `zsqazpmr` NOT DEAD** — n=4 confirm started May 15 22:36 UTC, T0=3.27750 ffs=3175
+    already logged, currently in T2 phase (_step=7740 = T0+T1+~step 1290). ETA full n=4 terminal
+    ~20:00 UTC today. Blackwell compile-off so 6.0 s/step.
+  - **ASKELADD `lw99ybyp`** T2 at step 2375/3300 (~72%), _step=8977. T0=3.27781 ffs=3225,
+    T1=3.27777 ffs=3225 strong. ETA full n=4 ~14:30 UTC.
+  - **THORFINN `6kjpjnvd`** T0 best_val=3.274 ffs=3250 (Soft-Muon p=0.05 working). T1 at step 394.
+    n=4 ETA ~14:00 UTC for next trial completion.
+  - **TANJIRO Option B STARTED** — `yrsarj9b` launched ~12:24 UTC on g1r2-tanjiro/newton-muon
+    branch. Newton-Muon (attn-only) right-preconditioning on Contra+SOAP-MLP base. Still warming.
+  - **FERN real-Aurora smoke** `u1tnpn3q` step 125/400. Diagonal leverage-score equalization
+    algorithm with pp_iterations=2, pp_beta=0.5.
+  - **ALPHONSE `hjsjscjy`** step 1950/3175 (val=3.4765 mid-cooldown). ETA screen terminal
+    ~13:09 UTC. No CONTRA_MUON=0.5 screen launched yet.
+  - **NEZUKO `c5d01ezw`** step 1375/3150 (val=3.577). ETA terminal ~13:30 UTC.
+  - **Key insight**: The \"stronger but slower\" pattern continues. Recipes that beat baseline
+    val at 3275+ steps don't beat baseline FFS at 3131. Future hypotheses must directly target
+    FFS reduction (faster convergence), not just lower terminal val.
+
 - 2026-05-16 11:40 — Cycle 16 (W&B survey + GH rate-limit exhausted again):
   - **Frieren n=4 `jzsue46n` T0 step 2040/3175 (64%)** — val=3.4728 mid-cooldown.
     Expected terminal ~12:15 UTC. T2/T3 ended at step 400 (likely crashed seeds — only
