@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -466,6 +467,58 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+class AdamAtan2(torch.optim.Optimizer):
+    """Adam with atan2(m, v.sqrt()) * (2/pi) update — per-element bounded in (-1, 1) * lr.
+
+    Replaces Adam's `m_hat / (v_hat.sqrt() + eps)` normalization with
+    `atan2(m_hat, v_hat.sqrt()) * (2/pi)`. Because atan2(y, x) for finite y and
+    x >= 0 lies in (-pi/2, pi/2), the per-element update magnitude is strictly
+    less than `lr` regardless of gradient scale or second-moment value.
+    No `eps` is required (atan2 is defined everywhere). Decoupled weight decay
+    is applied identically to AdamW.
+
+    State (m, v) is kept in fp32 even for low-precision params (e.g. bf16
+    embed) — matches the fused AdamW fp32 master state and avoids bf16
+    underflow/precision-loss on g^2.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad.float()
+                state = self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["exp_avg"], state["exp_avg_sq"]
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bias_correction1 = 1 - beta1 ** t
+                bias_correction2 = 1 - beta2 ** t
+                m_hat = m / bias_correction1
+                v_hat = v / bias_correction2
+                # Per-element bounded update in (-1, 1) * lr.
+                update = torch.atan2(m_hat, v_hat.sqrt()) * (2.0 / math.pi)
+                # Decoupled weight decay (AdamW-style).
+                if wd != 0.0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update.to(p.dtype), alpha=-lr)
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -710,12 +763,14 @@ for trial_idx in range(args.num_trials):
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
-    # projection now controls norm growth. AdamW aux groups match the starter
-    # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # projection now controls norm growth.
+    # AdamAtan2 aux groups replace fused AdamW: atan2(m_hat, sqrt(v_hat))*(2/pi)
+    # gives a per-element update bounded in (-1, 1) * lr by construction, with no
+    # eps sensitivity. Same lrs / betas / wd as the baseline AdamW (eps not used).
+    optimizer1 = AdamAtan2([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), weight_decay=0)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
