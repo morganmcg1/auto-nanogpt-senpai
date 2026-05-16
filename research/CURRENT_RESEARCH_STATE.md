@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-15 (poll #11, ~23:35 UTC)
+- **Last updated:** 2026-05-16 (poll #12, ~00:45 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -46,39 +46,42 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 50 | thorfinn | `polyak-tau0.20-beta0.995`   | **3.2779**  | **3300** | best of 4-cell grid; n=6 confirmation in flight       |
 | 50 | thorfinn | `polyak-tau0.30-beta0.995`   | 3.2786      | **3300** | tied with τ=0.20 on ffs; 0.0007 nats worse on val     |
 
-### Active runs as of ~21:35 UTC
+### Active runs as of ~00:45 UTC (poll #12)
 
-- **alphonse** `normuonh-confirm` at step ~11.7k (mid-seed-4 of 8);
-  seed history `[3225, 3225, -1, 3250]` — strongest exploit-side signal
-  but softening. Confirmation outcome will determine whether NorMuonH
-  matches record #8 cleanly.
-- **askeladd** `contra-muon-confirmation-n8-3350` at step ~10.8k
-  (mid-seed-3 of 8); confirmation seeds running but earlier seed ffs
-  values not yet visible cleanly in W&B due to interleaved crashed
-  smokes. Watch for the n=8 mu when complete.
-- **fern** `soap-mlp-isolated` at step ~10.7k (mid-seed-3 of 5+); seed-1
-  ffs=3200, two subsequent seeds missed (-1). Variance is high — wait
-  for full n.
-- **frieren** `muonh-record5-repro-confirm-n8` at step ~5.9k (mid-seed-2
-  of 8); no terminal seed yet, running cleanly post torch 2.11 bump.
-- **edward** `muon-sq-screen-3325` at step ~1.8k of 3325 (≈54% of seed-1
-  screen); val/loss descending normally, **no NaN cascade** — torch 2.11
-  + corrected v-buffer mechanism took. First clean screen of Muon² on
-  this branch.
-- **nezuko** (cooldown shape sweep): `cooldown-power_alpha1p2-seed42` at
-  step ~1.55k; previous shapes: linear `ffs=3300`, cosine `ffs=-1`,
-  power_α0.6 `val=3.28561 ffs=-1`. Two shapes still to run
-  (power_α1.2 in flight, trapezoidal pending).
-- **tanjiro** (PR #49 Lookahead): **CLOSED 2026-05-15 22:00** as clean
-  negative. Tanjiro reassigned to PR #98 Cautious-Muon (sign-agreement
-  masking on NS update, lr sweep ∈ {1.0, 1.5, 2.0}×).
-- **thorfinn** (Polyak/SWA τ×β grid): **grid complete (4/4 cells)**.
-  Results: (0.10,0.999) ffs=-1, (0.20,0.999) ffs=-1, **(0.20,0.995)
-  val=3.2779 ffs=3300**, **(0.30,0.995) val=3.2786 ffs=3300**. β=0.995
-  cells tied on ffs; τ in [0.20, 0.30] roughly fungible. **n=6
-  confirmation on (τ=0.20, β=0.995) launched** — running at step ~225
-  of 3350. Discriminating question: does n=6 mu clear `(3.28 - mu)
-  × sqrt(6) >= 0.004` (needs mu < 3.2784 with n=6 SE)? Borderline.
+- **alphonse** `normuonh-confirm` at step ~17.4k (≈mid-seed-5+ of 8);
+  seed history `[3225, 3225, -1, 3250, ...]` — strongest exploit-side
+  signal, mild softening at seed-3. Continue through full n=8.
+- **askeladd** `contra-muon-confirmation-n8-3350` at step ~16.5k
+  (≈mid-seed-5 of 8); first 2 terminal seeds both **ffs=3325** —
+  isolated Contra-Muon sitting at plain Muon baseline territory.
+  Watch for the n=8 mu.
+- **fern** `soap-mlp-isolated` at step ~16.2k (≈mid-seed-5 of n); seed-1
+  ffs=3200, latest val approaching 3.280 — high seed-to-seed variance.
+- **frieren** `muonh-record5-repro-confirm-n8` at step ~11.7k (mid-seed-4
+  of 8); seeds 1-3 final val/loss `[3.287, 3.301, 3.305]`, **none hit
+  target**. Best is seed-1 at 3.287 (0.007 above target). Record #5
+  mu=3.2782; frieren's three terminal val/losses are 0.009-0.027
+  *above* record #5 mu — MuonH reproduction may be incomplete (mul
+  pliers ×1.25 attn.proj, ×3.0 mlp.proj, ×1.5 mlp.fc applied to default
+  Kaiming init?). Run is clean (no NaNs, no crashes post torch 2.11);
+  the "7 crashes" any surface W&B scan reports are all pre-torch-2.11
+  stale smokes from earlier in the day, NOT active failures.
+- **edward** `muon-squared-3325-confirm` at step ~4.1k (per W&B —
+  may have moved from screen → confirm; verify next poll). val/loss
+  descending normally, no NaN cascade.
+- **nezuko** (cooldown sweep): all 5 shapes have screened. New run
+  `cooldown-linear-seed43` at step ~300 — appears to be per-shape
+  multi-seed confirmation phase (linear is the only shape that hit
+  target on single seed). Likely needs n=2-4 on linear vs. quick
+  n=1 recheck on other shapes for verdict.
+- **tanjiro** (PR #98 Cautious-Muon, wave-2 launched 22:30 UTC):
+  `cautious-muon-lrx1.0-seed0` at step ~2.3k, val=3.456. Smoke passed.
+  Screen seed in flight; lrx1.0/1.5/2.0 grid pending.
+- **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995) at
+  step ~2.1k (seed-3 of 6, after seeds-1/2 finished at ffs=3300 each).
+  Discriminating question: does n=6 mu clear `(3.28 - mu) × sqrt(6) >=
+  0.004` (needs mu < 3.2784)? With first two seeds matching screen
+  numbers, plausibly yes — wait for final mu.
 
 ### Forming wave-1 verdicts (single-seed; still tentative)
 
@@ -88,7 +91,7 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 | 44 | Contra-Muon isolated   | tentative — wait for n=8 mu                                                            |
 | 45 | Muon²                  | unclear — first clean screen mid-flight                                                |
 | 46 | SOAP-MLP isolated      | promising (seed-1 ffs=3200) but high variance                                          |
-| 47 | MuonH reproduction     | unclear — n=8 confirmation mid-seed-2                                                   |
+| 47 | MuonH reproduction     | **softening**: seeds 1-3 final val/loss [3.287, 3.301, 3.305], 0.009-0.027 above rec #5 mu; n=8 mid-seed-4 |
 | 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
 | 49 | Lookahead k×α          | **CLOSED (clean negative)**: best cell (k=10/α=0.8) = baseline ceiling; PR #49 closed 2026-05-15 22:00 |
 | 50 | Polyak/SWA τ×β         | grid complete; (τ=0.20,β=0.995) and (τ=0.30,β=0.995) tied at ffs=3300; n=6 confirmation in flight; borderline statsig |
@@ -115,14 +118,14 @@ seed-4 `3250` are mild softening — wait for the full n=8 mu before
 forming a verdict.
 
 **Watch list for next poll:**
-- alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate
-- thorfinn Polyak n=6 confirmation on (τ=0.20, β=0.995) — disambiguates
-  whether the 50-step single-seed gain is real or noise
-- frieren MuonH n=8 mu — second exploit-side reproduction
-- fern SOAP-MLP n=5+ mu — high-variance, needs full batch
-- edward Muon² screening seed — first clean run on this branch
-- nezuko cooldown shape sweep — final 2 shapes (power_α1.2, trapezoidal)
-- askeladd Contra-Muon n=8 mu — softening but not yet verdict
+- alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate (≈mid-seed-5/8)
+- thorfinn Polyak n=6 mu on (τ=0.20, β=0.995) — borderline statsig; (≈seed-3/6)
+- frieren MuonH n=8 mu — softening at seeds 1-3; may indicate incomplete reproduction
+- fern SOAP-MLP n mu — high-variance, latest val approaching 3.280
+- askeladd Contra-Muon n=8 mu — likely matches plain Muon baseline
+- edward Muon² confirm progress — verify screen → confirm transition
+- nezuko per-shape multi-seed verification (linear cell first)
+- tanjiro Cautious-Muon screen grid (lrx 1.0/1.5/2.0)
 
 ## Pre-existing starter bugs — fixed in-flight by wave-1 students
 
