@@ -237,6 +237,63 @@ def log_training_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_muon_telemetry(
+    muon_optimizer: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Log Muon's v-EMA buffer norm and effective preconditioner scale.
+
+    Tracks how the bias-corrected v_hat differs from raw v across early steps.
+    """
+    v_norm_sqs = []
+    v_numels = []
+    v_hat_sqrt_sums = []
+    v_hat_numels = []
+    t_values = []
+    bc_values = []
+    for group in muon_optimizer.param_groups:
+        beta2 = group["beta2"]
+        use_bc = group["use_bias_correction"]
+        for p in group["params"]:
+            state = muon_optimizer.state.get(p, {})
+            v = state.get("v")
+            if v is None:
+                continue
+            v_f = v.float()
+            v_norm_sqs.append(v_f.pow(2).sum())
+            v_numels.append(v_f.numel())
+            t = state.get("t", 0)
+            t_values.append(t)
+            if use_bc and t > 0:
+                bc = 1.0 - beta2 ** t
+                v_hat = v_f / bc
+                bc_values.append(bc)
+            else:
+                v_hat = v_f
+            v_hat_sqrt_sums.append(v_hat.sqrt().sum())
+            v_hat_numels.append(v_hat.numel())
+    if not v_norm_sqs:
+        return
+    v_norm_total_sq = torch.stack(v_norm_sqs).sum().item()
+    v_norm = v_norm_total_sq ** 0.5
+    v_rms = (v_norm_total_sq / sum(v_numels)) ** 0.5
+    precond_scale_mean = torch.stack(v_hat_sqrt_sums).sum().item() / sum(v_hat_numels)
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "train/muon/v_norm": v_norm,
+        "train/muon/v_rms": v_rms,
+        "train/muon/preconditioner_scale": precond_scale_mean,
+        "train/muon/t_max": max(t_values) if t_values else 0,
+    }
+    if bc_values:
+        metrics["train/muon/bias_correction_min"] = min(bc_values)
+        metrics["train/muon/bias_correction_max"] = max(bc_values)
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_weight_telemetry(
     model: nn.Module,
     module_types: dict[str, str],
@@ -443,6 +500,8 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+MUON_BETA2 = float(os.environ.get("NANOGPT_MUON_BETA2", "0.999"))
+MUON_BIAS_CORRECTION = bool(int(os.environ.get("NANOGPT_MUON_BIAS_CORRECTION", "0")))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -464,21 +523,28 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True, bias_correction=None):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
-    update = update / (v.sqrt() + eps)
+    if bias_correction is None:
+        update = update / (v.sqrt() + eps)
+    else:
+        # Adam-style bias correction: v_hat = v / (1 - beta2^t)
+        v_hat = v / bias_correction
+        update = update / (v_hat.sqrt() + eps)
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
+                 use_bias_correction=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps,
+                        use_bias_correction=use_bias_correction)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -488,6 +554,8 @@ class Muon(torch.optim.Optimizer):
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            use_bias_correction = group["use_bias_correction"]
+            beta2 = group["beta2"]
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -495,8 +563,15 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                        state["t"] = 0
+                    bias_correction = None
+                    if use_bias_correction:
+                        state["t"] += 1
+                        bc_value = 1.0 - beta2 ** state["t"]
+                        bias_correction = torch.tensor(bc_value, device=p.device, dtype=state["v"].dtype)
                     update = muon_update(p.grad, state["momentum"], state["v"],
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         mu=group["mu"], beta2=beta2, eps=group["eps"],
+                                         bias_correction=bias_correction)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -574,6 +649,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "muon_beta2": MUON_BETA2,
+            "muon_bias_correction": MUON_BIAS_CORRECTION,
         },
     )
 
@@ -610,8 +687,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=0.025,
+                      beta2=MUON_BETA2, use_bias_correction=MUON_BIAS_CORRECTION)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    print0(f"MUON²: beta2={MUON_BETA2}, bias_correction={MUON_BIAS_CORRECTION}, NS_ITERS={NS_ITERS}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -755,6 +834,12 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
+            log_muon_telemetry(
+                muon_optimizer=optimizer2,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
