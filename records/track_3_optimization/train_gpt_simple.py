@@ -262,6 +262,80 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+_DMR_BLOCK0_Q_NAME = "blocks.0.attn.q.weight"
+_dmr_running = {"global_neg": 0, "global_total": 0, "block0_q_neg": 0, "block0_q_total": 0}
+
+
+def log_dmr_telemetry(
+    muon_optimizer: torch.optim.Optimizer,
+    param_id_to_name: dict[int, str],
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    cos_values: list[float] = []
+    target_cos = None
+    target_mom_pre = None
+    target_mom_post = None
+    target_grad_norm = None
+    reset_fired = False
+    for group in muon_optimizer.param_groups:
+        for p in group["params"]:
+            state = muon_optimizer.state.get(p, {})
+            cos_t = state.get("dmr_cos_pre")
+            if cos_t is None:
+                continue
+            cos_v = float(cos_t.float().item())
+            mom_pre_v = float(state["dmr_mom_norm_pre"].float().item())
+            mom_post_v = float(state["dmr_mom_norm_post_reset"].float().item())
+            grad_norm_v = float(state["dmr_grad_norm"].float().item())
+            cos_values.append(cos_v)
+            if state.get("dmr_reset_fired"):
+                reset_fired = True
+            name = param_id_to_name.get(id(p))
+            if name == _DMR_BLOCK0_Q_NAME:
+                target_cos = cos_v
+                target_mom_pre = mom_pre_v
+                target_mom_post = mom_post_v
+                target_grad_norm = grad_norm_v
+    metrics: dict[str, float] = {
+        "trial": trial_idx,
+        "train/step": step,
+        "train/dmr/k": NANOGPT_MOMENTUM_RESET_K,
+        "train/dmr/decay": NANOGPT_MOMENTUM_RESET_DECAY,
+        "train/dmr/active": int(NANOGPT_MOMENTUM_RESET_K > 0),
+        "train/dmr/reset_fired": int(reset_fired),
+        "train/dmr/interval": muon_optimizer._dmr_interval,
+        "train/dmr/next_reset_step": muon_optimizer._dmr_next_reset,
+        "train/dmr/total_resets": muon_optimizer._dmr_total_resets,
+        "train/dmr/steps_since_reset": muon_optimizer._dmr_steps_since_reset,
+    }
+    if cos_values:
+        n = len(cos_values)
+        neg_count = sum(1 for c in cos_values if c < 0)
+        mean_cos = sum(cos_values) / n
+        _dmr_running["global_neg"] += neg_count
+        _dmr_running["global_total"] += n
+        metrics["train/dmr/global_cos_neg_fraction"] = neg_count / n
+        metrics["train/dmr/global_mean_cos"] = mean_cos
+        metrics["train/dmr/global_cum_cos_neg_fraction"] = (
+            _dmr_running["global_neg"] / max(1, _dmr_running["global_total"])
+        )
+        metrics["train/dmr/active_param_count"] = n
+    if target_cos is not None:
+        metrics["train/dmr/cos_block0_q"] = target_cos
+        metrics["train/dmr/momentum_norm_pre_reset_block0_q"] = target_mom_pre
+        metrics["train/dmr/momentum_norm_post_reset_block0_q"] = target_mom_post
+        metrics["train/dmr/grad_norm_block0_q"] = target_grad_norm
+        _dmr_running["block0_q_total"] += 1
+        if target_cos < 0:
+            _dmr_running["block0_q_neg"] += 1
+        metrics["train/dmr/cum_cos_neg_fraction_block0_q"] = (
+            _dmr_running["block0_q_neg"] / max(1, _dmr_running["block0_q_total"])
+        )
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -444,6 +518,14 @@ class GPT(nn.Module):
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
 
+# Decoupled Momentum Reset (DMR) — periodic zeroing of the Muon momentum buffer.
+# K=0 disables. K>0 with DECAY=0 resets every K steps. K>0 with DECAY=1 starts
+# at interval K and doubles after each reset, capped at MAX.
+NANOGPT_MOMENTUM_RESET_K = int(os.environ.get("NANOGPT_MOMENTUM_RESET_K", "0"))
+NANOGPT_MOMENTUM_RESET_DECAY = int(os.environ.get("NANOGPT_MOMENTUM_RESET_DECAY", "0"))
+NANOGPT_MOMENTUM_RESET_MAX = int(os.environ.get("NANOGPT_MOMENTUM_RESET_MAX", "800"))
+
+
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -480,11 +562,34 @@ class Muon(torch.optim.Optimizer):
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
+        self._step_count = 0
+        # DMR: next step (1-indexed) at which the momentum buffer will be zeroed.
+        if NANOGPT_MOMENTUM_RESET_K > 0:
+            self._dmr_next_reset = NANOGPT_MOMENTUM_RESET_K
+            self._dmr_interval = NANOGPT_MOMENTUM_RESET_K
+        else:
+            self._dmr_next_reset = -1
+            self._dmr_interval = 0
+        self._dmr_last_fired = False
+        self._dmr_total_resets = 0
+        self._dmr_steps_since_reset = 0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        cur_step = self._step_count + 1  # 1-indexed step being taken
+
+        reset_fired = False
+        if NANOGPT_MOMENTUM_RESET_K > 0 and cur_step >= self._dmr_next_reset:
+            reset_fired = True
+            if NANOGPT_MOMENTUM_RESET_DECAY:
+                self._dmr_interval = min(self._dmr_interval * 2, NANOGPT_MOMENTUM_RESET_MAX)
+            self._dmr_next_reset = cur_step + self._dmr_interval
+            self._dmr_total_resets += 1
+            self._dmr_steps_since_reset = 0
+        self._dmr_last_fired = reset_fired
+
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -495,11 +600,31 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
+                    grad = p.grad
+                    momentum = state["momentum"]
+                    # DMR telemetry — capture pre-update momentum stats and cos(grad,momentum).
+                    mom_norm_pre = momentum.norm()
+                    grad_norm = grad.norm()
+                    inner = (grad * momentum).sum()
+                    cos = inner / (grad_norm * mom_norm_pre + 1e-12)
+                    state["dmr_mom_norm_pre"] = mom_norm_pre.detach()
+                    state["dmr_grad_norm"] = grad_norm.detach()
+                    state["dmr_cos_pre"] = cos.detach()
+                    state["dmr_reset_fired"] = reset_fired
+                    # Reset BEFORE muon_update consumes momentum, so the current
+                    # step's update is computed with a freshly-zeroed buffer.
+                    if reset_fired:
+                        momentum.zero_()
+                    state["dmr_mom_norm_post_reset"] = momentum.norm().detach()
+                    update = muon_update(grad, momentum, state["v"],
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+        self._step_count += 1
+        if not reset_fired:
+            self._dmr_steps_since_reset += 1
 
 
 ########################################
@@ -534,6 +659,12 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(
+    f"DMR: K={NANOGPT_MOMENTUM_RESET_K} DECAY={NANOGPT_MOMENTUM_RESET_DECAY} "
+    + f"MAX={NANOGPT_MOMENTUM_RESET_MAX} "
+    + ("ENABLED" if NANOGPT_MOMENTUM_RESET_K > 0 else "DISABLED"),
+    console=True,
+)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -615,6 +746,12 @@ for trial_idx in range(args.num_trials):
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
+    # Map muon-managed parameter id -> qualified name for DMR telemetry.
+    muon_param_id_to_name: dict[int, str] = {}
+    muon_param_set = {id(p) for p in optimizer2.param_groups[0]["params"]}
+    for _name, _p in model.named_parameters():
+        if id(_p) in muon_param_set:
+            muon_param_id_to_name[id(_p)] = _name
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
@@ -754,6 +891,14 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            log_dmr_telemetry(
+                muon_optimizer=optimizer2,
+                param_id_to_name=muon_param_id_to_name,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
