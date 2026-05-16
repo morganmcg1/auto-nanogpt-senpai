@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 19:35 UTC. Post-#105 wave-3 — **wave of regressions confirmed**. CRITICAL: Edward #115 seed1 (BC+clip stack) val=3.27906 is +0.00269 WORSE than clip-only control (3.27637) → bias correction does NOT stack with clip=5.0; the mechanisms are redundant. Thorfinn #165 arm-B (clip=10) diverged at step 75 (val=10.83=random init) → suspected clip-loosening NaN. All 4 follow-on arms (SOAP, DMR, NS>12, BC-stack) trending negative. Tanjiro infra-blocked (issue #160).
+- **Date:** 2026-05-16 20:05 UTC. Post-#105 wave-3 — **wave of regressions confirmed**. CRITICAL: Edward #115 seed1 (BC+clip stack) val=3.27906 is +0.00269 WORSE than clip-only control (3.27637) → bias correction does NOT stack with clip=5.0; mechanisms redundant. Thorfinn #165 arm-B (clip=10) is healthy (step-0 val=10.83 was random-init eval, not divergence; step 125 val=4.61 is actually slightly AHEAD of arm-A). Tanjiro pod ROTATED 2026-05-16 19:33 UTC (issue #160 resolved); new assignment #185 (NS-iter annealing). All 4 follow-on arms (SOAP, DMR, NS>12, BC-stack) trending negative.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -75,20 +75,21 @@
 | **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). **arm-B (K=50) val=3.2930 — CATASTROPHIC REGRESSION (+0.0177)**. **arm-C (K=200) `myuurop0` step 1925/3350** val=3.468 mid-trajectory matches B's slope. arm-D (K=800) queued. Aggressive momentum erasure falsified; longer reset interval likely still regresses by same mechanism. |
 | **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A=3.2760 ✓. arm-B (embed-only)=3.2798 WORSE. **arm-C (full SOAP) FINISHED val=3.2794 WORSE**. arm-D (freq=100) `r4644zpc` step 2325/3350 trajectory matches regress arms. ALL SOAP arms regress — likely SOAP rotation degrades sparse-token aux. Will close after arm-D terminal. |
 | **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. arm-B (NS=16) val=3.2799 — REGRESSES. **arm-C (NS=14) `3iqxdf5t` step 1800/3350** val=3.482 mid-trajectory matches B. arm-D (NS=18) queued. Saturation policy degenerated to uniform-NS sweep. NS>12 hurts confirmed. |
-| **#180** | **askeladd** | **Adafactor for AdamW aux groups** | PR opened 18:49 UTC. No runs in W&B yet — student presumably implementing. Smoke gate enforced after 10 prior smoke failures across #157/#172. |
-| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A `f6ym89r7` FINISHED val=3.27756/fs=3300 (+0.0023 within noise). 🔴 **arm-B (clip=10) `84um64gj` DIVERGED step 75 at val=10.83=random init**. URGENT ping sent to student to investigate; likely clip-loosening NaN. arms C/D probably also fail by same mechanism. |
+| **#180** | **askeladd** | **Adafactor for AdamW aux groups** | PR opened 18:49 UTC. Smoke `1v3appj2` (arm-B no_mom) **NaN at step 150** — smoke FAILED. Per timebox rules: 2 smoke attempts max, then close. Student should be pivoting to arm-C (adafactor_mom) second smoke attempt. |
+| **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | NEW 2026-05-16 20:00 UTC. Pod rotation confirmed. Must run 100-step infra smoke gate FIRST, then arms A–D (NS=12 constant, NS=14→8 linear, NS=12→8 linear, NS=14→8 cosine). Complement to frieren #176 (which tests NS↗ at cooldown; this tests NS↘ over training). |
+| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A `f6ym89r7` FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` HEALTHY** — step-0 val=10.83 was standard random-init eval (not divergence); step 125 val=4.61 slightly AHEAD of arm-A trajectory. ETA arm-B terminal ~21:00 UTC; arm-C/D sequential after. |
 
 ## Infra-blocked
 
-- **tanjiro** (GPU UUID 7998cef9-...): **3rd reproduction confirmed 2026-05-16 13:34 UTC** — merged baseline diverges at step 25 (NaN, nonfinite=147M; step-1 grad_norm=232102) across #97/#108/#149 smoke tests. ECC clean, same hardware model as healthy pods. Silicon-binning bf16 issue. **Issue #160 filed** requesting GPU rotation. Not assigning new work until human/infra team rotates the pod — tanjiro slot is unproductive until then. NS-iter annealing hypothesis held in reserve.
+- **tanjiro** (was GPU UUID 7998cef9 on node gd0c1b8): **ROTATION COMPLETE 2026-05-16 19:33 UTC** — operator patched deployment with node affinity excluding suspect nodes; new pod on node gd0f0ea, restart count 0. Issue #160 closed. **New assignment #185: NS-iter annealing (NS high-early low-late schedule)**. Smoke gate required first (100-step unmodified-baseline per operator instructions).
 
 ## Wave 3 post-#105 — current sequencing
 
 **#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**Wave of regressions confirmed — emerging picture**:
+**Wave of regressions confirmed — emerging picture (updated 20:05 UTC)**:
 1. **#115 edward** — BC+clip stack REGRESSES (seed1=3.27906 vs control 3.27637). n=2/3 in flight. **Mechanism: BC and clip overlap (both stabilize early-step preconditioner) — redundant.** Close after n=3 confirmation. ETA ~3h.
-2. **#165 thorfinn clip-extension** — arm-A reproduced baseline; **arm-B (clip=10) diverged at step 75**. Suggests clip=5.0 is at/near optimum; loosening restores pre-#105 NaN risk. URGENT student ping sent.
+2. **#165 thorfinn clip-extension** — arm-A val=3.27756 (within noise); arm-B (clip=10) HEALTHY at step 125 val=4.61 (slightly ahead of arm-A trajectory). Step-0 val=10.83 was standard random-init eval. Arms C/D (clip=25/50) queued.
 3. **#144 alphonse SOAP-aux** — arms B/C regress, arm-D running same trajectory. SOAP rotation degrades sparse-token aux. Close after arm-D.
 4. **#163 fern DMR** — arm-B K=50 catastrophic (+0.0177); arm-C K=200 trajectory matches regression. Momentum-erasure family CLOSED on temporal-smoothing precedent (#104/#120).
 5. **#145 nezuko per-layer NS** — saturated to uniform NS={14,16,18}; arm-B (NS=16)=3.2799. NS>12 hurts. Adaptive policy moot.
