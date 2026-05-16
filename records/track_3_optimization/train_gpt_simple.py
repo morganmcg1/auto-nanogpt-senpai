@@ -42,6 +42,7 @@ def parse_args():
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
+    parser.add_argument("--muonh_weight_decay", type=float, default=float(os.environ.get("MUONH_WEIGHT_DECAY", "0.0")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
@@ -513,7 +514,8 @@ class MuonH(torch.optim.Optimizer):
     mode="scale_invariant": always-active variant from the bundled reference -
     rescale the update to the param's current norm scale, then renormalise the
     new param back onto the sphere of radius ||initial param||. Holds Frobenius
-    norm exactly constant; weight_decay must be 0.
+    norm exactly constant. weight_decay>0 in this mode acts as a directional
+    bias on the NS5 input (`grad + wd*p`); the param norm is still preserved.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
@@ -549,14 +551,23 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    wd = group["weight_decay"]
+                    if hb and mode == "scale_invariant" and wd > 0:
+                        # SI renormalises param norm; standard `p *= 1 - lr*wd` shrinkage is
+                        # undone immediately. Inject wd as a directional bias on the NS5 input
+                        # instead: feed `grad + wd*p` so the orthogonalized direction is shifted
+                        # slightly toward the origin without changing param norm.
+                        grad_input = p.grad.add(p.data, alpha=wd)
+                    else:
+                        grad_input = p.grad
+                    update = muon_update(grad_input, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
                         total_count_local += 1
                         clip_count_local += 1  # by definition projection is always active
                     else:
-                        p.mul_(1 - group["lr"] * group["weight_decay"])
+                        p.mul_(1 - group["lr"] * wd)
                         p.add_(update, alpha=-group["lr"])
                         if hb:
                             R = state["hyperball_radius"]
@@ -664,6 +675,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
+            "muonh_weight_decay": args.muonh_weight_decay,
             "muonh_mode": args.muonh_mode,
             "train_steps": args.train_steps,
         },
@@ -717,7 +729,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                       lr=args.muonh_lr, weight_decay=args.muonh_weight_decay, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
