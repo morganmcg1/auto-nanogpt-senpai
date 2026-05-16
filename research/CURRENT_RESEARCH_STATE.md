@@ -1,5 +1,30 @@
 # SENPAI Research State
 
+- 2026-05-16 14:40 — Cycle 20 (nezuko terminal borderline, tanjiro smoke done, multiple n=4 progressing):
+  - **NEZUKO #124 SCREEN TERMINAL** `c5d01ezw` val=**3.2797**, ffs=**3150** at train_steps=3150.
+    Borderline single seed (0.0017 above merged mean). Sent back: predeclare n=4 at 3175 (match
+    baseline step count) for apples-to-apples comparison. Statsig at 3175 likely BORDERLINE
+    (mean projection ~3.2785). Merge requires mean ≤ 3.27760 AND ffs_mean ≤ 3131.25 both.
+  - **TANJIRO #161 LOOKAHEAD SMOKE DONE** `mzoxcy59` val=3.8825 at step 400. ~0.07 higher than
+    baseline smoke (~3.81). Could be expected lookahead startup cost OR sync bug. Sent back:
+    verify `lookahead/sync_step` and `slow_fast_diff_fro` telemetry, then proceed to screen.
+  - **FERN re-launched** `lqwaozx7` past prior crash points — step 825 val=3.7295 healthy. 
+    The clamp fix appears to have worked. Need to wait for screen terminal ~16:30 UTC.
+  - **ALPHONSE CONTRA_MUON=0.5 screen** `yctj2ozd` at step 1750/3175 val=3.4982 (cooldown).
+    ETA terminal ~15:35 UTC. Will compare to 0.3 (val=3.27804 ffs=3150) and predeclare n=4 with
+    best arm. The 0.3 result is the strongest FFS-targeted single-seed signal in the portfolio.
+  - **ASKELADD T3** `lw99ybyp` at step 2603/3300 (~79% of T3). ETA terminal ~15:30 UTC.
+    T0=3.27781, T1=3.27573, T2=3.27932. Mean(T0-T2)=3.27762. T3 ≤ 3.27869 needed for statsig.
+  - **THORFINN T2 terminal, T3 step 499** \`6kjpjnvd\`. T0=3.27400, ffs at trial that finished=3250.
+    Strong recipe but ffs > baseline 3131 — \"stronger but slower\" again.
+  - **FRIEREN T1/T2 confirmed missed** at 3175 step count. T3 (final trial) step 572 — recipe
+    confirmed not additive on Contra+SOAP-MLP at this step count. Will close negative when terminal.
+  - **EDWARD T3 step 2352/3225** — final trial in progress. ETA ~17:00 UTC.
+  - **NEZUKO is highest-EV merge candidate** in the current portfolio. Trust gate behavior at
+    longer cooldown is unknown — could surprise positively.
+  - **Strategic shift**: with nezuko, alphonse 0.3, and tanjiro Lookahead all targeting FFS at
+    or near 3175 step count, the next 4-6 hours determine if we get a new baseline.
+
 - 2026-05-16 14:20 — Cycle 19 (tanjiro PR #81 closed + Lookahead assigned, portfolio update):
   - **PR #81 CLOSED** — Newton-Muon-only (n=4 mean=3.27643, paper-quality) + Option B stack failed
     at 3175 (3.28893). Both results log in EXPERIMENTS_LOG. Closed with full analysis.
