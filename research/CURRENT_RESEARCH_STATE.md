@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-16 17:25 UTC — Cycle 27 (alphonse T0=3.2783/3150, frieren/thorfinn n=4 terminals imminent)
+- 2026-05-16 17:48 UTC — Cycle 29 (frieren CLOSED + reassigned to Soft-Muon annealing)
 
 ## Current baseline
 
@@ -37,12 +37,10 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - Student observed: smoke slow-fast diff peaks at sync 2 then declines; cooldown_frac=0.7 puts 75% of 400-step run in cooldown. Mid-training plateau hypothesized as Lookahead's window of benefit.
 - If screen MISS again: close PR, reassign to **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95
 
-### FRIEREN #109 — MuLoCo+NorMuon n=4 (NEAR TERMINAL — CLEAN NEGATIVE)
-- T0=3.28240 ffs=-1 (miss), T1=3.28196 ffs=-1 (miss), T2=**3.2794** ffs=3175 (hit at terminal step)
-- T3 at step 2730/3175 (86%) — ~14 min to terminal (~17:38 UTC)
-- Mean so far T0+T1+T2 = 3.2813 — well above statsig ceiling 3.27800
-- CLEAN NEGATIVE; will close PR upon SENPAI-RESULT
-- **Next assignment**: Soft-Muon annealing on merged Contra+SOAP-MLP base (record #20 ingredient)
+### FRIEREN #109 CLOSED → #177 Soft-Muon annealing
+- n=4 final: T0=3.282 (-1), T1=3.282 (-1), T2=3.279 (3175), T3=3.280 (-1). Mean=3.28095 — FAILS statsig.
+- PR #109 closed. PR #177 (Soft-Muon annealing on merged base, record #20 ingredient) assigned.
+- Expected smoke + screen within ~3-4h.
 
 ### THORFINN #103 — Soft-Muon p=0.05 n=4 (NEAR TERMINAL — stronger but slower)
 - T0=3.2742 ffs=3250, T1=3.2749 ffs=3250, T2=3.2725 ffs=3225 (best!)

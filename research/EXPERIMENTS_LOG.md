@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 17:46 — Cycle 29: Frieren MuLoCo n=4 CLOSED, reassigned to Soft-Muon annealing
+
+### Frieren MuLoCo+NorMuon n=4 — CLEAN NEGATIVE, PR #109 CLOSED
+
+W&B run `jzsue46n` @ train_steps=3175 (final):
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.282398 | -1 (miss) |
+| T1 | 3.281958 | -1 (miss) |
+| T2 | 3.279381 | 3175 |
+| T3 | 3.280067 | -1 (miss) |
+| **n=4 mean** | **3.28095** | **1/4 hit** |
+
+Statsig: `(3.28 − 3.28095) × √4 = -0.0019` — **FAILS** statsig (need ≥ 0.004). Only T2 reached target. MuLoCo outer-Nesterov wrapping does not transfer to the merged Contra+SOAP-MLP step budget. The original screen at 3275 (`akwwpkv3`, val=3.27688 ffs=3225) was real but stronger-but-slower — needs ~100 more steps than merged baseline allows.
+
+Clean negative — well-executed predeclaration honored across all 4 trials. PR #109 closed.
+
+### Frieren reassigned — Soft-Muon annealing on merged base (PR #177)
+
+Fresh hypothesis: record #20 (current global best at 3030 steps) uses **annealed Soft-Muon** as the key novel mechanism. Soft-Muon NS5 with `x^(1-p)` polynomial mixing, p_start=0.10 → p_end=0.0 annealed over first half of training. Applied to model.blocks.parameters() ndim>=2, alongside the existing Contra-Muon + SOAP-MLP stack. Target: cleaner cooldown trajectory + earlier 3.28 crossing.
+
 ## 2026-05-16 15:55 — Cycle 24: Fern Aurora screen FFS-WINNING, alphonse n=4 launched, frieren n=4 confirmed clean negative
 
 ### Fern Aurora screen — FFS-WINNING result on Contra+SOAP-MLP base (PR #125)
