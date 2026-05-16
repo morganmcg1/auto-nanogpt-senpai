@@ -463,6 +463,44 @@ def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
     return (eigvecs * eigvals) @ eigvecs.T
 
 
+def aurora_equilibrate(
+    m32: Tensor,
+    pp_iterations: int = 2,
+    pp_beta: float = 0.5,
+    eps: float = 1e-12,
+) -> tuple[Tensor, dict[str, Tensor]]:
+    # Row-norm power-iteration equilibration on a 2D fp32 momentum tensor m (out_dim, in_dim).
+    # Repeatedly divides rows by row_norm^pp_beta, then renormalises to preserve Frobenius norm.
+    assert m32.ndim == 2 and m32.dtype == torch.float32
+    pre_frob = m32.norm().clamp_min(eps)
+    pre_dir = m32 / pre_frob
+    pre_row_norms = m32.norm(dim=1).clamp_min(eps)
+    pre_ratio = pre_row_norms.max() / pre_row_norms.min()
+
+    out = m32
+    for _ in range(pp_iterations):
+        row_norms = out.norm(dim=1, keepdim=True).clamp_min(eps)
+        out = out / (row_norms ** pp_beta)
+
+    post_row_norms = out.norm(dim=1).clamp_min(eps)
+    post_ratio = post_row_norms.max() / post_row_norms.min()
+
+    post_frob = out.norm().clamp_min(eps)
+    rescale = pre_frob / post_frob
+    out = out * rescale
+
+    post_dir = out / out.norm().clamp_min(eps)
+    cos_pre_post = (pre_dir * post_dir).sum()
+
+    diag = {
+        "row_ratio_pre": pre_ratio.detach(),
+        "row_ratio_post": post_ratio.detach(),
+        "rescale_factor": rescale.detach(),
+        "cos_pre_post": cos_pre_post.detach(),
+    }
+    return out, diag
+
+
 def pmuon_update(
     grad: Tensor,
     momentum: Tensor,
@@ -473,7 +511,9 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
-) -> Tensor:
+    aurora_pp_iterations: int = 2,
+    aurora_pp_beta: float = 0.5,
+) -> tuple[Tensor, dict[str, Tensor]]:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -482,20 +522,47 @@ def pmuon_update(
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
 
+    # Aurora row-norm equilibration on the Nesterov-blended momentum, in fp32,
+    # before the bilateral whitening + NS5 polar.
+    m_aurora, aurora_diag = aurora_equilibrate(
+        update.float(),
+        pp_iterations=aurora_pp_iterations,
+        pp_beta=aurora_pp_beta,
+        eps=eps,
+    )
+
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
-    m_pre = (L_neg @ update.float()) @ R_neg
+    m_pre = (L_neg @ m_aurora) @ R_neg
 
-    update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
+    update = zeropower_via_newtonschulz5(m_pre.to(grad.dtype))
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
-    return update
+    return update, aurora_diag
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
+    def __init__(
+        self,
+        params,
+        lr=0.02,
+        weight_decay=0,
+        mu=0.95,
+        beta_cov=0.95,
+        gamma=0.3,
+        aurora_pp_iterations=2,
+        aurora_pp_beta=0.5,
+    ):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
+        defaults = dict(
+            lr=lr,
+            weight_decay=weight_decay,
+            mu=mu,
+            beta_cov=beta_cov,
+            gamma=gamma,
+            aurora_pp_iterations=aurora_pp_iterations,
+            aurora_pp_beta=aurora_pp_beta,
+        )
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -506,6 +573,8 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        aurora_sums: dict[str, Tensor] | None = None
+        aurora_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -517,7 +586,7 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
-                    update = pmuon_update(
+                    update, aurora_diag = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
@@ -525,7 +594,14 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        aurora_pp_iterations=group["aurora_pp_iterations"],
+                        aurora_pp_beta=group["aurora_pp_beta"],
                     )
+                    if aurora_sums is None:
+                        aurora_sums = {k: torch.zeros((), device=p.device, dtype=torch.float32) for k in aurora_diag}
+                    for k, v in aurora_diag.items():
+                        aurora_sums[k] = aurora_sums[k] + v
+                    aurora_count += 1
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
@@ -537,6 +613,11 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        if aurora_sums is not None and aurora_count > 0:
+            self._aurora_diag = {k: (v / aurora_count) for k, v in aurora_sums.items()}
+            self._aurora_diag["count"] = aurora_count
+        else:
+            self._aurora_diag = None
 
 
 ########################################
@@ -614,7 +695,10 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "muon_method": "pmuon-uw-aurora",
+            "aurora_active": True,
+            "aurora_pp_iterations": 2,
+            "aurora_pp_beta": 0.5,
         },
     )
 
@@ -651,7 +735,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3,
+                      aurora_pp_iterations=2, aurora_pp_beta=0.5)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -806,6 +891,17 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
+            aurora_diag = getattr(optimizer2, "_aurora_diag", None)
+            if aurora_diag is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/aurora/row_norm_ratio_pre": float(aurora_diag["row_ratio_pre"].item()),
+                    "train/aurora/row_norm_ratio_post": float(aurora_diag["row_ratio_post"].item()),
+                    "train/aurora/rescale_factor": float(aurora_diag["rescale_factor"].item()),
+                    "train/aurora/cos_pre_post": float(aurora_diag["cos_pre_post"].item()),
+                    "train/aurora/param_count": int(aurora_diag["count"]),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
