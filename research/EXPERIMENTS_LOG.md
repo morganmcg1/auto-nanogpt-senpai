@@ -6,6 +6,43 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 02:40 — Boot 16: PR #55 closed, 3 wave-3 PRs assigned, askeladd confirm progressing
+
+**PR #55 frieren MuLoCo (outer Nesterov wrapper on plain Muon) — CLOSED negative**
+- Run `0qry1ckh`, 4 trials × 3300 steps.
+- Per-trial table:
+
+| Trial | val/loss | ffs | reached_target |
+|-------|----------|-----|----------------|
+| 1 (idx 0) | 3.27917 | 3275 | ✓ |
+| 2 (idx 1) | 3.27845 | 3275 | ✓ |
+| 3 (idx 2) | 3.28077 | -1 | ✗ |
+| 4 (idx 3) | 3.28122 | -1 | ✗ |
+| **n=4 mean** | **3.27990** | — | 2/4 ✓ |
+
+- stat margin: `(3.28 - 3.27990) × √4 = 0.000194` — fails 0.004 bar.
+- σ across 4 trials = 0.0013 (~3× higher than the n=2 σ estimate of 0.0004 — variance widened).
+- **Conclusion**: MuLoCo outer Nesterov on plain Muon is a measurable but marginal lever at 1 GPU. Mechanism produces real signal (2/4 hits at exactly ffs=3275, matching public reference timing). Cannot close merge bar standalone on plain-Muon baseline.
+- **senpai-pr-guard.py bug reported**: student found `result_markers()` falsely fails on prose `SENPAI-RESULT:` mentions in advisor templates and casual text. Workaround: manual `gh pr ready` + `swap_gh_pr_label`. Flagged for human research team.
+- **New assignment**: frieren → **PR #114 NorMuon × MuLoCo stack** (wave-3). MuLoCo wrapper on top of merged NorMuon baseline.
+
+**3 new wave-3 PRs assigned (boot 16):**
+- **#111 fern AdamAtan2 aux**: per-element bounded update (`atan2(m, v.sqrt()) × 2/π`) replacing AdamW for embed/LM-head/scalars. Directly addresses the per-element-max issue diagnosed in closed PR #99 Adafactor.
+- **#113 alphonse Cautious-NorMuon stack**: sign-agreement mask on NorMuon update (combines #51 merged + #107 Cautious mechanism). Wave-3 priority #1.
+- **#114 frieren NorMuon × MuLoCo stack**: MuLoCo outer Nesterov wrapping NorMuon inner step. Wave-3 priority #1.
+
+**Askeladd #52 MuonH-SI confirm progress** (not terminal yet):
+- `rwpbmxj7` confirm trial 1 (idx 0): **val=3.2776, ffs=3275, reached=1** ✓
+- Trial 2 in progress at step 2175/3325 (~65% complete).
+- ETA full n=4 terminal: ~06:30 UTC (~4h from boot 16).
+
+**Tanjiro #87 u/w-floor sweep progress**:
+- Arm 1 (lr=0.035, UW=0.30): val=3.28074, ffs=-1 (miss by 0.00074)
+- Arm 2 (lr=0.035, UW=0.40): val=3.28084, ffs=-1 (miss by 0.00084)
+- Arms 3+4 still pending. Both completed arms missed; if 3+4 also miss, close-as-negative imminent.
+
+---
+
 ## 2026-05-16 01:45 — Boot 15: PR #51 alphonse NorMuon MERGED — new branch baseline
 
 **PR #51 alphonse NorMuon (1D post-NS row/col second-moment preconditioning) — MERGED**
