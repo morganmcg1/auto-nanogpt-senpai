@@ -10,16 +10,22 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
 
 import torch
+import torch._dynamo
 from torch import Tensor, nn
 from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
+
+# Allow torch.compile to specialize muon_update across multiple NS iter counts
+# (per-layer policy may use 7+ distinct iter values across shapes).
+torch._dynamo.config.cache_size_limit = max(torch._dynamo.config.cache_size_limit, 128)
 
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
@@ -262,6 +268,54 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def build_block_param_labels(model: nn.Module) -> dict[int, tuple[int, str]]:
+    """Map id(param) -> (block_idx, short_matrix_name) for Muon-eligible block weights."""
+    labels: dict[int, tuple[int, str]] = {}
+    for block_idx, block in enumerate(model.blocks):
+        for name, p in block.named_parameters():
+            if p.ndim >= 2 and name.endswith("weight"):
+                short = name[:-len(".weight")].replace(".", "_")
+                labels[id(p)] = (block_idx, short)
+    return labels
+
+
+def log_ns_iters_telemetry(optimizers, param_labels, trial_idx: int, step: int, wandb_step: int):
+    if not USE_PER_LAYER_NS:
+        return
+    metrics: dict[str, float] = {
+        "trial": trial_idx,
+        "train/step": step,
+    }
+    iters_list: list[int] = []
+    spread_list: list[float] = []
+    for opt in optimizers:
+        if not isinstance(opt, Muon):
+            continue
+        for group in opt.param_groups:
+            for p in group["params"]:
+                state = opt.state.get(p, {})
+                if "last_ns_iters" not in state:
+                    continue
+                iters = int(state["last_ns_iters"])
+                spread = float(state["last_spread"])
+                block_idx, short = param_labels.get(id(p), (-1, "unknown"))
+                metrics[f"train/ns/iters_block{block_idx}_{short}"] = iters
+                metrics[f"train/ns/spread_block{block_idx}_{short}"] = spread
+                iters_list.append(iters)
+                spread_list.append(spread)
+    if iters_list:
+        mean_iters = sum(iters_list) / len(iters_list)
+        variance = sum((x - mean_iters) ** 2 for x in iters_list) / len(iters_list)
+        metrics["train/ns/mean_iters_all_blocks"] = mean_iters
+        metrics["train/ns/iters_variance_across_blocks"] = variance
+        metrics["train/ns/min_iters_all_blocks"] = min(iters_list)
+        metrics["train/ns/max_iters_all_blocks"] = max(iters_list)
+        metrics["train/ns/mean_spread_all_blocks"] = sum(spread_list) / len(spread_list)
+        metrics["train/ns/min_spread_all_blocks"] = min(spread_list)
+        metrics["train/ns/max_spread_all_blocks"] = max(spread_list)
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -443,6 +497,11 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+USE_PER_LAYER_NS = bool(int(os.environ.get("NANOGPT_PER_LAYER_NS", "0")))
+PER_LAYER_NS_BASE = int(os.environ.get("NANOGPT_PER_LAYER_NS_BASE", "8"))
+PER_LAYER_NS_EXTRA_MAX = int(os.environ.get("NANOGPT_PER_LAYER_NS_EXTRA_MAX", "8"))
+PER_LAYER_NS_POWER_ITERS = int(os.environ.get("NANOGPT_PER_LAYER_NS_POWER_ITERS", "1"))
+PER_LAYER_NS_SPREAD_MIDPOINT = float(os.environ.get("NANOGPT_PER_LAYER_NS_SPREAD_MIDPOINT", "2.0"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -463,14 +522,48 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
         X = X.mT
     return X
 
+@torch.no_grad()
+def estimate_spread(m: Tensor, prev_v: Tensor | None = None, n_iters: int = 1):
+    """Cheap power-iteration estimate of sigma_max / (||m||_F / sqrt(min_dim)).
+
+    spread ~= 1 when singular spectrum is flat; spread > 1 when top singular
+    value dominates. Returns (spread_float, updated_power_vector) so callers
+    can warm-start across optimization steps.
+    """
+    if m.ndim != 2:
+        return 1.0, prev_v
+    rows, cols = m.shape
+    if prev_v is None or prev_v.shape[0] != cols or prev_v.dtype != m.dtype or prev_v.device != m.device:
+        prev_v = torch.randn(cols, device=m.device, dtype=m.dtype)
+        prev_v = prev_v / (prev_v.norm() + 1e-7)
+    for _ in range(n_iters):
+        v = m @ prev_v
+        v = v / (v.norm() + 1e-7)
+        prev_v = m.mT @ v
+        prev_v = prev_v / (prev_v.norm() + 1e-7)
+    sigma_max = float((m @ prev_v).norm().item())
+    m_frob = float(m.norm().item())
+    denom = m_frob / max(1.0, math.sqrt(min(rows, cols)))
+    if denom <= 0:
+        return 1.0, prev_v
+    return sigma_max / denom, prev_v
+
+def per_layer_ns_iters(spread: float,
+                       base: int = PER_LAYER_NS_BASE,
+                       extra_max: int = PER_LAYER_NS_EXTRA_MAX,
+                       midpoint: float = PER_LAYER_NS_SPREAD_MIDPOINT) -> int:
+    """Map measured spread to NS iter count in [base, base + extra_max] via sigmoid."""
+    s = 1.0 / (1.0 + math.exp(-(spread - midpoint)))
+    return int(base + round(extra_max * s))
+
 @torch.compile
-def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, ns_iters: int = NS_ITERS, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -495,8 +588,24 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                        state["power_v"] = None
+                        state["last_ns_iters"] = NS_ITERS
+                        state["last_spread"] = 1.0
+                    if USE_PER_LAYER_NS:
+                        # Estimate spread on the momentum buffer BEFORE this step's update.
+                        # This uses the (already-converging) power-iter vector from the prior step
+                        # to keep the cost to ~1 matmul + 1 matmul per param per step.
+                        spread, state["power_v"] = estimate_spread(
+                            state["momentum"], state.get("power_v"), n_iters=PER_LAYER_NS_POWER_ITERS,
+                        )
+                        iters = per_layer_ns_iters(spread)
+                        state["last_ns_iters"] = iters
+                        state["last_spread"] = spread
+                    else:
+                        iters = NS_ITERS
                     update = muon_update(p.grad, state["momentum"], state["v"],
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                                         ns_iters=iters)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -534,6 +643,10 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(f"PER-LAYER NS: enabled={USE_PER_LAYER_NS} base={PER_LAYER_NS_BASE}"
+       + f" extra_max={PER_LAYER_NS_EXTRA_MAX} power_iters={PER_LAYER_NS_POWER_ITERS}"
+       + f" midpoint={PER_LAYER_NS_SPREAD_MIDPOINT} | uniform NS_ITERS={NS_ITERS}",
+       console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -545,6 +658,7 @@ model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
+ns_param_labels = build_block_param_labels(model)
 if dist.get_rank() == 0:
     tags = ["track-3-optimization", "senpai"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
@@ -574,6 +688,11 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "per_layer_ns_enabled": USE_PER_LAYER_NS,
+            "per_layer_ns_base": PER_LAYER_NS_BASE,
+            "per_layer_ns_extra_max": PER_LAYER_NS_EXTRA_MAX,
+            "per_layer_ns_power_iters": PER_LAYER_NS_POWER_ITERS,
+            "per_layer_ns_spread_midpoint": PER_LAYER_NS_SPREAD_MIDPOINT,
         },
     )
 
@@ -758,6 +877,13 @@ for trial_idx in range(args.num_trials):
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+            log_ns_iters_telemetry(
+                optimizers=optimizers,
+                param_labels=ns_param_labels,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
