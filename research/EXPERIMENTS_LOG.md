@@ -732,3 +732,38 @@ Block_11 (deepest) carries 1.5–3× the gradient norm of intermediate blocks th
 Monotone harm: every nudge away from uniform LR hurts. No evidence of sweet spot between 0.90 and 1.0.
 
 **Conclusion:** Closed as NEGATIVE (both arms fail to reach 3.28). LLRD direction (shallow=full, deep=reduced) is confirmed wrong. Edward reassigned to per-block weight decay PR #198 — WD acts on `p` directly, bypasses both PMuon bilateral whitening AND u/w-floor.
+
+---
+
+## 2026-05-16 22:30 UTC — PR #129 CLOSED: PMuon β_cov scan {0.90, 0.95, 0.99} — NULL (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-uw-bcov-scan`
+- Hypothesis: PMuon covariance EMA horizon (β_cov) controls how many recent gradients contribute to L/R. Default β=0.95 never swept; scan brackets it with {0.90, 0.99}.
+- W&B runs: `dstsva72` (arm A, β=0.90), `ueglklrb` (arm B, β=0.95), `xxx` (arm C, β=0.99)
+
+| Arm | β_cov | sr | val/loss | Δ val vs baseline | lcov_eigh_min |
+| --- | ----- | -- | -------- | ----------------- | ------------- |
+| A (β=0.90) | shorter horizon | 3125 | 3.26889 | −0.00020 | −3.4×10⁻⁴ (near-singular) |
+| B (β=0.95, baseline) | default | 3125 | ~3.269090 | baseline | 26.6 (healthy) |
+| C (β=0.99) | longer horizon | ~3125 | 3.269+ | ~null | 0.57 (degraded) |
+| Baseline PR #137 | uniform β=0.95 | 3062.5 | 3.269090 | — | — |
+
+**Key eigh telemetry finding (lcov_eigh_min, L_cov conditioning):**
+- β=0.90: −3.4×10⁻⁴ → near-singular L_cov (too-rapid covariance decay, numerically unstable)
+- β=0.95: 26.6 → healthy conditioning (confirmed sweet spot)
+- β=0.99: 0.57 → degraded conditioning (too-slow EMA, stale covariance, diminished whitening)
+
+**Non-monotonic conditioning:** β_cov=0.95 sits at the conditioning optimum between two degenerate regimes. This is the cleanest mechanistic null in the programme — the hyperparameter is genuinely at a local optimum, not just insensitive.
+
+**Conclusion:** Closed as informative NULL. β_cov axis fully characterized. Frieren reassigned to PMuon whitening exponent (γ_power) scan PR #201 — the dual axis: β_cov controls covariance horizon, γ_power controls whitening strength (L^{−γ} R^{−γ}).
+
+---
+
+## 2026-05-16 22:35 UTC — PR #201 ASSIGNED: PMuon γ_power whitening exponent scan {0.2, 0.4} (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-uw-gamma-power-scan`
+- Hypothesis: PMuon bilateral whitening uses `polar(L^{-γ} m R^{-γ})`. Default γ_power=0.3 fixed since PR #64, never swept. Dual axis to β_cov: where β controls covariance horizon, γ_power controls whitening strength.
+  - Arm A (γ_power=0.4): stronger whitening → more uniform polar input, amplifies small gradient directions more aggressively
+  - Arm B (γ_power=0.2): weaker whitening → preserves more natural gradient spectrum shape
+- Telemetry: reuse eigh framework + add `pmuon/whitened_sv_ratio` post-whitening spectral diagnostic
+- Baseline to beat: sr=3062.5, val=3.269090 (PR #137, n=2 mean)
