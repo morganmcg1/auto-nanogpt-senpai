@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 16:40 UTC. Post-#105 wave-3 continuing. All 7 active students have arms running. Tanjiro infra-blocked (issue #160 still pending). 4 PRs pinged about rebase needed after #105 merged (#163, #138, #157, #144 status).
+- **Date:** 2026-05-16 19:35 UTC. Post-#105 wave-3 — **wave of regressions confirmed**. CRITICAL: Edward #115 seed1 (BC+clip stack) val=3.27906 is +0.00269 WORSE than clip-only control (3.27637) → bias correction does NOT stack with clip=5.0; the mechanisms are redundant. Thorfinn #165 arm-B (clip=10) diverged at step 75 (val=10.83=random init) → suspected clip-loosening NaN. All 4 follow-on arms (SOAP, DMR, NS>12, BC-stack) trending negative. Tanjiro infra-blocked (issue #160).
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -62,7 +62,7 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 n=3 stat-sig PASS on old baseline (mu=3.27532). Re-testing on NEW clip=5.0 baseline. **Control `tak4oqhf` FINISHED val=3.2764 = clean reproduction of merged baseline (+0.0011 vs 3.27527, within noise).** BC=ON seed1 `7cmgw7ym` just launched. ETA ~5h to all 3 seeds done. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🔴 ON OLD BASELINE: n=3 stat-sig PASS (mu=3.27532). **ON NEW CLIP=5.0 BASELINE — REGRESSION**: control `tak4oqhf`=3.27637 ✓, BC seed1 `7cmgw7ym`=**3.27906** (+0.00269 WORSE). Seed2 `thrpa2mm` step 300 running. Mechanism interpretation: BC and clip=5.0 both address early-step preconditioner stability; redundant when stacked. Need seed2/3 for n=3 confirmation before closure. |
 | **#105** | **thorfinn** | **Gradient clipping sweep** | **✅ MERGED 2026-05-16 15:30 UTC** — val=3.27527/fs=3266.7 (n=3). New branch baseline. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
@@ -71,12 +71,12 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#176** | **frieren (NEW)** | **NS Iteration Schedule** — cooldown boost | just assigned — boost NS iters during cooldown only (arms A=NS12, B=NS12→16, C=NS12→20, D=NS8→12). Directly motivated by #138 finding that arms diverge ONLY in cooldown. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). **arm-B (K=50) FINISHED val=3.2930 — CATASTROPHIC REGRESSION (+0.0177)**. arm-C (K=200) `myuurop0` step 550/3350. K=50 falsifies aggressive-reset hypothesis. |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A=3.2760 ✓. arm-B (embed-only)=3.2798 WORSE. **arm-C (full SOAP) FINISHED val=3.2794 WORSE**. arm-D (freq=100) `r4644zpc` step 950/3350. ALL SOAP arms regress — likely SOAP rotation degrades sparse-token aux. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. **arm-B (NS=16) FINISHED val=3.2799 — REGRESSES**. arm-C (NS=14) step 425/3350. NS>12 appears to hurt. Needs rebase (CONFLICTING). |
-| **#180** | **askeladd (NEW)** | **Adafactor for AdamW aux groups** | just assigned — factored row/col second moments for embed/lm_head. Tests whether AdamW's full-v is over-precise for sparse aux params. 4 arms: adamw/adafactor_no_mom/adafactor_mom/adafactor_mom_clip. |
-| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A `f6ym89r7` step 3025/3350 (near terminal). stale_wip pinged. Arms B/C/D queued. |
+| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost | arm-A (NS=12 constant) had 2 crashes (non_finite). 3rd attempt `sara3jjw` step 1875/3350 val=3.458 on baseline trajectory. arms B/C/D queued. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). **arm-B (K=50) val=3.2930 — CATASTROPHIC REGRESSION (+0.0177)**. **arm-C (K=200) `myuurop0` step 1925/3350** val=3.468 mid-trajectory matches B's slope. arm-D (K=800) queued. Aggressive momentum erasure falsified; longer reset interval likely still regresses by same mechanism. |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A=3.2760 ✓. arm-B (embed-only)=3.2798 WORSE. **arm-C (full SOAP) FINISHED val=3.2794 WORSE**. arm-D (freq=100) `r4644zpc` step 2325/3350 trajectory matches regress arms. ALL SOAP arms regress — likely SOAP rotation degrades sparse-token aux. Will close after arm-D terminal. |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. arm-B (NS=16) val=3.2799 — REGRESSES. **arm-C (NS=14) `3iqxdf5t` step 1800/3350** val=3.482 mid-trajectory matches B. arm-D (NS=18) queued. Saturation policy degenerated to uniform-NS sweep. NS>12 hurts confirmed. |
+| **#180** | **askeladd** | **Adafactor for AdamW aux groups** | PR opened 18:49 UTC. No runs in W&B yet — student presumably implementing. Smoke gate enforced after 10 prior smoke failures across #157/#172. |
+| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A `f6ym89r7` FINISHED val=3.27756/fs=3300 (+0.0023 within noise). 🔴 **arm-B (clip=10) `84um64gj` DIVERGED step 75 at val=10.83=random init**. URGENT ping sent to student to investigate; likely clip-loosening NaN. arms C/D probably also fail by same mechanism. |
 
 ## Infra-blocked
 
@@ -86,15 +86,16 @@
 
 **#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**Next merge candidates ranked by expected EV**:
-1. **#115 edward retest** — orthogonal mechanism (touches Muon² v-EMA), expected to stack with clip=5.0. ETA ~5h to terminal SENPAI-RESULT.
-2. **#138 frieren** — arms A/B/C all at baseline parity (~3.276); arm-D (PE iters=6) finishing soon. Best-case outcome is compute-efficiency story (NS=12-quality output at NS=6-cost), not val/loss improvement.
-3. **#165 thorfinn clip-extension** — extends clip=5.0→{10,25,50}; monotone trend may continue. ETA ~7h once student picks up.
-4. **#144 alphonse SOAP-aux** — arm-B (embed-only) FAILED (val=3.27978, +0.005 vs baseline). Mechanism may be wrong direction. Arm-C (full SOAP both groups) is the salvage attempt.
-5. **#163 fern DMR** — falsifiable mechanism test. Big swing: either validates the staleness hypothesis or definitively closes the temporal-momentum family.
-6. **#145 nezuko per-layer NS** — degenerated to uniform-NS sweep (saturation). Still informative as NS={14,16,18} vs baseline NS=12 sweep, but adaptive narrative is dead.
+**Wave of regressions confirmed — emerging picture**:
+1. **#115 edward** — BC+clip stack REGRESSES (seed1=3.27906 vs control 3.27637). n=2/3 in flight. **Mechanism: BC and clip overlap (both stabilize early-step preconditioner) — redundant.** Close after n=3 confirmation. ETA ~3h.
+2. **#165 thorfinn clip-extension** — arm-A reproduced baseline; **arm-B (clip=10) diverged at step 75**. Suggests clip=5.0 is at/near optimum; loosening restores pre-#105 NaN risk. URGENT student ping sent.
+3. **#144 alphonse SOAP-aux** — arms B/C regress, arm-D running same trajectory. SOAP rotation degrades sparse-token aux. Close after arm-D.
+4. **#163 fern DMR** — arm-B K=50 catastrophic (+0.0177); arm-C K=200 trajectory matches regression. Momentum-erasure family CLOSED on temporal-smoothing precedent (#104/#120).
+5. **#145 nezuko per-layer NS** — saturated to uniform NS={14,16,18}; arm-B (NS=16)=3.2799. NS>12 hurts. Adaptive policy moot.
+6. **#176 frieren NS cooldown** — arm-A 3rd attempt running clean. Awaiting B/C/D for cooldown-precision hypothesis test.
+7. **#180 askeladd Adafactor** — not started yet. Lowest risk on smoke gate (buffer change only).
 
-**Stack candidate**: bias_corr=ON + beta2=0.98 + clip=5.0 — pending #115 retest confirmation.
+**Common theme**: All single-axis structural changes (SOAP basis, DMR erasure, NS iter count, BC stacked with clip) REGRESS off the merged Muon²+clip=5.0 baseline. The local optimum is unexpectedly tight. **Implication for new hypotheses**: prioritize (a) targeted parameter-space changes (per-layer LR, depth-scaled init), (b) loss/data-side levers, (c) different optimizer COMPOSITION (not single-axis swap).
 
 **Statistical target**: `(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. New bar is to beat 3.27527.
 
