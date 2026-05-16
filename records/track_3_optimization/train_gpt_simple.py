@@ -40,11 +40,19 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--ema_tau", type=float, default=float(os.environ.get("NANOGPT_EMA_TAU", "0.2")),
+                        help="Polyak/SWA tail fraction: EMA accumulates over the final tau of training")
+    parser.add_argument("--ema_beta", type=float, default=float(os.environ.get("NANOGPT_EMA_BETA", "0.999")),
+                        help="EMA decay rate inside the tail window")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not (0.0 <= args.ema_tau <= 1.0):
+        raise ValueError("--ema_tau must be in [0, 1]")
+    if not (0.0 <= args.ema_beta < 1.0):
+        raise ValueError("--ema_beta must be in [0, 1)")
     return args
 
 
@@ -180,7 +188,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # Use fp64 linspace + clamp because fp32 cannot represent (numel-1) exactly for
+        # tensors above ~2^24 elements (e.g. the 38M-element embedding), and the float-to-long
+        # cast can yield an index equal to numel, triggering a device-side OOB assertion.
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device, dtype=torch.float64).long()
+        idx.clamp_(0, values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -521,8 +533,20 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
+
+def compute_val_loss(model: nn.Module) -> float:
+    val_loss = torch.zeros((), device=device)
+    with torch.no_grad():
+        assert len(val_inputs) % mbs == 0
+        for i in range(len(val_inputs) // mbs):
+            val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+    dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
+    val_loss /= val_tokens
+    return float(val_loss.item())
+
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+if os.environ.get("NANOGPT_DISABLE_COMPILE", "0") != "1":
+    model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -552,6 +576,8 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "ema_tau": args.ema_tau,
+            "ema_beta": args.ema_beta,
         },
     )
 
@@ -563,7 +589,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -617,12 +643,19 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Polyak/SWA tail-average buffers (fp32). Created after broadcast so all ranks agree.
+    ema_buffers: list[tuple[str, Tensor]] = [
+        (name, p.data.detach().clone().float()) for name, p in model.named_parameters()
+    ]
     # start the clock
     training_time = 0
     last_val_step = 0
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    best_val_loss_fast = float("inf")
+    best_val_step_fast = -1
+    first_step_to_target_fast = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
@@ -641,14 +674,20 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
+            # Point-iterate validation.
+            val_loss_fast = compute_val_loss(model)
+            # Swap point iterate -> EMA tail-average; cast EMA fp32 buffer to each param's dtype.
+            fast_snapshot: list[Tensor] = []
             with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+                for (_, ema), (_, p) in zip(ema_buffers, model.named_parameters()):
+                    fast_snapshot.append(p.data.clone())
+                    p.data.copy_(ema.to(dtype=p.dtype))
+            val_loss_ema = compute_val_loss(model)
+            with torch.no_grad():
+                for snapshot, (_, p) in zip(fast_snapshot, model.named_parameters()):
+                    p.data.copy_(snapshot)
+            # Primary val/loss is the EMA-evaluated loss (the hypothesis under test).
+            val_loss_float = val_loss_ema
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -656,23 +695,34 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if first_step_to_target_fast < 0 and val_loss_fast <= TARGET_VAL_LOSS:
+                    first_step_to_target_fast = step
+                if val_loss_fast < best_val_loss_fast:
+                    best_val_loss_fast = val_loss_fast
+                    best_val_step_fast = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_fast": val_loss_fast,
+                    "val/loss_ema_minus_fast": val_loss_float - val_loss_fast,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
+                    "val/best_loss_fast": best_val_loss_fast,
+                    "val/best_step_fast": best_val_step_fast,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
+                    "val/target_margin_fast": TARGET_VAL_LOSS - val_loss_fast,
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
+                    "speedrun/first_step_to_target_fast": first_step_to_target_fast,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f} val_loss_fast:{val_loss_fast:.5f}"
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -725,6 +775,25 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Polyak/SWA tail EMA in running-track form: outside the tail the EMA tracks the
+        # current weights, so when training crosses into the tail the EMA seamlessly starts
+        # accumulating from the iterate at tail entry.
+        ema_progress = train_step / train_steps
+        ema_in_tail = ema_progress >= (1.0 - args.ema_tau)
+        with torch.no_grad():
+            if ema_in_tail:
+                for (_, ema), (_, p) in zip(ema_buffers, model.named_parameters()):
+                    ema.mul_(args.ema_beta).add_(p.data.float(), alpha=1.0 - args.ema_beta)
+            else:
+                for (_, ema), (_, p) in zip(ema_buffers, model.named_parameters()):
+                    ema.copy_(p.data.float())
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/ema/in_tail": int(ema_in_tail),
+                "train/ema/progress": ema_progress,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -750,7 +819,9 @@ for trial_idx in range(args.num_trials):
     if dist.get_rank() == 0:
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
-            + f" first_step_to_target:{first_step_to_target}",
+            + f" first_step_to_target:{first_step_to_target}"
+            + f" best_val_loss_fast:{best_val_loss_fast:.5f} best_val_step_fast:{best_val_step_fast}"
+            + f" first_step_to_target_fast:{first_step_to_target_fast}",
             console=True,
         )
         wandb.log({
@@ -759,6 +830,10 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "speedrun/final_best_val_loss_fast": best_val_loss_fast,
+            "speedrun/final_best_val_step_fast": best_val_step_fast,
+            "speedrun/final_first_step_to_target_fast": first_step_to_target_fast,
+            "speedrun/final_reached_target_fast": int(first_step_to_target_fast >= 0),
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
