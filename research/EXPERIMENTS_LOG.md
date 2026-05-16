@@ -367,4 +367,24 @@ with `train_steps=3250`. Confirmation run `u3o8j3yj` started 2026-05-16 01:22 UT
 
 **Conclusion:** CLOSED as informative null. Mechanisms are NOT substitutable — u/w-floor operates on final update magnitude relative to weight norm; SOAP-MLP operates on update direction in eigenbasis. The natural follow-up is SOAP-MLP + u/w-floor stack (both mechanisms active). Assigned tanjiro PR #140 for that test.
 
+---
+
+## 2026-05-16 11:30 — PR #110 CLOSED: PMuon γ-scan (γ=0.25 vs γ=0.35) — null on speedrun metric (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/pmuon-gamma-scan`
+- Hypothesis: Scan PMuon's whitening exponent γ ∈ {0.25, 0.35} vs current baseline γ=0.30 on PMuon+u/w-floor base.
+- W&B runs: `hehdzpld` (arm A γ=0.25), `2ipgcjyn` (arm B γ=0.35)
+
+| Arm | γ | val/loss@3250 | sr | (3.28-μ)·√n |
+| --- | --- | --- | --- | --- |
+| A | 0.25 | **3.27286** | 3150 | 0.00714 ✓ |
+| B | 0.35 | 3.27380 | 3150 | 0.00620 ✓ |
+| PR #64 base | 0.30 | 3.27447 | 3150 | — |
+| PR #94 **baseline** | 0.30+u/w | 3.267696 | **3100** | — |
+
+**Analysis:** All three γ values (0.25, 0.30, 0.35) cross the 3.28 target at the same evaluation step (3150) — the speedrun metric is completely insensitive to γ in this range. Val/loss ordering is γ=0.25 < γ=0.30 < γ=0.35, suggesting less whitening is mildly better, but all differences are within n=1 noise (≤0.002 across all three). None beats the PR #94 baseline (sr=3100 val=3.267696). Once u/w-floor is active, the late-cooldown magnitude floor governs the target crossing more than per-step whitening does.
+
+**Conclusion:** CLOSED as clean null on speedrun metric. γ=0.30 (current default) is at or near the local optimum. Assigned thorfinn PR #143 (Lookahead outer optimizer on PMuon+u/w-floor) — completely different abstraction layer.
+
+
 

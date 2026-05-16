@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 10:40 (PR #83 tanjiro CLOSED — SOAP-MLP null; PR #140 tanjiro ASSIGNED — SOAP-MLP+u/w-floor stack; frieren/edward/nezuko dedup interventions sent)
+- **Last update:** 2026-05-16 11:30 (PR #110 thorfinn CLOSED — γ-scan null; PR #143 thorfinn ASSIGNED — Lookahead outer optimizer; edward dup killed; fern approaching target at step 2975 val 3.30)
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3100 steps (new local best); public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -15,21 +15,22 @@ n=2 stat-sig margin: (3.28 − 3.267696)·√2 = 0.01740 ✓
 
 ## Active experiments (status:wip) — Wave 4
 
-| PR  | Student     | Mechanism on PMuon + u/w-floor base                                  | Status (as of 10:40) |
+| PR  | Student     | Mechanism on PMuon + u/w-floor base                                  | Status (as of 11:30) |
 | --- | ----------- | --------------------------------------------------------------------- | ------ |
-| #110 | thorfinn   | + **PMuon γ-scan** (γ=0.25 arm A, γ=0.35 arm B)                     | arm A `hehdzpld` FINISHED sr=3150 val=3.2729 (neutral vs baseline); arm B `2ipgcjyn` step 2625/3250 val 3.34, ETA ~11:10 UTC |
-| #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | newly assigned; awaiting pod pickup (PR #83 closed as null; this adds u/w-floor to the SOAP integration) |
-| #93 | fern        | + **NorMuon row-wise** retry                                         | `63c3s1sl` step 2175/3250 val 3.41, stable |
-| #118 | edward     | + **cooldown_frac scan** (0.5 vs 0.8, default 0.7)                  | arm A `6fpu600z` FINISHED sr=3175 val=3.27493; arm B `dvjzqltr` step 1750/3250 val 3.46, ETA ~12:10 UTC; ⚠️ duplicate `tjy6hfpm` launched concurrently — dedup message sent |
-| #119 | alphonse   | + **Measured-scale Contra-Muon** arm B coeff=0.05 warmup=500        | `q54bnxvq` step 1775/3250 val 3.51, stable past step 1000, ETA ~13:00 UTC |
-| #129 | frieren    | + **PMuon β_cov scan** (0.90/0.95/0.99) on u/w-floor base           | ⚠️ 4 bcov=0.90 relaunches (3 crashed, 1 surviving `6xse8pgm` step 1175); `86t9bo8l` bcov=0.95 launched; dedup/stop-relaunch intervention posted |
-| #131 | askeladd   | + **TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45}                      | arm 0p40 `imf0s97n` step 1825/3250 val 3.52, ETA ~12:00 UTC; arms 0p25/0p30/0p45 sequential |
-| #137 | nezuko     | + **Stack power-law cooldown γ=1.2 on u/w-floor base** (n=1)        | `8quuvdrj` step 700 val 3.76, ETA ~14:00 UTC; ⚠️ duplicate `o333ajw3` launched — dedup message sent |
+| #143 | thorfinn   | + **Lookahead outer optimizer** (k=5 arm A, k=10 arm B)              | just assigned, awaiting pod pickup |
+| #140 | tanjiro     | + **SOAP-MLP + u/w-floor stack** on PMuon                           | assigned ~10:40 UTC, awaiting pod pickup |
+| #93 | fern        | + **NorMuon row-wise** retry                                         | `63c3s1sl` step 2975/3250 val **3.2997** ⚠️ approaching target — ETA crossing ~11:35 UTC |
+| #118 | edward     | + **cooldown_frac scan** (0.5 vs 0.8, default 0.7)                  | arm A `6fpu600z` FINISHED sr=3175 val=3.27493; arm B `dvjzqltr` step 2125/3250, dup `tjy6hfpm` KILLED, ETA ~12:35 UTC |
+| #119 | alphonse   | + **Measured-scale Contra-Muon** arm B coeff=0.05 warmup=500        | `q54bnxvq` step 2625/3250 val 3.385, descending, ETA ~13:00 UTC |
+| #129 | frieren    | + **PMuon β_cov scan** (0.90/0.95/0.99) on u/w-floor base           | ALL 0p90 arms crashed (5 total); `86t9bo8l` bcov=0.95 running step 775; 0p99 arm needed after 0p95 finishes |
+| #131 | askeladd   | + **TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45}                      | arm 0p40 `imf0s97n` step 2650/3250 val 3.359, ETA ~12:00 UTC; arms 0p25/0p30/0p45 sequential |
+| #137 | nezuko     | + **Stack power-law cooldown γ=1.2 on u/w-floor base** (n=1)        | `8quuvdrj` step 1500 val 3.54, ETA ~14:00 UTC; dup `o333ajw3` CRASHED |
 
 ## Closed this session
 
 | PR  | Student  | Result | Decision |
 | --- | -------- | ------ | -------- |
+| #110 | thorfinn | γ-scan: arm A γ=0.25 sr=3150 val=3.27286, arm B γ=0.35 sr=3150 val=3.27380 | Closed null; γ=0.30 is optimal; → PR #143 Lookahead |
 | #83 | tanjiro  | SOAP-MLP on bare PMuon: sr=3150 val=3.27419, null vs PR #64 (Δval=−0.00028) | Closed null; u/w-floor not substitutable by SOAP; → PR #140 SOAP+u/w stack |
 | #94 | askeladd | u/w-floor: sr=3100 val=3.267696 n=2 ✓ | **MERGED** — new baseline |
 | #85 | nezuko   | Power-law γ=1.2 (n=2): sr=3125 val=3.27505, margin 0.0070 ✓ | Closed: n=2 confirmed but loses to new baseline (sr+25, val+0.0074) |
@@ -64,15 +65,15 @@ n=2 stat-sig margin: (3.28 − 3.267696)·√2 = 0.01740 ✓
 
 ## Wave 4 priorities
 
-1. **PR #129 frieren β_cov scan** {0.90, 0.95, 0.99} — highest-value unexplored HP on new base. Multiple relaunches consumed. `6xse8pgm` (0p90 surviving ~13:30 UTC) + `86t9bo8l` (0p95 just launched) + 0p99 arm needed.
-2. **PR #131 askeladd TARGET_UW sweep** {0.25, 0.30, 0.40, 0.45} — arm 0p40 ~12:00 UTC, then sequential.
-3. **PR #110 thorfinn γ-scan** — arm B (γ=0.35) finishing ~11:10 UTC. Combined result tells us optimal γ for new base.
-4. **PR #140 tanjiro SOAP-MLP + u/w-floor stack** — tests mechanism orthogonality; if wins → SOAP+u/w-floor is a strong stack candidate.
-5. **PR #118 edward cooldown_frac=0.8** — arm B finishing ~12:10 UTC. If wins, stack with TARGET_UW and power-law cooldown.
-6. **PR #137 nezuko power-law cooldown** — on u/w-floor base. Finishing ~14:00 UTC.
-7. **PR #119 alphonse Contra-Muon arm B** — finishing ~13:00 UTC; if survives cleanly it's still unlikely to beat baseline from current trajectory.
-8. **n≥4 seed batch on new local best** when frontier stabilizes.
-9. **MuLoCo / Lookahead outer Nesterov** — future direction when portfolio empties.
+1. **PR #93 fern NorMuon row-wise** — URGENT: step 2975 val 3.2997, on track to cross 3.28 by step ~3075-3100. If it beats baseline, request n=2 immediately.
+2. **PR #129 frieren β_cov scan** — bcov=0.90 definitively broken (5 crashes); 0p95 `86t9bo8l` step 775 running, 0p99 arm needed after.
+3. **PR #131 askeladd TARGET_UW sweep** — arm 0p40 finishing ~12:00 UTC; sequential arms 0p25/0p30/0p45 follow.
+4. **PR #118 edward cooldown_frac=0.8** — arm B `dvjzqltr` finishing ~12:35 UTC.
+5. **PR #140 tanjiro SOAP-MLP + u/w-floor stack** — awaiting pickup.
+6. **PR #143 thorfinn Lookahead (k=5/10)** — awaiting pickup (just assigned).
+7. **PR #137 nezuko power-law cooldown** — `8quuvdrj` step 1500 val 3.54, finishing ~14:00 UTC.
+8. **PR #119 alphonse Contra-Muon arm B** — `q54bnxvq` step 2625 val 3.385, likely not crossing but let it finish cleanly.
+9. **n≥4 seed batch on new local best** when frontier stabilizes.
 
 ## Statistical rule reminder
 
