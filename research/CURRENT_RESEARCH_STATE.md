@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-16 16:32 UTC — Cycle 25 (fern Aurora n=4 launched, tanjiro Lookahead MISS pending)
+- 2026-05-16 17:40 UTC — Cycle 26 (tanjiro relaunched screen, nezuko self-corrected to 3175)
 
 ## Current baseline
 
@@ -23,18 +23,18 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - SECOND HIGHEST-PRIORITY RESULT. Aurora is fundamentally different mechanism than CONTRA_MUON tuning.
 - Note: MUON_WEIGHT_DECAY=0.01 deviation from merged baseline (0.025) — but matches the FFS-winning screen config.
 
-### NEZUKO #124 — Attn-SOAP + trust gate n=4 LAUNCHED
-- Screen `c5d01ezw`: val=3.2797, ffs=3150 @ train_steps=3150 (borderline)
-- n=4 `y7ibpvry` LAUNCHED 15:53 UTC at train_steps=3150 (slight deviation from baseline 3175)
-- Currently T0 step 975/3150 at 16:31 UTC. ETA full n=4 terminal ~23:10 UTC.
+### NEZUKO #124 — Attn-SOAP + trust gate n=4 self-corrected
+- Screen `udc2950s`: val=3.27802, ffs=3125 @ train_steps=3150 (single seed)
+- Initial n=4 `y7ibpvry` launched 15:53 UTC at train_steps=3150 (wrong — directive was 3175)
+- Student self-caught and KILLED at T1 step 1148/3150 — good process discipline!
+- NEW n=4 LAUNCHED 16:34 UTC at train_steps=3175 (corrective). ETA terminal ~24:00 UTC.
 - Prediction: borderline mean ~3.2785, ffs ~3120-3150
 
-### TANJIRO #161 — Lookahead screen MISS (terminating)
-- Screen `tbesgctw` at step 3125/3175 with best val=**3.305** — NEVER REACHED 3.28 target
-- Lookahead k=5/α=0.5 + Contra+SOAP-MLP base appears INCOMPATIBLE — averaging disrupted optimization
-- Expected screen val ≈ 3.28-3.29 if Lookahead working; got 3.305 = clear MISS
-- ACTION pending: wait for tanjiro to post screen results + analysis, then close PR
-- Fresh hypothesis for reassignment: **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95, fundamentally different mechanism from SOAP/Aurora/Newton-Muon
+### TANJIRO #161 — Lookahead screen REDO (`sks2z7oe`)
+- Earlier extended verification `tbesgctw` ran 3175 steps and hit val=3.3042 (MISS) — tanjiro appears to have treated it as smoke/verification only
+- NEW screen `sks2z7oe` launched 16:33 UTC, currently step 250/3175. ETA terminal ~18:06 UTC.
+- Student observed: smoke slow-fast diff peaks at sync 2 then declines; cooldown_frac=0.7 puts 75% of 400-step run in cooldown. Mid-training plateau hypothesized as Lookahead's window of benefit.
+- If screen MISS again: close PR, reassign to **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95
 
 ### FRIEREN #109 — MuLoCo+NorMuon n=4 (T0/T1 MISS, T2 SQUEAKED THROUGH at 3.2794)
 - T0=3.28240 ffs=-1 (miss), T1=3.28196 ffs=-1 (miss), T2=**3.2794** ffs=3175 (hit at terminal step)
@@ -81,14 +81,14 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~16:35 | Tanjiro | Lookahead screen terminal (MISS) | val=3.305, never reached 3.28 — close PR |
-| ~17:40 | Frieren | n=4 terminal | Clean negative, close PR |
-| ~17:40 | Thorfinn | n=4 terminal | Statsig PASS, ffs ~3250, no new baseline (close) |
-| ~18:30 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
-| ~21:30 | Edward | n=4 terminal | Statsig PASS, ffs ~3175, no new baseline |
-| ~22:00-22:30 | Alphonse | n=4 terminal (CRITICAL) | Could be new baseline if ffs_mean ≤ 3125 |
-| ~23:10 | Nezuko | n=4 terminal | Borderline, might pass statsig |
-| ~23:20 | Fern | Aurora n=4 terminal (CRITICAL) | Could beat baseline if mean ≤ 3.27760 ffs ≤ 3131 |
+| ~18:06 | Tanjiro | Lookahead screen REDO terminal | Will determine if PR closes or n=4 predeclares |
+| ~18:29 | Frieren | n=4 terminal | Clean negative, close PR |
+| ~18:35 | Thorfinn | n=4 terminal | Statsig PASS, ffs ~3225-3250, no new baseline (close) |
+| ~19:36 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
+| ~22:30 | Alphonse | n=4 terminal (CRITICAL) | Could be new baseline if ffs_mean ≤ 3125 |
+| ~22:35 | Edward | n=4 terminal | Statsig PASS, ffs ~3175, no new baseline |
+| ~24:00 | Fern | Aurora n=4 terminal (CRITICAL) | Could beat baseline if mean ≤ 3.27760 ffs ≤ 3131 |
+| ~24:00 | Nezuko | n=4 terminal (corrected) | Borderline mean ~3.2785 |
 
 ## Potential next hypotheses (for soon-to-idle students)
 
