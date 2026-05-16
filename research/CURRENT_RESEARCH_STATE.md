@@ -1,5 +1,32 @@
 # SENPAI Research State
 
+- 2026-05-16 11:40 — Cycle 16 (W&B survey + GH rate-limit exhausted again):
+  - **Frieren n=4 `jzsue46n` T0 step 2040/3175 (64%)** — val=3.4728 mid-cooldown.
+    Expected terminal ~12:15 UTC. T2/T3 ended at step 400 (likely crashed seeds — only
+    T0 currently active). Frieren autocope should relaunch failed seeds.
+  - **Alphonse screen `o5w9cidj` CRASHED at step 850/3175** mid-cooldown! Relaunched as
+    `hjsjscjy` at step 375 val=3.90 (~11:23). No CONTRA_MUON=0.5 screen launched yet.
+    Crash pattern echoes prior thorfinn p=0.05 crashes — possibly Contra-Muon at lower
+    coefficient has numerical instability. Need to wait for relaunch.
+  - **Thorfinn T0 `6kjpjnvd` step 2185/3325 (66%)** — val=3.4573 mid-cooldown. T1
+    `pzp8b4rq` was 3.2755 ffs=3250, T2 `78nqtrmr` was 3.2742 ffs=3225 (crashed at 3298
+    but reached FFS). Strong pair so far. ETA T0 ~13:00 UTC.
+  - **Edward `zsqazpmr` running step 7227 multi-epoch** — anomaly: step count exceeds
+    3225 target. Concurrent g1r4 runs `swdz145t`/`jp2lhp3r`/`nit5n8jo` (muon2-bias-corr)
+    FFS at 3250-3300, val 3.2749-3.2772. NOT his r2 assignment though.
+  - **Askeladd `lw99ybyp` running step 7302 multi-epoch** — same anomaly. Concurrent
+    g1r4/lookahead-sweep `cr1bq7ff` step 1394/3350 val=3.5448 (mid-training).
+    Multi-round cross-talk likely.
+  - **Tanjiro 2 new runs**: `cg6asx9a` (g1r1, step 50 warmup), `nneqbzma` (g1r3, step
+    240 NaN val). Neither on PR #81 g1r2 branch — Option B not yet started.
+  - **Nezuko `c5d01ezw` step 250 val=4.05** — early progress, on track.
+  - **Fern `p31pn6u4` step 360 val=4.00** — appears to still be earlier run, not
+    real-Aurora screen yet.
+  - **GH rate limit EXHAUSTED again** (5001/5000, reset ~12:19 UTC). Student pods
+    continue burning API quota. PR comment reads blocked until reset.
+  - **No terminal results since 11:25 UTC.** Holding pattern; wakeup at 12:25 UTC to
+    catch both frieren T0 terminal AND rate limit recovery.
+
 - 2026-05-16 11:25 — Cycle 15 (multiple n=4 progressing, pattern emerging):
   - **Tanjiro #81 SENPAI-RESULT posted** — clean terminal (n=4 mean=3.27643, margin 0.00714).
     Awaiting tanjiro to start Option B (Newton-Muon on merged base) — directive from cycle 13.
