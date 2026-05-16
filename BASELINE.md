@@ -17,26 +17,43 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
-The starter `records/track_3_optimization/train_gpt_simple.py` is **unmodified**.
-That makes the baseline the *plain Muon + aux AdamW* configuration at the
-hyperparameters of public result #12.
+**Merged 2026-05-16 ~01:30 UTC — PR #51 alphonse NorMuon.** The NorMuon implementation (1D post-NS row/col second-moment preconditioning) is now the branch baseline. Passes stat rule at n=6 with margin 0.0050.
 
 | Field | Value |
 | --- | --- |
-| `train_steps` | 3350 |
+| `train_steps` | 3300 |
 | Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
 | Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
-| Hidden optimizer | `Muon(lr=0.035, weight_decay=0.025, mu=0.95)` on `model.blocks.parameters() if p.ndim >= 2` |
+| Hidden optimizer | `NorMuon(lr=0.035, weight_decay=0.025, mu=0.95, beta2=0.95)` on `model.blocks.parameters() if p.ndim >= 2` |
 | Embed optimizer | `AdamW(lr=0.3)` on `model.embed.weight` |
 | LM-head optimizer | `AdamW(lr=1/320)` on `model.proj.weight` |
 | Scalar optimizer | `AdamW(lr=0.01)` on `p for p in model.parameters() if p.ndim < 2` |
 | Aux AdamW shared | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` |
-| Init | `proj`-named weights zero; other weights torch default normal; biases zero; gains 1 |
-| LR schedule | Stable then linear cooldown, `cooldown_frac=0.7` (cooldown starts at 30% progress) |
-| Expected `val/loss` | ~3.279 (matches public result #12: 3.2790 at n=20) |
-| Expected `speedrun/final_first_step_to_target` | ~3300 |
-| Baseline W&B run | (to be filled after first confirmation run) |
-| Baseline PR | starter script @ `auto-nanogpt-1gpu-r3` |
+| Init | per-module: `attn.proj=0.026`, `mlp.proj=0.031`, `mlp.fc=0.031`; biases zero; gains 1 |
+| LR schedule | Stable then linear cooldown, `cooldown_frac=0.7` |
+| `val/loss` | **3.27795** (n=6 mean; min 3.27609, max 3.27914) |
+| `speedrun/final_first_step_to_target` | **3258** (n=6 mean; min 3225, max 3275) |
+| stat margin | `(3.28 - 3.27795) * sqrt(6) = 0.0050` ≥ 0.004 ✓ |
+| Baseline W&B runs | `8yocwc35` (n=4) + `40g9f47i` (n=2 top-up) |
+| Baseline PR | [#51](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/51) |
+
+### Reproduce NorMuon baseline
+
+```bash
+cd target/
+pip install -r requirements.txt
+python data/cached_fineweb10B.py 20
+git checkout auto-nanogpt-1gpu-r3
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 4 --train_steps 3300 \
+  --wandb_name "g1r3-<student>/normuon-baseline-confirm" \
+  --wandb_group "g1r3-<student>/normuon-baseline"
+```
+
+## Previous baseline (pre-PR #51)
+
+Plain Muon + aux AdamW (public result #12 equivalent). Val/loss ~3.279 at n=20, ffs ~3300. Starter script unmodified.
 
 ### Reproduce baseline
 
