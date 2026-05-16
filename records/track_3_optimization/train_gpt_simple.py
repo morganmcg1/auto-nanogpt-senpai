@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_attn_precond_freq", type=int, default=PRECOND_FREQ,
+                        help="Eigendecomp refresh frequency for SOAP-managed attn params (default: PRECOND_FREQ=16)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -533,7 +535,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, attn_precond_freq=PRECOND_FREQ):
         assert isinstance(named_params, list) and len(named_params) >= 1
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
@@ -544,6 +546,7 @@ class Muon(torch.optim.Optimizer):
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.attn_precond_freq = int(attn_precond_freq)
         self.cos_sims_buffer: dict[str, Tensor] = {}
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
@@ -585,7 +588,14 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        is_attn_param = any(
+                            self.param_names[id(p)].endswith(suf)
+                            for suf in self.SOAP_ATTN_SUFFIXES
+                        )
+                        soap_update_preconditioner(
+                            p.grad, state,
+                            precondition_frequency=self.attn_precond_freq if is_attn_param else PRECOND_FREQ,
+                        )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
@@ -669,6 +679,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_attn_precond_freq": args.soap_attn_precond_freq,
         },
     )
 
@@ -706,7 +717,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+                      attn_precond_freq=args.soap_attn_precond_freq)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -875,6 +887,15 @@ for trial_idx in range(args.num_trials):
             if attn_vals:
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
+            for p in optimizer2.soap_params:
+                st = optimizer2.state.get(p, {})
+                if "soap_step" not in st:
+                    continue
+                name = optimizer2.param_names[id(p)]
+                if any(name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    trust_metrics.setdefault("soap/step_attn_sample", st["soap_step"])
+                else:
+                    trust_metrics.setdefault("soap/step_mlp_sample", st["soap_step"])
             wandb.log(trust_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
