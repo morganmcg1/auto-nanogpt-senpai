@@ -444,6 +444,76 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 
+# Soft-Muon configuration (gated behind env flag; default off keeps Contra+SOAP-MLP unchanged).
+# When SOFT_MUON_ENABLED=1, the NS5 output inside `contra_normuon_update` is blended with a
+# softer x^(1-p) polynomial during a final-phase ramp. NaN-guard falls back to plain NS5 if
+# the soft polynomial produces non-finite values.
+SOFT_MUON_ENABLED = os.environ.get("SOFT_MUON_ENABLED", "0") == "1"
+SOFT_MUON_P = float(os.environ.get("SOFT_MUON_P", "0.075"))
+SOFT_MUON_CEIL = float(os.environ.get("SOFT_MUON_CEIL", "0.80"))
+SOFT_MUON_START_STEP = int(os.environ.get("SOFT_MUON_START_STEP", "2500"))
+SOFT_MUON_END_STEP = int(os.environ.get("SOFT_MUON_END_STEP", "3125"))
+
+
+# Reference p=0.1 coefficients from results/20260509_contra_soft_muon/ in repo. Other p
+# values are linearly interpolated between p=0.0 (identity, constant=1) and p=0.1 — a
+# first-approximation per advisor; replaceable with a proper Chebyshev fit later.
+_SOFT_P01_COEFFS = (
+    0.1091613623, 0.07085664498, 0.05210528973, 0.05457295795,
+    0.05011334061, 0.03334622198, 0.05022104481, 0.1053727358,
+    0.1187323776, 0.1185061091, 0.1185059576, 0.1185059576,
+)
+
+
+def _soft_coefficients(p: float):
+    if p == 0.0:
+        return 1.0, (0.0,) * len(_SOFT_P01_COEFFS)
+    if p == 0.1:
+        return 0.0, _SOFT_P01_COEFFS
+    if 0.0 < p < 0.1:
+        t = p / 0.1
+        constant = 1.0 - t
+        coeffs = tuple(t * c for c in _SOFT_P01_COEFFS)
+        return constant, coeffs
+    raise ValueError(f"unsupported soft-muon p: {p}")
+
+
+def soft_via_newtonschulz5(G: Tensor, p: float) -> Tensor:
+    """Soft-Muon: x^(1-p) polynomial via 12-step Newton-Schulz recursion."""
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
+        X = X.mT
+    norm = (X * X).sum(dim=(-2, -1), keepdim=True).sqrt().clamp(min=1e-7)
+    X = X / norm
+    constant, coeffs = _soft_coefficients(p)
+    a, b, c = 2.0, -1.5, 0.5
+    basis = [X]
+    for _ in range(len(coeffs)):
+        A = X @ X.mT
+        B = b * A + c * (A @ A)
+        X = a * X + B @ X
+        basis.append(X)
+    out = constant * basis[-1]
+    for coeff, bt in zip(coeffs, basis[:-1]):
+        out = out + coeff * bt
+    if transposed:
+        out = out.mT
+    return out.to(G.dtype)
+
+
+def soft_blend_for_step(step: int) -> float:
+    if not SOFT_MUON_ENABLED:
+        return 0.0
+    start = SOFT_MUON_START_STEP
+    end = SOFT_MUON_END_STEP
+    if step <= start:
+        return 0.0
+    if step >= end:
+        return SOFT_MUON_CEIL
+    return SOFT_MUON_CEIL * (step - start) / (end - start)
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -479,10 +549,40 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+def _ns_update_maybe_soft(momentum_update: Tensor, soft_blend: float, soft_p: float, diag: dict):
+    """Compute the NS5 update, optionally blending with the soft x^(1-p) variant.
+
+    If the soft polynomial yields a non-finite result, fall back to plain NS5 and bump
+    `diag['nan_fallback']`. `diag['max_soft_norm']` records the largest pre-norm-match
+    Frobenius norm of the soft iterate so we can spot exploding tensors before they
+    contaminate the model."""
+    O_standard = zeropower_via_newtonschulz5(momentum_update)
+    if soft_blend <= 0.0:
+        return O_standard
+    O_soft = soft_via_newtonschulz5(momentum_update, soft_p)
+    if not torch.isfinite(O_soft).all():
+        diag["nan_fallback"] = diag.get("nan_fallback", 0) + 1
+        return O_standard
+    soft_norm_pre = float(O_soft.float().norm().item())
+    if soft_norm_pre > diag.get("max_soft_norm", 0.0):
+        diag["max_soft_norm"] = soft_norm_pre
+    norm_std = O_standard.norm(dim=(-2, -1), keepdim=True).clamp(min=1e-7)
+    norm_soft = O_soft.norm(dim=(-2, -1), keepdim=True).clamp(min=1e-7)
+    O_soft = O_soft * (norm_std / norm_soft)
+    blended = (1.0 - soft_blend) * O_standard + soft_blend * O_soft
+    if not torch.isfinite(blended).all():
+        diag["nan_fallback"] = diag.get("nan_fallback", 0) + 1
+        return O_standard
+    return blended
+
+
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2,
+                          soft_blend: float = 0.0, soft_p: float = 0.0, diag: dict | None = None):
     """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+    if diag is None:
+        diag = {}
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = _ns_update_maybe_soft(momentum_update, soft_blend, soft_p, diag)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -567,11 +667,19 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self._global_step = 0
+        self._last_soft_blend = 0.0
+        self._last_nan_fallback = 0
+        self._last_max_soft_norm = 0.0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        self._global_step += 1
+        soft_blend = soft_blend_for_step(self._global_step)
+        self._last_soft_blend = soft_blend
+        diag = {"nan_fallback": 0, "max_soft_norm": 0.0}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -607,7 +715,10 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(
+                        momentum_update, state["second_moment"],
+                        soft_blend=soft_blend, soft_p=SOFT_MUON_P, diag=diag,
+                    )
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -620,6 +731,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self._last_nan_fallback = diag.get("nan_fallback", 0)
+        self._last_max_soft_norm = diag.get("max_soft_norm", 0.0)
 
 
 ########################################
@@ -700,6 +813,11 @@ if dist.get_rank() == 0:
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/soft_muon_enabled": SOFT_MUON_ENABLED,
+            "optimizer/soft_muon_p": SOFT_MUON_P,
+            "optimizer/soft_muon_ceil": SOFT_MUON_CEIL,
+            "optimizer/soft_muon_start_step": SOFT_MUON_START_STEP,
+            "optimizer/soft_muon_end_step": SOFT_MUON_END_STEP,
         },
     )
 
@@ -873,6 +991,14 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and SOFT_MUON_ENABLED:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "soft_muon/blend": optimizer2._last_soft_blend,
+                "soft_muon/nan_fallback_count": optimizer2._last_nan_fallback,
+                "soft_muon/max_soft_norm": optimizer2._last_max_soft_norm,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
