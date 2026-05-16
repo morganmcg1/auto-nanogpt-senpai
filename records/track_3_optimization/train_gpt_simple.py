@@ -30,6 +30,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override the in-script train_steps (useful for smoke tests).")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -179,8 +181,13 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
-    if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+    n = values.numel()
+    if n > max_samples:
+        # CUDA torch.linspace computes endpoints in fp32 even with int64 output dtype, which
+        # overshoots by 1 once n > 2**24 (e.g. embed/lm-head weights) and triggers an
+        # index-out-of-bounds device-side assert. Compute in fp64 to preserve integer
+        # precision across the linspace.
+        idx = torch.linspace(0, n - 1, max_samples, dtype=torch.float64, device=values.device).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -252,6 +259,18 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def safe_histogram(values):
+    # wandb.Histogram raises when the data range is degenerate (e.g. all elements equal,
+    # all values non-finite). Step-0 telemetry on zero-initialised biases hit this case.
+    # Return None so the caller can skip the metric instead of crashing the run.
+    if values.size == 0:
+        return None
+    try:
+        return wandb.Histogram(values)
+    except (ValueError, RuntimeError):
+        return None
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -275,19 +294,27 @@ def log_histograms(
         if sample.numel() > 0:
             weight_samples.append(sample)
     if grad_samples:
-        metrics["train/grad_hist/all"] = wandb.Histogram(torch.cat(grad_samples).numpy())
+        hist = safe_histogram(torch.cat(grad_samples).numpy())
+        if hist is not None:
+            metrics["train/grad_hist/all"] = hist
     if weight_samples:
-        metrics["train/weight_hist/all"] = wandb.Histogram(torch.cat(weight_samples).numpy())
+        hist = safe_histogram(torch.cat(weight_samples).numpy())
+        if hist is not None:
+            metrics["train/weight_hist/all"] = hist
     largest_params = sorted(model.named_parameters(), key=lambda item: item[1].numel(), reverse=True)
     for name, p in largest_params[:param_histogram_limit]:
         clean_name = clean_metric_name(name)
         if p.grad is not None:
             sample = sample_tensor(p.grad, histogram_samples)
             if sample.numel() > 0:
-                metrics[f"train/grad_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+                hist = safe_histogram(sample.numpy())
+                if hist is not None:
+                    metrics[f"train/grad_hist_param/{clean_name}"] = hist
         sample = sample_tensor(p.data, histogram_samples)
         if sample.numel() > 0:
-            metrics[f"train/weight_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
+            hist = safe_histogram(sample.numpy())
+            if hist is not None:
+                metrics[f"train/weight_hist_param/{clean_name}"] = hist
     wandb.log(metrics, step=wandb_step)
 
 
@@ -458,17 +485,39 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
-class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+def scale_invariant_update_(param: Tensor, update: Tensor, lr: float, eps: float = 1e-10):
+    """MuonH hyperball update: take a Muon-orthogonalised step of size lr * ||param||_F,
+    then renormalise back onto the Frobenius sphere of the parameter's current radius.
+    This preserves ||param||_F exactly across training, so the hyperball constraint
+    (||W||_F bounded above) is enforced as equality and weight decay is unnecessary
+    for the constrained group. Returns the pre-renorm Frobenius norm for telemetry."""
+    p_norm = param.norm()
+    u_norm = update.norm()
+    new_param = param - lr * update * p_norm / torch.clamp(u_norm, min=eps)
+    pre_renorm_norm = new_param.norm()
+    new_norm = torch.clamp(pre_renorm_norm, min=eps)
+    param.copy_(new_param / new_norm * p_norm)
+    return p_norm, pre_renorm_norm
+
+class MuonH(torch.optim.Optimizer):
+    """MuonH: Muon's Newton-Schulz orthogonalised direction applied via a Frobenius-
+    norm-preserving hyperball projection. For every hidden 2D weight matrix, the update
+    is rescaled so ||update||_F = ||W||_F, the param is moved by lr * update, and then
+    rescaled back onto the sphere ||W||_F = initial. weight_decay is unused (the
+    Frobenius constraint already bounds the norm)."""
+    def __init__(self, params, lr=0.018, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, mu=mu)
         super().__init__(params, defaults)
+        # telemetry: populated on rank 0 by step(), reset by consume_step_stats()
+        self._step_stats = []
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        step_tensors: list[tuple[Tensor, Tensor]] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -479,9 +528,29 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    p_norm, pre_renorm = scale_invariant_update_(p, update, group["lr"])
+                    if rank == 0:
+                        step_tensors.append((p_norm.detach(), pre_renorm.detach()))
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if rank == 0:
+            self._step_stats = step_tensors
+
+    def consume_step_stats(self) -> dict[str, float]:
+        stats = self._step_stats
+        self._step_stats = []
+        if not stats:
+            return {}
+        deviations = [float((pre - p).abs().item()) / max(float(p.item()), 1e-12) for p, pre in stats]
+        clamp_threshold = 1e-6
+        clamp_count = sum(1 for d in deviations if d > clamp_threshold)
+        return {
+            "hyperball/clamp_count": float(clamp_count),
+            "hyperball/param_count": float(len(stats)),
+            "hyperball/clamp_fraction": clamp_count / len(stats),
+            "hyperball/correction_mean": sum(deviations) / len(deviations),
+            "hyperball/correction_max": max(deviations),
+            "hyperball/correction_min": min(deviations),
+        }
 
 
 ########################################
@@ -563,15 +632,20 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3325
 
-    # initialize model parameters
+    # initialize model parameters. Per-module multipliers on the default 0.33**0.5/sqrt(fan_in)
+    # init (std ~0.0207 for fan_in=768, ~0.0104 for fan_in=3072) give the MuonH steady-state
+    # norms a non-zero starting point:
+    #   - attn.proj.weight (fan_in=768):  default x 1.25 -> std ~ 0.026
+    #   - mlp.proj.weight  (fan_in=3072): default x 3.0  -> std ~ 0.031
+    #   - mlp.fc.weight    (fan_in=768):  default x 1.5  -> std ~ 0.031
+    # attn.{q,k,v}.weight keep the default std. The lm-head `proj.weight` keeps the default
+    # std (used to be zero_()); MuonH does not touch it because it lives outside `blocks`.
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
-            elif "embed" in name:
+            if "embed" in name:
                 w.normal_()  # default torch init
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
@@ -581,32 +655,46 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+        if name.endswith(".attn.proj.weight"):
+            w.mul_(1.25)
+        elif name.endswith(".mlp.proj.weight"):
+            w.mul_(3.0)
+        elif name.endswith(".mlp.fc.weight"):
+            w.mul_(1.5)
 
-    # create the optimizer(s)
+    # create the optimizer(s). MuonH groups (hidden 2D matrices) use weight_decay=0 because
+    # the hyperball projection already preserves ||W||_F. The AdamW aux groups handle
+    # embedding, lm-head, and scalar (ndim<2) parameters.
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim == 2],
+                       lr=0.018, mu=0.95)
+    optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    # Decoupled cooldown: hyperball-Muon cools over the full run, AdamW aux uses 40%.
+    for group in optimizer1.param_groups:
+        group["cooldown_frac"] = 0.4
+    for group in optimizer2.param_groups:
+        group["cooldown_frac"] = 1.0
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then decay, with per-group cooldown fraction.
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
+                cooldown_frac = group["cooldown_frac"]
+                if progress < 1 - cooldown_frac:
+                    eta = 1.0
+                else:
+                    eta = (1 - progress) / cooldown_frac
                 group["lr"] = group["initial_lr"] * eta
 
 
@@ -726,6 +814,13 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
+            hyperball_metrics = {}
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    hyperball_metrics.update(opt.consume_step_stats())
+            hyperball_metrics["trial"] = trial_idx
+            hyperball_metrics["train/step"] = train_step
+            wandb.log(hyperball_metrics, step=wandb_step)
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
