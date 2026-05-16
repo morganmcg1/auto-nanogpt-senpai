@@ -41,11 +41,23 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--cooldown_frac", type=float, default=float(os.environ.get("NANOGPT_COOLDOWN_FRAC", "0.7")))
+    parser.add_argument("--outer_enabled", type=int, default=int(os.environ.get("MULOCO_OUTER_ENABLED", "1")))
+    parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("MULOCO_OUTER_LR", "0.7")))
+    parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("MULOCO_OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("MULOCO_SYNC_INTERVAL", "30")))
+    parser.add_argument("--muloco_scope", default=os.environ.get("MULOCO_SCOPE", "block2d"),
+                        choices=["block2d", "all"],
+                        help="block2d = wrap only Muon (ndim>=2 block) params; all = wrap every model param")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.sync_interval < 1:
+        raise ValueError("--sync_interval must be positive")
+    if not (0.0 <= args.cooldown_frac <= 1.0):
+        raise ValueError("--cooldown_frac must be in [0, 1]")
     return args
 
 
@@ -622,6 +634,71 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class NesterovOuterOptimizer:
+    """MuLoCo-style outer Nesterov SGD over the inner optimizer trajectory.
+
+    Snapshots params every ``sync_interval`` inner steps, computes a pseudogradient
+    delta = snapshot - current, applies Nesterov SGD with that delta, then resets the
+    snapshot. Public record #13 uses this wrapper on top of NorMuonH at sync=30,
+    outer_lr=0.7, outer_mom=0.5 to reach 3210 steps to target. Here we apply it on
+    top of the merged Contra-Muon + NorMuon-lite + SOAP-on-MLP inner.
+    """
+
+    def __init__(self, wrapped_params, outer_lr=0.7, outer_momentum=0.5,
+                 sync_interval=30, enabled=True):
+        self.outer_lr = outer_lr
+        self.outer_momentum = outer_momentum
+        self.sync_interval = sync_interval
+        self.enabled = enabled
+        self.inner_step_count = 0
+        self.outer_step_count = 0
+        self._params = [p for p in wrapped_params if p.requires_grad]
+        if self.enabled and len(self._params) > 0:
+            self._snapshots = [p.data.clone() for p in self._params]
+            self._buffers = [torch.zeros_like(p.data) for p in self._params]
+        else:
+            self._snapshots = []
+            self._buffers = []
+            self.enabled = self.enabled and len(self._params) > 0
+
+    @torch.no_grad()
+    def maybe_outer_step(self):
+        if not self.enabled:
+            return None
+        self.inner_step_count += 1
+        if self.inner_step_count >= self.sync_interval:
+            metrics = self._outer_step()
+            self.inner_step_count = 0
+            self.outer_step_count += 1
+            return metrics
+        return None
+
+    @torch.no_grad()
+    def _outer_step(self):
+        device = self._params[0].device
+        pseudograd_sq = torch.zeros((), device=device, dtype=torch.float32)
+        buffer_sq = torch.zeros((), device=device, dtype=torch.float32)
+        param_sq = torch.zeros((), device=device, dtype=torch.float32)
+        for i, p in enumerate(self._params):
+            snap = self._snapshots[i]
+            u = self._buffers[i]
+            delta = snap - p.data
+            pseudograd_sq += delta.float().pow(2).sum()
+            u.mul_(self.outer_momentum).add_(delta, alpha=self.outer_lr)
+            p.data.copy_(snap)
+            p.data.add_(u, alpha=-self.outer_momentum)
+            p.data.add_(delta, alpha=-self.outer_lr)
+            buffer_sq += u.float().pow(2).sum()
+            param_sq += p.data.float().pow(2).sum()
+        for i, p in enumerate(self._params):
+            self._snapshots[i].copy_(p.data)
+        return {
+            "pseudogradient_norm": float(pseudograd_sq.sqrt().item()),
+            "buffer_norm": float(buffer_sq.sqrt().item()),
+            "param_norm_post_outer": float(param_sq.sqrt().item()),
+        }
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -700,6 +777,13 @@ if dist.get_rank() == 0:
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "cooldown_frac": args.cooldown_frac,
+            "outer_enabled": bool(args.outer_enabled),
+            "outer_lr": args.outer_lr,
+            "outer_momentum": args.outer_momentum,
+            "sync_interval": args.sync_interval,
+            "muloco_scope": args.muloco_scope,
+            "muloco_recipe": "MuLoCo outer Nesterov SGD wrapping (contra-muon + normuon-lite + soap-on-mlp) — record #13 stack",
         },
     )
 
@@ -735,8 +819,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+    block2d_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    block2d_params = [p for _, p in block2d_named]
+    optimizer2 = Muon(block2d_named, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -745,8 +830,31 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    # MuLoCo-style outer Nesterov SGD over the inner (Contra-Muon + NorMuon + SOAP-MLP) trajectory.
+    # Default scope is block2d (the Muon-operated params) — record #13 wraps the local
+    # optimizer's params only. Setting scope=all reproduces PR #79's configuration which
+    # wrapped every model parameter.
+    if args.muloco_scope == "block2d":
+        outer_params = block2d_params
+    elif args.muloco_scope == "all":
+        outer_params = list(model.parameters())
+    else:
+        raise ValueError(f"unknown muloco_scope: {args.muloco_scope}")
+    outer = NesterovOuterOptimizer(
+        outer_params,
+        outer_lr=args.outer_lr,
+        outer_momentum=args.outer_momentum,
+        sync_interval=args.sync_interval,
+        enabled=bool(args.outer_enabled),
+    )
+    if dist.get_rank() == 0:
+        print0(f"MuLoCo outer: enabled={outer.enabled} scope={args.muloco_scope}"
+               f" wrapped_params={len(outer._params)}"
+               f" sync_interval={outer.sync_interval} outer_lr={outer.outer_lr}"
+               f" outer_momentum={outer.outer_momentum}", console=True)
+
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -873,6 +981,22 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        outer_metrics = outer.maybe_outer_step()
+        if dist.get_rank() == 0 and outer_metrics is not None:
+            wandb.log(
+                {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/outer/pseudogradient_norm": outer_metrics["pseudogradient_norm"],
+                    "train/outer/buffer_norm": outer_metrics["buffer_norm"],
+                    "train/outer/param_norm_post_outer": outer_metrics["param_norm_post_outer"],
+                    "train/outer/step_count": outer.outer_step_count,
+                    "train/outer/outer_lr": outer.outer_lr,
+                    "train/outer/outer_momentum": outer.outer_momentum,
+                    "train/outer/sync_interval": outer.sync_interval,
+                },
+                step=wandb_step,
+            )
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
