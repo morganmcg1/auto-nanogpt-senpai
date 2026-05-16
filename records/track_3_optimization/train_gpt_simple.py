@@ -434,6 +434,17 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+# Contra-Muon + SOAP-on-MLP hyperparameters
+CONTRA_MUON = 0.4
+MU = 0.95
+MUON_LR = 0.0375
+MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
+TARGET_UW = 0.35
+NORMUON_BETA2 = 0.95
+SOAP_BETA2 = 0.90
+SOAP_PRECOND_FREQ = 10
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -453,29 +464,107 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
-@torch.compile
-def muon_update(grad, momentum, second_momentum, mu=0.95, beta2=0.95,
-                nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    norm = update.norm(dim=(-2, -1), keepdim=True)
-    if grad.size(-2) >= grad.size(-1):
-        v_mean = (update * update).mean(dim=-1, keepdim=True)
+
+def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
+    """Power-iteration estimate of spectral norm; divide G by it (used by Contra-Muon)."""
+    X = G.float()
+    v = torch.ones(X.size(-1), dtype=X.dtype, device=X.device)
+    v = v / torch.clamp(v.norm(), min=eps)
+    for _ in range(5):
+        u = X @ v
+        u = u / torch.clamp(u.norm(), min=eps)
+        v = X.mT @ u
+        v = v / torch.clamp(v.norm(), min=eps)
+    op_norm = torch.clamp((X @ v).norm(), min=eps)
+    return G / op_norm.to(G.dtype)
+
+
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+    normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
+    update = zeropower_via_newtonschulz5(momentum_update)
+    opower_fro = update.norm()
+    # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
+    update = update - CONTRA_MUON / 2 * normalized_grad
+    update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
+    update *= max(1, update.size(-2) / update.size(-1))**0.5
+    # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
+    if update.size(-2) >= update.size(-1):
+        per_row_var = (update * update).mean(dim=-1, keepdim=True)
     else:
-        v_mean = (update * update).mean(dim=-2, keepdim=True)
-    second_momentum.lerp_(v_mean.float(), 1 - beta2)
-    step_size = second_momentum.clamp_min(1e-10).rsqrt().to(update.dtype)
-    update.mul_(step_size)
-    norm_new = update.norm(dim=(-2, -1), keepdim=True)
-    update.mul_(norm / norm_new.clamp_min(1e-10))
+        per_row_var = (update * update).mean(dim=-2, keepdim=True)
+    second_moment.lerp_(per_row_var.float(), 1 - beta2)
+    vnorm = update.norm()
+    update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
+    vnorm_new = update.norm().clamp_min(1e-10)
+    update = update * (vnorm / vnorm_new)
     return update
 
+
+def soap_eigenbasis(mat: Tensor, eps: float = 1e-30) -> Tensor:
+    """Initial SOAP eigenbasis (eigenvectors of mat, sorted in descending eigenvalue order)."""
+    try:
+        evals, q = torch.linalg.eigh(mat + eps * torch.eye(mat.size(0), device=mat.device))
+    except RuntimeError:
+        evals, q = torch.linalg.eigh(mat.double() + eps * torch.eye(mat.size(0), device=mat.device))
+        evals, q = evals.float(), q.float()
+    # Descending order so column 0 always corresponds to the dominant direction.
+    return torch.flip(q, [1])
+
+
+def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+    """One step of subspace iteration: refresh basis while preserving the exp_avg_sq alignment."""
+    row_eig = torch.diag(q_row.T @ row_gg @ q_row)
+    row_sort = torch.argsort(row_eig, descending=True)
+    q_row = q_row[:, row_sort]
+    exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
+    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+
+    col_eig = torch.diag(q_col.T @ col_gg @ q_col)
+    col_sort = torch.argsort(col_eig, descending=True)
+    q_col = q_col[:, col_sort]
+    exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
+    q_col, _ = torch.linalg.qr(col_gg @ q_col)
+    return q_row, q_col, exp_avg_sq
+
+
+def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ):
+    """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps."""
+    grad_f = grad.float()
+    state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
+    state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
+    if state["q_row"] is None:
+        state["q_row"] = soap_eigenbasis(state["row_gg"])
+        state["q_col"] = soap_eigenbasis(state["col_gg"])
+    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+        )
+    state["soap_step"] += 1
+
+
+def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
+    """Project update into the row/col eigenbasis, scale by inverse sqrt of second-moment EMA, project back, renormalize."""
+    if state["q_row"] is None:
+        return update
+    update_f = update.float()
+    q_row, q_col = state["q_row"], state["q_col"]
+    projected = q_row.T @ update_f @ q_col
+    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+    precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+    return precond.to(update.dtype)
+
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+        assert isinstance(named_params, list) and len(named_params) >= 1
+        # Identify MLP weights (mlp.fc.weight / mlp.proj.weight) — only these receive SOAP preconditioning.
+        self.soap_params = {
+            p for n, p in named_params
+            if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+        }
+        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
 
@@ -492,10 +581,44 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        state["second_momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["second_momentum"], mu=group["mu"])
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                        # NorMuon-lite per-row (or per-col) variance buffer.
+                        if p.size(-2) >= p.size(-1):
+                            state["second_moment"] = torch.zeros(
+                                (*p.shape[:-1], 1), dtype=torch.float32, device=p.device
+                            )
+                        else:
+                            state["second_moment"] = torch.zeros(
+                                (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
+                            )
+                        if p in self.soap_params:
+                            m, n = p.size(0), p.size(1)
+                            state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
+                            state["col_gg"] = torch.zeros(n, n, dtype=torch.float32, device=p.device)
+                            state["q_row"] = None
+                            state["q_col"] = None
+                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                            state["soap_step"] = 0
+                    grad = p.grad
+                    state["momentum"].lerp_(grad, 1 - group["mu"])
+                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    use_soap = p in self.soap_params
+                    # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
+                    # (matches public record #14 train_gpt_contra_normuon_soapish_mlp.py).
+                    if use_soap:
+                        momentum_update = soap_precondition(momentum_update, state)
+                    # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
+                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
+                    p_fro = p.float().norm().clamp_min(1e-8)
+                    u_fro = update.float().norm().clamp_min(1e-8)
+                    cur_uw = u_fro / p_fro
+                    scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
+                    update = update * scale.to(update.dtype)
+                    # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
+                    # Refresh SOAP state with the raw grad (after applying the step).
+                    if use_soap:
+                        soap_refresh(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -567,6 +690,16 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps_cli": args.train_steps,
+            "optimizer/contra_muon": CONTRA_MUON,
+            "optimizer/mu": MU,
+            "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
+            "optimizer/target_uw": TARGET_UW,
+            "optimizer/normuon_beta2": NORMUON_BETA2,
+            "optimizer/soap_beta2": SOAP_BETA2,
+            "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
 
@@ -578,7 +711,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = args.train_steps if args.train_steps is not None else 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3175
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -602,8 +735,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
