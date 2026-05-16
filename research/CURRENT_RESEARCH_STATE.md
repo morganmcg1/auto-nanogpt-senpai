@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 17:30 UTC (boot 43)
+- **Last updated:** 2026-05-16 19:20 UTC (boot 51)
 - **Most recent human-team directive:** None.
 - **Branch state:** PR #52 MuonH-SI MERGED. Baseline: val=3.27737, ffs=3275 (n=4, deterministic).
 
@@ -17,75 +17,84 @@
 
 ## INFRA ESCALATION: 3 broken pods (Issue #164)
 
-**3 of 8 student pods (37.5%) are broken** with deterministic NaN-cascade on the unmodified merged baseline:
-
-- **g1r3-tanjiro** (node ge29808, PR #135 closed) — 10+ NaN smokes, grad=0 throughout
-- **g1r3-nezuko** (node ge2b558, PR #153 closed) — screen NaN'd at step 125, grad=0
-- **g1r3-alphonse** (node ge2b5f0, 4 restarts in 5h59m, PR #156 closed) — both smokes NaN at step 25
-
-Same failure signature as r4-tanjiro (Issue #160). Holding all 3 assignments until GPU rotation. No human response on Issue #164 yet.
+**3 of 8 student pods (37.5%) are broken** — tanjiro, nezuko, alphonse — all NaN cascade on bare baseline (grad=0, NaN from step 25-125). No human response on Issue #164. Holding all 3 idle.
 
 ## ⚠ Operational gotcha: muonh_mode default is `clip`, not `scale_invariant`
 
-The merged `--muonh_mode` argparse default is `clip` (line 45). Baseline was confirmed with `scale_invariant`. Active screens all use `--muonh_mode scale_invariant`.
+Active screens all use `--muonh_mode scale_invariant`. Default is `clip` — caught at boots 30/38.
 
-## ⭐ WINNER CANDIDATE (boot 38) — frieren MuLoCo × MuonH-SI
+## ⭐ UNCERTAIN CONFIRM (boot 51) — frieren MuLoCo × MuonH-SI n=4
 
-**n=4 confirm IN PROGRESS** (run 22tmupqh): step 2000/3325 trial 1 of 4, val=3.50 (mid-training).
-**Screen result (n=1)**: val=**3.27566**, ffs=3275. **Baseline**: val=3.27737, ffs=3275. **Δval**: **-0.00171** (better).
+**n=4 confirm in progress** (run 22tmupqh):
+- Trial 1 (DONE): val=**3.27749**, ffs=3300 — **marginally above baseline mean** (+0.00012)
+- Trial 2 in progress: step ~2161/3325
 
-Config: muonh_lr=0.018, scale_invariant, budget_mult=1.0, muloco_outer_lr=0.7, muloco_outer_momentum=0.5, muloco_sync_interval=30.
+For n=4 mean to pass merge bar (μ < 3.27737): trials 2-4 must average ≤ 3.27733.
 
-**Expected confirmation**: ~21:00 UTC (3 more hours).
+The screen result was 3.27566 but trial 1 landed at 3.27749 — possible seed variance or optimistic screen. **Outcome uncertain**. ETA all 4 trials ~21:30 UTC.
 
-## Active experiments (boot 43 — 17:30 UTC)
+## Active experiments (boot 51 — 19:20 UTC)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | mu=0.90 ❌; mu=0.95 baseline-clone; **mu=0.98 RUNNING step 375/3325 val=4.034** (~2hr ETA) |
-| **#114** | frieren | MuLoCo × MuonH-SI | **n=4 CONFIRM RUNNING step 2000/3325 trial 1** (~3hr ETA) |
-| **#107** | edward | Cautious-Muon cs sweep {0.0, 0.1, 0.25} | cs=0.0 RUNNING step 1175/3325 val=3.663; cs=0.1 and cs=0.25 queued |
-| **#152** | fern | MuonH wd sweep {1e-5, 5e-5, 1e-4} | wd=1e-5 baseline-clone; **wd=5e-5 RUNNING step 2988/3325 val=3.335 (final ~15 min)**; wd=1e-4 queued |
-| **#174** | askeladd | NS5 polynomial coefficient sweep | **NEWLY ASSIGNED** — smoke A1 (3.4445,-4.7750,2.0315) then 3-arm screen |
+| **#114** | frieren | MuLoCo × MuonH-SI n=4 confirm | **RUNNING trial 2/4**, ETA ~21:30 UTC |
+| **#107** | edward | Cautious-Muon cs sweep {0.0, 0.1, 0.25} | cs=0.0 ✓ baseline-clone; **cs=0.1 RUNNING** (step ~1350); cs=0.25 queued |
+| **#152** | fern | MuonH wd sweep {1e-5, 5e-5, 1e-4} | wd=1e-5 baseline-clone; wd=5e-5 baseline-clone; **wd=1e-4 RUNNING step 3200 (~terminal)** |
+| **#174** | askeladd | NS5 polynomial coefficient sweep A1-A3 | **A1 (3.4445,-4.775,2.0315) RUNNING step 2750** (~15 min to A1 terminal) |
+| **#182** | thorfinn | Lookahead × MuonH-SI (k=5, k=10) | **NEWLY ASSIGNED** — smoke k=5, α=0.5 first |
 
-## Closed this session (boot 43)
+## Closed this session (cumulative)
 
-- **#136 askeladd lr sweep**: CLOSED NEGATIVE. All 3 arms: lr=0.015 ❌ (3.28156), lr=0.018 = baseline-clone (3.27833), lr=0.022 ❌ (3.28097). U-shape confirms lr=0.018 near-optimal.
+| PR | Student | Result |
+|---|---|---|
+| #136 | askeladd | lr sweep NEGATIVE — U-shape, lr=0.018 optimal in ±20% |
+| #133 | thorfinn | mu sweep NEGATIVE — mu=0.95 optimal in {0.90, 0.95, 0.98} |
+| #135 | tanjiro | pod-infra-broken |
+| #153 | nezuko | pod-infra-broken |
+| #156 | alphonse | pod-infra-broken |
+| #132 | alphonse | budget_mult dead in SI |
+| #111 | fern | AdamAtan2 NaN |
+| #134 | nezuko | Contra×SI incompatible |
+| #142 | alphonse | Soft-Muon×SI incompatible |
 
-## Earlier results (boot 30-43)
+## Saturated HP levers (confirmed)
 
-- **askeladd lr=0.015 SCREEN**: val=3.2816, ffs=-1 → **NEGATIVE** (lr too low)
-- **askeladd lr=0.018 SCREEN**: val=3.27833, ffs=3300 → baseline-clone
-- **askeladd lr=0.022 SCREEN**: val=3.28097, ffs=-1 → **NEGATIVE** (overshoots)
-- **thorfinn mu=0.90 SCREEN**: val=3.29361, ffs=-1 → **NEGATIVE**
-- **thorfinn mu=0.95 SCREEN**: val=3.27828, ffs=3300 → baseline-clone
-- **fern wd=1e-5 SCREEN**: val=3.27850, ffs=3300 → baseline-clone (SI projection immune to light wd)
-- **frieren MuLoCo screen**: val=3.27566, ffs=3275 → **POTENTIAL WIN** (n=4 confirm in progress)
-- **edward cautious cs=0.5 SCREEN**: val=3.30450, ffs=-1 → **NEGATIVE** (too aggressive)
-- **edward cautious cs=0.25 SMOKE**: val=4.256 @ step 300 → healthy
+- **lr**: 0.018 is near-optimal in ±20% range (askeladd, boot 43)
+- **mu**: 0.95 is optimal in {0.90, 0.95, 0.98} (thorfinn, boot 51)
+- **wd**: no effect in SI mode — projection renorms params back (fern, 2/3 arms confirmed)
+- **budget_mult**: dead in SI (alphonse)
+- **`--muonh_mode`**: scale_invariant vs clip — baseline uses SI, clip is different baseline
+
+## Open research threads
+
+| Category | PR | Status |
+|---|---|---|
+| Outer-loop wrapper | #114 frieren MuLoCo | Confirm in progress (uncertain) |
+| Outer-loop wrapper | #182 thorfinn Lookahead | Newly assigned |
+| Element-wise gating | #107 edward Cautious-Muon cs sweep | cs=0.1 running |
+| NS5 polynomial | #174 askeladd NS5 coef sweep | A1 running |
+| wd ablation | #152 fern wd sweep | wd=1e-4 running (~terminal) |
 
 ## Key patterns discovered (cumulative)
 
-1. **SI projection incompatibility with direction modifiers**: Both Contra (cs=0.025) and Soft-Muon (a=0.95) NaN at any practical strength.
-2. **Compatible mechanism patterns**: element-wise gating (Cautious, testing), outer-loop wrapping (MuLoCo, winner candidate), HP retuning, orthogonalization-depth tuning.
-3. **budget_mult lever dead in SI mode** (per-module init calibrated for bm=1.0).
-4. **`--muonh_mode` default is `clip`**: baseline uses scale_invariant. Gotcha caught at boots 30/38.
-5. **AdamAtan2 magnitude mismatch**: atan2-saturated updates 100-1000x larger than AdamW.
-6. **Pod heterogeneity**: 3 of 8 r3 pods broken. Holding all 3 idle per Issue #164 protocol.
-7. **lr near-optimal**: lr=0.018 confirmed best in ±20% range (U-shape centered here, boot 43).
-8. **Outer-loop wrappers work with SI**: MuLoCo outer Nesterov over MuonH-SI gives val=3.27566. Direction modifiers (Contra, Soft-Muon) NaN; outer wrappers (MuLoCo) work cleanly.
+1. **SI direction-modifier incompatibility**: Contra, Soft-Muon NaN in SI.
+2. **Compatible mechanisms**: outer-loop wrapping (MuLoCo screen win), element-wise gating (Cautious testing), NS5 coefficient changes.
+3. **HP retunes saturated**: lr, mu, wd, budget_mult all confirmed sub-optimal vs baseline.
+4. **`--muonh_mode` default `clip`** — operational gotcha.
+5. **AdamAtan2 magnitude mismatch**: ruled out.
+6. **Pod heterogeneity**: 3 broken pods (tanjiro/nezuko/alphonse), same NaN signature.
 
 ## Next-priority watch points
 
-1. **Fern wd=5e-5 terminal** (~17:45 UTC): project NEGATIVE (val=3.335 @ step 2988). Then launch wd=1e-4.
-2. **Thorfinn mu=0.98 terminal** (~19:30 UTC): if val < 3.277 → n=4 confirm. If baseline-clone → close #133.
-3. **Edward cs=0.0 terminal** (~18:00 UTC): cs=0.0 is vanilla baseline-clone control. Then cs=0.1 and cs=0.25.
-4. **Frieren n=4 confirm** (~21:00 UTC): If μ < 3.27737 → MERGE as new baseline.
-5. **Askeladd NS5 coef smoke** (#174): A1=(3.4445,-4.7750,2.0315) smoke first, then 3-arm screen.
+1. **Fern wd=1e-4 terminal** (~19:24 UTC): expected baseline-clone or mildly negative → close #152.
+2. **Askeladd NS5 A1 terminal** (~19:35 UTC): if A1 beats baseline-clone → interesting.
+3. **Frieren n=4 trial 2 terminal** (~20:00 UTC): critical signal for MuLoCo confirm.
+4. **Frieren n=4 all 4 trials** (~21:30 UTC): if μ < 3.27737 → MERGE; else close.
+5. **Edward cs=0.1/0.25** (~20:30/21:00 UTC): cautious gating test.
+6. **Thorfinn Lookahead smoke** (~19:45 UTC): new mechanism.
 
 ## Operational notes
 
-- Active students (5): askeladd (#174, new), thorfinn (#133), fern (#152), frieren (#114), edward (#107).
-- Idle (broken pods): tanjiro, nezuko, alphonse — awaiting infra rotation per Issue #164.
-- Merge bar: `μ_val < 3.27737` at n=4, stat rule `(3.28 - μ) × √4 ≥ 0.004`.
-- Banned reference sources: Prime Intellect autonomous-run materials.
+- Active students (5): frieren (#114 confirm), edward (#107 cs sweep), askeladd (#174 NS5), thorfinn (#182 lookahead), fern (#152 wd=1e-4 terminal).
+- Idle (broken pods): tanjiro, nezuko, alphonse — no infra response yet.
+- Merge bar: μ_val < 3.27737 at n=4, stat rule (3.28 - μ) × √4 ≥ 0.004.
