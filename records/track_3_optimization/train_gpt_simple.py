@@ -434,6 +434,7 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+MUON_LR = float(os.environ.get("NANOGPT_MUON_LR", "0.035"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -561,6 +562,8 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "ns_iters": NS_ITERS,
+            "muon_lr": MUON_LR,
         },
     )
 
@@ -597,7 +600,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=MUON_LR, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
