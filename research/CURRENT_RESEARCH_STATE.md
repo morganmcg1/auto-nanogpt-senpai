@@ -1,29 +1,39 @@
 # SENPAI Research State
 
-- 2026-05-16 02:40 — **PR #71 MERGED**. NorMuon baseline: mean=3.27800 n=4 @
-  3300 steps. Alphonse reassigned PR #112 (NorMuon + power-law LR cooldown).
-  Askeladd T1=3.27777 (both arms below 3.278 — very promising). Nezuko T1=
-  3.27859 (mean rising). Fern T1=3.27811. Edward ~16% through, no trial data.
-  Tanjiro `cpoe66ut` (re-run @3325) just launched. Frieren on MuLoCo+NorMuon
-  (smoke done, screen pending). Tanjiro+edward pinged to rebase after NorMuon merge.
-  Advisor branch: `auto-nanogpt-1gpu-r2`.
+- 2026-05-16 04:30 — Cycle 7 progress:
+  - **Fern T3 @ step 3075/3175 reading 3.28396** — concerning (last 100 steps
+    decide statsig outcome). T0-T2 mean=3.27751. Terminal expected in ~5 min.
+  - **Askeladd T3 @ 47% (step 1550/3275)** — on-track. mean(T0-T2)=3.27785,
+    T3 needs ≤ 3.27859 for statsig — easy bar. ETA T3 terminal ~3-4h.
+  - **Edward T1 just started** (step 50/3225). T0=3.27750 still strong.
+  - **Tanjiro T1 @ 20%** (step 664/3325). T0=3.27599 excellent. Re-run going well.
+  - **Nezuko T3 @ 35%** (step 1175/3325). T0-T2 mean=3.27854. T3 needs
+    ≤ 3.27638 to clear statsig — very hard. **Projecting non-statsig.**
+  - **Alphonse screen `fg11eojr` @ 62%** (step 2025/3275, val=3.42561,
+    mid-cooldown). Single-seed power-law LR p=1.2. Terminal ~1.5h.
+  - **Frieren smoke `mti327gb` running**, just started (~04:32 UTC).
+  - **Thorfinn p=0.05 screen `hz91ow2y` running** (step ~200/3325).
+  NorMuon baseline (PR #71) at mean=3.27800 n=4 @ 3300. Advisor branch: `auto-nanogpt-1gpu-r2`.
 - No human-researcher directives recorded.
 - W&B `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
   `auto-nanogpt-1gpu-r2`.
 
 ## In-flight / recent results
 
-- **g1r2-edward (Contra-Muon)** — n=4 confirmation `zsqazpmr` (num_trials=4,
-  train_steps=3225) **running** at step ~1050/12900 (8.1%). No trial data yet.
-  Expected wall-clock ~21.5h total. Single-seed screen `qxzuvfmm` was
-  **val/loss=3.2746 @ 3275 / ffs=3200** (strongest in wave 1, margin 0.0054).
+- **g1r2-edward (Contra-Muon)** — n=4 conf `zsqazpmr` (3225): **T0=3.27750**
+  (ffs=3175, terminal). T1 just started (step 50/3225). For n=4 statsig:
+  T1+T2+T3 need mean ≤ 3.27817 — easy bar. Likely statsig, would beat NorMuon
+  by ~50-80 ffs steps. ~14h to T3.
 
-- **g1r2-fern (Contra+SOAP on MLP) ✨ STRONG TURNAROUND** — `6bbhoxm1` at 3175:
-  T0=3.27920, T1=3.27811, **T2=3.27522** (ffs=3100), T3 in progress.
-  mean(T0,T1,T2)=3.27751. T2 is second-best individual trial in wave 1
-  (after edward's 3.2746 single-seed). For n=4 statsig, T3 needs ≤ 3.27947 —
-  easy bar. **Likely to clear statsig and beat NorMuon baseline** (3.27800
-  → 3.27780, ffs_mean 3256.25 → ~3133, ~120-step improvement).
+- **g1r2-fern (Contra+SOAP on MLP) ⚠️ T3 BORDERLINE** — `6bbhoxm1` at 3175:
+  T0=3.27920, T1=3.27811, **T2=3.27522** (ffs=3100), **T3 @ step 3075/3175
+  (97%) reading 3.28396** (still descending). mean(T0,T1,T2)=3.27751.
+  Cooldown is ~96% complete in T3, so descent in final 100 steps will be
+  small. Statsig outcomes:
+    - T3 ≤ 3.27947 → statsig (mean ≤ 3.278). Requires ~0.005 drop in last 100 steps.
+    - T3 in [3.27947, 3.281] → non-statsig but close.
+    - T3 ≥ 3.281 → clear non-statsig.
+  Terminal expected in ~5-10 min.
 
 - **g1r2-alphonse (NorMuon + power-law LR)** — PR #71 merged (NorMuon baseline
   locked). **New PR #112** (branch `g1r2-alphonse/normuon-plawlr`): test
@@ -32,17 +42,15 @@
   → p=1.2 screen at 3275 → n=4 confirmation at best p. Student picking up
   next poll cycle.
 
-- **g1r2-tanjiro (Newton-Muon)** — `xsb35b0m` (n=4 @ 3275) non-statsig (T3
-  bad seed at 3.2813, mean=3.27934). Fresh n=4 confirmation `cpoe66ut` at
-  **train_steps=3325** just started (step ~0). PR #81 has merge conflict
-  after NorMuon merge — rebase requested (non-urgent, can rebase before submit).
-  Recipe is real (T2=3.2777 among best wave-1 individual results).
+- **g1r2-tanjiro (Newton-Muon)** — `cpoe66ut` (n=4 @ 3325): **T0=3.27599**
+  (ffs=3250, terminal — excellent first trial, 0.003 below prior n=4's T0).
+  T1 @ 20% (step 664/3325). For n=4 statsig: T1+T2+T3 need mean ≤ 3.27867 —
+  comfortable. Recipe scales well with cooldown. ~13h to T3.
 
-- **g1r2-askeladd (NorMuonH)** — n=4 conf `6rf3nerz` at train_steps=3275:
-  T0=3.27781, **T1=3.27777** (ffs=3225 both). mean(T0,T1)=3.27779. Very tight
-  std — both arms almost identical. For n=4 statsig: T2+T3 need mean ≤ 3.27821.
-  **Very promising** — if consistent, will clear statsig easily. T2 in progress
-  (~56% of run, step ~7377/13100).
+- **g1r2-askeladd (NorMuonH)** — `6rf3nerz` (n=4 @ 3275): T0=3.27781,
+  T1=3.27777, **T2=3.27798**, T3 in progress. mean(T0-T2)=3.27785. Tight std
+  ~0.0001. For statsig: T3 ≤ 3.27859 — easy bar. **Likely statsig win.**
+  Projection: mean ≈ 3.27787, margin ≈ 0.00427. ~5h to T3.
 
 - **g1r2-frieren (MuLoCo+NorMuon)** — PR #79 CLOSED (all 4 plain-Muon corners
   missed 3.28: 3.2829/3.2810/3.2815/3.2865). **New PR #109** (branch
@@ -50,14 +58,19 @@
   wrapping NorMuon (record #13 stack). Student picks up on next poll cycle.
 
 - **g1r2-nezuko (Muon²)** — n=4 confirmation `7lxk02m6` at train_steps=3325:
-  T0=3.27788, **T1=3.27859** (ffs=3300 both). mean(T0,T1)=3.27823. Slightly
-  worse T1 — rising trend. For n=4 statsig: T2+T3 need mean ≤ 3.27777.
-  Borderline — will need luck on T2+T3. T2 in progress (~54%, step ~7127/13300).
+  T0=3.27788, T1=3.27859, **T2=3.27915** (rising trend across all 3).
+  mean(T0,T1,T2)=3.27854. For n=4 statsig: T3 needs ≤ 3.27638 — **very hard
+  bar** (best individual trial in this run was T0=3.27788). T3 in progress
+  (~35%, step ~1175/3325). **Projecting non-statsig.** If T3 lands ~3.279,
+  mean ≈ 3.27873, margin ≈ 0.00254 — below 0.004.
 
-- **g1r2-thorfinn (Soft-Muon isolated)** — Newly assigned PR #103. Student
-  picking up on next poll cycle. Hypothesis: Soft-Muon polynomial `x^(1-p)`
-  at p=0.1, annealed blend 0→0.8 from step 2500 to end, on plain Muon.
-  Smoke then screen at train_steps=3325.
+- **g1r2-thorfinn (Soft-Muon isolated)** — PR #103. Initial screen `<earlier
+  run>` at p=0.1 with annealed blend 0→0.8 MISSED at val/loss=3.28024 (just
+  barely). Sent back to try lower softness: **p=0.05** with same annealed
+  blend. New screen `hz91ow2y` running (step ~200/3325, ~6%, early descent).
+  Hypothesis: Soft-Muon's spectral softness was slightly too aggressive at
+  p=0.1; reducing to p=0.05 should preserve the smoothing benefit with less
+  spectral distortion.
 
 ## Single-seed leaderboard so far (informational, not statsig)
 | student | recipe | run | val/loss @ step | ffs | margin n=1 |
