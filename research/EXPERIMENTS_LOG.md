@@ -225,3 +225,18 @@ Orthogonal barely steeper in the predicted regime but the difference is an order
 
 - **Analysis:** Monotone negative. Each warmup arm strictly worse than no-warmup. Arms B/C/D all fail to cross val<3.28 threshold. The warmup hypothesis is falsified — Newton-Schulz already provides early-step directional stability (edward #92 finding: NS re-orthogonalizes within ~50 steps), so LR warmup just delays the productive high-LR window without providing additional stability. **CLOSED negative.**
 - **Impact:** Closes the LR-schedule axis in wave 2. Combined with LR retune (#96) also negative, the schedule space is exhausted.
+
+## 2026-05-16 09:30 — PR #104: Polyak EMA weight averaging at eval (frieren)
+
+- **Branch:** g1r4-frieren/polyak-ema-eval
+- **Hypothesis:** Polyak EMA of model weights at eval time reduces val/loss without touching training dynamics
+- **Results:**
+
+| Arm | EMA decay | W&B run | val/loss (live) | val/loss_ema | fs_live | fs_ema |
+|-----|-----------|---------|-----------------|--------------|---------|--------|
+| A | 0.99 | gwr15he4 | 3.27839 | 3.27859 | 3325 | 3300 |
+| B | 0.999 | ry7tw0ag | 3.27736 | 3.32406 | 3300 | -1 |
+| C | 0.9999 | ps773p6x | 3.27494 | 3.46152 | 3275 | -1 |
+| D | 0 (disabled) | 2v0kauw1 | 3.27830 | 3.27830 | 3325 | 3325 |
+
+- **Analysis:** Hypothesis refuted. EMA val_loss ≥ live val_loss in every arm. Live val_loss invariant across arms (3.2749-3.2784, spread within seed noise). Arm C live=3.2749 is not attributable to EMA (EMA cannot affect live trajectory). Arm D=Arm A confirms test harness. Cooldown is load-bearing — EMA averages across cooldown boundary → off-floor. **CLOSED negative.**
