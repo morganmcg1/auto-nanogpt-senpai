@@ -301,6 +301,26 @@ Single-seed stat-sig at n=1: (3.28−3.2755)*sqrt(1) = 0.00454 ≥ 0.004 ✓. 2 
 
 **Wave 3 mechanism hypothesis (if both confirm)**: bias correction touches v-EMA preconditioner; grad clip touches gradient before momentum — orthogonal mechanism slots, expected to stack cleanly. Final merge sequencing TBD pending confirmation seeds.
 
+## 2026-05-16 13:35 — PR #120: Lookahead Muon² (askeladd) — CLOSED clean negative
+
+- **Branch:** g1r4-askeladd/lookahead-muon2
+- **Hypothesis:** Lookahead meta-optimizer (k inner steps + α slow-weight blend) temporally stabilizes Muon² without continuous EMA smoothing, preserving cooldown-phase tightening
+- **Results (4 arms, all complete):**
+
+| Arm | k | α | W&B run | val/loss | first_step | vs baseline |
+|-----|---|---|---------|----------|-----------|-------------|
+| A | 0 (disabled) | 0.5 | s0utj0wz | **3.27731** | 3300 | +0.001, +25 |
+| B | 5 | 0.5 | f8g40nft | 3.28843 | -1 | +0.012, target FAILED |
+| C | 10 | 0.5 | ykdzt3tg | 3.29011 | -1 | +0.013, target FAILED |
+| D | 10 | 0.8 | cr1bq7ff | **3.27731** | 3300 | +0.001, +25 (=A to 5 decimals) |
+
+Single-seed stat-sig at best: (3.28−3.27731)×√1 = 0.00269 < 0.004. No improvement. Arms B/C never reach val<3.28 target.
+
+**Mechanism analysis (from student telemetry):**
+Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldown stable phase (B/C/D lead A at steps 500–2500) but REVERSES in the cooldown phase (A and D catch up at step 3000+). Temporal averaging with α=0.5 pulls θ_fast halfway back to θ_slow every k steps — at small LR magnitudes during cooldown, the slow-weight pullback dominates per-step descent, erasing ~one-step's-worth of progress every k steps. Arm D (α=0.8) weak enough not to harm but also provides zero net benefit.
+
+**Closes off:** Entire temporal-smoothing meta-optimizer family — confirms same root cause as Polyak EMA #104 (frieren). Cooldown_frac=0.7 is load-bearing; any mechanism that mixes historical weights into θ during cooldown hurts. Lookahead-aware-cooldown (ramp α→1 at cooldown start) is theoretically possible but unlikely to yield net gain since stable-phase benefit is within noise.
+
 ## 2026-05-16 13:10 — PR #126: Contra-Soft Muon² element-wise (fern) — CLOSED clean negative
 
 - **Branch:** g1r4-fern/contra-soft-muon
