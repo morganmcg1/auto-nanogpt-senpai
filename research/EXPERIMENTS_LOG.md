@@ -428,6 +428,53 @@ edward's analysis: "The two ±0.1 perturbations both produce within-noise outcom
 
 ---
 
+## 2026-05-16 15:45 — PR #140 CLOSED: SOAP-MLP + u/w-floor stack on PMuon base — informative null (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-soap-mlp-uw-floor`
+- Hypothesis: SOAP-MLP (Shampoo Lˉ¹/⁴ Rˉ¹/⁴ eigenbasis preconditioning on MLP fc/proj weights) stacks orthogonally with u/w-floor (magnitude floor) on PMuon base — tests whether direction-shaping (SOAP) and magnitude control (u/w-floor) compose additively.
+- W&B run: `cg6asx9a`
+
+| Metric | Value | vs PR #94 baseline |
+| ------ | ----- | ------------------ |
+| speedrun/final_first_step_to_target | 3125 | +25 (worse) |
+| val/loss | 3.2698 | +0.0021 (vs 3.267696 mean) |
+| (3.28−μ)·√n margin | 0.0102 | ✓ clears vs 3.28 |
+| n | 1 | — |
+| W&B run | `cg6asx9a` | — |
+
+**Mechanistic telemetry (the key diagnostics):**
+- `soap/amp_cap_fire_fraction` = 0.000 throughout — SOAP's safety cap never fired. PMuon polar never produced norms SOAP needed to clamp.
+- `soap/post_to_pre_ratio` ≈ 0.999998–1.0 — SOAP applied to a polar update is norm-preserving. Rotates in eigenbasis without magnitude change.
+- `uw_floor/fired_fraction` identical with vs without SOAP (98–100% from step 1200) — u/w-floor's universal magnitude floor does identical work regardless of whether SOAP is in the path.
+
+**Analysis:** Clean mechanistic null. SOAP-MLP and u/w-floor ARE orthogonal in update magnitude (one changes magnitudes, the other does not) but they compose null because both are applied to the already polar-shaped output of PMuon. PMuon's bilateral whitening already provides the dominant direction regularization on MLP weights — SOAP's eigenbasis rotation adds no value-additive signal on a high-rank, full-band parameter family that polar has already made roughly isotropic. This matches the cross-cutting pattern: post-polar direction-shaping mechanisms are redundant on PMuon+u/w-floor (PRs #83, #93, #110, #118, #119, #129B, now #140).
+
+**Cross-cutting note:** 7th consecutive add-on-mechanism null on PMuon+u/w-floor base (counting this experiment). Only PR #137 (power-law cooldown γ=1.2) shows improvement — and that is a scheduler-side change, not an optimizer-side mechanism addition.
+
+**Conclusion:** CLOSED as informative null. SOAP infrastructure reused for PR #167 (SOAP-ATTENTION on attention q/k/v only — tests different singular-value-spectrum hypothesis).
+
+---
+
+## 2026-05-16 15:45 — PR #143 Arm A: Lookahead k=5 on PMuon+u/w-floor — NULL (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/pmuon-uw-lookahead`
+- Hypothesis: Lookahead (Zhang et al. 2019) outer optimizer (k=5, α=0.5) operates at a completely different abstraction from PMuon's inner whitening — slow-weight copy with periodic pullback provides noise suppression/variance reduction orthogonal to all prior mechanism additions.
+- W&B run: `ycmkbjrb` (arm A, k=5)
+
+| Metric | Arm A (k=5) | PR #94 baseline | Δ |
+| ------ | ----------- | --------------- | - |
+| speedrun/final_first_step_to_target | −1 (null) | 3100 | +∞ (never crossed) |
+| final val/loss | 3.2836 | 3.267696 | +0.0159 |
+| train_steps | 3250 | 3250 | — |
+
+**Analysis:** Lookahead k=5 produced a NULL result — the target (val ≤ 3.28) was never crossed in 3250 steps. This is a significantly worse outcome than the baseline (val=3.284 vs 3.268). Lookahead's periodic pullback to slow weights appears to counterproductively dampen the effective LR of PMuon+u/w-floor at k=5: pulling fast weights back to slow every 5 steps imposes a 50% blending that partially cancels the u/w-floor magnitude inflation. This is consistent with Lookahead being most beneficial on inner optimizers that are "aggressively noisy" — PMuon+u/w-floor may be directionally clean enough that variance reduction from slow weights is unnecessary and the blending overhead costs more than it saves.
+
+Arm B (k=10) is running (`u78x3cd3` launched ~15:30 UTC) — with longer inner steps between syncs, the blending overhead is halved. If arm B also nulls, Lookahead is definitively not a fit for this base.
+
+**Conclusion:** Arm A (k=5) NULL. Awaiting arm B (k=10) results before full PR close.
+
+---
+
 ## 2026-05-16 12:00 — PR #119 CLOSED: Measured-scale Contra-Muon × PMuon — final negative (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/pmuon-contra-measured`
