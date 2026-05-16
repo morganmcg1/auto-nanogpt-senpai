@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 10:40 UTC (wave 3 dual positive signals 🎯 — edward bias-corr arm-C val=3.2749/fs=3250, thorfinn clip=1.0 arm-B val=3.2755/fs=3275; both pending confirmation seeds)
+- **Date:** 2026-05-16 11:35 UTC (wave 3 three positive signals 🎯 — edward bias-corr val=3.2749/fs=3250, thorfinn clip=5.0 val=3.2742/fs=3250 [new sweep best], frieren polar-express arm-A sanity nearly done; edward confirm seed 1 running; thorfinn confirmation seeds redirected to clip=5.0)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -57,7 +57,7 @@
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
 | **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** arm-A=3.2793/3325, arm-B=3.2772/3300 (no step-25 divergence at beta2=0.95). arm-D (bias_corr=on, beta2=0.999) running step 2010. Confirmation seeds at beta2=0.98 queued. |
-| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-B (clip=1.0) val=3.27546/fs=3275 BEATS BASELINE.** arm-A (disabled)=3.2789/3325. arm-C (clip=5.0) running step 1800. Confirmation seeds at clip=1.0 requested. |
+| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.27420/fs=3250 — NEW SWEEP BEST, beats arm-B.** arm-A (disabled)=3.2789/3325, arm-B (clip=1.0)=3.2755/3275. BOTH B and C beat baseline. Confirmation seeds **redirected to clip=5.0**. |
 | #120 | askeladd | **Lookahead Muon² (k inner steps + α blend)** | arm-A=3.2773/3350 (within-noise), arm-B (k=5,α=0.5)=3.2884 (WORSE). arm-C (k=10,α=0.5) running step 2685, val=3.3544 — tracking worse |
 | #126 | fern | **Contra-Soft momentum direction shaping** | arm-A (disabled)=3.2762/3275 EXACT baseline. arm-B (α=0.5) KILLED step 1600 val=4.06 (kill gate). arm-C (α=0.25) just launched step 100 — student following kill notice |
 | #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A (classical NS sanity) running step 1050, val=3.6363 — healthy trajectory |
@@ -90,12 +90,19 @@ The plateau protocol calls for mechanism extensions beyond hyperparameter tuning
 - **#126 fern Contra-Soft** — arm-B (α=0.5) killed at val=4.06 (kill gate); arm-C (α=0.25) just launched; if also fails, element-wise direction-shaping closed (try layer-aggregate next)
 - **#138 frieren Polar Express NS** — adaptive NS coefficients (ICLR 2026 Oral); arm-A sanity in flight
 
-### Next-tier (assign as students become idle)
-- **Muon² + SOAP-MLP for AdamW aux groups** — second-order preconditioning for LM head/embed; biggest theoretical lever to close 3275 → 3030 gap
+### Newly assigned (idle students)
+
+| PR | Student | Hypothesis | Status |
+|----|---------|-----------|--------|
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** (embed + lm_head Shampoo preconditioner) | just assigned |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** (budget-neutral redistribution by singular spread) | just assigned |
+| **#146** | **tanjiro** | **NS-iters annealing schedule** (high-to-low; smoke-test gate first) | just assigned; smoke gate required |
+
+### Next-tier (future assignments)
 - **Polar-decomposition Muon** — exact orthogonalization via SVD on smaller projections vs iterative NS
 - **Muon for embed/lm_head** — apply Muon² to all params (not just blocks), unifying the optimizer
 - **Contra-Muon layer-aggregate** — if fern #126 closes negative, try inner-product (per-layer) conflict score instead of element-wise sign
-- **Per-layer adaptive NS iterations** — log singular spread per block; spend more NS iters on poorly-conditioned blocks
+- **Grad clip per-group (thorfinn follow-up)** — different thresholds for Muon blocks vs AdamW aux groups
 
 **Key insight (edward's #92 mechanism analysis)**: Newton-Schulz continuously re-orthogonalizes Muon-trained matrices within ~50 steps; init structure is irrelevant for those. Init experiments only matter for AdamW-trained matrices (embed/lm_head). This narrows the init-exploration space.
 
