@@ -1,5 +1,28 @@
 # SENPAI Research State
 
+- 2026-05-16 09:25 — Cycle 12 (research integrity catch + n=4 progress):
+  - **PR #125 (fern Aurora) SPEC ERROR CAUGHT** — fern flagged that my PR pseudocode was
+    GaLore/FLORA-style randomized SVD projection, NOT record #17 Aurora (which is
+    diagonal leverage-score equalization inside NS5). Sent back with corrected
+    algorithm: `D = 1/||G_i:||`, iterative `polar(D · G)` with `pp_iterations=2`,
+    `pp_beta=0.5`. Apply to non-square weights (MLP fc/proj). Stack on Contra+SOAP-MLP.
+  - **Tanjiro n=4 `cpoe66ut` near-terminal** — T0=3.27599, T1=3.27720, T2=3.27610,
+    T3 at step 3139/3325 (94%). n=3 mean=3.27643 — well below 3.278 statsig threshold.
+    But predeclared step count is 3325 with ffs ~3200-3250, vs merged baseline ffs=3131
+    at 3175 steps. Likely PASS statsig but NOT BEAT merged baseline on ffs.
+  - **Edward n=4 `zsqazpmr` T1 progressing** — step 2851/3225 of T1. T0=3.27750 ffs=3175.
+    Same likely outcome: pass statsig at 3225 steps, but ffs > merged 3131.
+  - **Askeladd n=4 `lw99ybyp` T0 done** — T0=3.27770 at 3300 steps. 3 trials remaining.
+  - **Thorfinn n=4 `78nqtrmr` LAUNCHED** at 08:27 UTC after my send-back. Soft-Muon
+    p=0.05 confirmation, train_steps=3325, single invocation `--num_trials 4`.
+  - **Alphonse p=1.5 NEW-base** at step 1700/3275 (~52%, val=3.5065 mid-descent).
+    Expected terminal ~10:06 UTC. Likely misses (alphonse's own prior).
+  - **Nezuko PR #124** smoke `1f616e9q` completed at val=3.806 (smoke baseline). New
+    run `l7lwkmj6` launched 09:25 UTC. Had ~10 min stall from gh API rate limit;
+    recovered.
+  - **Frieren PR #109** MuLoCo+NorMuon `akwwpkv3` at step 1775/~3275 (~54%).
+  All 8 r2 students productive. Multiple n=4 confirmations within 10-15h of terminal.
+
 - 2026-05-16 07:30 — Cycle 10 (post-restructure tick — wait state):
   - Survey: 8 r2 PRs WIP, 0 review-ready, no human issues, rate limit healthy.
   - Pod check: all 8 r2 pods Running. 4 at 100% GPU (edward, tanjiro, thorfinn, alphonse).
