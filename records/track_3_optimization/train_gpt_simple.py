@@ -434,138 +434,146 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-# Contra-Muon + SOAP-on-MLP hyperparameters
-CONTRA_MUON = 0.4
-MU = 0.95
-MUON_LR = 0.0375
-MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
-TARGET_UW = 0.35
-NORMUON_BETA2 = 0.95
-SOAP_BETA2 = 0.90
-SOAP_PRECOND_FREQ = 10
+# KL-SOAP + hyperball hyperparameters (ports record #19 mechanism to the merged baseline).
+# KL-SOAP: SOAP eigenbasis preconditioner refreshed every step (pf=1) with Shampoo-style L/R
+#   accumulators decayed by KLSOAP_SHAMPOO_BETA, plus an Adam-style exp_avg / exp_avg_sq pair
+#   in the eigenbasis (KLSOAP_BETA1 / KLSOAP_BETA2). KL-style whitening reweights eigen
+#   components by curvature estimates.
+# Hyperball: scale_invariant_update_ preserves param Frobenius norm exactly, replacing both
+#   NS5 orthogonalisation and explicit weight decay.
+KLSOAP_BETA1 = 0.95          # exp_avg (momentum) decay in eigenbasis
+KLSOAP_BETA2 = 0.90          # exp_avg_sq (variance) decay in eigenbasis
+KLSOAP_SHAMPOO_BETA = 0.90   # Shampoo L/R accumulator decay (and eigen-whitening EMA)
+KLSOAP_PF = 1                # precondition (basis refresh) every step
+KLSOAP_LR = 0.018            # from record #19 (b1095_sh090)
+KLSOAP_EPS = 1e-8
+KLSOAP_WD = 0.025            # nominal; hyperball preserves ||p|| so explicit WD is omitted
+KLSOAP_INIT_FACTOR = 0.1     # diagonal whitening init scale (record #19)
 
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
-    assert G.ndim >= 2
-    X = G.bfloat16()
-    if G.size(-2) > G.size(-1):
-        X = X.mT
-
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
-
-    if G.size(-2) > G.size(-1):
-        X = X.mT
-    return X
+@torch.no_grad()
+def scale_invariant_update_(param: Tensor, update: Tensor, lr: float, eps: float = 1e-10) -> None:
+    """Hyperball update: step of size lr * ||p|| in the direction of update, then renormalise back
+    to the original Frobenius radius. Preserves ||param|| exactly across training."""
+    p_norm = param.norm()
+    u_norm = update.norm()
+    new_param = param - lr * update * p_norm / torch.clamp(u_norm, min=eps)
+    new_norm = torch.clamp(new_param.norm(), min=eps)
+    param.copy_(new_param / new_norm * p_norm)
 
 
-def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
-    """Power-iteration estimate of spectral norm; divide G by it (used by Contra-Muon)."""
-    X = G.float()
-    v = torch.ones(X.size(-1), dtype=X.dtype, device=X.device)
-    v = v / torch.clamp(v.norm(), min=eps)
-    for _ in range(5):
-        u = X @ v
-        u = u / torch.clamp(u.norm(), min=eps)
-        v = X.mT @ u
-        v = v / torch.clamp(v.norm(), min=eps)
-    op_norm = torch.clamp((X @ v).norm(), min=eps)
-    return G / op_norm.to(G.dtype)
+def _symmetrize(matrix: Tensor) -> Tensor:
+    return 0.5 * (matrix + matrix.T)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
-    normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
-    opower_fro = update.norm()
-    # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
-    update = update - CONTRA_MUON / 2 * normalized_grad
-    update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
-    update *= max(1, update.size(-2) / update.size(-1))**0.5
-    # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
-    if update.size(-2) >= update.size(-1):
-        per_row_var = (update * update).mean(dim=-1, keepdim=True)
-    else:
-        per_row_var = (update * update).mean(dim=-2, keepdim=True)
-    second_moment.lerp_(per_row_var.float(), 1 - beta2)
-    vnorm = update.norm()
-    update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
-    vnorm_new = update.norm().clamp_min(1e-10)
-    update = update * (vnorm / vnorm_new)
-    return update
-
-
-def soap_eigenbasis(mat: Tensor, eps: float = 1e-30) -> Tensor:
-    """Initial SOAP eigenbasis (eigenvectors of mat, sorted in descending eigenvalue order)."""
+def _initial_orthogonal_matrix(matrix: Tensor) -> Tensor:
+    matrix = _symmetrize(matrix.float())
+    eye = torch.eye(matrix.shape[0], device=matrix.device, dtype=torch.float32)
     try:
-        evals, q = torch.linalg.eigh(mat + eps * torch.eye(mat.size(0), device=mat.device))
+        _, q = torch.linalg.eigh(matrix + 1e-30 * eye)
     except RuntimeError:
-        evals, q = torch.linalg.eigh(mat.double() + eps * torch.eye(mat.size(0), device=mat.device))
-        evals, q = evals.float(), q.float()
-    # Descending order so column 0 always corresponds to the dominant direction.
-    return torch.flip(q, [1])
+        _, q = torch.linalg.eigh((matrix + 1e-30 * eye).double())
+        q = q.float()
+    return torch.flip(q, dims=[1]).contiguous()
 
 
-def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
-    """One step of subspace iteration: refresh basis while preserving the exp_avg_sq alignment."""
-    row_eig = torch.diag(q_row.T @ row_gg @ q_row)
-    row_sort = torch.argsort(row_eig, descending=True)
-    q_row = q_row[:, row_sort]
-    exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
-    q_row, _ = torch.linalg.qr(row_gg @ q_row)
-
-    col_eig = torch.diag(q_col.T @ col_gg @ q_col)
-    col_sort = torch.argsort(col_eig, descending=True)
-    q_col = q_col[:, col_sort]
-    exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
-    q_col, _ = torch.linalg.qr(col_gg @ q_col)
-    return q_row, q_col, exp_avg_sq
+def project_to_klsoap_basis(grad: Tensor, state) -> Tensor:
+    q_left, q_right = state["Q"]
+    return q_left.T @ grad.float() @ q_right
 
 
-def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ):
-    """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps."""
-    grad_f = grad.float()
-    state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
-    state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
-    if state["q_row"] is None:
-        state["q_row"] = soap_eigenbasis(state["row_gg"])
-        state["q_col"] = soap_eigenbasis(state["col_gg"])
-    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+def project_from_klsoap_basis(grad: Tensor, state) -> Tensor:
+    q_left, q_right = state["Q"]
+    return q_left @ grad.float() @ q_right.T
+
+
+def init_2d_klsoap_state_(state, grad: Tensor, shampoo_beta: float, init_factor: float):
+    grad = grad.detach().float()
+    rows, cols = grad.shape
+    state["step"] = 0
+    state["GG"] = [
+        (grad @ grad.T / cols).contiguous(),
+        (grad.T @ grad / rows).contiguous(),
+    ]
+    state["Q"] = [
+        _initial_orthogonal_matrix(state["GG"][0]),
+        _initial_orthogonal_matrix(state["GG"][1]),
+    ]
+    inv = init_factor ** -0.5
+    state["eigen_sqrt_inv"] = [
+        torch.full((rows,), inv, device=grad.device, dtype=torch.float32),
+        torch.full((cols,), inv, device=grad.device, dtype=torch.float32),
+    ]
+    state["exp_avg"] = torch.zeros_like(grad, dtype=torch.float32)
+    state["exp_avg_sq"] = torch.zeros_like(grad, dtype=torch.float32)
+    state["shampoo_beta"] = shampoo_beta
+
+
+def _update_eigen_sqrt_inv_(state, diag: Tensor, idx: int, beta: float):
+    old_eigen = state["eigen_sqrt_inv"][idx].float().square().reciprocal()
+    old_eigen = old_eigen.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
+    eigen = beta * old_eigen + (1.0 - beta) * diag.detach().float()
+    inv_sqrt = eigen.clamp_min(1e-30).rsqrt().clamp(max=4000.0)
+    state["eigen_sqrt_inv"][idx] = inv_sqrt.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0).contiguous()
+
+
+@torch.no_grad()
+def update_2d_klsoap_preconditioner_(grad: Tensor, state):
+    grad = grad.detach().float()
+    q_left, q_right = state["Q"]
+    inv_left, inv_right = state["eigen_sqrt_inv"]
+    beta = state["shampoo_beta"]
+    rows, cols = grad.shape
+
+    right_whitened = (q_right.T @ grad.T) * inv_right.view(-1, 1)
+    left_target = right_whitened.T @ right_whitened / cols
+    left_whitened = (q_left.T @ grad) * inv_left.view(-1, 1)
+    right_target = left_whitened.T @ left_whitened / rows
+    state["GG"][0].mul_(beta).add_(left_target, alpha=1.0 - beta)
+    state["GG"][1].mul_(beta).add_(right_target, alpha=1.0 - beta)
+    state["GG"][0] = _symmetrize(state["GG"][0]).contiguous()
+    state["GG"][1] = _symmetrize(state["GG"][1]).contiguous()
+
+    projected = q_left.T @ grad @ q_right
+    left_diag = (projected * inv_right.view(1, -1)).square().mean(dim=1)
+    right_diag = (projected * inv_left.view(-1, 1)).square().mean(dim=0)
+    _update_eigen_sqrt_inv_(state, left_diag, 0, beta)
+    _update_eigen_sqrt_inv_(state, right_diag, 1, beta)
+
+
+@torch.no_grad()
+def refresh_klsoap_basis_(state):
+    exp_avg_original = project_from_klsoap_basis(state["exp_avg"], state)
+    refreshed = []
+    for gg, q in zip(state["GG"], state["Q"]):
+        new_q, _ = torch.linalg.qr(gg.float() @ q.float())
+        refreshed.append(new_q.contiguous())
+    state["Q"] = refreshed
+    state["exp_avg"] = project_to_klsoap_basis(exp_avg_original, state).contiguous()
+
+
+def klsoap_direction(state, grad: Tensor, beta1: float, beta2: float, eps: float) -> Tensor:
+    grad_projected = project_to_klsoap_basis(grad.detach().float(), state)
+    state["exp_avg"].mul_(beta1).add_(grad_projected, alpha=1.0 - beta1)
+    state["exp_avg_sq"].mul_(beta2).addcmul_(grad_projected, grad_projected, value=1.0 - beta2)
+    preconditioned = state["exp_avg"] / (state["exp_avg_sq"].sqrt() + eps)
+    return project_from_klsoap_basis(preconditioned, state)
+
+
+class KLSOAPH(torch.optim.Optimizer):
+    """KL-SOAP + hyperball: SOAP-style eigenbasis preconditioning (refreshed every step) with
+    Shampoo L/R accumulators and Adam-in-eigenbasis updates, followed by a Frobenius-norm-
+    preserving hyperball projection (replaces NS5 + explicit weight decay)."""
+    def __init__(
+        self, params, lr=KLSOAP_LR, beta1=KLSOAP_BETA1, beta2=KLSOAP_BETA2,
+        shampoo_beta=KLSOAP_SHAMPOO_BETA, eps=KLSOAP_EPS, precondition_frequency=KLSOAP_PF,
+    ):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(
+            lr=lr, beta1=beta1, beta2=beta2, shampoo_beta=shampoo_beta,
+            eps=eps, precondition_frequency=precondition_frequency,
         )
-    state["soap_step"] += 1
-
-
-def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
-    """Project update into the row/col eigenbasis, scale by inverse sqrt of second-moment EMA, project back, renormalize."""
-    if state["q_row"] is None:
-        return update
-    update_f = update.float()
-    q_row, q_col = state["q_row"], state["q_col"]
-    projected = q_row.T @ update_f @ q_col
-    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
-    precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
-    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
-    return precond.to(update.dtype)
-
-
-class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
-        assert isinstance(named_params, list) and len(named_params) >= 1
-        # Identify MLP weights (mlp.fc.weight / mlp.proj.weight) — only these receive SOAP preconditioning.
-        self.soap_params = {
-            p for n, p in named_params
-            if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
-        }
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -580,45 +588,15 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     if len(state) == 0:
-                        state["momentum"] = torch.zeros_like(p)
-                        # NorMuon-lite per-row (or per-col) variance buffer.
-                        if p.size(-2) >= p.size(-1):
-                            state["second_moment"] = torch.zeros(
-                                (*p.shape[:-1], 1), dtype=torch.float32, device=p.device
-                            )
-                        else:
-                            state["second_moment"] = torch.zeros(
-                                (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
-                            )
-                        if p in self.soap_params:
-                            m, n = p.size(0), p.size(1)
-                            state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
-                            state["col_gg"] = torch.zeros(n, n, dtype=torch.float32, device=p.device)
-                            state["q_row"] = None
-                            state["q_col"] = None
-                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
-                            state["soap_step"] = 0
-                    grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
-                    use_soap = p in self.soap_params
-                    # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
-                    # (matches public record #14 train_gpt_contra_normuon_soapish_mlp.py).
-                    if use_soap:
-                        momentum_update = soap_precondition(momentum_update, state)
-                    # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
-                    # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
-                    p_fro = p.float().norm().clamp_min(1e-8)
-                    u_fro = update.float().norm().clamp_min(1e-8)
-                    cur_uw = u_fro / p_fro
-                    scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
-                    update = update * scale.to(update.dtype)
-                    # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
-                    # Refresh SOAP state with the raw grad (after applying the step).
-                    if use_soap:
-                        soap_refresh(grad, state)
+                        init_2d_klsoap_state_(state, p.grad, group["shampoo_beta"], init_factor=KLSOAP_INIT_FACTOR)
+                        dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+                        continue
+                    state["step"] += 1
+                    update = klsoap_direction(state, p.grad, group["beta1"], group["beta2"], group["eps"])
+                    update_2d_klsoap_preconditioner_(p.grad, state)
+                    if state["step"] % group["precondition_frequency"] == 0:
+                        refresh_klsoap_basis_(state)
+                    scale_invariant_update_(p, update, group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -691,15 +669,15 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             "train_steps_cli": args.train_steps,
-            "optimizer/contra_muon": CONTRA_MUON,
-            "optimizer/mu": MU,
-            "optimizer/muon_lr": MUON_LR,
-            "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
-            "optimizer/target_uw": TARGET_UW,
-            "optimizer/normuon_beta2": NORMUON_BETA2,
-            "optimizer/soap_beta2": SOAP_BETA2,
-            "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/klsoap_beta1": KLSOAP_BETA1,
+            "optimizer/klsoap_beta2": KLSOAP_BETA2,
+            "optimizer/klsoap_shampoo_beta": KLSOAP_SHAMPOO_BETA,
+            "optimizer/klsoap_precond_freq": KLSOAP_PF,
+            "optimizer/klsoap_lr": KLSOAP_LR,
+            "optimizer/klsoap_eps": KLSOAP_EPS,
+            "optimizer/klsoap_weight_decay_nominal": KLSOAP_WD,
+            "optimizer/klsoap_init_factor": KLSOAP_INIT_FACTOR,
+            "optimizer/recipe": "kl-soap + hyperball on all 2D model.blocks params (record #19 mechanism)",
         },
     )
 
@@ -713,16 +691,19 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps if args.train_steps is not None else 3175
 
-    # initialize model parameters
+    # initialize model parameters.
+    # Hyperball preserves ||p||, so block 2D weights need non-zero init (otherwise they would
+    # stay at zero forever). Block proj weights fall through to the fan-in normal init used
+    # for q/k/v/mlp.fc; only the LM head proj.weight (handled by AdamW) keeps the zero init.
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name == "proj.weight":
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # fan-in normal (block 2D weights)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -735,9 +716,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2 = KLSOAPH([p for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                         lr=KLSOAP_LR, beta1=KLSOAP_BETA1, beta2=KLSOAP_BETA2,
+                         shampoo_beta=KLSOAP_SHAMPOO_BETA, eps=KLSOAP_EPS,
+                         precondition_frequency=KLSOAP_PF)
+    optimizer2.param_groups[0]["name"] = "klsoap_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
