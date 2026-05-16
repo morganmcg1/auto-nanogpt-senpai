@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #17, ~03:40 UTC)
+- **Last updated:** 2026-05-16 (poll #18, ~04:30 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -51,10 +51,17 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
 - **alphonse** `normuonh-confirm` at step ~17.4k (≈mid-seed-5+ of 8);
   seed history `[3225, 3225, -1, 3250, ...]` — strongest exploit-side
   signal, mild softening at seed-3. Continue through full n=8.
-- **askeladd** `contra-muon-confirmation-n8-3350` at step ~16.5k
-  (≈mid-seed-5 of 8); first 2 terminal seeds both **ffs=3325** —
-  isolated Contra-Muon sitting at plain Muon baseline territory.
-  Watch for the n=8 mu.
+- **askeladd** `contra-muon-confirmation-n8-3350` at step ~23.7k
+  (~88% complete, trial-8 of 8 in flight). **Per-trial recap (poll #18):**
+  trial-1 val=3.27779 ffs=3300 ✓; trial-2 val=3.28068 ffs=-1 (narrow
+  miss); trial-3 ffs=3325 ✓; trial-4 ffs=3325 ✓; trial-5 ffs=3300 ✓;
+  trial-6 ffs=3300 ✓; trial-7 ffs=3325 ✓; trial-8 in flight at step
+  ~23.7k. **6 of 7 completed trials hit target.** ffs cluster
+  [3300, -1, 3325, 3325, 3300, 3300, 3325] — well above new baseline
+  ffs=3200. Earlier "val=10.83 diverged" reading was a W&B sampling
+  artifact; `grad/nonfinite_count=0` throughout, max grad scale stable.
+  Won't merge but will land as clean n=8 reference for isolated
+  Contra-Muon ≈ plain Muon.
 - **fern** `soap-mlp-isolated` at step ~16.2k (≈mid-seed-5 of n); seed-1
   ffs=3200, latest val approaching 3.280 — high seed-to-seed variance.
 - **frieren** `muonh-record5-repro-confirm-n8` at step ~11.7k (mid-seed-4
@@ -66,46 +73,58 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   Kaiming init?). Run is clean (no NaNs, no crashes post torch 2.11);
   the "7 crashes" any surface W&B scan reports are all pre-torch-2.11
   stale smokes from earlier in the day, NOT active failures.
-- **edward** `muon-squared-3325-confirm` (n=8) at global step ~7.5k
-  (trial-2 of 8 in flight). **Trial 0**: val=3.2793, ffs=3325.
-  **Trial 1**: val=**3.2777**, ffs=**3300** — faster than trial-0,
-  also below 3.28. Two-seed mean val=3.2785 (right at the n=8 statsig
-  threshold of 3.2786). Reference rec #7 mu=3.2752. Zero NaN/nonfinite
-  events. **Strongest wave-1 signal so far.**
-- **nezuko** (cooldown sweep): all 5 shapes have screened. New run
-  `cooldown-linear-seed43` at step ~300 — appears to be per-shape
-  multi-seed confirmation phase (linear is the only shape that hit
-  target on single seed). Likely needs n=2-4 on linear vs. quick
-  n=1 recheck on other shapes for verdict.
+- **edward** `muon-squared-3325-confirm` (run `ihc4lzo8`, n=8) at
+  global step ~11.2k (trial-3 of 8 in flight; post-trial-2). Terminal
+  trials so far: trial-0 val=3.2793 ffs=3325; trial-1 val=3.2777
+  ffs=3300. Two-seed running mu ≈ 3.2785 — essentially at the new
+  baseline mu=3.27744. **Under the new baseline, Muon² needs n=8
+  mu ≤ ~3.27603 to merge** (`(3.27744 - mu) × sqrt(8) ≥ 0.004`).
+  ffs cluster [3325, 3300] is materially slower than the new baseline
+  ffs=3200; even a great mu wouldn't make Muon² beat the baseline on
+  primary metric unless ffs comes in lower on later trials. Zero
+  NaN/nonfinite. Status ack posted to PR #45 with this context (and
+  flagged Muon² × SOAP-MLP as the natural wave-2 stack since the
+  preconditioners are orthogonal). **Continue run as predeclared,
+  no early stop.**
+- **nezuko** (cooldown sweep): 7/8 cells terminal (1 more cell in flight).
+  Aggregate **mu=3.28324, std=0.00418 — MISSES new baseline by +0.00580**.
+  Best variants: `linear-seed42` val=3.27797 ffs=3300; `power_alpha1p2`
+  val=3.27844 ffs=3300. `cosine` and `power_alpha0p6` miss target (ffs=-1).
+  Linear cooldown is the strongest shape but still slower than new
+  baseline ffs=3200. Clean negative on cooldown shape as a standalone
+  wave-1 lever — but linear-cooldown is the recipe already used by the
+  SOAP-MLP winner, so this is more "confirmation that nothing exotic on
+  cooldown shape helps plain Muon" than a surprise.
 - **tanjiro** (PR #98 Cautious-Muon, wave-2): **lrx1.0 + lrx1.5 both
   finished as clean negatives** (val=3.3183/3.3237, ffs=[-1, -1]).
-  lrx2.0 running at step ~1175/3350, already trailing lrx1.0 at same
-  step (val=3.7495 vs lrx1.0=3.6989 at step ~1125). Mask telemetry
-  HEALTHY (global mask.mean = 0.60–0.65 across all groups, all cells,
-  squarely in the paper's 0.4–0.7 band) — mechanism IS engaging
-  correctly. Matches the assignment's pre-declared falsifying signal
+  lrx2.0 running at step ~2550/3350 (val ≈ 3.46 mid-cooldown — won't
+  recover into target range). Mask telemetry HEALTHY across all cells
+  (mask.mean = 0.60–0.65, squarely in paper's 0.4–0.7 band) — mechanism
+  IS engaging. Matches assignment's pre-declared falsifying signal
   (`ffs > 3350 at all three LR multipliers`). Advisor status ack
-  posted recommending Option A: early-terminate lrx2.0, post terminal
-  `SENPAI-RESULT` as clean negative, save ~60 GPU-minutes.
+  posted recommending Option A (early-terminate, post terminal).
+  Awaiting student's terminal SENPAI-RESULT.
 - **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995)
-  at global step ~5.0k (seed-1 of 6 in flight at step ~1.7k of 3350).
-  Seed-0 terminal `val=3.2779 ffs=3300` (matches screening single-seed
-  value). **Prior poll-12 estimate of "2/6 seeds done" was over-count
-  — actual is 1/6 done**, batch ETA ~7-8 hours.
+  4/6 terminal so far, **partial mu=3.28892, std=0.01084** — well above
+  new baseline mu=3.27744. Best arms remain (τ=0.20, β=0.995) val=3.27794
+  ffs=3300 and (τ=0.30, β=0.995) val=3.27865 ffs=3300; β=0.999 arms
+  trend toward 3.297–3.303 and pull mu up. ffs cluster at 3300 won't
+  beat baseline ffs=3200. **Trending to clean negative under new baseline.**
 
-### Forming wave-1 verdicts (single-seed; still tentative)
+### Forming wave-1 verdicts (post-baseline-update; all candidates must beat ffs=3200 mu=3.27744)
 
 | PR | Hypothesis             | Direction so far                                                                      |
 | -- | ---------------------- | ------------------------------------------------------------------------------------- |
-| 43 | NorMuonH               | **leading exploit-side**, but softening (seeds [3225, 3225, -1, 3250] of 8)           |
-| 44 | Contra-Muon isolated   | tentative — wait for n=8 mu                                                            |
-| 45 | Muon²                  | **STRONGEST WAVE-1 SIGNAL**: trial-0 val=3.2793 ffs=3325; trial-1 val=3.2777 ffs=3300; mean=3.2785 ≈ statsig threshold; n=8 mid-trial-3 |
+| 43 | NorMuonH               | screen ffs=3225, beats new baseline ffs=3200 on single seed only; n=8 confirm mid-flight; seeds [3225, 3225, -1, 3250, ...] — softening |
+| 44 | Contra-Muon isolated   | n=8 nearly done (7/8): ffs cluster [3300, -1, 3325, 3325, 3300, 3300, 3325] — won't beat new baseline ffs=3200; clean negative |
+| 45 | Muon²                  | n=8 at trial-3/8; trial-0/1 val=[3.2793, 3.2777] ffs=[3325, 3300]; running mu ≈ 3.2785 ≈ new baseline mu; needs mu ≤ 3.27603 to merge under new bar |
 | 46 | SOAP-MLP isolated      | **MERGED ✓** ffs=3200 mu=3.27744 n=6; new baseline; all 6 seeds hit target            |
-| 47 | MuonH reproduction     | **softening**: seeds 1-3 final val/loss [3.287, 3.301, 3.305], 0.009-0.027 above rec #5 mu; n=8 mid-seed-4 |
-| 48 | Cooldown shape sweep   | **likely negative**: 3 of 5 shapes screened, none beat linear; 2 more shapes TBD       |
+| 47 | MuonH reproduction     | n=8 in flight; seeds 1-3 final val/loss [3.287, 3.301, 3.305] all miss target — possible incomplete reproduction; unlikely to beat new baseline |
+| 48 | Cooldown shape sweep   | **clean negative**: 7/8 cells done, aggregate mu=3.28324 misses by +0.0058; linear is best shape but ffs=3300 still ≥ new baseline ffs=3200 |
 | 49 | Lookahead k×α          | **CLOSED (clean negative)**: best cell (k=10/α=0.8) = baseline ceiling; PR #49 closed 2026-05-15 22:00 |
-| 50 | Polyak/SWA τ×β         | grid complete; (τ=0.20,β=0.995) and (τ=0.30,β=0.995) tied at ffs=3300; n=6 confirmation in flight; borderline statsig |
-| 98 | Cautious-Muon (wave-2) | **trending to clean negative**: lrx1.0=3.3183/-1, lrx1.5=3.3237/-1, lrx2.0 in flight & trailing; mask engages (0.60–0.65) — mechanism works, recipe doesn't help |
+| 50 | Polyak/SWA τ×β         | n=6 at 4/6: partial mu=3.28892 — well above new baseline; best arms (τ=0.20/0.30 β=0.995) at ffs=3300; trending clean negative |
+| 98 | Cautious-Muon (wave-2) | **trending to clean negative**: lrx1.0=3.3183/-1, lrx1.5=3.3237/-1, lrx2.0 mid-cooldown val≈3.46; mask engages (0.60–0.65) but recipe loses |
+| 116| SOAP-attn + trust gate | smoke done (val=3.908 step 300 — expected warmup); screen pending; aims for record #16 ffs=3125 trajectory |
 
 The explore-side outcome is becoming clear: Lookahead is a clean
 negative; Polyak has one in-noise screening cell that needs n=6 to
@@ -137,14 +156,16 @@ wait for the predeclared n-seed confirmation batches the PRs asked for.
 **Most promising direction going forward:** Stacking SOAP-attn (PR #116) + NorMuonH + Contra-Muon progressively toward record #16 → #20 trajectory.
 
 **Watch list for next poll:**
-- alphonse n=8 mu (NorMuonH) — primary wave-1 winner candidate; needs mu < 3.27744 to beat new baseline
-- edward Muon² n=8 mu — strongest wave-1 signal; two terminal seeds val=[3.2793, 3.2777] ffs=[3325, 3300]; mu must come in below 3.27744 to be merge-eligible
-- thorfinn Polyak n=6 mu on (τ=0.20, β=0.995) — borderline; seed-0=3.2779 ffs=3300, tied with new baseline (unlikely to merge)
-- frieren MuonH n=8 mu — softening at seeds 1-3; possible incomplete reproduction
-- askeladd Contra-Muon n=8 mu — isolated Contra-Muon ≈ plain Muon ffs=3325 (won't beat new baseline)
-- nezuko per-shape multi-seed verification (linear cell first; cooldown sweep likely negative)
-- tanjiro Cautious-Muon: **awaiting student's terminal SENPAI-RESULT** (Option A early-abort vs Option B lrx2.0 completion)
-- fern PR #116 SOAP-attn + trust gate (dispatched 03:26Z) — smoke/screen pending; aims for record #16 trajectory
+- alphonse n=8 mu (NorMuonH) PR #43 — primary wave-1 winner candidate; needs mu < 3.27744 with margin ≥ 0.004 to beat new baseline
+- edward Muon² n=8 mu PR #45 — at trial-3/8; running mu ≈ baseline; needs mu ≤ 3.27603 to merge
+- askeladd Contra-Muon n=8 PR #44 — 7/8 done; ffs cluster 3300-3325 won't beat baseline; awaiting terminal SENPAI-RESULT
+- nezuko cooldown shape PR #48 — 7/8 done; clean negative under new baseline; awaiting terminal SENPAI-RESULT
+- thorfinn Polyak n=6 PR #50 — 4/6 done; partial mu well above baseline; awaiting terminal SENPAI-RESULT
+- tanjiro Cautious-Muon PR #98 — awaiting terminal SENPAI-RESULT (Option A early-abort recommended)
+- frieren MuonH n=8 PR #47 — softening trio; unlikely to beat baseline
+- fern PR #116 SOAP-attn + trust gate — smoke done; awaiting screen result
+
+**Expected close-out cadence (next 2-4 polls):** PRs #44, #48, #50, #98 should all terminate as clean negatives under the new baseline within 4-6 hours. PR #45 (Muon²) and PR #43 (NorMuonH) are the two remaining wave-1 candidates that could conceivably merge, but both are running mu near the new baseline bar — likely to land as borderline-statsig closes too. **The wave-1 winner field is essentially decided in favor of PR #46 SOAP-MLP.** Focus shifts to PR #116 SOAP-attn (exploit) and to wave-2 stacks of merge candidates onto the SOAP-MLP backbone.
 
 ## Pre-existing starter bugs — fixed in-flight by wave-1 students
 
