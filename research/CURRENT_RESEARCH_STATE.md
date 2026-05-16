@@ -71,7 +71,7 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | All 4 arms FINISHED. arm-A=3.27831, arm-B(PE-12)=3.27666, arm-C(PE-8)=3.27711, **arm-D(PE-6)=3.27970**. Net finding: PE iters=8 = NS=12 quality at 67% compute; iters=6 too aggressive. None beat new baseline (snapshot pre-#105, no clip=5.0). Awaiting student SENPAI-RESULT. |
+| **#176** | **frieren (NEW)** | **NS Iteration Schedule** — cooldown boost | just assigned — boost NS iters during cooldown only (arms A=NS12, B=NS12→16, C=NS12→20, D=NS8→12). Directly motivated by #138 finding that arms diverge ONLY in cooldown. |
 | **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | **arm-A `5u60l2v0` FINISHED val=3.2780** (+0.0027 vs new baseline; ~OLD baseline parity if snapshot lacks clip). arm-B (K=50) `u5kdw0z9` step 1675/3350 running. Arms C/D queued. Branch rebased clean. |
 | **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A `lfcnprqg`=3.27595 ✓ baseline parity. **arm-B `8ym5zef8` (embed-only)=3.27978 — WORSE by 0.005**. arm-C `82mx9xwy` (full SOAP) step 2050/3350 ETA ~35min. Branch rebased. |
 | **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A `z2ygnqxh` val=3.27841/fs=3325 ✓. **Spread saturates → arms degenerate to uniform NS={14,16,18} sweep**. arm-B `mxzk59qm` step 1950/3350 ETA ~45min. Filed #173 (torch requirements bug fix) — MERGED. Still needs rebase. |

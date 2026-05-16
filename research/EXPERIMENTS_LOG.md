@@ -400,3 +400,32 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 **Follow-up actions**:
 - Thorfinn: #165 clip extension sweep {10, 25, 50}
 - Edward: #115 sent back to re-confirm bias correction on new clip=5.0 baseline
+
+## 2026-05-16 17:32 — PR #138: Polar Express NS sweep (frieren) — CLOSED (clean negative + mechanism finding)
+
+- **Branch:** g1r4-frieren/polar-express-ns
+- **Hypothesis:** Polar Express (ICLR 2026 Oral) — adaptive polynomial Newton-Schulz replacement — could improve orthogonalization quality and training efficiency
+- **Results (4 arms complete, single seed each, snapshot pre-dates #105 so NO clip=5.0):**
+
+| Arm | NS variant | iters | W&B | val/loss | first_step | u_singular_range |
+|-----|-----------|-------|-----|----------|-----------|-----------------|
+| A | Classical | 12 | l5mkhlap | 3.27831 | 3325 | 0.949 |
+| **B** | **Polar Express** | **12** | **2li08zef** | **3.27666** | **3275** | **0.428** |
+| C | Polar Express | 8 | gv3ux65a | 3.27711 | 3300 | 0.931 |
+| D | Polar Express | 6 | 4chpm8ru | 3.27977 | 3350 | 0.988 |
+
+- **vs new merged baseline (3.27527/3266.7)**: arm-B best = +0.0014 worse. No arm beats new baseline.
+- **Stat-sig check (arm-B, n=1)**: (3.28−3.27666)×√1=0.00334<0.004 → NOT stat-sig. No confirmation seeds warranted.
+
+**Mechanistic finding (headline)**: PE=12 achieves a **2.2× tighter spectral spread** (range 0.428 vs 0.949 for NS=12) but only Δval ≈ −0.0017. **NS=12's spectral quality is already past the saturation threshold** at this benchmark scale — better orthogonalization does NOT translate to proportional val/loss reduction. The spectral-spread → val/loss curve is flat at the current operating point.
+
+**Compute-efficiency observation**:
+- PE=8 (arm-C) matches PE=12 (arm-B) within noise (Δval=0.0005, range 0.931 ≈ NS=12 at 0.949)
+- PE=6 (arm-D) regresses slightly (range 0.988 > NS=12, worse orthogonalization)
+- NS=8 + clip=5.0 remains testable as a compute-saving option
+
+**Val/loss trajectory**: all 4 arms overlap to <0.002 through step 2500. Divergence ONLY in cooldown (steps 3000+). This is the key mechanistic insight → NS precision matters ONLY in cooldown phase.
+
+**Follow-up action**: frieren assigned #176 (NS Iteration Schedule — boost NS iters during cooldown only, directly motivated by this finding).
+
+**Closed rationale**: no arm beats new merged baseline; not a merge candidate. Clean negative with a precise mechanistic prior: "spectral spread improvement of ≥2× buys <0.002 val/loss at this scale."
