@@ -670,3 +670,65 @@ Both cosine and γ=1.2 cross at sr=3075 — same crossing step despite opposite 
 - **Discovered:** Both shapes lower eta around the crossing window, explaining the tie; but cosine's late collapse explains the val regression.
 
 **Conclusion:** Closed as informative null vs new baseline (sr regresses +12.5, val regresses +0.0075). Mechanistic framework motivates **cooldown_frac scan on γ=1.2 base** (PR #195). Fern's telemetry predicts: cf=0.85 (longer cooldown) should preserve late lr → better val; cf=0.5 (shorter) front-loads → may cross earlier but worse val. Direct test of PR #168's mechanistic decomposition.
+
+---
+
+## 2026-05-16 21:35 UTC — PR #169 CLOSED: Per-head polar on attn q/k/v — NULL (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-uw-perhead-polar`
+- Hypothesis: Per-head NS polar projection on attention q/k/v (reshape to [n_heads, h_dim, dim], apply NS5 batched over heads) gives better per-head conditioning than full-matrix polar. Hypothesis: attention matrices have head-specific subspace structure that full-matrix polar over-homogenizes.
+- W&B run: `8mgxsj35` (n=1, 3250 steps, 3h 28m)
+
+| Metric | PR #169 per-head polar (n=1) | PR #137 baseline (n=2 mean) | Δ |
+| ------ | ----------------------------- | --------------------------- | - |
+| speedrun/final_first_step_to_target | 3125 | **3062.5** | **+62.5 steps (NULL)** |
+| val/loss | 3.2706 | 3.269090 | +0.0015 (worse) |
+| (3.28−μ)·√n | 0.00938 | 0.01543 | Below baseline |
+
+**Mechanism diagnostics — mechanism worked, learning didn't:**
+
+Per-head SVD conditioning (final, block 0):
+| proj | per-head sv_max/sv_min | full-matrix sv_max/sv_min | improvement |
+|---|---|---|---|
+| q | 4.34 | 6649.5 | **~1530×** |
+| k | 4.71 | 4082.5 | **~870×** |
+| v | 2.37 | 4532.3 | **~1910×** |
+
+Inter-head subspace disagreement (cos_abs_mean ≈ 0.003 ≈ random orthogonal — heads did NOT collapse).
+
+**Polar saturation confirmed across structural axis:**
+
+This is the 11th add-on null on PMuon+u/w-floor, and the first to vary the *structural unit* of polar itself. The mechanism worked (dramatically better per-head conditioning, genuinely orthogonal head subspaces) but produced zero learning improvement. Conclusion: the polar step is saturated as an optimization lever — restructuring it (per-head vs full-matrix) makes no difference.
+
+Combined with PR #83 (SOAP-MLP, null), PR #140 (SOAP-MLP+u/w, null), PR #167 (SOAP-attn, null), PR #151 (Aurora pre-polar, null): every approach to improving polar quality on this base has been null.
+
+**Conclusion:** Closed. Polar saturation confirmed. Reassigned alphonse to EMA weight averaging PR #197 — orthogonal probe (parameter trajectory smoothing, bypasses optimizer stack entirely).
+
+---
+
+## 2026-05-16 21:38 UTC — PR #158 CLOSED: LLRD depth-wise LR decay — NEGATIVE (both arms) (g1r1-edward)
+
+- Branch: `g1r1-edward/pmuon-llrd-scan`
+- Hypothesis: Depth-wise per-block LR decay (shallow=full, deep=reduced) on PMuon+u/w-floor. Two arms: decay=0.85 (stronger) and decay=0.90 (milder).
+- W&B runs: `8v3v2l4h` (arm A, decay=0.85), `z6xxow8s` (arm B, decay=0.90)
+
+| Arm | depth_decay | sr | val/loss | Δ val vs baseline |
+| --- | ----------- | -- | -------- | ----------------- |
+| A (decay=0.85) | LR ratio: 0.167 (block_11/block_00) | -1 (never) | 3.300076 | +0.031 |
+| B (decay=0.90) | LR ratio: 0.314 (block_11/block_00) | -1 (never) | 3.285725 | +0.017 |
+| Baseline (uniform) | 1.000 | 3062.5 | 3.269090 | — |
+
+**Critical per-block grad-norm finding (block_00 → block_11 at step 1000):**
+
+Arm A: 21688 → 28735 → 25866 → ... → **30568** (block_11 HIGHEST)
+Arm B: 13939 → 15934 → 16833 → ... → **18279** (block_11 HIGHEST)
+
+Block_11 (deepest) carries 1.5–3× the gradient norm of intermediate blocks throughout training. The LLRD direction tested (shallow=full, deep=reduced) starves the layer with the LARGEST learning signal — mechanistically backwards.
+
+**Two failure mechanisms confirmed:**
+1. LLRD direction reversed: from-scratch GPT with PMuon has block_11 dominating grad-norm; standard fine-tuning LLRD (shallow=full, deep=reduced) is wrong direction for this setup.
+2. u/w-floor absorption: fires at 100% of params, renormalizes updates post-LLRD, absorbs depth LR signal.
+
+Monotone harm: every nudge away from uniform LR hurts. No evidence of sweet spot between 0.90 and 1.0.
+
+**Conclusion:** Closed as NEGATIVE (both arms fail to reach 3.28). LLRD direction (shallow=full, deep=reduced) is confirmed wrong. Edward reassigned to per-block weight decay PR #198 — WD acts on `p` directly, bypasses both PMuon bilateral whitening AND u/w-floor.
