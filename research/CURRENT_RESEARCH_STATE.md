@@ -35,10 +35,10 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - NEW screen `sks2z7oe` launched 16:33 UTC. ETA terminal ~18:20 UTC.
 - If screen MISS again: close PR, reassign to **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95
 
-### ASKELADD #166 — KL-SOAP + hyperball screen RUNNING
-- Screen `061cl8bj` launched ~16:25 UTC, currently step 25/3125
-- Record #19 reference: n=6 mean=3.27800 @ 3125 steps (statsig pass). Target: replicate + beat ffs ≤ 3125
-- ETA screen terminal: ~18:30-19:00 UTC depending on step rate
+### ASKELADD #181 — Schedule-Free Muon (SFM)
+- Just assigned (19:10 UTC). Awaiting smoke + screen.
+- Mechanism: constant LR + Polyak iterate averaging, no cooldown anywhere
+- PR #166 (KL-SOAP+H) closed — screen MISS at val=3.295, ffs=-1 (never crossed 3.28)
 
 ### FRIEREN #177 — Soft-Muon annealing on merged base
 - Just assigned (16:26 UTC). Awaiting smoke + screen.
@@ -72,6 +72,7 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 
 - **Thorfinn #103 (Soft-Muon p=0.05 n=4)**: n=4 mean~3.2741 (BEST val!), ffs_mean~3244. Stronger-but-slower — passes statsig but NOT FFS-competitive. Reassigned to cooldown_frac retune.
 - **Frieren #109 (MuLoCo+NorMuon n=4 @ 3175)**: n=4 mean=3.28095, only T2 hit target. Clean negative. Reassigned to Soft-Muon annealing.
+- **Askeladd #166 (KL-SOAP+H screen)**: val=3.29515, ffs=-1. MISS — pf=1 eigendecomp doesn't recover Contra+NS5 on merged base. Reassigned to SFM.
 - **Askeladd #74 (NorMuonH n=4 @ 3300)**: mean=3.27732, ffs_mean=3250. Better val, worse FFS. Reassigned to KL-SOAP+H.
 - **Tanjiro #81 (Newton-Muon)**: n=4 mean=3.27643 (lowest!) at 3325 steps. Option B stack failed badly. Closed. Pivoted to Lookahead.
 

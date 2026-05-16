@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 19:10 — Cycle 30: Askeladd KL-SOAP screen MISS, reassigned to Schedule-Free Muon
+
+### Askeladd KL-SOAP+H screen — MISS, PR #166 CLOSED
+
+W&B run `061cl8bj` @ train_steps=3125:
+
+| Metric | Value |
+|---|---|
+| val/loss at terminal | **3.29515** |
+| ffs (first_step_to_target) | **-1 (never reached 3.28)** |
+| Step time | ~2.6 s/step |
+
+Val=3.295 is +0.0175 above merged baseline mean (3.27760) and well above the 3.281 threshold in the predeclared decision tree. KL-SOAP+H replacing (not stacking on) the merged Contra+SOAP-MLP stack was ~50 steps worse on terminal val/loss at the same step budget. The pf=1 eigenbasis frequency doubled per-step compute but didn't recover the NS5+Contra-Muon orthogonalization the merged baseline relies on. PR #166 closed.
+
+### Askeladd reassigned — Schedule-Free Muon (PR #181)
+
+Fresh mechanism class: Polyak iterate averaging with constant LR, eliminating cooldown entirely. Hypothesis: constant LR keeps gradient magnitude steady; iterate averaging absorbs noise → val crosses 3.28 earlier. Implementation: maintain z (trajectory) and y (averaged eval point), Muon update on z, y ← (1 − 1/(t+1)) · y + (1/(t+1)) · z. No cooldown_frac, no LR warmup-cooldown schedule. First test of schedule-free paradigm on this track.
+
 ## 2026-05-16 17:55 — Cycle 29 (cont): Thorfinn Soft-Muon n=4 CLOSED, reassigned to cooldown_frac retune
 
 ### Thorfinn Soft-Muon p=0.05 n=4 — STRONGER-BUT-SLOWER, PR #103 CLOSED
