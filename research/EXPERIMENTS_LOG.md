@@ -158,3 +158,33 @@ gh for assignment-state queries failed assignment polls for ~45 min:
 **Secondary finding (motivates PR #108):** Muon² as merged lacks Adam-style bias correction `v_hat = v / (1 - beta2^t)`. The first-step preconditioned input swings ~32× sign(u) at beta2=0.999 vs ~7× at beta2=0.98 vs ~4.5× at beta2=0.95, breaking comparability of any beta2 sweep on the current Muon² code. Bias correction may both stabilize lower beta2 values AND make the sweep meaningful.
 
 **Verdict:** Closed without merge. tanjiro reassigned to PR #108 (Muon² + bias correction with mandatory pod smoke-test gate). If the pod is still broken, smoke test will catch it in 100 steps before burning 7+ hours on doomed arms.
+
+---
+
+## 2026-05-16 02:45 UTC — PR #92: Orthogonal QKV init (edward) — CLOSED negative
+
+**Hypothesis:** Initializing QKV projections with orthogonal matrices (unit singular values) reduces Newton-Schulz orthogonalization work in early training, speeding descent in steps 50–500.
+
+| Arm | QKV init | W&B run | val/loss @3350 | first_step_to_target | vs baseline |
+|-----|----------|---------|---------------:|---------------------:|------------|
+| A | **orthogonal** | `s8044x4a` | 3.27862 | 3325 | +50 steps (worse) |
+| B | **normal** | `h1f66mpd` | 3.27804 | 3300 | +25 steps (worse) |
+
+n=1 stat-sig check: (3.28 − 3.2780) × √1 = 0.0020 < 0.004 threshold.
+
+**Early-descent analysis (the predicted-win regime):**
+| window | A orth. slope | B normal slope | A − B |
+|--------|----------:|----------:|------:|
+| 50–200 | −0.007321 | −0.007243 | −0.000078 |
+| 100–500 | −0.002288 | −0.002204 | −0.000084 |
+
+Orthogonal barely steeper in the predicted regime but the difference is an order of magnitude smaller than seed noise. From step 1000 onward the two val/loss curves differ by ≤ 0.0006 — statistically indistinguishable.
+
+**Key mechanistic insight (edward's analysis):** 'Muon's Newton-Schulz step rapidly orthogonalizes the QKV *update direction* regardless of the init's singular-value structure; equilibrium is reached within ~25-50 steps and weight trajectories converge by step ~200.' NS *continuously* supplies the well-conditioned-update property on every step — static init structure is irrelevant for Muon-trained matrices. Brock et al. (2021) benefits appear only in attention-only / linear settings where orthogonality is preserved over training.
+
+**Follow-up implications:**
+- Skip analogous MLP / output-proj init experiments (same Muon-equilibration argument applies).
+- Embedding / lm_head init (AdamW-trained) *might* be worth trying — those don't get NS each step so init shape could persist longer.
+- Track `‖ZZ^T − I‖_F` after NS step in first ~100 steps to quantify NS equilibration speed across different init conditions.
+
+**Conclusion:** Clean negative. Closed. Edward reassigned to PR #115 (Muon² bias correction).
