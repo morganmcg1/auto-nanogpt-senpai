@@ -386,5 +386,45 @@ with `train_steps=3250`. Confirmation run `u3o8j3yj` started 2026-05-16 01:22 UT
 
 **Conclusion:** CLOSED as clean null on speedrun metric. γ=0.30 (current default) is at or near the local optimum. Assigned thorfinn PR #143 (Lookahead outer optimizer on PMuon+u/w-floor) — completely different abstraction layer.
 
+---
+
+## 2026-05-16 12:00 — PR #93 CLOSED: PMuon + NorMuon row-wise retry — null vs new baseline (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-normuon-rowwise-retry`
+- Hypothesis: Per-row second-moment EMA after NS polar step (row-wise NorMuon) stacked on PMuon, retry after 3 prior crashes.
+- W&B run: `63c3s1sl` (full 3250-step run, stable after crash history resolved)
+
+| Metric | Value | PR #94 baseline |
+| --- | --- | --- |
+| speedrun/final_first_step_to_target | **3175** | 3100 |
+| val/loss @ 3250 | 3.2757 | **3.267696** |
+| (3.28-μ)·√n at n=1 | 0.00430 ✓ | — |
+
+**Analysis:** Run completed cleanly (crossed 3.28 at step 3175). However sr=3175 is 75 steps worse than the baseline and val is 0.0080 higher. Row-wise NorMuon adds per-row second-moment EMA on top of PMuon's already-whitened post-polar update. The two normalizations partially overlap: PMuon's `R^{-γ}` already does per-column rescaling; NorMuon's per-row scale partially double-corrects. Cross-cutting insight: direction-shaping mechanisms (SOAP-MLP, NorMuon row-wise) consistently produce null or marginal results on this base, because PMuon's whitening already shapes the update direction.
+
+**Conclusion:** CLOSED as informative null. Assigned fern PR #150 (Cautious update sign-mask — mechanistically distinct, operates on sign rather than magnitude or direction).
+
+---
+
+## 2026-05-16 12:00 — PR #119 CLOSED: Measured-scale Contra-Muon × PMuon — final negative (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-contra-measured`
+- Hypothesis: Contra-Muon (subtract coeff × Frobenius-normalized pre-polar momentum from the polar update) with measured-scale calibration to fix the PR #95 magnitude mismatch.
+- W&B runs: `wsdmrs7q` (A, no warmup), `kyaj7khd` (B, no warmup), `o156ipbq` (A+, warmup=200), `q54bnxvq` (B+, coeff=0.05 warmup=500)
+
+| arm | coeff | warmup | sr | best val | outcome |
+| --- | --- | --- | --- | --- | --- |
+| A | 0.10 | 0 | — | 7.51 | grad blowup step 50 |
+| B | 0.05 | 0 | — | 4.31 | linalg.eigh crash step 846 |
+| A+ | 0.10 | 200 | — | — | re-exploded step 500 |
+| **B+** | **0.05** | **500** | **−1** | **3.31596** | stable but never crossed 3.28 |
+
+**Key finding (cos(update_dir, m_pre_dir) monotonic rise 0.026→0.513):** Late in training, the orthogonal contra direction acts on a shrinking residual that's no longer a useful descent signal. Constant coeff=0.05 imposes ~5% off-axis noise in the converged regime — irreducible noise floor. Calibration was perfect (8-decimal precision) — magnitude was never the issue. PMuon's bilateral whitening and Contra-Muon's orthogonal perturbation fight geometrically.
+
+**Cross-cutting note:** Contra-Muon works on plain Muon (Records #11, #14, #20) because there's no bilateral whitening to conflict with. PMuon's L_cov/R_cov EMA already provides geometric regularization that Contra-Muon disrupts.
+
+**Conclusion:** CLOSED as fundamental incompatibility (not tuning failure). 4 arms, 4 different failure or underperformance modes, all consistent with bilateral-whitening × orthogonal-perturbation conflict. Assigned alphonse PR #151 (Aurora row-norm equilibration — pre-polar mechanism, geometrically orthogonal).
+
+
 
 
