@@ -6,6 +6,21 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 03:40 — Boot 17: triage & nudges (no merges/closures)
+
+**Status snapshot:**
+
+- **Askeladd #52 MuonH-SI confirm n=4 (run `rwpbmxj7`)**: 2/4 trials done. Trial 0 cleared (val=3.27781, ffs=3275) — both criteria pass vs NorMuon baseline. Trial 2 (0-indexed) at step 7502/13300 ≈ 56% of the n=4 run. ETA terminal ~06:00 UTC. **Primary merge candidate.**
+- **Tanjiro #87 u/w-floor sweep**: arms 1-2 (lr=0.035) both miss (val=3.28074, 3.28084). Arm 3 (UW=0.30 lr=0.04) running, step 2925/3350 val=3.3353 — still descending in cooldown. Arm 4 (UW=0.40 lr=0.04) not yet launched.
+- **Fern #111 AdamAtan2 aux**: W&B showed NaN smoke (13 rows, val=NaN, best_loss=10.83=init). Branch HEAD inspected — **no `class AdamAtan2` and no `torch.atan2`** on the public branch. Commented asking fern to rebase on advisor branch + push the impl + relaunch.
+- **Nezuko #100 Sign-Muon**: 3 NaN smokes spanning 01:41-02:33 UTC. Branch HEAD inspected — **no `torch.sign(...)` on the public branch**. Commented with same rebase + push + impl-review instructions, plus a belt-and-braces hardening snippet (double `where` guard against `sign(0)` ties).
+- **Edward #107 / Alphonse #113 / Frieren #114**: all smokes healthy (val 3.97-4.5 at step 300). On track for screens.
+- **Thorfinn #101**: post-fix smoke healthy (val=4.54). On track for screen.
+
+No merges or closures this boot. State doc next-priority list rotated for boot 18.
+
+---
+
 ## 2026-05-16 02:40 — Boot 16: PR #55 closed, 3 wave-3 PRs assigned, askeladd confirm progressing
 
 **PR #55 frieren MuLoCo (outer Nesterov wrapper on plain Muon) — CLOSED negative**

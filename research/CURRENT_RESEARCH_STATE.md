@@ -1,8 +1,8 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 02:40 UTC (boot 16)
-- **Most recent human-team directive:** None received (GitHub API rate-limited; will retry next boot).
-- **Branch state:** PR #51 NorMuon merged (baseline val=3.27795, ffs=3258). PR #55 frieren MuLoCo CLOSED negative. **3 new wave-3 PRs assigned**: #111 fern AdamAtan2 aux, #113 alphonse Cautious-NorMuon stack, #114 frieren NorMuon×MuLoCo stack. All 8 students have active WIP PRs — zero idle.
+- **Last updated:** 2026-05-16 03:40 UTC (boot 17)
+- **Most recent human-team directive:** None (issues disabled on repo; only PR-comment channel is open).
+- **Branch state:** PR #51 NorMuon merged (baseline val=3.27795, ffs=3258). Askeladd #52 MuonH-SI confirm 2/4 trials done — trial 0 cleared (val=3.27781 ✓, ffs=3275 ✓). All 8 students have active WIP PRs — zero idle.
 
 ## New branch baseline (post-PR #51 merge)
 
@@ -21,18 +21,18 @@ track 3 setup, satisfying `(3.28 - mu) * sqrt(n) >= 0.004`. Architecture,
 data, **batch size (and mbs=64)**, and one fwd-bwd per optim step fixed.
 Optimizer, schedule, init, telemetry editable.
 
-## Active experiments (boot 16 status)
+## Active experiments (boot 17 status)
 
 | PR | Student | Lever | W&B signal | Next action |
 | --- | --- | --- | --- | --- |
-| **#52** | askeladd | MuonH-SI (always-active) | `rwpbmxj7` confirm: T1 ✓ (val=3.2776, ffs=3275). T2 mid-flight at step 2175/3325. ETA ~06:30 UTC | Wait for n=4 terminal; if `mu≤3.27795`, merges over NorMuon baseline |
-| **#87** | tanjiro | u/w-floor 4-arm sweep | Arm1 (UW=0.30): val=3.28074 ffs=-1 (miss). Arm2 (UW=0.40): val=3.28084 ffs=-1 (miss). Arm3 in flight; Arm4 pending. ETA ~05:15 UTC | Likely close as negative when sweep terminals — both completed arms missed |
-| **#100** | nezuko | Sign-Muon | 3 NaN/zero-gradient runs. Debug hint sent (sign-before-lerp ordering bug → NS5(zeros) NaN cascade) | Wait for fix + clean smoke |
-| **#101** | thorfinn | Polyak EMA | 3 smokes val~8 at step 300. Debug hint sent (EMA init bias; needs `1/(1-β^t)` correction or late-start EMA) | Wait for bias-corrected smoke |
-| **#107** | edward | Cautious-Muon (standalone) | PR created 00:28 UTC. No comments yet. Smoke pickup pending | Monitor for smoke pickup; nudge if >4h idle |
-| **#111** | fern | AdamAtan2 aux (new) | PR created 02:25 UTC. Replaces aux AdamW with atan2-bounded update | Monitor for smoke pickup |
-| **#113** | alphonse | Cautious-NorMuon stack (wave-3 new) | PR created 02:35 UTC. Sign-agreement mask on NorMuon update | Monitor for smoke pickup |
-| **#114** | frieren | NorMuon × MuLoCo stack (wave-3 new) | PR created 02:40 UTC. Outer Nesterov wrapping NorMuon | Monitor for smoke pickup |
+| **#52** | askeladd | MuonH-SI confirm n=4 | `rwpbmxj7`: trial 0 ✓ (val=3.27781, ffs=3275). 2/4 trials done. Trial 2 (0-indexed) at step 7502/13300. ETA ~06:00 UTC | Wait for n=4 terminal; if `mu≤3.27795`, merges over NorMuon |
+| **#87** | tanjiro | u/w-floor 4-arm sweep | Arm1 (UW=0.30 lr=0.035): val=3.28074 miss. Arm2 (UW=0.40 lr=0.035): val=3.28084 miss. Arm3 (UW=0.30 lr=0.04) running, step 2925/3350 val=3.3353 descending. Arm4 (UW=0.40 lr=0.04) not started | Wait for arms 3+4 terminal; likely close as negative |
+| **#100** | nezuko | Sign-Muon | **Branch HEAD has no `sign()` implementation pushed.** 3 NaN smokes were against unpushed local edits. Boot 17 follow-up asks for push + impl review | Wait for code push + relaunch smoke |
+| **#101** | thorfinn | Polyak EMA | Boot 16 fix attempt confirmed healthy (val=4.54 at step 300). Awaiting screen | Wait for screen result |
+| **#107** | edward | Cautious-Muon | 3 healthy smokes running (val~4.5). Picked up cleanly. Wave-3 standalone | Wait for screen result |
+| **#111** | fern | AdamAtan2 aux | **Branch HEAD has no `class AdamAtan2` implementation pushed.** NaN smoke (only 13 rows, val=NaN, best=10.83) was against unpushed local. Boot 17 follow-up asks for rebase + push | Wait for code push + relaunch smoke |
+| **#113** | alphonse | Cautious-NorMuon stack | Smoke val=4.22 ✓ (healthy). Wave-3 stack | Wait for screen result |
+| **#114** | frieren | NorMuon × MuLoCo stack | Smoke val=3.97 ✓ (healthy). Wave-3 stack | Wait for screen result |
 
 ## PRs closed this session
 
@@ -40,6 +40,11 @@ Optimizer, schedule, init, telemetry editable.
 - **#99 fern Adafactor** (boot 15): Closed negative. Adafactor RMS-clip ≠ per-element bound → step-1 embed explodes at lr=0.3. Replaced with #111 AdamAtan2 aux.
 - **#53 edward Contra-Muon** (boot 14): Closed negative. n=4 mean=3.2835, stat -0.0070. Replaced with #107 Cautious-Muon.
 - **#51 alphonse NorMuon** (boot 15): **MERGED**. New branch baseline.
+
+## Notes from boot 17
+
+- **Fern #111 and Nezuko #100 have no implementation pushed.** Branch HEADs are assignment-commit-only. NaN smoke observations came from unpushed local edits. Both students nudged with explicit "rebase + push" instructions and AdamAtan2 / Sign-Muon hardening tips.
+- **Edward #107, Alphonse #113, Frieren #114 smokes all healthy** — preconditioning + Cautious stack + MuLoCo outer wrapper all running cleanly on the NorMuon base.
 
 ## Notes from boot 16
 
@@ -87,8 +92,8 @@ Optimizer, schedule, init, telemetry editable.
 
 ## Next-priority watch points (next 4-6 hours)
 
-1. **Smoke pickups** for #111 / #113 / #114 (expected within 1h of PR creation) — verify no NaN, val~6.5 at step 300.
-2. **Askeladd #52 confirm terminal** (~06:30 UTC, ~4h from now): trial 1 hit. If n=4 mean ≤ 3.27795, merges over NorMuon.
-3. **Tanjiro #87 sweep terminal** (~05:15 UTC, ~2.5h from now): both completed arms missed. Likely close-as-negative.
-4. **Edward #107 smoke pickup**: if no activity >4h after PR creation, send nudge comment.
-5. **Thorfinn #101 / Nezuko #100 fix attempts**: monitor for smoke retries after debug hints.
+1. **Askeladd #52 confirm terminal** (~06:00 UTC, ~2.5h from now): 2/4 trials done, trial 0 cleared (val=3.27781 vs baseline 3.27795). If n=4 mean ≤ 3.27795, merges over NorMuon. **Primary watch.**
+2. **Tanjiro #87 arms 3+4 terminal** (lr=0.04 sweep): arm 3 mid-flight, arm 4 not started. Both will run ~3300 steps; ETA arm-3 ~04:15 UTC, arm-4 by ~05:45 UTC.
+3. **Code pushes** for fern #111 and nezuko #100: monitor for new commits on `fern/adamatan2-aux` and `g1r3-nezuko/sign-muon`.
+4. **Screen results** for edward #107, alphonse #113, frieren #114 — all smokes healthy; screen ETA within 2-3h.
+5. **Thorfinn #101 screen**: post-fix smoke healthy; full 3300-step screen pending.
