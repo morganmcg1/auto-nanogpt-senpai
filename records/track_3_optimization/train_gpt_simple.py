@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--muonh_mu", type=float, default=float(os.environ.get("MUONH_MU", "0.95")))
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -665,6 +666,7 @@ if dist.get_rank() == 0:
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
+            "muonh_mu": args.muonh_mu,
             "train_steps": args.train_steps,
         },
     )
@@ -717,7 +719,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                       lr=args.muonh_lr, weight_decay=0.0, mu=args.muonh_mu,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
