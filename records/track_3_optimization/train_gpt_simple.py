@@ -50,6 +50,11 @@ def parse_args():
 
 args = parse_args()
 
+QKV_INIT_MODE = os.environ.get("NANOGPT_QKV_INIT", "normal").lower()
+assert QKV_INIT_MODE in ("normal", "orthogonal"), (
+    f"NANOGPT_QKV_INIT must be 'normal' or 'orthogonal', got {QKV_INIT_MODE!r}"
+)
+
 
 def clean_metric_name(name: str) -> str:
     return name.replace(".", "/")
@@ -181,6 +186,7 @@ def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
         idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx.clamp_(max=values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -552,6 +558,7 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "qkv_init_mode": QKV_INIT_MODE,
         },
     )
 
@@ -566,6 +573,7 @@ for trial_idx in range(args.num_trials):
     train_steps = 3350
 
     # initialize model parameters
+    qkv_suffixes = ("attn.q.weight", "attn.k.weight", "attn.v.weight")
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
@@ -573,6 +581,9 @@ for trial_idx in range(args.num_trials):
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+            elif QKV_INIT_MODE == "orthogonal" and any(name.endswith(s) for s in qkv_suffixes):
+                # Orthogonal init for QKV: unit singular values match the NS target.
+                torch.nn.init.orthogonal_(w)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
@@ -581,6 +592,35 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Verify QKV init: report singular value stats and log to wandb.
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print0(f"qkv_init_mode={QKV_INIT_MODE}", console=True)
+        qkv_init_metrics = {}
+        verify_targets = {"attn.q.weight", "attn.k.weight", "attn.v.weight"}
+        for name, p in model.named_parameters():
+            short = name.split(".", 2)[-1] if name.startswith("blocks.0.") else None
+            if short in verify_targets:
+                w_f = p.data.detach().float()
+                s = torch.linalg.svdvals(w_f)
+                s_min, s_max = s.min().item(), s.max().item()
+                s_mean, s_std = s.mean().item(), s.std().item()
+                frob = w_f.norm().item()
+                print0(
+                    f"  {name}: shape={tuple(p.shape)} "
+                    f"sigma_min={s_min:.4f} sigma_max={s_max:.4f} "
+                    f"sigma_mean={s_mean:.4f} sigma_std={s_std:.4f} "
+                    f"frob_norm={frob:.4f}",
+                    console=True,
+                )
+                clean = clean_metric_name(name)
+                qkv_init_metrics[f"qkv_init/{clean}/sigma_min"] = s_min
+                qkv_init_metrics[f"qkv_init/{clean}/sigma_max"] = s_max
+                qkv_init_metrics[f"qkv_init/{clean}/sigma_mean"] = s_mean
+                qkv_init_metrics[f"qkv_init/{clean}/sigma_std"] = s_std
+                qkv_init_metrics[f"qkv_init/{clean}/frob_norm"] = frob
+        if qkv_init_metrics:
+            wandb.log(qkv_init_metrics, step=0)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
