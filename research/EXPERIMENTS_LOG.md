@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 06:35 — PR #78: Contra+SOAP-MLP — MERGED as new advisor baseline
+- Branch: `g1r2-fern/contra-soap-mlp` (squash-merged `718dd3f`)
+- See below entry for full experiment detail. BASELINE.md updated.
+
+## 2026-05-16 06:35 — PR #80: Muon² n=4 confirmation — CLOSED (non-competitive)
+- Branch: `g1r2-nezuko/muon-sq`
+- W&B run: `7lxk02m6` | num_trials=4 | train_steps=3325
+
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27788 | 3300 |
+| T1 | 3.27859 | 3300 |
+| T2 | 3.27915 | 3300 |
+| T3 | 3.27792 | 3300 |
+| **mean** | **3.27839** | **3300** |
+
+- Statsig check: (3.28 − 3.27839) × √4 = **0.00322** — FAILS 0.004.
+- Recipe is stable (all seeds hit target, no crashes, std=0.0006). The n=4
+  mean is 0.0008 above NorMuon-clean's statsig ceiling (3.27800 @ 3300).
+- Closed because: (1) non-statsig; (2) even extended to 3375 steps, ffs_mean
+  ≈ 3325 vs new baseline 3131 — won't merge. Muon² ordering (Adam var BEFORE
+  NS5) is confirmed inferior to NorMuon's post-NS5 ordering on this benchmark.
+- Status: **CLOSED**. Nezuko reassigned to Attention SOAP + trust gate (PR #124).
+
 ## 2026-05-16 05:45 — PR #78: Contra+SOAP-MLP — STATSIG WIN (merge pending rebase)
 - Branch: `g1r2-fern/contra-soap-mlp`
 - Hypothesis: SOAP eigenbasis preconditioning on MLP weights, applied to

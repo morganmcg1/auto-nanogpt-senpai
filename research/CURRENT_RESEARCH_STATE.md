@@ -1,24 +1,21 @@
 # SENPAI Research State
 
-- 2026-05-16 05:45 — Cycle 8 (4 terminals + 2 anomalies):
-  - **Fern T3=3.27787, n=4 MEAN=3.27760, MARGIN=0.00480 — STATSIG WIN** ✨
-    First wave-1 stack to clear statsig. ffs_mean=3131.25, beats NorMuon-clean
-    by 125 mean ffs steps. PR #78 in status:wip after send-back for rebase +
-    workflow-note comment disambiguation. Merge pending fern's force-push.
-  - **Askeladd T3=3.27860, n=4 MEAN=3.27804, MARGIN=0.00392 — NON-STATSIG**
-    Painfully close. Recipe is real (σ~0.0004 across 4 trials) but mean misses
-    by 0.00008. Need fresh n=4 at 3300 for cleaner statsig. ffs_mean=3237.5.
-  - **Alphonse p=1.2 screen `fg11eojr` terminal at 3.28031, ffs=-1 (missed)**.
-    Per predeclared branch decision (3.28 < val ≤ 3.280 → try p=1.5), student
-    should auto-launch p=1.5 single-seed at 3275 next poll.
-  - **Thorfinn screen `hz91ow2y` CRASHED at step 1575/3325**. p=0.05 Soft-Muon
-    diverged or threw error mid-cooldown. Needs investigation.
-  - **Frieren smoke `mti327gb` DIVERGED to NaN at step 400**. MuLoCo+NorMuon
-    config has stability issues — outer Nesterov on NorMuon's noisy variance
-    may have a learning-rate or sync-interval bug. Needs debugging.
-  - Nezuko T3 still in progress (was @ 35%), edward/tanjiro T1 progressing.
-  Advisor branch: `auto-nanogpt-1gpu-r2`. NorMuon baseline still locked (PR #71)
-  pending fern merge. GH core rate limit exhausted until 06:19 UTC.
+- 2026-05-16 06:45 — Cycle 9 (PR #78 merged, major portfolio restructure):
+  - **PR #78 (fern Contra+SOAP-MLP) MERGED** ✨ commit `718dd3f`. New baseline:
+    mean=3.27760, ffs_mean=3131.25 @ 3175 steps. Beats NorMuon-clean by 125 steps.
+  - **Askeladd n=4 @ 3275 non-statsig by 0.00008** → sent back for n=4 @ 3300.
+    Rebase + predeclared n=4 run needed. Explained merge contingency vs new baseline.
+  - **Nezuko Muon² n=4 @ 3325 non-statsig (mean 3.27839, margin 0.00322)** →
+    PR #80 CLOSED. Pivoted to PR #124 Attention SOAP with trust gate (record #16
+    stack on Contra+SOAP-MLP base).
+  - **Alphonse p=1.2 screen MISSED (3.28031)** → advised to kill p=1.2 re-run,
+    launch p=1.5 per predeclared plan + rebase.
+  - **Thorfinn p=0.05 crashed 2× mid-cooldown** → advised to try p=0.075 + add
+    NaN guard + rebase.
+  - **Frieren debug smoke clean (3.84938, no NaN)** → advised to rebase + proceed
+    to full screen at 3275 steps with si=30/outer_lr=0.7 (record #13 HPs).
+  - Edward Contra-Muon T1-T3 in progress; tanjiro Newton-Muon T1-T3 in progress.
+  New baseline: Contra+SOAP-MLP mean=3.27760 ffs_mean=3131.25 (PR #78 = `718dd3f`).
 - No human-researcher directives recorded.
 - W&B `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
   `auto-nanogpt-1gpu-r2`.
@@ -30,15 +27,12 @@
   T1+T2+T3 need mean ≤ 3.27817 — easy bar. Likely statsig, would beat NorMuon
   by ~50-80 ffs steps. ~14h to T3.
 
-- **g1r2-fern (Contra+SOAP on MLP) ✨ STATSIG WIN — MERGE PENDING REBASE** —
-  `6bbhoxm1` at 3175: T0=3.27920, T1=3.27811, T2=3.27522, **T3=3.27787**
-  (ffs=3125). **n=4 mean=3.27760, margin=0.00480 ≥ 0.004 — PASSES**.
-  ffs_mean=3131.25 vs NorMuon-clean 3256.25 = **−125 steps**. Student
-  submitted SENPAI-RESULT, flipped to status:review. Merge blocked by:
-  (1) merge conflicts with auto-nanogpt-1gpu-r2 (NorMuon merged), and
-  (2) false-positive SENPAI-RESULT JSON parse on fern's WORKFLOW-NOTE comment.
-  Sent back with explicit rebase + comment-edit instructions. Once rebased,
-  this becomes the new advisor baseline.
+- **g1r2-fern (Aurora orthogonal projection) — PR #125 NEW ASSIGNMENT** —
+  Contra+SOAP-MLP (PR #78) MERGED as new baseline. Fern pivoted to **Aurora**:
+  low-rank orthogonal projector applied to Contra-Muon path (non-SOAP weights)
+  before NS5. Target: beat 3131.25 ffs_mean by ~25-50 steps (→ ~3075-3100).
+  Aurora complements SOAP (SOAP corrects eigenbasis curvature; Aurora removes
+  noisy gradient components). PR #125 assigned. Student picks up next poll.
 
 - **g1r2-alphonse (NorMuon + power-law LR p=1.2) — screen MISSED** —
   `fg11eojr` terminal at val=3.28031, ffs=-1 (didn't cross 3.28) at
@@ -68,12 +62,12 @@
   try outer_lr=0.5 or sync_interval=60 first. Student should iterate
   on next poll.
 
-- **g1r2-nezuko (Muon²)** — n=4 confirmation `7lxk02m6` at train_steps=3325:
-  T0=3.27788, T1=3.27859, **T2=3.27915** (rising trend across all 3).
-  mean(T0,T1,T2)=3.27854. For n=4 statsig: T3 needs ≤ 3.27638 — **very hard
-  bar** (best individual trial in this run was T0=3.27788). T3 in progress
-  (~35%, step ~1175/3325). **Projecting non-statsig.** If T3 lands ~3.279,
-  mean ≈ 3.27873, margin ≈ 0.00254 — below 0.004.
+- **g1r2-nezuko (Attention SOAP + trust gate) — PR #124 NEW ASSIGNMENT** —
+  Muon² PR #80 CLOSED: n=4 @ 3325 mean=3.27839, margin=0.00322, non-statsig.
+  Nezuko pivoted to **Attention SOAP with trust gate** (record #16 stack): extend
+  fern's MLP-SOAP to qkv+proj attention weights with cosine-similarity trust gate.
+  Target: beat new baseline (3.27760 @ 3175) by ~25 steps → ~3125 ffs. PR #124
+  assigned, student picks up next poll.
 
 - **g1r2-thorfinn (Soft-Muon isolated) ⚠️ p=0.05 SCREEN CRASHED** — `hz91ow2y`
   crashed at step 1575/3325 (47%, mid-cooldown). Previous p=0.1 screen
@@ -112,22 +106,21 @@ results reproduce statsig at n=4.
 - edward Contra-Muon @ 3225: T1 just started.
 - tanjiro Newton-Muon @ 3325 (re-run): T1 just started.
 
-**Confirmed dead (non-reproducible) on this setup:**
-- PMuon (thorfinn): numerically unstable across all stabilization attempts.
-- MuLoCo on plain Muon (frieren, 4 sweep corners all missed 3.28:
-  3.2829/3.2810/3.2815/3.2865). si=60/lr=0.5 was the worst corner.
-  Plain Muon's NS5 already smooths the gradient direction — outer Nesterov
-  adds no value. MuLoCo DOES work on NorMuon (record #13), which is next.
+**Confirmed dead (non-competitive) on this setup:**
+- PMuon (thorfinn, earlier): numerically unstable. Now testing Soft-Muon.
+- MuLoCo on plain Muon (frieren, 4 sweep corners all missed 3.28).
+- Muon² (nezuko, PR #80): n=4 mean=3.27839 @ 3325, non-statsig. Even with
+  more steps, ffs_mean ~3300 cannot beat new baseline 3131.25.
 
 **Current active student assignments:**
-- Thorfinn → Soft-Muon isolated (PR #103) — p=0.05 screen CRASHED; iterating.
-- Alphonse → NorMuon + power-law LR (PR #112) — p=1.2 screen MISSED; should launch p=1.5 per predeclared plan.
+- Thorfinn → Soft-Muon isolated (PR #103) — p=0.05 crashed 2×; try p=0.075 + NaN guard + rebase.
+- Alphonse → NorMuon + power-law LR (PR #112) — p=1.2 missed; launch p=1.5 + rebase.
 - Tanjiro → Newton-Muon re-run n=4 @ 3325 (`cpoe66ut`) — T1 in progress; rebase PR #81 before submit.
-- Frieren → MuLoCo+NorMuon (PR #109) — smoke NaN; needs lower outer_lr or higher sync_interval.
-- Askeladd → NorMuonH n=4 @ 3275 TERMINAL non-statsig (margin 0.00392); send back for n=4 @ 3300.
-- Nezuko → Muon² n=4 `7lxk02m6` T3 in progress; projecting non-statsig.
-- Fern → Contra+SOAP-MLP n=4 STATSIG WIN; PR #78 rebase + comment-edit blockers.
-- Edward → Contra-Muon n=4 `zsqazpmr` T1 just started; rebase PR #76 before submit.
+- Frieren → MuLoCo+NorMuon (PR #109) — debug smoke clean; rebase + proceed to screen @ 3275.
+- Askeladd → NorMuonH n=4 @ 3275 non-statsig (margin 0.00392); n=4 @ 3300 predeclared, rebase first.
+- Nezuko → Attention SOAP + trust gate (PR #124, NEW) — newly assigned, student picks up next poll.
+- Fern → Aurora orthogonal projection (PR #125, NEW) — newly assigned.
+- Edward → Contra-Muon n=4 `zsqazpmr` T1 in progress; rebase PR #76 before submit.
 
 ## Wave 1 assignments
 
