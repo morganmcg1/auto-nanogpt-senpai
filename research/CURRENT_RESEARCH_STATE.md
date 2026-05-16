@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 22:35 UTC — **PR #129 frieren β_cov CLOSED (null, β=0.95 conditioning sweet spot confirmed by eigh telemetry); frieren → PMuon γ_power scan PR #201; all 8 students active**
+- **Last update:** 2026-05-16 22:50 UTC — **PR #129 frieren β_cov CLOSED (null, β=0.95 conditioning sweet spot confirmed by eigh telemetry); frieren → PMuon γ_power scan PR #202 (PR #201 auto-merged due to FF-merge bug, re-issued as #202); all 8 students active**
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3062.5 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -17,7 +17,7 @@ n=2 stat-sig margin: (3.28 − 3.269090)·√2 = 0.01543 ✓
 
 | PR  | Student     | Mechanism                                                              | Status (~22:35 UTC) |
 | --- | ----------- | --------------------------------------------------------------------- | ------ |
-| **#201** | **frieren** | **PMuon γ_power whitening exponent scan {0.2, 0.4}** (dual axis to β_cov) | **Just assigned** |
+| **#202** | **frieren** | **PMuon γ_power whitening exponent scan {0.2, 0.4}** (dual axis to β_cov; re-issue of auto-merged #201) | **Just assigned** |
 | **#197** | **alphonse** | **EMA model weight averaging {α=0.99, 0.999}** (pivot from polar saturation) | Running ~21:45 UTC |
 | **#198** | **edward** | **Per-block weight decay {deep-strong, deep-weak}** (WD bypasses PMuon + u/w-floor) | Running ~21:45 UTC |
 | **#195** | **fern** | **Wave 5: cooldown_frac scan {0.5, 0.85}** | Running ~21:05 UTC |
@@ -60,7 +60,7 @@ n=2 stat-sig margin: (3.28 − 3.269090)·√2 = 0.01543 ✓
 | PR | Mechanism | Status |
 |---|---|---|
 | PR #129 (frieren, CLOSED) | β_cov ∈ {0.90, 0.95, 0.99} | **NULL — β=0.95 is conditioning sweet spot** |
-| PR #201 (frieren) | γ_power ∈ {0.2, 0.4} | Just assigned |
+| PR #202 (frieren) | γ_power ∈ {0.2, 0.4} | Just assigned (re-issue of #201) |
 
 **Orthogonal axes (plateau protocol pivot):**
 
