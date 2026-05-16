@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 14:35 UTC (boot 33)
+- **Last updated:** 2026-05-16 15:20 UTC (boot 36)
 - **Most recent human-team directive:** None.
 - **Branch state:** PR #52 MuonH-SI MERGED. Baseline: val=3.27737, ffs=3275 (n=4, deterministic).
 
@@ -29,23 +29,25 @@ Same failure signature as r4-tanjiro (Issue #160): bit-identical step 1 with hea
 
 The merged `--muonh_mode` argparse default is `clip` (line 45). Baseline was confirmed with `scale_invariant`. Boot 30 alerts went to fern #152, edward #107, nezuko #153 (closed). Active screens all use `--muonh_mode scale_invariant`.
 
-## Active experiments (boot 33 status — 14:35 UTC)
+## Active experiments (boot 36 status — 15:20 UTC)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | **mu=0.90 SCREEN step 2175/3325 val=3.453** |
-| **#136** | askeladd | MuonH lr sweep {0.015, 0.018, 0.022} | **lr=0.018 SCREEN step 2250/3325 val=3.443** |
-| **#114** | frieren | MuLoCo × MuonH-SI | **SCREEN step 360/3325 val=4.19** |
-| **#107** | edward | Cautious-Muon × MuonH-SI | **SCREEN step 175/3325 val=5.24** |
-| **#152** | fern | MuonH wd sweep | **wd=1e-5 SCREEN step 1400/3325 val=3.60**; wd=5e-4 smoke healthy |
+| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | mu=0.90 ❌ (val=3.29361, ffs=-1); **mu=0.95 SCREEN step 100** (duplicate launches) |
+| **#136** | askeladd | MuonH lr sweep {0.015, 0.018, 0.022} | lr=0.018 ✓ baseline-clone (val=3.27833, ffs=3300); **lr=0.022 SCREEN step 332/3325** |
+| **#114** | frieren | MuLoCo × MuonH-SI | **SCREEN step 1825/3325 val=3.55** |
+| **#107** | edward | Cautious-Muon × MuonH-SI | **SCREEN step 1660/3325 val=3.57** |
+| **#152** | fern | MuonH wd sweep | **wd=1e-5 SCREEN step 2700/3325 val=3.377** (near terminal) |
 
-## Screen progress (boot 33)
+## Screen progress (boot 36)
 
-- **askeladd lr=0.018 SCREEN**: step 2250/3325 val=3.443 — on baseline trajectory, ~25 min to terminal
-- **thorfinn mu=0.90 SCREEN**: step 2175/3325 val=3.453 — slightly behind baseline trajectory, ~28 min to terminal
-- **fern wd=1e-5 SCREEN**: step 1400/3325 val=3.604 — on track, ~52 min to terminal
-- **frieren MuLoCo SCREEN**: step 360/3325 val=4.19 — early, ~75 min to terminal
-- **edward cautious-muon SCREEN**: step 175/3325 val=5.24 — early, ~85 min to terminal
+- **askeladd lr=0.018 SCREEN TERMINAL**: val=3.27833, ffs=3300 — **baseline-clone confirmed within seed variance** (n=1 sample of baseline; mean was 3.27737 n=4)
+- **askeladd lr=0.022 SCREEN RUNNING**: step 332/3325 val=4.19 — too early
+- **thorfinn mu=0.90 SCREEN TERMINAL**: val=3.29361, ffs=-1 → **NEGATIVE** (worse than mu=0.95 baseline)
+- **thorfinn mu=0.95 SCREEN RUNNING**: step 100/3325 (duplicate runs f6qv1mdx, y5z9bp0u — baseline-clones)
+- **fern wd=1e-5 SCREEN**: step 2700/3325 val=3.377 — ~14 min to terminal
+- **frieren MuLoCo SCREEN**: step 1825/3325 val=3.55 — ~34 min to terminal
+- **edward cautious-muon SCREEN**: step 1660/3325 val=3.57 — ~37 min to terminal
 
 ## Earlier results (boot 30-32)
 
