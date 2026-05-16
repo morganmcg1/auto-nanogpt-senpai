@@ -254,6 +254,56 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def compute_contra_telemetry(
+    model: nn.Module,
+    muon_optimizer: torch.optim.Optimizer,
+    alpha: float,
+    target_name: str = "blocks.0.attn.q.weight",
+) -> dict[str, float]:
+    """Diagnostic stats for Contra-Soft shaping on a representative Muon-managed layer.
+
+    Conflict fraction = fraction of elements where grad*momentum < 0. ~0.5 means
+    momentum is essentially noise; <0.3 means momentum is stable.
+    Scaled-norm ratio = ||grad_shaped||_F / ||grad||_F. 1.0 = no attenuation.
+    """
+    target_param = None
+    for name, p in model.named_parameters():
+        if name == target_name:
+            target_param = p
+            break
+    if target_param is None or target_param.grad is None:
+        return {}
+    state = muon_optimizer.state.get(target_param)
+    if state is None or "momentum" not in state:
+        return {}
+    momentum = state["momentum"]
+    grad = target_param.grad
+    with torch.no_grad():
+        grad_f = grad.detach().float()
+        momentum_f = momentum.detach().float()
+        prod = grad_f * momentum_f
+        conflict_neg = prod < 0
+        conflict_fraction = float(conflict_neg.float().mean().item())
+        grad_norm = float(grad_f.norm().item())
+        if alpha > 0.0 and grad_norm > 0.0:
+            scale_val = max(0.0, 1.0 - alpha)
+            scale = torch.where(
+                conflict_neg,
+                torch.full_like(grad_f, scale_val),
+                torch.ones_like(grad_f),
+            )
+            shaped_norm = float((grad_f * scale).norm().item())
+            scaled_norm_ratio = shaped_norm / (grad_norm + 1e-12)
+        else:
+            scaled_norm_ratio = 1.0
+    return {
+        "train/contra/conflict_fraction_block0_q": conflict_fraction,
+        "train/contra/scaled_norm_ratio_block0_q": scaled_norm_ratio,
+        "train/contra/momentum_norm_block0_q": float(momentum_f.norm().item()),
+        "train/contra/grad_norm_block0_q": grad_norm,
+    }
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -435,6 +485,15 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 
+# Contra-Soft Muon: rescale gradient elements that conflict with the running momentum
+# (negative inner product element-wise) by (1 - CONTRA_ALPHA) before they enter the
+# momentum EMA. alpha=0 → disabled (exact baseline). alpha=1 → conflicting elements
+# zeroed (PCGrad-equivalent on per-element basis). Reference: Yu et al. 2020 "Gradient
+# Surgery for Multi-Task Learning" (PCGrad), Liu et al. 2021 CAGrad.
+CONTRA_ALPHA = float(os.environ.get("NANOGPT_CONTRA_ALPHA", "0.0"))
+CONTRA_SCALE = max(0.0, 1.0 - CONTRA_ALPHA)
+CONTRA_ENABLED = CONTRA_ALPHA > 0.0
+
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -456,6 +515,18 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
 
 @torch.compile
 def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+    if CONTRA_ENABLED:
+        # Contra-Soft shaping: rescale elements where current grad conflicts with
+        # the running momentum (element-wise negative inner product). On step 0,
+        # momentum is zero so (grad * momentum) is zero everywhere → conflict_neg is
+        # False everywhere → scale is 1 → no-op naturally.
+        conflict_neg = (grad * momentum) < 0
+        scale = torch.where(
+            conflict_neg,
+            torch.full_like(grad, CONTRA_SCALE),
+            torch.ones_like(grad),
+        )
+        grad = grad * scale
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
@@ -523,6 +594,7 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"CONTRA-SOFT: alpha={CONTRA_ALPHA} ({'ENABLED' if CONTRA_ENABLED else 'DISABLED'})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -561,6 +633,9 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "contra_alpha": CONTRA_ALPHA,
+            "contra_enabled": CONTRA_ENABLED,
+            "ns_iters": NS_ITERS,
         },
     )
 
@@ -732,6 +807,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            contra_metrics = compute_contra_telemetry(model, optimizer2, CONTRA_ALPHA)
+            if contra_metrics:
+                contra_metrics["trial"] = trial_idx
+                contra_metrics["train/step"] = train_step
+                contra_metrics["train/contra/alpha"] = CONTRA_ALPHA
+                wandb.log(contra_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
