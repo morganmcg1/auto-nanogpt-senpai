@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 14:40 UTC (wave 3 confirmation seeds advancing 🎯 — edward confirm-2 step 1200/3350 ETA ~70 min, thorfinn confirm-2 step 475/3350 launched on schedule ETA ~110 min. Tanjiro pod 3rd-time confirmed broken — issue #160 filed.)
+- **Date:** 2026-05-16 14:50 UTC (wave 3 confirmation seeds advancing 🎯 — edward confirm-2 step 2475/3350 ETA ~28 min, thorfinn confirm-2 step 1750/3350 ETA ~50 min. fern #154 closed strict-gate negative with surprising mechanism finding → fern reassigned to #163 DMR motivated by their own #154 telemetry. askeladd #157 smoke debugging in progress. Tanjiro pod issue #160 still awaiting rotation.)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -52,6 +52,7 @@
 | #126 | fern | CLOSED — Contra-Soft element-wise: arm-A=3.27616/3275 EXACT baseline; conflict_fraction ≈ 0.50 across all phases proves element-wise signal is noise-dominated; clean negative with mechanistic diagnosis |
 | #146 | tanjiro | AUTO-MERGED accidentally (advisor-side merge bug); reassigned as #149 |
 | #149 | tanjiro | CLOSED infra-blocked — 3rd reproduction of pod NaN cascade on unmodified baseline (step-1 grad=232102, step-25 nonfinite=147M). Issue #160 filed for pod rotation. |
+| #154 | fern | CLOSED on strict smoke gate — layer-aggregate global_cos_neg=0.9 ≫ 0.3 threshold. Surprising mechanistic finding: grad·momentum < 0 ~90% of steps under Muon². Mechanism degenerates to mild constant gradient downscaler (~0.85x multiplier). Motivated follow-up #163 DMR. |
 
 ## Active PRs
 
@@ -59,8 +60,8 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** D=3.2768/3300. confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 1200/3350, val=3.604 healthy. ETA ~70 min. n=2 partial mu=3.27515 — plenty of margin. |
-| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** arm-B (clip=1.0)=3.2755/3275. confirm-1 (`yfhknwar`) **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 (`j4r186ws`) running step 475/3350 launched on schedule. ETA ~110 min. n=2 partial mu=3.27450 — excellent margin. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** D=3.2768/3300. confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 2475/3350, val=3.388 healthy. ETA ~28 min. n=2 partial mu=3.27515. |
+| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** arm-B (clip=1.0)=3.2755/3275. confirm-1 (`yfhknwar`) **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 (`j4r186ws`) running step 1750/3350, val=3.478 healthy. ETA ~50 min. n=2 partial mu=3.27450. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
 
@@ -68,11 +69,11 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 (within-noise baseline sanity ✓). arm-B (PE iters=12) running step ~1575, val=3.524 — tracking slightly behind arm-A at this step. arm-C/D queued. |
-| **#154** | **fern** | **Layer-aggregate Contra-Muon** | smoke test `4vfw6ubf` running step 425/500, val=3.856 healthy. Awaiting smoke gate verdict. |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A SOAP sanity run `lfcnprqg` running step 1800, val=3.481 — on-track |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A sanity `z2ygnqxh` running step 2225, val=3.426. Also running smoke test `4ov863qm` |
-| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | just assigned (follow-up to #120; tests if NS approximation error is load-bearing). Awaiting student pickup. |
+| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 sanity ✓. **arm-B (PE iters=12)=3.2767 BASELINE PARITY** ✨ (`2li08zef`). arm-C (PE iters=8) running step 1425 val=3.55. arm-D (PE iters=6) queued. |
+| **#163** | **fern (NEW)** | **Decoupled Momentum Reset (DMR)** | just assigned — periodic momentum zeroing motivated by fern's #154 finding (grad·momentum<0 ~90% under Muon² = staleness hypothesis). |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A SOAP sanity `lfcnprqg` running step 3050/3350 val=3.30 — near terminal, on-track |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A finished val=3.27841/fs=3325 ✓ baseline reproduction. arms B/C/D not yet launched. |
+| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | smoke tests v1/v2 failed at step 1 (bf16 SVD instability likely); v3 stalled at step 0. Pinged student for traceback + suggested jumping to arm-C fp32 smoke. |
 
 ## Infra-blocked
 
