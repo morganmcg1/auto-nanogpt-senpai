@@ -24,6 +24,11 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+# Per-block (depth-wise) LR decay applied to Muon transformer block groups.
+# lr_block_l = MUON_LR * DEPTH_DECAY ** l, where l=0 is shallowest, l=L-1 deepest.
+# Standard LLRD direction (ELECTRA-style): shallow blocks get full LR, deep blocks get reduced LR.
+# Set DEPTH_DECAY = 1.0 to recover uniform per-block LR (pre-LLRD baseline).
+DEPTH_DECAY = 0.90
 
 
 def parse_args():
@@ -224,6 +229,14 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            # Per-group gradient-norm telemetry (mainly informative for the per-block Muon
+            # groups: lets us see whether depth-wise LLRD equalizes effective update sizes).
+            if group_name.startswith("muon_block_"):
+                grad_norm_sq = 0.0
+                for p in group["params"]:
+                    if p.grad is not None:
+                        grad_norm_sq += float(p.grad.detach().float().norm().item()) ** 2
+                metrics[f"train/grad_norm/{group_name}"] = grad_norm_sq ** 0.5
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -493,8 +506,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], dict) and "params" in params[0]
+            for group in params:
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
         super().__init__(params, defaults)
 
@@ -614,7 +632,12 @@ if dist.get_rank() == 0:
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
             "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "muon_method": "pmuon+uw-floor+llrd",
+            # Depth-wise per-block LR decay (LLRD) on Muon transformer blocks.
+            "depth_decay": DEPTH_DECAY,
+            "lr_block_shallowest": 0.035,                            # decay^0 = 1 (full LR)
+            "lr_block_deepest": 0.035 * (DEPTH_DECAY ** 11),         # decay^(L-1) for L=12
+            "lr_depth_ratio": DEPTH_DECAY ** 11,                     # deepest / shallowest
         },
     )
 
@@ -650,9 +673,22 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Per-block Muon groups with depth-wise LR decay. l=0 is the shallowest block,
+    # l=num_blocks-1 the deepest. Shallow blocks keep the full base LR (decay^0=1);
+    # deep blocks see decay^(num_blocks-1).
+    muon_base_lr = 0.035
+    muon_weight_decay = 0.025
+    num_blocks = len(model.blocks)
+    muon_block_groups = []
+    for l, block in enumerate(model.blocks):
+        block_params = [p for p in block.parameters() if p.ndim >= 2]
+        muon_block_groups.append({
+            "params": block_params,
+            "lr": muon_base_lr * (DEPTH_DECAY ** l),
+            "name": f"muon_block_{l:02d}",
+        })
+    optimizer2 = Muon(muon_block_groups,
+                      lr=muon_base_lr, weight_decay=muon_weight_decay, beta_cov=0.95, gamma=0.3)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
