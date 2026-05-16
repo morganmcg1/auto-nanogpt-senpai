@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #12, ~00:45 UTC)
+- **Last updated:** 2026-05-16 (poll #13, ~01:55 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -74,14 +74,16 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   multi-seed confirmation phase (linear is the only shape that hit
   target on single seed). Likely needs n=2-4 on linear vs. quick
   n=1 recheck on other shapes for verdict.
-- **tanjiro** (PR #98 Cautious-Muon, wave-2 launched 22:30 UTC):
-  `cautious-muon-lrx1.0-seed0` at step ~2.3k, val=3.456. Smoke passed.
-  Screen seed in flight; lrx1.0/1.5/2.0 grid pending.
-- **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995) at
-  step ~2.1k (seed-3 of 6, after seeds-1/2 finished at ffs=3300 each).
-  Discriminating question: does n=6 mu clear `(3.28 - mu) × sqrt(6) >=
-  0.004` (needs mu < 3.2784)? With first two seeds matching screen
-  numbers, plausibly yes — wait for final mu.
+- **tanjiro** (PR #98 Cautious-Muon, wave-2): **lrx1.0 finished**
+  `val=3.3183 ffs=-1` (missed target by 0.04 nats — large miss).
+  Confirms the cautious mask is significantly filtering the NS
+  direction, so LR compensation is essential. `lrx1.5` running at
+  step ~375; `lrx2.0` pending. If neither lrx1.5 nor lrx2.0 reaches
+  target, this is a clean negative for cautious masking on plain Muon.
+- **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995)
+  near completion of seed-3 of 6 (latest run at step 3351 ≈ end of
+  3350-step seed). Two confirmed terminal seeds at ffs=3300 so far.
+  Batch could complete in ~1-2 hours at current pace.
 
 ### Forming wave-1 verdicts (single-seed; still tentative)
 
