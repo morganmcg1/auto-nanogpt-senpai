@@ -30,7 +30,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
     parser.add_argument("--num_trials", type=int, default=None)
-    parser.add_argument("--train_steps", type=int, default=None, help="Override the per-trial train_steps")
     parser.add_argument("--wandb_name", default=os.environ.get("WANDB_NAME", ""))
     parser.add_argument("--wandb_group", default=os.environ.get("WANDB_RUN_GROUP", ""))
     parser.add_argument("--wandb_project", default=os.environ.get("WANDB_PROJECT", "modded-nanogpt-senpai"))
@@ -41,6 +40,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
+    parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
+    parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -456,22 +459,11 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, second_momentum, mu=0.95, beta2=0.95,
-                nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    norm = update.norm(dim=(-2, -1), keepdim=True)
-    if grad.size(-2) >= grad.size(-1):
-        v_mean = (update * update).mean(dim=-1, keepdim=True)
-    else:
-        v_mean = (update * update).mean(dim=-2, keepdim=True)
-    second_momentum.lerp_(v_mean.float(), 1 - beta2)
-    step_size = second_momentum.clamp_min(1e-10).rsqrt().to(update.dtype)
-    update.mul_(step_size)
-    norm_new = update.norm(dim=(-2, -1), keepdim=True)
-    update.mul_(norm / norm_new.clamp_min(1e-10))
     return update
 
 class Muon(torch.optim.Optimizer):
@@ -494,11 +486,112 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        state["second_momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["second_momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+
+def scale_invariant_update_(param, update, lr, eps=1e-10):
+    """Always-active hyperball step: rescale update to param's current norm scale,
+    take the step, then renormalise the result back onto the sphere of radius
+    ||initial param||. Holds Frobenius norm exactly constant across training."""
+    p_norm = param.norm()
+    u_norm = update.norm()
+    new_param = param - lr * update * p_norm / torch.clamp(u_norm, min=eps)
+    new_norm = torch.clamp(new_param.norm(), min=eps)
+    param.copy_(new_param / new_norm * p_norm)
+
+
+class MuonH(torch.optim.Optimizer):
+    """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
+
+    mode="clip": after the regular Muon step, project the parameter back into a
+    ball of radius R = (initial Frobenius norm) * budget_mult only when the norm
+    exceeds R. The projection replaces weight decay as the implicit regularizer.
+
+    mode="scale_invariant": always-active variant from the bundled reference -
+    rescale the update to the param's current norm scale, then renormalise the
+    new param back onto the sphere of radius ||initial param||. Holds Frobenius
+    norm exactly constant; weight_decay must be 0.
+    """
+    def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
+                 hyperball=True, budget_mult=1.0, mode="clip"):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert mode in ("clip", "scale_invariant")
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+        super().__init__(params, defaults)
+        self._last_active_fraction = 0.0
+        self._last_radius_to_norm_max = 0.0
+        self._last_norm_to_radius_max = 0.0
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        clip_count_local = 0
+        total_count_local = 0
+        max_r_over_n_local = 0.0
+        max_n_over_r_local = 0.0
+        for group in self.param_groups:
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            hb = group["hyperball"]
+            budget_mult = group["budget_mult"]
+            mode = group["mode"]
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self.state[p]
+                    if len(state) == 0:
+                        state["momentum"] = torch.zeros_like(p)
+                        if hb:
+                            state["hyperball_radius"] = p.data.norm().item() * budget_mult
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if hb and mode == "scale_invariant":
+                        # Always-active variant: norm is held at initial value by construction.
+                        scale_invariant_update_(p.data, update, group["lr"])
+                        total_count_local += 1
+                        clip_count_local += 1  # by definition projection is always active
+                    else:
+                        p.mul_(1 - group["lr"] * group["weight_decay"])
+                        p.add_(update, alpha=-group["lr"])
+                        if hb:
+                            R = state["hyperball_radius"]
+                            norm = p.data.norm().item()
+                            total_count_local += 1
+                            if R > 0:
+                                r_over_n = R / max(norm, 1e-30)
+                                n_over_r = norm / R
+                                if r_over_n > max_r_over_n_local:
+                                    max_r_over_n_local = r_over_n
+                                if n_over_r > max_n_over_r_local:
+                                    max_n_over_r_local = n_over_r
+                            if norm > R:
+                                p.data.mul_(R / norm)
+                                clip_count_local += 1
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if world_size > 1:
+            counts = torch.tensor([clip_count_local, total_count_local],
+                                  device="cuda", dtype=torch.float64)
+            dist.all_reduce(counts, op=dist.ReduceOp.SUM)
+            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
+                                  device="cuda", dtype=torch.float64)
+            dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            clip_count = float(counts[0].item())
+            total_count = float(counts[1].item())
+            max_r_over_n = float(ratios[0].item())
+            max_n_over_r = float(ratios[1].item())
+        else:
+            clip_count = float(clip_count_local)
+            total_count = float(total_count_local)
+            max_r_over_n = max_r_over_n_local
+            max_n_over_r = max_n_over_r_local
+        self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
+        self._last_radius_to_norm_max = max_r_over_n
+        self._last_norm_to_radius_max = max_n_over_r
 
 
 ########################################
@@ -569,6 +662,10 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "muonh_budget_mult": args.muonh_budget_mult,
+            "muonh_lr": args.muonh_lr,
+            "muonh_mode": args.muonh_mode,
+            "train_steps": args.train_steps,
         },
     )
 
@@ -580,18 +677,29 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = args.train_steps if args.train_steps is not None else 3350
+    train_steps = args.train_steps
 
-    # initialize model parameters
+    # Per-module init std: gives MuonH non-zero matrices to operate on from step 0
+    # while keeping the LM head (model.proj.weight) at zero so initial logits are 0.
+    # The "proj" substring matches both block proj weights and the LM head, so the
+    # LM head is special-cased by exact-name first.
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
-            elif "embed" in name:
-                w.normal_()  # default torch init
+            if name == "proj.weight":
+                w.zero_()  # LM head: keep zero like starter
+            elif name == "embed.weight":
+                w.normal_()  # token embedding: default torch init
+            elif "attn.proj" in name:
+                w.normal_(std=0.026)
+            elif "mlp.proj" in name:
+                w.normal_(std=0.031)
+            elif "mlp.fc" in name:
+                w.normal_(std=0.031)
+            elif "attn." in name:
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -600,30 +708,46 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
+    # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
+    # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
+    # projection now controls norm growth. AdamW aux groups match the starter
+    # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                       hyperball=True, budget_mult=args.muonh_budget_mult,
+                       mode=args.muonh_mode)
+    optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
+    # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
+    # embed / head keep learning for the first ~60% of training.
+    h_cooldown_frac = 1.0
+    aux_cooldown_frac = 0.4
+    for group in optimizer1.param_groups:
+        group["cooldown_frac"] = aux_cooldown_frac
+    for group in optimizer2.param_groups:
+        group["cooldown_frac"] = h_cooldown_frac
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then decay, with per-group cooldown_frac.
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
+                cooldown_frac = group["cooldown_frac"]
+                if progress < 1 - cooldown_frac:
+                    eta = 1.0
+                else:
+                    eta = (1 - progress) / cooldown_frac
                 group["lr"] = group["initial_lr"] * eta
 
 
@@ -742,6 +866,15 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            muonh_metrics = {"trial": trial_idx, "train/step": train_step}
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
+                    muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
+                    muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+            if len(muonh_metrics) > 2:
+                wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
