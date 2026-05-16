@@ -528,12 +528,29 @@ def estimate_spread(m: Tensor, prev_v: Tensor | None = None, n_iters: int = 1):
 
     spread ~= 1 when singular spectrum is flat; spread > 1 when top singular
     value dominates. Returns (spread_float, updated_power_vector) so callers
-    can warm-start across optimization steps.
+    can warm-start across optimization steps. Guards against degenerate
+    momentum buffers (all zeros, non-finite values) by returning 1.0 and a
+    fresh random unit vector so the next call can recover.
     """
     if m.ndim != 2:
         return 1.0, prev_v
     rows, cols = m.shape
-    if prev_v is None or prev_v.shape[0] != cols or prev_v.dtype != m.dtype or prev_v.device != m.device:
+    m_frob = float(m.norm().item())
+    denom = m_frob / max(1.0, math.sqrt(min(rows, cols)))
+    if not math.isfinite(m_frob) or denom <= 0:
+        # momentum is zero or non-finite; reset prev_v so the next call can recover
+        return 1.0, None
+    need_init = (
+        prev_v is None
+        or prev_v.shape[0] != cols
+        or prev_v.dtype != m.dtype
+        or prev_v.device != m.device
+    )
+    if not need_init:
+        # also re-init if the cached vector has collapsed to zeros / NaN
+        v_norm = float(prev_v.norm().item())
+        need_init = (not math.isfinite(v_norm)) or v_norm <= 1e-6
+    if need_init:
         prev_v = torch.randn(cols, device=m.device, dtype=m.dtype)
         prev_v = prev_v / (prev_v.norm() + 1e-7)
     for _ in range(n_iters):
@@ -542,18 +559,23 @@ def estimate_spread(m: Tensor, prev_v: Tensor | None = None, n_iters: int = 1):
         prev_v = m.mT @ v
         prev_v = prev_v / (prev_v.norm() + 1e-7)
     sigma_max = float((m @ prev_v).norm().item())
-    m_frob = float(m.norm().item())
-    denom = m_frob / max(1.0, math.sqrt(min(rows, cols)))
-    if denom <= 0:
-        return 1.0, prev_v
-    return sigma_max / denom, prev_v
+    if not math.isfinite(sigma_max):
+        return 1.0, None
+    spread = sigma_max / denom
+    if not math.isfinite(spread):
+        return 1.0, None
+    return spread, prev_v
 
 def per_layer_ns_iters(spread: float,
                        base: int = PER_LAYER_NS_BASE,
                        extra_max: int = PER_LAYER_NS_EXTRA_MAX,
                        midpoint: float = PER_LAYER_NS_SPREAD_MIDPOINT) -> int:
     """Map measured spread to NS iter count in [base, base + extra_max] via sigmoid."""
-    s = 1.0 / (1.0 + math.exp(-(spread - midpoint)))
+    if not math.isfinite(spread):
+        spread = 1.0
+    # Clamp sigmoid argument to keep math.exp finite for any spread.
+    arg = max(-50.0, min(50.0, spread - midpoint))
+    s = 1.0 / (1.0 + math.exp(-arg))
     return int(base + round(extra_max * s))
 
 @torch.compile
