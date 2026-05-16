@@ -24,6 +24,9 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+# Fraction of training spent in the lr-cooldown (linear-to-zero) tail.
+# PMuon merged baseline uses 0.7; this PR scans 0.5 vs 0.8.
+COOLDOWN_FRAC = 0.8
 
 
 def parse_args():
@@ -565,7 +568,9 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
-model.compile(dynamic=False)
+# dynamic=True works around Inductor NaN-at-~step-125 bug on RTX PRO 6000 Blackwell
+# (alphonse PR #59 root cause; confirmed clean for vanilla Muon by W&B run 83qeloh9).
+model.compile(dynamic=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -601,7 +606,8 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "muon_method": "pmuon-bilateral-cov-precond",
+            "muon_method": "pmuon-cooldown-frac-scan",
+            "cooldown_frac": COOLDOWN_FRAC,
         },
     )
 
@@ -648,7 +654,7 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=COOLDOWN_FRAC):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
