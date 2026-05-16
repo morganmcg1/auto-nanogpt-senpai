@@ -595,3 +595,44 @@ Arm B (k=10) is running (`u78x3cd3` launched ~15:30 UTC) — with longer inner s
 **Conclusion:** MERGED as new baseline. sr=3062.5, val=3.269090. Nezuko freed → assigned Wave 5 γ scan (γ ∈ {1.1, 1.3} arms to probe curvature around the optimum).
 
 
+
+---
+
+## 2026-05-16 20:30 UTC — PR #167 CLOSED: SOAP on attention q/k/v only on PMuon+u/w-floor base — NULL on primary (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-soap-attn`
+- Hypothesis: Restrict SOAP preconditioning to the 36 attention q/k/v 2-D weights only (MLP weights take plain PMuon+u/w-floor). Motivated by the observation that attention matrices might have lower effective rank than MLP weights, making eigenbasis rescaling more impactful in that slot.
+- W&B run: `sb4u7xhb` (n=1, 3250 steps, linear cooldown)
+
+| Metric | PR #167 SOAP-attn (n=1) | PR #94 baseline (n=2 mean) | Δ |
+| ------ | ----------------------- | -------------------------- | - |
+| speedrun/final_first_step_to_target | 3100 | 3100 | 0 (NULL on sr) |
+| val/loss | 3.26806 | 3.267696 | +0.000364 (regression, within seed noise) |
+| (3.28−μ)·√n | 0.01194 | 0.01740 | Worse vs baseline |
+| Current best baseline (PR #137) | — | 3062.5 / 3.269090 | **sr regresses +37.5 steps** |
+
+**Headline mechanistic finding — `post_to_pre_ratio`:**
+
+| stat | value |
+|---|---|
+| mean | **0.99999858** (n=133 telemetry events) |
+| median | 0.99999862 |
+| min / max | 0.99999703 / 0.99999983 |
+| mean |ratio−1| | 1.42e-6 |
+| amp_cap_fire_fraction | **0.000** (never fires) |
+
+The SOAP-attn Frobenius renorm (`multiplier = pre_norm / post_norm`) cancels SOAP's eigenbasis rescaling almost exactly — `post_to_pre_ratio` mean = 0.99999858 (even closer to 1 than PR #140 SOAP-MLP: 0.999998). The asymmetric amp cap (1.5) never fires. **SOAP-attn is a no-op at this slot, same as SOAP-MLP.**
+
+**Spectral finding — attention q/k/v effective rank:**
+
+The motivating hypothesis (attention q/k/v have low effective rank → SOAP has more to grip) is NOT borne out. Participation ratio ≈ 526 / 768 ≈ 0.68. Top-1 singular value carries only ~1% energy; top-128 carry ~52%. Spectrum is moderately spread, not strongly skewed. No dominant subspace for SOAP to leverage.
+
+**u/w-floor domination:** `uw_floor/fired_fraction` mean=0.853, median=1.000. The u/w-floor is the dominant force on update magnitude every step; SOAP-attn's contribution is masked.
+
+**Cross-PR significance:**
+
+- Completes the "post-polar Frobenius-preserving preconditioning" probe family: PR #140 (SOAP-MLP, null) + PR #167 (SOAP-attn, null) = **this slot is exhausted on PMuon+u/w-floor base**.
+- The Frobenius renorm invariant (`pre_norm / post_norm < 1.5` so amp_cap never fires) was the decisive mechanism in both cases.
+- PR #83 (SOAP-MLP standalone, null), PR #140 (SOAP-MLP × PMuon+u/w-floor, null), PR #167 (SOAP-attn × PMuon+u/w-floor, null) — three independent null results confirming the same mechanism.
+
+**Conclusion:** Closed as informative null. Tanjiro reassigned to Wave 5 NS coefficient scan (PR #193): sweeping (a, b, c) ∈ {Jordan-optimized (3.4445, -4.7750, 2.0315), cubic-Newton (1.5, -0.5, 0)} on the PMuon+u/w-floor+γ=1.2 base. Together with thorfinn PR #184 (NS iter count scan), this fully maps the NS polar hyperparameter space.
