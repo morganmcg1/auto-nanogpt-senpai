@@ -397,3 +397,39 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Mechanism**: gate active on ~11% attn layers per step; 89% fallback to plain Muon. Newton-Muon trades ffs speed for cooldown depth — helpful for a fixed-step benchmark measure, wrong direction for ffs-primary benchmark.
 - **Decision**: CLOSED as primary-metric regression. Advisor pre-notice was also wrong about trial 5 DNF (it was mid-cooldown, not stalled — acknowledged to student).
 - **Closed mechanism**: Activation-covariance right-preconditioning on attn via Newton-Muon.
+
+## 2026-05-16 ~23:30 UTC — PR #162: Per-group LR sweep (lr_mlp, screening update)
+
+- g1r5-edward/per-group-lr-sweep
+- Hypothesis: Sweep lr_mlp ∈ {0.025, 0.035, 0.045, 0.055, 0.065} keeping lr_attn=0.035 fixed, on merged SOAP-MLP + SOAP-attn base. Look for non-uniform optimal LR per param-group.
+
+| Cell | lr_mlp | val_loss | ffs  | run_id    |
+|------|--------|----------|------|-----------|
+| A    | 0.025  | 3.27769  | 3200 | zgchg6u5  |
+| B    | 0.035  | 3.27569  | 3175 | eabllnva  |
+| C    | 0.045  | 3.27131  | 3125 | hjizd4ca  |
+| D    | 0.055  | **3.26987** | **3125** | w0o14lia |
+| E    | 0.065  | (running) | —    | TBD        |
+
+- **n**: 1 per cell so far (screening); n=4 confirm to follow at winner.
+- **Baseline n=6 mu**: 3.273735, ffs=3150.
+- **Direction**: Monotonic improvement A→B→C→D on val_loss; diminishing returns (B→C −0.00438; C→D −0.00144). ffs flattened at C=D=3125.
+- **Cell D significance**: At n=1, val=3.26987 already beats n=6 baseline by 0.00387 nats AND beats best-of-baseline ffs (3125) — strongest positive signal in wave-3 portfolio.
+- **Status**: Cell E (lr=0.065) in flight ETA ~01:15Z to determine if peak still climbing or has plateaued. Then n=4 confirm at winner cell.
+
+## 2026-05-16 ~22:30 UTC — PR #171: SOAP trust-gate threshold sweep (Arm A, B)
+
+- g1r5-nezuko/soap-trust-threshold
+- Hypothesis: Vary trust-gate cos_sim threshold ∈ {0.3, 0.5, 0.7} on SOAP-attn base; default is 0.0 (decorative per stack diagnostic). A non-zero threshold may improve by selectively bypassing SOAP-attn for low-alignment updates.
+
+| Arm | threshold | val/loss | ffs | run_id    |
+|-----|-----------|----------|-----|-----------|
+| A   | 0.3       | 3.27307  | 3150 | uaqrm8r6  |
+| B   | 0.5       | 3.27497  | 3175 | 8p6yw4qz  |
+| C   | 0.7       | (running) | —   | baohf11o  |
+
+- **n**: 1 per arm.
+- **Baseline n=6 mu**: 3.273735, ffs=3150.
+- **Direction**: Both Arms A and B at/below n=1 noise vs baseline; A ≈ baseline, B worse. Trust-gate at threshold=0.3 hits ~few % of SOAP-attn updates (most have cos_sim ≥ 0.5); 0.5 starts hitting middle of distribution and clips signal. Monotonic worsening A→B suggests 0.7 will be worse still.
+- **Predicted close**: Likely clean negative across all 3 arms — trust gate already calibrated on baseline.
+
