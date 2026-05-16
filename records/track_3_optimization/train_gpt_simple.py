@@ -300,6 +300,11 @@ def log_polar_diagnostics(
             svd_exact = polar_exact_svd(x)
             ns_res = float((ns_only.float() - svd_exact.float()).norm().item())
             metrics["train/polar/ns_residual_block0_q_frobenius"] = ns_res
+        metrics["train/polar/svd_fallback_count"] = _POLAR_SVD_FALLBACKS
+        metrics["train/polar/svd_attempt_count"] = _POLAR_SVD_ATTEMPTS
+        metrics["train/polar/svd_fallback_fraction"] = (
+            _POLAR_SVD_FALLBACKS / _POLAR_SVD_ATTEMPTS if _POLAR_SVD_ATTEMPTS else 0.0
+        )
         wandb.log(metrics, step=wandb_step)
 
 
@@ -487,6 +492,9 @@ USE_POLAR_SVD = int(os.environ.get("NANOGPT_USE_POLAR_SVD", "0"))
 POLAR_FP32 = int(os.environ.get("NANOGPT_POLAR_FP32", "0"))
 NS_PLUS_SVD = int(os.environ.get("NANOGPT_NS_PLUS_SVD", "0"))
 
+_POLAR_SVD_FALLBACKS = 0
+_POLAR_SVD_ATTEMPTS = 0
+
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -516,18 +524,28 @@ def polar_exact_svd(G: Tensor) -> Tensor:
     controls only the dtype of the U @ Vh matmul: 0 -> downcast U/Vh to bf16
     before the matmul (Arm B); 1 -> keep fp32 through the matmul (Arm C).
 
-    Driver 'gesvd' (QR-based) is used for robustness; 'gesvdj' (default for
-    near-square) can fail with linalg error on ill-conditioned matrices and
-    inductor strips the driver kwarg when tracing.
+    Adam-preconditioned input (Muon^2) at early steps is approximately a
+    sign matrix with highly clustered singular spectrum. cuSOLVER drivers
+    'gesvdj' (Jacobi) and even 'gesvd' (QR-based) can fail to converge on
+    such matrices with error code = matrix dim. We fall back to NS
+    orthogonalization on linalg errors. The polar factor of a degenerate
+    matrix is non-unique anyway, so NS is a valid alternative in that case.
     """
+    global _POLAR_SVD_FALLBACKS, _POLAR_SVD_ATTEMPTS
     assert G.ndim >= 2
     orig_dtype = G.dtype
     X = G.float()
     transposed = X.size(-2) > X.size(-1)
     if transposed:
         X = X.mT
+    _POLAR_SVD_ATTEMPTS += 1
     # No spectral-norm pre-scaling needed: SVD is scale-invariant in U V^T.
-    U, S, Vh = torch.linalg.svd(X, full_matrices=False, driver="gesvd")
+    try:
+        U, S, Vh = torch.linalg.svd(X, full_matrices=False, driver="gesvd")
+    except torch._C._LinAlgError:
+        _POLAR_SVD_FALLBACKS += 1
+        # Spectrum degenerate -> fall back to NS-12 path.
+        return zeropower_via_newtonschulz5(G).to(orig_dtype)
     if not POLAR_FP32:
         U = U.bfloat16()
         Vh = Vh.bfloat16()
