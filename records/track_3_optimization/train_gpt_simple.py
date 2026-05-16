@@ -197,6 +197,8 @@ def log_training_telemetry(
     step: int,
     train_steps: int,
     wandb_step: int,
+    pre_clip_grad_norm: Tensor | None = None,
+    clip_norm: float = 0.0,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -213,6 +215,12 @@ def log_training_telemetry(
         "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
         "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
     }
+    if pre_clip_grad_norm is not None:
+        pre_clip_val = float(pre_clip_grad_norm.item())
+        metrics["train/grad/pre_clip_global_norm"] = pre_clip_val
+        metrics["train/grad/clip_norm_threshold"] = clip_norm
+        metrics["train/grad/clip_activated"] = int(pre_clip_val > clip_norm)
+        metrics["train/grad/clip_scale_factor"] = min(1.0, clip_norm / (pre_clip_val + 1e-12))
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
@@ -434,6 +442,7 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -523,6 +532,8 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
+       console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -561,6 +572,8 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
+            "nanogpt_ns_iters": NS_ITERS,
         },
     )
 
@@ -702,6 +715,11 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        if NANOGPT_GRAD_CLIP > 0:
+            pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=NANOGPT_GRAD_CLIP)
+        else:
+            pre_clip_grad_norm = None
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
@@ -731,6 +749,8 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+                pre_clip_grad_norm=pre_clip_grad_norm,
+                clip_norm=NANOGPT_GRAD_CLIP,
             )
         for opt in optimizers:
             opt.step()
