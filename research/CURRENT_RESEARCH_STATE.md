@@ -1,6 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 22:00 UTC. Post-#105 wave-3. **🔥 NEW WINNER CANDIDATE — thorfinn #165 arm-B clip=10 FINISHED val=3.2743/fs=3250 single-seed** (beats merged baseline by 0.001 val + 17 fs steps). **arm-C (clip=25) running step 400**; arm-D (clip=50) queued. After all arms terminal: 2 confirmation seeds at best arm. **Askeladd #189 arm-D eps=1e-10 CONFIRMED unsafe**: 3rd smoke `z4gco0kb` with clip=5.0 active still produced 162M non-finite grad elements at step 1; clip can't fire on non-finite norms. Drop arm-D; await arm-C (1e-9) smoke. **Edward #115 BC stack continues to regress**: seed2 `thrpa2mm`=3.27770; BC mean n=2=3.27838 worse than control (3.27637). Awaiting seed3. **Tanjiro #185 arm-A** step 1700 val=3.50; **Alphonse #188 arm-A** step 1350 val=3.57; **Frieren #176 arm-B** step 2450 val=3.39; **Fern #163 arm-D** step 2600 val=3.38; **Nezuko #145 arm-D** step 2010 val=3.44. All in-flights healthy.
+- **Date:** 2026-05-16 22:10 UTC. Post-#105 wave-3. **🔥🔥 TWO WINNER CANDIDATES on independent mechanism axes**:
+  - **thorfinn #165 arm-B clip=10 FINISHED val=3.2743/fs=3250** (clip-axis)
+  - **frieren #176 arm-B NS=12→16 cooldown boost FINISHED val=3.2733/fs=3250** (NS-schedule-axis)
+  - Identical fs=3250 (−17 steps vs baseline), val improvement 0.0010–0.0020. Both await arm-C/D completion then confirmation seeds. **If both confirm at n=3, may be additively stackable** (clip on aux groups, NS-sched on Muon blocks). **frieren #138 mechanism prediction translated cleanly: cooldown IS the precision-sensitive phase**.
+- **Fern #163 arm-D K=800 decay FINISHED val=3.2783/fs=3325** — best DMR variant still regresses +0.003 vs baseline. **DMR family closing as clean negative** after student terminal SENPAI-RESULT post.
+- **Askeladd #189 arm-D eps=1e-10 CONFIRMED unsafe** (3rd smoke `z4gco0kb` NaN with clip=5.0); awaiting arm-C (1e-9) smoke.
+- **Edward #115 BC stack regresses** (n=2 BC mean=3.27838 vs control 3.27637); awaiting seed3.
+- **In-flight**: Nezuko #145 arm-D NS=18 step 3325 nearly done; Tanjiro #185 arm-A step 3075; Alphonse #188 arm-A step 2750; Thorfinn #165 arm-C clip=25 step 1750.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -75,8 +82,8 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost | arm-A 3rd attempt `sara3jjw` FINISHED val=3.2766/fs=3275 ✓. **arm-B (NS=12→16) `2xp7ut5r` step 2010 val=3.44** running. arms C/D queued. Terminal ETA ~22:45 UTC. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780. arm-B (K=50)=3.2930 CATASTROPHIC. arm-C (K=200) val=3.2811 — REGRESSES. **arm-D (K=800 decay) `zswc3l4q` step 2150 val=3.43** running. Terminal ETA ~22:35 UTC. Family on track to close. |
+| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost 🔥 | arm-A 3rd `sara3jjw` val=3.2766/fs=3275 ✓. **arm-B (NS=12→16) `2xp7ut5r` FINISHED val=3.2733/fs=3250 ✓✓ — BEATS BASELINE single-seed**. arm-C (NS=12→20) and arm-D (NS=8→12 balanced) queued. After all arms terminal: 2 confirmation seeds at best arm. Mechanism: #138 cooldown-precision prediction confirmed. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A control=3.2780. arm-B K=50=3.2930 CATASTROPHIC. arm-C K=200=3.2811 REGRESSES. **arm-D K=800 decay `zswc3l4q` FINISHED val=3.2783/fs=3325** — best DMR variant but +0.003 vs baseline. **Closing as clean negative** after student terminal post: DMR provides no benefit; #154 staleness signal is noise-dominated. |
 | **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A NS=12=3.27841. arm-B NS=16=3.27992. arm-C NS=14=3.27761 within noise. **arm-D `zrrqch4i` (BASE=6 EXTRA=12 → effective NS=18 uniform) step 2250 val=3.41** running. Per-layer policy degenerated to uniform NS (variance=0 across arms). Sweep is effectively a uniform NS={12,14,16,18} probe; NS=14 marginally best of non-baseline. **Closure planned after arm-D terminal**. Branch MERGEABLE/CLEAN. |
 | **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | Smoke PASS `ugzl4jqe` val=4.869 step 100. **arm-A (constant NS=12) `qit8x8ux` step 1225 val=3.60** running healthy. arms B/C/D sequential. |
 | **#165** | **thorfinn** | **Clip value extension sweep** 🔥 | arm-A FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` FINISHED val=3.2743/fs=3250 ✓✓ — BEATS BASELINE single-seed**. **arm-C (clip=25) `2btntm04` step 50** just launched. arm-D (clip=50) queued. After all arms terminal: launch 2 confirmation seeds at best arm. **Likely next merge.** |
@@ -91,7 +98,11 @@
 
 **#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**🔥 thorfinn #165 arm-B (clip=10) BEATS BASELINE single-seed (21:35 UTC)**: val=3.2743/fs=3250 vs merged baseline 3.27527/3266.7. Need arm-C/D to complete, then 2 confirmation seeds at the best arm. The clip mechanism axis is MORE load-bearing than expected — clip=5.0 was not the optimum.
+**🔥🔥 TWO INDEPENDENT WINNER CANDIDATES (22:05 UTC)**:
+- **thorfinn #165 arm-B clip=10**: val=3.2743/fs=3250 (clip-axis on AdamW aux groups)
+- **frieren #176 arm-B NS=12→16 cooldown boost**: val=3.2733/fs=3250 (NS-iter-schedule on Muon blocks)
+
+Both single-seed beat merged baseline 3.27527/3266.7. **Identical fs=3250** (−17 steps each). Need arm-C/D to complete, then 2 confirmation seeds at best arm each. **Critical insight**: clip and NS-schedule act on DIFFERENT parameter groups → if both confirm at n=3, may be **additively stackable** into a single next-merge candidate beating both.
 
 **Wave of regressions confirmed — emerging picture (updated 21:40 UTC)**:
 1. **#115 edward** — BC+clip stack REGRESSES (seed1=3.27906 vs control 3.27637). n=2/3 in flight. **Mechanism: BC and clip overlap (both stabilize early-step preconditioner) — redundant.** Close after n=3 confirmation. ETA ~3h.
