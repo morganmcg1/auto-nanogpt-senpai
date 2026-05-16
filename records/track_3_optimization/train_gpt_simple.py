@@ -42,11 +42,23 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--newton_muon", action="store_true",
+                        help="Enable Newton-Muon activation-covariance right-precond on Muon-managed attention weights.")
+    parser.add_argument("--newton_beta", type=float, default=0.95,
+                        help="EMA decay for Cov(x) accumulation (per forward pass).")
+    parser.add_argument("--newton_refresh_freq", type=int, default=64,
+                        help="Eigendecomp refresh frequency for Cov^(-1/2) cache (in optimizer steps).")
+    parser.add_argument("--newton_damping", type=float, default=1e-6,
+                        help="Damping added to Cov(x) eigenvalues before inversion.")
+    parser.add_argument("--newton_gate_thresh", type=float, default=0.5,
+                        help="Cosine-sim threshold below which the trust gate falls back to plain gradient.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.newton_refresh_freq < 1:
+        raise ValueError("--newton_refresh_freq must be positive")
     return args
 
 
@@ -256,6 +268,36 @@ def log_weight_telemetry(
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_newton_telemetry(
+    muon_optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+    include_per_layer: bool,
+):
+    telem = getattr(muon_optimizer, "newton_telemetry", None)
+    if not telem:
+        return
+    agg = telem.get("agg", {}) or {}
+    if not agg and not telem.get("per_layer"):
+        return
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+    }
+    for k, v in agg.items():
+        metrics[f"newton/{k}"] = v
+    if include_per_layer:
+        for layer_name, stats in telem.get("per_layer", {}).items():
+            clean = clean_metric_name(layer_name)
+            for stat_name, v in stats.items():
+                # Skip nan to keep wandb panels clean.
+                if isinstance(v, float) and v != v:
+                    continue
+                metrics[f"newton/per_layer/{stat_name}/{clean}"] = v
     wandb.log(metrics, step=wandb_step)
 
 
@@ -524,12 +566,95 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+class ActCovHook:
+    """Forward-pre-hook that EMA-accumulates the input activation covariance
+    `Cov(x) = E[x x^T]` and caches `Cov^(-1/2)` (refreshed on demand).
+    Right-precondition for Newton-Muon: `g_pre = g @ Cov(x)^(-1/2)`."""
+
+    def __init__(self, name: str, d_in: int, beta: float = 0.95, device: str = "cuda"):
+        self.name = name
+        self.beta = beta
+        self.d_in = d_in
+        self.cov = torch.zeros(d_in, d_in, dtype=torch.float32, device=device)
+        self.precond = None  # cached Cov^(-1/2), bf16 for the matmul
+        self.initialized = False
+        self.last_cov_cond = float("nan")
+        self.last_eig_min = float("nan")
+        self.last_eig_max = float("nan")
+        self.refresh_count = 0
+
+    def __call__(self, module, input):
+        # Skip accumulation during validation forward passes.
+        if not module.training:
+            return
+        x = input[0]
+        # x has shape (B, T, d_in). Keep bf16 for the matmul (tensor cores), then
+        # cast to fp32 for the EMA accumulator.
+        x_flat = x.reshape(-1, x.shape[-1])
+        n = x_flat.shape[0]
+        batch_cov = (x_flat.T @ x_flat).to(torch.float32) / n
+        if not self.initialized:
+            self.cov.copy_(batch_cov.detach())
+            self.initialized = True
+        else:
+            self.cov.mul_(self.beta).add_(batch_cov.detach(), alpha=(1.0 - self.beta))
+
+    def refresh_precond(self, damping: float = 1e-6):
+        # Symmetrize before decompose — guards against fp accumulation noise breaking PSD.
+        C = 0.5 * (self.cov + self.cov.T)
+        eye = torch.eye(C.size(0), device=C.device, dtype=torch.float32)
+        cov_damped = C + damping * eye
+        try:
+            eigvals, eigvecs = torch.linalg.eigh(cov_damped)
+        except RuntimeError:
+            eigvals_d, eigvecs_d = torch.linalg.eigh(cov_damped.double())
+            eigvals = eigvals_d.float()
+            eigvecs = eigvecs_d.float()
+        # Clamp eigenvalues from below (eigh can return tiny negatives due to noise).
+        eigvals_clamped = eigvals.clamp(min=damping)
+        self.last_eig_min = float(eigvals_clamped.min().item())
+        self.last_eig_max = float(eigvals_clamped.max().item())
+        self.last_cov_cond = self.last_eig_max / max(self.last_eig_min, 1e-30)
+        inv_sqrt = (eigvecs * eigvals_clamped.pow(-0.5).unsqueeze(0)) @ eigvecs.T
+        self.precond = inv_sqrt.to(torch.bfloat16)
+        self.refresh_count += 1
+
+    def reset(self):
+        self.cov.zero_()
+        self.precond = None
+        self.initialized = False
+        self.last_cov_cond = float("nan")
+        self.last_eig_min = float("nan")
+        self.last_eig_max = float("nan")
+        self.refresh_count = 0
+
+
+def _cos_sim_flat(a: Tensor, b: Tensor) -> float:
+    a_f = a.float().flatten()
+    b_f = b.float().flatten()
+    denom = (a_f.norm() * b_f.norm()).clamp_min(1e-12)
+    return float(((a_f @ b_f) / denom).item())
+
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
+                 param_to_hook=None, newton_damping=1e-6, newton_gate_thresh=0.5,
+                 newton_refresh_freq=64):
         assert isinstance(named_params, list) and len(named_params) >= 1
         self.soap_params = {
             p for n, p in named_params
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+        }
+        self.param_to_hook = param_to_hook or {}
+        self.param_to_name = {p: n for n, p in named_params}
+        self.newton_damping = newton_damping
+        self.newton_gate_thresh = newton_gate_thresh
+        self.newton_refresh_freq = newton_refresh_freq
+        self._newton_step = 0
+        # Telemetry buffers (populated each step, consumed by trainer).
+        self.newton_telemetry = {
+            "per_layer": {},  # name -> dict(cos_sim, gate_fired, norm_ratio, cov_cond)
+            "agg": {},
         }
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
@@ -537,6 +662,18 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        # Refresh Cov^(-1/2) cache on schedule (every newton_refresh_freq optimizer steps).
+        if self.param_to_hook and self._newton_step % self.newton_refresh_freq == 0:
+            for hook in set(self.param_to_hook.values()):
+                if hook.initialized:
+                    hook.refresh_precond(damping=self.newton_damping)
+        self._newton_step += 1
+
+        per_layer = {}
+        cos_sims_active = []
+        gate_fired_active = []
+        norm_ratios_active = []
+
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -547,6 +684,7 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    use_newton = p in self.param_to_hook
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -562,11 +700,75 @@ class Muon(torch.optim.Optimizer):
                         nesterov_update = soap_precondition_momentum(nesterov_update, state)
                         update = soap_ns_step(nesterov_update)
                         soap_update_preconditioner(p.grad, state)
+                    elif use_newton:
+                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                        nesterov_update = p.grad.lerp(state["momentum"], group["mu"])
+                        hook = self.param_to_hook[p]
+                        layer_name = self.param_to_name.get(p, hook.name)
+                        if hook.precond is not None:
+                            ne_pre = nesterov_update @ hook.precond.to(nesterov_update.dtype)
+                            cos_sim = _cos_sim_flat(ne_pre, nesterov_update)
+                            ne_pre_norm = float(ne_pre.float().norm().item())
+                            ne_norm = float(nesterov_update.float().norm().item())
+                            norm_ratio = ne_pre_norm / max(ne_norm, 1e-12)
+                            if cos_sim < self.newton_gate_thresh:
+                                ns_input = nesterov_update
+                                gate_fired_flag = 1.0
+                            else:
+                                ns_input = ne_pre
+                                gate_fired_flag = 0.0
+                            per_layer[layer_name] = {
+                                "cos_sim": cos_sim,
+                                "gate_fired": gate_fired_flag,
+                                "norm_ratio": norm_ratio,
+                                "cov_cond": hook.last_cov_cond,
+                                "eig_min": hook.last_eig_min,
+                                "eig_max": hook.last_eig_max,
+                            }
+                            cos_sims_active.append(cos_sim)
+                            gate_fired_active.append(gate_fired_flag)
+                            norm_ratios_active.append(norm_ratio)
+                        else:
+                            ns_input = nesterov_update
+                            per_layer[layer_name] = {
+                                "cos_sim": float("nan"),
+                                "gate_fired": 0.0,
+                                "norm_ratio": 1.0,
+                                "cov_cond": float("nan"),
+                                "eig_min": float("nan"),
+                                "eig_max": float("nan"),
+                            }
+                        update = soap_ns_step(ns_input)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+        # Aggregate Newton telemetry across active attn layers (excludes pre-precond steps).
+        if cos_sims_active:
+            cos_t = torch.tensor(cos_sims_active)
+            gate_t = torch.tensor(gate_fired_active)
+            norm_t = torch.tensor(norm_ratios_active)
+            agg = {
+                "cos_sim_mean": float(cos_t.mean().item()),
+                "cos_sim_min": float(cos_t.min().item()),
+                "cos_sim_max": float(cos_t.max().item()),
+                "gate_fallback_rate": float(gate_t.mean().item()),
+                "norm_ratio_mean": float(norm_t.mean().item()),
+                "norm_ratio_max": float(norm_t.max().item()),
+            }
+        else:
+            agg = {}
+        if self.param_to_hook:
+            refresh_counts = [h.refresh_count for h in set(self.param_to_hook.values())]
+            agg["precond_refresh_count"] = float(max(refresh_counts) if refresh_counts else 0)
+            cov_conds = [h.last_cov_cond for h in set(self.param_to_hook.values())
+                         if not (h.last_cov_cond != h.last_cov_cond)]  # filter NaN
+            if cov_conds:
+                agg["cov_cond_max"] = float(max(cov_conds))
+                agg["cov_cond_mean"] = float(sum(cov_conds) / len(cov_conds))
+        self.newton_telemetry = {"per_layer": per_layer, "agg": agg}
 
 
 ########################################
@@ -609,6 +811,39 @@ val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/finew
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
 
+# Register Newton-Muon forward-pre-hooks on Muon-managed attention linears.
+# Registered AFTER compile so the hook callback runs in eager around the compiled
+# forward — accumulation cannot graph-break the compiled subgraph.
+# q/k/v share one hook per block (they receive the same RMSNormed input);
+# proj gets its own hook (it receives the attention output).
+act_cov_hooks: list[ActCovHook] = []
+attn_param_to_hook: dict[Tensor, ActCovHook] = {}
+if args.newton_muon:
+    for block_idx, block in enumerate(model.blocks):
+        qkv_hook = ActCovHook(
+            name=f"blocks.{block_idx}.attn.qkv_in",
+            d_in=block.attn.q.in_features,
+            beta=args.newton_beta,
+            device=str(device),
+        )
+        # Attach to q only so cov updates exactly once per microbatch forward;
+        # share precond across q, k, v weights.
+        block.attn.q.register_forward_pre_hook(qkv_hook)
+        act_cov_hooks.append(qkv_hook)
+        attn_param_to_hook[block.attn.q.weight] = qkv_hook
+        attn_param_to_hook[block.attn.k.weight] = qkv_hook
+        attn_param_to_hook[block.attn.v.weight] = qkv_hook
+
+        proj_hook = ActCovHook(
+            name=f"blocks.{block_idx}.attn.proj_in",
+            d_in=block.attn.proj.in_features,
+            beta=args.newton_beta,
+            device=str(device),
+        )
+        block.attn.proj.register_forward_pre_hook(proj_hook)
+        act_cov_hooks.append(proj_hook)
+        attn_param_to_hook[block.attn.proj.weight] = proj_hook
+
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
     tags = ["track-3-optimization", "senpai"] + args.wandb_tags
@@ -641,6 +876,13 @@ if dist.get_rank() == 0:
             "soap_scope": "mlp.fc.weight,mlp.proj.weight",
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "newton_muon_enabled": args.newton_muon,
+            "newton_muon_scope": "blocks.*.attn.{q,k,v,proj}.weight" if args.newton_muon else "",
+            "newton_beta": args.newton_beta,
+            "newton_refresh_freq": args.newton_refresh_freq,
+            "newton_damping": args.newton_damping,
+            "newton_gate_thresh": args.newton_gate_thresh,
+            "newton_num_hooks": len(act_cov_hooks),
         },
     )
 
@@ -652,7 +894,11 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+    train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3350))
+
+    # Reset Newton-Muon hooks so each trial starts with empty Cov state.
+    for hook in act_cov_hooks:
+        hook.reset()
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -677,7 +923,11 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=0.025,
+                      param_to_hook=attn_param_to_hook if args.newton_muon else None,
+                      newton_damping=args.newton_damping,
+                      newton_gate_thresh=args.newton_gate_thresh,
+                      newton_refresh_freq=args.newton_refresh_freq)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -814,6 +1064,14 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and args.newton_muon:
+            log_newton_telemetry(
+                muon_optimizer=optimizer2,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+                include_per_layer=telemetry_due,
+            )
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
