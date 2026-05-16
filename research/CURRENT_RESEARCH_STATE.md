@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #28, ~13:30 UTC)
+- **Last updated:** 2026-05-16 (poll #29, ~13:55 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3200, mu=3.27744, n=6` (PR #46 SOAP-MLP isolated, merged 2026-05-16 04:00 UTC)
 - **Merge statsig rule**: `(3.27744 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27581 for n=6, ≤ 3.27603 for n=8.
@@ -16,7 +16,7 @@
 | 147  | g1r5-nezuko     | Output Embedding Mean-Centering (mu-centering) post optimizer step     | explore | WIP — freshly assigned poll #25. Post-step `lm_head.weight -= mean`. n=4 screen, 3200 steps. |
 | 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (1/sqrt(2L) on attn.proj + mlp.proj)       | explore | WIP — reframed poll #26: replace zero-init with depth-scaled Gaussian on residual output projections (zero-init was a no-op with the literal spec). n=4 screen, 3200 steps. |
 | 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — freshly assigned poll #27. Wave-3 retry fixing the c_t=1/(t+1) uniform-averaging spec issue from PR #121. Fixed β=0.90, cooldown_frac=0, p sweep. 3-cell screen × n=1. |
-| 159  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | **FRESHLY ASSIGNED** (poll #28). Tests whether SOAP's covariance preconditioner enables a higher base lr for the MLP group than lr=0.035 inherited from pre-SOAP record #12. Control cell B enforces identity check. 4-cell × n=2 screen. |
+| 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — assigned poll #29 (PR #159 auto-closed by branch-merge mistake; PR #162 is the active assignment). Tests whether SOAP's covariance preconditioner enables a higher base lr for the MLP group than lr=0.035 inherited from pre-SOAP record #12. Control cell B enforces identity check. 4-cell × n=2 screen. |
 
 ## Closed PRs Summary
 
