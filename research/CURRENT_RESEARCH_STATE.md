@@ -1,5 +1,28 @@
 # SENPAI Research State
 
+- 2026-05-16 15:30 — Cycle 21 (holding pattern, multiple terminals expected next 30-60 min):
+  - **ASKELADD T3 at step 2975/3300 (~90%)** — live val=3.3141 mid-late-cooldown ANOMALOUSLY HIGH.
+    T0=3.27772, T1=3.27573, T2=3.27863. Mean(T0-T2)=3.27736. T3 will determine statsig.
+    If T3 final val ≤ 3.27869 → statsig pass; if T3 > 3.28 → 1 seed misses target.
+    ETA terminal ~15:50 UTC. ffs_mean cannot beat baseline 3131 even if T3 hits target.
+  - **ALPHONSE 0.5 screen `yctj2ozd` step 2075/3175 (~65%)** still running. ETA ~15:50 UTC.
+  - **FRIEREN T0=3.28240, T1=3.28196 BOTH MISSED** at 3175 step count. Will be clean
+    negative SENPAI-RESULT when T3 finishes. ~3.5h to terminal.
+  - **TANJIRO Lookahead screen launched** `tbesgctw` step 280 val=4.097 (running, healthy).
+    Second run `uvk1in7y` crashed at step 0 (likely config attempt). ETA full screen ~17:50 UTC.
+  - **EDWARD T0 and T1 BOTH ffs=3175 (identical)** — recipe has tight ffs distribution at 3225
+    step count. T2 step 2477/3225 (~77%). Mean(T0-T1) = 3.27750 (single seed both). ETA T3
+    terminal ~17:00 UTC. ffs_mean ~3175 won't beat baseline.
+  - **THORFINN T0=3.27400, T1=3.27400 both ffs=3250** — strong dual-trial agreement. T2 at
+    step 874/3325 (~26%). Strong recipe but ffs > baseline 3131.
+  - **FERN Aurora screen `lqwaozx7` step 1125/3175 (~35%)** — clamp fix working, no crash so far.
+    ETA terminal ~17:00 UTC.
+  - **NEZUKO `udc2950s` step 945** — created 14:02 UTC (before my 14:40 comment about n=4 at 3175).
+    May be another screen attempt. Need to clarify with nezuko what this run is.
+  - **PORTFOLIO STATE**: 4 n=4 confirms running (askeladd, edward, thorfinn, frieren), 3 screens
+    running (alphonse 0.5, tanjiro lookahead, fern aurora), 1 ambiguous (nezuko `udc2950s`).
+    Next 60 min should yield 2-3 terminals (askeladd n=4, alphonse 0.5 screen, possibly others).
+
 - 2026-05-16 14:40 — Cycle 20 (nezuko terminal borderline, tanjiro smoke done, multiple n=4 progressing):
   - **NEZUKO #124 SCREEN TERMINAL** `c5d01ezw` val=**3.2797**, ffs=**3150** at train_steps=3150.
     Borderline single seed (0.0017 above merged mean). Sent back: predeclare n=4 at 3175 (match
