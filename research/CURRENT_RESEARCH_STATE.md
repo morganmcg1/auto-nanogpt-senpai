@@ -16,24 +16,23 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - **Path to merge is narrowing**: remaining 3 trials need mean val ≤ 3.27737 AND mean ffs ≤ 3125
 - Still highest-priority result, but uncertain outcome now
 
-### FERN #125 — Aurora n=4 LAUNCHED 🔥
-- Screen `lqwaozx7`: val=**3.27706**, ffs=**3125** — BEATS merged baseline on BOTH metrics!
-- Two prior crashes resolved by D.clamp_(1e-6, 1e6) fix
-- n=4 predeclared (locked HPs: AURORA_PP_ITERATIONS=2, AURORA_PP_BETA=0.5, CONTRA_MUON=0.4, MUON_WEIGHT_DECAY=0.01) launched 16:26 UTC via setsid nohup
-- Step time ~1.93s × 3175 × 4 = ~410 min wall-clock → ETA terminal ~23:20 UTC
-- SECOND HIGHEST-PRIORITY RESULT. Aurora is fundamentally different mechanism than CONTRA_MUON tuning.
-- Note: MUON_WEIGHT_DECAY=0.01 deviation from merged baseline (0.025) — but matches the FFS-winning screen config.
+### FERN #125 — Aurora n=4 HIGH VARIANCE ⚠️
+- T0=3.27592/3100 (excellent!), T1=3.28172/-1 (MISS — never crossed 3.28!)
+- n=2 mean=3.27882, ffs_mean=3137.5 — currently above merge threshold
+- T2 at step 550/3175. For merge: need T2+T3 both near T0 quality.
+- Aurora diagonal leverage-score equalization appears seed-sensitive.
+- ETA terminal ~23:00 UTC
 
-### NEZUKO #124 — Attn-SOAP + trust gate n=4 self-corrected
-- Screen `udc2950s`: val=3.27802, ffs=3125 @ train_steps=3150 (single seed)
-- Initial n=4 `y7ibpvry` killed at T1 step 1148/3150 — student self-caught wrong step count
-- NEW n=4 `790h1llo` LAUNCHED 16:34 UTC at train_steps=3175 (corrective). ETA terminal ~24:00 UTC.
-- Prediction: borderline mean ~3.2785, ffs ~3120-3150
+### NEZUKO #124 — Attn-SOAP + trust gate n=4 🔥 ON TRACK TO MERGE
+- T0=3.27743/3125, T1=3.27750/3125 — both beat baseline!
+- n=2 mean=3.27747, ffs=3125 — if T2/T3 hold → MERGE
+- T2 at step 275/3175. T3+T4 remaining. ETA terminal ~24:00 UTC.
+- Remarkably low variance (val within 0.00007 across T0/T1)
 
-### TANJIRO #161 — Lookahead screen REDO (`sks2z7oe`)
-- Earlier extended verification `tbesgctw` hit val=3.3042 (MISS)
-- NEW screen `sks2z7oe` launched 16:33 UTC. ETA terminal ~18:20 UTC.
-- If screen MISS again: close PR, reassign to **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95
+### TANJIRO #187 — PMuon bilateral streaming covariance power preconditioning
+- Just assigned (20:25 UTC). Awaiting smoke + screen.
+- PR #161 closed: both α=0.5 (3.30606) and α=0.7 (3.28985) Lookahead screens MISSED
+- Mechanism: Σ_L/Σ_R streaming covariance, γ=0.3 power preconditioning stacked after NS5
 
 ### ASKELADD #181 — Schedule-Free Muon (SFM)
 - Just assigned (19:10 UTC). Awaiting smoke + screen.
@@ -74,6 +73,7 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - **Frieren #109 (MuLoCo+NorMuon n=4 @ 3175)**: n=4 mean=3.28095, only T2 hit target. Clean negative. Reassigned to Soft-Muon annealing.
 - **Askeladd #166 (KL-SOAP+H screen)**: val=3.29515, ffs=-1. MISS — pf=1 eigendecomp doesn't recover Contra+NS5 on merged base. Reassigned to SFM.
 - **Askeladd #74 (NorMuonH n=4 @ 3300)**: mean=3.27732, ffs_mean=3250. Better val, worse FFS. Reassigned to KL-SOAP+H.
+- **Tanjiro #161 (Lookahead)**: Both α=0.5 (3.306) and α=0.7 (3.290) screens MISSED. Lookahead slows cooldown descent structurally. Reassigned to PMuon.
 - **Tanjiro #81 (Newton-Muon)**: n=4 mean=3.27643 (lowest!) at 3325 steps. Option B stack failed badly. Closed. Pivoted to Lookahead.
 
 ## Upcoming decisions / expected results

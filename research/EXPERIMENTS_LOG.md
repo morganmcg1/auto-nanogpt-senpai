@@ -1,5 +1,45 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 20:25 — Cycle 30 (cont): Tanjiro Lookahead CLOSED, nezuko/fern T0+T1 interim results
+
+### Tanjiro Lookahead α=0.7 retry — MISS, PR #161 CLOSED
+
+W&B run `yph361ta` @ train_steps=3175:
+
+| Arm | α | Final val | ffs |
+|---|---|---|---|
+| Original screen | 0.5 | 3.30606 | -1 (MISS) |
+| Retry | **0.7** | **3.28985** | -1 (MISS) |
+
+Higher α (weaker pullback) recovered 0.016 val/loss but still missed by 0.010. Structural issue confirmed: Lookahead's slow-fast averaging slows cooldown val descent regardless of α. Lookahead doesn't transfer to this short-step cooldown-dominated regime. PR #161 closed.
+
+### Tanjiro reassigned — PMuon (PR #187)
+
+Record #18 mechanism: bilateral streaming covariance power preconditioning (Σ_L, Σ_R with γ=0.3 power exponent, β=0.95). Stacks on top of merged Contra+SOAP-MLP+NS5 after the NS5 step. Fresh preconditioner class — softer than KL-SOAP (pf=1 eigendecomp) but more adaptive than plain SOAP (pf=10).
+
+### Nezuko Attn-SOAP+trust-gate n=4 T0+T1 (interim) — OUTSTANDING
+
+W&B run `790h1llo` @ train_steps=3175:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | **3.27743** | **3125** |
+| T1 | **3.27750** | **3125** |
+| n=2 mean | **3.27747** | **3125** |
+
+Remarkably consistent T0/T1 pair (val within 0.00007!). Both beat merged baseline on both metrics. If T2+T3 continue pattern → n=4 mean ≤ 3.27800 AND ffs_mean ≤ 3125 = **MERGE CANDIDATE**.
+
+### Fern Aurora n=4 T0+T1 (interim) — HIGH VARIANCE WARNING
+
+W&B run `5kr7d0i5` @ train_steps=3175:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | **3.27592** | **3100** |
+| T1 | **3.28172** | **-1 (MISS!)** |
+
+T1 completely missed — Aurora's diagonal leverage-score equalization is seed-sensitive. Path to merge now requires both T2 and T3 to hit near T0 quality. High variance is concerning. Monitoring.
+
 ## 2026-05-16 19:10 — Cycle 30: Askeladd KL-SOAP screen MISS, reassigned to Schedule-Free Muon
 
 ### Askeladd KL-SOAP+H screen — MISS, PR #166 CLOSED
