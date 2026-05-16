@@ -434,6 +434,8 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+# Trust-region Muon: per-layer cap on ||u||_F as a fraction of ||w||_F (0 disables).
+TRUST_RADIUS = float(os.environ.get("NANOGPT_TRUST_RADIUS", "0.0"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -466,16 +468,24 @@ def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
+                 trust_radius=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
+        self.trust_radius = float(trust_radius)
+        self.last_trust_diag: dict[str, float] = {}
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        cap_active_t = None  # tensor counter, populated lazily on the correct device
+        cap_total = 0
+        diag_u = None
+        diag_w = None
+        diag_capped = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -488,9 +498,42 @@ class Muon(torch.optim.Optimizer):
                         state["v"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if self.trust_radius > 0.0:
+                        u_norm_t = update.norm()
+                        w_norm_t = p.data.norm()
+                        max_u_norm_t = self.trust_radius * w_norm_t
+                        # Multiplicative scale: min(1, max_u / u_norm) — no-op when u_norm <= max_u.
+                        scale = torch.minimum(torch.ones_like(u_norm_t),
+                                              max_u_norm_t / (u_norm_t + 1e-12))
+                        update = update * scale
+                        active = (u_norm_t > max_u_norm_t).to(torch.float32)
+                        if cap_active_t is None:
+                            cap_active_t = active
+                        else:
+                            cap_active_t = cap_active_t + active
+                        cap_total += 1
+                        if getattr(p, "_trust_diag", False):
+                            diag_u = u_norm_t
+                            diag_w = w_norm_t
+                            diag_capped = active
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        diag: dict[str, float] = {}
+        if self.trust_radius > 0.0:
+            cap_active = float(cap_active_t.item()) if cap_active_t is not None else 0.0
+            diag["train/muon/cap_active_count"] = cap_active
+            diag["train/muon/cap_total_count"] = float(cap_total)
+            diag["train/muon/cap_active_frac"] = cap_active / max(1, cap_total)
+            diag["train/muon/trust_radius"] = self.trust_radius
+            if diag_u is not None:
+                u_f = float(diag_u.item())
+                w_f = float(diag_w.item())
+                diag["train/muon/u_norm_block0_q"] = u_f
+                diag["train/muon/w_norm_block0_q"] = w_f
+                diag["train/muon/trust_region_ratio_block0_q"] = u_f / (self.trust_radius * w_f + 1e-8)
+                diag["train/muon/cap_applied_block0_q"] = float(diag_capped.item())
+        self.last_trust_diag = diag
 
 
 ########################################
@@ -523,6 +566,8 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"TRUST_REGION: radius={TRUST_RADIUS} ({'ENABLED' if TRUST_RADIUS > 0 else 'DISABLED'})",
+       console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -596,8 +641,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # Tag block 0 query proj for per-step trust-region diagnostics.
+    model.blocks[0].attn.q.weight._trust_diag = True
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=0.025, trust_radius=TRUST_RADIUS)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -734,6 +781,10 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            trust_diag = getattr(optimizer2, "last_trust_diag", {})
+            if trust_diag:
+                wandb.log(trust_diag, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
