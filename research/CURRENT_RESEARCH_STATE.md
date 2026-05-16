@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-16 17:40 UTC — Cycle 26 (tanjiro relaunched screen, nezuko self-corrected to 3175)
+- 2026-05-16 17:25 UTC — Cycle 27 (alphonse T0=3.2783/3150, frieren/thorfinn n=4 terminals imminent)
 
 ## Current baseline
 
@@ -9,11 +9,12 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 
 ## Critical in-flight experiments (priority order)
 
-### ALPHONSE #139 — CONTRA_MUON=0.5 n=4 RUNNING 🔥
-- Screen `yctj2ozd`: val=**3.27629**, ffs=**3125** — BEATS merged baseline on BOTH metrics!
-- n=4 `db1rrfx3` LAUNCHED 15:33 UTC, currently step ~350/3175 trial 0
-- Step rate ~1900 ms/step → trial = ~100 min × 4 = ~400 min → ETA full n=4 ~22:00-22:30 UTC
-- THIS IS THE HIGHEST-PRIORITY RESULT. If n=4 mean ≤ 3.27760 and ffs_mean ≤ 3125, we have a new baseline.
+### ALPHONSE #139 — CONTRA_MUON=0.5 n=4 RUNNING (T0 result: 3.2783/3150) 🔥
+- Screen `yctj2ozd`: val=**3.27629**, ffs=**3125** — single-seed beat baseline
+- n=4 `db1rrfx3` **T0 terminal: val=3.2783, ffs=3150** — higher than screen, indicating screen was seed-favored
+- T1 just started at step 75. ETA full n=4 ~22:30 UTC.
+- **Path to merge is narrowing**: remaining 3 trials need mean val ≤ 3.27737 AND mean ffs ≤ 3125
+- Still highest-priority result, but uncertain outcome now
 
 ### FERN #125 — Aurora n=4 LAUNCHED 🔥
 - Screen `lqwaozx7`: val=**3.27706**, ffs=**3125** — BEATS merged baseline on BOTH metrics!
@@ -36,18 +37,20 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - Student observed: smoke slow-fast diff peaks at sync 2 then declines; cooldown_frac=0.7 puts 75% of 400-step run in cooldown. Mid-training plateau hypothesized as Lookahead's window of benefit.
 - If screen MISS again: close PR, reassign to **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95
 
-### FRIEREN #109 — MuLoCo+NorMuon n=4 (T0/T1 MISS, T2 SQUEAKED THROUGH at 3.2794)
+### FRIEREN #109 — MuLoCo+NorMuon n=4 (NEAR TERMINAL — CLEAN NEGATIVE)
 - T0=3.28240 ffs=-1 (miss), T1=3.28196 ffs=-1 (miss), T2=**3.2794** ffs=3175 (hit at terminal step)
-- T3 in progress at step 1020/3175. Mean so far T0+T1+T2 = 3.2813 — well above statsig ceiling 3.27800
-- For n=4 mean ≤ 3.278, T3 needs ≤ 3.27 — unlikely. Mean ffs will be (-1+-1+3175+x)/4 — can't beat baseline.
-- ETA full n=4 terminal: ~17:40 UTC. CLEAN NEGATIVE; will close PR upon SENPAI-RESULT.
+- T3 at step 2730/3175 (86%) — ~14 min to terminal (~17:38 UTC)
+- Mean so far T0+T1+T2 = 3.2813 — well above statsig ceiling 3.27800
+- CLEAN NEGATIVE; will close PR upon SENPAI-RESULT
+- **Next assignment**: Soft-Muon annealing on merged Contra+SOAP-MLP base (record #20 ingredient)
 
-### THORFINN #103 — Soft-Muon p=0.05 n=4 (statsig pass, not FFS win)
-- T0=3.2742 ffs=3250, T1=3.2749 ffs=3250, T2=**3.2725** ffs=3225 (best!) — all 3 hit target
-- T3 in progress at step 891/3325. Mean so far = 3.2739 — excellent val
-- ETA full n=4 terminal: ~17:40 UTC
+### THORFINN #103 — Soft-Muon p=0.05 n=4 (NEAR TERMINAL — stronger but slower)
+- T0=3.2742 ffs=3250, T1=3.2749 ffs=3250, T2=3.2725 ffs=3225 (best!)
+- T3 at step 2671/3325 (80%) — ~22 min to terminal (~17:46 UTC)
+- Mean so far = 3.2739 — excellent val
 - Val/loss excellent but ffs=3225-3250 > baseline 3131 — STATSIG PASS, NOT FFS win
 - Will close after terminal: clean "stronger but slower" result
+- **Next assignment**: cooldown_frac retune (0.65, 0.75 sweep) on merged Contra+SOAP-MLP base
 
 ### EDWARD #76 — Contra-Muon n=4 (statsig pass, ffs=3175)
 - T0=3.2775 ffs=3175, T1=3.2760 ffs=3175, T2=3.2765 ffs=3175 — all 3 hit target at exactly ffs=3175
@@ -81,13 +84,13 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~18:06 | Tanjiro | Lookahead screen REDO terminal | Will determine if PR closes or n=4 predeclares |
-| ~18:29 | Frieren | n=4 terminal | Clean negative, close PR |
-| ~18:35 | Thorfinn | n=4 terminal | Statsig PASS, ffs ~3225-3250, no new baseline (close) |
-| ~19:36 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
-| ~22:30 | Alphonse | n=4 terminal (CRITICAL) | Could be new baseline if ffs_mean ≤ 3125 |
+| ~17:38 | Frieren | n=4 terminal | Clean negative, close PR + reassign to Soft-Muon annealing |
+| ~17:46 | Thorfinn | n=4 terminal | Statsig PASS, ffs ~3225, no new baseline (close + reassign to cooldown_frac) |
+| ~18:20 | Tanjiro | Lookahead screen REDO terminal | Likely MISS (Lookahead disrupts cooldown) |
+| ~18:50 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
+| ~22:30 | Alphonse | n=4 terminal | Uncertain — T0=3.2783/3150 makes merge tight |
 | ~22:35 | Edward | n=4 terminal | Statsig PASS, ffs ~3175, no new baseline |
-| ~24:00 | Fern | Aurora n=4 terminal (CRITICAL) | Could beat baseline if mean ≤ 3.27760 ffs ≤ 3131 |
+| ~23:50 | Fern | Aurora n=4 terminal (CRITICAL) | Could beat baseline if mean ≤ 3.27760 ffs ≤ 3131 |
 | ~24:00 | Nezuko | n=4 terminal (corrected) | Borderline mean ~3.2785 |
 
 ## Potential next hypotheses (for soon-to-idle students)
