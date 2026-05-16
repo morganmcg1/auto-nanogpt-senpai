@@ -1,5 +1,22 @@
 # SENPAI Research State
 
+- 2026-05-16 11:25 — Cycle 15 (multiple n=4 progressing, pattern emerging):
+  - **Tanjiro #81 SENPAI-RESULT posted** — clean terminal (n=4 mean=3.27643, margin 0.00714).
+    Awaiting tanjiro to start Option B (Newton-Muon on merged base) — directive from cycle 13.
+  - **Askeladd T1 = 3.27574** — BEST INDIVIDUAL TRIAL seen across any n=4 run! T0=3.27772.
+    T2 just started. If T2/T3 land in same range, n=4 mean ~3.276. But at 3300 steps, ffs=~3250.
+  - **Thorfinn `78nqtrmr` screen step 3275 val=3.27416** (crashed at step 3298 mid-cooldown).
+    Strong single seed; n=4 confirm `6kjpjnvd` now running cleanly (T0 step 1839/3325).
+  - **Frieren n=4 `jzsue46n` T0 step 1700/3175** — 54% done. ETA T0 ~50min.
+  - **Alphonse PR #139** CONTRA_MUON=0.3 smoke PASS, screen `o5w9cidj` at step 850/3175 (27%).
+    Smart: skipping 0.5 smoke (identical code path). ETA ~70min to screen terminal.
+  - **Fern PR #125** still on smokes — careful real-Aurora implementation in progress.
+  - **Nezuko PR #124** screen `c5d01ezw` just launched 11:24 UTC after ~7 smoke iterations.
+  - **PATTERN**: All strong screens/T0 results (tanjiro 3.27599, frieren 3.27688, thorfinn
+    3.27416, askeladd T1 3.27574) are LOWER VAL but at MORE STEPS than merged baseline.
+    Primary metric is FFS — merged baseline's FFS=3131 is its key advantage. Future
+    experiments should target FFS reduction directly, not just val/loss reduction.
+
 - 2026-05-16 10:30 — Cycle 14 (screens landing, alphonse reassigned, multiple n=4 in-flight):
   - **PR #112 CLOSED** — alphonse p=1.5 NEW-base NULL (3.2775 ≈ baseline mean). Reassigned
     to **PR #139: Contra-Muon coefficient retune** (CONTRA_MUON ∈ {0.3, 0.5} vs 0.4).
