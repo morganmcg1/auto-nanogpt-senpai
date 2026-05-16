@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 15:35 UTC 🎉 **FIRST WAVE-3 MERGE — thorfinn #105 (grad clip=5.0) merged!** New baseline val=3.27527/fs=3266.7 (n=3). Edward bias-correction #115 sent back to re-test on new baseline. Thorfinn reassigned to clip-extension sweep #165.
+- **Date:** 2026-05-16 16:40 UTC. Post-#105 wave-3 continuing. All 7 active students have arms running. Tanjiro infra-blocked (issue #160 still pending). 4 PRs pinged about rebase needed after #105 merged (#163, #138, #157, #144 status).
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -62,7 +62,7 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 n=3 stat-sig PASS on old baseline (mu=3.27532). **Sent back to re-test on NEW merged baseline (clip=5.0)**. Running 3+1 seeds with bias_corr=ON + beta2=0.98 + clip=5.0. Must beat new mu≤3.27527 or show additive improvement. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 n=3 stat-sig PASS on old baseline (mu=3.27532). Sent back to re-test on NEW clip=5.0 baseline. Currently visible: control `tak4oqhf` step 1625/3350 ETA ~57min; 3 BC seeds not yet visible (likely sequential queue). Total ~5h to terminal. |
 | **#105** | **thorfinn** | **Gradient clipping sweep** | **✅ MERGED 2026-05-16 15:30 UTC** — val=3.27527/fs=3266.7 (n=3). New branch baseline. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
@@ -71,29 +71,32 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 sanity ✓. **arm-B (PE iters=12)=3.2767 BASELINE PARITY** ✨ (`2li08zef`). arm-C (PE iters=8) running step 1425 val=3.55. arm-D (PE iters=6) queued. |
-| **#163** | **fern (NEW)** | **Decoupled Momentum Reset (DMR)** | just assigned — periodic momentum zeroing motivated by fern's #154 finding (grad·momentum<0 ~90% under Muon² = staleness hypothesis). |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A finished val=3.27595/fs=3275 ✓ baseline parity. Arms B/C/D not yet launched. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A finished val=3.27841/fs=3325 ✓ baseline reproduction. arms B/C/D not yet launched. |
-| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | smoke tests v1/v2/v3 failed at step 0/1 (bf16 SVD instability); v4 launched 14:29 UTC. Pinged student with suggested fp32 jump. Student iterating. |
-| **#165** | **thorfinn (NEW)** | **Clip value extension sweep** | just assigned — extends clip=5.0→{10,25,50} to find true optimal; motivated by thorfinn's own monotone-trend analysis |
+| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 sanity ✓. arm-B (PE iters=12)=3.2767 baseline parity. arm-C (PE iters=8)=3.276 parity. **arm-D (PE iters=6) `4chpm8ru` step 2050/3350 ETA ~43min**. Re-rebase ping sent — branch CONFLICTING after #105 merge. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | smoke passed 14:51 UTC (K=50, val_loss=4.26 at step 200, cos_block0_q flipped +0.044 after resets). Arms A→D sequential via dispatcher (~6.4h). Rebase ping sent — branch CONFLICTING after #105 merge. |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A `lfcnprqg` finished val=3.27595/fs=3275 ✓ baseline parity. **arm-B `8ym5zef8` (embed-only) FINISHED val=3.27978 — WORSE than baseline by 0.005**. arm-C `82mx9xwy` (full SOAP) step 175/3350 ETA ~2.2h. Status ping sent. |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A `z2ygnqxh` finished val=3.27841/fs=3325 ✓. **Critical telemetry finding: spread saturates 11–25 ≫ midpoint=2.0 → arms B/C/D effectively fixed NS=16/14/18 uniform sweep, not adaptive**. arm-B `mxzk59qm` step 100 (warmup). Rebase ping sent (branch CONFLICTING). |
+| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | 6 smoke failures (v1-v4 step 0/1, v5/fp32 NaN at step 100). Diagnosed: degenerate SVD backward through near-equal singular values clustering near 1.0. **Decision ping sent: Path A (1 more debug attempt) or Path B (pivot to fresh experiment) — awaiting student choice**. |
+| **#165** | **thorfinn** | **Clip value extension sweep** | just assigned 15:30 UTC — extends clip=5.0→{10,25,50}; awaiting student pickup |
 
 ## Infra-blocked
 
 - **tanjiro** (GPU UUID 7998cef9-...): **3rd reproduction confirmed 2026-05-16 13:34 UTC** — merged baseline diverges at step 25 (NaN, nonfinite=147M; step-1 grad_norm=232102) across #97/#108/#149 smoke tests. ECC clean, same hardware model as healthy pods. Silicon-binning bf16 issue. **Issue #160 filed** requesting GPU rotation. Not assigning new work until human/infra team rotates the pod — tanjiro slot is unproductive until then. NS-iter annealing hypothesis held in reserve.
 
-## Wave 3 critical path — merge sequencing
+## Wave 3 post-#105 — current sequencing
 
-**Both #115 (bias correction, beta2=0.98) and #105 (grad clip=5.0) are on cusp of n=3 confirmation.**
+**#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**Sequencing**:
-1. Whoever posts terminal SENPAI-RESULT first merges first (whoever finishes confirm seed 2 first)
-2. After first merge, the remaining PR re-tests on NEW merged baseline — expect either same win (orthogonal mechanisms) or adjustment needed
-3. If both confirm at n=3: launch stack PR (bias_corr=on + clip=5.0 combined) as next assignment
+**Next merge candidates ranked by expected EV**:
+1. **#115 edward retest** — orthogonal mechanism (touches Muon² v-EMA), expected to stack with clip=5.0. ETA ~5h to terminal SENPAI-RESULT.
+2. **#138 frieren** — arms A/B/C all at baseline parity (~3.276); arm-D (PE iters=6) finishing soon. Best-case outcome is compute-efficiency story (NS=12-quality output at NS=6-cost), not val/loss improvement.
+3. **#165 thorfinn clip-extension** — extends clip=5.0→{10,25,50}; monotone trend may continue. ETA ~7h once student picks up.
+4. **#144 alphonse SOAP-aux** — arm-B (embed-only) FAILED (val=3.27978, +0.005 vs baseline). Mechanism may be wrong direction. Arm-C (full SOAP both groups) is the salvage attempt.
+5. **#163 fern DMR** — falsifiable mechanism test. Big swing: either validates the staleness hypothesis or definitively closes the temporal-momentum family.
+6. **#145 nezuko per-layer NS** — degenerated to uniform-NS sweep (saturation). Still informative as NS={14,16,18} vs baseline NS=12 sweep, but adaptive narrative is dead.
 
-**Statistical target for both**: `(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769
-- Edward n=2 partial mu = 3.27515 — margin plenty for mu ≤ 3.27769 if seed 2 ≤ 3.2795
-- Thorfinn n=2 partial mu = 3.27450 — margin excellent; seed 2 can be ≤ 3.2810 and still pass
+**Stack candidate**: bias_corr=ON + beta2=0.98 + clip=5.0 — pending #115 retest confirmation.
+
+**Statistical target**: `(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. New bar is to beat 3.27527.
 
 ## Closed mechanisms (do not re-explore)
 
