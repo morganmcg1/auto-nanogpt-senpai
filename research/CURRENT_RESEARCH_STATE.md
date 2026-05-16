@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 11:35 UTC (wave 3 three positive signals 🎯 — edward bias-corr val=3.2749/fs=3250, thorfinn clip=5.0 val=3.2742/fs=3250 [new sweep best], frieren polar-express arm-A sanity nearly done; edward confirm seed 1 running; thorfinn confirmation seeds redirected to clip=5.0)
+- **Date:** 2026-05-16 13:15 UTC (wave 3 two positive signals 🎯 — edward bias-corr confirm seed 1 at step 2575 healthy; thorfinn clip=5.0 confirm seed 1 at step 1875 healthy; both expected to finish next ~30-45 min. Fern #126 closed clean negative; fern #154 reassigned to layer-aggregate Contra)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -49,6 +49,8 @@
 | #104 | frieren | CLOSED — Polyak EMA at eval ≥ live val_loss in every arm; cooldown is load-bearing |
 | #106 | nezuko | CLOSED — Muon² cooldown_frac: frac=0.6 retry val=3.27766 indistinguishable from baseline; fern PR #70's vanilla-Muon positive does not transfer |
 | #117 | alphonse | CLOSED — Trust-region cap by ||w||_F: arm-A=3.27657/3275 EXACT baseline; arms B/C/D all collapse to val~5.69 (self-reinforcing choke loop) |
+| #126 | fern | CLOSED — Contra-Soft element-wise: arm-A=3.27616/3275 EXACT baseline; conflict_fraction ≈ 0.50 across all phases proves element-wise signal is noise-dominated; clean negative with mechanistic diagnosis |
+| #146 | tanjiro | AUTO-MERGED accidentally (advisor-side merge bug); reassigned as #149 |
 
 ## Active PRs
 
@@ -59,8 +61,8 @@
 | **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C (bias_corr=on, beta2=0.98) val=3.2749/fs=3250 BEATS BASELINE.** arm-A=3.2793/3325, arm-B=3.2772/3300 (no step-25 divergence at beta2=0.95). arm-D (bias_corr=on, beta2=0.999) running step 2010. Confirmation seeds at beta2=0.98 queued. |
 | **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.27420/fs=3250 — NEW SWEEP BEST, beats arm-B.** arm-A (disabled)=3.2789/3325, arm-B (clip=1.0)=3.2755/3275. BOTH B and C beat baseline. Confirmation seeds **redirected to clip=5.0**. |
 | #120 | askeladd | **Lookahead Muon² (k inner steps + α blend)** | arm-A=3.2773/3350 (within-noise), arm-B (k=5,α=0.5)=3.2884 (WORSE). arm-C (k=10,α=0.5) running step 2685, val=3.3544 — tracking worse |
-| #126 | fern | **Contra-Soft momentum direction shaping** | arm-A (disabled)=3.2762/3275 EXACT baseline. arm-B (α=0.5) KILLED step 1600 val=4.06 (kill gate). arm-C (α=0.25) just launched step 100 — student following kill notice |
-| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A (classical NS sanity) running step 1050, val=3.6363 — healthy trajectory |
+| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A finished val=3.2783/fs=3325 (within-noise baseline reproduction). arm-B (PE iters=12) running step 1575 val=3.524 — tracking slightly behind arm-A |
+| **#154** | **fern (NEW)** | **Layer-aggregate Contra-Muon** | follow-up to #126; tests if per-tensor inner-product gating salvages mechanism. Smoke-test gate at step 500 (global_cos_negative_fraction<0.3 required to proceed) |
 
 ## Infra-blocked
 
@@ -94,9 +96,10 @@ The plateau protocol calls for mechanism extensions beyond hyperparameter tuning
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** (embed + lm_head Shampoo preconditioner) | just assigned |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** (budget-neutral redistribution by singular spread) | just assigned |
-| **#146** | **tanjiro** | **NS-iters annealing schedule** (high-to-low; smoke-test gate first) | just assigned; smoke gate required |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** (embed + lm_head Shampoo preconditioner) | assigned, in WIP |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** (budget-neutral redistribution by singular spread) | assigned, in WIP |
+| **#149** | **tanjiro** | **NS-iters annealing schedule** (replaced #146 after merge bug; smoke-test gate required) | reassigned |
+| **#154** | **fern** | **Layer-aggregate Contra-Muon** (follow-up to #126; per-tensor inner-product gating) | just assigned |
 
 ### Next-tier (future assignments)
 - **Polar-decomposition Muon** — exact orthogonalization via SVD on smaller projections vs iterative NS

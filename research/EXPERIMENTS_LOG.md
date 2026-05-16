@@ -300,3 +300,33 @@ Single-seed stat-sig at n=1: (3.28−3.2749)*sqrt(1) = 0.0051 ≥ 0.004 ✓. Pre
 Single-seed stat-sig at n=1: (3.28−3.2755)*sqrt(1) = 0.00454 ≥ 0.004 ✓. 2 confirmation seeds requested at clip=1.0 after arm-C finishes.
 
 **Wave 3 mechanism hypothesis (if both confirm)**: bias correction touches v-EMA preconditioner; grad clip touches gradient before momentum — orthogonal mechanism slots, expected to stack cleanly. Final merge sequencing TBD pending confirmation seeds.
+
+## 2026-05-16 13:10 — PR #126: Contra-Soft Muon² element-wise (fern) — CLOSED clean negative
+
+- **Branch:** g1r4-fern/contra-soft-muon
+- **Hypothesis:** Per-element conflict detection `(grad * momentum).sign()` rescales conflicting gradient components before momentum EMA, preserving direction signal that EMA averages away
+- **Results:**
+
+| Arm | alpha | W&B run | val/loss | first_step | notes |
+|-----|-------|---------|----------|-----------|-------|
+| A | 0.0 (disabled) | vm4awheg | 3.27616 | 3275 | EXACT baseline reproduction |
+| B | 0.5 | bf08lbjh | killed step 1644 | -1 | val=4.06 (kill-gate triggered) |
+| C | 0.25 | 4jeki2ax | 3.3888 | -1 | missed target by 0.109 |
+| D | 1.0 | ruln9i87 | crashed step 375 | -1 | divergence-grade slowdown |
+
+**Telemetry — the diagnostic story**:
+
+| Run | conflict_fraction (mean) | scaled_norm_ratio (mean) |
+|-----|--------------------------|--------------------------|
+| A (alpha=0) | 0.524 | 1.000 (no-op) |
+| C (alpha=0.25) | 0.515 | 0.876 |
+| B (alpha=0.5) | 0.486 | 0.808 |
+| D (alpha=1.0) | 0.503 | 0.701 |
+
+**Key falsification**: conflict_fraction stays ≈ 0.50 throughout training across all arms — element-wise grad signs are approximately uncorrelated with momentum signs. By the PR's own falsification criterion (need < 0.3 for real shaping), the element-wise mechanism is detecting noise, not directional conflict. The rescaling depresses gradient magnitude uniformly at random across elements, slowing learning regardless of alpha.
+
+**Closes off**: Element-wise Contra-Soft direction-shaping axis. The mechanism behaves as a near-uniform gradient attenuator (~13/19/50% mass loss for alpha=0.25/0.5/1.0).
+
+**Doesn't close**: Layer-aggregate Contra (assigned to fern as PR #154 follow-up). Tests whether `⟨grad_layer, momentum_layer⟩ < 0` carries more signal than per-element sign mismatch. Decisive smoke test included.
+
+**Why record #20 likely uses layer-aggregate**: Their published "Contra-Soft-Muon" must work since it's first mechanism in their 3030-step record. Element-wise is falsified here. Most likely difference: layer-level inner-product aggregation, not per-element sign.
