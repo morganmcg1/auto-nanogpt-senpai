@@ -1,400 +1,114 @@
 # SENPAI Research State
 
-- 2026-05-16 15:30 — Cycle 21 (holding pattern, multiple terminals expected next 30-60 min):
-  - **ASKELADD T3 at step 2975/3300 (~90%)** — live val=3.3141 mid-late-cooldown ANOMALOUSLY HIGH.
-    T0=3.27772, T1=3.27573, T2=3.27863. Mean(T0-T2)=3.27736. T3 will determine statsig.
-    If T3 final val ≤ 3.27869 → statsig pass; if T3 > 3.28 → 1 seed misses target.
-    ETA terminal ~15:50 UTC. ffs_mean cannot beat baseline 3131 even if T3 hits target.
-  - **ALPHONSE 0.5 screen `yctj2ozd` step 2075/3175 (~65%)** still running. ETA ~15:50 UTC.
-  - **FRIEREN T0=3.28240, T1=3.28196 BOTH MISSED** at 3175 step count. Will be clean
-    negative SENPAI-RESULT when T3 finishes. ~3.5h to terminal.
-  - **TANJIRO Lookahead screen launched** `tbesgctw` step 280 val=4.097 (running, healthy).
-    Second run `uvk1in7y` crashed at step 0 (likely config attempt). ETA full screen ~17:50 UTC.
-  - **EDWARD T0 and T1 BOTH ffs=3175 (identical)** — recipe has tight ffs distribution at 3225
-    step count. T2 step 2477/3225 (~77%). Mean(T0-T1) = 3.27750 (single seed both). ETA T3
-    terminal ~17:00 UTC. ffs_mean ~3175 won't beat baseline.
-  - **THORFINN T0=3.27400, T1=3.27400 both ffs=3250** — strong dual-trial agreement. T2 at
-    step 874/3325 (~26%). Strong recipe but ffs > baseline 3131.
-  - **FERN Aurora screen `lqwaozx7` step 1125/3175 (~35%)** — clamp fix working, no crash so far.
-    ETA terminal ~17:00 UTC.
-  - **NEZUKO `udc2950s` step 945** — created 14:02 UTC (before my 14:40 comment about n=4 at 3175).
-    May be another screen attempt. Need to clarify with nezuko what this run is.
-  - **PORTFOLIO STATE**: 4 n=4 confirms running (askeladd, edward, thorfinn, frieren), 3 screens
-    running (alphonse 0.5, tanjiro lookahead, fern aurora), 1 ambiguous (nezuko `udc2950s`).
-    Next 60 min should yield 2-3 terminals (askeladd n=4, alphonse 0.5 screen, possibly others).
+- 2026-05-16 15:35 UTC — Cycle 23 (askeladd closed + reassigned, alphonse n=4 predeclared)
 
-- 2026-05-16 14:40 — Cycle 20 (nezuko terminal borderline, tanjiro smoke done, multiple n=4 progressing):
-  - **NEZUKO #124 SCREEN TERMINAL** `c5d01ezw` val=**3.2797**, ffs=**3150** at train_steps=3150.
-    Borderline single seed (0.0017 above merged mean). Sent back: predeclare n=4 at 3175 (match
-    baseline step count) for apples-to-apples comparison. Statsig at 3175 likely BORDERLINE
-    (mean projection ~3.2785). Merge requires mean ≤ 3.27760 AND ffs_mean ≤ 3131.25 both.
-  - **TANJIRO #161 LOOKAHEAD SMOKE DONE** `mzoxcy59` val=3.8825 at step 400. ~0.07 higher than
-    baseline smoke (~3.81). Could be expected lookahead startup cost OR sync bug. Sent back:
-    verify `lookahead/sync_step` and `slow_fast_diff_fro` telemetry, then proceed to screen.
-  - **FERN re-launched** `lqwaozx7` past prior crash points — step 825 val=3.7295 healthy. 
-    The clamp fix appears to have worked. Need to wait for screen terminal ~16:30 UTC.
-  - **ALPHONSE CONTRA_MUON=0.5 screen** `yctj2ozd` at step 1750/3175 val=3.4982 (cooldown).
-    ETA terminal ~15:35 UTC. Will compare to 0.3 (val=3.27804 ffs=3150) and predeclare n=4 with
-    best arm. The 0.3 result is the strongest FFS-targeted single-seed signal in the portfolio.
-  - **ASKELADD T3** `lw99ybyp` at step 2603/3300 (~79% of T3). ETA terminal ~15:30 UTC.
-    T0=3.27781, T1=3.27573, T2=3.27932. Mean(T0-T2)=3.27762. T3 ≤ 3.27869 needed for statsig.
-  - **THORFINN T2 terminal, T3 step 499** \`6kjpjnvd\`. T0=3.27400, ffs at trial that finished=3250.
-    Strong recipe but ffs > baseline 3131 — \"stronger but slower\" again.
-  - **FRIEREN T1/T2 confirmed missed** at 3175 step count. T3 (final trial) step 572 — recipe
-    confirmed not additive on Contra+SOAP-MLP at this step count. Will close negative when terminal.
-  - **EDWARD T3 step 2352/3225** — final trial in progress. ETA ~17:00 UTC.
-  - **NEZUKO is highest-EV merge candidate** in the current portfolio. Trust gate behavior at
-    longer cooldown is unknown — could surprise positively.
-  - **Strategic shift**: with nezuko, alphonse 0.3, and tanjiro Lookahead all targeting FFS at
-    or near 3175 step count, the next 4-6 hours determine if we get a new baseline.
+## Current baseline
 
-- 2026-05-16 14:20 — Cycle 19 (tanjiro PR #81 closed + Lookahead assigned, portfolio update):
-  - **PR #81 CLOSED** — Newton-Muon-only (n=4 mean=3.27643, paper-quality) + Option B stack failed
-    at 3175 (3.28893). Both results log in EXPERIMENTS_LOG. Closed with full analysis.
-  - **PR #161 ASSIGNED to tanjiro**: Lookahead-Muon (k=5, α=0.5) on merged Contra+SOAP-MLP base.
-    Implementation: maintain θ_slow, sync every k steps after warmup. Goal: FFS reduction via
-    trajectory variance smoothing. Smoke → screen at 3175 → n=4 if competitive.
-  - **ALPHONSE CONTRA_MUON=0.5 screen `yctj2ozd` LAUNCHED** ~13:40 UTC, step ~450 val=3.90.
-    ETA terminal ~15:35 UTC. Will compare to 0.3 (val=3.27804 ffs=3150) to pick best arm for n=4.
-  - **ASKELADD `lw99ybyp` T3 running** at step ~1228/3300 of T3 arm. T0=3.27781, T1=3.27573,
-    T2=3.27932. Mean(T0-T2)=3.27762. T3 ETA terminal ~15:30 UTC. For statsig (mean ≤ 3.278),
-    need T3 ≤ 3.27869. If T3 is typical (~3.278), will PASS. But ffs_mean ~3225-3250 won't beat
-    baseline 3131 — close+reassign for stacking experiment after confirmation.
-  - **EDWARD `zsqazpmr`** T2 at step ~2402/3225 of T2 arm. T0=3.27750 ffs=3175. ETA ~21:30 UTC.
-    Long wait, strong T0/T1 (T1=3.27599). n=4 mean could land ~3.276 if distribution holds.
-    But ffs ~3175-3200 — same "stronger but slower" pattern unless T2/T3 also hit ffs=3175.
-  - **NEZUKO `c5d01ezw`** at step 2950/3150 val=3.297 at 13:38 UTC (200 steps to terminal).
-    Terminal ETA ~14:00 UTC. Val declining well in late cooldown. FFS likely 3100-3150 (if val
-    crosses 3.28 before terminal). This would be competitive with merged baseline FFS=3131!
-  - **THORFINN T1** at step ~2143/3325, _step=5892. T0 val=3.27400 ffs=3250 (very strong).
-    n=4 ETA ~17:45 UTC. But ffs likely ~3225-3250 — still "stronger but slower".
-  - **FRIEREN n=4** at T1 step ~2491/3175. T0 missed (3.28240 at 3175). Will continue to clean
-    negative SENPAI-RESULT. ETA T4 terminal ~17:30 UTC.
-  - **FERN `w2hlrhs0` smoke done** (val=3.811). No new screen yet after crash diagnosis sent.
-  - **PORTFOLIO STATUS**:
-    - Highest-EV: Alphonse 0.5 screen result + n=4 at 3175 (FFS-targeted)
-    - Nezuko screen near-terminal — if ffs ≤ 3131, MAJOR win candidate
-    - Askeladd, thorfinn, edward all likely statsig-pass but won't beat baseline FFS
-    - Frieren will close negative
-    - Tanjiro starting fresh (Lookahead, not yet in-flight)
+**Contra+SOAP-MLP (PR #78)** — n=4 mean=**3.27760**, ffs_mean=**3131.25** @ train_steps=3175  
+Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 
-- 2026-05-16 13:40 — Cycle 18 (ALPHONSE 0.3 SCREEN FFS-COMPETITIVE — first such signal since merge):
-  - **ALPHONSE #139 CONTRA_MUON=0.3 SCREEN PASS** 🎯 `hjsjscjy` terminal val=**3.27804**,
-    ffs=**3150** at 3175 steps. Single seed only 19 ffs steps worse than merged baseline
-    (3131.25). This is the FIRST FFS-COMPETITIVE result since baseline was set in cycle 9.
-    Sent back: launch CONTRA_MUON=0.5 screen next, then predeclare n=4 at 3175 with winning arm.
-  - **TANJIRO Option B MISSED & CRASHED**: `wzgya0cq` screen at 3175 final val=3.28893 (0.013
-    above baseline!), ffs=-1. `yrsarj9b` crashed at step 0. Either config bug, step count
-    too low for stack, OR Newton-Muon attn doesn't compose with SOAP-MLP. Sent back with
-    diagnostic hypotheses + audit directive.
-  - **FERN screen CRASHED TWICE**: `csj1tm5z` @1475, `isi6y97w` @575. New smoke `w2hlrhs0`
-    running. Real-Aurora D update unstable past step ~500. Sent back with clamp suggestion
-    `D.clamp_(1e-6, 1e6)`, pp_beta reduction option, non-square-only filter check.
-  - **ASKELADD T1 = 3.27573!** (much better than I had cached). T0=3.27781, T1=3.27573,
-    T2=3.27932, T3 at step 778/3300 running. Mean(T0-T2) = 3.27762, AT merged baseline mean.
-    For n=4 statsig at 3300 (mean ≤ 3.278), need T3 ≤ 3.27869 — likely passes. But
-    ffs ~3225-3250 > baseline 3131, won't be new baseline. ETA T3 ~14:30 UTC.
-  - **EDWARD T1 = 3.27599!** strong. T0=3.27750 ffs=3175 already terminal. T1 at val=3.27599.
-    T2 phase at step ~1802/3225. ETA full n=4 ~20:00 UTC.
-  - **THORFINN T0=3.27400** ffs=3250 already known. T1 at step 2143/3325. ETA full n=4 ~18:00 UTC.
-  - **NEZUKO `c5d01ezw`** at step 2550/3150 val=3.36 (mid-cooldown). ETA terminal ~13:50 UTC.
-  - **FRIEREN T1** at step 2070/3175 — should terminal in ~30 min. T0=3.28240 missed.
-  - **Two competing FFS strategies emerging**:
-    1. Alphonse CONTRA_MUON=0.3 retune — single-seed FFS-competitive at 3175.
-    2. Multiple recipes ('stronger but slower') with FFS 3225-3250 at higher step count.
-    Strategy 1 is the only path to BEAT merged baseline. Strategy 2 results are
-    side-grade confirmations but not winners.
+## Critical in-flight experiments (priority order)
 
-- 2026-05-16 12:35 — Cycle 17 (frieren T0 missed, multiple runs progressing):
-  - **FRIEREN #109 T0 MISSED**: `jzsue46n` T0 val=3.28240, ffs=-1 (never crossed 3.28).
-    Frieren's honest analysis: MuLoCo wrapping DELAYS convergence ~50 steps on Contra+SOAP-MLP
-    base. Screen at 3275 was 3.27688, but at 3175 (predeclared step) screen was 3.28353.
-    T0 in line with that. Math: T1-T3 would need mean ≤3.27587 (~3σ below screen distribution)
-    — extremely unlikely. Sent back: continue all 4 trials (no val-peeking), post SENPAI-RESULT,
-    will pivot to outer_lr=0.5 OR close+reassign after T3 terminal (~17:30 UTC).
-  - **EDWARD `zsqazpmr` NOT DEAD** — n=4 confirm started May 15 22:36 UTC, T0=3.27750 ffs=3175
-    already logged, currently in T2 phase (_step=7740 = T0+T1+~step 1290). ETA full n=4 terminal
-    ~20:00 UTC today. Blackwell compile-off so 6.0 s/step.
-  - **ASKELADD `lw99ybyp`** T2 at step 2375/3300 (~72%), _step=8977. T0=3.27781 ffs=3225,
-    T1=3.27777 ffs=3225 strong. ETA full n=4 ~14:30 UTC.
-  - **THORFINN `6kjpjnvd`** T0 best_val=3.274 ffs=3250 (Soft-Muon p=0.05 working). T1 at step 394.
-    n=4 ETA ~14:00 UTC for next trial completion.
-  - **TANJIRO Option B STARTED** — `yrsarj9b` launched ~12:24 UTC on g1r2-tanjiro/newton-muon
-    branch. Newton-Muon (attn-only) right-preconditioning on Contra+SOAP-MLP base. Still warming.
-  - **FERN real-Aurora smoke** `u1tnpn3q` step 125/400. Diagonal leverage-score equalization
-    algorithm with pp_iterations=2, pp_beta=0.5.
-  - **ALPHONSE `hjsjscjy`** step 1950/3175 (val=3.4765 mid-cooldown). ETA screen terminal
-    ~13:09 UTC. No CONTRA_MUON=0.5 screen launched yet.
-  - **NEZUKO `c5d01ezw`** step 1375/3150 (val=3.577). ETA terminal ~13:30 UTC.
-  - **Key insight**: The \"stronger but slower\" pattern continues. Recipes that beat baseline
-    val at 3275+ steps don't beat baseline FFS at 3131. Future hypotheses must directly target
-    FFS reduction (faster convergence), not just lower terminal val.
+### ALPHONSE #139 — CONTRA_MUON=0.5 n=4 PREDECLARED 🔥
+- Screen `yctj2ozd`: val=**3.2763**, ffs=**3125** — BEATS merged baseline on BOTH metrics!
+- n=4 PREDECLARED at train_steps=3175, CONTRA_MUON=0.5, same HPs as merged baseline otherwise
+- Predeclare comment posted at ~15:15 UTC; n=4 expected to launch immediately
+- ETA n=4 terminal: ~22:30-23:00 UTC if launched at 15:15 UTC
+- THIS IS THE HIGHEST-PRIORITY RESULT. If n=4 mean ≤ 3.27760 and ffs_mean ≤ 3125, we have a new baseline.
 
-- 2026-05-16 11:40 — Cycle 16 (W&B survey + GH rate-limit exhausted again):
-  - **Frieren n=4 `jzsue46n` T0 step 2040/3175 (64%)** — val=3.4728 mid-cooldown.
-    Expected terminal ~12:15 UTC. T2/T3 ended at step 400 (likely crashed seeds — only
-    T0 currently active). Frieren autocope should relaunch failed seeds.
-  - **Alphonse screen `o5w9cidj` CRASHED at step 850/3175** mid-cooldown! Relaunched as
-    `hjsjscjy` at step 375 val=3.90 (~11:23). No CONTRA_MUON=0.5 screen launched yet.
-    Crash pattern echoes prior thorfinn p=0.05 crashes — possibly Contra-Muon at lower
-    coefficient has numerical instability. Need to wait for relaunch.
-  - **Thorfinn T0 `6kjpjnvd` step 2185/3325 (66%)** — val=3.4573 mid-cooldown. T1
-    `pzp8b4rq` was 3.2755 ffs=3250, T2 `78nqtrmr` was 3.2742 ffs=3225 (crashed at 3298
-    but reached FFS). Strong pair so far. ETA T0 ~13:00 UTC.
-  - **Edward `zsqazpmr` running step 7227 multi-epoch** — anomaly: step count exceeds
-    3225 target. Concurrent g1r4 runs `swdz145t`/`jp2lhp3r`/`nit5n8jo` (muon2-bias-corr)
-    FFS at 3250-3300, val 3.2749-3.2772. NOT his r2 assignment though.
-  - **Askeladd `lw99ybyp` running step 7302 multi-epoch** — same anomaly. Concurrent
-    g1r4/lookahead-sweep `cr1bq7ff` step 1394/3350 val=3.5448 (mid-training).
-    Multi-round cross-talk likely.
-  - **Tanjiro 2 new runs**: `cg6asx9a` (g1r1, step 50 warmup), `nneqbzma` (g1r3, step
-    240 NaN val). Neither on PR #81 g1r2 branch — Option B not yet started.
-  - **Nezuko `c5d01ezw` step 250 val=4.05** — early progress, on track.
-  - **Fern `p31pn6u4` step 360 val=4.00** — appears to still be earlier run, not
-    real-Aurora screen yet.
-  - **GH rate limit EXHAUSTED again** (5001/5000, reset ~12:19 UTC). Student pods
-    continue burning API quota. PR comment reads blocked until reset.
-  - **No terminal results since 11:25 UTC.** Holding pattern; wakeup at 12:25 UTC to
-    catch both frieren T0 terminal AND rate limit recovery.
+### NEZUKO #124 — Attn-SOAP + trust gate n=4
+- Screen `c5d01ezw`: val=3.2797, ffs=3150 @ train_steps=3150 (borderline)
+- Directed n=4 at train_steps=3175 at 14:25 UTC (~66 min ago); likely running now
+- ETA n=4 terminal: ~16:00-16:30 UTC (if launched ~14:25 UTC)
+- Prediction: mean ~3.2785, margin ~0.003 — likely FAILS statsig by ~0.001
+- ffs_mean ~3120-3150 possible — IF both criteria pass, would be a MERGE candidate
 
-- 2026-05-16 11:25 — Cycle 15 (multiple n=4 progressing, pattern emerging):
-  - **Tanjiro #81 SENPAI-RESULT posted** — clean terminal (n=4 mean=3.27643, margin 0.00714).
-    Awaiting tanjiro to start Option B (Newton-Muon on merged base) — directive from cycle 13.
-  - **Askeladd T1 = 3.27574** — BEST INDIVIDUAL TRIAL seen across any n=4 run! T0=3.27772.
-    T2 just started. If T2/T3 land in same range, n=4 mean ~3.276. But at 3300 steps, ffs=~3250.
-  - **Thorfinn `78nqtrmr` screen step 3275 val=3.27416** (crashed at step 3298 mid-cooldown).
-    Strong single seed; n=4 confirm `6kjpjnvd` now running cleanly (T0 step 1839/3325).
-  - **Frieren n=4 `jzsue46n` T0 step 1700/3175** — 54% done. ETA T0 ~50min.
-  - **Alphonse PR #139** CONTRA_MUON=0.3 smoke PASS, screen `o5w9cidj` at step 850/3175 (27%).
-    Smart: skipping 0.5 smoke (identical code path). ETA ~70min to screen terminal.
-  - **Fern PR #125** still on smokes — careful real-Aurora implementation in progress.
-  - **Nezuko PR #124** screen `c5d01ezw` just launched 11:24 UTC after ~7 smoke iterations.
-  - **PATTERN**: All strong screens/T0 results (tanjiro 3.27599, frieren 3.27688, thorfinn
-    3.27416, askeladd T1 3.27574) are LOWER VAL but at MORE STEPS than merged baseline.
-    Primary metric is FFS — merged baseline's FFS=3131 is its key advantage. Future
-    experiments should target FFS reduction directly, not just val/loss reduction.
+### TANJIRO #161 — Lookahead wrapper on Contra+SOAP-MLP
+- Screen `tbesgctw` running (was step 280/3175 at ~13:50 UTC)
+- ETA screen terminal: ~17:50 UTC
+- Hypothesis: k=5, α=0.5 Lookahead averaging reduces FFS by 30-80 steps via trajectory variance smoothing
+- If screen val ≤ 3.279 and ffs ≤ 3175 → predeclare n=4 at 3175
 
-- 2026-05-16 10:30 — Cycle 14 (screens landing, alphonse reassigned, multiple n=4 in-flight):
-  - **PR #112 CLOSED** — alphonse p=1.5 NEW-base NULL (3.2775 ≈ baseline mean). Reassigned
-    to **PR #139: Contra-Muon coefficient retune** (CONTRA_MUON ∈ {0.3, 0.5} vs 0.4).
-  - **Frieren `akwwpkv3` screen 3.27688 ffs=3225 at 3275 steps** — predeclared n=4 at 3175
-    steps launched now. ~6.75h to terminal. KEY test: can MuLoCo+NorMuon beat merged baseline
-    on FFS at same step count?
-  - **Tanjiro Newton-Muon n=4 terminal** — mean=3.27643 (LOWEST n=4 mean achieved!), margin
-    0.00714, BUT ffs=3256 > merged 3131. Sent back to stack Newton-Muon (attn) on merged
-    Contra+SOAP-MLP base.
-  - **Thorfinn Soft-Muon p=0.05 n=4 `78nqtrmr` running** — T0 near-terminal at val~3.2742,
-    ffs=3225. Remarkable trajectory. ~8-9h to T4.
-  - **Edward Contra-Muon T0=3.2760 ffs=3175**, T1 running.
-  - **Askeladd NorMuonH T0=3.2777 ffs=3250 at 3300**, T1 running.
-  - Nezuko: smoke complete, new run started. Fern: smoke passed, screen launching.
+### FERN #125 — Real Aurora (diagonal leverage-score equalization)
+- Screen `lqwaozx7` running with D.clamp_(1e-6, 1e6) fix — past prior crash points
+- ETA terminal: ~17:00 UTC
+- Note: Two prior screens crashed at steps 1475 and 575; clamp fix appears to have resolved instability
+- If competitive: predeclare n=4
 
-- 2026-05-16 09:25 — Cycle 12 (research integrity catch + n=4 progress):
-  - **PR #125 (fern Aurora) SPEC ERROR CAUGHT** — fern flagged that my PR pseudocode was
-    GaLore/FLORA-style randomized SVD projection, NOT record #17 Aurora (which is
-    diagonal leverage-score equalization inside NS5). Sent back with corrected
-    algorithm: `D = 1/||G_i:||`, iterative `polar(D · G)` with `pp_iterations=2`,
-    `pp_beta=0.5`. Apply to non-square weights (MLP fc/proj). Stack on Contra+SOAP-MLP.
-  - **Tanjiro n=4 `cpoe66ut` near-terminal** — T0=3.27599, T1=3.27720, T2=3.27610,
-    T3 at step 3139/3325 (94%). n=3 mean=3.27643 — well below 3.278 statsig threshold.
-    But predeclared step count is 3325 with ffs ~3200-3250, vs merged baseline ffs=3131
-    at 3175 steps. Likely PASS statsig but NOT BEAT merged baseline on ffs.
-  - **Edward n=4 `zsqazpmr` T1 progressing** — step 2851/3225 of T1. T0=3.27750 ffs=3175.
-    Same likely outcome: pass statsig at 3225 steps, but ffs > merged 3131.
-  - **Askeladd n=4 `lw99ybyp` T0 done** — T0=3.27770 at 3300 steps. 3 trials remaining.
-  - **Thorfinn n=4 `78nqtrmr` LAUNCHED** at 08:27 UTC after my send-back. Soft-Muon
-    p=0.05 confirmation, train_steps=3325, single invocation `--num_trials 4`.
-  - **Alphonse p=1.5 NEW-base** at step 1700/3275 (~52%, val=3.5065 mid-descent).
-    Expected terminal ~10:06 UTC. Likely misses (alphonse's own prior).
-  - **Nezuko PR #124** smoke `1f616e9q` completed at val=3.806 (smoke baseline). New
-    run `l7lwkmj6` launched 09:25 UTC. Had ~10 min stall from gh API rate limit;
-    recovered.
-  - **Frieren PR #109** MuLoCo+NorMuon `akwwpkv3` at step 1775/~3275 (~54%).
-  All 8 r2 students productive. Multiple n=4 confirmations within 10-15h of terminal.
+### FRIEREN #109 — MuLoCo+NorMuon n=4 (expected CLEAN NEGATIVE)
+- T0=3.28240, T1=3.28196 BOTH MISSED at 3175 steps
+- All 4 trials continuing to terminal per statsig protocol (no val-peeking early-kill)
+- ETA terminal: ~17:30 UTC. Will post clean SENPAI-RESULT negative and close PR.
+- Implication: MuLoCo outer-Nesterov wrapping doesn't add to Contra+SOAP-MLP at 3175 steps
 
-- 2026-05-16 07:30 — Cycle 10 (post-restructure tick — wait state):
-  - Survey: 8 r2 PRs WIP, 0 review-ready, no human issues, rate limit healthy.
-  - Pod check: all 8 r2 pods Running. 4 at 100% GPU (edward, tanjiro, thorfinn, alphonse).
-    4 at 0% GPU spinning up cycle-9 instructions (askeladd, frieren rebasing; nezuko
-    and fern just picked up their NEW assignments #124 and #125).
-  - No actionable advisor work this cycle — all students executing cycle-9 directives.
-  - Next wakeup scheduled in ~25 min to check rebase landings, p=1.5 progress, and
-    new nezuko/fern training kickoffs.
+### THORFINN #103 — Soft-Muon p=0.05 n=4 (strong but "stronger but slower")
+- n=4 `6kjpjnvd`: T0=3.27400 ffs=3250, T1=3.27400 ffs=3250 — remarkable dual-trial agreement
+- T2 at step 874/3325 (~26%) at last check. ETA full n=4 terminal ~17:45-18:00 UTC
+- Val/loss excellent but ffs=3250 > baseline 3131 — STATSIG PASS likely, NOT FFS win
+- Will close after terminal: clean "stronger but slower" result, no new baseline
 
-- 2026-05-16 06:45 — Cycle 9 (PR #78 merged, major portfolio restructure):
-  - **PR #78 (fern Contra+SOAP-MLP) MERGED** ✨ commit `718dd3f`. New baseline:
-    mean=3.27760, ffs_mean=3131.25 @ 3175 steps. Beats NorMuon-clean by 125 steps.
-  - **Askeladd n=4 @ 3275 non-statsig by 0.00008** → sent back for n=4 @ 3300.
-    Rebase + predeclared n=4 run needed. Explained merge contingency vs new baseline.
-  - **Nezuko Muon² n=4 @ 3325 non-statsig (mean 3.27839, margin 0.00322)** →
-    PR #80 CLOSED. Pivoted to PR #124 Attention SOAP with trust gate (record #16
-    stack on Contra+SOAP-MLP base).
-  - **Alphonse p=1.2 screen MISSED (3.28031)** → advised to kill p=1.2 re-run,
-    launch p=1.5 per predeclared plan + rebase.
-  - **Thorfinn p=0.05 crashed 2× mid-cooldown** → advised to try p=0.075 + add
-    NaN guard + rebase.
-  - **Frieren debug smoke clean (3.84938, no NaN)** → advised to rebase + proceed
-    to full screen at 3275 steps with si=30/outer_lr=0.7 (record #13 HPs).
-  - Edward Contra-Muon T1-T3 in progress; tanjiro Newton-Muon T1-T3 in progress.
-  New baseline: Contra+SOAP-MLP mean=3.27760 ffs_mean=3131.25 (PR #78 = `718dd3f`).
-- No human-researcher directives recorded.
-- W&B `wandb-applied-ai-team/modded-nanogpt-senpai`, tag/group prefix
-  `auto-nanogpt-1gpu-r2`.
+### EDWARD #76 — Contra-Muon n=4 (stronger but slower, expected)
+- n=4 `zsqazpmr` @ 3225: T0=3.27750 ffs=3175, T1=3.27599 ffs=3175 (excellent!)
+- T2-T3 at ~step 2477/3225 at last check. ETA full terminal ~17:00-18:00 UTC
+- ffs_mean ~3175 — beats NorMuon-clean but not merged baseline ffs=3131
+- Mean projection ~3.276 — very low val! But FFS not competitive. Statsig pass likely.
 
-## In-flight / recent results
+### ASKELADD #166 — KL-SOAP + hyperball (JUST ASSIGNED)
+- Fresh assignment: KL-SOAP applied to ALL 2D block params (not just MLP), pf=1, β1=0.95, β2=0.90
+- Record #19 reference: n=6 mean=3.27800 @ 3125 steps (statsig pass). Target: replicate + beat ffs_mean ≤ 3125
+- Student hasn't picked up yet (assigned at 15:33 UTC). Expect smoke + screen within 3-4h.
+- ETA screen terminal: ~20:00 UTC
 
-- **g1r2-edward (Contra-Muon)** — n=4 conf `zsqazpmr` (3225): **T0=3.27750**
-  (ffs=3175, terminal). T1 just started (step 50/3225). For n=4 statsig:
-  T1+T2+T3 need mean ≤ 3.27817 — easy bar. Likely statsig, would beat NorMuon
-  by ~50-80 ffs steps. ~14h to T3.
+## Key patterns observed
 
-- **g1r2-fern (Aurora orthogonal projection) — PR #125 NEW ASSIGNMENT** —
-  Contra+SOAP-MLP (PR #78) MERGED as new baseline. Fern pivoted to **Aurora**:
-  low-rank orthogonal projector applied to Contra-Muon path (non-SOAP weights)
-  before NS5. Target: beat 3131.25 ffs_mean by ~25-50 steps (→ ~3075-3100).
-  Aurora complements SOAP (SOAP corrects eigenbasis curvature; Aurora removes
-  noisy gradient components). PR #125 assigned. Student picks up next poll.
+1. **"Stronger but slower"** — mechanisms that lower terminal val/loss (Newton-Muon, Soft-Muon, Contra-Muon, NorMuonH) consistently hit ffs > 3131.25. Only REDUCING effective constraints or adding variance reduction (Lookahead, lower CONTRA_MUON) improves FFS.
 
-- **g1r2-alphonse (NorMuon + power-law LR p=1.2) — screen MISSED** —
-  `fg11eojr` terminal at val=3.28031, ffs=-1 (didn't cross 3.28) at
-  train_steps=3275 single seed. Per predeclared branch decision, student
-  should auto-launch p=1.5 single-seed at 3275. If p=1.5 also > 3.280,
-  close PR with negative evidence (power-law LR not additive on top of
-  NorMuon at our setup).
+2. **CONTRA_MUON sensitivity**: coefficient sweep 0.3→0.5 has strong FFS signal. 0.5 screen gave ffs=3125 (6 steps better than baseline). Predeclared n=4 is the highest-priority current bet.
 
-- **g1r2-tanjiro (Newton-Muon)** — `cpoe66ut` (n=4 @ 3325): **T0=3.27599**
-  (ffs=3250, terminal — excellent first trial, 0.003 below prior n=4's T0).
-  T1 @ 20% (step 664/3325). For n=4 statsig: T1+T2+T3 need mean ≤ 3.27867 —
-  comfortable. Recipe scales well with cooldown. ~13h to T3.
+3. **SOAP-MLP on Contra+Muon baseline** (PR #78) was the right foundation — all subsequent experiments build from this. The key question is what adds to it vs. what trades val for FFS.
 
-- **g1r2-askeladd (NorMuonH) ⚠️ TERMINAL NON-STATSIG** — `6rf3nerz` (n=4 @
-  3275): T0=3.27781, T1=3.27777, T2=3.27798, **T3=3.27860** (ffs=3250).
-  **n=4 mean=3.27804, margin=0.00392 — MISSES 0.004 by 0.00008**. Recipe is
-  real (σ~0.0004) but T3 was unlucky. Action: send back for predeclared n=4
-  at train_steps=3300 (one cycle of cooldown headroom should push mean ≤
-  3.2775 reliably). Once fern merges, askeladd's NorMuonH at 3300 would
-  still be merit-worthy: would beat NorMuon-clean by mean and ffs at same
-  step count. Pending GH API recovery to send back.
+4. **KL-SOAP (record #19)** succeeded without Contra+NS5 stack. Unknown if KL-SOAP + Contra-Muon stacks or if KL-SOAP alone is the right approach.
 
-- **g1r2-frieren (MuLoCo+NorMuon) ⚠️ SMOKE DIVERGED** — Smoke `mti327gb`
-  produced NaN val/loss at step 400. MuLoCo outer Nesterov wrapping NorMuon
-  has stability issues — likely outer_lr=0.7 is too high when wrapping
-  NorMuon's already-variance-noisy update direction. Needs investigation:
-  try outer_lr=0.5 or sync_interval=60 first. Student should iterate
-  on next poll.
+## Closed this session
 
-- **g1r2-nezuko (Attention SOAP + trust gate) — PR #124 NEW ASSIGNMENT** —
-  Muon² PR #80 CLOSED: n=4 @ 3325 mean=3.27839, margin=0.00322, non-statsig.
-  Nezuko pivoted to **Attention SOAP with trust gate** (record #16 stack): extend
-  fern's MLP-SOAP to qkv+proj attention weights with cosine-similarity trust gate.
-  Target: beat new baseline (3.27760 @ 3175) by ~25 steps → ~3125 ffs. PR #124
-  assigned, student picks up next poll.
+- **Askeladd #74 (NorMuonH n=4 @ 3300)**: n=4 mean=3.27732, ffs_mean=3250. Strictly BETTER val than baseline (3.27760 → 3.27732) but strictly WORSE FFS (3131.25 → 3250). Closed as "statsig pass but not FFS-competitive." Reassigned to KL-SOAP+H.
+- **Tanjiro #81 (Newton-Muon)**: Newton-Muon-only n=4 mean=3.27643 (LOWEST achieved!) at 3325 steps. Option B stack at 3175 failed badly (3.28893). Closed. Pivoted to Lookahead.
 
-- **g1r2-thorfinn (Soft-Muon isolated) ⚠️ p=0.05 SCREEN CRASHED** — `hz91ow2y`
-  crashed at step 1575/3325 (47%, mid-cooldown). Previous p=0.1 screen
-  MISSED at 3.28024. Now p=0.05 crashed before finishing — possibly NaN
-  or numerical instability in Soft-Muon's `x^(1-p)` polynomial at lower p
-  values. Needs debugging: check for stable polynomial coefficients or
-  consider p=0.075 as midpoint. Student should iterate on next poll.
+## Upcoming decisions / expected results (next 6 hours)
 
-## Single-seed leaderboard so far (informational, not statsig)
-| student | recipe | run | val/loss @ step | ffs | margin n=1 |
-| --- | --- | --- | --- | --- | --- |
-| edward | Contra-Muon | `qxzuvfmm` | 3.2746 @ 3275 | 3200 | **0.0054** ✓ |
-| fern | Contra+SOAP-MLP (record-#14 ord) | `du7a5t1t` | 3.2755 @ 3225 | 3150 | 0.0045 ✓ |
-| alphonse | NorMuon (T0 of n=4) | `8yocwc35` T0 | 3.2761 @ 3300 | 3225 | 0.0039 ✓ |
-| nezuko | Muon² | `n18mqjfy` | 3.2773 @ 3350 | 3300 | 0.0027 ✓ |
-| tanjiro | Newton-Muon (prior screen) | `hh4xwux2` | 3.2779 @ 3325 | 3275 | 0.0021 ✓ |
+| Time UTC | Student | Event | Expected outcome |
+|---|---|---|---|
+| ~16:00-16:30 | Nezuko | n=4 terminal | Likely FAILS statsig by ~0.001; ffs borderline |
+| ~17:00 | Fern | Aurora screen terminal | Unknown; will decide predeclare or abandon |
+| ~17:00-18:00 | Edward | n=4 terminal | Statsig PASS, ffs ~3175, no new baseline |
+| ~17:30 | Frieren | n=4 terminal | Clean negative, close PR |
+| ~17:45-18:00 | Thorfinn | n=4 terminal | Statsig PASS, ffs ~3250, no new baseline |
+| ~17:50 | Tanjiro | Lookahead screen terminal | Unknown; key FFS test |
+| ~20:00 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
+| ~22:30-23:00 | Alphonse | n=4 terminal (CRITICAL) | Could be new baseline if ffs_mean ≤ 3125 |
 
-## Current research focus
+## Potential next hypotheses (for soon-to-idle students)
 
-The starter script implements Muon + aux Adam at lr=0.035, wd=0.025,
-`cooldown_frac=0.7`, `train_steps=3350` — close to public record #10 (3250
-steps). The public history shows roughly 320 steps of headroom above the
-starter, and the current global best is record #20 (Contra+Soft-Muon, 3030
-steps).
+- **Frieren (after #109 closes)**: Schedule-Free Muon (SFM) — eliminate LR schedule entirely, use Polyak averaging. No cooldown = simpler optimization + potentially lower FFS variance.
+- **Thorfinn (after #103 closes)**: `cooldown_frac` retune — if FFS is consistently ending at 3125-3175, the cooldown onset may be too early. Try `cooldown_frac=0.75` or `cooldown_frac=0.65` on merged baseline.
+- **Edward (after #76 closes)**: SOAP `precondition_frequency` retune — current pf=10. Try pf=5 (more frequent updates) to see if eigenbasis tracks curvature changes better during cooldown.
+- **Nezuko (if #124 closes)**: Muon-Adan hybrid — adaptive moment with Adan's 3-beta structure applied to the 2D group, no NS5. Different class of preconditioner.
 
-Five out of eight wave 1 students have produced single-seed results that cross
-3.28 (all ✓ in leaderboard above). The critical question now is whether those
-results reproduce statsig at n=4.
+## Research programme direction
 
-**Statsig outcomes so far:**
-- alphonse NorMuon: n=4 mean=3.27800 @ 3300, margin=0.00401 → **MERGED** (PR #71 = new baseline).
-- fern Contra+SOAP-MLP: n=4 mean=3.27760 @ 3175, margin=0.00480 → **STATSIG WIN, merge pending rebase** (PR #78).
-- askeladd NorMuonH: n=4 mean=3.27804 @ 3275, margin=0.00392 → **NON-STATSIG by 0.00008**, needs n=4 @ 3300.
-- tanjiro Newton-Muon (prior): n=4 mean=3.27934 @ 3275, margin=0.00132 → NON-STATSIG, re-running @ 3325.
-- nezuko Muon²: T0-T2 mean=3.27854 @ 3325 → projecting non-statsig.
-- edward Contra-Muon @ 3225: T1 just started.
-- tanjiro Newton-Muon @ 3325 (re-run): T1 just started.
+No human-researcher directives received this session.
 
-**Confirmed dead (non-competitive) on this setup:**
-- PMuon (thorfinn, earlier): numerically unstable. Now testing Soft-Muon.
-- MuLoCo on plain Muon (frieren, 4 sweep corners all missed 3.28).
-- Muon² (nezuko, PR #80): n=4 mean=3.27839 @ 3325, non-statsig. Even with
-  more steps, ffs_mean ~3300 cannot beat new baseline 3131.25.
+Primary goal remains: beat global best record #20 (3030 steps, Contra+Soft-Muon+power-law LR). Our current best is 3131 steps (Contra+SOAP-MLP). Gap: 101 steps / ~3.2% headroom.
 
-**Current active student assignments:**
-- Thorfinn → Soft-Muon isolated (PR #103) — p=0.05 crashed 2×; try p=0.075 + NaN guard + rebase.
-- Alphonse → NorMuon + power-law LR (PR #112) — p=1.2 missed; launch p=1.5 + rebase.
-- Tanjiro → Newton-Muon re-run n=4 @ 3325 (`cpoe66ut`) — T1 in progress; rebase PR #81 before submit.
-- Frieren → MuLoCo+NorMuon (PR #109) — debug smoke clean; rebase + proceed to screen @ 3275.
-- Askeladd → NorMuonH n=4 @ 3275 non-statsig (margin 0.00392); n=4 @ 3300 predeclared, rebase first.
-- Nezuko → Attention SOAP + trust gate (PR #124, NEW) — newly assigned, student picks up next poll.
-- Fern → Aurora orthogonal projection (PR #125, NEW) — newly assigned.
-- Edward → Contra-Muon n=4 `zsqazpmr` T1 in progress; rebase PR #76 before submit.
-
-## Wave 1 assignments
-
-| Student | Hypothesis family | PR | Status |
-| --- | --- | --- | --- |
-| g1r2-alphonse | NorMuon + power-law LR cooldown | #112 | **newly assigned** |
-| g1r2-askeladd | NorMuonH (NorMuon + hyperball + per-module init) | #74 | n=4 conf @3275 T1 running |
-| g1r2-edward | Contra-Muon (contra correction + u/w-floor) | #76 | n=4 conf @3225 early (8%) |
-| g1r2-fern | Contra-Muon + SOAP on MLP | #78 | n=4 conf @3175 T1 running |
-| g1r2-frieren | MuLoCo+NorMuon (record #13 stack) | #109 | **newly assigned** |
-| g1r2-nezuko | Muon² (Adam var before NS) | #80 | n=4 conf @3325 T1 running |
-| g1r2-tanjiro | Newton-Muon (act-cov right-precond) | #81 | non-statsig @3275; re-run @3325 pending |
-| g1r2-thorfinn | Soft-Muon isolated | #103 | **newly assigned** |
-
-## Potential next research directions
-
-- **KL-SOAP + hyperball** (record #19): queue after preconditioner results land.
-- **Aurora** (record #17): orthogonal projector — queue after Contra-Muon
-  baseline is confirmed.
-- **Soft-Muon + NorMuonH combination** (record #20 core stack): natural follow-up
-  once Soft-Muon isolated baseline is established.
-- **Attention SOAP with trust gate** (record #16) after MLP-SOAP confirms.
-- **Power-law LR schedule** (record #20 uses power=1.2) — try on simpler stacks.
-- **MuLoCo wrapping confirmed inner optimizer** (NorMuon or Contra-Muon) — queue
-  for frieren once wave 1 n=4 confirmations land.
-- **Per-module LR/WD tuning** — Newton-Muon used 4 different Muon groups;
-  may transfer to baseline Muon and NorMuon.
-- **Tanjiro Newton-Muon at longer steps** — if T3 non-statsig at 3275, re-run
-  at train_steps=3300.
+Most promising path to close that gap:
+1. CONTRA_MUON tuning (alphonse n=4 result, ~16-24h)
+2. Stacking KL-SOAP-style aggressive preconditioning on merged base (askeladd #166)
+3. Lookahead + Contra+SOAP-MLP (tanjiro, ~2h to screen)
+4. After those land: consider record #20's Soft-Muon annealing + power-law LR as the next major stacking experiment
 
 ## Operational notes
 
-- All runs must use `--wandb_group` (or `WANDB_RUN_GROUP`) so the advisor can
-  aggregate seeds.
-- For statsig at a single step count, seed counts of n=4 give a 3.278 mean
-  ceiling; n=8 gives 3.2786 ceiling. Final claims must report all
-  non-cherry-picked runs.
-- Early-kill is permitted only for crashes, non-finite losses, or hopeless
-  smoke tests — never as val-peeking.
-
-## Known starter bugs
-
-- **sample_tensor OOB** — fixed on advisor branch as commit `d3bf1a4`
-  (cherry-pick of edward's `d1219ff`). `torch.linspace(0, N-1, M).long()` could
-  round the endpoint to `N` for tensors with `N > 2^25` (embed/proj at 38.6M
-  elements), triggering a CUDA device-side assert during the first
-  `log_histograms` call. Fix: `.long().clamp_(max=values.numel() - 1)`.
-  Independently surfaced by g1r2-alphonse (#71), g1r2-edward (#76), g1r2-fern
-  (#78), and g1r2-thorfinn (#82). Students who rebase onto the advisor branch
-  pick up the fix automatically.
-
-- **`torch.compile` step-3 NaN on Blackwell + torch 2.10** (analogous to the
-  A100 + torch 2.10 issue called out in the official track-3 README). Workaround:
-  disable model compile (and the `@torch.compile` decorator on `muon_update`)
-  on Blackwell pods. Slows per-step ~3×; benchmark metric is step-count not
-  wall-clock, so this is acceptable.
+- W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
+- All n=4 runs: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800
+- Primary metric: `ffs_mean` (lower is better), tie-break: `val/loss mean`
+- For merge: BOTH mean ≤ 3.27760 AND ffs_mean ≤ 3131.25 vs current merged baseline

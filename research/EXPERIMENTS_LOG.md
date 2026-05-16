@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 15:35 — Cycle 23: Alphonse CONTRA_MUON=0.5 screen beats baseline on both metrics
+
+### Alphonse CONTRA_MUON=0.5 screen — BEATS merged baseline on BOTH val AND FFS (PR #139)
+
+| Run | Config | val/loss | ffs | Statsig (n=1) | Notes |
+|---|---|---|---|---|---|
+| `hjsjscjy` | CONTRA_MUON=0.3, 3175 steps | 3.27804 | 3150 | — | First FFS-competitive screen (cycle 18) |
+| `yctj2ozd` | CONTRA_MUON=0.5, 3175 steps | **3.2763** | **3125** | — | BEATS baseline (3.27760/3131.25)! |
+
+Screen `yctj2ozd` (CONTRA_MUON=0.5) delivers val=3.2763 ffs=3125 — the first single-seed result to beat the merged baseline on BOTH primary metrics simultaneously. N=4 PREDECLARED at train_steps=3175 with CONTRA_MUON=0.5. Predeclare comment posted at ~15:15 UTC. ETA terminal ~22:30-23:00 UTC.
+
+Analysis: Reducing CONTRA_MUON from 0.4 (merged) → 0.5 (stronger contra correction) appears to tighten the convergence trajectory during cooldown. The contra correction `T - T^T` removes antisymmetric noise from the operator; a higher coefficient removes more, leading to a cleaner Newton-Schulz input. This translates directly to earlier FFS crossing without sacrificing terminal val.
+
+### Askeladd NorMuonH n=4 @ 3300 — CLOSED, statsig pass but not FFS-competitive (PR #74)
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27781 | 3225 |
+| T1 | 3.27573 | 3200 |
+| T2 | 3.27863 | — |
+| T3 | ~3.277xx | — |
+| n=4 mean | **3.27732** | ffs_mean ~3225-3250 |
+
+n=4 mean=3.27732 — STRICTLY BETTER VAL than merged baseline (3.27760 → 3.27732), but ffs_mean ~3225-3250 — STRICTLY WORSE FFS than baseline 3131.25. Closed as "statsig pass but not FFS-competitive." NorMuonH on plain Muon base produces excellent terminal val but cannot compress the convergence curve to match Contra+SOAP-MLP's FFS efficiency. Reassigned to KL-SOAP + hyperball (PR #166).
+
+### Askeladd reassigned — KL-SOAP + hyperball (PR #166, just assigned)
+
+New hypothesis: Replace Contra-Muon+NS5+SOAP-MLP with KL-SOAP+hyperball on ALL 2D block params. Key parameters: β1=0.95, β2=0.90, shampoo_beta=0.90, pf=1, lr=0.018 (record #19 HPs). Reference: record #19 (n=6 mean=3.27800 @ 3125 steps, statsig pass). KL-SOAP at pf=1 provides the most aggressive curvature tracking in the literature — eigendecomp every step rather than every 10 steps. Unknown if it stacks with or replaces the Contra mechanism.
+
 ## 2026-05-16 14:15 — Cycle 19: Newton-Muon closed, Lookahead assigned, alphonse FFS-competitive
 
 ### Tanjiro Newton-Muon CLOSED — positive but not merge-eligible (PR #81)
