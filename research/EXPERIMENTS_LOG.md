@@ -428,6 +428,56 @@ edward's analysis: "The two ±0.1 perturbations both produce within-noise outcom
 
 ---
 
+## 2026-05-16 16:35 — PR #151 CLOSED: Aurora pre-polar row-norm equilibration — informative null (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-uw-aurora`
+- Hypothesis: Aurora row-norm equilibration applied to pre-polar momentum on PMuon+u/w-floor. Aurora is the only pre-polar mechanism not yet tested in isolation on this base. Theory: PMuon's bilateral whitening is post-polar; Aurora is pre-polar; should be geometrically orthogonal.
+- W&B run: `qoxky210`
+
+| Metric | this run (n=1) | PR #94 baseline (n=2) | Δ |
+| ------ | ------ | ------ | - |
+| speedrun/final_first_step_to_target | 3125 | 3100 | +25 (worse) |
+| val/loss | 3.269743 | 3.267696 | +0.002047 |
+| (3.28−μ)·√n | 0.01026 | 0.01231 (n=2 mean) | passes n=1 vs 3.28 |
+
+**Aurora telemetry (134 samples):**
+- `aurora/row_norm_ratio_pre`: mean 1.21e13, max 3.76e13 — momentum has wild row-norm imbalance
+- `aurora/row_norm_ratio_post`: mean 5.52e10, max 2.96e11 — Aurora compresses ~220×
+- `aurora/cos_pre_post`: mean 0.873 — direction stays mostly aligned after equilibration
+- `uw_floor/fired_fraction`: mean 0.826 (slightly lower than baseline's 1.0 — Aurora-equilibrated updates sometimes already have sufficient magnitude)
+
+**Analysis:** Aurora mechanistically works (220× row-norm compression confirmed) but is redundant with PMuon's bilateral whitening on this base. PMuon's bilateral covariance EMA produces a roughly isotropic NS input through a different geometric route (eigenvalue inversion vs row-norm raising). Both routes converge on similar polar inputs. Aurora's small directional rotation (cos=0.873 ≠ 1) costs ~25 sr-steps without buying val improvement.
+
+**Cross-cutting note:** This confirms BOTH pre-polar and post-polar mechanism slots are saturated by PMuon's whitening on this base. The pattern of nulls now spans both sides of the polar step.
+
+**Conclusion:** CLOSED as informative null. Alphonse pivots to per-head polar (PR #169) — first structural change to the polar step itself.
+
+---
+
+## 2026-05-16 16:35 — PR #150 CLOSED: Cautious update sign-mask — NEGATIVE (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-uw-cautious`
+- Hypothesis: Cautious update (Liang et al. 2024) zeros elements where polar update sign disagrees with raw gradient sign, then renormalizes magnitude. Theory: variance reduction on aggressive optimizers (Lion, Adam).
+- W&B run: `ghiesor9`
+
+| Metric | this run (n=1) | PR #94 baseline | Δ |
+| ------ | ------ | ------ | - |
+| speedrun/final_first_step_to_target | **−1 (never crossed 3.28)** | 3100 | NEGATIVE |
+| final val/loss | 3.2938 | 3.267696 | +0.0261 |
+| `final_reached_target` | 0 | 1 | failed |
+
+**Analysis:** Clear NEGATIVE (not just null). Cautious masking destroys PMuon's whitening signal. Mechanism: PMuon's bilateral whitening (`L^{-γ} R^{-γ}`) systematically rotates the update relative to raw gradient — by design (preconditioning). After whitening, 20–40% of elements typically flip sign relative to raw grad (normal consequence of rotation). Cautious zeros these elements, destroying most of the geometric correction PMuon provides. u/w-floor then amplifies the corrupted direction. The optimizer wanders, never converges to target.
+
+Cautious works on Lion/Adam because their inner updates are roughly aligned with raw grad (Adam: gradient/√EMA; Lion: sign-of-EMA). PMuon's polar+whitening is geometrically far from raw grad — sign-agreement with raw grad becomes an anti-signal here.
+
+**Operational issue:** A silent-fail duplicate run `1wb1p2eg` was launched at 16:28 UTC with byte-for-byte identical config (advisor flagged in close comment; student was asked to kill it). Same rate-limit silent-fail pattern hitting students this week.
+
+**Cross-cutting note:** 2nd clear NEGATIVE on PMuon+u/w-floor (after PR #119 Contra-Muon). Both negatives involve mechanisms that act on update sign/direction in ways geometrically incompatible with PMuon's bilateral whitening.
+
+**Conclusion:** CLOSED as confirmed negative. Fern pivots to cosine cooldown shape (PR #168) — schedule-side change, categorically different from optimizer mechanisms.
+
+---
+
 ## 2026-05-16 15:45 — PR #140 CLOSED: SOAP-MLP + u/w-floor stack on PMuon base — informative null (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pmuon-soap-mlp-uw-floor`
