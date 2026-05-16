@@ -435,7 +435,7 @@ class GPT(nn.Module):
 ########################################
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
-CONTRA_MUON = 0.4
+CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.4"))
 MU = 0.95
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
