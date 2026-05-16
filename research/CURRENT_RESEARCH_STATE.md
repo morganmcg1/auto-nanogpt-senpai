@@ -62,7 +62,7 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 n=3 stat-sig PASS on old baseline (mu=3.27532). Sent back to re-test on NEW clip=5.0 baseline. Currently visible: control `tak4oqhf` step 1625/3350 ETA ~57min; 3 BC seeds not yet visible (likely sequential queue). Total ~5h to terminal. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 n=3 stat-sig PASS on old baseline (mu=3.27532). Re-testing on NEW clip=5.0 baseline. **Control `tak4oqhf` FINISHED val=3.2764 = clean reproduction of merged baseline (+0.0011 vs 3.27527, within noise).** BC=ON seed1 `7cmgw7ym` just launched. ETA ~5h to all 3 seeds done. |
 | **#105** | **thorfinn** | **Gradient clipping sweep** | **✅ MERGED 2026-05-16 15:30 UTC** — val=3.27527/fs=3266.7 (n=3). New branch baseline. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
@@ -71,12 +71,12 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | arm-A=3.2783/3325 sanity ✓. arm-B (PE iters=12)=3.2767 baseline parity. arm-C (PE iters=8)=3.276 parity. **arm-D (PE iters=6) `4chpm8ru` step 2050/3350 ETA ~43min**. Re-rebase ping sent — branch CONFLICTING after #105 merge. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | smoke passed 14:51 UTC (K=50, val_loss=4.26 at step 200, cos_block0_q flipped +0.044 after resets). Arms A→D sequential via dispatcher (~6.4h). Rebase ping sent — branch CONFLICTING after #105 merge. |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A `lfcnprqg` finished val=3.27595/fs=3275 ✓ baseline parity. **arm-B `8ym5zef8` (embed-only) FINISHED val=3.27978 — WORSE than baseline by 0.005**. arm-C `82mx9xwy` (full SOAP) step 175/3350 ETA ~2.2h. Status ping sent. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A `z2ygnqxh` finished val=3.27841/fs=3325 ✓. **Critical telemetry finding: spread saturates 11–25 ≫ midpoint=2.0 → arms B/C/D effectively fixed NS=16/14/18 uniform sweep, not adaptive**. arm-B `mxzk59qm` step 100 (warmup). Rebase ping sent (branch CONFLICTING). |
-| **#172** | **askeladd (NEW)** | **Cautious Update Mask** (Bansal & Schaul 2024) | just assigned — apply Muon² update only when grad·momentum > 0. Tests fern's #154 staleness finding via signal-mask rather than erasure. 4 arms: off/after_ns/before_ns/soft. |
-| **#165** | **thorfinn** | **Clip value extension sweep** | just assigned 15:30 UTC — extends clip=5.0→{10,25,50}; awaiting student pickup |
+| #138 | frieren | **Polar Express NS** (ICLR 2026 Oral) | All 4 arms FINISHED. arm-A=3.27831, arm-B(PE-12)=3.27666, arm-C(PE-8)=3.27711, **arm-D(PE-6)=3.27970**. Net finding: PE iters=8 = NS=12 quality at 67% compute; iters=6 too aggressive. None beat new baseline (snapshot pre-#105, no clip=5.0). Awaiting student SENPAI-RESULT. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | **arm-A `5u60l2v0` FINISHED val=3.2780** (+0.0027 vs new baseline; ~OLD baseline parity if snapshot lacks clip). arm-B (K=50) `u5kdw0z9` step 1675/3350 running. Arms C/D queued. Branch rebased clean. |
+| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A `lfcnprqg`=3.27595 ✓ baseline parity. **arm-B `8ym5zef8` (embed-only)=3.27978 — WORSE by 0.005**. arm-C `82mx9xwy` (full SOAP) step 2050/3350 ETA ~35min. Branch rebased. |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A `z2ygnqxh` val=3.27841/fs=3325 ✓. **Spread saturates → arms degenerate to uniform NS={14,16,18} sweep**. arm-B `mxzk59qm` step 1950/3350 ETA ~45min. Filed #173 (torch requirements bug fix) — MERGED. Still needs rebase. |
+| **#172** | **askeladd** | **Cautious Update Mask** (Bansal & Schaul 2024) | just assigned — apply Muon² update only when grad·momentum > 0. Tests fern's #154 staleness finding via signal-mask. 4 arms: off/after_ns/before_ns/soft. Awaiting student pickup. |
+| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A (clip=5.0 sanity) `f6ym89r7` step 1125/3350 running. Arms B/C/D (clip=10/25/50) queued. |
 
 ## Infra-blocked
 
