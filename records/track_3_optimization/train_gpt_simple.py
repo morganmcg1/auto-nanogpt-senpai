@@ -43,6 +43,8 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--cautious_cs", type=float, default=float(os.environ.get("CAUTIOUS_CS", "1.0")),
+                        help="Soft Cautious mask strength on disagreeing coords (0.0=no mask, 1.0=hard mask).")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -238,6 +240,7 @@ def log_training_telemetry(
 def log_weight_telemetry(
     model: nn.Module,
     module_types: dict[str, str],
+    optimizers: list[torch.optim.Optimizer],
     trial_idx: int,
     step: int,
     wandb_step: int,
@@ -257,6 +260,25 @@ def log_weight_telemetry(
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    # Cautious-Muon mask density per Muon/MuonH-trained param (set inside step()).
+    densities = []
+    param_to_name = {p: name for name, p in model.named_parameters()}
+    for opt in optimizers:
+        if not isinstance(opt, (Muon, MuonH)):
+            continue
+        for p, state in opt.state.items():
+            md = state.get("mask_density")
+            if md is None:
+                continue
+            value = float(md.item())
+            densities.append(value)
+            pname = param_to_name.get(p)
+            if pname is not None:
+                metrics[f"train/cautious/mask_density_{clean_metric_name(pname)}"] = value
+    if densities:
+        metrics["train/cautious/mask_density_mean"] = sum(densities) / len(densities)
+        metrics["train/cautious/mask_density_min"] = min(densities)
+        metrics["train/cautious/mask_density_max"] = max(densities)
     wandb.log(metrics, step=wandb_step)
 
 
@@ -459,18 +481,32 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, cautious_cs=1.0):
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    # Non-in-place lerp keeps `grad` as the raw current-step gradient for the
+    # cautious-mask sign comparison below (Liang et al., 2024 — Cautious
+    # Optimizers: Improving Training with One Line of Code, arXiv:2411.16085).
+    update_raw = grad.lerp(momentum, mu) if nesterov else momentum
+    update_ns = zeropower_via_newtonschulz5(update_raw)
+    # Soft cautious mask: keep coords where post-NS5 update and raw grad
+    # agree in sign at full weight (1.0); attenuate disagreeing coords by
+    # `1 - cautious_cs`. cautious_cs=1.0 reproduces the hard mask of Liang
+    # et al.; cautious_cs=0.0 disables the mask entirely (vanilla Muon).
+    sign_agree = (torch.sign(update_ns) == torch.sign(grad)).to(update_ns.dtype)
+    mask = sign_agree + (1.0 - sign_agree) * (1.0 - cautious_cs)
+    raw_density = mask.mean()
+    # Floor the rescaling density at 0.5 so a low-agreement step does not
+    # collapse the implicit LR catastrophically.
+    rescale_density = raw_density.clamp_min(0.5)
+    update = (update_ns * mask) / rescale_density
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    return update
+    return update, raw_density
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, cautious_cs=1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, cautious_cs=cautious_cs)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -486,7 +522,11 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update, mask_density = muon_update(
+                        p.grad, state["momentum"],
+                        mu=group["mu"], cautious_cs=group["cautious_cs"],
+                    )
+                    state["mask_density"] = mask_density.detach()
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -516,12 +556,13 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", cautious_cs=1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        cautious_cs=cautious_cs)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -549,7 +590,11 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update, mask_density = muon_update(
+                        p.grad, state["momentum"],
+                        mu=group["mu"], cautious_cs=group["cautious_cs"],
+                    )
+                    state["mask_density"] = mask_density.detach()
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -665,6 +710,7 @@ if dist.get_rank() == 0:
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
+            "cautious_cs": args.cautious_cs,
             "train_steps": args.train_steps,
         },
     )
@@ -719,7 +765,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, cautious_cs=args.cautious_cs)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -879,6 +925,7 @@ for trial_idx in range(args.num_trials):
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
+                optimizers=optimizers,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
