@@ -443,6 +443,7 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+NANOGPT_MUON_EPS = float(os.environ.get("NANOGPT_MUON_EPS", "1e-8"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -534,6 +535,7 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(f"MUON_EPS: {NANOGPT_MUON_EPS}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -574,6 +576,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "nanogpt_muon_eps": NANOGPT_MUON_EPS,
         },
     )
 
@@ -610,8 +613,13 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=0.025, eps=NANOGPT_MUON_EPS)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    muon_eps_probe_param = None
+    for _name, _p in model.named_parameters():
+        if _name.endswith("blocks.0.attn.q.weight"):
+            muon_eps_probe_param = _p
+            break
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -752,6 +760,18 @@ for trial_idx in range(args.num_trials):
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
             )
+            muon_eps_metrics = {"train/muon_eps/eps_value": NANOGPT_MUON_EPS}
+            if muon_eps_probe_param is not None:
+                _state = optimizer2.state.get(muon_eps_probe_param, {})
+                _v = _state.get("v")
+                if _v is not None:
+                    _sqrt_v = _v.float().sqrt()
+                    _precond = _sqrt_v + NANOGPT_MUON_EPS
+                    _dom_frac = float((NANOGPT_MUON_EPS > 10.0 * _sqrt_v).float().mean().item())
+                    muon_eps_metrics["train/muon_eps/preconditioner_mean_block0_q"] = float(_precond.mean().item())
+                    muon_eps_metrics["train/muon_eps/sqrt_v_mean_block0_q"] = float(_sqrt_v.mean().item())
+                    muon_eps_metrics["train/muon_eps/eps_dominates_frac_block0_q"] = _dom_frac
+            wandb.log(muon_eps_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
