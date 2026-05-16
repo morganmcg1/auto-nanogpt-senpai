@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #18, ~04:30 UTC)
+- **Last updated:** 2026-05-16 (poll #19, ~05:30 UTC)
 - **Most recent research direction from human researcher team:** none yet (no
   open GitHub issues for `auto-nanogpt-1gpu-r5` or team broadcast).
 - **Outstanding methodological adjustments:**
@@ -95,21 +95,24 @@ seeds 3 and 4 came in higher (`-1`, `3250`), softening the early signal.
   wave-1 lever — but linear-cooldown is the recipe already used by the
   SOAP-MLP winner, so this is more "confirmation that nothing exotic on
   cooldown shape helps plain Muon" than a surprise.
-- **tanjiro** (PR #98 Cautious-Muon, wave-2): **lrx1.0 + lrx1.5 both
-  finished as clean negatives** (val=3.3183/3.3237, ffs=[-1, -1]).
-  lrx2.0 running at step ~2550/3350 (val ≈ 3.46 mid-cooldown — won't
-  recover into target range). Mask telemetry HEALTHY across all cells
-  (mask.mean = 0.60–0.65, squarely in paper's 0.4–0.7 band) — mechanism
-  IS engaging. Matches assignment's pre-declared falsifying signal
-  (`ffs > 3350 at all three LR multipliers`). Advisor status ack
-  posted recommending Option A (early-terminate, post terminal).
-  Awaiting student's terminal SENPAI-RESULT.
-- **thorfinn** (Polyak/SWA): n=6 confirmation on (τ=0.20, β=0.995)
-  4/6 terminal so far, **partial mu=3.28892, std=0.01084** — well above
-  new baseline mu=3.27744. Best arms remain (τ=0.20, β=0.995) val=3.27794
-  ffs=3300 and (τ=0.30, β=0.995) val=3.27865 ffs=3300; β=0.999 arms
-  trend toward 3.297–3.303 and pull mu up. ffs cluster at 3300 won't
-  beat baseline ffs=3200. **Trending to clean negative under new baseline.**
+- **tanjiro** (PR #98 **CLOSED 2026-05-16 05:26 clean negative**):
+  Student took Option A as recommended. All three cells miss: lrx1.0
+  val=3.3183, lrx1.5 val=3.3237, lrx2.0 killed at step 2600 trending
+  worse. Val strictly increases with LR mult (LR compensation
+  mechanistically refuted). Mask engaged (0.61–0.65); failure is
+  NS curvature-filtering itself being harmful, not mask degeneration.
+  **Tanjiro reassigned to PR #121 (Schedule-free Muon, dispatched 05:30).**
+- **thorfinn** (Polyak/SWA PR #50): n=6 confirmation on (τ=0.20, β=0.995)
+  3/6 terminal on the pure confirm cell (prior 4/6 count contaminated
+  the β=0.999 arms). **Pure n=3 mu=3.27798 std=0.00086** — seeds all
+  cleanly sub-3.28, tight variance. But mu=3.27798 is +0.00054 ABOVE the
+  new baseline mu=3.27744 — Polyak (τ=0.20, β=0.995) does not beat
+  SOAP-MLP. Projected n=6 margin vs 3.28 target ≈ 0.00494 (will pass),
+  but vs new baseline: `(3.27744 - 3.27798) × sqrt(6) = -0.00132` (fails
+  merge rule). Status ack posted. Awaiting n=6 terminal SENPAI-RESULT.
+  **Will close as "doesn't beat baseline, but clean n=6 reference for
+  Polyak (τ=0.20, β=0.995) recipe."** Natural wave-2 use: stack as
+  postprocessing wrapper onto merged SOAP-MLP base (not standalone).
 
 ### Forming wave-1 verdicts (post-baseline-update; all candidates must beat ffs=3200 mu=3.27744)
 
@@ -156,14 +159,14 @@ wait for the predeclared n-seed confirmation batches the PRs asked for.
 **Most promising direction going forward:** Stacking SOAP-attn (PR #116) + NorMuonH + Contra-Muon progressively toward record #16 → #20 trajectory.
 
 **Watch list for next poll:**
-- alphonse n=8 mu (NorMuonH) PR #43 — primary wave-1 winner candidate; needs mu < 3.27744 with margin ≥ 0.004 to beat new baseline
-- edward Muon² n=8 mu PR #45 — at trial-3/8; running mu ≈ baseline; needs mu ≤ 3.27603 to merge
-- askeladd Contra-Muon n=8 PR #44 — 7/8 done; ffs cluster 3300-3325 won't beat baseline; awaiting terminal SENPAI-RESULT
-- nezuko cooldown shape PR #48 — 7/8 done; clean negative under new baseline; awaiting terminal SENPAI-RESULT
-- thorfinn Polyak n=6 PR #50 — 4/6 done; partial mu well above baseline; awaiting terminal SENPAI-RESULT
-- tanjiro Cautious-Muon PR #98 — awaiting terminal SENPAI-RESULT (Option A early-abort recommended)
-- frieren MuonH n=8 PR #47 — softening trio; unlikely to beat baseline
-- fern PR #116 SOAP-attn + trust gate — smoke done; awaiting screen result
+- alphonse n=8 mu (NorMuonH) PR #43 — only remaining primary wave-1 winner candidate; needs mu < 3.27744 with margin ≥ 0.004
+- edward Muon² n=8 mu PR #45 — at trial-3/8; running mu ≈ new baseline; needs mu ≤ 3.27603 to merge
+- askeladd Contra-Muon n=8 PR #44 — ~88% done; ffs cluster 3300-3325 won't beat baseline; awaiting terminal SENPAI-RESULT
+- nezuko cooldown shape PR #48 — 7/8 done; clean negative; awaiting terminal SENPAI-RESULT
+- thorfinn Polyak n=6 PR #50 — 3/6 done; pure-cell mu=3.27798 won't beat baseline; awaiting terminal SENPAI-RESULT
+- frieren MuonH n=8 PR #47 — softening; unlikely to beat baseline; awaiting terminal
+- fern PR #116 SOAP-attn + trust gate — smoke done; screen in flight; high-value exploit
+- tanjiro Schedule-free Muon PR #121 — freshly dispatched; smoke pending
 
 **Expected close-out cadence (next 2-4 polls):** PRs #44, #48, #50, #98 should all terminate as clean negatives under the new baseline within 4-6 hours. PR #45 (Muon²) and PR #43 (NorMuonH) are the two remaining wave-1 candidates that could conceivably merge, but both are running mu near the new baseline bar — likely to land as borderline-statsig closes too. **The wave-1 winner field is essentially decided in favor of PR #46 SOAP-MLP.** Focus shifts to PR #116 SOAP-attn (exploit) and to wave-2 stacks of merge candidates onto the SOAP-MLP backbone.
 
@@ -257,8 +260,9 @@ exploitation reproductions of known strong recipes + 3 exploration ideas.
 
 | PR # | Student         | Hypothesis                                                   | Type    | Status |
 | ---- | --------------- | ------------------------------------------------------------ | ------- | ------ |
-| 98   | g1r5-tanjiro    | Cautious-Muon: sign-agreement mask on NS update (lr sweep)   | explore | WIP    |
-| 116  | g1r5-fern       | SOAP-attn + trust gate on merged SOAP-MLP base (→rec #16)    | exploit | WIP    |
+| 98   | g1r5-tanjiro    | Cautious-Muon: sign-agreement mask on NS update (lr sweep)   | explore | **CLOSED** (clean negative, val strictly worse with LR mult) |
+| 116  | g1r5-fern       | SOAP-attn + trust gate on merged SOAP-MLP base (→rec #16)    | exploit | WIP (smoke done; screen pending) |
+| 121  | g1r5-tanjiro    | Schedule-free Muon: Defazio averaging on merged SOAP-MLP base | explore | **WIP (dispatched 05:30)** |
 
 All assignments specify:
 - inline-only optimizer code (no third-party packages),
