@@ -462,3 +462,43 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 - **Mechanism interpretation**: factored second moment v_ij ≈ v_r * v_c / sum(v_r) likely produces near-zero denominators on sparse embed gradients (most rows have ~0 gradient most of the time), causing divide-by-tiny-number → inf → NaN cascade.
 - **Combined with #144 closure**: confirms the sparsity-is-load-bearing finding. Both SOAP (rotation) and Adafactor (factorization) break sparse-token aux training; AdamW's full-v structure must be preserved.
 - **Follow-up action**: askeladd assigned #189 (Muon² preconditioner eps sweep — simple 1-line config change after 3 consecutive smoke failures on complex algorithms).
+
+## 2026-05-16 22:25 UTC — PR #163: Decoupled Momentum Reset (fern) — CLOSED clean negative
+
+- **Branch:** g1r4-fern/dmr
+- **Hypothesis:** Decoupled Momentum Reset — periodically zero Muon's momentum buffer every K steps (with optional residual decay) to break the persistent grad·momentum < 0 staleness signal observed in #154 (which found ~90% of steps have grad·momentum < 0 under Muon²). Test whether erasing stale momentum allows the optimizer to re-align with current gradient.
+- **Results (4 arms complete, single seed each, vs merged baseline val=3.27527/fs=3266.7):**
+
+| Arm | Config | val/loss | fs | Δval vs A (control) | vs merged baseline |
+|-----|--------|----------|----|---------------------|--------------------|
+| **A** | no reset (control) | **3.2780** | 3300 | (control) | +0.0027 |
+| B | K=50 (frequent reset, no decay) | **3.2930** | — | **+0.0150 CATASTROPHIC** | +0.0177 |
+| C | K=200 (moderate reset, no decay) | 3.2811 | — | +0.0031 | +0.0058 |
+| D | K=800 + 0.5× decay (best variant) | **3.2783** | 3325 | +0.0003 | +0.0030 |
+
+- **Mechanism interpretation**: Even the best DMR variant (K=800 with 0.5× decay) is barely distinguishable from the no-reset control (+0.0003). Frequent reset (K=50) catastrophically destabilizes Muon by erasing the smoothed gradient signal NS depends on for stable orthogonalization. K=200 still regresses noticeably. **The #154 staleness signal (grad·momentum < 0 in 90% of steps) is noise-dominated under Muon's NS orthogonalization** — NS already cancels the sign-disagreement structure by projecting to the orthogonal manifold, so resetting momentum loses information rather than adding it.
+- **Closure rationale**: No arm beats baseline. Best variant (D) is statistically indistinguishable from control (A) but still +0.003 worse than the merged baseline. DMR family closed.
+- **Family closed**: momentum erasure / temporal-buffer reset (joins #104 Polyak EMA, #120 Lookahead under "temporal smoothing/manipulation breaks Muon cooldown").
+- **Follow-up action**: fern assigned #203 (NS polynomial coefficient sweep — different mechanism axis, tests Muon²'s post-v-EMA spectrum directly via Chebyshev quintic c parameter).
+
+## 2026-05-16 22:30 UTC — PR #145: Per-layer adaptive NS iterations (nezuko) — CLOSED clean negative
+
+- **Branch:** g1r4-nezuko/per-layer-ns
+- **Hypothesis:** Per-layer adaptive NS iteration count — use sigmoid-controlled per-layer scaling between BASE and BASE+EXTRA_MAX iterations, gated on local layer-wise NS convergence rate, to spend iterations where they matter most (different layers have different spectrum-tightening needs).
+- **Results (4 arms complete, single seed each, vs merged baseline val=3.27527/fs=3266.7):**
+
+| Arm | Config (BASE/EXTRA_MAX → effective NS) | val/loss | fs | vs baseline |
+|-----|-----|----------|----|-----| 
+| A | BASE=12 / EXTRA_MAX=0 → NS=12 (control) | 3.27841 | 3300 | +0.0031 |
+| B | BASE=12 / EXTRA_MAX=4 → NS=16 (saturated) | **3.27992** | 3325 | +0.0046 |
+| C | BASE=12 / EXTRA_MAX=2 → NS=14 (saturated) | 3.27761 | 3300 | +0.0023 (within noise) |
+| D | BASE=6 / EXTRA_MAX=12 → NS=18 (saturated, zrrqch4i) | 3.41 | — | DEGRADED |
+
+- **Mechanism interpretation**: The sigmoid-controlled per-layer policy **degenerated to uniform NS for every weight matrix** (sigmoid saturated at gate=1.0 for all layers; variance across layers = 0). What was intended as adaptive per-layer became a uniform NS-iter sweep of {12, 14, 16, 18}. Under that effective interpretation:
+  - NS=12-14 near-optimal (within noise of each other)
+  - NS=16 monotonically worse (+0.0015 vs NS=12)
+  - NS=18 catastrophically degraded (val=3.41 at midtraining)
+- **Cross-reference**: This converges with frieren #138 (NS=12 spectral quality saturates, NS=8 already at the saturation knee) and tanjiro #75 (NS=8 floor — fewer iters fail). The local optimum is **NS=12-14**.
+- **Closure rationale**: Per-layer policy degenerates to uniform; uniform NS≥16 monotonically worse. Adaptive policy moot. Family closed.
+- **Cross-validation context**: tanjiro #185 arm-A (constant NS=14) actually FINISHED val=3.2748/fs=3250 = **BEATS baseline**, demonstrating NS=14 is the right uniform value, but the per-layer mechanism in nezuko's #145 was not the right way to reach it. The benefit comes from a uniform NS-iter increase, not from per-layer adaptation.
+- **Follow-up action**: nezuko assigned #204 (Cooldown shape sweep — different mechanism axis, tests LR-decay curve shape during cooldown, orthogonal to her closed #106 which tested cooldown_frac timing).

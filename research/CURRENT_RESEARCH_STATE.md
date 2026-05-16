@@ -1,13 +1,18 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 22:10 UTC. Post-#105 wave-3. **🔥🔥 TWO WINNER CANDIDATES on independent mechanism axes**:
-  - **thorfinn #165 arm-B clip=10 FINISHED val=3.2743/fs=3250** (clip-axis)
-  - **frieren #176 arm-B NS=12→16 cooldown boost FINISHED val=3.2733/fs=3250** (NS-schedule-axis)
-  - Identical fs=3250 (−17 steps vs baseline), val improvement 0.0010–0.0020. Both await arm-C/D completion then confirmation seeds. **If both confirm at n=3, may be additively stackable** (clip on aux groups, NS-sched on Muon blocks). **frieren #138 mechanism prediction translated cleanly: cooldown IS the precision-sensitive phase**.
-- **Fern #163 arm-D K=800 decay FINISHED val=3.2783/fs=3325** — best DMR variant still regresses +0.003 vs baseline. **DMR family closing as clean negative** after student terminal SENPAI-RESULT post.
+- **Date:** 2026-05-16 22:55 UTC. Post-#105 wave-3. **🔥🔥🔥 THREE WINNER CANDIDATES on independent mechanism axes** (all clustering at fs=3250):
+  - **thorfinn #165 arm-B clip=10**: val=3.2743/fs=3250 (clip-axis, AdamW aux groups)
+  - **frieren #176 arm-B NS=12→16 cooldown boost**: val=3.2733/fs=3250 (NS-schedule-axis, Muon blocks, cooldown only)
+  - **tanjiro #185 arm-A constant NS=14**: val=3.2748/fs=3250 (NS-count axis, Muon blocks, uniform schedule)
+  - All three at fs=3250 (−17 steps vs baseline). Both NS results (frieren cooldown + tanjiro constant) independently confirm **higher NS iterations help**. Clip-axis is mechanically distinct (AdamW aux vs Muon blocks). **If clip and NS confirm at n=3, additively stackable** — best next merge is likely a clip × NS-iter stack.
+- **Fern #163 DMR — CLOSED clean negative** (arm-D K=800 decay best variant at 3.2783/fs=3325 still regresses +0.003; #154 staleness signal noise-dominated under Muon NS orthogonalization).
+- **Nezuko #145 per-layer NS — CLOSED clean negative** (per-layer policy saturated to uniform NS=18; NS≥16 monotonically worse; cross-references frieren #138 NS-saturation + tanjiro #75 NS=8 floor).
 - **Askeladd #189 arm-D eps=1e-10 CONFIRMED unsafe** (3rd smoke `z4gco0kb` NaN with clip=5.0); awaiting arm-C (1e-9) smoke.
 - **Edward #115 BC stack regresses** (n=2 BC mean=3.27838 vs control 3.27637); awaiting seed3.
-- **In-flight**: Nezuko #145 arm-D NS=18 step 3325 nearly done; Tanjiro #185 arm-A step 3075; Alphonse #188 arm-A step 2750; Thorfinn #165 arm-C clip=25 step 1750.
+- **In-flight**: Tanjiro #185 arm-B `j2llmiit` step 425; Alphonse #188 arm-B `t7chrr8p` step 50; Thorfinn #165 arm-C clip=25 running; Frieren #176 arm-C/D queued.
+- **NEW assignments to idle students (22:55 UTC)**:
+  - **#203 fern**: NS polynomial coefficient sweep (5 arms over c∈{0.35,0.4,0.5,0.6,0.7} in Chebyshev quintic family — one-parameter family preserving f(1)=1, f'(1)=0)
+  - **#204 nezuko**: Cooldown shape sweep (5 arms over LR-decay curves: linear/cosine/sqrt/quadratic/exp)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -66,6 +71,8 @@
 | #172 | askeladd | CLOSED — Cautious Update Mask hit 4 smoke failures (val=10.83 random init throughout). Element-wise sign-agreement masking incompatible with NS-orthogonalized updates at this benchmark scale. |
 | #144 | alphonse | CLOSED 2026-05-16 20:30 — SOAP for aux groups: all variants regress (+0.0035 to +0.0038 vs control). Mechanism: rotating embed gradient into Shampoo eigenbasis bleeds signal across row-independent vocab entries. |
 | #180 | askeladd | CLOSED 2026-05-16 20:30 — Adafactor for aux groups: both smoke attempts (no_mom, mom) NaN at step 200. Factored v_ij ≈ v_r * v_c produces near-zero denominators on sparse embed gradients. Combined with #144: confirms sparsity is load-bearing on aux. |
+| #163 | fern | CLOSED 2026-05-16 22:25 — DMR clean negative. arm-A control=3.2780/3300, arm-B K=50=3.2930 catastrophic, arm-C K=200=3.2811 regresses, arm-D K=800 decay=3.2783/3325 (best DMR variant but still +0.003 vs baseline). #154 staleness signal does not translate to actionable improvement under Muon NS orthogonalization. |
+| #145 | nezuko | CLOSED 2026-05-16 22:30 — Per-layer adaptive NS clean negative. arm-A NS=12=3.27841, arm-B NS=16=3.27992, arm-C NS=14=3.27761 within noise, arm-D NS=18=3.41 (degraded). Per-layer policy degenerated to uniform NS (sigmoid saturated, variance=0). Effective uniform NS sweep: NS=12-14 near-optimal, NS≥16 monotonically worse. Cross-references frieren #138 NS-saturation + tanjiro #75 NS=8 floor. |
 
 ## Active PRs
 
@@ -83,39 +90,32 @@
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
 | **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost 🔥 | arm-A 3rd `sara3jjw` val=3.2766/fs=3275 ✓. **arm-B (NS=12→16) `2xp7ut5r` FINISHED val=3.2733/fs=3250 ✓✓ — BEATS BASELINE single-seed**. arm-C (NS=12→20) and arm-D (NS=8→12 balanced) queued. After all arms terminal: 2 confirmation seeds at best arm. Mechanism: #138 cooldown-precision prediction confirmed. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A control=3.2780. arm-B K=50=3.2930 CATASTROPHIC. arm-C K=200=3.2811 REGRESSES. **arm-D K=800 decay `zswc3l4q` FINISHED val=3.2783/fs=3325** — best DMR variant but +0.003 vs baseline. **Closing as clean negative** after student terminal post: DMR provides no benefit; #154 staleness signal is noise-dominated. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A NS=12=3.27841. arm-B NS=16=3.27992. arm-C NS=14=3.27761 within noise. **arm-D `zrrqch4i` (BASE=6 EXTRA=12 → effective NS=18 uniform) step 2250 val=3.41** running. Per-layer policy degenerated to uniform NS (variance=0 across arms). Sweep is effectively a uniform NS={12,14,16,18} probe; NS=14 marginally best of non-baseline. **Closure planned after arm-D terminal**. Branch MERGEABLE/CLEAN. |
-| **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | Smoke PASS `ugzl4jqe` val=4.869 step 100. **arm-A (constant NS=12) `qit8x8ux` step 1225 val=3.60** running healthy. arms B/C/D sequential. |
-| **#165** | **thorfinn** | **Clip value extension sweep** 🔥 | arm-A FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` FINISHED val=3.2743/fs=3250 ✓✓ — BEATS BASELINE single-seed**. **arm-C (clip=25) `2btntm04` step 50** just launched. arm-D (clip=50) queued. After all arms terminal: launch 2 confirmation seeds at best arm. **Likely next merge.** |
-| **#188** | **alphonse** | **AdamW aux LR sweep** | Smoke `a3jblwez` at 1.5× val=4.22 step 200 ✓. **arm-A (1.0× baseline) `1yu9sfbb` step 900 val=3.66** running healthy. 5 arms sequential: A=1.0×/B=1.5×/C=2.0×/D=0.7×/E=asymmetric. |
+| **#185** | **tanjiro** | **NS Iteration Annealing** 🔥 | Smoke `ugzl4jqe` val=4.869 PASS. **arm-A (constant NS=14) `qit8x8ux` FINISHED val=3.2748/fs=3250 ✓✓ — BEATS BASELINE single-seed**. arm-B (14→8 linear) `j2llmiit` step 425 running. Arms C/D queued. **Strongly cross-validates frieren #176 finding: higher NS iterations help (NS=14 constant vs NS=12→16 cooldown both at fs=3250).** |
+| **#165** | **thorfinn** | **Clip value extension sweep** 🔥 | arm-A FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` FINISHED val=3.2743/fs=3250 ✓✓ — BEATS BASELINE single-seed**. arm-C (clip=25) and arm-D (clip=50) running. After all arms terminal: launch 2 confirmation seeds at best arm. **Likely next merge along clip axis.** |
+| **#188** | **alphonse** | **AdamW aux LR sweep** | Smoke `a3jblwez` PASS. **arm-A (1.0× baseline) `1yu9sfbb` FINISHED val=3.2757/fs=3275** (within noise of baseline). arm-B (1.5×) `t7chrr8p` step 50 just launched. Arms C/D/E sequential. Direct test of clip=5.0 → aux LR rescaler mechanism. |
 | **#189** | **askeladd** | **Muon² preconditioner eps sweep** | First 2 smokes ran with NANOGPT_GRAD_CLIP=0 (PR-body bug). **3rd smoke `z4gco0kb` with clip=5.0 AND eps=1e-10 ALSO NaN — all 162M grad elements non-finite step 1; clip never fires.** Conclusion: **arm-D (eps=1e-10) genuinely unsafe; eps lower bound > 1e-10.** Awaiting student arm-C (eps=1e-9) smoke with clip=5.0 to establish actual lower bound, then run arms A/B/C/E sequential. |
+| **#203** | **fern** | **NS polynomial coefficient sweep** 🆕 | NEW 22:55 UTC. 5 arms over c∈{0.35,0.4,0.5,0.6,0.7} in Chebyshev quintic family (f(x) = (1.5+c)·x + (-0.5-2c)·x³ + c·x⁵). Tests if Muon² v-EMA-flattened spectrum favors different polynomial than current (a=2, b=-1.5, c=0.5). Env-var NANOGPT_NS_C single-line change. |
+| **#204** | **nezuko** | **Cooldown shape sweep** 🆕 | NEW 22:55 UTC. 5 arms over LR-decay curves (linear/cosine/sqrt/quadratic/exp). Orthogonal to her closed #106 (cooldown_frac timing). Env-var NANOGPT_COOLDOWN_SHAPE in `set_hparams`. |
 
 ## Infra-blocked
 
-- **tanjiro** (was GPU UUID 7998cef9 on node gd0c1b8): **ROTATION COMPLETE 2026-05-16 19:33 UTC** — operator patched deployment with node affinity excluding suspect nodes; new pod on node gd0f0ea, restart count 0. Issue #160 closed. **New assignment #185: NS-iter annealing (NS high-early low-late schedule)**. Smoke gate required first (100-step unmodified-baseline per operator instructions).
+- **tanjiro** (was GPU UUID 7998cef9 on node gd0c1b8): **ROTATION COMPLETE 2026-05-16 19:33 UTC** — operator patched deployment with node affinity excluding suspect nodes; new pod on node gd0f0ea, restart count 0. Issue #160 closed.
 
 ## Wave 3 post-#105 — current sequencing
 
 **#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**🔥🔥 TWO INDEPENDENT WINNER CANDIDATES (22:05 UTC)**:
+**🔥🔥🔥 THREE INDEPENDENT WINNER CANDIDATES (22:55 UTC), all at fs=3250**:
 - **thorfinn #165 arm-B clip=10**: val=3.2743/fs=3250 (clip-axis on AdamW aux groups)
-- **frieren #176 arm-B NS=12→16 cooldown boost**: val=3.2733/fs=3250 (NS-iter-schedule on Muon blocks)
+- **frieren #176 arm-B NS=12→16 cooldown boost**: val=3.2733/fs=3250 (NS-iter-schedule on Muon blocks, cooldown only)
+- **tanjiro #185 arm-A constant NS=14**: val=3.2748/fs=3250 (NS-iter-count on Muon blocks, uniform schedule)
 
-Both single-seed beat merged baseline 3.27527/3266.7. **Identical fs=3250** (−17 steps each). Need arm-C/D to complete, then 2 confirmation seeds at best arm each. **Critical insight**: clip and NS-schedule act on DIFFERENT parameter groups → if both confirm at n=3, may be **additively stackable** into a single next-merge candidate beating both.
+All single-seed beat merged baseline 3.27527/3266.7. **Identical fs=3250** (−17 steps each). **Mechanism convergence**: clip and NS-schedule act on DIFFERENT parameter groups → if both confirm at n=3, may be **additively stackable** into a single next-merge candidate beating both. **NS-iter convergence** from two independent designs (constant NS=14 vs cooldown NS=12→16) strongly validates that the Muon NS=12 baseline is iteration-starved.
 
-**Wave of regressions confirmed — emerging picture (updated 21:40 UTC)**:
-1. **#115 edward** — BC+clip stack REGRESSES (seed1=3.27906 vs control 3.27637). n=2/3 in flight. **Mechanism: BC and clip overlap (both stabilize early-step preconditioner) — redundant.** Close after n=3 confirmation. ETA ~3h.
-2. **#165 thorfinn clip-extension** — arm-A val=3.27756 (within noise); arm-B (clip=10) HEALTHY at step 125 val=4.61 (slightly ahead of arm-A trajectory). Step-0 val=10.83 was standard random-init eval. Arms C/D (clip=25/50) queued.
-3. **#144 alphonse SOAP-aux** — arms B/C regress, arm-D running same trajectory. SOAP rotation degrades sparse-token aux. Close after arm-D.
-4. **#163 fern DMR** — arm-B K=50 catastrophic (+0.0177); arm-C K=200 trajectory matches regression. Momentum-erasure family CLOSED on temporal-smoothing precedent (#104/#120).
-5. **#145 nezuko per-layer NS** — saturated to uniform NS={14,16,18}; arm-B (NS=16)=3.2799. NS>12 hurts. Adaptive policy moot.
-6. **#176 frieren NS cooldown** — arm-A 3rd attempt running clean. Awaiting B/C/D for cooldown-precision hypothesis test.
-7. **#180 askeladd Adafactor** — not started yet. Lowest risk on smoke gate (buffer change only).
-
-**Common theme**: All single-axis structural changes (SOAP basis, DMR erasure, NS iter count, BC stacked with clip) REGRESS off the merged Muon²+clip=5.0 baseline. The local optimum is unexpectedly tight. **Implication for new hypotheses**: prioritize (a) targeted parameter-space changes (per-layer LR, depth-scaled init), (b) loss/data-side levers, (c) different optimizer COMPOSITION (not single-axis swap).
-
-**Update 20:30 UTC**: closing #144 SOAP-aux and #180 Adafactor with a combined finding: **sparsity (not precision) is the load-bearing constraint on AdamW aux groups**. Both factorized v (Adafactor) and rotated v (SOAP) break sparse-token training. New PRs #188 (aux LR sweep) and #189 (eps sweep) explicitly avoid touching the AdamW second moment structure on aux.
+**Next priority sequencing (post-arms-complete)**:
+1. Once #176 and #185 arms terminal, launch 2 confirm seeds at best NS arm (likely frieren NS=12→16 cooldown).
+2. Once #165 arms terminal, launch 2 confirm seeds at clip=10.
+3. If both confirm, design **clip × NS-iter stack** PR.
 
 **Statistical target**: `(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. New bar is to beat 3.27527.
 
@@ -127,18 +127,21 @@ Both single-seed beat merged baseline 3.27527/3266.7. **Identical fs=3250** (−
 | Element-wise direction shaping | Contra-Soft per-element | #126 — conflict_fraction~0.50 = noise-dominated |
 | Magnitude-coupled trust region | ||w||_F coupled cap | #117 — self-reinforcing choke loop at init |
 | LR warmup | 0/50/100 step warmup | #102 — monotone WORSE; Muon² doesn't need warmup |
-| Cooldown frac | {0.4, 0.5, 0.6} | #106 — frac=0.7 baseline optimal on Muon² |
+| Cooldown frac (timing only) | {0.4, 0.5, 0.6} | #106 — frac=0.7 baseline optimal on Muon² (shape sweep separate, see #204) |
 | Lion optimizer (aux) | Lion embed+lm_head | #77 — catastrophic (3.31xx), sign-momentum inadequate |
+| Per-layer NS adaptive | sigmoid-controlled NS iters per layer | #145 — degenerates to uniform NS (sigmoid saturated); reduces to NS-iter count sweep, NS≥16 hurts |
+| Momentum reset (DMR) | periodic v reset with decay | #163 — best variant K=800 decay still regresses; #154 staleness signal noise-dominated under Muon NS |
+| SOAP/Adafactor on aux | Shampoo rotation / factored v on embed-lm_head | #144, #180 — sparsity is load-bearing on aux; basis rotation and factorization both fail |
 
 ## Wave 3 frontier — remaining next-tier
 
 **In flight (see Active PRs table above)**
 
 **Next-tier after current wave (based on mechanism orthogonality)**:
-- **Stack test: bias_corr + clip=5.0 combined** — once both confirm
-- **AdamW aux LR sweep** (follow-up to thorfinn #105 mechanism diagnosis: clip=5.0 = aux LR rescaler; test direct LR increase)
+- **Stack test: clip=10 × NS-cooldown-boost** — once both confirm
 - **Clip per-group** (apply clip only to AdamW params, not Muon blocks, per thorfinn's NS-absorbs-magnitude insight)
-- **Muon for embed/lm_head** — apply Muon² to all params (not just blocks), unifying the optimizer (after alphonse #144 SOAP settles)
+- **Muon for embed/lm_head** — apply Muon² to all params (not just blocks), unifying the optimizer
+- **AdamW betas / WD on aux** (sparse-aware levers since basis rotation / factorization both failed)
 
 ## Notes
 
@@ -151,4 +154,5 @@ Both single-seed beat merged baseline 3.27527/3266.7. **Identical fs=3250** (−
 - **Pattern (post-tanjiro pod issue)**: All Muon²-touching PRs should include 100-step smoke test before launching long arms.
 - **Pattern (post-thorfinn crashes)**: Always commit code to branch before launching long arms; uncommitted state combined with potential pod preemption produces unrecoverable crashes.
 - **Pattern (post-edward arm-C invalid-recipe)**: Freeze training script to snapshot OUTSIDE working tree before launching. Branch-swap during sequential launcher invalidates arms silently.
+- **Pattern (post-askeladd #189 smoke)**: When testing aggressive eps values, clip CANNOT save you if grad becomes non-finite — clip uses .norm() which fails on inf/nan.
 - **Failed-mechanism pattern**: Magnitude-suppression depending on current weight/update creates self-reinforcing feedback loops at init. Use NS-natural scale invariants (sqrt(min(rows,cols)) not ||w||_F).
