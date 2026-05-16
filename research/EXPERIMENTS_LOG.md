@@ -354,3 +354,22 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Mechanism conclusion**: The row-mean is NOT pure gauge on this stack — it carries real gradient signal that both NS5 and SOAP exploit. GC's subtraction hurts both.
 - **Closed mechanism**: Row-mean centering pre-momentum on Muon-managed weights. NS5 already subsumes GC's row-mean removal.
 - **Decision**: CLOSED clean negative 2026-05-16 ~20:00 UTC. Next assignment: z-loss auxiliary regularizer (PR #186).
+
+## 2026-05-16 ~20:30 UTC — PR #155: Polynomial-Weighted Schedule-Free Muon (p sweep)
+
+- g1r5-tanjiro/polynomial-schedfree
+- Hypothesis: Replace the baseline LR schedule with polynomial-weighted iterates `x = w + (lr/c̄) Σ c_t z_t`, where `c_t = (t+1)^p / Σ(i+1)^p` and p∈{2,4,6}. Expectation: concentrating averaging mass on later (lower-loss) iterates should produce a better final parameter estimate than uniform weighting.
+
+| p_avg | val/loss_x | val/loss_z | ffs | run_id |
+|------:|-----------:|-----------:|----:|:------|
+| 2 | 3.34126 | 11.06122 | -1 | it6ovjhz |
+| 4 | 3.35015 | 8.50778 | -1 | 1p6tbno4 |
+| 6 | 3.36407 | 8.21119 | -1 | 753gclup |
+
+- **n**: 1 seed per cell (n=3 arms, 1 trial each)
+- **Primary metric (best cell p=2)**: ffs=-1 (did NOT reach target), best_val=3.34126
+- **Kill gate**: All 3 cells val_loss_x > 3.32 → triggered as predeclared
+- **Statsig vs target 3.28**: All arms fail by ≥+0.06 nats
+- **Mechanism conclusion**: z-trajectory is divergent at constant LR (no cooldown). Polynomial weighting c_t = (t+1)^p / Σ(i+1)^p concentrates mass on increasingly-worse late iterates rather than helping. At p=6 val_z=8.21 confirms z never converged. The schedule-free framework requires z to converge OR explicit cooldown built into z — neither holds in this 3350-step recipe where the LR schedule cools w but not z. Both uniform (PR #121, p=0) and polynomial (PR #155, p>0) fail for the same root cause.
+- **Closed mechanism**: Schedule-free Muon on the 3350-step modded-nanogpt benchmark. Both uniform and polynomial forms exhausted.
+- **Decision**: CLOSED clean negative 2026-05-16 ~20:30 UTC. Tanjiro reassigned to asymmetric per-group WD (PR #194).

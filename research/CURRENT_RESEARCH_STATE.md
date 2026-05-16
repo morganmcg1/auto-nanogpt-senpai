@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #49, ~20:05 UTC)
+- **Last updated:** 2026-05-16 (poll #50, ~20:35 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 for n=6, ≤ 3.27245 for n=8
@@ -13,7 +13,7 @@
 | 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)    | exploit | WIP — newly assigned (PR #130 label smooth closed clean negative). Awaits run start. |
 | 186  | g1r5-frieren    | z-loss auxiliary regularizer (α·log²Z on partition function, α∈{1e-4,3e-4,1e-3}) | explore | WIP — newly assigned (PR #141 GC closed clean negative). Awaits run start. |
 | 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (replace zero-init with `1/sqrt(24)` Gaussian on residual output projections) | explore | WIP — trial 0 best_val=3.28093 (above target 3.28). Running n=4. Trending weak. |
-| 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — arm 1 val=3.341, arm 2 running. Trending negative vs even old baseline. |
+| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep on SOAP-attn base ({0.015,0.035}² corners) | exploit | WIP — newly assigned (PR #155 poly-SF closed clean negative). Awaits run start. |
 | 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — trial 0 (eabllnva) done: best_val=3.27569 ffs=3175 — above new baseline; trial 1 running. |
 | 170  | g1r5-fern       | SOAP-attn precond_freq=8 (halve attn eigenbasis refresh period vs MLP=16) | exploit | WIP — newly assigned, awaits run start. |
 | 171  | g1r5-nezuko     | SOAP trust-gate threshold sweep (0.3 / 0.5 / 0.7) on SOAP-attn base   | exploit | WIP — newly assigned, awaits run start. |
@@ -49,13 +49,15 @@
 6. **Per-group LR** (edward PR #162) — trial 0 (lr_mlp=0.035 control) done best_val=3.27569 ffs=3175; additional arms pending.
 7. **Attn precond_freq=8** (fern PR #170) — researcher-agent Idea 1.
 8. **Trust-gate threshold sweep** (nezuko PR #171) — researcher-agent Idea 3.
+9. **Asymmetric per-group WD** (tanjiro PR #194) — wd_mlp vs wd_attn corners {0.015,0.035}²; PR #155 poly-SF closed clean negative.
 
 **Closed mechanism slots (do NOT re-open):**
 - Per-module init-multiplier: NorMuonH, MuonH
 - NS wrappers: Lookahead, Cautious masking, Contra-Muon
 - Cooldown shape on plain Muon: linear at optimum
 - Polyak/SWA standalone
-- Uniform schedule-free Muon
+- Uniform schedule-free Muon (PR #121)
+- Polynomial schedule-free Muon (PR #155) — both uniform and polynomial closed; z diverges at constant LR
 - Muon² v-buffer (double-scales with SOAP)
 - Output embedding mu-centering (softcap breaks gauge argument)
 - Label smoothing ε sweep (premise wrong: CE margin already small at step 3200)
