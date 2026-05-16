@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 15:20 UTC (boot 36)
+- **Last updated:** 2026-05-16 15:55 UTC (boot 38)
 - **Most recent human-team directive:** None.
 - **Branch state:** PR #52 MuonH-SI MERGED. Baseline: val=3.27737, ffs=3275 (n=4, deterministic).
 
@@ -29,25 +29,34 @@ Same failure signature as r4-tanjiro (Issue #160): bit-identical step 1 with hea
 
 The merged `--muonh_mode` argparse default is `clip` (line 45). Baseline was confirmed with `scale_invariant`. Boot 30 alerts went to fern #152, edward #107, nezuko #153 (closed). Active screens all use `--muonh_mode scale_invariant`.
 
-## Active experiments (boot 36 status — 15:20 UTC)
+## ⭐ WINNER CANDIDATE (boot 38) — frieren MuLoCo × MuonH-SI
+
+**Screen result (n=1)**: val=**3.27566**, ffs=3275 (run g3fpjabh)
+**Baseline**: val=3.27737, ffs=3275
+**Δval**: **-0.00171** (better)
+
+**n=4 confirm requested** at 15:55 UTC. Expected ~5 hours. Config: muonh_lr=0.018, scale_invariant, budget_mult=1.0, muloco_outer_lr=0.7, muloco_outer_momentum=0.5, muloco_sync_interval=30.
+
+## Active experiments (boot 38 status — 15:55 UTC)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | mu=0.90 ❌ (val=3.29361, ffs=-1); **mu=0.95 SCREEN step 100** (duplicate launches) |
-| **#136** | askeladd | MuonH lr sweep {0.015, 0.018, 0.022} | lr=0.018 ✓ baseline-clone (val=3.27833, ffs=3300); **lr=0.022 SCREEN step 332/3325** |
-| **#114** | frieren | MuLoCo × MuonH-SI | **SCREEN step 1825/3325 val=3.55** |
-| **#107** | edward | Cautious-Muon × MuonH-SI | **SCREEN step 1660/3325 val=3.57** |
-| **#152** | fern | MuonH wd sweep | **wd=1e-5 SCREEN step 2700/3325 val=3.377** (near terminal) |
+| **#133** | thorfinn | MuonH mu sweep {0.90, 0.95, 0.98} | mu=0.90 ❌ (val=3.29361, ffs=-1); **mu=0.95 SCREEN step 1925/3325 val=3.51** |
+| **#136** | askeladd | MuonH lr sweep {0.015, 0.018, 0.022} | lr=0.015 ❌; lr=0.018 ✓ baseline-clone (val=3.27833); **lr=0.022 SCREEN step 2150/3325 val=3.49** |
+| **#114** | frieren | MuLoCo × MuonH-SI | **SCREEN ✓ val=3.27566 < baseline → CONFIRM n=4 requested** |
+| **#107** | edward | Cautious-Muon × MuonH-SI | SCREEN ❌ (val=3.30450, ffs=-1) → cs threshold sweep suggested |
+| **#152** | fern | MuonH wd sweep | wd=1e-5 ❌ baseline-clone (val=3.27850); **wd=5e-5 SCREEN step 1150/3325 val=3.66** |
 
-## Screen progress (boot 36)
+## Screen progress (boot 38)
 
-- **askeladd lr=0.018 SCREEN TERMINAL**: val=3.27833, ffs=3300 — **baseline-clone confirmed within seed variance** (n=1 sample of baseline; mean was 3.27737 n=4)
-- **askeladd lr=0.022 SCREEN RUNNING**: step 332/3325 val=4.19 — too early
-- **thorfinn mu=0.90 SCREEN TERMINAL**: val=3.29361, ffs=-1 → **NEGATIVE** (worse than mu=0.95 baseline)
-- **thorfinn mu=0.95 SCREEN RUNNING**: step 100/3325 (duplicate runs f6qv1mdx, y5z9bp0u — baseline-clones)
-- **fern wd=1e-5 SCREEN**: step 2700/3325 val=3.377 — ~14 min to terminal
-- **frieren MuLoCo SCREEN**: step 1825/3325 val=3.55 — ~34 min to terminal
-- **edward cautious-muon SCREEN**: step 1660/3325 val=3.57 — ~37 min to terminal
+- **askeladd lr=0.018 TERMINAL**: val=3.27833, ffs=3300 → baseline-clone (within seed variance)
+- **askeladd lr=0.022 RUNNING**: step 2150/3325 val=3.491 (~25 min to terminal)
+- **thorfinn mu=0.90 TERMINAL**: val=3.29361, ffs=-1 → **NEGATIVE**
+- **thorfinn mu=0.95 RUNNING**: step 1925/3325 val=3.510 (~30 min to terminal, baseline-clone)
+- **fern wd=1e-5 TERMINAL**: val=3.27850, ffs=3300 → baseline-clone (no effect from light wd in SI)
+- **fern wd=5e-5 RUNNING**: step 1150/3325 val=3.66 (~60 min to terminal)
+- **frieren MuLoCo TERMINAL**: val=3.27566 → **POTENTIAL WIN** (n=4 confirm requested)
+- **edward cautious-muon TERMINAL**: val=3.30450, ffs=-1 → **NEGATIVE** (cs threshold sweep suggested)
 
 ## Earlier results (boot 30-32)
 
@@ -82,12 +91,11 @@ The merged `--muonh_mode` argparse default is `clip` (line 45). Baseline was con
 
 ## Next-priority watch points
 
-1. **Askeladd lr=0.018 screen** (~15:00 UTC): Sanity check baseline reproducibility on her pod.
-2. **Askeladd lr=0.022 screen launch** (~15:00 UTC): Critical — IF beats baseline → confirm.
-3. **Thorfinn mu=0.90 screen** (~15:05 UTC): Then mu=0.98 arm.
-4. **Fern wd=1e-5 screen** (~15:30 UTC): then wd=5e-5, wd=1e-4 arms.
-5. **Edward cautious-muon screen** (~16:00 UTC): mechanism stack.
-6. **Frieren MuLoCo screen** (~15:50 UTC): mechanism stack.
+1. **Frieren n=4 confirm** (~21:00 UTC): If μ < 3.27737 → MERGE as new baseline (val=3.275 territory)
+2. **Askeladd lr=0.022 terminal** (~16:20 UTC): If val < 3.27737 → confirm. May supersede frieren.
+3. **Thorfinn mu=0.95 terminal** (~16:25 UTC): baseline-clone validation.
+4. **Fern wd=5e-5 terminal** (~16:50 UTC): then wd=1e-4 arm.
+5. **Edward cs threshold sweep** (~17:00 UTC if launched): cautious-muon variants.
 
 ## Operational notes
 
