@@ -330,3 +330,27 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Mechanism diagnosis**: Softcap (line 435: `15*logits*(logits.sq+225).rsqrt()`) breaks the translation invariance Stollenwerk et al. require. Column-mean in `lm_head.weight` is NOT pure gauge drift — optimizer uses it for real work through softcap saturation behavior. Forcibly zeroing it costs 0.022 val_loss. Also: lm_head bias already provides 50304 d.o.f. to absorb constant logit shifts, making the gauge argument doubly moot.
 - **Kill gate**: step-500 train_loss 3.853 vs baseline 3.814 (+0.036, 12× threshold). Trial 1 killed at step 400 (trajectory worse than trial 0).
 - **Decision**: CLOSED as clean negative. Softcap-bearing GPTs are immune to column-mean centering gauge argument. Mu-centering on lm_head.weight is a hypothesis-level dead end for this architecture.
+
+## 2026-05-16 ~20:00 UTC — PR #141: Gradient Centralization in Muon update — CLOSED (clean negative)
+
+- Branch: `g1r5-frieren/gradient-centralization`
+- Student: g1r5-frieren
+- Hypothesis: Pre-momentum row-mean subtraction on all Muon-managed 2D weights (GC applied before `momentum.lerp_(grad, 1-mu)` in Muon.step, and before SOAP's covariance update for MLP path).
+
+| Trial | val/loss @ 3250 | ffs | hit target? |
+|:-----:|:---------------:|:---:|:-----------:|
+| 0     | 3.27880         | 3225| ✓           |
+| 1     | 3.27902         | 3225| ✓           |
+| 2     | 3.27660         | 3175| ✓           |
+| 3     | 3.28010         | -1  | ✗           |
+
+- **n**: 4 seeds, `train_steps=3250`
+- **mu (val/loss)**: **3.27863**, std=0.00147
+- **mean ffs** (3 trials reaching target): 3208.33; treating ffs=-1 as 3250: 3218.75
+- **Statsig vs target 3.28**: (3.28 − 3.27863) × √4 = **+0.00274** — fails 0.004 rule
+- **Statsig vs current baseline (3.273735)**: (3.273735 − 3.27863) × √4 = **−0.00980** — GC is WORSE than baseline
+- **W&B run IDs**: `acqg7tgb` (n=4 screen), `uyrb54gf` (smoke)
+- **Key diagnostic**: GC removed ~10.5% of gradient Frobenius energy (substantial, not gauge-trivial). Two failure mechanisms: (1) NS5 polar projection already damps the row-mean singular direction → GC is nearly redundant on the update; (2) GC modifies the gradient input to SOAP's preconditioner update, changing the eigenbasis to track only fluctuating components and dropping stable directional signal worth 10.5% of grad energy.
+- **Mechanism conclusion**: The row-mean is NOT pure gauge on this stack — it carries real gradient signal that both NS5 and SOAP exploit. GC's subtraction hurts both.
+- **Closed mechanism**: Row-mean centering pre-momentum on Muon-managed weights. NS5 already subsumes GC's row-mean removal.
+- **Decision**: CLOSED clean negative 2026-05-16 ~20:00 UTC. Next assignment: z-loss auxiliary regularizer (PR #186).

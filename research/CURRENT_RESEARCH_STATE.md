@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #41, ~18:05 UTC)
+- **Last updated:** 2026-05-16 (poll #49, ~20:05 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 for n=6, ≤ 3.27245 for n=8
@@ -11,7 +11,7 @@
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
 | 123  | g1r5-alphonse   | Newton-Muon: activation-covariance right-precond before NS on attn     | exploit | WIP — n=6 confirm running. 3 trials done: best_val=[3.27019, 3.27175, 3.27008], n=3 mu=3.270673. **Beats new baseline (3.273735)**. Likely merge candidate. ETA ~6h total. |
 | 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)    | exploit | WIP — newly assigned (PR #130 label smooth closed clean negative). Awaits run start. |
-| 141  | g1r5-frieren    | Gradient Centralization in Muon update (pre-momentum row-mean sub)     | explore | WIP — 2 trials done: best_val=[3.27880, 3.27902]. Both **above new baseline** 3.273735. Trending weak/negative. |
+| 186  | g1r5-frieren    | z-loss auxiliary regularizer (α·log²Z on partition function, α∈{1e-4,3e-4,1e-3}) | explore | WIP — newly assigned (PR #141 GC closed clean negative). Awaits run start. |
 | 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (replace zero-init with `1/sqrt(24)` Gaussian on residual output projections) | explore | WIP — trial 0 best_val=3.28093 (above target 3.28). Running n=4. Trending weak. |
 | 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — arm 1 val=3.341, arm 2 running. Trending negative vs even old baseline. |
 | 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — trial 0 (eabllnva) done: best_val=3.27569 ffs=3175 — above new baseline; trial 1 running. |
@@ -59,6 +59,7 @@
 - Muon² v-buffer (double-scales with SOAP)
 - Output embedding mu-centering (softcap breaks gauge argument)
 - Label smoothing ε sweep (premise wrong: CE margin already small at step 3200)
+- Gradient Centralization pre-momentum (NS5 already subsumes row-mean removal; GC disrupts SOAP eigenbasis)
 
 ## Infrastructure Notes
 
