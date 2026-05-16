@@ -41,11 +41,16 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--ema_decay", type=float, default=float(os.environ.get("NANOGPT_EMA_DECAY", "0.999")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not (0.0 < args.ema_decay < 1.0):
+        raise ValueError(f"--ema_decay must be in (0, 1), got {args.ema_decay}")
+    if args.train_steps is not None and args.train_steps < 1:
+        raise ValueError(f"--train_steps must be positive, got {args.train_steps}")
     return args
 
 
@@ -569,6 +574,11 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "ema_decay": args.ema_decay,
+            "train_steps_arg": args.train_steps,
+            "init_attn_proj_std": 0.026,
+            "init_mlp_proj_std": 0.031,
+            "init_mlp_fc_std": 0.031,
         },
     )
 
@@ -582,16 +592,22 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps if args.train_steps is not None else 3350
 
-    # initialize model parameters
+    # initialize model parameters (per-module init for transformer projections)
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
+            if name == "proj.weight":
+                w.zero_()  # lm_head: keep zero-init (output head)
             elif "embed" in name:
                 w.normal_()  # default torch init
+            elif "attn.proj" in name:
+                w.normal_(std=0.026)  # per-module init
+            elif "mlp.proj" in name:
+                w.normal_(std=0.031)  # per-module init
+            elif "mlp.fc" in name:
+                w.normal_(std=0.031)  # per-module init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init (q, k, v)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
@@ -634,16 +650,29 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Polyak/EMA buffers (zero-init + bias correction at eval): fp32 accumulator
+    # of (1-decay) * Σ β^(t-k) p_k. With zero-init, the unbiased estimate of the
+    # weighted mean of params is p_ema / (1 - decay^updates); see Kingma & Ba.
+    # Live-init would be biased toward random init weights for many steps with
+    # high decay (β^300=0.74 at decay=0.999), giving a "noisy mix of init+trained"
+    # model that evaluates around log(vocab) at step 300.
+    ema_decay = args.ema_decay
+    ema_params = [torch.zeros_like(p, dtype=torch.float32) for p in model.parameters()]
+    ema_updates = 0
     # start the clock
     training_time = 0
     last_val_step = 0
     best_val_loss = float("inf")
     best_val_step = -1
     first_step_to_target = -1
+    best_val_loss_live = float("inf")
+    best_val_step_live = -1
+    first_step_to_target_live = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    val_loss_live_history: list[tuple[int, float]] = []
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -658,38 +687,86 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
+            # Validation: live-weights pass first (val/loss_live telemetry), then
+            # bias-corrected EMA pass (primary val/loss). p.data.copy_(...) preserves
+            # tensor identity so torch.compile cached pointers stay valid. Bias
+            # correction: with zero-init, divide accumulator by (1 - decay^updates)
+            # to recover the unbiased weighted mean of trained params.
+            assert len(val_inputs) % mbs == 0
+            # 1) Live-weights val pass (no swap needed)
+            val_loss_live = torch.zeros((), device=device)
             with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+                    val_loss_live += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+            dist.all_reduce(val_loss_live, op=dist.ReduceOp.SUM)
+            val_loss_live /= val_tokens
+            val_loss_live_float = float(val_loss_live.item())
+            # 2) EMA-weights val pass (bias-corrected). At step 0 no EMA updates
+            # exist yet, so fall back to the live value for the primary metric.
+            if ema_updates > 0:
+                bias_correction = 1.0 - ema_decay ** ema_updates
+                with torch.no_grad():
+                    backup = [p.data.clone() for p in model.parameters()]
+                    for p, p_ema in zip(model.parameters(), ema_params):
+                        p.data.copy_(p_ema / bias_correction)
+                val_loss_ema = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_ema += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_ema, op=dist.ReduceOp.SUM)
+                val_loss_ema /= val_tokens
+                val_loss_ema_float = float(val_loss_ema.item())
+                with torch.no_grad():
+                    for p, b in zip(model.parameters(), backup):
+                        p.data.copy_(b)
+                del backup
+            else:
+                bias_correction = 0.0
+                val_loss_ema_float = val_loss_live_float
+            # Primary val/loss is the EMA value
+            val_loss_float = val_loss_ema_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
+                val_loss_live_history.append((step, val_loss_live_float))
                 if val_loss_float < best_val_loss:
                     best_val_loss = val_loss_float
                     best_val_step = step
+                if val_loss_live_float < best_val_loss_live:
+                    best_val_loss_live = val_loss_live_float
+                    best_val_step_live = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if first_step_to_target_live < 0 and val_loss_live_float <= TARGET_VAL_LOSS:
+                    first_step_to_target_live = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_live": val_loss_live_float,
+                    "val/ema_gap": val_loss_live_float - val_loss_float,
+                    "val/ema_updates": ema_updates,
+                    "val/ema_bias_correction": bias_correction,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
+                    "val/best_loss_live": best_val_loss_live,
+                    "val/best_step_live": best_val_step_live,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
+                    "val/target_margin_live": TARGET_VAL_LOSS - val_loss_live_float,
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
+                    "speedrun/first_step_to_target_live": first_step_to_target_live,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
+                    "speedrun/reached_target_live": int(first_step_to_target_live >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                metrics.update(prefixed("val/slope_live", loss_slope_stats(val_loss_live_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            print0(f"step:{step}/{train_steps} val_loss(ema):{val_loss_ema_float:.5f}"
+                   + f" val_loss(live):{val_loss_live_float:.5f}"
+                   + f" gap:{val_loss_live_float - val_loss_ema_float:+.5f}"
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -742,6 +819,11 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Polyak/EMA buffer update against the just-stepped weights.
+        with torch.no_grad():
+            for p, p_ema in zip(model.parameters(), ema_params):
+                p_ema.mul_(ema_decay).add_(p.detach().float(), alpha=1.0 - ema_decay)
+        ema_updates += 1
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -766,8 +848,10 @@ for trial_idx in range(args.num_trials):
 
     if dist.get_rank() == 0:
         print0(
-            f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
-            + f" first_step_to_target:{first_step_to_target}",
+            f"trial:{trial_idx} best_val_loss(ema):{best_val_loss:.5f} best_val_step(ema):{best_val_step}"
+            + f" first_step_to_target(ema):{first_step_to_target}"
+            + f" best_val_loss(live):{best_val_loss_live:.5f} best_val_step(live):{best_val_step_live}"
+            + f" first_step_to_target(live):{first_step_to_target_live}",
             console=True,
         )
         wandb.log({
@@ -776,6 +860,10 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "speedrun/final_best_val_loss_live": best_val_loss_live,
+            "speedrun/final_best_val_step_live": best_val_step_live,
+            "speedrun/final_first_step_to_target_live": first_step_to_target_live,
+            "speedrun/final_reached_target_live": int(first_step_to_target_live >= 0),
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
