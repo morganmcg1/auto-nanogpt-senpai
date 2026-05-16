@@ -7,7 +7,26 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-16 — PR #94: PMuon + Skylight u/w-floor (TARGET_UW=0.35) (g1r1-askeladd) ← CURRENT BEST
+### 2026-05-16 18:26 UTC — PR #137: PMuon + u/w-floor + Power-Law Cooldown γ=1.2 (g1r1-nezuko) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 3062.5 (n=2 mean; seed-1 3075 / seed-2 3050)
+- **val/loss:** 3.269090 (n=2 mean; seed-1 3.270012 / seed-2 3.268167)
+- **stat-sig margin:** (3.28 − 3.269090)·√2 = 0.01543 ≥ 0.004 ✓ (n=2)
+- **Δ vs PR #94 baseline:** −37.5 sr-steps (primary ✅), +0.001394 val/loss (small regression, within seed-noise band)
+- **W&B runs:** `8quuvdrj` (seed-1, 3h 39m), `l5bdkm6e` (seed-2, 3h 39m)
+- **Key config:** PMuon (gamma=0.3, beta_cov=0.95) + Skylight u/w-floor (TARGET_UW=0.35) + **power-law cooldown γ=1.2** (`eta = ((1−progress)/cooldown_frac)^1.2`). Muon lr=0.035, weight_decay=0.025, train_steps=3250, cooldown_frac=0.7. `model.compile(dynamic=True)` applied.
+- **Mechanism:** concave-down power-law decay drops lr faster through mid-cooldown (at 50% progress: `0.5^1.2=0.435` vs linear `0.5`), accelerating the descent across 3.28 by ~37.5 steps at the cost of slightly higher final val (+0.0014). u/w-floor fires at 100% of params every step throughout both runs.
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "g1r1-nezuko/pmuon-uw-power-1p2" \
+    --wandb_group "g1r1-nezuko/pmuon-uw-power"
+  ```
+- **Notes:** FIRST improvement on PMuon+u/w-floor base in 10+ mechanism-addition experiments. Confirms that schedule-shape (not optimizer mechanism addition) is the open lever on this base. Opens Wave 5: γ × cooldown_frac joint surface scan. Val/loss regression vs PR #94 is +0.0014, smaller than the 0.004 stat-sig bar and within the seed-noise band. Power-law cooldown γ=1.2 stacks cleanly with u/w-floor on the primary speedrun metric.
+
+### 2026-05-16 — PR #94: PMuon + Skylight u/w-floor (TARGET_UW=0.35) (g1r1-askeladd)
 
 - **speedrun/final_first_step_to_target:** 3100
 - **val/loss:** 3.267696 (n=2 mean; individual seeds 3.267878 / 3.267513; range 0.000365)
