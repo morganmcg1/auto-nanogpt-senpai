@@ -25,6 +25,12 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
+# PR #184: Newton-Schulz quintic iteration count. Set via NS_ITERS env var to scan.
+NS_ITERS = int(os.environ.get("NS_ITERS", 12))
+# PR #184: Sample interval (steps) for polar/ortho_residual_sample telemetry.
+NS_RESIDUAL_SAMPLE_INTERVAL = 100
+# Module-level slot for residual passed out of NS without mutating return type.
+_NS_LAST_RESIDUAL: float | None = None
 
 
 def parse_args():
@@ -436,7 +442,8 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, sample_residual: bool = False) -> Tensor:
+    global _NS_LAST_RESIDUAL
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -446,10 +453,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(NS_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
+
+    if sample_residual:
+        # ‖X X^T - I‖_F (whichever side gives the smaller identity) — measures
+        # how close NS output is to orthogonal. Computed in fp32 on the current
+        # (possibly transposed) X, since orthogonality is transpose-invariant.
+        m, n = X.shape[-2], X.shape[-1]
+        X32 = X.float()
+        if m <= n:
+            R = X32 @ X32.mT - torch.eye(m, device=X.device, dtype=torch.float32)
+        else:
+            R = X32.mT @ X32 - torch.eye(n, device=X.device, dtype=torch.float32)
+        _NS_LAST_RESIDUAL = float(R.norm().item())
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -474,6 +493,7 @@ def pmuon_update(
     gamma: float = 0.3,
     eps: float = 1e-12,
     nesterov: bool = True,
+    sample_residual: bool = False,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -487,7 +507,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    update = zeropower_via_newtonschulz5(m_pre.to(update.dtype))
+    update = zeropower_via_newtonschulz5(m_pre.to(update.dtype), sample_residual=sample_residual)
     update *= max(1, grad.size(-2) / grad.size(-1)) ** 0.5
     return update
 
@@ -501,12 +521,20 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        global _NS_LAST_RESIDUAL
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        # PR #184: NS-iter scan. Sample polar orthogonality residual on the first
+        # processed parameter (largest matrix after sort) every NS_RESIDUAL_SAMPLE_INTERVAL
+        # optimizer steps. Provides per-arm convergence diagnostic.
+        if not hasattr(self, "_ns_step_counter"):
+            self._ns_step_counter = 0
+        sample_this_step = (self._ns_step_counter % NS_RESIDUAL_SAMPLE_INTERVAL == 0)
+        self._sample_ortho_residual = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -518,6 +546,9 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    sample_now = sample_this_step and base_i == 0 and rank == 0
+                    if sample_now:
+                        _NS_LAST_RESIDUAL = None
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -526,7 +557,10 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        sample_residual=sample_now,
                     )
+                    if sample_now:
+                        self._sample_ortho_residual = _NS_LAST_RESIDUAL
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
@@ -538,6 +572,7 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._ns_step_counter += 1
 
 
 ########################################
@@ -613,12 +648,14 @@ if dist.get_rank() == 0:
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
-            "ns_iterations": 12,
+            "ns_iterations": NS_ITERS,
+            "ns_iters": NS_ITERS,
+            "ns_residual_sample_interval": NS_RESIDUAL_SAMPLE_INTERVAL,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "muon_method": f"pmuon-uw-floor-power-cool-1p2-ns-{NS_ITERS}",
         },
     )
 
@@ -796,6 +833,15 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0:
+            ortho_residual = getattr(optimizer2, "_sample_ortho_residual", None)
+            if ortho_residual is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "polar/ortho_residual_sample": ortho_residual,
+                    "polar/ns_iter_count": NS_ITERS,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
