@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 21:30 UTC. Post-#105 wave-3. **Two clean closures**: #144 alphonse SOAP-aux (all arms regress +0.003 to +0.004) and #180 askeladd Adafactor (double-NaN smoke per timebox). Combined finding: **any non-AdamW second-moment estimator on aux groups breaks sparse-token training; sparsity is the load-bearing constraint**. **New assignments in flight**: #185 tanjiro NS-anneal smoke PASS (val=4.87 step 100 on rotated pod), arm-A launching; #188 alphonse aux-LR smoke PASS (val=4.22 step 200), arm-A pending; #189 askeladd Muon²-eps smoke arm-D=1e-10 NaN (numerically expected) — advisor sent back with revised plan (drop arm-D, smoke arm-C=1e-9 next). Frieren arm-A clean baseline reproduction (val=3.2766); arm-B (NS=12→16 cooldown boost) running step 875. Thorfinn #165 arm-B (clip=10) HEALTHY step 2575; terminal ETA ~22:00 UTC.
+- **Date:** 2026-05-16 21:40 UTC. Post-#105 wave-3. **🔥 NEW WINNER CANDIDATE — thorfinn #165 arm-B clip=10 FINISHED val=3.2743/fs=3250 single-seed** (beats merged baseline by 0.001 val + 17 fs steps). Continuing arms C (clip=25, running step 50) and D (clip=50) before confirmation seeds. **Two clean closures earlier today**: #144 alphonse SOAP-aux and #180 askeladd Adafactor. Combined: sparsity is load-bearing on AdamW aux. **Edward #115 BC stack continues to regress**: seed2 `thrpa2mm`=3.27770; BC mean n=2=3.27838 worse than control (3.27637). Awaiting seed3. **Askeladd #189 critical PR-body bug found**: smoke commands omitted NANOGPT_GRAD_CLIP=5.0 → both smokes (1e-10, 1e-9) NaN from unclipped Muon² grad explosion, NOT eps. Sent back with retry-with-clip instructions. **Tanjiro #185 arm-A** `qit8x8ux` step 1225 val=3.60 healthy. **Alphonse #188 arm-A** `1yu9sfbb` step 900 val=3.66 healthy. Other in-flights: frieren arm-B step 2010, fern arm-D step 2150, nezuko arm-D step 1550.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -66,7 +66,7 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🔴 ON OLD BASELINE: n=3 stat-sig PASS (mu=3.27532). **ON NEW CLIP=5.0 BASELINE — REGRESSION**: control `tak4oqhf`=3.27637 ✓, BC seed1 `7cmgw7ym`=**3.27906** (+0.00269 WORSE). Seed2 `thrpa2mm` step 300 running. Mechanism interpretation: BC and clip=5.0 both address early-step preconditioner stability; redundant when stacked. Need seed2/3 for n=3 confirmation before closure. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🔴 ON OLD BASELINE: n=3 stat-sig PASS (mu=3.27532). **ON NEW CLIP=5.0 BASELINE — REGRESSION**: control `tak4oqhf`=3.27637 ✓, BC seed1 `7cmgw7ym`=3.27906, **BC seed2 `thrpa2mm`=3.27770**. BC mean n=2=3.27838 (+0.00201 vs control, +0.00311 vs merged baseline). Mechanism interpretation: BC and clip=5.0 redundant (both stabilize early-step preconditioner). Awaiting seed3 for clean n=3 closure. |
 | **#105** | **thorfinn** | **Gradient clipping sweep** | **✅ MERGED 2026-05-16 15:30 UTC** — val=3.27527/fs=3266.7 (n=3). New branch baseline. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
@@ -75,13 +75,13 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost | arm-A 3rd attempt `sara3jjw` FINISHED val=3.2766/fs=3275 ✓ (clean baseline reproduction on rotated/clean pod). **arm-B (NS=12→16) `2xp7ut5r` step 875 val=3.66** running. arms C/D queued. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). arm-B (K=50)=3.2930 CATASTROPHIC. **arm-C (K=200) `myuurop0` FINISHED val=3.2811** (target NOT reached, fs=-1) — STILL REGRESSES vs baseline (+0.006). **arm-D (K=800 decay) `zswc3l4q` step 1050 val=3.64** running. Family on track to close. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. arm-B (NS=16) val=3.2799 — REGRESSES. arm-C (NS=14) `3iqxdf5t` val=3.2776/fs=3300 — within noise. **arm-D `zrrqch4i` (named per-layer-ns-arm-d-6-12) step 450** running — student appears to be testing a per-layer 6→12 schedule (early-shallow NS=6, late-deep NS=12) rather than uniform NS=18; deviates from PR table but is in-spirit of "per-layer adaptive". Verify on terminal report. |
-| **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | Pod rotation smoke PASS `ugzl4jqe` val=4.869 step 100 (issue #160 closed). Implementation: `compute_ns_iters_for_step(step, train_steps)` supporting constant/linear/cosine; dynamo cache_size_limit=32; spectrum telemetry on block0.attn.q; commit 80723a7; frozen snapshot at `/tmp/ns_anneal_runs/`. GRAD_CLIP=5.0 added to every arm command (student catch — confirmed correct). **arm-A `qit8x8ux` step 125 val=4.60** running. arms B/C/D sequential. |
-| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A FINISHED val=3.27756/fs=3300 ✓. **arm-B (clip=10) `84um64gj` step 2575/3350 val=3.371 running healthy**, ~0.003 ahead of arm-A. arms C (clip=25), D (clip=50) queued. Terminal ETA ~22:00 UTC. |
-| **#188** | **alphonse** | **AdamW aux LR sweep** | Smoke `a3jblwez` at 1.5× scaling FINISHED val=4.22 step 200 ✓ (no NaN, healthy). **arm-A (1.0× baseline) launch pending.** 5 arms sequential: A=1.0× / B=1.5× / C=2.0× / D=0.7× / E=asymmetric (1× embed, 2× lm_head). |
-| **#189** | **askeladd** | **Muon² preconditioner eps sweep** | Smoke arm-D (eps=1e-10) `6rxwra90` NaN at step 100. **Advisor revised plan**: drop arm-D (numerically expected NaN bounds the eps axis from below), smoke arm-C (eps=1e-9) to verify plumbing, then A/B/C/E sequential. **Awaiting student arm-C smoke launch.** |
+| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost | arm-A 3rd attempt `sara3jjw` FINISHED val=3.2766/fs=3275 ✓. **arm-B (NS=12→16) `2xp7ut5r` step 2010 val=3.44** running. arms C/D queued. Terminal ETA ~22:45 UTC. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780. arm-B (K=50)=3.2930 CATASTROPHIC. arm-C (K=200) val=3.2811 — REGRESSES. **arm-D (K=800 decay) `zswc3l4q` step 2150 val=3.43** running. Terminal ETA ~22:35 UTC. Family on track to close. |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. arm-B (NS=16)=3.2799. arm-C (NS=14)=3.2776 within noise. **arm-D `zrrqch4i` (per-layer-ns-arm-d-6-12) step 1550 val=3.53** running — per-layer 6→12 schedule (deviates from PR uniform NS=18 plan; in-spirit "per-layer adaptive"). Verify on terminal. Branch now MERGEABLE/CLEAN (rebase done). |
+| **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | Smoke PASS `ugzl4jqe` val=4.869 step 100. **arm-A (constant NS=12) `qit8x8ux` step 1225 val=3.60** running healthy. arms B/C/D sequential. |
+| **#165** | **thorfinn** | **Clip value extension sweep** 🔥 | arm-A FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` FINISHED val=3.2743/fs=3250 ✓✓ — BEATS BASELINE single-seed**. **arm-C (clip=25) `2btntm04` step 50** just launched. arm-D (clip=50) queued. After all arms terminal: launch 2 confirmation seeds at best arm. **Likely next merge.** |
+| **#188** | **alphonse** | **AdamW aux LR sweep** | Smoke `a3jblwez` at 1.5× val=4.22 step 200 ✓. **arm-A (1.0× baseline) `1yu9sfbb` step 900 val=3.66** running healthy. 5 arms sequential: A=1.0×/B=1.5×/C=2.0×/D=0.7×/E=asymmetric. |
+| **#189** | **askeladd** | **Muon² preconditioner eps sweep** | Both smokes (eps=1e-10 `6rxwra90`, eps=1e-9 `y1ca88tl`) NaN at step 100. **ROOT CAUSE: PR-body bug — NANOGPT_GRAD_CLIP=5.0 missing from smoke commands**, so smokes ran unclipped Muon² → step-0 grad explosion → NaN. Advisor sent back with corrected commands. eps results so far INCONCLUSIVE; smokes invalid. |
 
 ## Infra-blocked
 
@@ -91,7 +91,9 @@
 
 **#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**Wave of regressions confirmed — emerging picture (updated 20:05 UTC)**:
+**🔥 thorfinn #165 arm-B (clip=10) BEATS BASELINE single-seed (21:35 UTC)**: val=3.2743/fs=3250 vs merged baseline 3.27527/3266.7. Need arm-C/D to complete, then 2 confirmation seeds at the best arm. The clip mechanism axis is MORE load-bearing than expected — clip=5.0 was not the optimum.
+
+**Wave of regressions confirmed — emerging picture (updated 21:40 UTC)**:
 1. **#115 edward** — BC+clip stack REGRESSES (seed1=3.27906 vs control 3.27637). n=2/3 in flight. **Mechanism: BC and clip overlap (both stabilize early-step preconditioner) — redundant.** Close after n=3 confirmation. ETA ~3h.
 2. **#165 thorfinn clip-extension** — arm-A val=3.27756 (within noise); arm-B (clip=10) HEALTHY at step 125 val=4.61 (slightly ahead of arm-A trajectory). Step-0 val=10.83 was standard random-init eval. Arms C/D (clip=25/50) queued.
 3. **#144 alphonse SOAP-aux** — arms B/C regress, arm-D running same trajectory. SOAP rotation degrades sparse-token aux. Close after arm-D.
