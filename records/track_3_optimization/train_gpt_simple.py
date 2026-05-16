@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -20,6 +21,10 @@ from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
+
+# Allow multiple specialized compile caches for varying ns_iters (NS annealing).
+torch._dynamo.config.cache_size_limit = 32
+torch._dynamo.config.accumulated_cache_size_limit = 256
 
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
@@ -442,7 +447,28 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+NS_ITERS_END = int(os.environ.get("NANOGPT_NS_ITERS_END", str(NS_ITERS)))
+NS_ANNEAL_MODE = os.environ.get("NANOGPT_NS_ANNEAL_MODE", "constant").lower()
+assert NS_ANNEAL_MODE in {"constant", "linear", "cosine"}, \
+    f"NANOGPT_NS_ANNEAL_MODE must be one of constant/linear/cosine, got {NS_ANNEAL_MODE!r}"
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+
+
+def compute_ns_iters_for_step(step: int, train_steps: int) -> int:
+    """Return the integer NS iteration count to use at the given training step.
+
+    NS_ITERS is the start value (high); NS_ITERS_END is the end value (low or equal).
+    """
+    if NS_ANNEAL_MODE == "constant":
+        return NS_ITERS
+    frac = min(1.0, step / max(1, train_steps - 1))
+    if NS_ANNEAL_MODE == "linear":
+        weight = frac
+    else:  # cosine
+        weight = 0.5 * (1 - math.cos(math.pi * frac))
+    raw = NS_ITERS * (1 - weight) + NS_ITERS_END * weight
+    return max(1, int(round(raw)))
+
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -464,13 +490,13 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True, ns_iters: int = NS_ITERS):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -480,11 +506,17 @@ class Muon(torch.optim.Optimizer):
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
+        self._ns_iters_this_step = NS_ITERS
+        self._capture_param = None
+        self._captured_ns_output = None
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        ns_iters = int(self._ns_iters_this_step)
+        capture_param = self._capture_param
+        self._captured_ns_output = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -496,7 +528,11 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                                         ns_iters=ns_iters)
+                    if capture_param is not None and p is capture_param:
+                        # Detach + clone so subsequent ops (lr scaling etc.) don't mutate.
+                        self._captured_ns_output = update.detach().clone()
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -574,6 +610,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "nanogpt_ns_iters_end": NS_ITERS_END,
+            "nanogpt_ns_anneal_mode": NS_ANNEAL_MODE,
         },
     )
 
@@ -729,6 +767,13 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # NS annealing: pick this step's iteration count and arm the Muon optimizer.
+        ns_iters_this_step = compute_ns_iters_for_step(step, train_steps)
+        optimizer2._ns_iters_this_step = ns_iters_this_step
+        capture_for_spectrum = (dist.get_rank() == 0 and telemetry_due)
+        optimizer2._capture_param = (
+            model.blocks[0].attn.q.weight if capture_for_spectrum else None
+        )
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -755,6 +800,23 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
+            ns_metrics: dict[str, float] = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/ns_anneal/iters_this_step": ns_iters_this_step,
+            }
+            captured = optimizer2._captured_ns_output
+            if captured is not None:
+                sv = torch.linalg.svdvals(captured.float())
+                sv_max = float(sv.max().item())
+                sv_min = float(sv.min().item())
+                ns_metrics["train/ns_anneal/u_singular_max"] = sv_max
+                ns_metrics["train/ns_anneal/u_singular_min"] = sv_min
+                ns_metrics["train/ns_anneal/u_singular_range"] = sv_max - sv_min
+                ns_metrics["train/ns_anneal/u_singular_mean"] = float(sv.mean().item())
+            optimizer2._capture_param = None
+            optimizer2._captured_ns_output = None
+            wandb.log(ns_metrics, step=wandb_step)
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
