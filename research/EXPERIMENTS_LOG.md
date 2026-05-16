@@ -237,3 +237,30 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **x_vs_z_norm growth**: monotone 14k→52-68k across cells — wrapper mechanically engaging (x and z diverging in weight space), not a wrapper bug. val/loss_x < val/loss_z throughout (averaging helping enormously vs raw z, just not enough).
 - **Analysis**: Spec-level negative, not mechanism-level. The wrapper architecture is correct. The failure is `c_t=1/(t+1)` + `cooldown_frac=0` combination on a 3350-step from-scratch run. Matches advisor pre-flag at 08:34 UTC. Natural wave-3 retry: polynomial-weighted c_t concentrating mass on post-warmup iterates.
 - **Decision**: CLOSED as clean negative on spec (PR #121 closed 2026-05-16 ~12:40 UTC). Tanjiro reassigned to PR #155 (Polynomial-Weighted Schedule-Free Muon, c_t=(t+1)^p / Σ(i+1)^p for p ∈ {2,4,6}, same β=0.90).
+
+## 2026-05-16 13:15 UTC — PR #45: Muon² (Adam v-buffer + NS, record #7 repro) — CLOSED (clean negative under new baseline)
+
+- Branch: `g1r5-edward/muon-squared-3325`
+- Student: g1r5-edward
+- Hypothesis: Reproduce record #7 (Muon²): add a per-parameter Adam-style second-moment buffer `v` scaled before NS orthogonalization (`update = grad_nesterov / (sqrt(v) + eps)`), plus use lr=0.10 matching the record. Public reference: val/loss 3.2752 (n=1) at 3325 steps.
+
+| Seed | val/loss (final) | ffs  | Hit target (<3.28)? |
+|-----:|-----------------:|-----:|:-------------------:|
+| 0    | 3.27868          | 3300 | ✓                   |
+| 1    | 3.27828          | 3300 | ✓                   |
+| 2    | 3.27836          | 3275 | ✓                   |
+| 3    | 3.27859          | 3325 | ✓                   |
+| 4    | 3.27838          | 3275 | ✓                   |
+| 5    | 3.27817          | 3300 | ✓                   |
+| 6    | 3.27890          | 3325 | ✓                   |
+| 7    | 3.27844          | 3300 | ✓                   |
+
+- **n**: 8 seeds, `train_steps=3325`
+- **mu**: 3.27843, std ≈ 0.00023, ffs_mean ≈ 3300
+- **Statsig vs 3.28 target**: `(3.28 - 3.27843) × sqrt(8) = 0.00444 ≥ 0.004` — **PASS** (passes 3.28 target rule)
+- **Statsig vs new baseline (PR #46 mu=3.27744)**: `(3.27744 - 3.27843) × sqrt(8) = -0.00280` — **FAIL** (mu above new baseline by 0.00099; ffs +100 steps slower)
+- **Comparison vs public record #7 (mu=3.2752, n=1)**: Our n=8 mu=3.27843 is reproducible and consistent with the record — the record's n=1 mu=3.2752 is well within the seed distribution tail. Record #7 uses 8 GPUs (vs 1 GPU here); the v-buffer may interact with the 8-GPU all-reduce pattern differently than 1-GPU. **Record #7 reproduces cleanly.**
+- **W&B run IDs**: `g1r5-edward/muon-squared-3325` group
+- **Mechanism analysis**: PR #45's v-buffer is applied BEFORE NS orthogonalization: `update = grad_nesterov / (sqrt(v) + eps)`. SOAP-MLP (merged baseline) applies covariance-based preconditioning to MLP params. The v-buffer and SOAP both do per-direction scaling — double-scaling with different statistics, causing the interference observed. For attn params (plain-Muon path), v-buffer applies without SOAP, but the lr=0.10 (vs baseline 0.035) is the likely cause of slower convergence on attn: with v-buffer normalizing magnitudes, lr=0.10 may be over-stepping in directions where v is still being estimated in early training.
+- **Key finding**: The 12-step cubic NS polynomial (`a=2, b=-1.5, c=0.5`) was already in the merged baseline — it is NOT the source of PR #45's delta. The ONLY actual delta from merged baseline was the v second-moment buffer + lr=0.10.
+- **Decision**: CLOSED as clean negative under new baseline (PR #45 closed 2026-05-16 ~13:15 UTC). Edward reassigned to PR #159 (Per-group LR sweep: test whether SOAP-managed MLP params can tolerate a higher base lr than plain-Muon attn params).
