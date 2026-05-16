@@ -42,6 +42,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--mu_center", action=argparse.BooleanOptionalAction, default=True,
+                        help="Subtract per-channel (vocab-axis) mean from lm_head weight after each optimizer step")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -641,6 +643,7 @@ if dist.get_rank() == 0:
             "soap_scope": "mlp.fc.weight,mlp.proj.weight",
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "mu_center": args.mu_center,
         },
     )
 
@@ -814,6 +817,18 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if args.mu_center:
+            with torch.no_grad():
+                lm_head_weight = model.proj.weight.data
+                pre_centering_mean = lm_head_weight.mean(dim=0, keepdim=True)
+                if dist.get_rank() == 0 and telemetry_due:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "lm_head/weight_mean_abs_mean_pre_centering": float(pre_centering_mean.abs().mean().item()),
+                        "lm_head/weight_max_abs": float(lm_head_weight.abs().max().item()),
+                    }, step=wandb_step)
+                lm_head_weight.sub_(pre_centering_mean)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
