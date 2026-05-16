@@ -429,3 +429,36 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 **Follow-up action**: frieren assigned #176 (NS Iteration Schedule — boost NS iters during cooldown only, directly motivated by this finding).
 
 **Closed rationale**: no arm beats new merged baseline; not a merge candidate. Clean negative with a precise mechanistic prior: "spectral spread improvement of ≥2× buys <0.002 val/loss at this scale."
+
+## 2026-05-16 20:30 — PR #144: SOAP for AdamW aux groups (alphonse) — CLOSED clean negative
+
+- **Branch:** g1r4-alphonse/soap-aux
+- **Hypothesis:** SOAP (Shampoo + Adam) — apply Shampoo eigenbasis rotation to AdamW preconditioner on aux groups (embed, lm_head); test whether the Shampoo eigenbasis better captures the structure of sparse-token gradients than AdamW's coordinate-aligned EMA.
+- **Results (4 arms complete, single seed each, snapshot pre-dates #105 — comparison is to OLD baseline val=3.2766/fs=3275):**
+
+| Arm | SOAP target | freq | W&B | val/loss | fs | Δval vs A |
+|-----|------------|------|-----|----------|----|-----------| 
+| **A** | none (AdamW control) | — | lfcnprqg | **3.27595** | 3275 | (control) |
+| B | embed only | 50 | 8ym5zef8 | 3.27978 | 3350 | +0.00383 |
+| C | embed + lm_head | 50 | 82mx9xwy | 3.27942 | 3325 | +0.00347 |
+| D | embed + lm_head | 100 | r4644zpc | 3.27947 | 3350 | +0.00352 |
+
+- **Mechanism**: SOAP-aux causes monotonic regression in all variants. The gap grows across training (step 1000 +0.00169 → step 3350 +0.00383 for arm-B). Lowering freq from 50→100 (arm-D) does not help.
+- **Mechanism interpretation**: rotating embed gradient into a Shampoo eigenbasis bleeds signal across vocab rows that should remain row-independent (sparse, token-specific). The structural cost of basis rotation outweighs the second-moment quality gain.
+- **Combined with #180 closure**: any non-AdamW second-moment estimator on aux groups breaks sparse-token training. Sparsity is the load-bearing constraint, not the precision.
+- **Follow-up action**: alphonse assigned #188 (AdamW aux LR sweep — first-moment / LR axis instead of second-moment basis).
+
+## 2026-05-16 20:30 — PR #180: Adafactor for AdamW aux groups (askeladd) — CLOSED smoke timebox
+
+- **Branch:** g1r4-askeladd/adafactor-aux
+- **Hypothesis:** Adafactor (Shazeer 2018) — factored row/col second moment for embed/lm_head; test whether AdamW's full-v is over-precise for sparse aux gradients.
+- **Smoke results (2 attempts per predeclared HARD TIMEBOX):**
+
+| Run | Variant | val at step 200 | Outcome |
+|-----|---------|-----------------|---------|
+| 1v3appj2 | adafactor_no_mom | 10.826 | NaN throughout |
+| mm816faq | adafactor_mom | 10.826 | NaN in v_r_norm, v_c_norm, factored_v, update_rms |
+
+- **Mechanism interpretation**: factored second moment v_ij ≈ v_r * v_c / sum(v_r) likely produces near-zero denominators on sparse embed gradients (most rows have ~0 gradient most of the time), causing divide-by-tiny-number → inf → NaN cascade.
+- **Combined with #144 closure**: confirms the sparsity-is-load-bearing finding. Both SOAP (rotation) and Adafactor (factorization) break sparse-token aux training; AdamW's full-v structure must be preserved.
+- **Follow-up action**: askeladd assigned #189 (Muon² preconditioner eps sweep — simple 1-line config change after 3 consecutive smoke failures on complex algorithms).

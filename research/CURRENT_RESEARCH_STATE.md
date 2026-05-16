@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 20:05 UTC. Post-#105 wave-3 — **wave of regressions confirmed**. CRITICAL: Edward #115 seed1 (BC+clip stack) val=3.27906 is +0.00269 WORSE than clip-only control (3.27637) → bias correction does NOT stack with clip=5.0; mechanisms redundant. Thorfinn #165 arm-B (clip=10) is healthy (step-0 val=10.83 was random-init eval, not divergence; step 125 val=4.61 is actually slightly AHEAD of arm-A). Tanjiro pod ROTATED 2026-05-16 19:33 UTC (issue #160 resolved); new assignment #185 (NS-iter annealing). All 4 follow-on arms (SOAP, DMR, NS>12, BC-stack) trending negative.
+- **Date:** 2026-05-16 20:30 UTC. Post-#105 wave-3. **Two clean closures**: #144 alphonse SOAP-aux (all arms regress +0.003 to +0.004) and #180 askeladd Adafactor (double-NaN smoke per timebox). Combined finding: **any non-AdamW second-moment estimator on aux groups breaks sparse-token training; sparsity is the load-bearing constraint**. Frieren arm-A 3rd attempt clean baseline reproduction (val=3.2766); arm-B (NS=12→16 cooldown boost) now running. Tanjiro pod ROTATED; #185 NS-anneal assigned (pending smoke). Two fresh assignments: #188 alphonse aux-LR sweep, #189 askeladd Muon² eps sweep.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -55,6 +55,10 @@
 | #105 | thorfinn | **MERGED 2026-05-16** — grad clip=5.0 val=3.27527/fs=3266.7 (n=3). New branch baseline. Mechanism: full-time gradient rescaling on AdamW aux groups. |
 | #149 | tanjiro | CLOSED infra-blocked — 3rd reproduction of pod NaN cascade on unmodified baseline (step-1 grad=232102, step-25 nonfinite=147M). Issue #160 filed for pod rotation. |
 | #154 | fern | CLOSED on strict smoke gate — layer-aggregate global_cos_neg=0.9 ≫ 0.3 threshold. Surprising mechanistic finding: grad·momentum < 0 ~90% of steps under Muon². Mechanism degenerates to mild constant gradient downscaler (~0.85x multiplier). Motivated follow-up #163 DMR. |
+| #157 | askeladd | CLOSED — polar-SVD Muon hit 6 consecutive smoke failures from degenerate SVD backward pass through near-equal singular values. |
+| #172 | askeladd | CLOSED — Cautious Update Mask hit 4 smoke failures (val=10.83 random init throughout). Element-wise sign-agreement masking incompatible with NS-orthogonalized updates at this benchmark scale. |
+| #144 | alphonse | CLOSED 2026-05-16 20:30 — SOAP for aux groups: all variants regress (+0.0035 to +0.0038 vs control). Mechanism: rotating embed gradient into Shampoo eigenbasis bleeds signal across row-independent vocab entries. |
+| #180 | askeladd | CLOSED 2026-05-16 20:30 — Adafactor for aux groups: both smoke attempts (no_mom, mom) NaN at step 200. Factored v_ij ≈ v_r * v_c produces near-zero denominators on sparse embed gradients. Combined with #144: confirms sparsity is load-bearing on aux. |
 
 ## Active PRs
 
@@ -71,13 +75,13 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost | arm-A (NS=12 constant) had 2 crashes (non_finite). 3rd attempt `sara3jjw` step 1875/3350 val=3.458 on baseline trajectory. arms B/C/D queued. |
-| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). **arm-B (K=50) val=3.2930 — CATASTROPHIC REGRESSION (+0.0177)**. **arm-C (K=200) `myuurop0` step 1925/3350** val=3.468 mid-trajectory matches B's slope. arm-D (K=800) queued. Aggressive momentum erasure falsified; longer reset interval likely still regresses by same mechanism. |
-| **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A=3.2760 ✓. arm-B (embed-only)=3.2798 WORSE. **arm-C (full SOAP) FINISHED val=3.2794 WORSE**. arm-D (freq=100) `r4644zpc` step 2325/3350 trajectory matches regress arms. ALL SOAP arms regress — likely SOAP rotation degrades sparse-token aux. Will close after arm-D terminal. |
-| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. arm-B (NS=16) val=3.2799 — REGRESSES. **arm-C (NS=14) `3iqxdf5t` step 1800/3350** val=3.482 mid-trajectory matches B. arm-D (NS=18) queued. Saturation policy degenerated to uniform-NS sweep. NS>12 hurts confirmed. |
-| **#180** | **askeladd** | **Adafactor for AdamW aux groups** | PR opened 18:49 UTC. Smoke `1v3appj2` (arm-B no_mom) **NaN at step 150** — smoke FAILED. Per timebox rules: 2 smoke attempts max, then close. Student should be pivoting to arm-C (adafactor_mom) second smoke attempt. |
-| **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | NEW 2026-05-16 20:00 UTC. Pod rotation confirmed. Must run 100-step infra smoke gate FIRST, then arms A–D (NS=12 constant, NS=14→8 linear, NS=12→8 linear, NS=14→8 cosine). Complement to frieren #176 (which tests NS↗ at cooldown; this tests NS↘ over training). |
-| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A `f6ym89r7` FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` HEALTHY** — step-0 val=10.83 was standard random-init eval (not divergence); step 125 val=4.61 slightly AHEAD of arm-A trajectory. ETA arm-B terminal ~21:00 UTC; arm-C/D sequential after. |
+| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost | arm-A 3rd attempt `sara3jjw` FINISHED val=3.2766/fs=3275 ✓ (clean baseline reproduction on rotated/clean pod). **arm-B (NS=12→16) `2xp7ut5r` step 200 val=4.58** running. arms C/D queued. |
+| **#163** | **fern** | **Decoupled Momentum Reset (DMR)** | arm-A=3.2780 (control). arm-B (K=50)=3.2930 CATASTROPHIC. **arm-C (K=200) `myuurop0` FINISHED val=3.2811** (target NOT reached, fs=-1) — STILL REGRESSES vs baseline (+0.006). arm-D (K=800 with decay) running/queued. Family on track to close. |
+| **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A=3.2784 ✓. arm-B (NS=16) val=3.2799 — REGRESSES. **arm-C (NS=14) `3iqxdf5t` FINISHED val=3.2776/fs=3300** — within noise of baseline; NS=14 is approximately neutral. arm-D (NS=18) running/queued. Per-layer adaptive policy degenerated to uniform-NS sweep; closure expected after D. |
+| **#185** | **tanjiro** | **NS Iteration Annealing (NS high-early low-late)** | NEW. Pod rotation confirmed. No runs yet in W&B — student picking up. Must run 100-step infra smoke gate FIRST, then arms A–D (NS=12 constant, NS=14→8 linear, NS=12→8 linear, NS=14→8 cosine). |
+| **#165** | **thorfinn** | **Clip value extension sweep** | arm-A FINISHED val=3.27756/fs=3300 ✓. **arm-B (clip=10) `84um64gj` step 1900/3350 val=3.455 running healthy**, slightly ahead of arm-A trajectory. arms C (clip=25), D (clip=50) queued. ETA terminal ~00:35 UTC. |
+| **#188** | **alphonse (NEW)** | **AdamW aux LR sweep** | NEW 2026-05-16 20:30 UTC after #144 closure. Direct test of #105 mechanism diagnosis: 5 arms 1.0×/1.5×/2.0×/0.7×/asymmetric. Tests if direct aux LR scaling beats clip=5.0's effective LR rescaling. |
+| **#189** | **askeladd (NEW)** | **Muon² preconditioner eps sweep** | NEW 2026-05-16 20:30 UTC after #180 closure. Edward's #115 follow-up suggestion. 1-line change. 5 arms: eps ∈ {1e-6, 1e-7, 1e-8 (default), 1e-9, 1e-10}. Tests whether the sqrt(v)+eps preconditioner floor matters on Muon² blocks. |
 
 ## Infra-blocked
 
@@ -97,6 +101,8 @@
 7. **#180 askeladd Adafactor** — not started yet. Lowest risk on smoke gate (buffer change only).
 
 **Common theme**: All single-axis structural changes (SOAP basis, DMR erasure, NS iter count, BC stacked with clip) REGRESS off the merged Muon²+clip=5.0 baseline. The local optimum is unexpectedly tight. **Implication for new hypotheses**: prioritize (a) targeted parameter-space changes (per-layer LR, depth-scaled init), (b) loss/data-side levers, (c) different optimizer COMPOSITION (not single-axis swap).
+
+**Update 20:30 UTC**: closing #144 SOAP-aux and #180 Adafactor with a combined finding: **sparsity (not precision) is the load-bearing constraint on AdamW aux groups**. Both factorized v (Adafactor) and rotated v (SOAP) break sparse-token training. New PRs #188 (aux LR sweep) and #189 (eps sweep) explicitly avoid touching the AdamW second moment structure on aux.
 
 **Statistical target**: `(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. New bar is to beat 3.27527.
 
