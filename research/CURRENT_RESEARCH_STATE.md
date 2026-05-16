@@ -1,5 +1,35 @@
 # SENPAI Research State
 
+- 2026-05-16 14:20 — Cycle 19 (tanjiro PR #81 closed + Lookahead assigned, portfolio update):
+  - **PR #81 CLOSED** — Newton-Muon-only (n=4 mean=3.27643, paper-quality) + Option B stack failed
+    at 3175 (3.28893). Both results log in EXPERIMENTS_LOG. Closed with full analysis.
+  - **PR #161 ASSIGNED to tanjiro**: Lookahead-Muon (k=5, α=0.5) on merged Contra+SOAP-MLP base.
+    Implementation: maintain θ_slow, sync every k steps after warmup. Goal: FFS reduction via
+    trajectory variance smoothing. Smoke → screen at 3175 → n=4 if competitive.
+  - **ALPHONSE CONTRA_MUON=0.5 screen `yctj2ozd` LAUNCHED** ~13:40 UTC, step ~450 val=3.90.
+    ETA terminal ~15:35 UTC. Will compare to 0.3 (val=3.27804 ffs=3150) to pick best arm for n=4.
+  - **ASKELADD `lw99ybyp` T3 running** at step ~1228/3300 of T3 arm. T0=3.27781, T1=3.27573,
+    T2=3.27932. Mean(T0-T2)=3.27762. T3 ETA terminal ~15:30 UTC. For statsig (mean ≤ 3.278),
+    need T3 ≤ 3.27869. If T3 is typical (~3.278), will PASS. But ffs_mean ~3225-3250 won't beat
+    baseline 3131 — close+reassign for stacking experiment after confirmation.
+  - **EDWARD `zsqazpmr`** T2 at step ~2402/3225 of T2 arm. T0=3.27750 ffs=3175. ETA ~21:30 UTC.
+    Long wait, strong T0/T1 (T1=3.27599). n=4 mean could land ~3.276 if distribution holds.
+    But ffs ~3175-3200 — same "stronger but slower" pattern unless T2/T3 also hit ffs=3175.
+  - **NEZUKO `c5d01ezw`** at step 2950/3150 val=3.297 at 13:38 UTC (200 steps to terminal).
+    Terminal ETA ~14:00 UTC. Val declining well in late cooldown. FFS likely 3100-3150 (if val
+    crosses 3.28 before terminal). This would be competitive with merged baseline FFS=3131!
+  - **THORFINN T1** at step ~2143/3325, _step=5892. T0 val=3.27400 ffs=3250 (very strong).
+    n=4 ETA ~17:45 UTC. But ffs likely ~3225-3250 — still "stronger but slower".
+  - **FRIEREN n=4** at T1 step ~2491/3175. T0 missed (3.28240 at 3175). Will continue to clean
+    negative SENPAI-RESULT. ETA T4 terminal ~17:30 UTC.
+  - **FERN `w2hlrhs0` smoke done** (val=3.811). No new screen yet after crash diagnosis sent.
+  - **PORTFOLIO STATUS**:
+    - Highest-EV: Alphonse 0.5 screen result + n=4 at 3175 (FFS-targeted)
+    - Nezuko screen near-terminal — if ffs ≤ 3131, MAJOR win candidate
+    - Askeladd, thorfinn, edward all likely statsig-pass but won't beat baseline FFS
+    - Frieren will close negative
+    - Tanjiro starting fresh (Lookahead, not yet in-flight)
+
 - 2026-05-16 13:40 — Cycle 18 (ALPHONSE 0.3 SCREEN FFS-COMPETITIVE — first such signal since merge):
   - **ALPHONSE #139 CONTRA_MUON=0.3 SCREEN PASS** 🎯 `hjsjscjy` terminal val=**3.27804**,
     ffs=**3150** at 3175 steps. Single seed only 19 ffs steps worse than merged baseline
