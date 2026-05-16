@@ -1,8 +1,8 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-16 04:05 UTC (boot 18)
+- **Last updated:** 2026-05-16 05:55 UTC (boot 19)
 - **Most recent human-team directive:** None (issues disabled on repo; only PR-comment channel is open).
-- **Branch state:** PR #51 NorMuon merged (baseline val=3.27795, ffs=3258). **Askeladd #52 MuonH-SI confirm 2/4 trials BOTH PASS** (T0 val=3.2776, T1 val=3.2778). Strong merge signal forming. All 8 students have active WIP PRs — zero idle.
+- **Branch state:** PR #51 NorMuon merged (baseline val=3.27795, ffs=3258). **Askeladd #52 confirm 3/4 trials ALL PASS** (T0=3.2776, T1=3.2778, T2=3.2767). Strong merge candidate, ETA terminal ~06:15 UTC. PR #101 thorfinn Polyak EMA CLOSED negative (val=3.2846). PR #122 thorfinn normuon-biascorr ASSIGNED. All 8 students active.
 
 ## New branch baseline (post-PR #51 merge)
 
@@ -21,24 +21,26 @@ track 3 setup, satisfying `(3.28 - mu) * sqrt(n) >= 0.004`. Architecture,
 data, **batch size (and mbs=64)**, and one fwd-bwd per optim step fixed.
 Optimizer, schedule, init, telemetry editable.
 
-## Active experiments (boot 18 status — 04:05 UTC)
+## Active experiments (boot 19 status — 05:55 UTC)
 
 | PR | Student | Lever | W&B signal | Next action |
 | --- | --- | --- | --- | --- |
-| **#52** | askeladd | MuonH-SI confirm n=4 | `rwpbmxj7`: **T0 val=3.2776 ✓, T1 val=3.2778 ✓** (both clear baseline). Trial 2 mid-flight step 2527/3325 within trial (total 9177/13300). 2 trials left. ETA terminal ~05:20 UTC | **Primary merge candidate** — monitor for terminal |
-| **#87** | tanjiro | u/w-floor 4-arm sweep | A1 (UW=0.30 lr=0.035) val=3.28074 miss. A2 (UW=0.40 lr=0.035) val=3.28084 miss. **A3 (UW=0.30 lr=0.04) DONE val=3.2787 marginal pass.** A4 (UW=0.40 lr=0.04) running step 1175/3350 val=3.7266 | Wait for A4 terminal; lr=0.04 arms show positive signal vs lr=0.035 |
-| **#100** | nezuko | Sign-Muon | Branch HEAD still c1b0e0a (no code push). Latest local NaN smoke 03:35 UTC. Boot 17 nudge unanswered (25min) | Wait one boot; if no push by ~05:30 UTC consider close+reassign |
-| **#101** | thorfinn | Polyak EMA | Screen `vu9e9179` (d=0.995) running, step 1800/3350 val=3.420. d=0.999 was bad (val~8.0), d=0.995 working | Wait for screen terminal |
-| **#107** | edward | Cautious-Muon | Screen `53awp1ju` running, step 1650/3350 val=3.574 | Wait for screen terminal |
-| **#111** | fern | AdamAtan2 aux | **NEW smoke `mtmcbigk` launched 04:26 UTC** (responded to nudge!). Step 50, val at init | Monitor for NaN at step 300; if clean, smoke passes |
-| **#113** | alphonse | Cautious-NorMuon stack | 2 smokes done val~4.21. New smoke `1f19dgex` running step 120 | Wait for screen launch |
-| **#114** | frieren | NorMuon × MuLoCo stack | 2 smokes done val~3.975 (well below 4.0; strong signal). New smoke `be0264q9` running step 75 | Wait for screen launch — high-priority candidate |
+| **#52** | askeladd | MuonH-SI confirm n=4 | `rwpbmxj7`: **T0=3.2776 ✓, T1=3.2778 ✓, T2=3.2767 ✓**. Trial 3 mid-flight ~step 953/3325. ETA terminal ~06:15 UTC | **Merge imminent** — monitor |
+| **#87** | tanjiro | u/w-floor 4-arm sweep | A3 (UW=0.30 lr=0.04) **DONE val=3.2787 marginal pass**. A4 (UW=0.40 lr=0.04) running step 3015/3350 val=3.331 (no ffs yet) | Wait for A4 terminal; if val<3.28, sweep partially positive; if miss, close negative |
+| **#100** | nezuko | Sign-Muon | 5+ NaN smokes (all local unpushed). Hard deadline 06:30 UTC: push code + post impl. If no push → close+reassign | Watch branch for new commit |
+| **#101** | thorfinn | Polyak EMA | **CLOSED negative** (val=3.2846, ffs=-1). Replaced by #122 | — |
+| **#107** | edward | Cautious-Muon | Screen `53awp1ju` step 3075/3350 val=3.342. Not hit target yet — 275 steps in cooldown | Wait for terminal |
+| **#111** | fern | AdamAtan2 aux | 3 NaN smokes post-push. Root cause: per-module init override breaks zero-init projections. Commented fix (remove per-module block, keep only AdamAtan2 swap) | Monitor for fix + relaunch |
+| **#113** | alphonse | Cautious-NorMuon stack | 3 smokes done val~4.21. New smoke `dsgn1trb` at step 50 | Watch for screen launch |
+| **#114** | frieren | NorMuon × MuLoCo stack | 2 smokes done val~3.975. New smoke `8ei1g5d3` running | **High priority** — watch for screen launch |
+| **#122** | thorfinn | NorMuon bias-corrected second moment | **Just assigned** (boot 19, 05:50 UTC) | Monitor for smoke pickup |
 
 ## PRs closed this session
 
-- **#55 frieren MuLoCo** (boot 16): Closed negative. n=4 mean=3.27990, margin=0.000194 (fails 0.004 bar). 2/4 hits at ffs=3275. Standalone MuLoCo on plain Muon is marginal at 1 GPU. Replaced with #114 NorMuon×MuLoCo stack.
-- **#99 fern Adafactor** (boot 15): Closed negative. Adafactor RMS-clip ≠ per-element bound → step-1 embed explodes at lr=0.3. Replaced with #111 AdamAtan2 aux.
-- **#53 edward Contra-Muon** (boot 14): Closed negative. n=4 mean=3.2835, stat -0.0070. Replaced with #107 Cautious-Muon.
+- **#101 thorfinn Polyak EMA** (boot 19): Closed negative. Screen val=3.2846, ffs=-1. Polyak EMA fights Muon cooldown. Replaced with #122 normuon-biascorr.
+- **#55 frieren MuLoCo** (boot 16): Closed negative. n=4 mean=3.27990. Replaced with #114 NorMuon×MuLoCo stack.
+- **#99 fern Adafactor** (boot 15): Closed negative. Adafactor RMS-clip ≠ per-element bound. Replaced with #111 AdamAtan2 aux.
+- **#53 edward Contra-Muon** (boot 14): Closed negative. n=4 mean=3.2835. Replaced with #107 Cautious-Muon.
 - **#51 alphonse NorMuon** (boot 15): **MERGED**. New branch baseline.
 
 ## Notes from boot 18
@@ -93,16 +95,17 @@ Optimizer, schedule, init, telemetry editable.
 ## Operational notes
 
 - All 8 students have active WIP PRs. **Zero idle students.**
-- 3 new wave-3 PRs created (#111, #113, #114) — first stacked-mechanism experiments on the new NorMuon baseline.
 - Standard kill gates: NaN `val/loss` or `train/grad/global_norm > 1e3` → kill.
 - Confirmation rule: `(3.28 - mu) * sqrt(n) >= 0.004`, n≥4 by default.
 - Banned reference sources: Prime Intellect autonomous-run materials.
+- **Key learning (boot 19)**: The merged NorMuon (PR #51) does NOT include per-module init — advisor-branch init is zero-proj + torch-default for other weights. State docs were wrong. Students adding per-module init BEFORE the generic `"proj" in name → zero` branch break the zero-proj invariant.
 
 ## Next-priority watch points (next 2-4 hours)
 
-1. **Askeladd #52 terminal** (~05:20 UTC): 2/4 trials done with both passing. n=4 mean tracking ≈ 3.2777. Strong merge signal. **Primary watch.**
-2. **Edward #107 / Thorfinn #101 screens terminal** (~05:00-05:15 UTC): both at step ~1700-1800/3350 with healthy val. Determine whether smoke→screen translates to confirm-eligible signal.
-3. **Tanjiro #87 arm 4 terminal** (~05:45 UTC): UW=0.40 lr=0.04 — last arm of sweep. A3 marginal pass (val=3.2787); A4 will determine UW preference.
-4. **Fern #111 smoke pass at step 300** (~04:32 UTC): NaN-or-not gate for whether AdamAtan2 impl is correct. If passes, screen launches next.
-5. **Frieren #114 / Alphonse #113 screen launches** (~04:35 UTC after smokes finish): frieren's val=3.97 at smoke is strongest wave-3 stack signal — high priority for screen.
-6. **Nezuko #100 push deadline** (~05:30 UTC soft): if no impl on branch, prepare close+reassign decision.
+1. **Askeladd #52 terminal** (~06:15 UTC): 3/4 trials done, all pass. T4 mid-flight. **Merge candidate.** n=4 mean likely ~3.2774.
+2. **Nezuko #100 hard deadline** (06:30 UTC): push code or close+reassign.
+3. **Tanjiro #87 A4 terminal** (~06:30 UTC): UW=0.40 lr=0.04 step 3015/3350 val=3.331. Close as negative if A4 misses.
+4. **Edward #107 screen terminal** (~06:15 UTC): step 3075/3350 val=3.342.
+5. **Frieren #114 screen launch** (pending): smoke val=3.975 — highest-priority wave-3 signal.
+6. **Alphonse #113 screen launch** (pending): 3 smokes done val~4.21.
+7. **Fern #111 fix**: remove per-module init block; relaunch smoke.

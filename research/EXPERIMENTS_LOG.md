@@ -6,6 +6,32 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 05:50 — Boot 19: PR #101 closed negative; thorfinn reassigned #122; fern impl debugged
+
+**PR #101 thorfinn Polyak EMA (d=0.995) — CLOSED negative**
+- Branch: `g1r3-thorfinn/polyak-ema`
+- Hypothesis: Polyak EMA on model weights (late-training averaging) should provide "free margin" by smoothing the final checkpoint.
+- Screen run `vu9e9179` (d=0.995), step 3350/3350, TERMINAL:
+
+| Metric | Value |
+|--------|-------|
+| val/loss | 3.2846 |
+| ffs | -1 (did not reach target) |
+| vs baseline | **+0.0067 regression** (baseline 3.27795) |
+
+- d=0.999 was worse (val~8.0 at smoke, large early-step EMA bias). d=0.995 was better but still missed.
+- **Conclusion**: Polyak EMA on weights fights against Muon's late-training cooldown acceleration. The EMA blends in stale weights at exactly the point where the optimizer is making its most efficient updates. Mechanism doesn't complement Muon's spectral form. Not worth retrying at this baseline.
+- **New assignment**: PR #122 thorfinn → NorMuon bias-corrected second moment (fix early-step EMA scale, same conceptual territory but targets early rather than late training).
+
+---
+
+**PR #111 fern AdamAtan2 aux — NaN debugged (still WIP)**
+- Code push confirmed at 04:26 UTC. Branch HEAD: `c64f93c`.
+- Smoke NaN root cause identified: fern added **per-module init override** (`attn.proj=0.026, mlp.proj=0.031`) that breaks the merged baseline's zero-init for projections. The non-zero proj init causes residual stream instability at step 1.
+- **Fix comment posted**: remove per-module init block, keep only AdamAtan2 swap.
+
+---
+
 ## 2026-05-16 03:40 — Boot 17: triage & nudges (no merges/closures)
 
 **Status snapshot:**
