@@ -40,6 +40,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--train_steps", type=int, default=int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")))
+    parser.add_argument("--cooldown_frac", type=float, default=float(os.environ.get("NANOGPT_COOLDOWN_FRAC", "0.7")))
+    parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("NANOGPT_OUTER_LR", "0.7")))
+    parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("NANOGPT_OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("NANOGPT_SYNC_INTERVAL", "30")))
+    parser.add_argument("--outer_enabled", type=int, default=int(os.environ.get("NANOGPT_OUTER_ENABLED", "1")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -180,7 +186,11 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        # Use float64 + clamp to avoid float32 rounding past numel() - 1 for very
+        # large parameters (e.g., the embedding has 38M elements; float32's 24-bit
+        # mantissa rounds numel-1 up to numel, which is an out-of-bounds index).
+        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device,
+                             dtype=torch.float64).long().clamp_(0, values.numel() - 1)
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -484,6 +494,70 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class NesterovOuterOptimizer:
+    """MuLoCo-style outer Nesterov SGD over the inner optimizer trajectory.
+
+    Snapshots params every ``sync_interval`` inner steps, computes a pseudogradient
+    delta = snapshot - current, applies Nesterov SGD with that delta, then resets the
+    snapshot. Public record #13 uses this wrapper on top of NorMuonH; PR #79 tests it
+    on top of plain Muon at the starter LR/WD.
+    """
+
+    def __init__(self, model_params, outer_lr=0.7, outer_momentum=0.5,
+                 sync_interval=30, enabled=True):
+        self.outer_lr = outer_lr
+        self.outer_momentum = outer_momentum
+        self.sync_interval = sync_interval
+        self.enabled = enabled
+        self.inner_step_count = 0
+        self.outer_step_count = 0
+        self._params = [p for p in model_params if p.requires_grad]
+        if self.enabled:
+            self._snapshots = [p.data.clone() for p in self._params]
+            self._buffers = [torch.zeros_like(p.data) for p in self._params]
+        else:
+            self._snapshots = []
+            self._buffers = []
+
+    @torch.no_grad()
+    def maybe_outer_step(self):
+        if not self.enabled:
+            return None
+        self.inner_step_count += 1
+        if self.inner_step_count >= self.sync_interval:
+            metrics = self._outer_step()
+            self.inner_step_count = 0
+            self.outer_step_count += 1
+            return metrics
+        return None
+
+    @torch.no_grad()
+    def _outer_step(self):
+        device = self._params[0].device
+        pseudograd_sq = torch.zeros((), device=device, dtype=torch.float32)
+        buffer_sq = torch.zeros((), device=device, dtype=torch.float32)
+        param_sq = torch.zeros((), device=device, dtype=torch.float32)
+        for i, p in enumerate(self._params):
+            snap = self._snapshots[i]
+            u = self._buffers[i]
+            delta = snap - p.data  # pseudogradient
+            pseudograd_sq += delta.float().pow(2).sum()
+            u.mul_(self.outer_momentum).add_(delta, alpha=self.outer_lr)
+            p.data.copy_(snap)
+            p.data.add_(u, alpha=-self.outer_momentum)
+            p.data.add_(delta, alpha=-self.outer_lr)
+            buffer_sq += u.float().pow(2).sum()
+            param_sq += p.data.float().pow(2).sum()
+        # Re-snapshot from the new params for the next interval.
+        for i, p in enumerate(self._params):
+            self._snapshots[i].copy_(p.data)
+        return {
+            "pseudogradient_norm": float(pseudograd_sq.sqrt().item()),
+            "buffer_norm": float(buffer_sq.sqrt().item()),
+            "param_norm_post_outer": float(param_sq.sqrt().item()),
+        }
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -552,6 +626,12 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "train_steps_arg": args.train_steps,
+            "cooldown_frac": args.cooldown_frac,
+            "outer_enabled": bool(args.outer_enabled),
+            "outer_lr": args.outer_lr,
+            "outer_momentum": args.outer_momentum,
+            "sync_interval": args.sync_interval,
         },
     )
 
@@ -563,7 +643,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -597,8 +677,17 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    # MuLoCo-style outer Nesterov SGD over the inner trajectory.
+    outer = NesterovOuterOptimizer(
+        list(model.parameters()),
+        outer_lr=args.outer_lr,
+        outer_momentum=args.outer_momentum,
+        sync_interval=args.sync_interval,
+        enabled=bool(args.outer_enabled),
+    )
+
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -732,6 +821,22 @@ for trial_idx in range(args.num_trials):
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
+            )
+        outer_metrics = outer.maybe_outer_step()
+        if dist.get_rank() == 0 and outer_metrics is not None:
+            wandb.log(
+                {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/outer/pseudogradient_norm": outer_metrics["pseudogradient_norm"],
+                    "train/outer/buffer_norm": outer_metrics["buffer_norm"],
+                    "train/outer/param_norm_post_outer": outer_metrics["param_norm_post_outer"],
+                    "train/outer/step_count": outer.outer_step_count,
+                    "train/outer/outer_lr": outer.outer_lr,
+                    "train/outer/outer_momentum": outer.outer_momentum,
+                    "train/outer/sync_interval": outer.sync_interval,
+                },
+                step=wandb_step,
             )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
