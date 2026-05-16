@@ -5,6 +5,7 @@ This file descends from the [NanoGPT speedrun](https://github.com/KellerJordan/m
 It was prepared as a simplified version of the speedrun for use in neural net optimization research.
 """
 
+import math
 import os
 import sys
 with open(sys.argv[0]) as f:
@@ -443,6 +444,28 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+NANOGPT_COOLDOWN_SHAPE = os.environ.get("NANOGPT_COOLDOWN_SHAPE", "linear")
+COOLDOWN_SHAPES = ("linear", "cosine", "sqrt", "quadratic", "exp")
+if NANOGPT_COOLDOWN_SHAPE not in COOLDOWN_SHAPES:
+    raise ValueError(
+        f"Unknown NANOGPT_COOLDOWN_SHAPE: {NANOGPT_COOLDOWN_SHAPE}. "
+        f"Must be one of {COOLDOWN_SHAPES}."
+    )
+
+
+def cooldown_eta(t: float) -> float:
+    """LR scale factor during cooldown. t=1 at cooldown entry, t=0 at end."""
+    if NANOGPT_COOLDOWN_SHAPE == "linear":
+        return t
+    if NANOGPT_COOLDOWN_SHAPE == "cosine":
+        return 0.5 * (1 - math.cos(math.pi * t))
+    if NANOGPT_COOLDOWN_SHAPE == "sqrt":
+        return math.sqrt(t)
+    if NANOGPT_COOLDOWN_SHAPE == "quadratic":
+        return t * t
+    if NANOGPT_COOLDOWN_SHAPE == "exp":
+        return math.expm1(t) / math.expm1(1.0)
+    raise ValueError(f"Unknown cooldown shape: {NANOGPT_COOLDOWN_SHAPE}")
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -532,6 +555,7 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"COOLDOWN_SHAPE: {NANOGPT_COOLDOWN_SHAPE}", console=True)
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
 print0("="*100)
@@ -574,8 +598,13 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "nanogpt_cooldown_shape": NANOGPT_COOLDOWN_SHAPE,
         },
     )
+    # log eta(t) sample curve so the schedule is reconstructable from W&B alone
+    eta_curve_samples = {f"train/lr_schedule/eta_curve_samples/t={t:.2f}": cooldown_eta(t)
+                         for t in (0.0, 0.25, 0.5, 0.75, 1.0)}
+    wandb.log(eta_curve_samples, step=0)
 
 for trial_idx in range(args.num_trials):
 
@@ -626,10 +655,12 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            t = (1 - progress) / cooldown_frac
+            eta = cooldown_eta(t)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+        return eta
 
 
     ########################################
@@ -723,7 +754,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        eta_this_step = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -736,6 +767,7 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/slope/window_target_steps": slope_window_steps,
+                "train/lr_schedule/eta_this_step": eta_this_step,
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
