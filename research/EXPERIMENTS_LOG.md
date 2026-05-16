@@ -138,3 +138,23 @@ gh for assignment-state queries failed assignment polls for ~45 min:
 **Bundled finding (already in baseline):** nezuko's sample_tensor float64 fix was excellent diagnostic work, but it had already been independently cherry-picked into the merged Muon² PR #60 via alphonse. That's why this PR ended in merge-conflict state.
 
 **Conclusion:** WD warmup unlikely to help any recipe with final WD ≤ 0.025. Re-test only if a future recipe lands with WD ≥ 0.05.
+
+---
+
+## 2026-05-16 01:30 UTC — PR #97: Muon² beta2 sweep (tanjiro) — CLOSED inconclusive (pod-level divergence)
+
+**Hypothesis:** Sweep Muon² 2nd-moment EMA beta2 ∈ {0.95, 0.98, 0.999} to find optimum for short-horizon regime.
+
+| W&B run | beta2 | bias_correction | Role | Outcome |
+|---------|-------|-----------------|------|---------|
+| `hov7gbvg` | 0.95 | off (merged) | arm-A | NaN by step 25 |
+| `hger8tqw` | 0.98 | off | arm-B | NaN by step 25, killed at step 403 |
+| `v5yl0u6u` | 0.999 | off | arm-C | NaN by step 25, killed at step 1314 |
+| `37q9u3pr` | 0.999 (stashed diff, untouched baseline) | off | pod isolation | **NaN by step 25 — same divergence as arms!** |
+| `h8j7zoep` | 0.999 (telemetry=1) | off | step-by-step trace | Inf in 20 weight entries at step 2; NaN cascade by step 3 |
+
+**Diagnostic conclusion:** **NOT a beta2 effect — this is pod-specific hardware divergence.** The merged Muon² baseline (which alphonse reaches val=3.2766 on) reproducibly NaNs on tanjiro's pod from the very first optimizer step. Same code, same Blackwell GPU model, same torch/CUDA stack, but tanjiro's GPU UUID `7998cef9-...` produces Inf in the first Muon² weight update. ECC clean per nvidia-smi.
+
+**Secondary finding (motivates PR #108):** Muon² as merged lacks Adam-style bias correction `v_hat = v / (1 - beta2^t)`. The first-step preconditioned input swings ~32× sign(u) at beta2=0.999 vs ~7× at beta2=0.98 vs ~4.5× at beta2=0.95, breaking comparability of any beta2 sweep on the current Muon² code. Bias correction may both stabilize lower beta2 values AND make the sweep meaningful.
+
+**Verdict:** Closed without merge. tanjiro reassigned to PR #108 (Muon² + bias correction with mandatory pod smoke-test gate). If the pod is still broken, smoke test will catch it in 100 steps before burning 7+ hours on doomed arms.

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-15 23:55 UTC (wave 2 in full execution, all 7 students assigned)
+- **Date:** 2026-05-16 01:35 UTC (wave 2 in execution; tanjiro pivoted to bias correction)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
@@ -12,8 +12,9 @@
 - 2 seeds, both first_step_to_target=3275, val≈3.2766
 - n=2 stat-sig: mu=3.276565, margin=0.004859 ≥ 0.004 ✓
 - Bundled: `sample_tensor` float64 precision fix, `NANOGPT_NS_ITERS` env var
+- **Known mechanism flaw (diagnosed by tanjiro #97):** no Adam-style bias correction → first-step preconditioner is unstable across beta2 values. PR #108 fixes this.
 
-## Wave 1 + 2 closed PRs
+## Closed PRs
 
 | PR | Student | Result |
 |----|---------|--------|
@@ -26,48 +27,48 @@
 | #75 | tanjiro | CLOSED — NS=8 safe (within noise), NS=6 fails. Wall-clock savings < 1%. |
 | #77 | thorfinn | CLOSED — Lion aux groups failed (3.3109). |
 | #91 | thorfinn | CLOSED — aspect-ratio formula NaN cascade, branch corruption. |
+| #97 | tanjiro | CLOSED INCONCLUSIVE — pod-level GPU divergence; surfaced Muon² bias-correction flaw |
 
-## Active PRs (wave 2 — all 7 students engaged)
+## Active PRs (wave 2)
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| #90 | askeladd | muP LR sweep on vanilla Muon (0.025/0.030/0.035/0.042) | arm-A=3.2807; arms B/C/D blocked on rebase (commented) |
-| #92 | edward | Orthogonal QKV init | arm-A descending normally (3.3438 @ step 2750); arm-B normal-init queued sequential |
-| #96 | alphonse | Muon² LR retune (0.030/0.0375/0.040) | arm-A=3.2781 (worse than baseline); arm-B running, arm-C queued |
-| #97 | tanjiro | Muon² beta2 sweep (0.95/0.98/0.999) | beta2=0.95 AND 0.98 hard-diverge at step 25 (no bias correction); arm-C (0.999) confirming baseline |
-| #102 | fern | LR warmup sweep (0/50/100/200 steps) | Just assigned, no runs yet |
+| #90 | askeladd | muP LR sweep on vanilla Muon | arm-A=3.2807; blocked on rebase (commented) |
+| #92 | edward | Orthogonal QKV init | arm-A finished (~3.34 @ 2750); arm-B normal-init queued |
+| #96 | alphonse | Muon² LR retune | arm-A=3.27815, arm-B=3.27709 (both marginally worse than 3.2766); arm-C (lr=0.040) running, ETA ~02:55 |
+| #102 | fern | LR warmup sweep | Just assigned, no runs yet |
 | #104 | frieren | Polyak EMA model weight averaging | Just assigned, no runs yet |
-| #105 | thorfinn | Gradient clipping sweep (0.0/1.0/5.0) | Just assigned, no runs yet |
-| #106 | nezuko | Muon² cooldown_frac sweep (0.4/0.5/0.6/0.7) | **JUST ASSIGNED — extends fern's positive cooldown signal onto Muon²** |
+| #105 | thorfinn | Gradient clipping sweep | Just assigned, no runs yet |
+| #106 | nezuko | Muon² cooldown_frac sweep | Just assigned, no runs yet |
+| **#108** | **tanjiro** | **Muon² + Adam-style bias correction (pod smoke-test gated)** | **JUST ASSIGNED — fixes mechanism flaw from #97** |
 
-## Wave 2 focus
+## Pod health watch
 
-Three complementary thrusts:
+**tanjiro pod (GPU UUID 7998cef9-...)**: Reproducibly NaNs the merged Muon² baseline. Bf16 tensor-core or NS polynomial accumulator likely affected by silicon-binning. PR #108 includes a mandatory smoke-test gate; if it fails, escalate to infra.
 
-**(a) Characterize Muon² hyperparameters** — the merged mechanism inherited paper defaults:
-- LR retune (alphonse #96): lr=0.030 worse, awaiting 0.0375/0.040
-- beta2 sweep (tanjiro #97): **DIAGNOSTIC RESULT** — Muon² lacks Adam-style bias correction; only beta2=0.999 stable. Suggests follow-up: add `v_hat = v/(1-beta2^t)` and re-sweep.
-- cooldown_frac on Muon² (nezuko #106): extend fern's positive vanilla-Muon signal
+**alphonse pod (GPU UUID a808f13a-...)**: Running merged baseline cleanly (val=3.2766 confirmed). Currently on arm-C of #96.
 
-**(b) Standard practices skipped by starter** — orthogonal to Muon mechanism:
-- LR warmup (fern #102)
-- Gradient clipping (thorfinn #105)
-- Polyak EMA at eval (frieren #104)
+**Other student pods**: No anomalies yet — but if any of (askeladd, edward, fern, frieren, thorfinn, nezuko) start showing step-25 NaN, suspect the same silicon issue.
 
-**(c) Initialization & architecture probes**:
-- Orthogonal QKV init (edward #92)
-- muP LR scaling on vanilla Muon (askeladd #90 — needs rebase)
+## Wave 2 emerging picture
+
+Wave 2 LR retune (alphonse #96): Muon² LR is **at or near the 0.035 peak**. lr=0.030 → 3.27815 (worse), lr=0.0375 → 3.27709 (marginally worse), lr=0.040 awaiting. **Likely outcome: no LR retune gain.** Diagnostic: Muon²'s 2nd-moment preconditioning sharpens the update direction, and 0.035 was already at the peak inherited from vanilla Muon — preconditioning doesn't shift the LR optimum.
+
+Wave 2 still in flight:
+- **Muon² bias correction** (tanjiro #108) — most likely to fix a known mechanism flaw
+- **Standard practices** (fern #102 warmup, thorfinn #105 clip, frieren #104 EMA) — likely small gains if any
+- **Cooldown shape** (nezuko #106) — extending fern's positive vanilla-Muon signal onto Muon²
 
 ## Potential next research directions (wave 3 candidates)
 
-**Driven by wave 2 evidence**:
-1. **Muon² + bias correction** — tanjiro #97's diagnostic shows Muon² is stuck at beta2=0.999 due to no `(1-beta2^t)` correction. Add bias correction and re-sweep beta2. Likely tanjiro's natural follow-up.
-2. **Muon² + (lr*, beta2*, cooldown_frac*) combined** — apply wave-2 sweep findings together.
-3. **Muon² + best standard practice** — compose any of {warmup, clip, EMA} that show signal.
+**If bias correction (PR #108) succeeds**:
+1. **Muon² + bias correction + retuned (lr, beta2) combined** — apply all wave-2 findings
+2. **Muon² + bias correction + Contra-Soft / SOAP-MLP stack** — bigger ceiling
 
-**Higher-effort stack mechanisms**:
-4. **Muon² + Contra-Soft stack** — wave-1 winner + record #20's mechanism. Target sub-3250.
-5. **Muon² + SOAP-MLP** — biggest lever to close gap to 3030. Complex port but highest ceiling.
+**Independent of bias correction**:
+3. **Trust-region Muon** — per-layer update norm cap, complementary to NS orthogonalization
+4. **Schedule-free Muon with Polyak averaging** — combine #104 EMA's eval-only smoothing with on-policy training
+5. **SOAP-MLP for AdamW aux groups** — record #20 mechanism, complex port but highest leaderboard headroom
 
 ## Notes
 
@@ -76,6 +77,6 @@ Three complementary thrusts:
 - No multiple fwd/bwd passes per step (rules out SAM).
 - Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 - Merged baseline includes `sample_tensor` float64 fix + `NANOGPT_NS_ITERS` env var.
-- 1 GPU per student node — sequential arm execution required (concurrent torchrun → OOM); pattern: `run_arms_sequential.sh`.
-- GitHub rate limit: ~4000/5000 remaining at 23:50 UTC; reset at 1778894384 (~00:30 UTC tomorrow).
-- Branch corruption pattern: PRs #66, #91 both had NaN cascades from working tree drift. Solution: all new PRs include explicit `git reset --hard origin/auto-nanogpt-1gpu-r4` instruction.
+- 1 GPU per student node — sequential arm execution required.
+- **NEW pattern**: Future Muon²-touching PRs should include a 100-step smoke test of the merged baseline before launching long arms, given the tanjiro pod precedent.
+- GitHub rate limit: ~4000/5000 remaining at 01:35 UTC.
