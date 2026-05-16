@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
+GC_ENABLED = True  # Gradient Centralization (PR #141): row-mean sub before momentum/NS5
 
 
 def parse_args():
@@ -193,6 +194,32 @@ def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     return values.cpu()
 
 
+def gc_stats(named_grads: list[tuple[str, Tensor]]) -> dict[str, float]:
+    """Pre/post GC norms and mean |row-mean| for Muon-managed 2D grads."""
+    pre_sq = 0.0
+    post_sq = 0.0
+    row_mean_abs_sum = 0.0
+    row_mean_count = 0
+    for _, g in named_grads:
+        gf = g.detach().float()
+        row_mean = gf.mean(dim=-1)
+        centered = gf - row_mean.unsqueeze(-1)
+        pre_sq += float(gf.square().sum().item())
+        post_sq += float(centered.square().sum().item())
+        row_mean_abs_sum += float(row_mean.abs().sum().item())
+        row_mean_count += row_mean.numel()
+    out: dict[str, float] = {
+        "grad_norm_pre_gc": pre_sq ** 0.5,
+        "grad_norm_post_gc": post_sq ** 0.5,
+    }
+    if row_mean_count > 0:
+        out["grad_row_mean_abs_mean"] = row_mean_abs_sum / row_mean_count
+    if pre_sq > 0:
+        out["grad_norm_ratio_post_pre"] = (post_sq / pre_sq) ** 0.5
+        out["grad_energy_removed_fraction"] = max(0.0, 1.0 - post_sq / pre_sq)
+    return out
+
+
 def log_training_telemetry(
     model: nn.Module,
     optimizers: list[torch.optim.Optimizer],
@@ -202,6 +229,7 @@ def log_training_telemetry(
     step: int,
     train_steps: int,
     wandb_step: int,
+    muon_param_full_names: set[str] | None = None,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -231,6 +259,10 @@ def log_training_telemetry(
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
         metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
+    if muon_param_full_names is not None:
+        muon_grads = [(n, g) for n, g in grads if n in muon_param_full_names]
+        if muon_grads:
+            metrics.update(prefixed("train/gc", gc_stats(muon_grads)))
     wandb.log(metrics, step=wandb_step)
 
 
@@ -459,6 +491,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
+    if GC_ENABLED:
+        grad = grad - grad.mean(dim=-1, keepdim=True)
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
@@ -557,11 +591,12 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["soap_step"] = 0
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        nesterov_update = p.grad.lerp(state["momentum"], group["mu"])
+                        grad = p.grad - p.grad.mean(dim=-1, keepdim=True) if GC_ENABLED else p.grad
+                        state["momentum"].lerp_(grad, 1 - group["mu"])
+                        nesterov_update = grad.lerp(state["momentum"], group["mu"])
                         nesterov_update = soap_precondition_momentum(nesterov_update, state)
                         update = soap_ns_step(nesterov_update)
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
@@ -610,6 +645,7 @@ model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
+muon_param_full_names = {f"blocks.{n}" for n, p in model.blocks.named_parameters() if p.ndim >= 2}
 if dist.get_rank() == 0:
     tags = ["track-3-optimization", "senpai"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
@@ -641,6 +677,10 @@ if dist.get_rank() == 0:
             "soap_scope": "mlp.fc.weight,mlp.proj.weight",
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "gc_enabled": GC_ENABLED,
+            "gc_scope": "all_muon_2d_weights",
+            "gc_dim": "last_dim_input_features",
+            "muon_param_count": len(muon_param_full_names),
         },
     )
 
@@ -811,6 +851,7 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+                muon_param_full_names=muon_param_full_names,
             )
         for opt in optimizers:
             opt.step()
