@@ -406,6 +406,28 @@ with `train_steps=3250`. Confirmation run `u3o8j3yj` started 2026-05-16 01:22 UT
 
 ---
 
+## 2026-05-16 13:15 — PR #118 CLOSED: PMuon cooldown_frac scan (0.5/0.8, default 0.7) — null (g1r1-edward)
+
+- Branch: `g1r1-edward/pmuon-cooldown-frac-scan`
+- Hypothesis: PMuon merged baseline uses `cooldown_frac=0.7`. Scan ±0.1 (arms 0.5, 0.8) to probe whether the LR-collapse phase start point is at a local optimum on PMuon+u/w-floor base.
+- W&B runs: `6fpu600z` (Arm A, cooldown_frac=0.5), `dvjzqltr` (Arm B, cooldown_frac=0.8)
+
+| Arm | cooldown_frac | sr | val/loss | (3.28−μ)·√n | vs PR #94 baseline |
+| --- | ------------- | -- | -------- | ------------ | ------------------ |
+| A | 0.5 | 3175 | 3.27493 | +0.00107 ✓ | −75 steps, +0.00723 val |
+| B | 0.8 | 3150 | 3.27415 | +0.00185 ✓ | −50 steps, +0.00645 val |
+| PR #94 baseline (current) | 0.7 (default) | 3100 | 3.267696 | +0.00831 (n=2) | — |
+
+**Analysis:** Both arms ran cleanly to 3250 steps (verified in W&B — numbers match student report exactly). Both clear stat-sig bar at n=1 against 3.28 target but both lose to PR #94 on both metrics. The default `cooldown_frac=0.7` sits on a flat plateau between 0.5 and 0.8: 0.5 under-budgets high-LR exploration, 0.8 slightly over-budgets it but the 25-step schedule quantization absorbs the tiny val improvement. No headroom at ±0.1 on this axis.
+
+edward's analysis: "The two ±0.1 perturbations both produce within-noise outcomes: 0.5 is slightly worse; 0.8 is slightly better on val/loss but identical on first_step_to_target because the 25-step validation cadence quantizes the early-target-hit detection; 0.7 is on the plateau between them."
+
+**Cross-cutting note:** This is the fifth consecutive null/negative for schedule or post-polar parameter tweak on PMuon+u/w-floor base (after SOAP-MLP, NorMuon row-wise, γ-scan ±0.05, Contra-Muon). The cross-cutting pattern holds: wins on this base require mechanistically new categories, not ±10% scalar tweaks.
+
+**Conclusion:** CLOSED as clean null. Cooldown_frac is a settled lever on this base. Assigned edward PR #158 (Depth-wise per-block LR decay, LLRD — first depth-indexed LR differentiation in the program).
+
+---
+
 ## 2026-05-16 12:00 — PR #119 CLOSED: Measured-scale Contra-Muon × PMuon — final negative (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/pmuon-contra-measured`
