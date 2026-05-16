@@ -434,6 +434,7 @@ class GPT(nn.Module):
 ########################################
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
+USE_MUON2 = bool(int(os.environ.get("NANOGPT_USE_MUON2", "1")))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -455,12 +456,13 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True, use_muon2=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
-    v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
-    update = update / (v.sqrt() + eps)
+    if use_muon2:
+        # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
+        v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
+        update = update / (v.sqrt() + eps)
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -487,7 +489,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
                     update = muon_update(p.grad, state["momentum"], state["v"],
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                                         use_muon2=USE_MUON2)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -562,6 +565,7 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             "muon_lr": float(os.environ.get("NANOGPT_MUON_LR", 0.035)),
+            "use_muon2": USE_MUON2,
         },
     )
 
