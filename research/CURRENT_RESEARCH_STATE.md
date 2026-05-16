@@ -1,19 +1,19 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-15 23:25 UTC (boot 13)
+- **Last updated:** 2026-05-16 00:30 UTC (boot 14)
 - **Most recent human-team directive:** None received.
-- **Branch state:** 1 commit beyond seed. No experiment PRs merged yet. **Three positive directions now confirmed at trial-level**; wave-1 ~10.5 hours in.
+- **Branch state:** 1 commit beyond seed. No experiment PRs merged yet. **Three positive wave-1 directions + wave-2 smokes in progress**; wave-1 ~11.5 hours in.
   - **THREE POSITIVE DIRECTIONS** (all need n=4 confirmation before merge):
     - **alphonse #51 NorMuon**: 8yocwc35 trials 0+1 + 40g9f47i trial 1 = n=3 (val 3.27609 / 3.27803 / 3.2786, ffs 3225 / 3250 / 3275). **n=3 mean=3.27757**, stat margin `(3.28-3.27757)·√3 = 0.00421 > 0.004 ✓`. Trial 2 of 40g9f47i started (step 3301). n=4 ETA ~01:00 UTC.
     - **frieren #55 MuLoCo**: 0qry1ckh trial 1 (val=3.2792 ffs=3275) + trial 2 (val=3.2785 ffs=3275). **n=2 mean=3.27885** (just over 3.278 merge bar). Trial 3 mid-cooldown. Trials 3+4 need mean ≤ 3.27715 for n=4 merge. ETA ~02:30 UTC. Comment posted at 23:22 UTC acknowledging positive.
     - **askeladd #52 MuonH SI**: 5tecoakm screen finished `val=3.2775 ffs=3300 reached=1`. **First MuonH variant to clear target.** Confirm request sent at 23:23 UTC for n=4 at train_steps=3325 (`muonh-si-confirm-3325`). ETA after launch ~3h.
-  - **edward #53 Contra-Muon**: 3 of 3 trials missed (val 3.2834 / 3.2845 / 3.2831 ffs=-1). Trial 4 in progress (step 12028/13300). Pre-commit close as negative when terminal — n=4 mean cannot clear 3.278 even with a perfect trial 4.
-  - **tanjiro #87 u/w-floor**: arm 1 (`qduieg8g`) step 1900/3350. Arm 2 not launched (sequential). Sweep ETA ~04:00 UTC.
-  - **Wave-2 picked up at 23:21 UTC** (after gh rate limit reset 23:19 UTC):
-    - #99 fern Adafactor: branch checked out `g1r3-fern/adafactor-aux`
-    - #100 nezuko Sign-Muon: branch checked out `g1r3-nezuko/sign-muon` (file already modified)
-    - #101 thorfinn Polyak EMA: branch checked out `g1r3-thorfinn/polyak-ema`
-  - **PRs CLOSED as negative (boot 11)**: #54 fern SOAP-MLP (smoke v7 NaN), #58 thorfinn cooldown sweep (both arms missed), #86 nezuko MuonSquared (smoke v6 NaN at step 50). #56 Lion, #57 init-only previously closed.
+  - **edward #53 Contra-Muon**: CLOSED negative at boot 14. n=4 all missed (mean=3.2835, stat -0.0070). **edward assigned PR #107 Cautious-Muon** (sign-agreement mask on NS5 update, Liang et al 2024).
+  - **tanjiro #87 u/w-floor**: arm 1 `qduieg8g` FINISHED val=3.28074 ffs=-1 (missed by 0.00074). Arm 2 (`8y575gk7`, lr=0.035 TARGET_UW=0.40) running step 350. Arms 3+4 pending. Sweep ETA ~05:15 UTC.
+  - **Wave-2 progress** (picked up at 23:21 UTC):
+    - #99 fern Adafactor: branch active, only 6-step debug run so far. Smoke pending.
+    - #100 nezuko Sign-Muon: smoke `zbtoprue` FAILED (val=10.826 = untrained baseline — implementation bug). Student iterating.
+    - #101 thorfinn Polyak EMA: first smoke `v81ovkl9` FAILED (val=8.046). Second smoke `cc8jfvi3` just launched.
+  - **PRs CLOSED as negative**: #53 edward Contra-Muon (boot 14), #54 fern SOAP-MLP, #58 thorfinn cooldown sweep, #86 nezuko MuonSquared, #56 Lion, #57 init-only.
   - edward #53 Contra-Muon: still running confirmation. Pre-commit close if all 4 trials miss.
   - tanjiro #87 u/w-floor: 4-arm corners sweep launched 22:23 UTC. ETA ~02:00 UTC.
   - askeladd #52 MuonH: launched SI variant (Option A) `5tecoakm` at 21:38 UTC. Held deadline close; audit confirms healthy progress.
@@ -26,24 +26,19 @@ track 3 setup, satisfying `(3.28 - mu) * sqrt(n) >= 0.004`. Architecture,
 data, **batch size (and mbs=64)**, and one fwd-bwd per optim step fixed.
 Optimizer, schedule, init, telemetry editable.
 
-## Wave 1 — current status (boot 13 audit at 23:23 UTC)
+## Wave 1+2 — current status (boot 14 audit at 00:22 UTC)
 
 | PR | Student | Lever | W&B signal | Advisor action |
 | --- | --- | --- | --- | --- |
-| #51 | alphonse | NorMuon (canonical 1D post-NS) | n=3 mean=3.27757 ffs mean=3250, stat 0.00421 ✓. Trial 4 of 4 just started (`40g9f47i` step 3301) | **Wait for n=4** terminal; merge after SENPAI-RESULT |
-| #52 | askeladd | MuonH Option A (SI always-active) | Screen `5tecoakm` HIT TARGET: val=3.2775 ffs=3300 reached=1 | n=4 confirm requested at 23:23 UTC (train_steps=3325, group `muonh-si-confirm-3325`) |
-| #53 | edward | Contra-Muon | `n7ea9xyr` trials 1+2+3 all ffs=-1 (val 3.2834/3.2845/3.2831). Trial 4 in progress | Pre-commit close as negative when trial 4 terminal |
-| #55 | frieren | MuLoCo outer Nesterov | `0qry1ckh` trial 1 (val=3.2792 ffs=3275 ✓) + trial 2 (val=3.2785 ffs=3275 ✓). Trial 3 mid-cooldown | n=2 mean 3.27885; n=4 needs trials 3+4 mean ≤ 3.27715. Comment posted ack |
-| #54 fern, #58 thorfinn, #86 nezuko | — | (CLOSED) | Closed boot 11 as negative | See `EXPERIMENTS_LOG.md` boot-11 entry |
-
-## Wave 2 — running
-
-| PR | Student | Lever | W&B signal | Advisor action |
-| --- | --- | --- | --- | --- |
-| #87 | tanjiro | u/w-floor | arm 1 `qduieg8g` step 1900/3350. Arm 2 not yet launched | Sweep ETA arm-1 ~01:30 UTC; per-arm table at sweep terminal |
-| #99 | fern | Adafactor aux for embed/lm_head/scalars | Branch picked up at 23:21 UTC after gh rate limit reset | Awaiting smoke launch |
-| #100 | nezuko | Sign-Muon (sign before NS5) | Branch picked up + file modified at 23:22 UTC | Awaiting smoke launch |
-| #101 | thorfinn | Polyak EMA weights at val time | Branch picked up at 23:24 UTC | Awaiting smoke launch |
+| #51 | alphonse | NorMuon | n=3 mean=3.27757 stat 0.00421 ✓. `40g9f47i` trial 2 step 5176 (~57%) | Wait for n=4 terminal; merge immediately on SENPAI-RESULT if n=4 stat clears |
+| #52 | askeladd | MuonH SI always-active | Confirm `rwpbmxj7` step 1675/3325 trial 1. Screen `5tecoakm` val=3.2775 ffs=3300 ✓ | Wait for n=4 confirm terminal |
+| #53 | edward | Contra-Muon | **CLOSED negative** (n=4 mean=3.2835, stat -0.007) | Replaced with PR #107 Cautious-Muon |
+| #55 | frieren | MuLoCo outer Nesterov | `0qry1ckh` trial 1 (3.2792) + trial 2 (3.2785) ✓. Trial 4 starting (step 10113) | Wait for n=4 terminal; per-trial table |
+| #87 | tanjiro | u/w-floor | Arm 1 (lr=0.035 UW=0.30) val=3.28074 ffs=-1. Arm 2 (UW=0.40) step 350 | Wait for 4-arm sweep terminal |
+| #99 | fern | Adafactor aux | Branch active; smoke not yet launched | Monitor; nudge if >2h without smoke |
+| #100 | nezuko | Sign-Muon | Smoke `zbtoprue` val=10.826 (untrained baseline) — implementation bug. Second attempt? | Monitor; post hint if student gets stuck |
+| #101 | thorfinn | Polyak EMA | First smoke val=8.046 (bad). Second smoke `cc8jfvi3` just launched | Wait for second smoke result |
+| #107 | edward | Cautious-Muon (sign-agreement mask) | Just assigned (PR created 00:28 UTC) | Awaiting smoke pickup |
 
 ## Key learnings carried forward
 

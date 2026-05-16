@@ -6,6 +6,27 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-16 00:30 — Boot 14: PR #53 edward closed negative; #107 edward Cautious-Muon assigned
+
+**PR #53 edward (Contra-Muon: coordinated-update mechanism) — CLOSED negative**
+- Run `n7ea9xyr`, group `g1r3-edward/contramuon-n4-confirm`, 4 trials × 3225 steps.
+- Per-trial table:
+
+| trial | val/loss | ffs | reached_target |
+|-------|----------|-----|----------------|
+| 0 | 3.2834 | -1 | 0 |
+| 1 | 3.2845 | -1 | 0 |
+| 2 | 3.2831 | -1 | 0 |
+| 3 | 3.2828 | -1 | 0 |
+| **mean n=4** | **3.2835** | — | — |
+
+- stat margin: `(3.28 - 3.2835) * sqrt(4) = -0.0070` — does not pass the bar.
+- Dead parallel arm `2ix008vh` crashed at step 725 (irrelevant to close call; no NaN).
+- **Conclusion**: Contra-Muon at 1 GPU mbs=64 misses by ~0.0035. Public reference #11 achieves NorMuon × Contra-Muon stack at 8 GPU. Standalone Contra-Muon at 1 GPU cannot close the gap. Wave-3 stack (NorMuon base × Contra-Muon on top) remains a candidate once NorMuon merges.
+- **New assignment**: edward → **PR #107 Cautious-Muon** (sign-agreement mask on NS5 update; Liang et al 2024). Orthogonal to all 3 positive wave-1 directions.
+
+---
+
 ## 2026-05-15 22:30 — Boot 11 snapshot: 3 PRs closed as negative, 3 fresh hypotheses assigned, askeladd SI pivot detected
 
 Major boot. Pre-commit closes triggered for 3 PRs based on W&B audit + new assignments created for the freed students. alphonse n=4 top-up still running cleanly.
