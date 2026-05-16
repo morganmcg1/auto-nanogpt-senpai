@@ -493,6 +493,112 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class SOAPAux(torch.optim.Optimizer):
+    """SOAP: Adam in the slowly-rotating eigenbasis of a Shampoo right factor.
+
+    Right-rotate-only for tall (m, n) matrices with m >> n: only the (n, n)
+    right factor R = EMA(g^T g) is materialized. The left factor is implicit
+    identity, which avoids the 19GB L matrix that arises for embed/lm_head
+    (50304 x 768).
+
+    On each refresh (every precond_freq steps), exp_avg is re-projected from
+    the old Q_R basis into the new Q_R basis via R_change = old_Q_R^T @ new_Q_R.
+    exp_avg_sq stays in its old basis (option (a) in Vyas et al.) to preserve
+    elementwise positivity; the EMA washes out the transient within ~20 steps.
+
+    Reference: Vyas, Morwani, Zhao, Shapira, Brandfonbrener, Janson, Kakade
+    "SOAP: Improving and Stabilizing Shampoo Using Adam" (NeurIPS 2024).
+    https://arxiv.org/abs/2409.11321
+    """
+
+    def __init__(self, params, lr=3e-4, betas=(0.9, 0.95), eps=1e-8,
+                 weight_decay=0.0, precond_freq=50):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        precond_freq=precond_freq)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            precond_freq = group["precond_freq"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["precond_refresh_count"] = 0
+                    state["last_q_r_change_norm"] = 0.0
+                    state["last_effective_grad_norm"] = 0.0
+                    state["last_raw_grad_norm"] = 0.0
+                    if g.ndim == 2:
+                        n = g.size(1)
+                        state["R"] = torch.zeros(n, n, device=g.device, dtype=torch.float32)
+                        state["Q_R"] = torch.eye(n, device=g.device, dtype=torch.float32)
+
+                state["step"] += 1
+                t = state["step"]
+
+                g_fp32 = g.to(torch.float32)
+
+                if g.ndim == 2:
+                    state["R"].mul_(b2).add_(g_fp32.T @ g_fp32, alpha=1 - b2)
+
+                    if t % precond_freq == 0:
+                        old_Q_R = state["Q_R"]
+                        _, new_Q_R = torch.linalg.eigh(state["R"])
+                        state["last_q_r_change_norm"] = float((new_Q_R - old_Q_R).norm().item())
+                        # Re-project exp_avg from old basis to new basis.
+                        R_change = old_Q_R.T @ new_Q_R
+                        state["exp_avg"] = state["exp_avg"] @ R_change
+                        state["Q_R"] = new_Q_R
+                        state["precond_refresh_count"] += 1
+
+                    g_rot = g_fp32 @ state["Q_R"]
+                    state["last_raw_grad_norm"] = float(g_fp32.norm().item())
+                    state["last_effective_grad_norm"] = float(g_rot.norm().item())
+                else:
+                    g_rot = g_fp32
+
+                state["exp_avg"].mul_(b1).add_(g_rot, alpha=1 - b1)
+                state["exp_avg_sq"].mul_(b2).addcmul_(g_rot, g_rot, value=1 - b2)
+                m_hat = state["exp_avg"] / (1 - b1 ** t)
+                v_hat = state["exp_avg_sq"] / (1 - b2 ** t)
+                update_rot = m_hat / (v_hat.sqrt() + group["eps"])
+
+                if g.ndim == 2:
+                    update = update_rot @ state["Q_R"].T
+                else:
+                    update = update_rot
+
+                if group["weight_decay"] > 0:
+                    p.data.mul_(1 - group["lr"] * group["weight_decay"])
+                p.data.add_(update.to(p.dtype), alpha=-group["lr"])
+        return None
+
+    def get_metrics(self):
+        metrics = {}
+        for group in self.param_groups:
+            name = group.get("name", "soap_unknown")
+            for p in group["params"]:
+                state = self.state.get(p, {})
+                if not state:
+                    continue
+                metrics[f"train/soap/{name}/precond_refresh_count"] = state.get("precond_refresh_count", 0)
+                metrics[f"train/soap/{name}/q_r_change_norm"] = state.get("last_q_r_change_norm", 0.0)
+                metrics[f"train/soap/{name}/effective_grad_norm"] = state.get("last_effective_grad_norm", 0.0)
+                metrics[f"train/soap/{name}/raw_grad_norm"] = state.get("last_raw_grad_norm", 0.0)
+                raw = state.get("last_raw_grad_norm", 0.0)
+                if raw > 0:
+                    metrics[f"train/soap/{name}/grad_norm_ratio"] = state.get("last_effective_grad_norm", 0.0) / raw
+        return metrics
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -592,14 +698,54 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    use_soap_aux = bool(int(os.environ.get("NANOGPT_USE_SOAP_AUX", "0")))
+    soap_targets_env = os.environ.get("NANOGPT_SOAP_TARGETS", "embed,lm_head")
+    soap_targets = {t.strip() for t in soap_targets_env.split(",") if t.strip()}
+    soap_precond_freq = int(os.environ.get("NANOGPT_SOAP_PRECOND_FREQ", "50"))
+    soap_lr_env = os.environ.get("NANOGPT_SOAP_LR")
+    soap_lr_override = float(soap_lr_env) if soap_lr_env else None
+    soap_b1 = float(os.environ.get("NANOGPT_SOAP_B1", "0.9"))
+    soap_b2 = float(os.environ.get("NANOGPT_SOAP_B2", "0.95"))
+
+    soap_optimizer = None
+    if use_soap_aux:
+        adamw_groups = []
+        soap_groups = []
+        if "embed" in soap_targets:
+            lr_embed = soap_lr_override if soap_lr_override is not None else 0.3
+            soap_groups.append(dict(params=[model.embed.weight], lr=lr_embed, name="soap_embed"))
+        else:
+            adamw_groups.append(dict(params=[model.embed.weight], lr=0.3, name="adam_embed"))
+        if "lm_head" in soap_targets:
+            lr_head = soap_lr_override if soap_lr_override is not None else 1/320
+            soap_groups.append(dict(params=[model.proj.weight], lr=lr_head, name="soap_lm_head"))
+        else:
+            adamw_groups.append(dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"))
+        adamw_groups.append(dict(params=[p for p in model.parameters() if p.ndim < 2],
+                                 lr=0.01, name="adam_scalars"))
+        optimizer1 = AdamW(adamw_groups, betas=(0.8, 0.95), eps=1e-10,
+                           weight_decay=0, fused=True)
+        if soap_groups:
+            soap_optimizer = SOAPAux(soap_groups, betas=(soap_b1, soap_b2),
+                                     eps=1e-8, weight_decay=0.0,
+                                     precond_freq=soap_precond_freq)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    optimizers = [optimizer1]
+    if soap_optimizer is not None:
+        optimizers.append(soap_optimizer)
+    optimizers.append(optimizer2)
+    if dist.get_rank() == 0:
+        soap_target_str = ",".join(sorted(soap_targets)) if use_soap_aux else "-"
+        print0(f"AUX OPTIMIZER: use_soap_aux={use_soap_aux} targets={soap_target_str} "
+               f"precond_freq={soap_precond_freq} soap_lr_override={soap_lr_override} "
+               f"soap_betas=({soap_b1},{soap_b2})", console=True)
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -734,6 +880,12 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due and soap_optimizer is not None:
+            soap_metrics = soap_optimizer.get_metrics()
+            if soap_metrics:
+                soap_metrics["trial"] = trial_idx
+                soap_metrics["train/step"] = train_step
+                wandb.log(soap_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
