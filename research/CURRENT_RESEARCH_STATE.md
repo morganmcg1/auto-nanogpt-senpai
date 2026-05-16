@@ -1,17 +1,18 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 14:50 UTC (wave 3 confirmation seeds advancing 🎯 — edward confirm-2 step 2475/3350 ETA ~28 min, thorfinn confirm-2 step 1750/3350 ETA ~50 min. fern #154 closed strict-gate negative with surprising mechanism finding → fern reassigned to #163 DMR motivated by their own #154 telemetry. askeladd #157 smoke debugging in progress. Tanjiro pod issue #160 still awaiting rotation.)
+- **Date:** 2026-05-16 15:35 UTC 🎉 **FIRST WAVE-3 MERGE — thorfinn #105 (grad clip=5.0) merged!** New baseline val=3.27527/fs=3266.7 (n=3). Edward bias-correction #115 sent back to re-test on new baseline. Thorfinn reassigned to clip-extension sweep #165.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
-- **Current best (branch baseline):** 3275 steps, val=3.2766 (n=2) — alphonse Muon² merged 2026-05-15
+- **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
 - **Public leaderboard best:** 3030 steps (record #20 — Contra-Soft-Muon + KL-SOAP + trust gate + u/w-floor)
 
-## Merged baseline — alphonse Muon² (#60)
+## Merged baseline — Muon² + grad clip=5.0
 
-**Mechanism:** Adam v-EMA applied to raw momentum BEFORE Newton-Schulz orthogonalization. 2 seeds, both first_step=3275, val≈3.2766. n=2 stat-sig: mu=3.276565, margin=0.004859.
+### alphonse Muon² (#60): val=3.2766/fs=3275 (n=2)
+**Mechanism:** Adam v-EMA applied to raw momentum BEFORE Newton-Schulz orthogonalization.
 
-**Known mechanism flaw (being fixed by edward #115):**
-- No Adam-style bias correction (diagnosed by tanjiro #97; edward #115 arm-C confirms fix)
+### thorfinn grad clip=5.0 (#105): **val=3.27527/fs=3266.7 (n=3)** — 2026-05-16 CURRENT BEST
+**Mechanism:** NANOGPT_GRAD_CLIP=5.0. Full-time gradient rescaling on AdamW aux groups (embed/lm_head); NS absorbs magnitude on Muon blocks → clip acts only on aux. Equivalent to constant effective-LR multiplier on AdamW aux groups. n=3 seeds: mu=3.27527, mean fs=3266.7. Baseline commit: 8566c3e.
 
 ## Wave 2 results — PLATEAU CONFIRMED
 
@@ -51,6 +52,7 @@
 | #120 | askeladd | CLOSED — Lookahead Muon²: all arms within-noise or worse; arms A+D identical val=3.27731/fs=3300 (temporal-smoothing family CLOSED; same root cause as #104) |
 | #126 | fern | CLOSED — Contra-Soft element-wise: arm-A=3.27616/3275 EXACT baseline; conflict_fraction ≈ 0.50 across all phases proves element-wise signal is noise-dominated; clean negative with mechanistic diagnosis |
 | #146 | tanjiro | AUTO-MERGED accidentally (advisor-side merge bug); reassigned as #149 |
+| #105 | thorfinn | **MERGED 2026-05-16** — grad clip=5.0 val=3.27527/fs=3266.7 (n=3). New branch baseline. Mechanism: full-time gradient rescaling on AdamW aux groups. |
 | #149 | tanjiro | CLOSED infra-blocked — 3rd reproduction of pod NaN cascade on unmodified baseline (step-1 grad=232102, step-25 nonfinite=147M). Issue #160 filed for pod rotation. |
 | #154 | fern | CLOSED on strict smoke gate — layer-aggregate global_cos_neg=0.9 ≫ 0.3 threshold. Surprising mechanistic finding: grad·momentum < 0 ~90% of steps under Muon². Mechanism degenerates to mild constant gradient downscaler (~0.85x multiplier). Motivated follow-up #163 DMR. |
 
@@ -60,8 +62,8 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 **arm-C val=3.2749/fs=3250 BEATS BASELINE.** confirm-1=3.2754/3275 ✅. confirm-2 (`wxs7if5z`) running step 3100/3350, val=3.295 healthy. **ETA ~8 min**. n=2 partial mu=3.27515. |
-| **#105** | **thorfinn** | **Gradient clipping sweep** | 🎯 **arm-C (clip=5.0) val=3.2742/fs=3250 NEW SWEEP BEST.** confirm-1 **FINISHED val=3.2748/fs=3250 EXACT MATCH** ✅. confirm-2 (`j4r186ws`) running step 2425/3350, val=3.39 healthy. ETA ~30 min. n=2 partial mu=3.27450. |
+| **#115** | **edward** | **Muon² + Adam bias correction** | 🎯 n=3 stat-sig PASS on old baseline (mu=3.27532). **Sent back to re-test on NEW merged baseline (clip=5.0)**. Running 3+1 seeds with bias_corr=ON + beta2=0.98 + clip=5.0. Must beat new mu≤3.27527 or show additive improvement. |
+| **#105** | **thorfinn** | **Gradient clipping sweep** | **✅ MERGED 2026-05-16 15:30 UTC** — val=3.27527/fs=3266.7 (n=3). New branch baseline. |
 
 **Key mechanism insight from thorfinn's gradient norm analysis:** Raw global_norm is 4–5 orders of magnitude larger than both clip thresholds → clip is active at EVERY step → not clipping rare spikes but full-time gradient rescaling. NS already absorbs magnitude for Muon blocks → clip only has effect on AdamW aux groups (embed/lm_head). Grad clip = effective AdamW aux LR multiplier.
 
@@ -73,7 +75,8 @@
 | **#163** | **fern (NEW)** | **Decoupled Momentum Reset (DMR)** | just assigned — periodic momentum zeroing motivated by fern's #154 finding (grad·momentum<0 ~90% under Muon² = staleness hypothesis). |
 | **#144** | **alphonse** | **SOAP for AdamW aux groups** | arm-A finished val=3.27595/fs=3275 ✓ baseline parity. Arms B/C/D not yet launched. |
 | **#145** | **nezuko** | **Per-layer adaptive NS iterations** | arm-A finished val=3.27841/fs=3325 ✓ baseline reproduction. arms B/C/D not yet launched. |
-| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | smoke tests v1/v2 failed at step 1 (bf16 SVD instability likely); v3 stalled at step 0. Pinged student for traceback + suggested jumping to arm-C fp32 smoke. |
+| **#157** | **askeladd** | **Polar-decomposition Muon via exact SVD** | smoke tests v1/v2/v3 failed at step 0/1 (bf16 SVD instability); v4 launched 14:29 UTC. Pinged student with suggested fp32 jump. Student iterating. |
+| **#165** | **thorfinn (NEW)** | **Clip value extension sweep** | just assigned — extends clip=5.0→{10,25,50} to find true optimal; motivated by thorfinn's own monotone-trend analysis |
 
 ## Infra-blocked
 

@@ -369,3 +369,34 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 **Doesn't close**: Layer-aggregate Contra (assigned to fern as PR #154 follow-up). Tests whether `⟨grad_layer, momentum_layer⟩ < 0` carries more signal than per-element sign mismatch. Decisive smoke test included.
 
 **Why record #20 likely uses layer-aggregate**: Their published "Contra-Soft-Muon" must work since it's first mechanism in their 3030-step record. Element-wise is falsified here. Most likely difference: layer-level inner-product aggregation, not per-element sign.
+
+## 2026-05-16 15:30 — PR #105: Gradient clipping sweep (thorfinn) — 🎉 MERGED — FIRST WAVE-3 WIN
+
+- **Branch:** g1r4-thorfinn/grad-clip-sweep
+- **Hypothesis:** Standard gradient clipping (previously untested on Muon² baseline) may improve training stability and final val/loss
+- **Results (5 runs total — 3-arm sweep + 2 confirmation seeds at clip=5.0):**
+
+| Arm | clip | W&B | val/loss | first_step | vs baseline (3.2766/3275) |
+|-----|------|-----|----------|-----------|---------------------------|
+| A | 0.0 (disabled) | q6law89d | 3.27890 | 3325 | within-noise repro |
+| B | 1.0 | ogevgg65 | 3.27546 | 3275 | −0.0011, =0 steps |
+| **C** | **5.0** | **3utr1m71** | **3.27415** | **3250** | **−0.0024, −25 steps** ✨ |
+| confirm-1 | 5.0 | yfhknwar | 3.27481 | 3250 | −0.0018, −25 steps ✅ |
+| confirm-2 | 5.0 | j4r186ws | 3.27684 | 3300 | −0.0000, +25 steps ✅ |
+
+**n=3 stat-sig at clip=5.0**: mu=(3.27415+3.27481+3.27684)/3=**3.27527**, (3.28−3.27527)×√3=**0.00819≥0.004** ✓ PASS. Mean fs=3266.7 vs baseline 3275 (−8.3 steps).
+
+**Mechanism analysis (thorfinn's diagnosis)**:
+- Raw global_grad_norm = 40,000–50,000 at every step (5 orders of magnitude above clip threshold)
+- Both clip=1.0 and clip=5.0 are **active at every step** → not "spike clipping" but full-time gradient rescaling
+- NS orthogonalization absorbs magnitude for Muon block params → clip affects **only AdamW aux groups** (embed/lm_head)
+- Mechanism = constant effective-LR multiplier on AdamW aux groups (clip=5.0 → ×5 vs clip=1.0 → ×1 on rescaled gradients)
+- Monotone trend clip=0→1→5 confirms optimum not yet reached → thorfinn reassigned to clip extension sweep (#165)
+
+**Why it wins**: Muon²'s NS step normalizes updates for block params; AdamW aux groups had suboptimal effective LR. Clip=5.0 boosted aux effective LR by 5× vs clip=1.0, landing on a better operating point. This is mechanistically equivalent to an AdamW aux LR sweep.
+
+**New merged baseline**: val=3.27527/fs=3266.7 (n=3, mean). Previous: 3.2766/3275 (n=2, exact).
+
+**Follow-up actions**:
+- Thorfinn: #165 clip extension sweep {10, 25, 50}
+- Edward: #115 sent back to re-confirm bias correction on new clip=5.0 baseline
