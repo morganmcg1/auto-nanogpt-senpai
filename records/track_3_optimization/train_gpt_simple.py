@@ -454,6 +454,11 @@ NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
 NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+# Quintic NS polynomial f(x) = a*x + b*x^3 + c*x^5 with f(1)=1, f'(1)=0.
+# Free parameter c controls the fifth-order term; b and a are derived from c.
+NANOGPT_NS_C = float(os.environ.get("NANOGPT_NS_C", "0.5"))
+NANOGPT_NS_B = -0.5 - 2 * NANOGPT_NS_C
+NANOGPT_NS_A = 1.5 + NANOGPT_NS_C
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -464,7 +469,7 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NANOGPT_NS_A, NANOGPT_NS_B, NANOGPT_NS_C
     for _ in range(ns_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -629,6 +634,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters": NS_ITERS,
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
+            "nanogpt_ns_c": NANOGPT_NS_C,
+            "nanogpt_ns_b": NANOGPT_NS_B,
+            "nanogpt_ns_a": NANOGPT_NS_A,
+            "nanogpt_ns_poly_at_half": NANOGPT_NS_A * 0.5 + NANOGPT_NS_B * 0.125 + NANOGPT_NS_C * 0.03125,
         },
     )
 
