@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 17:55 — Cycle 29 (cont): Thorfinn Soft-Muon n=4 CLOSED, reassigned to cooldown_frac retune
+
+### Thorfinn Soft-Muon p=0.05 n=4 — STRONGER-BUT-SLOWER, PR #103 CLOSED
+
+W&B run `nfkk0mms` @ train_steps=3175-3325 (final):
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.274159 | 3250 |
+| T1 | 3.274896 | 3250 |
+| T2 | 3.272523 | 3225 |
+| T3 | 3.275516 | 3250 |
+| **n=4 mean** | **~3.2741** | **~3.2243** |
+
+Statsig: `(3.28 − 3.2741) × √4 = +0.0118` — **PASSES** statsig (need ≥ 0.004). Val/loss excellent — best n=4 val mean of the session! BUT ffs_mean ≈ 3244 > baseline 3131.25. Does NOT beat merged baseline on FFS metric. Clean "stronger but slower" result — Soft-Muon's polynomial spectral compression lowers terminal val but slows cooldown convergence, adding ~75-100 steps vs baseline. PR #103 closed.
+
+### Thorfinn reassigned — cooldown_frac retune (PR #178)
+
+Three single-seed screens: cooldown_frac = 0.65, 0.70 (baseline reference), 0.75. If ffs ≤ 3100 AND val ≤ 3.279, predeclare n=4. Target: identify if scalar cooldown retune shifts the 3.28 crossing from ~step 3125 to ~step 3075. Predeclared sweep comparison table when all 3 screens complete.
+
 ## 2026-05-16 17:46 — Cycle 29: Frieren MuLoCo n=4 CLOSED, reassigned to Soft-Muon annealing
 
 ### Frieren MuLoCo+NorMuon n=4 — CLEAN NEGATIVE, PR #109 CLOSED
