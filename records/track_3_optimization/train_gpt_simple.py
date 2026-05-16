@@ -435,6 +435,10 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 
+# Lookahead wrapper for Muon (Zhang et al. 2019). K=0 disables the wrapper entirely.
+LOOKAHEAD_K = int(os.environ.get("NANOGPT_LOOKAHEAD_K", "0"))
+LOOKAHEAD_ALPHA = float(os.environ.get("NANOGPT_LOOKAHEAD_ALPHA", "0.5"))
+
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -490,6 +494,15 @@ class Muon(torch.optim.Optimizer):
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
+                    if LOOKAHEAD_K > 0:
+                        if "lookahead_slow" not in state:
+                            state["lookahead_slow"] = p.data.clone().detach()
+                            state["lookahead_step"] = 0
+                        state["lookahead_step"] += 1
+                        if state["lookahead_step"] % LOOKAHEAD_K == 0:
+                            # blend in-place: p.data <- alpha*p.data + (1-alpha)*slow ; then slow <- p.data
+                            p.data.mul_(LOOKAHEAD_ALPHA).add_(state["lookahead_slow"], alpha=1.0 - LOOKAHEAD_ALPHA)
+                            state["lookahead_slow"].copy_(p.data)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -523,6 +536,7 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"LOOKAHEAD: k={LOOKAHEAD_K} alpha={LOOKAHEAD_ALPHA} ({'ENABLED' if LOOKAHEAD_K > 0 else 'DISABLED'})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -600,6 +614,8 @@ for trial_idx in range(args.num_trials):
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
+    # representative Muon param for Lookahead diagnostics (||theta_fast - theta_slow||_F)
+    lookahead_diag_param = model.blocks[0].attn.q.weight
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -734,6 +750,17 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and LOOKAHEAD_K > 0:
+            slow = optimizer2.state.get(lookahead_diag_param, {}).get("lookahead_slow")
+            if slow is not None:
+                la_distance = float((lookahead_diag_param.data.float() - slow.float()).norm().item())
+                la_step_counter = int(optimizer2.state[lookahead_diag_param].get("lookahead_step", 0))
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/lookahead/slow_fast_distance_block0_q": la_distance,
+                    "train/lookahead/step_counter_block0_q": la_step_counter,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
