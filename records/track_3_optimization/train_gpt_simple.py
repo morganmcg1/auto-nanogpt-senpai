@@ -24,6 +24,7 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
+LR_COOLDOWN_POWER = float(os.environ.get("LR_COOLDOWN_POWER", "1.0"))
 
 
 def parse_args():
@@ -700,6 +701,7 @@ if dist.get_rank() == 0:
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "lr_cooldown_power": LR_COOLDOWN_POWER,
         },
     )
 
@@ -745,14 +747,16 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: stable then power-law decay
+    # LR_COOLDOWN_POWER=1.0 reproduces linear; >1 keeps LR higher longer then drops faster.
+    def set_hparams(step, cooldown_frac=0.7, cooldown_power=LR_COOLDOWN_POWER):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            remaining = (1 - progress) / cooldown_frac
+            eta = remaining ** cooldown_power
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
