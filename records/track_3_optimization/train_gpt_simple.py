@@ -40,6 +40,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override the in-script train_steps default (used for smoke/screening runs)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -180,7 +182,7 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
-        idx = torch.linspace(0, values.numel() - 1, max_samples, device=values.device).long()
+        idx = torch.linspace(0, values.numel() - 1, max_samples, dtype=torch.float64, device=values.device).long()
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
@@ -249,6 +251,59 @@ def log_weight_telemetry(
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
     for name, weight in weights:
         metrics.update(prefixed(f"train/weight_param/{clean_metric_name(name)}", tensor_stats(weight)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_muon_sq_state(
+    optimizer: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Log v buffer / pre-NS update health for MuonSq. Aggregates over params held by this rank."""
+    v_vals: list[Tensor] = []
+    pre_ns_vals: list[Tensor] = []
+    per_param: dict[str, dict[str, float]] = {}
+    for group in optimizer.param_groups:
+        eps = group.get("eps", 1e-10)
+        mu = group.get("mu", 0.95)
+        for idx, p in enumerate(group["params"]):
+            state = optimizer.state.get(p, {})
+            if "v" not in state or "momentum" not in state:
+                continue
+            v = state["v"].detach().float()
+            m = state["momentum"].detach().float()
+            sqrt_v = v.sqrt()
+            update_pre_ns = m / (sqrt_v + eps)
+            v_vals.append(v.flatten())
+            pre_ns_vals.append(update_pre_ns.flatten())
+            if idx < 3:  # per-param breakdown for first three (largest) matrices
+                per_param[f"param{idx}"] = {
+                    "v_rms": float(v.square().mean().sqrt().item()),
+                    "v_min_sqrt": float(sqrt_v.min().item()),
+                    "v_max_sqrt": float(sqrt_v.max().item()),
+                    "update_pre_ns_rms": float(update_pre_ns.square().mean().sqrt().item()),
+                    "update_pre_ns_max_abs": float(update_pre_ns.abs().max().item()),
+                    "momentum_rms": float(m.square().mean().sqrt().item()),
+                }
+    if not v_vals:
+        return
+    all_v = torch.cat(v_vals)
+    all_pre_ns = torch.cat(pre_ns_vals)
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "train/muon_sq/v_rms": float(all_v.square().mean().sqrt().item()),
+        "train/muon_sq/v_mean": float(all_v.mean().item()),
+        "train/muon_sq/v_min_sqrt": float(all_v.sqrt().min().item()),
+        "train/muon_sq/v_max_sqrt": float(all_v.sqrt().max().item()),
+        "train/muon_sq/update_pre_ns_rms": float(all_pre_ns.square().mean().sqrt().item()),
+        "train/muon_sq/update_pre_ns_max_abs": float(all_pre_ns.abs().max().item()),
+        "train/muon_sq/update_pre_ns_nonfinite": int((~torch.isfinite(all_pre_ns)).sum().item()),
+    }
+    for tag, stats in per_param.items():
+        for key, value in stats.items():
+            metrics[f"train/muon_sq/{tag}/{key}"] = value
     wandb.log(metrics, step=wandb_step)
 
 
@@ -451,18 +506,20 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_sq_update(grad, momentum, v, mu=0.95, beta2=0.95, eps=1e-10, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
+    v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = update / (v.sqrt() + eps)
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
-class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+class MuonSq(torch.optim.Optimizer):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.95, eps=1e-10):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -478,7 +535,9 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        state["v"] = torch.zeros_like(p)
+                    update = muon_sq_update(p.grad, state["momentum"], state["v"],
+                                            mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -563,7 +622,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3350
+    train_steps = args.train_steps if args.train_steps is not None else 3325
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -587,15 +646,27 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2 = MuonSq([p for p in model.blocks.parameters() if p.ndim >= 2],
+                        lr=0.10, weight_decay=0.0125, mu=0.95, beta2=0.95, eps=1e-10)
+    optimizer2.param_groups[0]["name"] = "muon_sq_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    if dist.get_rank() == 0:
+        wandb.config.update({
+            "optimizer": "MuonSq",
+            "muon_sq/lr": 0.10,
+            "muon_sq/wd": 0.0125,
+            "muon_sq/mu": 0.95,
+            "muon_sq/beta2": 0.95,
+            "muon_sq/eps": 1e-10,
+            "cooldown_frac": 0.7,
+            "train_steps": train_steps,
+        }, allow_val_change=True)
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -729,6 +800,12 @@ for trial_idx in range(args.num_trials):
             log_weight_telemetry(
                 model=model,
                 module_types=module_types,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
+            log_muon_sq_state(
+                optimizer=optimizer2,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
