@@ -17,29 +17,30 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
-**Merged 2026-05-16 ~08:40 UTC — PR #52 askeladd MuonH-SI.** MuonH (Frobenius-ball + scale-invariant projection) replaces NorMuon's row/col second-moment preconditioning. Passes stat rule at n=4 with margin 0.00526. ffs is deterministic across all 4 trials.
+**Merged 2026-05-16 ~23:43 UTC — PR #114 frieren MuLoCo × MuonH-SI.** Outer Nesterov SGD wrapper (MuLoCo) over MuonH-SI inner optimizer. Passes stat rule at n=4 with margin 0.0083. Consistent improvement across all 4 seeds: 3 of 4 trials individually beat the prior baseline mean.
 
 | Field | Value |
 | --- | --- |
-| `train_steps` | 3350 |
+| `train_steps` | 3325 |
 | Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
 | Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
 | Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant', budget_mult=1.0)` on `model.blocks.parameters() if p.ndim >= 2` |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` — outer Nesterov SGD applied to all trainable params every 30 steps |
 | Embed optimizer | `AdamW(lr=0.3)` on `model.embed.weight` |
 | LM-head optimizer | `AdamW(lr=1/320)` on `model.proj.weight` |
 | Scalar optimizer | `AdamW(lr=0.01)` on `p for p in model.parameters() if p.ndim < 2` |
 | Aux AdamW shared | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` |
 | Init | per-module: `attn.proj=0.026`, `mlp.proj=0.031`, `mlp.fc=0.031`; biases zero; gains 1 |
 | LR schedule | Stable then linear cooldown; `cooldown_frac=1.0` for MuonH, `0.4` for aux AdamW |
-| `val/loss` | **3.27737** (n=4 mean; all trials within 0.002) |
-| `speedrun/final_first_step_to_target` | **3275** (deterministic across all 4 trials) |
-| stat margin | `(3.28 - 3.27737) * sqrt(4) = 0.00526` ≥ 0.004 ✓ |
-| Baseline W&B run | `rwpbmxj7` (n=4) |
-| Baseline PR | [#52](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/52) |
+| `val/loss` | **3.27585** (n=4 mean) |
+| `speedrun/final_first_step_to_target` | **3275** (n=4 mean; trials: 3300/3275/3250/3275) |
+| stat margin | `(3.28 - 3.27585) * sqrt(4) = 0.00830` ≥ 0.004 ✓ |
+| Baseline W&B run | `22tmupqh` (n=4) |
+| Baseline PR | [#114](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/114) |
 
-**Key MuonH-SI mechanism**: `scale_invariant_update_` rescales the NS5 update to the param's current Frobenius-norm scale, takes the gradient step (Nesterov momentum), then renormalises the param back to its initial Frobenius norm. Replaces NorMuon's 1D `second_momentum` preconditioning.
+**Key MuLoCo mechanism**: Every `sync_interval=30` steps, an outer Nesterov SGD step pulls all params toward the momentum-smoothed "drift" direction (`outer_lr=0.7, outer_momentum=0.5`). This acts as a second-level momentum on top of MuonH-SI's per-step Nesterov update — the outer step averages over the last 30-step trajectory rather than the last single step.
 
-### Reproduce MuonH-SI baseline
+### Reproduce MuLoCo × MuonH-SI baseline
 
 ```bash
 cd target/
@@ -48,10 +49,26 @@ python data/cached_fineweb10B.py 20
 git checkout auto-nanogpt-1gpu-r3
 torchrun --standalone --nproc_per_node=1 \
   records/track_3_optimization/train_gpt_simple.py \
-  --num_trials 4 --train_steps 3350 \
-  --wandb_name "g1r3-<student>/muonh-si-baseline-confirm" \
-  --wandb_group "g1r3-<student>/muonh-si-baseline"
+  --num_trials 4 --train_steps 3325 \
+  --muonh_mode scale_invariant --muonh_lr 0.018 --muonh_budget_mult 1.0 \
+  --muloco_use_outer_optimizer true --muloco_outer_lr 0.7 \
+  --muloco_outer_momentum 0.5 --muloco_sync_interval 30 \
+  --wandb_name "g1r3-<student>/muloco-muonh-si-baseline-confirm" \
+  --wandb_group "g1r3-<student>/muloco-muonh-si-baseline"
 ```
+
+## Previous baseline — PR #52 MuonH-SI (2026-05-16 ~08:40 UTC)
+
+MuonH (Frobenius-ball + scale-invariant projection). Passed stat rule at n=4 with margin 0.00526. Superseded by PR #114.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3350 |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, wd=0, mode='scale_invariant', budget_mult=1.0)` |
+| `val/loss` | 3.27737 (n=4 mean) |
+| `speedrun/final_first_step_to_target` | 3275 (deterministic) |
+| Baseline W&B run | `rwpbmxj7` (n=4) |
+| Baseline PR | [#52](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/52) |
 
 ## Previous baseline — PR #51 NorMuon (2026-05-16 ~01:30 UTC)
 
