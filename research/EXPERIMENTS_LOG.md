@@ -182,3 +182,51 @@ All show `train/grad/global_norm ≈ 234K` at step 1 — the Inductor compile bu
 **Implication:** PR #68's recorded baseline (3175 steps) is an artifact. PMuon (PR #64, run `vx0r7rp2`) is the only reliably-reproducible local baseline because covariance whitening empirically damps the seed-NaN amplitude.
 
 **Conclusion:** Closed PR #84 (askeladd reassigned to PR #94 PMuon + u/w-floor). All five Wave 2 PRs (#83 tanjiro, #84 askeladd, #85 nezuko, #88 edward, #89 thorfinn) sent back to pivot from broken Aurora+Contra+u/w base to PMuon base. Nezuko (#85) had already adapted independently. Wave 2 becomes Wave 3 portfolio on PMuon.
+
+---
+
+## 2026-05-16 01:25 — PR #89: Per-module init std on PMuon base (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/per-module-init` (pivoted to PMuon base in commit `f9a3645`)
+- Hypothesis: Replace PMuon's default `*.proj.weight` zero-init with explicit per-module std values (attn.q/k/v=0.020, attn.proj=0.026, mlp.fc=0.031, mlp.proj=0.031). Tests whether non-zero residual-output init helps PMuon trajectory.
+- W&B run: `ipohjfgm` (n=1, train_steps=3250, dynamic=True compile fix applied)
+
+| Metric | This run | Baseline (`vx0r7rp2` PMuon) | Δ |
+| --- | --- | --- | --- |
+| speedrun/final_first_step_to_target | 3175 | 3150 | +25 steps (worse) |
+| val/loss (step 3250) | 3.27639 | 3.27447 | +0.00192 (worse) |
+| (3.28-μ)·√n margin (n=1) | 0.00361 | 0.00553 | fails 0.004 rule |
+| Runtime | 3h40m | 4h09m | -1745s |
+
+**Analysis:** Init verification table confirms observed_std matches expected for every category (q/k/v=0.020, attn.proj=0.026, mlp.fc/proj=0.031). The change from PMuon's default zero-init for `*.proj.weight` to non-zero std hurts the optimization trajectory marginally. Likely interaction: zero-init residual-output weights start with zero gradient through the residual path, giving PMuon's L/R covariance EMAs a cleaner step-0 signal. Non-zero init perturbs this, putting PMuon in a slightly worse early-step regime.
+
+**Conclusion:** CLOSED as clean negative result. Per-module init is not a free lever on PMuon base — PMuon's default zero-init for `*.proj.weight` is doing real work via covariance EMA interaction. Reassigned thorfinn to PR #110 (PMuon γ-scan at 0.25 and 0.35).
+
+---
+
+## 2026-05-16 00:30 — PR #85 (interim): Power-law cooldown γ=1.2 on PMuon — SENT BACK for n=2 confirmation (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/power-cooldown-1p2`
+- W&B run: `xr4hkd3y` (n=1, train_steps=3200, γ=1.2 power-law cooldown)
+- Result: speedrun=3100 (−50 vs 3150), val=3.27647
+
+| Metric | This run | Baseline |
+| --- | --- | --- |
+| speedrun/final_first_step_to_target | 3100 | 3150 |
+| val/loss (final, step 3200) | 3.27647 | 3.27447 (step 3250) |
+| val/loss at matched step 3150 | 3.27727 | 3.27447 (worse at matched step) |
+| (3.28-μ)·√n margin (n=1) | 0.00353 | 0.00553 (fails 0.004) |
+
+**Decision:** Send back for n=2 confirmation at `train_steps=3250` (apples-to-apples vs PR #64). Reasons:
+1. n=1 margin 0.00353 fails the 0.004 statistical rule.
+2. Train_steps mismatch (3200 vs 3250) confounds cooldown-shape vs total-budget contributions to the speedrun delta.
+3. At matched step 3150, this run's val/loss (3.27727) is *worse* than PMuon's (3.27447) — so the cooldown shape itself isn't strictly better; speedrun delta is partly a budget effect.
+
+Re-run command:
+```bash
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py --num_trials 2 \
+  --wandb_name "g1r1-nezuko/power-cooldown-1p2-confirm" \
+  --wandb_group "g1r1-nezuko/power-cooldown-confirm"
+```
+with `train_steps=3250`. Confirmation run `u3o8j3yj` started 2026-05-16 01:22 UTC.
