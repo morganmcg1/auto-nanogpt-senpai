@@ -573,6 +573,10 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
+    cooldown_frac = float(os.environ.get("NANOGPT_COOLDOWN_FRAC", 0.7))
+    print0(f"COOLDOWN_FRAC: {cooldown_frac}", console=True)
+    if dist.get_rank() == 0:
+        wandb.config.update({"cooldown_frac": cooldown_frac, "train_steps_env": train_steps}, allow_val_change=True)
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -607,7 +611,7 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -705,7 +709,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        set_hparams(step, cooldown_frac=cooldown_frac)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
