@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-16 15:55 UTC — Cycle 24 (fern Aurora screen FFS-WINNING, n=4 predeclared)
+- 2026-05-16 16:32 UTC — Cycle 25 (fern Aurora n=4 launched, tanjiro Lookahead MISS pending)
 
 ## Current baseline
 
@@ -15,48 +15,50 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 - Step rate ~1900 ms/step → trial = ~100 min × 4 = ~400 min → ETA full n=4 ~22:00-22:30 UTC
 - THIS IS THE HIGHEST-PRIORITY RESULT. If n=4 mean ≤ 3.27760 and ffs_mean ≤ 3125, we have a new baseline.
 
-### FERN #125 — Aurora screen FFS-WINNING, n=4 PREDECLARED 🔥
+### FERN #125 — Aurora n=4 LAUNCHED 🔥
 - Screen `lqwaozx7`: val=**3.27706**, ffs=**3125** — BEATS merged baseline on BOTH metrics!
 - Two prior crashes resolved by D.clamp_(1e-6, 1e6) fix
-- n=4 PREDECLARED at train_steps=3175 (15:54 UTC comment); fern to launch ASAP
-- ETA n=4 terminal: ~21:00-22:00 UTC if launched ~16:00 UTC
+- n=4 predeclared (locked HPs: AURORA_PP_ITERATIONS=2, AURORA_PP_BETA=0.5, CONTRA_MUON=0.4, MUON_WEIGHT_DECAY=0.01) launched 16:26 UTC via setsid nohup
+- Step time ~1.93s × 3175 × 4 = ~410 min wall-clock → ETA terminal ~23:20 UTC
 - SECOND HIGHEST-PRIORITY RESULT. Aurora is fundamentally different mechanism than CONTRA_MUON tuning.
+- Note: MUON_WEIGHT_DECAY=0.01 deviation from merged baseline (0.025) — but matches the FFS-winning screen config.
 
-### NEZUKO #124 — Attn-SOAP + trust gate n=4 (status unclear)
+### NEZUKO #124 — Attn-SOAP + trust gate n=4 LAUNCHED
 - Screen `c5d01ezw`: val=3.2797, ffs=3150 @ train_steps=3150 (borderline)
-- Directed n=4 at train_steps=3175 at 14:25 UTC — STUDENT HAS NOT RESPONDED in 90 min
-- May not have launched n=4; need to check W&B for any new run in group `g1r2-nezuko/attn-soap-gate`
-- ACTION: follow up if no n=4 by next wakeup
+- n=4 `y7ibpvry` LAUNCHED 15:53 UTC at train_steps=3150 (slight deviation from baseline 3175)
+- Currently T0 step 975/3150 at 16:31 UTC. ETA full n=4 terminal ~23:10 UTC.
+- Prediction: borderline mean ~3.2785, ffs ~3120-3150
 
-### TANJIRO #161 — Lookahead wrapper on Contra+SOAP-MLP
-- Screen `tbesgctw` running at step ~1950/3175 (~61%)
-- Step rate ~3063 ms/step (slow due to Lookahead overhead) → ~62 min remaining
-- ETA screen terminal: ~17:00 UTC
-- Current val/loss=3.4324 at step 1950 — needs to descend to ≤3.28 in next 1225 steps (steep cooldown)
+### TANJIRO #161 — Lookahead screen MISS (terminating)
+- Screen `tbesgctw` at step 3125/3175 with best val=**3.305** — NEVER REACHED 3.28 target
+- Lookahead k=5/α=0.5 + Contra+SOAP-MLP base appears INCOMPATIBLE — averaging disrupted optimization
+- Expected screen val ≈ 3.28-3.29 if Lookahead working; got 3.305 = clear MISS
+- ACTION pending: wait for tanjiro to post screen results + analysis, then close PR
+- Fresh hypothesis for reassignment: **PMuon (record #18)** — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95, fundamentally different mechanism from SOAP/Aurora/Newton-Muon
 
-### FRIEREN #109 — MuLoCo+NorMuon n=4 (CONFIRMED CLEAN NEGATIVE)
-- T0=3.28240 ffs=-1, T1=3.28196 ffs=-1 — BOTH MISSED 3.28 target
-- T2 in progress at step ~3025/3175
-- ETA full n=4 terminal: ~17:40 UTC. Clean negative; will close PR upon SENPAI-RESULT.
+### FRIEREN #109 — MuLoCo+NorMuon n=4 (T0/T1 MISS, T2 SQUEAKED THROUGH at 3.2794)
+- T0=3.28240 ffs=-1 (miss), T1=3.28196 ffs=-1 (miss), T2=**3.2794** ffs=3175 (hit at terminal step)
+- T3 in progress at step 1020/3175. Mean so far T0+T1+T2 = 3.2813 — well above statsig ceiling 3.27800
+- For n=4 mean ≤ 3.278, T3 needs ≤ 3.27 — unlikely. Mean ffs will be (-1+-1+3175+x)/4 — can't beat baseline.
+- ETA full n=4 terminal: ~17:40 UTC. CLEAN NEGATIVE; will close PR upon SENPAI-RESULT.
 
 ### THORFINN #103 — Soft-Muon p=0.05 n=4 (statsig pass, not FFS win)
-- T0=3.27423 ffs=3250, T1=3.27492 ffs=3250 — both hit target at exactly ffs=3250
-- T2 in progress at step ~3048/3325. ETA full n=4 terminal: ~17:40 UTC
-- Val/loss excellent but ffs=3250 > baseline 3131 — STATSIG PASS, NOT FFS win
+- T0=3.2742 ffs=3250, T1=3.2749 ffs=3250, T2=**3.2725** ffs=3225 (best!) — all 3 hit target
+- T3 in progress at step 891/3325. Mean so far = 3.2739 — excellent val
+- ETA full n=4 terminal: ~17:40 UTC
+- Val/loss excellent but ffs=3225-3250 > baseline 3131 — STATSIG PASS, NOT FFS win
 - Will close after terminal: clean "stronger but slower" result
 
 ### EDWARD #76 — Contra-Muon n=4 (statsig pass, ffs=3175)
-- T0=3.27750 ffs=3175, T1=3.27599 ffs=3175 — excellent val, both at ffs=3175
-- T2 in progress at step ~3100/3225
-- Pod showing slow step rate (~6010 ms/step) — pod healthy (GPU 100%), training continues
-- ETA full n=4 terminal: ~21:00 UTC (slow pod). ffs_mean ~3175 > baseline 3131 — NOT FFS win
-- Mean projection ~3.276 — extremely low val. Statsig pass certain, no merge.
+- T0=3.2775 ffs=3175, T1=3.2760 ffs=3175, T2=3.2765 ffs=3175 — all 3 hit target at exactly ffs=3175
+- T3 in progress at step 225/3225 (slow pod ~6 sec/step)
+- ETA T3 terminal: ~21:30 UTC. ffs_mean=3175 > baseline 3131 — NOT FFS win
+- Mean projection ~3.2767 — extremely low val. Statsig pass certain, no merge.
 
-### ASKELADD #166 — KL-SOAP + hyperball (JUST ASSIGNED)
-- Fresh assignment 15:33 UTC: KL-SOAP applied to ALL 2D block params, pf=1, β1=0.95, β2=0.90
+### ASKELADD #166 — KL-SOAP + hyperball screen RUNNING
+- Screen `061cl8bj` launched ~16:25 UTC, currently step 25/3125
 - Record #19 reference: n=6 mean=3.27800 @ 3125 steps (statsig pass). Target: replicate + beat ffs ≤ 3125
-- Student hasn't picked up yet (gh rate limit affecting some pods). Expect smoke + screen within 3-4h.
-- ETA screen terminal: ~20:00 UTC
+- ETA screen terminal: ~18:30-19:00 UTC depending on step rate
 
 ## Key patterns observed
 
@@ -79,16 +81,18 @@ Statsig bar (n=4): mean ≤ 3.27800 AND ffs_mean ≤ 3131.25
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~17:00 | Tanjiro | Lookahead screen terminal | Unknown; key FFS test |
+| ~16:35 | Tanjiro | Lookahead screen terminal (MISS) | val=3.305, never reached 3.28 — close PR |
 | ~17:40 | Frieren | n=4 terminal | Clean negative, close PR |
 | ~17:40 | Thorfinn | n=4 terminal | Statsig PASS, ffs ~3250, no new baseline (close) |
-| ~20:00 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
-| ~21:00 | Edward | n=4 terminal | Statsig PASS, ffs ~3175, no new baseline |
-| ~21:00-22:00 | Fern | Aurora n=4 terminal (CRITICAL) | Could beat baseline if mean ≤ 3.27760 ffs ≤ 3131 |
+| ~18:30 | Askeladd | KL-SOAP screen | First signal on record #19 stack |
+| ~21:30 | Edward | n=4 terminal | Statsig PASS, ffs ~3175, no new baseline |
 | ~22:00-22:30 | Alphonse | n=4 terminal (CRITICAL) | Could be new baseline if ffs_mean ≤ 3125 |
+| ~23:10 | Nezuko | n=4 terminal | Borderline, might pass statsig |
+| ~23:20 | Fern | Aurora n=4 terminal (CRITICAL) | Could beat baseline if mean ≤ 3.27760 ffs ≤ 3131 |
 
 ## Potential next hypotheses (for soon-to-idle students)
 
+- **Tanjiro (after Lookahead #161 closes)**: PMuon (record #18) — bilateral streaming covariance power preconditioning, γ=0.3, β=0.95. Fundamentally different preconditioner class (covariance vs eigenbasis). n=9 mean=3.2776 @ 3225 steps (record).
 - **Frieren (after #109 closes)**: Schedule-Free Muon (SFM) — eliminate LR schedule entirely, use Polyak averaging. No cooldown = simpler optimization + potentially lower FFS variance.
 - **Thorfinn (after #103 closes)**: `cooldown_frac` retune — if FFS is consistently ending at 3125-3175, the cooldown onset may be too early. Try `cooldown_frac=0.75` or `cooldown_frac=0.65` on merged baseline.
 - **Edward (after #76 closes)**: SOAP `precondition_frequency` retune — current pf=10. Try pf=5 (more frequent updates) to see if eigenbasis tracks curvature changes better during cooldown.
