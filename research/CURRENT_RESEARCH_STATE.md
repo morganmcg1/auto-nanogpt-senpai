@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #39, ~17:30 UTC)
+- **Last updated:** 2026-05-16 (poll #41, ~18:05 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 for n=6, ≤ 3.27245 for n=8
@@ -10,7 +10,7 @@
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
 | 123  | g1r5-alphonse   | Newton-Muon: activation-covariance right-precond before NS on attn     | exploit | WIP — n=6 confirm running. 3 trials done: best_val=[3.27019, 3.27175, 3.27008], n=3 mu=3.270673. **Beats new baseline (3.273735)**. Likely merge candidate. ETA ~6h total. |
-| 130  | g1r5-askeladd   | Label smoothing on CE training loss (ε ∈ {0.05, 0.1, 0.15})           | explore | WIP — ε=0.05 done val=3.325, ε=0.10 done val=3.381, ε=0.15 running. All arms well above target. Likely clean negative. |
+| 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)    | exploit | WIP — newly assigned (PR #130 label smooth closed clean negative). Awaits run start. |
 | 141  | g1r5-frieren    | Gradient Centralization in Muon update (pre-momentum row-mean sub)     | explore | WIP — 2 trials done: best_val=[3.27880, 3.27902]. Both **above new baseline** 3.273735. Trending weak/negative. |
 | 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (replace zero-init with `1/sqrt(24)` Gaussian on residual output projections) | explore | WIP — trial 0 best_val=3.28093 (above target 3.28). Running n=4. Trending weak. |
 | 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — arm 1 val=3.341, arm 2 running. Trending negative vs even old baseline. |
@@ -45,8 +45,8 @@
 2. **Pre-momentum transform** (frieren PR #141 GC) — trending weak, both trials above new baseline.
 3. **Init** (thorfinn PR #148 depth-scaled) — trial 0 above 3.28 target, likely close.
 4. **Schedule-free poly** (tanjiro PR #155) — all arms trending negative.
-5. **Loss layer** (askeladd PR #130 label smooth) — all ε negative, close when ε=0.15 done.
-6. **Per-group LR** (edward PR #162) — trial 0 done best_val=3.27569 (above new baseline).
+5. **SOAP β2 cooldown anneal** (askeladd PR #175) — β2 0.90→0.75 over cooldown; PR #130 label smooth closed clean negative.
+6. **Per-group LR** (edward PR #162) — trial 0 (lr_mlp=0.035 control) done best_val=3.27569 ffs=3175; additional arms pending.
 7. **Attn precond_freq=8** (fern PR #170) — researcher-agent Idea 1.
 8. **Trust-gate threshold sweep** (nezuko PR #171) — researcher-agent Idea 3.
 
@@ -58,6 +58,7 @@
 - Uniform schedule-free Muon
 - Muon² v-buffer (double-scales with SOAP)
 - Output embedding mu-centering (softcap breaks gauge argument)
+- Label smoothing ε sweep (premise wrong: CE margin already small at step 3200)
 
 ## Infrastructure Notes
 

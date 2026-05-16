@@ -291,6 +291,26 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **New merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 at n=6, ≤ 3.27245 at n=8
 - **Decision**: MERGED as new baseline 2026-05-16 16:30 UTC. ffs 3200→3150 (mean), 3200→3125 (best).
 
+## 2026-05-16 ~18:00 UTC — PR #130: Label Smoothing on CE Training Loss (ε sweep) — CLOSED (clean negative)
+
+- Branch: `g1r5-askeladd/label-smoothing`
+- Student: g1r5-askeladd
+- Hypothesis: Apply label smoothing (ε ∈ {0.05, 0.10, 0.15}) to the cross-entropy training loss to bound logit margin growth near end of cooldown, improving gradient signal on the true class. Baseline val path remains raw CE.
+
+| ε    | val/loss @ 3200 | ffs | logit_margin_mean (end) | logit_max_abs (end) | W&B run  |
+|:----:|:---------------:|:---:|:-----------------------:|:-------------------:|:--------:|
+| 0.05 | 3.32468         | -1  | 1.472                   | 13.60               | 60992jbi |
+| 0.10 | 3.38128         | -1  | 1.467                   | 13.55               | d3sal3b8 |
+| 0.15 | 3.44005         | -1  | 1.461                   | 13.74               | tfsaj446 |
+
+- **n**: 1 per arm (3 arms total, 3200 steps each)
+- **Best cell (ε=0.05)**: val/loss=3.32468 — **+0.047 nats above baseline (3.27744)**; +47σ above new baseline (3.273735). Kill gate engaged per pre-declared contract.
+- **SENPAI-RESULT**: `terminal=true, pending_arms=false, wandb_run_ids=["60992jbi","d3sal3b8","tfsaj446"], primary_metric.value=-1, test_metric.value=3.32468`
+- **Mechanism diagnosis (student's analysis, advisor concurs)**: Logit margin under raw CE is already small (~1.45–1.50 at step 3200), so the saturation premise was never engaged. Smoothing instead diluted the per-token gradient signal on the true class, monotonically degrading val_loss with ε. logit_max_abs peaked at 13.5–13.7 (well under softcap=15), confirming softcap was not the bottleneck. The smoothing gap `loss_smoothed − loss_raw` correctly tracks ε·log(V), confirming correct implementation.
+- **Conclusion**: Hypothesis refuted by premise (not by competing mechanism). CE loss-side angle at this step budget/recipe is closed. z-loss (PaLM/T5 style: α·log²(Σexp(logits))) remains an untested loss-side angle for a future wave.
+- **Kill gate fired**: all 3 cells `val/loss ≫ 3.278`, `ffs=-1`.
+- **Decision**: CLOSED as clean negative 2026-05-16 ~18:00 UTC. Next assignment: SOAP β2 cooldown annealing (PR #175).
+
 ## 2026-05-16 15:47 UTC — PR #147: Output Embedding Mean-Centering (mu-centering) — CLOSED (clean negative)
 
 - Branch: `g1r5-nezuko/mu-centering`
