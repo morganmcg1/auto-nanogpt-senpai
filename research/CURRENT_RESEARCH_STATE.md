@@ -1,5 +1,32 @@
 # SENPAI Research State
 
+- 2026-05-16 13:40 — Cycle 18 (ALPHONSE 0.3 SCREEN FFS-COMPETITIVE — first such signal since merge):
+  - **ALPHONSE #139 CONTRA_MUON=0.3 SCREEN PASS** 🎯 `hjsjscjy` terminal val=**3.27804**,
+    ffs=**3150** at 3175 steps. Single seed only 19 ffs steps worse than merged baseline
+    (3131.25). This is the FIRST FFS-COMPETITIVE result since baseline was set in cycle 9.
+    Sent back: launch CONTRA_MUON=0.5 screen next, then predeclare n=4 at 3175 with winning arm.
+  - **TANJIRO Option B MISSED & CRASHED**: `wzgya0cq` screen at 3175 final val=3.28893 (0.013
+    above baseline!), ffs=-1. `yrsarj9b` crashed at step 0. Either config bug, step count
+    too low for stack, OR Newton-Muon attn doesn't compose with SOAP-MLP. Sent back with
+    diagnostic hypotheses + audit directive.
+  - **FERN screen CRASHED TWICE**: `csj1tm5z` @1475, `isi6y97w` @575. New smoke `w2hlrhs0`
+    running. Real-Aurora D update unstable past step ~500. Sent back with clamp suggestion
+    `D.clamp_(1e-6, 1e6)`, pp_beta reduction option, non-square-only filter check.
+  - **ASKELADD T1 = 3.27573!** (much better than I had cached). T0=3.27781, T1=3.27573,
+    T2=3.27932, T3 at step 778/3300 running. Mean(T0-T2) = 3.27762, AT merged baseline mean.
+    For n=4 statsig at 3300 (mean ≤ 3.278), need T3 ≤ 3.27869 — likely passes. But
+    ffs ~3225-3250 > baseline 3131, won't be new baseline. ETA T3 ~14:30 UTC.
+  - **EDWARD T1 = 3.27599!** strong. T0=3.27750 ffs=3175 already terminal. T1 at val=3.27599.
+    T2 phase at step ~1802/3225. ETA full n=4 ~20:00 UTC.
+  - **THORFINN T0=3.27400** ffs=3250 already known. T1 at step 2143/3325. ETA full n=4 ~18:00 UTC.
+  - **NEZUKO `c5d01ezw`** at step 2550/3150 val=3.36 (mid-cooldown). ETA terminal ~13:50 UTC.
+  - **FRIEREN T1** at step 2070/3175 — should terminal in ~30 min. T0=3.28240 missed.
+  - **Two competing FFS strategies emerging**:
+    1. Alphonse CONTRA_MUON=0.3 retune — single-seed FFS-competitive at 3175.
+    2. Multiple recipes ('stronger but slower') with FFS 3225-3250 at higher step count.
+    Strategy 1 is the only path to BEAT merged baseline. Strategy 2 results are
+    side-grade confirmations but not winners.
+
 - 2026-05-16 12:35 — Cycle 17 (frieren T0 missed, multiple runs progressing):
   - **FRIEREN #109 T0 MISSED**: `jzsue46n` T0 val=3.28240, ffs=-1 (never crossed 3.28).
     Frieren's honest analysis: MuLoCo wrapping DELAYS convergence ~50 steps on Contra+SOAP-MLP
