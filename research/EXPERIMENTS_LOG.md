@@ -1,5 +1,88 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 05:45 — PR #78: Contra+SOAP-MLP — STATSIG WIN (merge pending rebase)
+- Branch: `g1r2-fern/contra-soap-mlp`
+- Hypothesis: SOAP eigenbasis preconditioning on MLP weights, applied to
+  momentum *before* NS5+contra+NorMuon (matches record #14 reference ordering).
+- W&B confirmation run: `6bbhoxm1` | num_trials=4 | train_steps=3175 (predeclared).
+
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27920 | 3150 |
+| T1 | 3.27811 | 3150 |
+| T2 | 3.27522 | 3100 |
+| T3 | 3.27787 | 3125 |
+| **mean** | **3.27760** | **3131.25** |
+
+- Statsig check: (3.28 − 3.27760) × √4 = **0.00480 ≥ 0.004** — **PASSES**.
+- Comparison vs NorMuon-clean baseline (PR #71): mean 3.27800 → 3.27760
+  (−0.00040), ffs_mean 3256.25 → 3131.25 (**−125 steps**).
+- Matches public record #14 (4 decimal places). Single-seed σ ≈ 0.0015.
+- Auxiliary screening runs: `du7a5t1t` (3.27553 @ 3225, corrected ordering),
+  `h3vsdeik` (3.27960 @ 3225, PR-literal ordering, superseded).
+- The PR-literal ordering (SOAP after NorMuon variance) was suboptimal because
+  NorMuon's per-element variance scaling is NOT basis-invariant — student
+  caught this discrepancy by reading the record #14 reference file directly.
+- Status: **STATSIG WIN, merge pending**. Blocked by (1) merge conflicts with
+  auto-nanogpt-1gpu-r2 (NorMuon-clean merged after PR opened), (2) false-
+  positive SENPAI-RESULT JSON parse on workflow-note comment. Sent back for
+  rebase + comment disambiguation.
+
+## 2026-05-16 05:30 — PR #74: NorMuonH — n=4 confirmation at 3275 (terminal, non-statsig by 0.00008)
+- Branch: `g1r2-askeladd/normuonh-perinit`
+- Hypothesis: NorMuon + hyperball + per-module init std (record #8 stack).
+- W&B run: `6rf3nerz` | num_trials=4 | train_steps=3275 (predeclared).
+
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27781 | 3225 |
+| T1 | 3.27777 | 3225 |
+| T2 | 3.27798 | 3250 |
+| T3 | 3.27860 | 3250 |
+| **mean** | **3.27804** | **3237.5** |
+
+- Statsig check: (3.28 − 3.27804) × √4 = **0.00392** — misses 0.004 by 0.00008.
+- Recipe is real and reproducible (σ~0.0004 across 4 trials, tightest of any
+  wave-1 stack so far). Mean misses statsig ceiling by 0.00004.
+- Notable: NorMuonH at 3275 has ffs_mean=3237.5, beating NorMuon-clean's
+  3256.25 — but the loss ceiling is the rule that matters for merge.
+- Status: WIP. Send back for predeclared n=4 at train_steps=3300 (one cooldown
+  cycle of headroom should push mean to ~3.276 with same σ).
+
+## 2026-05-16 05:30 — PR #112: NorMuon + power-law LR cooldown — p=1.2 screen MISSED
+- Branch: `g1r2-alphonse/normuon-plawlr`
+- Hypothesis: `lr * (1-progress)/cooldown_frac)^p` with p=1.2 (record #20
+  schedule) may give 25-75 step gain over linear cooldown.
+- W&B screen run: `fg11eojr` | num_trials=1 | train_steps=3275 | LR_COOLDOWN_POWER=1.2
+- Result: terminal **val/loss=3.28031, ffs=-1, reached_target=0**. Did NOT
+  cross 3.28.
+- Per predeclared branch decision: if 3.277 < val ≤ 3.280, try p=1.5 next.
+  3.28031 is just above 3.280, but the spec says "both p=1.2 AND p=1.5 > 3.280
+  → close". p=1.5 single-seed should be tried before deciding.
+- Status: WIP. Student should auto-launch p=1.5 screen on next poll.
+
+## 2026-05-16 05:45 — PR #103: Soft-Muon isolated p=0.05 — SCREEN CRASHED
+- Branch: `g1r2-thorfinn/soft-muon`
+- Hypothesis: Soft-Muon polynomial `x^(1-p)` at p=0.05 (reduced from p=0.1
+  which missed at 3.28024) with annealed blend 0→0.8 from step 2500.
+- W&B screen run: `hz91ow2y` | num_trials=1 | train_steps=3325
+- Result: **crashed at step 1575/3325 (47%, mid-cooldown)**. Last val/loss
+  reading 3.5253.
+- Likely cause: Soft-Muon polynomial coefficients at lower p may produce
+  numerical instability when blended with NS5 mid-cooldown. Needs debugging.
+- Status: WIP. Student should investigate crash, may need p=0.075 midpoint.
+
+## 2026-05-16 04:30 — PR #109: MuLoCo+NorMuon smoke — DIVERGED TO NaN
+- Branch: `g1r2-frieren/muloco-normuon`
+- Hypothesis: MuLoCo outer Nesterov SGD wrapper on top of NorMuon inner
+  optimizer (record #13 stack).
+- W&B smoke run: `mti327gb` | num_trials=1 | train_steps=400
+- Result: **val/loss=NaN by step 400**. Diverged.
+- Likely cause: outer_lr=0.7 too aggressive on NorMuon's variance-noisy update
+  direction; or outer Nesterov momentum compounds NorMuon's variance instability.
+- Status: WIP. Student should try outer_lr=0.5 or sync_interval=60 in smoke
+  before screen.
+
 ## 2026-05-16 01:45 — PR #79: MuLoCo on plain Muon — CLOSED (all 4 corners missed)
 - Branch: `g1r2-frieren/muloco-muon`
 - Hypothesis: MuLoCo outer Nesterov SGD wrapper around plain Muon may accelerate
