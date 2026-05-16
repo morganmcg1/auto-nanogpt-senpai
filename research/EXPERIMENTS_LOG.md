@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-16 23:15 — Cycle 32: PR #139 MERGED (NEW BASELINE), frieren screen near-miss
+
+### ⭐ ALPHONSE CONTRA_MUON=0.5 n=4 — MERGED (PR #139) — NEW BASELINE
+
+W&B run `db1rrfx3`:
+
+| Trial | val/best_loss | ffs |
+|---|---|---|
+| T0 | 3.27830 | 3150 |
+| T1 | 3.27634 | 3125 |
+| T2 | 3.27551 | 3100 |
+| T3 | 3.27577 | 3100 |
+| **n=4 mean** | **3.27648** | **3118.75** |
+| statsig | (3.28−3.27648)×2 = **0.00704** ≥ 0.004 ✓ | |
+
+Beats prior baseline (PR #78) on both bars: val −0.00112, ffs −12.5 steps. **MERGED.** Mechanism: increasing CONTRA_MUON from 0.4 → 0.5 adds more spectral exploration via contravariant perturbation, escaping suboptimal gradient directions faster during peak-LR phase. Counter to intuition (more noise → better speed), but consistent with the "spectral exploration" interpretation.
+
+New baseline after merge: mean=3.27648, ffs_mean=3118.75.
+
+### FRIEREN Soft-Muon-anneal screen — NEAR-MISS vs new baseline (PR #177)
+
+W&B run `dhqwygng` (p_start=0.10 → p_end=0.0 over first half):
+
+| Metric | Screen | New baseline | Δ |
+|---|---|---|---|
+| val/loss | 3.27667 | 3.27648 | +0.00019 (MISS by tiny margin) |
+| ffs | 3125 | 3118.75 | +6.25 steps (MISS) |
+
+Excellent mechanism signal — val=3.27667 is far below old baseline (3.27760) and very close to new one. Miss is only 0.019% on val and 6.25 steps on ffs. Pre-approved p_start=0.07 follow-up screen launched. Analysis: annealing p=0.10 → 0.0 over first half of training adds spectral mixing during peak-LR phase and eliminates it during cooldown. Mechanism is sound; parameter needs slight reduction.
+
+---
+
 ## 2026-05-16 22:15 — Cycle 31: Edward Contra-Muon n=4 CLOSED (stronger-but-slower); Askeladd SFM MISS; fern/nezuko T3 started
 
 ### Edward Contra-Muon n=4 @ 3225 steps — CLOSED, superseded (PR #76)
