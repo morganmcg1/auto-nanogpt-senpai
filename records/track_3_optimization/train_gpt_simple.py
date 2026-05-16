@@ -494,6 +494,13 @@ NS_PLUS_SVD = int(os.environ.get("NANOGPT_NS_PLUS_SVD", "0"))
 
 _POLAR_SVD_FALLBACKS = 0
 _POLAR_SVD_ATTEMPTS = 0
+# Disable @torch.compile on muon_update when SVD-based polar is active. The
+# cuSOLVER SVD call interacts badly with the inductor-compiled muon kernel:
+# even with @torch._dynamo.disable on polar_exact_svd, the surrounding compile
+# triggers recompiles on every distinct Muon block shape and intermittent
+# hangs/non-convergence on Adam-preconditioned inputs. Eager-mode muon_update
+# is only marginally slower (the dominant cost is the SVD itself anyway).
+USE_COMPILED_MUON = not (USE_POLAR_SVD or NS_PLUS_SVD)
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -515,36 +522,57 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     return X
 
 
-@torch._dynamo.disable
 def polar_exact_svd(G: Tensor) -> Tensor:
     """Exact polar decomposition via SVD: A = U S V^T -> P = U V^T.
 
-    torch.linalg.svd raises NotImplementedError on bf16 ("svd_cuda_gesvdj"
-    not implemented), so the SVD itself always runs in fp32. POLAR_FP32
-    controls only the dtype of the U @ Vh matmul: 0 -> downcast U/Vh to bf16
-    before the matmul (Arm B); 1 -> keep fp32 through the matmul (Arm C).
+    torch.linalg.svd is unimplemented on bf16, so the SVD always runs in
+    fp32. POLAR_FP32 controls only the dtype of the U @ Vh matmul: 0 ->
+    downcast U/Vh to bf16 before the matmul (Arm B); 1 -> keep fp32 through
+    the matmul (Arm C).
 
     Adam-preconditioned input (Muon^2) at early steps is approximately a
-    sign matrix with highly clustered singular spectrum. cuSOLVER drivers
-    'gesvdj' (Jacobi) and even 'gesvd' (QR-based) can fail to converge on
-    such matrices with error code = matrix dim. We fall back to NS
-    orthogonalization on linalg errors. The polar factor of a degenerate
-    matrix is non-unique anyway, so NS is a valid alternative in that case.
+    sign matrix with highly clustered singular spectrum. cuSOLVER 'gesvdj'
+    (Jacobi) sometimes fails to converge and 'gesvd' (QR-based) can hang or
+    error on such matrices. Strategy: try gesvdj (fast), then gesvd, then
+    fall back to NS orthogonalization. The polar factor of a degenerate
+    matrix is non-unique, so NS is a valid alternative in that case.
+
+    Input is sanitized (nan/inf -> 0) and contiguous before SVD because
+    cuSOLVER kernels assume well-formed column-major fp32 input.
     """
     global _POLAR_SVD_FALLBACKS, _POLAR_SVD_ATTEMPTS
     assert G.ndim >= 2
     orig_dtype = G.dtype
     X = G.float()
+    # Sanitize: cuSOLVER hangs/crashes on NaN/Inf input.
+    if not torch.isfinite(X).all():
+        _POLAR_SVD_FALLBACKS += 1
+        _POLAR_SVD_ATTEMPTS += 1
+        return zeropower_via_newtonschulz5(G).to(orig_dtype)
     transposed = X.size(-2) > X.size(-1)
     if transposed:
         X = X.mT
+    X = X.contiguous()  # cuSOLVER kernels prefer contiguous input.
+    # No spectral-norm pre-scaling is needed for correctness (SVD is scale-
+    # invariant in U V^T), but a Frobenius-norm rescale keeps singular
+    # values in a numerically friendly range and helps the Jacobi driver
+    # converge in fewer sweeps.
+    fro = X.norm()
+    if fro > 0:
+        X = X / fro
     _POLAR_SVD_ATTEMPTS += 1
-    # No spectral-norm pre-scaling needed: SVD is scale-invariant in U V^T.
-    try:
-        U, S, Vh = torch.linalg.svd(X, full_matrices=False, driver="gesvd")
-    except torch._C._LinAlgError:
+    U = Vh = None
+    for driver in ("gesvdj", "gesvd"):
+        try:
+            U, _, Vh = torch.linalg.svd(X, full_matrices=False, driver=driver)
+            if torch.isfinite(U).all() and torch.isfinite(Vh).all():
+                break
+            U = Vh = None
+        except torch._C._LinAlgError:
+            U = Vh = None
+            continue
+    if U is None or Vh is None:
         _POLAR_SVD_FALLBACKS += 1
-        # Spectrum degenerate -> fall back to NS-12 path.
         return zeropower_via_newtonschulz5(G).to(orig_dtype)
     if not POLAR_FP32:
         U = U.bfloat16()
@@ -569,8 +597,7 @@ def orthogonalize(update: Tensor) -> Tensor:
     return update
 
 
-@torch.compile
-def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def _muon_update_impl(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
@@ -579,6 +606,11 @@ def muon_update(grad, momentum, v, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True
     update = orthogonalize(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+
+muon_update = (
+    torch.compile(_muon_update_impl) if USE_COMPILED_MUON else _muon_update_impl
+)
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -628,7 +660,7 @@ if dist.get_rank() == 0:
 def print0(s, console=False, log=True):
     if dist.get_rank() == 0:
         if console:
-            print(s)
+            print(s, flush=True)
         if log:
             with open(logfile, "a") as f:
                 print(s, file=f)
