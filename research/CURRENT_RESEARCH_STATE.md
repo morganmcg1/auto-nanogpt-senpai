@@ -18,10 +18,12 @@
   Expected wall-clock ~21.5h total. Single-seed screen `qxzuvfmm` was
   **val/loss=3.2746 @ 3275 / ffs=3200** (strongest in wave 1, margin 0.0054).
 
-- **g1r2-fern (Contra+SOAP on MLP)** — n=4 confirmation `6bbhoxm1` at
-  train_steps=3175. T0=3.27920, **T1=3.27811** (ffs=3150 both). T2 in progress
-  (~56%). mean(T0,T1)=3.27866. For n=4 statsig, T2+T3 need mean ≤ 3.27735 —
-  steep. Likely non-statsig at 3175; plan is re-run at 3200-3225 steps.
+- **g1r2-fern (Contra+SOAP on MLP) ✨ STRONG TURNAROUND** — `6bbhoxm1` at 3175:
+  T0=3.27920, T1=3.27811, **T2=3.27522** (ffs=3100), T3 in progress.
+  mean(T0,T1,T2)=3.27751. T2 is second-best individual trial in wave 1
+  (after edward's 3.2746 single-seed). For n=4 statsig, T3 needs ≤ 3.27947 —
+  easy bar. **Likely to clear statsig and beat NorMuon baseline** (3.27800
+  → 3.27780, ffs_mean 3256.25 → ~3133, ~120-step improvement).
 
 - **g1r2-alphonse (NorMuon + power-law LR)** — PR #71 merged (NorMuon baseline
   locked). **New PR #112** (branch `g1r2-alphonse/normuon-plawlr`): test
