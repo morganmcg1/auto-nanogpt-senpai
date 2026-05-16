@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-16 (poll #38, ~16:35 UTC)
+- **Last updated:** 2026-05-16 (poll #39, ~17:30 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.27210 for n=6, ≤ 3.27245 for n=8
@@ -14,9 +14,9 @@
 | 141  | g1r5-frieren    | Gradient Centralization in Muon update (pre-momentum row-mean sub)     | explore | WIP — 2 trials done: best_val=[3.27880, 3.27902]. Both **above new baseline** 3.273735. Trending weak/negative. |
 | 148  | g1r5-thorfinn   | Depth-Scaled Residual Init (replace zero-init with `1/sqrt(24)` Gaussian on residual output projections) | explore | WIP — trial 0 best_val=3.28093 (above target 3.28). Running n=4. Trending weak. |
 | 155  | g1r5-tanjiro    | Polynomial-Weighted Schedule-Free Muon (c_t=(t+1)^p / Σ(i+1)^p, p∈{2,4,6}) | explore | WIP — arm 1 val=3.341, arm 2 running. Trending negative vs even old baseline. |
-| 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — control smoke validated. Screen eabllnva at step 2525, past crash point. |
-| TBD  | g1r5-fern       | **IDLE** — completed PR #116, awaiting new assignment                  | —       | Researcher-agent generating new hypothesis. |
-| TBD  | g1r5-nezuko     | **IDLE** — PR #147 mu-centering closed clean negative                  | —       | Researcher-agent generating new hypothesis. |
+| 162  | g1r5-edward     | Per-group LR sweep: SOAP-managed MLP vs plain-Muon attn (lr_mlp ∈ {0.025,0.035,0.045,0.055}) | exploit | WIP — trial 0 (eabllnva) done: best_val=3.27569 ffs=3175 — above new baseline; trial 1 running. |
+| 170  | g1r5-fern       | SOAP-attn precond_freq=8 (halve attn eigenbasis refresh period vs MLP=16) | exploit | WIP — newly assigned, awaits run start. |
+| 171  | g1r5-nezuko     | SOAP trust-gate threshold sweep (0.3 / 0.5 / 0.7) on SOAP-attn base   | exploit | WIP — newly assigned, awaits run start. |
 
 ## Closed PRs Summary
 
@@ -46,8 +46,9 @@
 3. **Init** (thorfinn PR #148 depth-scaled) — trial 0 above 3.28 target, likely close.
 4. **Schedule-free poly** (tanjiro PR #155) — all arms trending negative.
 5. **Loss layer** (askeladd PR #130 label smooth) — all ε negative, close when ε=0.15 done.
-6. **Per-group LR** (edward PR #162) — screen in progress.
-7. **New exploits x2** (fern + nezuko) — researcher-agent generating wave-3 ideas.
+6. **Per-group LR** (edward PR #162) — trial 0 done best_val=3.27569 (above new baseline).
+7. **Attn precond_freq=8** (fern PR #170) — researcher-agent Idea 1.
+8. **Trust-gate threshold sweep** (nezuko PR #171) — researcher-agent Idea 3.
 
 **Closed mechanism slots (do NOT re-open):**
 - Per-module init-multiplier: NorMuonH, MuonH
