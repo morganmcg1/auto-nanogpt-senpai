@@ -8,6 +8,43 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-16 23:14 — PR #139: CONTRA_MUON=0.5 retune on Contra+SOAP-MLP base (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Optimizer 2D | **Contra-Muon + SOAP-MLP**: same as PR #78 but with `CONTRA_MUON=0.5` (up from 0.4) |
+| Contra-Muon HPs | `CONTRA_MUON=0.5`, `TARGET_UW=0.35`, `MUON_LR=0.0375`, `MUON_WEIGHT_DECAY=0.025`, `MU=0.95` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `precondition_frequency=10`; applies to `mlp.fc.weight` and `mlp.proj.weight` only |
+| Optimizer aux | AdamW: embed.weight lr=0.3; proj.weight lr=1/320; scalars lr=0.01; betas=(0.8, 0.95), eps=1e-10, wd=0 |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `db1rrfx3` (n=4 confirmation, all 4 trials) |
+| **n=4 mean val/loss** | **3.27648** |
+| **n=4 statsig margin** | **0.00704** ≥ 0.004 — PASSES |
+| **ffs mean** | **3118.75** (T0=3150, T1=3125, T2=3100, T3=3100) |
+| **speedup vs PR #78** | **−12.50 mean ffs steps** (3131.25 → 3118.75) |
+| **speedup vs starter** | ~231 steps / ~6.9% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27830 | 3150 |
+| T1 | 3.27634 | 3125 |
+| T2 | 3.27551 | 3100 |
+| T3 | 3.27577 | 3100 |
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+CONTRA_MUON=0.5 torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'alphonse-contra-muon-0.5-n4' \
+  --wandb_group 'g1r2-alphonse/contra-muon-retune'
+```
+
+---
+
 ### 2026-05-16 06:35 — PR #78: Contra-Muon + SOAP preconditioning on MLP weights (squash-merged)
 
 | Field | Value |
