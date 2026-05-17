@@ -21,7 +21,7 @@
 **Mechanism finding (also preserved):**
 c=-0.25 (b=0, no cubic term) has `polar/ortho_residual_sample ≈ 20.6` throughout training — essentially the random-Gaussian baseline (√768≈27.7). The NS iteration with f(x)=1.25x−0.25x⁵ does NOT orthogonalize: small SVs grow weakly (linear amp 1.25 too gentle), and SVs ≳1.39 flip into negative branch. **PMuon is partially robust to a broken polar factor** — c=-0.25 still reached val ≤ 3.28, just 75 sr-steps later. The bilateral whitening contributes orthogonalization independently of the NS iteration. Good cross-mechanism finding.
 
-**Conclusion:** CLOSED. NS coef c-axis on f'(1)=0 family CLOSED at c=0 (cubic-Newton). Tanjiro re-assigned to PR #306 PMuon EMA bias correction (frieren's PR #261 follow-up — opposite direction from closed LR warmup).
+**Conclusion:** CLOSED. NS coef c-axis on f'(1)=0 family CLOSED at c=0 (cubic-Newton). Tanjiro re-assigned to PR #307 PMuon EMA bias correction (frieren's PR #261 follow-up — opposite direction from closed LR warmup).
 
 **Backlog item retained:** `NS_ITERS=8 at c=+0.25` might match c=0 `NS_ITERS=12` on residual quality at ~33% compute savings per Muon step. Not pursuing now (c-axis closed for this family); flagged for any future Muon-iteration follow-up.
 
