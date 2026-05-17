@@ -436,6 +436,7 @@ class GPT(nn.Module):
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.4"))
+USE_LION_AUX = bool(int(os.environ.get("USE_LION_AUX", "0")))
 MU = 0.95
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
@@ -554,6 +555,37 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class Lion(torch.optim.Optimizer):
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["exp_avg"] = torch.zeros_like(p)
+                exp_avg = state["exp_avg"]
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                update = exp_avg.mul(beta1).add(grad, alpha=1 - beta1).sign_()
+                p.data.add_(update, alpha=-lr)
+                exp_avg.mul_(beta2).add_(grad, alpha=1 - beta2)
+        return loss
 
 
 class Muon(torch.optim.Optimizer):
@@ -692,6 +724,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
+            "optimizer/use_lion_aux": int(USE_LION_AUX),
             "optimizer/mu": MU,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
@@ -731,10 +764,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if USE_LION_AUX:
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=1.5e-4, name="lion_embed"),
+                            dict(params=[model.proj.weight], lr=3e-5, name="lion_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=1e-2, name="lion_scalars")],
+                           betas=(0.9, 0.99), weight_decay=0.0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
