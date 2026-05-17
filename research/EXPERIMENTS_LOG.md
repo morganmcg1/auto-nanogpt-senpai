@@ -1,5 +1,19 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~10:30 — Cycle 51: SOAP_BETA2 axis closed; alphonse reassigned to SOAP_PRECOND_FREQ
+
+### ALPHONSE #223 — SOAP_BETA2 retune {0.85, 0.92} — CLOSED (axis exhausted)
+
+| SOAP_BETA2 | Runs | NaN pattern | verdict |
+|---|---|---|---|
+| 0.85 | 67w5zyph, 6gsl9ljw, grpcqmun | NaN at variable steps 75/318/1175 | **0.85-specific destabilizer** |
+| 0.90 | db1rrfx3 (baseline) | n=4 mean val 3.27648, ffs 3118.75 | baseline |
+| 0.92 | klsnpomc, hx3jldki (trials 0,1) | Both NaN @ step 25, canonical 147,758,208 fingerprint | **multi-seed cascade** |
+
+SOAP_BETA2 is a sharp local optimum at 0.90. Both ±0.02 perturbations destabilize via distinct mechanisms: 0.85 shows later-step HP-induced NaN cascade (variable timing), 0.92 triggers the canonical seed-0 / multi-seed baseline NaN across consecutive seeds. Axis fully exhausted in both directions.
+
+Alphonse reassigned → SOAP_PRECOND_FREQ sweep (PR #256): {5, 20} vs baseline 10. Hypothesis: tighter eigenbasis refresh (5 steps) reduces eigenbasis lag during rapid early-step gradient direction changes → better preconditioning → lower FFS.
+
 ## 2026-05-17 ~06:45 — Cycle 44: Three PRs CLOSED (frieren bias-corr, askeladd proj-init-B, edward AdEMAMix); 3 fresh assignments (frieren #238, askeladd #239, edward #240)
 
 ### FRIEREN #221 — Adam-style Muon bias correction (MUON_BIAS_CORR=1) — CLOSED
