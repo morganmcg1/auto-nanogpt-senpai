@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+Z_LOSS_COEF = 1e-3   # PR #278 Arm B — was 1e-4 for Arm A; set 0 for no z-loss. Training-only auxiliary loss.
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -231,6 +232,11 @@ def log_training_telemetry(
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
     metrics.update(prefixed("train/grad/all", grad_stats))
+    if hasattr(model, "_last_log_z_mean"):
+        metrics["train/zloss/log_z_mean"] = float(model._last_log_z_mean.item())
+        metrics["train/zloss/log_z_max"] = float(model._last_log_z_max.item())
+        metrics["train/zloss/contribution"] = float(model._last_z_loss.item())
+        metrics["train/zloss/coef"] = Z_LOSS_COEF
     for opt_idx, opt in enumerate(optimizers):
         for group_idx, group in enumerate(opt.param_groups):
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
@@ -440,7 +446,17 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        ce = F.cross_entropy(flat_logits, targets.view(-1), reduction="sum")
+        # z-loss auxiliary regularizer (PaLM/Chinchilla): training-only so val/loss stays pure CE
+        if self.training and Z_LOSS_COEF > 0:
+            log_z = torch.logsumexp(flat_logits, dim=-1)
+            z_loss = Z_LOSS_COEF * (log_z * log_z).sum()
+            ce = ce + z_loss
+            self._last_log_z_mean = log_z.mean().detach()
+            self._last_log_z_max = log_z.max().detach()
+            self._last_z_loss = z_loss.detach()
+        return ce
 
 
 ########################################
@@ -704,6 +720,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "z_loss_coef": Z_LOSS_COEF,
         },
     )
 
