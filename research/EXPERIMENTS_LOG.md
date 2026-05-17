@@ -6,6 +6,28 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 04:29 — Boot 73: #192 nezuko aux cooldown_frac NEGATIVE; assign #222 nezuko MuonH WSD; askeladd T2=3.27615 (promising)
+
+**PR #192 g1r3-nezuko — Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6}**
+- Branch: g1r3-nezuko/aux-cooldown-frac-sweep
+- Hypothesis: sweeping aux group LR cooldown fraction around baseline (0.4).
+- Results:
+
+| frac | val/loss (n=1) | ffs | Δ vs new baseline (3.27585) | W&B |
+|---|---|---|---|---|
+| 0.2 | 3.27969 | 3325 | +0.00384 ❌ | bhg0u0my |
+| **0.4 (ctrl)** | **3.27831** | **3300** | **+0.00246** (seed noise on old BL) | cjo0s05p |
+| 0.6 | 3.27967 | 3325 | +0.00382 ❌ | 2nj1rrg6 |
+
+- Conclusion: Classic shallow-basin signature — 0.2 and 0.6 regress by ~0.0014 symmetrically around 0.4. Aux cooldown_frac is well-tuned at 0.4. Both shorter (frac=0.2 → too much aux LR during inner cooldown) and longer (frac=0.6 → decay starts too early) versions hurt. Lever closed.
+- Next: MuonH WSD schedule sweep assigned (#222) — extends to inner optimizer's cooldown shape.
+
+**edward decay=0.995 interim** (W&B rkqsrw62): terminal val=3.28918 — WORSE than decay=0.99 (3.28424). Monotone-worse trend confirmed. EMA-swap at terminal hurts because wider EMA window averages over more of the rapid cooldown phase.
+
+**askeladd n=4 interim** (W&B mtwpcznf): T1=3.27739, T2=3.27615 (BELOW new baseline). n=2 mean=3.27677. T3 in progress. If T3+T4 average ~3.274-3.275, final μ could clear 3.27585. Watching closely.
+
+---
+
 ## 2026-05-17 03:45 — Boot 72: #191 tanjiro embed lr_mult NEGATIVE, #183 fern aux betas NEGATIVE; new assignments #217 tanjiro MuLoCo sync_interval, #218 fern Lion aux
 
 **PR #191 g1r3-tanjiro — Aux AdamW embed lr_mult sweep {0.15, 0.3, 0.5}**
