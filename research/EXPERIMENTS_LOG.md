@@ -6,6 +6,48 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 00:55 — Boot 63: thorfinn k=5 NEGATIVE (+0.04), nezuko frac=0.2 NEGATIVE, tanjiro mult=0.15 NEGATIVE, edward+frieren nudged to launch screens
+
+**PR #182 thorfinn Lookahead × MuonH-SI — k=5 TERMINAL NEGATIVE**
+- k=0 (control): val=3.27692, ffs=3275 — baseline-clone (expected, no Lookahead wrapping)
+- **k=5 (α=0.5): val=3.31588, ffs=−1** — catastrophically NEGATIVE (+0.04003 vs new baseline 3.27585)
+- k=10 (α=0.5): running step 200, ~5h to terminal
+- Analysis: Lookahead's slow-weight averaging pulls fast weights toward a point NOT on MuonH-SI's scale-invariant manifold. Each Lookahead sync drags params off-manifold; the next SI step must undo it. Structurally same pattern as Contra/Soft-Muon/Cautious — direction-modifiers fail under SI. MuLoCo's outer Nesterov SGD works because it averages at sync_interval=30 (vs Lookahead k=5), allowing inner SI dynamics to re-equilibrate.
+- Decision: let k=10 finish for diagnostic, then close PR. Predict k=10 ≥ +0.04 (more drift between syncs → bigger pull off-manifold).
+
+**PR #192 nezuko Aux cooldown_frac sweep — frac=0.2 TERMINAL NEGATIVE**
+- frac=0.2: val=3.27969, ffs=3325 — NEGATIVE (+0.00384 vs new baseline)
+- frac=0.4 (baseline ctrl): running step 375
+- frac=0.6: queued
+- Analysis: Shorter aux cooldown (frac=0.2 = aux LR decays only in last 20%) means aux groups (embed, lm_head, scalar) keep high LR longer. Apparently this destabilizes the final phase of MuonH-SI training where aux still needs to be moving down to support the slow cooldown of MuonH inner. The terminal val landed barely below target.
+
+**PR #191 tanjiro Aux embed lr_mult sweep — mult=0.15 TERMINAL NEGATIVE**
+- mult=0.15 (aux embed lr = 0.15 × 0.3 = 0.045): val=3.2810, ffs=−1 — NEGATIVE
+- mult=0.3 (baseline ctrl): running step 2750, near terminal
+- mult=0.5: queued
+- Analysis: Reducing aux embed lr by 6.67× drops val below merge bar — embed LR is well-tuned. Mechanism: embeddings need sufficient signal at high lr=0.3 to fully utilize MuonH-SI's inner updates.
+
+**PR #174 askeladd A3 × MuLoCo n=4 confirm — LAUNCHED**
+- W&B: `mtwpcznf` started 00:42 UTC, step 150
+- Smoke gate PASSED earlier (val=4.15951 at 300 steps, no NaN)
+- Stack test: NS5 polynomial (a=2.5, b=-2.5, c=0.75) + MuLoCo wrapper (outer_lr=0.7, outer_momentum=0.5, sync_interval=30)
+- ETA: ~5h (1.5h × 4 trials sequential on 1 GPU)
+- Merge bar: μ_val < 3.27585 at n=4
+
+**PR #200 edward Param EMA validation — nudged to launch full screen**
+- 5 smoke runs at 300 steps verified implementation:
+  - decay=0.0 (control): val=4.150, 4.155, 4.159 — bit-identical to baseline ✓
+  - decay=0.99: val=4.379 at 300 steps (fluke within seed noise, fine)
+- Full 3-arm screen at decay∈{0.99, 0.995, 0.999} not yet launched — student pod idle 2h+
+- Posted urgent nudge with exact command
+
+**PR #207 frieren MuLoCo outer_lr sweep — nudged to launch full screen**
+- 2 smoke runs at outer_lr=0.7 finished cleanly (val=4.143 at 300 steps)
+- Full 3-arm screen at outer_lr∈{0.3, 0.7, 1.5} not yet launched
+- Posted nudge with exact command and to cancel duplicate smoke
+
+---
+
 ## 2026-05-16 23:43 — Boot 61: PR #114 MERGED (new baseline), PR #107 closed, PR #174 sent back
 
 **PR #114 frieren MuLoCo × MuonH-SI — MERGED ✅ (new baseline)**

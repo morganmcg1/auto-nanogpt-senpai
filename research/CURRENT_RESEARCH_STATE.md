@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 00:00 UTC (boot 61)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — second re-rotation requested on Issue #164.
+- **Last updated:** 2026-05-17 00:55 UTC (boot 63)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — re-rotation requested on Issue #164, no response in ~2.5h.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
 ## ⭐ Current baseline (post-PR #114 merge)
@@ -23,20 +23,20 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 61 — 00:00 UTC 2026-05-17)
+## Active experiments (boot 63 — 00:55 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#207** | frieren | MuLoCo outer_lr sweep {0.3, 0.7, 1.5} | **NEWLY ASSIGNED** — tune MuLoCo outer_lr at new baseline |
-| **#174** | askeladd | NS5 A3 (2.5,-2.5,0.75) × MuLoCo stack n=4 | **SENT BACK** — rebase + smoke + n=4 confirm |
-| **#200** | edward | Param EMA decay sweep {0.99, 0.995, 0.999} | **NEWLY ASSIGNED** (awaiting pickup) |
-| **#183** | fern | Aux AdamW betas sweep (0.8,0.95)/(0.9,0.999)/(0.95,0.99) | Screen arm 1 (b1=0.8, b2=0.95) running ~step 1200/3325 |
-| **#182** | thorfinn | Lookahead × MuonH-SI (k=0/5/10) | k=0 screen running ~step 2775/3325 |
-| **#191** | tanjiro | Aux embed lr_mult sweep {0.15, 0.3, 0.5} | mult=0.15 ✓ NEGATIVE (3.2810, ffs=-1); mult=0.3 running ~step 775 |
-| **#192** | nezuko | Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6} | No screen runs visible yet — student may be implementing CLI flag |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} | **BLOCKED** — pod still NaN on rotated node `gd103cc`, re-rotation requested |
+| **#207** | frieren | MuLoCo outer_lr sweep {0.3, 0.7, 1.5} | Smoke ×2 passed (val=4.143); 3-arm screen not yet launched — **NUDGE POSTED 00:55 UTC** |
+| **#174** | askeladd | NS5 A3 (2.5,-2.5,0.75) × MuLoCo stack n=4 | n=4 confirm RUNNING `mtwpcznf` step 150, ETA ~5h |
+| **#200** | edward | Param EMA decay sweep {0.99, 0.995, 0.999} | 5 smokes done (decay=0.0 bit-id ✓); 3-arm screen not launched — **NUDGE POSTED 00:55 UTC** |
+| **#183** | fern | Aux AdamW betas sweep | Arm 1 (b1=0.8, b2=0.95) terminal val=3.27850 baseline-clone. Arm 2 (b1=0.9, b2=0.999) running step 2125 |
+| **#182** | thorfinn | Lookahead × MuonH-SI (k=0/5/10) | k=0=3.27692 ✓; k=5=**3.31588 NEG**; k=10 running step 200 — **POST-K10 CLOSE** |
+| **#191** | tanjiro | Aux embed lr_mult sweep {0.15, 0.3, 0.5} | mult=0.15 NEG (3.2810); mult=0.30 running step 2750 (near terminal); mult=0.50 queued |
+| **#192** | nezuko | Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6} | frac=0.2 **NEG (3.27969)**; frac=0.4 running step 375; frac=0.6 queued |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} | **BLOCKED** — pod still NaN on rotated node `gd103cc`, Issue #164 silent ~2.5h |
 
-**8/8 students assigned.** Alphonse blocked by infra.
+**8/8 students assigned.** Alphonse blocked by infra. 3 students (askeladd, edward, frieren) idle pending screen launch.
 
 ## Closed since baseline PR #52
 
@@ -61,7 +61,9 @@ All active screens use `--muonh_mode scale_invariant`. Default is `clip` — ope
 - **mu**: 0.95 optimal in {0.90, 0.95, 0.98}
 - **wd**: no effect in SI mode (projection renorms params)
 - **budget_mult**: dead in SI
-- **Direction-modifiers** (Contra, Soft-Muon, Cautious): all NEGATIVE or NaN under SI
+- **Direction-modifiers** (Contra, Soft-Muon, Cautious, **Lookahead k=5**): all NEGATIVE or NaN under SI
+- **Aux embed lr_mult**: mult=0.15 (= aux embed lr 0.045) NEG → embed lr=0.3 well-tuned
+- **Aux cooldown_frac**: frac=0.2 NEG → frac=0.4 (current baseline) likely optimal
 
 ## Open research threads
 
@@ -84,10 +86,14 @@ All active screens use `--muonh_mode scale_invariant`. Default is `clip` — ope
 4. **HP retunes all saturated**: lr, mu, wd, budget_mult all confirmed.
 5. **Pod heterogeneity**: alphonse still broken (2nd bad node in a row). Tanjiro/nezuko healthy.
 
-## Next-priority watch points
+## Next-priority watch points (boot 63 — 00:55 UTC)
 
-1. **Thorfinn k=0 screen terminal** (~00:20 UTC): if baseline-clone, launch k=5 and k=10
-2. **Fern arm 1 terminal** (~01:30 UTC): if baseline-clone, launch arm 2 (0.9, 0.999)
-3. **Askeladd A3 × MuLoCo smoke** (~01:00 UTC): verify stack is stable
-4. **Tanjiro mult=0.3 terminal** (~02:00 UTC): expect baseline-clone, then launch mult=0.5
-5. **Issue #164 response**: alphonse pod 2nd re-rotation
+1. **Edward + frieren launch screens** (~01:15 UTC): verify both students picked up nudge and launched 3-arm screens
+2. **Tanjiro mult=0.3 terminal** (~01:00 UTC): expect baseline-clone, then launch mult=0.5
+3. **Thorfinn k=10 terminal** (~05:30 UTC): predict NEG, close PR
+4. **Nezuko frac=0.4 terminal** (~02:30 UTC): expect baseline-clone, then launch frac=0.6
+5. **Fern arm 2 (b1=0.9, b2=0.999) terminal** (~01:30 UTC): if baseline-clone, launch arm 3 (0.95, 0.99)
+6. **Askeladd A3 × MuLoCo n=4 progress** (~05:30 UTC for full): check trial 0 trajectory at ~02:30 UTC
+7. **Frieren MuLoCo lr screen terminal** (~05:00 UTC if launched now): outer_lr 0.3/0.7/1.5
+8. **Edward Param EMA screen terminal** (~05:00 UTC if launched now): decay 0.99/0.995/0.999
+9. **Issue #164 response**: alphonse pod 2nd re-rotation (silent ~2.5h)
