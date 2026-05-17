@@ -1,20 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #97, ~18:05 UTC)
-- **⭐⭐ FRIEREN TRIAL 0 FINISHED**: `ym6jprxe` Trial 0 **best_val=3.27022, ffs=3125** — strong signal. Δ=-0.00114 vs new baseline 3.271362 at n=1. Trial 1 NOW RUNNING. For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. Statsig feasible if all 3 land near 3.269. ETA all 4 trials done ~22:30Z. **STRONGEST MERGE CANDIDATE.**
-- **NEW TERMINALS THIS POLL (sweeps still mid-progress):**
-  - **fern Cell D** `muvrbbef` FINISHED val=3.2748 (Δ=+0.0034 vs new baseline). Cell E `9sjzd75z` (λ=1e-1) auto-launched, step 274/3250 (8%).
-  - **alphonse Cell B** `ptcttsgd` FINISHED val=3.2739 (Δ=+0.0025 vs new baseline). Cell C `74bh7oal` (eps=1e-8) auto-launched, step 173/3250 (5%).
-- **AWAITING student terminal SENPAI-RESULTs:**
-  - askeladd Phase 1 complete (5 cells); n=2 retry `hw7rlwgu` (Cell B ns5=10 trial 2) at step 960/3250 (29%). ETA ~75 min. **Advisor comment posted: close as clean-neutral vs new baseline once trial2 done.** Will reassign askeladd to fresh mechanism.
-- **PROGRESS:**
-  - **nezuko AGC ctrl `1j9tl8k9` step 2756/3250 (85%) val=3.3325. ETA ~15 min.** Cell B (λ=0.01) should auto-launch. 3 prior crashed attempts (auto-restarted). stale_wip ack'd 18:05Z.
-  - **thorfinn Cell B `37w0mwla` step 2685/3250 (83%) val=3.3412. ETA ~20 min.** Cell C (α=0.5) should auto-launch.
-  - **edward Cell B `gf426fxo` step 2314/3250 (71%) val=3.4055. ETA ~30 min.**
-  - tanjiro #289 `v1mhx9f2` trial 0 step 1658/3250 (51%). ETA all-trials terminal ~5h.
-  - askeladd Cell B trial2 `hw7rlwgu` step 1866/3250 (57%). ETA ~45 min then close PR.
-  - alphonse Cell C `74bh7oal` step 1158/3250 (36%).
-  - fern Cell E `9sjzd75z` step 1263/3250 (39%).
+- **Last updated:** 2026-05-17 (poll #98, ~17:40 UTC)
+- **⭐⭐ FRIEREN PHASE 2 HEALTHY**: `ym6jprxe` Trial 0 finished **best_val=3.27022, ffs=3125** (Δ=-0.00114 vs new baseline). **Trial 1/4 now running, step ~500/3250 (15%).** For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. ETA all 4 trials done ~22:30Z. **STRONGEST MERGE CANDIDATE.** stale_wip + needs_rebase flags ack'd on PR #228 — false-positive activity flag, but rebase will be needed post-terminal if merge eligible.
+- **NEZUKO CELL A near-terminal**: `1j9tl8k9` step 3173/3250 (97.6%), **val=3.2783 ffs=3150 crossed target**. Cell B (λ=0.01) should auto-launch within minutes. The 3 prior "crashed" runs (`yod2eo7f`/`jz962lo1`/`ehbb0hev`) diagnosed as **stale-launcher pod-restart artifacts**, NOT AGC code bugs — separate `agc-debug` λ=0.01 run finished cleanly. Cells B-E sequential.
+- **AWAITING student terminal SENPAI-RESULTs (mid-flight):**
+  - thorfinn Cell B `37w0mwla` step 3035/3250 (93%) val=3.290. ETA ~10-15min. Cell C (α=0.5) auto-launch.
+  - edward Cell B `gf426fxo` step 2707/3250 (83%) val=3.351. ETA ~25min.
+  - askeladd Cell B trial2 `hw7rlwgu` step 2249/3250 (69%) val=3.409. ETA ~30min then close PR clean-neutral.
+  - tanjiro #289 combo trial 0 `v1mhx9f2` step 2049/3250 (63%) val=3.445. ETA all-trials terminal ~4.5h.
+  - alphonse Cell C `74bh7oal` step 1551/3250 (48%) val=3.506.
+  - fern Cell E `9sjzd75z` step 1647/3250 (51%) val=3.487.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
