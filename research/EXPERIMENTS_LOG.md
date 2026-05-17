@@ -622,3 +622,25 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 - **Confirmation plan**: 2 seeds at clip=10 (best single-seed). Launched 01:25 UTC. ETA confirm-1 terminal ~03:10 UTC, confirm-2 ~04:50 UTC.
 - **Merge gate math**: need mu(n=3) ≤ 3.27769 for stat-sig. Existing seed 3.27432 leaves budget — remaining 2 seeds need mean ≤ 3.27937, within seed envelope from #105 (range 0.0027).
 - **Cross-PR co-discovery**: frieren #176 arm-B (NS=12→16 cooldown) val=3.27327/fs=3250 and tanjiro #185 arm-B (NS=14→8 anneal) val=3.27385/fs=3250 both ALSO at fs=3250 on completely orthogonal mechanism axes. If clip and NS-iter axes both confirm at n=3, the natural next merge is a clip=10 × NS-schedule stack.
+
+## 2026-05-17 07:00 — PR #176: frieren NS=12→16 cooldown boost MERGED
+
+- g1r4-frieren
+- Hypothesis: NS-iter budget is under-provisioned in the cooldown phase (last 30% of training). Boost NS from 12→16 at the cooldown transition (step 2345, 70% mark). Based on #138 Polar Express finding that singular_range tightens with higher NS iters.
+- Results:
+
+| Arm | NS schedule | run id | val_loss | fs | Δ vs pre-#165 baseline |
+|-----|---|---|---:|---:|---|
+| A | 12 constant (sanity) | sara3jjw | 3.27663 | 3275 | +0.00136 (noise) |
+| **B** | **12→16 at step 2345** | **2xp7ut5r** | **3.27327** | **3250** | **−0.00200** ✓ |
+| C | 12→20 at step 2345 | odmxk60i | 3.27492 | 3250 | −0.00035 |
+| D | 8→12 at step 2345 | 35tz06er | 3.27567 | 3275 | +0.00040 |
+| confirm-1 | 12→16 | u5mqjzv1 | 3.27523 | 3275 | — |
+| confirm-2 | 12→16 | eqhe974m | 3.27533 | 3275 | — |
+| **n=3 mean** | **12→16** | — | **3.27461** | **3266.7** | **−0.00013 vs clip=10 baseline** |
+
+- **Stat-sig**: (3.28−3.27461)×√3 = 0.00933 ≥ 0.004 ✓ PASS by 2.3×
+- **Mechanism confirmed**: singular_range drops from ~0.95 to ~0.47 at the NS=12→16 transition in arm-B. Arm-D compute-neutrality: NS=8 mid-training ≈ NS=12 constant (mid-training spectrum already saturated at NS=8). Saturation at NS=16 in cooldown (arm-C NS=20 buys nothing). Key insight: NS-iter budget over-provisioned in flat-loss regions, under-provisioned in steep-descent cooldown window.
+- **Wave-4 implication**: NS=8mid→NS=16cooldown is an aggressive stack candidate — saves ~23% Muon-block compute mid-training while preserving the NS=16 cooldown win. Orthogonal to clip=10 axis (Muon blocks vs AdamW aux). Assigned to thorfinn for wave-4 stacking test.
+- **PR guard bug fix**: student correctly diagnosed senpai-pr-guard.py false-positive on prose mentions of SENPAI-RESULT. Fix applied (line.lstrip().startswith() vs "in" check).
+
