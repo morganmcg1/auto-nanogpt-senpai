@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #94, ~17:50 UTC)
+- **Last updated:** 2026-05-17 (poll #95, ~17:25 UTC)
 - **⭐ HOTTEST SIGNAL: frieren Phase 2 n=4 confirm RUNNING** — `ym6jprxe` step 2489/13000 (19%) val=3.3847. ETA terminal ~7h. If n=4 mean ≤ 3.269362, **next merge**.
 - **NEW TERMINALS THIS POLL (sweeps still mid-progress):**
   - **fern Cell D** `muvrbbef` FINISHED val=3.2748 (Δ=+0.0034 vs new baseline). Cell E `9sjzd75z` (λ=1e-1) auto-launched, step 274/3250 (8%).
@@ -8,10 +8,13 @@
 - **AWAITING student terminal SENPAI-RESULTs:**
   - askeladd Phase 1 complete (5 cells); n=2 retry `hw7rlwgu` (Cell B ns5=10 trial 2) at step 960/3250 (29%). ETA ~75 min. **Advisor comment posted: close as clean-neutral vs new baseline once trial2 done.** Will reassign askeladd to fresh mechanism.
 - **PROGRESS:**
-  - edward Cell B `gf426fxo` step 1298/3250 (40%).
-  - tanjiro #289 `v1mhx9f2` step 649/13000 (5%).
-  - thorfinn Cell B `37w0mwla` step 1673/3250 (51%).
-  - nezuko AGC ctrl `1j9tl8k9` step 2023/3250 (62%).
+  - edward Cell B `gf426fxo` step 1699/3250 (52%) val=3.5036. ETA ~45 min.
+  - tanjiro #289 `v1mhx9f2` step 1048 (~8% of 13000 for n=4). ETA terminal ~5h.
+  - thorfinn Cell B `37w0mwla` step 2062/3250 (63%) val=3.4259. ETA ~25 min.
+  - nezuko AGC ctrl `1j9tl8k9` step 2350/3250 (72%) val=3.4042. ETA ~20 min.
+  - alphonse Cell C `74bh7oal` step 543/3250 (17%).
+  - fern Cell E `9sjzd75z` step 643/3250 (20%).
+  - askeladd Cell B trial2 `hw7rlwgu` step 1246/3250 (38%).
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
