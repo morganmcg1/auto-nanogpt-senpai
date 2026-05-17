@@ -27,8 +27,9 @@ Previous baseline (PR #139): val=3.27648, ffs=3118.75
 ### ALPHONSE #256 — SOAP_PRECOND_FREQ=5 screen n=4
 - Trial 0 NaN'd (expected seed-0). Trial 1 running ~step 2500+. Screening data expected soon.
 
-### TANJIRO #259 — NS_ITERS sweep (Arm A = NS_ITERS=10, n=4)
-- Running. Terminal ~15:00 UTC.
+### TANJIRO #276 — Decoupled aux cooldown shape (cosine vs none for AdamW groups)
+- Just assigned. Muon stays on linear cooldown; aux groups (embed, lm_head, scalars) try cosine or no cooldown.
+- _TANJIRO #259 (NS_ITERS sweep) CLOSED_ — multi-seed NaN cascade: NS_ITERS=10 leaves NS5 under-converged → catastrophic update → NaN. NS5 iter axis fully exhausted (also closed: fp32 NS5, 16-iter, and all {8,10,12,14,16} sweep).
 
 ### FERN #271 — Decoupled SOAP eigenbasis refresh freq: MLP vs ATTN
 - Just assigned. Arm A: SOAP_PRECOND_FREQ_ATTN=5; Arm B: SOAP_PRECOND_FREQ_ATTN=20.
@@ -55,6 +56,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | Lookahead on Muon (PR #251) | CLOSED | Periodic param rollback breaks 3-layer stateful preconditioner SOAP/NorMuon/Muon |
 | Lion aux groups (PR #239) | CLOSED | Monotonic miss; AdamW second-moment is essential in cooldown for aux groups |
 | NorMuon bias correction (PR #263) | CLOSED | Fern's analysis: Frobenius renorm (lines 501-504) cancels global scalar prefactor — BC is a no-op; any EMA BC must be row-conditional or modify the renorm step itself |
+| NS_ITERS sweep (PR #259) | FALSIFIED | NS_ITERS=10 → multi-seed NaN (91% nonfinite at step 225). NS5 iter axis fully exhausted |
 
 ## Closed axes (full record)
 
@@ -66,6 +68,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | TARGET_UW retune | EXHAUSTED ⛔ | 0.35 stability bowl |
 | SOAP_BETA2 retune | EXHAUSTED ⛔ | 0.85 unstable, 0.92 multi-seed NaN, 0.90 = optimum |
 | Adaptive NS5 (16 early) | FALSIFIED | 4/4 trials NaN multi-seed |
+| NS_ITERS sweep {8,10,14,16} | FALSIFIED | multi-seed NaN. Only iters=12 is stable — narrow operating point |
 | Gradient noise injection | FALSIFIED | 4/4 NaN — NS5 amplifies noise ×35 |
 | Cosine cooldown shape | CLOSED | val=3.2882, never hit 3.28 |
 | Annealed μ Arm A (0.90→0.97) | MISSED | val=3.3759 regression |
@@ -116,13 +119,14 @@ Primary goal: beat record #20 (3030 steps). Current baseline = 3112.5 steps.
 **Compounding thorfinn + new axes**: ffs ~3050. Gap to record = ~20 steps.
 
 Most promising paths (ranked):
-1. **Annealed μ Arm B n=4** (thorfinn #219) — n=2 mean ffs=3087.5 — outstanding.
-2. **Asymmetric Attn-SOAP trust QK vs VO** (nezuko #273) — direct follow-up to merged win.
-3. **NS_ITERS sweep** (tanjiro #259) — pure computation/precision axis, orthogonal.
-4. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis, screening data soon.
+1. **Annealed μ Arm B n=4** (thorfinn #219) — screen val=3.2755/ffs=3075; n=4 2/4 done (best val=3.27697/ffs=3100). Monitor: if n=4 mean val barely misses new baseline, rerun WITH TRUST_THRESHOLD=0.85.
+2. **MLP-SOAP trust gate** (frieren #275) — symmetric extension of merged PR #212 win.
+3. **Asymmetric Attn-SOAP trust QK vs VO** (nezuko #273) — direct follow-up to merged win.
+4. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis.
 5. **Decoupled SOAP freq MLP vs ATTN** (fern #271) — orthogonal to attn trust gating.
-6. **GC on Muon** (edward #267) — removes low-rank mean from gradient before NS5.
-7. **Depth LR scaling** (askeladd #268) — per-block LR structure.
+6. **Decoupled aux cooldown shape** (tanjiro #276) — aux groups may benefit from cosine or no cooldown vs linear.
+7. **GC on Muon** (edward #267) — removes low-rank mean from gradient before NS5.
+8. **Depth LR scaling** (askeladd #268) — per-block LR structure.
 
 ## Operational notes
 
