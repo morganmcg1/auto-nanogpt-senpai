@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #81, ~09:58 UTC)
+- **Last updated:** 2026-05-17 (poll #82, ~10:34 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
@@ -13,10 +13,10 @@
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
 | 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **n=4 DONE; n=6 extension running.** Trials 0-3 val: 3.270245/3.272365/3.272831/3.271610 ffs=3125/3150/3150/3150. n=4 mean=3.271763 (misses n=4 by 0.000028). n=2 extension `3j8v4owb` launched 08:52Z at step ~345/6500. ETA n=6 ~12:30Z. n=6 threshold 3.272103. |
-| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | n=4 confirm `4qxghq80` at step ~5018/13000 (39%). Heartbeat live (poll #81 09:39Z). stale_wip false positive cleared. ETA ~14:00Z. |
-| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | Cell A (ns5=8) `rtt6uumb` step ~2242/3250 (69%). **Cell C (ns5=12 control) `1cvnfz6p` FINISHED val=3.2769** (within 2σ baseline, +0.003). Refactor bitwise-identical at ns5=12. Cells B(10), D(14), E(16) queued. |
+| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | n=4 confirm `4qxghq80` at step ~6418/13000 (49%). Trial 1 near-end val=3.28602@6401 — **CONCERNING regression vs baseline +0.013**. ETA full n=4 ~14:00Z. |
+| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | **Cell A (ns5=8) `rtt6uumb` FINISHED val=3.27444** (sub-statsig improvement vs baseline 3.273735, Δ=-0.000295 at n=1). **Cell B (ns5=10) `yot8wtby` JUST LAUNCHED ~10:25Z step 103.** Cell C control (ns5=12) `1cvnfz6p` FINISHED val=3.27687. Cells D(14)/E(16) queued. stale_wip false positive cleared. |
 | 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | **Cell A (lr_embed=0.10) FINISHED val=3.2803** (worse than baseline by 0.007). **Cell B (lr_embed=0.30) FINISHED val=3.2750** (+0.0013 vs baseline). **Cell C (lr_embed=0.50) `c4pwzwuf` JUST LAUNCHED step ~8/3250.** Cells D/E queued. |
-| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | n=4 confirm `d4dvvkzk` step ~829/13000 (6.4%) at Cell C (wd_mlp=0.035/wd_attn=0.015). Cell C n=2 mean=3.27094 vs n=2 threshold 3.270905 (off by 0.000035 → sub-SE noise). ETA ~15:30Z. |
+| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | n=4 confirm `d4dvvkzk` step ~3249/13000 (25%). **Trial 0 near-end val=3.27093@3225** (matches Cell C n=2 mean). On-track for n=4 statsig (threshold 3.271735, slack ~0.001). ETA ~15:30Z. |
 | 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | NEW (PR #209 closed clean negative). Cell A λ=0 control `mgp15khm` step ~336/3250 (10%). Cells B/C/D/E sequential. ETA Phase-1 complete ~17:30Z. |
 | 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | **Cell A (γ=0.93) FINISHED val=3.27922** (worse). **Cell B (γ=0.97) `uzpoeelg` RUNNING** step ~990/3250. Cells C/D auto-queued sequential. Next student update ~10:55Z. (Earlier `mj71x6pt` 3.2735 was an aliased run; student auth: Cell B is `uzpoeelg`.) |
 | 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | **Arm C (lr=0.020) n=2 mu=3.278385 clean negative.** **Arm B (lr=0.010) trial 0 val=3.28106** — student killed trial 1 per committed gate. Arm A (lr=0.005) `of0uuvj7` n=2 at step ~476 ETA ~12:30Z. Student predicts arm A val ≈ 3.275 (unlikely to clear statsig). |
@@ -55,10 +55,10 @@
 n=4 (`t1jfegcf`) FINISHED with mean=3.271763 — misses n=4 statsig (3.271735) by 0.000028 (0.025σ above). Trial vals: 3.270245/3.272365/3.272831/3.271610, ffs=3125/3150/3150/3150. Student self-launched `3j8v4owb` n=2 extension (08:52Z), giving us a predeclared n=6 batch. **n=6 predeclaration locked**: required new-2 trials mean ≤ 3.272784 → n=6 mu ≤ 3.272103 → merge. NO further extensions if n=6 misses; close as marginal-noise and pivot.
 
 Other partial signals (all n=1 or sub-statsig at n=2):
-- **tanjiro Cell C n=2 mean=3.27094** vs n=2 threshold 3.270905 (off 0.000035; sub-SE noise). n=4 confirm `d4dvvkzk` in flight.
-- **nezuko Cell A (γ=0.93) n=1 val=3.27922** — worse than baseline. Cell B (γ=0.97) running, next at ~10:55Z.
-- **frieren Cell A (lr_embed=0.10) n=1 val=3.2803** — worse. **Cell B (lr_embed=0.30) val=3.2750** — within 1σ baseline; not promotion-worthy. Cell C (lr=0.50) just launched.
-- **askeladd Cell C (ns5=12 control) val=3.2769** — within 2σ baseline, consistent with seed noise on baseline config.
+- **tanjiro n=4 trial 0 val=3.27093@3225** (matches Cell C n=2 mean=3.27094). 4-trial confirm in flight.
+- **askeladd Cell A (ns5=8) n=1 val=3.27444** — Δ=-0.000295 vs baseline at n=1. Sub-statsig at n=1 (would need ≤ 3.269735 for n=1 statsig), but interesting direction (fewer NS5 iters → potential speedup at parity val). Cell B (ns5=10) running.
+- **nezuko Cell A (γ=0.93) n=1 val=3.27922** — worse than baseline. Cell B (γ=0.97) running.
+- **frieren Cell A (lr_embed=0.10) n=1 val=3.28032** — worse. Cell B (lr_embed=0.30) val=3.2750 within 1σ baseline. Cell C (lr=0.50) running.
 
 **Active mechanism slots:**
 
