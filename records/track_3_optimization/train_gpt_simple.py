@@ -434,8 +434,8 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-# Contra-Muon + SOAP-on-MLP hyperparameters
-CONTRA_MUON = 0.4
+# Contra-Muon + SOAP-on-MLP hyperparameters (CONTRA_MUON=0.5 from PR #139 retune).
+CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
 MU = 0.95
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
@@ -444,8 +444,26 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 
+# Soft-Muon annealing: blend NS5 polynomial step with identity at ratio p_blend
+# during early training, anneal p_blend → p_end over the first SOFT_MUON_ANNEAL_FRAC
+# of total training steps. p_blend > 0 → softer spectral compression; p_blend=0 → pure NS5.
+SOFT_MUON_P_START = float(os.environ.get("SOFT_MUON_P_START", "0.07"))
+SOFT_MUON_P_END = float(os.environ.get("SOFT_MUON_P_END", "0.0"))
+SOFT_MUON_ANNEAL_FRAC = float(os.environ.get("SOFT_MUON_ANNEAL_FRAC", "0.5"))
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+
+def get_soft_muon_p_blend(step: int, total_steps: int) -> float:
+    """Linear anneal from SOFT_MUON_P_START to SOFT_MUON_P_END over first SOFT_MUON_ANNEAL_FRAC of training."""
+    anneal_steps = max(1, int(SOFT_MUON_ANNEAL_FRAC * total_steps))
+    if step >= anneal_steps:
+        return SOFT_MUON_P_END
+    frac = step / anneal_steps
+    return SOFT_MUON_P_START * (1.0 - frac) + SOFT_MUON_P_END * frac
+
+
+def zeropower_via_newtonschulz5(G: Tensor, p_blend: float = 0.0) -> Tensor:
+    """Newton-Schulz orthogonalization, optionally softened by blending each iteration
+    with the identity at ratio p_blend (Soft-Muon)."""
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -458,7 +476,11 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
-        X = a * X + B @ X
+        X_poly = a * X + B @ X
+        if p_blend > 0.0:
+            X = X_poly * (1.0 - p_blend) + X * p_blend
+        else:
+            X = X_poly
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -479,10 +501,11 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, p_blend: float = 0.0):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+    p_blend > 0 softens the NS5 polynomial (Soft-Muon annealing)."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
-    update = zeropower_via_newtonschulz5(momentum_update)
+    update = zeropower_via_newtonschulz5(momentum_update, p_blend=p_blend)
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -567,11 +590,17 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self._global_step = 0
+        self._train_steps = 0  # set externally before each step
+        self._last_p_blend = 0.0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        self._global_step += 1
+        p_blend = get_soft_muon_p_blend(self._global_step, self._train_steps) if self._train_steps > 0 else 0.0
+        self._last_p_blend = p_blend
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -607,7 +636,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # Soft-Muon annealing: blend NS5 polynomial with identity at p_blend (anneals to 0).
+                    update = contra_normuon_update(momentum_update, state["second_moment"], p_blend=p_blend)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -699,7 +729,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/soft_muon_p_start": SOFT_MUON_P_START,
+            "optimizer/soft_muon_p_end": SOFT_MUON_P_END,
+            "optimizer/soft_muon_anneal_frac": SOFT_MUON_ANNEAL_FRAC,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soft-muon-anneal",
         },
     )
 
@@ -871,8 +904,16 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Pass total training steps into Muon so the Soft-Muon anneal schedule can index into it.
+        optimizer2._train_steps = train_steps
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/soft_muon_p_blend": optimizer2._last_p_blend,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
