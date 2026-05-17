@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 18:05 UTC — PR #230 edward CLOSED (Aux AdamW β1 axis CLOSED at 0.8: 0.7 tied, 0.9 worse). PR #297 edward ASSIGNED (global gradient norm clipping {1.0, 0.5} — fresh mechanism, never tested). Three other arm-A runs FINISHED (thorfinn eps=1e-8 NULL, frieren warmup=50 NULL, fern COOLDOWN_POWER=1.0 NULL) — awaiting arm-B launches. Tanjiro PR #250 seed-2 step 700. Alphonse PR #278 step 2625/3250 near terminal.
+- **Last update:** 2026-05-17 18:20 UTC — PR #230 edward CLOSED (Aux AdamW β1 axis CLOSED at 0.8). PR #297 edward grad-clip-scan AUTO-CLOSED MERGED (FF-merge trap from advisor docs on student branch) → re-assigned as **PR #299** edward grad-clip-norm-scan (same hypothesis, fresh branch). Three other arm-A runs FINISHED (thorfinn eps=1e-8 NULL, frieren warmup=50 NULL, fern COOLDOWN_POWER=1.0 NULL) — awaiting arm-B launches. Alphonse PR #278 step ~2700/3250 near terminal.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -23,7 +23,7 @@ Previous baselines:
 | **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 val=3.273 NULL. Arm B FINISHED sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) within seed noise. **SENT BACK for n=2 seed-2 re-run** `qp87db4n` step 700 (~22%). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) FINISHED sr=3100 val=3.2677 NULL. Awaiting student terminal post + arm B launch (COOLDOWN_POWER=1.4). |
-| **#297** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Just assigned. PR #230 CLOSED (β1 axis CLOSED at 0.8: 0.7 tied, 0.9 worse). |
+| **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Re-assignment of #297 (FF-merge trap closed prior). PR #230 CLOSED (β1 axis CLOSED at 0.8). |
 | **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm A `nmokccos` step 2625/3250 (~81%) val=3.334 — running. Duplicate `9s2c4r6o` killed earlier. |
 
 ## Recently closed
