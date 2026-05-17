@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 13:15 UTC — PR #225 CLOSED (Wave 7 stack NULL on n=2: mean sr=3037.5 vs baseline 3025, mean val=3.266425 vs baseline 3.26615 — within noise). PR #272 assigned thorfinn (AdamW eps scan {1e-8, 1e-9}, never tested 100× deviation from default). PR #250 tanjiro arm A FINISHED sr=3100 val=3.273 — student SENPAI-RESULT pending. PR #231 fern mu=0.99 diverging — early-kill comment posted. 8 students WIP.
+- **Last update:** 2026-05-17 13:30 UTC — PR #231 CLOSED (mu axis: 0.90 NULL sr=3125; 0.99 diverged, fern early-killed step 1957). PR #274 assigned fern (COOLDOWN_POWER retune {1.0, 1.4} — never retuned on γ_power=0.4 base). PR #272 thorfinn AdamW eps scan just assigned. PR #225 CLOSED Wave 7 NULL on n=2. PR #250 tanjiro arm A FINISHED sr=3100 — student SENPAI-RESULT pending. 8 students WIP.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -22,7 +22,7 @@ Previous baselines:
 | **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) step 1925 (~59%). Arm B pending. |
 | **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `qkxe6okw` FAILED step 1. Awaiting terminal SENPAI-RESULT. |
 | **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 550 val=3.82 — running. |
-| **#231** | **fern** | Muon mu scan {0.9, 0.99} | Arm A DONE sr=3125 NULL. Arm B `axf513rf` (mu=0.99) step 1725 val=5.0 DIVERGING — advisor comment recommending early-kill. |
+| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Just assigned |
 | **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 (NULL on stale pre-#202 base). Arm B `zu55900j` (β1=0.9) step 1375 (~42%) val=3.58 — running. |
 | **#229** | **alphonse** | NS coef (a,b) line scan {a=1.3, 1.7} | Arm A DONE sr=3075 NULL. Arm B `xphiroo2` (a=1.7) step 2375 (~73%) val=3.37 — running. |
 
@@ -30,6 +30,7 @@ Previous baselines:
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#231** | fern | Muon mu scan: 0.90 sr=3125 NULL; 0.99 DIVERGED killed step 1957 (val=4.37) | CLOSED — mu axis CLOSED at 0.95 baseline (both perturbations unstable/null) |
 | **#225** | thorfinn | Wave 7 (deep-WD + lm_head 1/160) n=2: mean sr=3037.5 (+12.5), mean val=3.266425 (+0.00028) | CLOSED — NULL on both axes; γ_power=0.4 already absorbs the regularization gain |
 | **#242** | frieren | Arm A (γ=0.5) sr=3150 NULL. Arm B (γ=0.6) 3 crashes. | CLOSED — γ_power axis CLOSED at 0.4 (local optimum) |
 | **#216** | nezuko | β2=0.99 sr=3025 val=3.26640 NULL; β2=0.999 sr=3100 regression | CLOSED — β2 axis CLOSED: β2=0.95 optimal |

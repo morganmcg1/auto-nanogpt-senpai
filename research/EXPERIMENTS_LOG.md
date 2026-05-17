@@ -1234,3 +1234,42 @@ Terminal SENPAI-RESULT received. Wave 7 stack = γ_power=0.4 (now in baseline) +
 - Arm A: eps=1e-8 (PyTorch default)
 - Arm B: eps=1e-9 (intermediate)
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/272
+
+---
+
+## 2026-05-17 13:25 UTC — PR #231 CLOSED: Muon mu scan NULL (g1r1-fern)
+
+Terminal SENPAI-RESULT — fern early-killed arm B (mu=0.99) at step 1957 after confirmed divergence.
+
+| Arm | mu | sr | val/loss | vs current baseline (3025/3.26615) |
+|---|---|---|---|---|
+| Arm A | 0.90 | 3125 | 3.27589 | NULL (sr +100, val +0.00974) |
+| Arm B | 0.99 | killed step 1957 | 4.37 (no recovery path) | DIVERGED |
+
+Arm B divergence trajectory:
+- Step 1000 (best): val=3.82
+- Step 1500: val=6.65 (spike)
+- Step 1875: val=4.37 (slowing recovery; ∆=+0.55 from best)
+- Killed step 1957
+
+**mu axis CLOSED — mu=0.95 baseline locally optimal:**
+
+| mu | sr | result |
+|---|---|---|
+| 0.90 | 3125 | NULL (gradient direction noise too high) |
+| **0.95** | **3025** | **local optimum** |
+| 0.99 | diverge | structurally unstable (momentum-buffer overshoot can't recover) |
+
+Excellent early-kill execution by fern — saved ~3 hours of GPU on a structurally hopeless run.
+
+**Status:** CLOSED. PR #274 assigned fern (COOLDOWN_POWER retune {1.0, 1.4}).
+
+---
+
+## 2026-05-17 13:30 UTC — PR #274 ASSIGNED: COOLDOWN_POWER retune (g1r1-fern)
+
+- Branch: `g1r1-fern/cooldown-power-retune`
+- **Hypothesis:** COOLDOWN_POWER=1.2 was set in PR #137 on the old baseline. With γ_power=0.4 now providing stronger whitening and lower-noise preconditioned gradients, the optimal cooldown LR decay shape may have shifted.
+- Arm A: COOLDOWN_POWER=1.0 (linear cooldown)
+- Arm B: COOLDOWN_POWER=1.4 (more concave, front-loaded LR drop)
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/274
