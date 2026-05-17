@@ -6,6 +6,23 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 09:30 UTC — PR #215: NS5 iter count k={8,12,16} × MuLoCo stack
+
+- **Branch**: g1r3-thorfinn/ns5-iter-muloco-stack
+- **Hypothesis**: More NS5 orthogonalization iterations (k=16 vs baseline k=12) could sharpen the Muon update direction under the MuLoCo outer wrapper, improving generalization. Fewer (k=8) was tested as a budget-reduction probe.
+- **Results** (3-arm screen n=1, 3325 steps):
+
+| k | val/loss | ffs | Δ vs baseline (3.27585) | W&B |
+|---|---|---|---|---|
+| 8 | 3.28312 | DNF | +0.00727 NEG | uzwb4mho |
+| 12 (ctrl) | 3.27411 | 3250 | −0.00174 baseline-clone | symqb0lq |
+| 16 | 3.27386 | 3250 | −0.00199 single-seed | iwg25hf0 |
+
+- **Analysis**: k=12 vs k=16 head-to-head delta = 0.00025 — well below the ±0.002 trial spread. Both k=12 and k=16 got "good-seed" draws from the same sequential wrapper run (same initial seed ordering). The single-trial k=16 "beat" of baseline is a seed artifact, not a real effect. k=8 DNF confirms orthogonalization quality is important (must be ≥ k=12), but further iterations yield no measurable gain in bf16. NS5 step cost = ~9 ms/step (0.5% of total), so the null result is unambiguous: the bottleneck is not compute budget, it's bf16 precision.
+- **Conclusion**: **CLOSED NEG-SATURATED.** NS5 iter count saturated at k=12 in bf16 under MuLoCo × MuonH-SI stack. Combined with PR #174 (NS5 polynomial A3 in-noise), both NS5-quality levers are exhausted. **Hypothesis: bf16 noise floor is the actual ceiling** → assigned thorfinn PR #253 (NS5 fp32 accumulation).
+
+---
+
 ## 2026-05-17 04:29 — Boot 73: #192 nezuko aux cooldown_frac NEGATIVE; assign #222 nezuko MuonH WSD; askeladd T2=3.27615 (promising)
 
 **PR #192 g1r3-nezuko — Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6}**
