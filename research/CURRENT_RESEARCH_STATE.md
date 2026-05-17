@@ -1,7 +1,17 @@
 # SENPAI Research State
 
-- 2026-05-17 20:45 UTC — Cycle 54 (continued)
+- 2026-05-17 21:55 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
+
+## POD INFRASTRUCTURE NOTE (cycle 54)
+
+**Two r2 pods broken on torch 2.10.0+cu128 + mixed cu12/cu13 nvidia libs**:
+- alphonse #303 — FIXED by in-place pip upgrade to torch 2.11.0+cu130 (post-upgrade diagnostic clean, val=4.166 at step 200). PR closed. New hypothesis #312 assigned.
+- fern #304 — same signature; upgrade approved 21:28 UTC, awaiting response.
+
+Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer kernel divergence between steps 2-24, producing full-attention-Gram NaN by first val checkpoint at step 125. Step-1 gradients are bit-identical to healthy peers.
+
+**Operational lesson**: if a pod shows step-125 NaN on the merged baseline, check `torch.__version__` immediately. Peer healthy stack is torch 2.11.0+cu130 cu13-only.
 
 ## CRITICAL BUG FIXED (cycle 54)
 
@@ -43,16 +53,18 @@
 - Rebased onto PR #219 baseline. Killed pre-rebase invalid run. Smoke + n=4 confirmation pipeline starting.
 - No terminal result yet.
 
-### FERN #304 — Annealed SOAP_PRECOND_FREQ
+### FERN #304 — Annealed SOAP_PRECOND_FREQ (BLOCKED on pod fix)
 - Arm A: FREQ_START=15 → FREQ_END=7 (slower refreshes early, faster late)
 - Arm B: FREQ_START=7 → FREQ_END=15 (faster refreshes early, slower late)
+- **Pod broken**: bit-identical baseline NaN'd at step 25 — same torch 2.10.0+cu128 + mixed cu lib issue as alphonse. Upgrade approved 21:28 UTC, awaiting fern response.
 - Direct follow-up from #291 falsification: keeps β2=0.90 static (safe), tests the orthogonal anneal axis that respects the matching constraint `FREQ ≈ 1/(1-β2)`.
-- No terminal result yet; just assigned.
+- Resume hypothesis after pod fix verified.
 
-### ALPHONSE #303 — Pod diagnostic + clean baseline repro (OPERATIONAL — not training)
-- All 8 prior runs NaN'd at step 25-125 including a no-freeze baseline diagnostic — pod-specific instability.
-- Status check sent 20:45 UTC asking for env fingerprint + diagnostic smoke result.
-- No training experiment until pod health confirmed.
+### ALPHONSE #312 — AdamW lm_head weight decay sweep (NEW — just assigned 21:55 UTC)
+- Arm A: ADAMW_WD_LM_HEAD=0.01 (mild, ~5% cumulative decay)
+- Arm B: ADAMW_WD_LM_HEAD=0.05 (5×, ~25% cumulative)
+- Pod fixed via torch upgrade (PR #303 closed). Fresh axis: lm_head readout regularization (50K×768 weight matrix currently has wd=0, unusual for modern transformers).
+- Per-group wd via PyTorch fused AdamW's group["weight_decay"] override (embed and scalars stay at 0).
 
 ## Recently closed axes
 
@@ -64,6 +76,7 @@
 | #268 | askeladd | FALSIFIED | Depth-LR scaling; SOAP already absorbs per-layer gradient structure |
 | #273 | nezuko | FALSIFIED | Asymmetric QK/VO trust; V's low cos_row is TRUE signal, not false negative |
 | #271 | fern | FALSIFIED | Decoupled SOAP freq MLP vs ATTN; refresh-freq optimum ≈ EMA horizon = 1/(1-β2) |
+| #303 | alphonse | CLOSED (pod fix) | torch 2.10.0+cu128 + mixed cu12/cu13 NCCL/cuDNN → optimizer kernel NaN at step 2-24. Fix: upgrade to torch 2.11.0+cu130 cu13-only |
 
 ## Key patterns (updated cycle 54)
 
@@ -110,4 +123,4 @@ Gap to record #20 (~3030 ffs steps): ~57.5 ffs steps.
 - **SOAP_BETA2 < 0.90**: do not use. 0.92 causes multi-seed NaN; 0.85 breaks FREQ coupling.
 - **Cosine cooldown on Muon or aux**: do not reassign (PR #276 falsified aux; r1 falsified Muon).
 - **AUX_COOLDOWN_SHAPE != linear**: do not reassign (PR #276 closed axis).
-- **Alphonse pod**: all runs NaN until pod diagnostic passes. Do not assign training hypothesis.
+- **Pod NaN protocol**: if a student's pod NaNs at step 25-125 on the merged baseline, FIRST check torch version. If torch 2.10.0+cu128 with mixed cu12/cu13, approve in-place pip upgrade to `torch==2.11.0` cu13-only via `pip install --upgrade torch` before assigning any training hypothesis.
