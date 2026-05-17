@@ -46,6 +46,14 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--lr_mlp", type=float, default=0.035,
+                        help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
+    parser.add_argument("--wd_mlp", type=float, default=0.025,
+                        help="Muon weight decay for MLP weights")
+    parser.add_argument("--lr_attn", type=float, default=0.035,
+                        help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
+    parser.add_argument("--wd_attn", type=float, default=0.025,
+                        help="Muon weight decay for attention weights")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -534,20 +542,43 @@ class Muon(torch.optim.Optimizer):
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
                  soap_attn=False, trust_threshold=0.0):
+        # `named_params` can be either:
+        #   (a) list of (name, param) tuples → single param group (legacy form)
+        #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
+        #       → multiple param groups, one per dict
         assert isinstance(named_params, list) and len(named_params) >= 1
+        if isinstance(named_params[0], dict):
+            groups_raw = named_params
+            all_named = [(n, p) for g in groups_raw for n, p in g["named_params"]]
+        else:
+            groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu}]
+            all_named = named_params
+
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
-            p for n, p in named_params
+            p for n, p in all_named
             if any(n.endswith(suf) for suf in soap_suffixes)
         }
-        self.param_names = {id(p): n for n, p in named_params}
+        self.param_names = {id(p): n for n, p in all_named}
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+
+        param_groups = []
+        for g in groups_raw:
+            g_params = sorted([p for _, p in g["named_params"]], key=lambda x: x.size(), reverse=True)
+            g_dict = {
+                "params": g_params,
+                "lr": g.get("lr", lr),
+                "weight_decay": g.get("weight_decay", weight_decay),
+                "mu": g.get("mu", mu),
+            }
+            if "name" in g:
+                g_dict["name"] = g["name"]
+            param_groups.append(g_dict)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        super().__init__(param_groups, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -556,6 +587,7 @@ class Muon(torch.optim.Optimizer):
         rank = dist.get_rank()
         for group in self.param_groups:
             params = group["params"]
+            norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -588,9 +620,35 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+            group["_step_norm_sum"] = norm_sum
+            group["_step_norm_count"] = len(params)
+
+    def get_step_update_norms(self) -> dict[str, float]:
+        """Return per-group mean Frobenius norm of the most recent step's updates.
+
+        Returns a dict mapping group name (e.g., 'muon_mlp') to mean ‖update‖_F.
+        Requires distributed all_reduce when world_size > 1.
+        """
+        world_size = dist.get_world_size()
+        result: dict[str, float] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            norm_sum = group.get("_step_norm_sum", None)
+            count = group.get("_step_norm_count", 0)
+            if norm_sum is None or count == 0:
+                continue
+            if world_size > 1:
+                ns = norm_sum.clone()
+                dist.all_reduce(ns, op=dist.ReduceOp.SUM)
+                mean = float(ns.item()) / count
+            else:
+                mean = float(norm_sum.item()) / count
+            name = group.get("name", f"group_{g_idx}")
+            result[name] = mean
+        return result
 
 
 ########################################
@@ -669,6 +727,10 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "lr_mlp": args.lr_mlp,
+            "wd_mlp": args.wd_mlp,
+            "lr_attn": args.lr_attn,
+            "wd_attn": args.wd_attn,
         },
     )
 
@@ -704,10 +766,19 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    mlp_named = [(n, p) for n, p in named_blocks
+                 if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
+    attn_named = [(n, p) for n, p in named_blocks
+                  if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
+    assert len(mlp_named) + len(attn_named) == len(named_blocks)
+    optimizer2 = Muon(
+        [
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+        ],
+        soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+    )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -843,6 +914,17 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if telemetry_due:
+            update_norms = optimizer2.get_step_update_norms()
+            current_lrs = {group.get("name", f"group_{i}"): group["lr"]
+                           for i, group in enumerate(optimizer2.param_groups)}
+            if dist.get_rank() == 0:
+                per_group_metrics = {"trial": trial_idx, "train/step": train_step}
+                for name, mean_norm in update_norms.items():
+                    per_group_metrics[f"train/update_norm/{name}"] = mean_norm
+                for name, lr in current_lrs.items():
+                    per_group_metrics[f"train/lr/{name}"] = lr
+                wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
