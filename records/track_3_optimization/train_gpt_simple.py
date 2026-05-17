@@ -765,9 +765,9 @@ for trial_idx in range(args.num_trials):
 
     # create the optimizer(s)
     if USE_LION_AUX:
-        optimizer1 = Lion([dict(params=[model.embed.weight], lr=1.5e-4, name="lion_embed"),
-                            dict(params=[model.proj.weight], lr=3e-5, name="lion_lm_head"),
-                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=1e-2, name="lion_scalars")],
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=0.03, name="lion_embed"),
+                            dict(params=[model.proj.weight], lr=1e-3, name="lion_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=3e-3, name="lion_scalars")],
                            betas=(0.9, 0.99), weight_decay=0.0)
     else:
         optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
