@@ -676,3 +676,28 @@ Decision tree: arm-D (no clip) = 3.27952 ≥ 3.279 → clip=10 is load-bearing a
 
 Closed as null + mechanism study. No confirmation seeds warranted (arm-A is baseline reproduction; arm-C within noise at n=1; GPU time better spent on wave-5 stacking).
 
+## 2026-05-17 15:55 UTC — PR #234: NS boost trigger-fraction sweep (frieren) — CLOSED null
+
+- Branch: `g1r4-frieren/ns-boost-trigger-sweep`
+- Hypothesis: The 0.70 trigger fraction for the NS=12→16 boost may not be at the local optimum.
+- W&B runs: arm-A `pz8jhwxj`, arm-B `i5p9lv38`, arm-C `875p3msy`, arm-D `rmi1c6go`, arm-E `6i4g1b87`
+
+### Results — 5-arm sweep (TRIGGER_FRAC ∈ {0.55, 0.65, 0.70, 0.75, 0.85})
+
+| Arm | TRIGGER_FRAC | val/loss | Δ vs A | fs | W&B |
+|-----|---|---|---|---|---|
+| **A** | **0.70 (control)** | **3.27404** | **— (best)** | **3250** | pz8jhwxj |
+| B | 0.55 | 3.27699 | +0.00295 | 3300 | i5p9lv38 |
+| C | 0.65 | 3.27586 | +0.00182 | 3275 | 875p3msy |
+| D | 0.75 | 3.27678 | +0.00274 | 3300 | rmi1c6go |
+| E | 0.85 | 3.27763 | +0.00359 | 3300 | 6i4g1b87 |
+
+**Convex U-shape with minimum at 0.70.** Both earlier and later triggers strictly degrade val/loss. Monotone gradient on each side: B>C>A (early side), A<D<E (late side). Four data points all worse than control gives high-confidence evidence for the convex U.
+
+**Mechanism (student's analysis):**
+- Earlier triggers (B, C) waste NS=16 on gradient-magnitude-dominated steps where NS=12 is sufficient.
+- Later triggers (D, E) truncate the precision-window runway — the NS=16 benefit needs the full 30% cooldown to compound through final descent.
+- 0.70 sits at the inflection between gradient-magnitude regime and direction-precision regime.
+
+**Axis closed.** `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (existing env var) validated as optimal. No code change needed. Follow-on: NS schedule SHAPE sweep (frieren #285) tests whether graduated/ramped NS transition beats the step jump at fixed 0.70 trigger.
+

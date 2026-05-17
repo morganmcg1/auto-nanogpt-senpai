@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 14:55 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). **Two wave-4 potential merge winners in confirmation**: tanjiro #235 arm-C (embed floor=15%, val=3.27245, n=1, confirmation ETA ~17:36 UTC) and alphonse #236 arm-C (β2=0.99, val=3.27439, n=1, confirmation seeds just launched). If both confirm, wave-5 baseline could reach ~3.271.
+- **Date:** 2026-05-17 15:55 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). **Two wave-4 potential merge winners in confirmation**: tanjiro #235 arm-C (embed floor=15%, val=3.27245, n=1, confirmation ETA ~17:36 UTC) and alphonse #236 arm-C (β2=0.99, val=3.27439, n=1, confirmation seeds launched). If both confirm, wave-5 baseline could reach ~3.271. Frieren #234 (NS trigger fraction) closed as null — 0.70 is the empirically optimal trigger fraction. Frieren assigned #285 (NS cooldown SHAPE sweep).
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27461** — frieren NS=12→16 cooldown boost, PR #176 merged 2026-05-17
@@ -42,8 +42,11 @@
 ### askeladd #241 (Muon mu sweep) 🔬 IN FLIGHT
 **Status:** arm-A (mu=0.95)=~3.277; arm-B (mu=0.90)=3.282 (regression). Lower mu hurts. arm-C (mu=0.93) and arm-D (mu=0.97) running. Pattern: lower mu hurts; waiting for mu=0.97, 0.99 arms to determine if higher mu helps.
 
-### frieren #234 (NS boost trigger fraction sweep) 🔬 NEAR CLOSE
-**Status:** arm-A (0.70 baseline reproduction) clusters near baseline; sweep arms mostly flat/noise. Likely closing as null after arm-E terminal.
+### frieren #234 (NS boost trigger fraction sweep) ✓ CLOSED NULL
+**Final verdict:** Convex U-shape with minimum at 0.70. B(0.55)=+0.003, C(0.65)=+0.002, D(0.75)=+0.003, E(0.85)=+0.004. All arms strictly worse. Axis closed.
+
+### frieren #285 (NS cooldown SHAPE sweep) 🆕 ASSIGNED
+**Hypothesis:** NS=12→16 step jump may not be the optimal SHAPE of the NS transition (even with trigger=0.70 fixed and compute-neutral). Tests graduated step (14/18), linear ramp (12→20), and late-concentrated peak (12/20) vs control (16 flat). Total NS-iter budget identical across arms.
 
 ### fern #203 (NS polynomial coefficient sweep) 🔬 NEAR CLOSE
 **Status:** arm-A (c=0.5)=3.27463, arm-B (c=0.4)=+0.003 regression, arm-C (c=0.6)=+0.002 regression, arm-D (c=0.35)=+0.001 regression. c=0.5 is local optimum. arm-E (c=0.7) running. Closing after arm-E.
@@ -65,11 +68,12 @@
 4. **AdamW aux WD sweep (thorfinn #279)** — fresh unexplored axis; AdamW aux WD=0 in baseline
 5. **Per-group β2 ablation (edward #280)** 🆕 — triangulates which aux group drives alphonse #236's β2 win
 6. **Muon mu constants (askeladd #241)** — lower mu hurts; waiting for higher-mu arms (mu=0.97, 0.99)
-7. ~~Per-group Muon clip (edward #206)~~ — closed null/mechanism study
-8. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed compute-neutral
-9. ~~AdamW β1 cooldown (nezuko #227)~~ — closed null
-10. ~~NS boost trigger fraction (frieren #234)~~ — closing null
-11. ~~NS polynomial coefs (fern #203)~~ — closing null (c=0.5 local optimum)
+7. **NS cooldown SHAPE (frieren #285)** 🆕 — tests graduated/ramped NS schedule vs step jump (compute-neutral)
+8. ~~Per-group Muon clip (edward #206)~~ — closed null/mechanism study
+9. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed compute-neutral
+10. ~~AdamW β1 cooldown (nezuko #227)~~ — closed null
+11. ~~NS boost trigger fraction (frieren #234)~~ — closed null; 0.70 validated as optimal
+12. ~~NS polynomial coefs (fern #203)~~ — closing null (c=0.5 local optimum)
 
 **Mechanism landscape (14:55 UTC)**: The "cooldown-window precision" theme consolidates around two axes that both confirm: (1) embed LR floor sustains update pressure in the last 30% of training; (2) β2=0.99 smooths the v-EMA for cleaner per-coordinate step sizes. Both are orthogonal to the clip/NS mechanics already merged. The immediate wave-5 priority: wait for tanjiro and alphonse confirmations, then stack them, then probe whether β2 asymmetry is group-specific (edward #280) and whether aux groups want WD (thorfinn #279).
 
