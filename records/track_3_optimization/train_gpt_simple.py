@@ -52,6 +52,11 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
+    # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
+    # Default 0.0 disables (no-op for bit-identical baseline).
+    parser.add_argument("--aux_agc_clip_ratio", type=float, default=float(os.environ.get("AUX_AGC_CLIP_RATIO", "0.0")))
+    parser.add_argument("--aux_agc_eps", type=float, default=float(os.environ.get("AUX_AGC_EPS", "1e-3")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,6 +505,36 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+@torch.no_grad()
+def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
+    """Per-tensor AGC (Brock et al. 2021).
+
+    For each param p, scale its grad in-place if ||g|| exceeds clip_ratio * max(||p||, eps).
+    Returns telemetry: total params seen, count clipped, max pre-clip g_to_clip_threshold ratio.
+    No-op (and bit-identical) when clip_ratio <= 0.
+    """
+    stats = {"agc_total": 0, "agc_clipped": 0, "agc_max_ratio": 0.0}
+    if clip_ratio <= 0:
+        return stats
+    max_ratio = 0.0
+    for p in parameters:
+        if p.grad is None:
+            continue
+        stats["agc_total"] += 1
+        p_norm = p.data.norm(2).clamp_min(eps)
+        g_norm = p.grad.norm(2)
+        max_g = clip_ratio * p_norm
+        # Per-param ratio of g_norm to its allowed max (>1 means clipping fires).
+        ratio = float((g_norm / max_g.clamp_min(1e-30)).item())
+        if ratio > max_ratio:
+            max_ratio = ratio
+        if ratio > 1.0:
+            p.grad.mul_(max_g / g_norm.clamp_min(1e-30))
+            stats["agc_clipped"] += 1
+    stats["agc_max_ratio"] = max_ratio
+    return stats
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -638,6 +673,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
+if args.aux_agc_clip_ratio > 0:
+    print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
+else:
+    print0("AGC DISABLED on aux AdamW groups (clip_ratio=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -684,6 +723,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
+            "aux_agc_eps": args.aux_agc_eps,
         },
     )
 
@@ -740,6 +781,9 @@ for trial_idx in range(args.num_trials):
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
+    # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
+    # param groups to track exactly the same params AdamW updates.
+    aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -898,6 +942,11 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
+        # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
+        agc_stats = adaptive_gradient_clip(
+            aux_params_for_agc, args.aux_agc_clip_ratio, eps=args.aux_agc_eps,
+        )
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -907,6 +956,11 @@ for trial_idx in range(args.num_trials):
                     muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                     muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                     muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+            if args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
+                muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
+                muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
+                muonh_metrics["train/agc/total_count"] = agc_stats["agc_total"]
+                muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
