@@ -447,6 +447,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-block-depth Muon LR scaling (PR #268).
+# "none" keeps the uniform MUON_LR baseline. "up" scales by (depth+1)/6
+# (deeper blocks get more LR). "down" scales by (12-depth)/6 (shallower
+# blocks get more LR). NUM_BLOCKS is hardcoded to match the model below.
+MUON_DEPTH_LR_SCALE = os.environ.get("MUON_DEPTH_LR_SCALE", "none")
+assert MUON_DEPTH_LR_SCALE in ("none", "up", "down"), \
+    f"MUON_DEPTH_LR_SCALE must be one of none/up/down, got {MUON_DEPTH_LR_SCALE!r}"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -836,6 +843,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/muon_depth_lr_scale": MUON_DEPTH_LR_SCALE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -872,9 +880,35 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    named_block_params = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    optimizer2 = Muon(named_block_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+    if MUON_DEPTH_LR_SCALE == "none":
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+    else:
+        NUM_BLOCKS = 12
+        by_depth: dict[int, list[Tensor]] = {d: [] for d in range(NUM_BLOCKS)}
+        for n, p in named_block_params:
+            d = int(n.split(".")[0])
+            by_depth[d].append(p)
+        optimizer2.param_groups = []
+        for d in range(NUM_BLOCKS):
+            depth_params = by_depth[d]
+            if not depth_params:
+                continue
+            depth_params = sorted(depth_params, key=lambda x: x.size(), reverse=True)
+            if MUON_DEPTH_LR_SCALE == "up":
+                lr_scale = (d + 1) / 6.0
+            else:
+                lr_scale = (NUM_BLOCKS - d) / 6.0
+            optimizer2.add_param_group({
+                "params": depth_params,
+                "lr": MUON_LR * lr_scale,
+                "weight_decay": MUON_WEIGHT_DECAY,
+                "mu": MU,
+                "name": f"muon_block_{d}",
+                "depth": d,
+                "lr_scale": lr_scale,
+            })
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1008,6 +1042,14 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and step == 0 and trial_idx == 0 and MUON_DEPTH_LR_SCALE != "none":
+            depth_lrs = {}
+            for group in optimizer2.param_groups:
+                if "depth" in group:
+                    depth_lrs[f"optimizer/muon_lr_depth_{group['depth']}"] = group["initial_lr"]
+                    depth_lrs[f"optimizer/muon_lr_scale_depth_{group['depth']}"] = group["lr_scale"]
+            if depth_lrs:
+                wandb.log(depth_lrs, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
