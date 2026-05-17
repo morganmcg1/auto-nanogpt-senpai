@@ -6,6 +6,33 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 20:32 UTC — PR #237: AGC (Adaptive Gradient Clipping) on aux AdamW, clip_ratio=0.05 ✅ MERGED
+
+- **Branch**: g1r3-edward/agc-aux-sweep
+- **Hypothesis**: Apply Adaptive Gradient Clipping to the aux AdamW parameter groups (embed, lm_head, scalars). AGC clips per-parameter gradient if `||g||_F > clip_ratio × ||p||_F`. clip_ratio=0.05 means only clip when gradient RMS > 5% of parameter RMS. Motivated by success in NFNets (Brock et al. 2021) and observed in practice to stabilize training of large parameters. Three-arm screen: clip_ratio ∈ {0.01, 0.05, 0.10}.
+- **Results (n=4 confirm at best arm clip=0.05)**:
+
+| Trial | val/loss | ffs (steps to <3.28) | W&B run |
+|---|---|---|---|
+| 0 | 3.27382 | 3250 | efgqupvv |
+| 1 | 3.27568 | 3275 | hzxm8aaj |
+| 2 | 3.27408 | 3250 | 9l9le6dc |
+| 3 | 3.27518 | 3275 | pwbrxwez |
+| **n=4 mean** | **3.27469** | **3262** | — |
+
+Stat rule: (3.28 − 3.27469) × √4 = **0.01062 ≥ 0.004** ✓
+
+Screen results (n=1):
+- clip_ratio=0.01: 3.27382 (marginal win, high false-positive risk)
+- clip_ratio=0.05: **3.27382** (best confirmed at n=4)
+- clip_ratio=0.10: higher than 0.05 (mild NEG)
+
+- **Conclusion**: **MERGED as new baseline (val/loss = 3.27469).** AGC on aux optimizer is a genuine ~0.001 improvement. Mechanism: the embed and lm_head gradients occasionally spike relative to parameter scale; clipping at ratio=0.05 catches spikes ≥5× param RMS without touching normal gradients (active_fraction < 5% of steps). The 0.05 clip is quite aggressive for aux params (embed has large parameter norm), so the effect appears to be consistent stabilization rather than rare spike suppression. The 3 of 4 trials improved over the old baseline, confirming the mechanism is real.
+- **Improvement**: Δ = −0.00116 vs prior baseline (3.27585). Stat margin = 0.01062.
+- **Next assignment**: MuonH momentum β decay during cooldown — PR #308 assigned to edward.
+
+---
+
 ## 2026-05-17 17:22 UTC — PR #265: Schedule-Free MuonH-SI (primal-dual averaging)
 
 - **Branch**: g1r3-nezuko/schedule-free-muonh

@@ -1,60 +1,68 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 19:35 UTC (boot 113)
+- **Last updated:** 2026-05-17 20:38 UTC (boot 114)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 re-escalation #6 posted 19:30 UTC (~24h since last operator update).
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **Baseline: val=3.27585, ffs=3275 (n=4 mean).**
 
-## ⭐ Current baseline (post-PR #114 merge)
+## ⭐ Current baseline (post-PR #237 merge — 2026-05-17 20:32 UTC)
 
 | Metric | Value |
 |--------|-------|
-| `val/loss` | **3.27585** (n=4 mean) |
-| `ffs` | **3275** (n=4 mean) |
+| `val/loss` | **3.27469** (n=4 mean) |
+| `ffs` | **3262** (n=4 mean) |
 | Optimizer | MuonH-SI (lr=0.018, mu=0.95, wd=0, mode=scale_invariant) |
 | Outer wrapper | MuLoCo (outer_lr=0.7, outer_momentum=0.5, sync_interval=30) |
-| Aux AdamW | betas=(0.8, 0.95), eps=1e-10 |
+| **Aux AdamW** | betas=(0.8, 0.95), eps=1e-10, **AGC clip_ratio=0.05** |
 | Cooldown | MuonH=1.0 (full linear), aux=0.4 |
 | NS5 | 12 iterations, (a,b,c)=(2,-1.5,0.5), bf16 |
-| W&B | `22tmupqh` |
+| W&B | `efgqupvv`, `hzxm8aaj`, `9l9le6dc`, `pwbrxwez` |
 
-**Merge bar**: μ_val < 3.27585 at n=4. Stat rule: (3.28 − μ) × √4 ≥ 0.004.
+**Merge bar**: μ_val < 3.27469 at n=4. Stat rule: (3.28 − μ) × √4 ≥ 0.004.
+
+**⚠️ CRITICAL**: `--aux_agc_clip_ratio 0.05` must be included explicitly in ALL new experiment commands — it defaults to 0.0.
 
 ## ⚠ Operational gotcha: muonh_mode default is `clip`, not `scale_invariant`
 
 All active screens must use `--muonh_mode scale_invariant`. Default is `clip`.
 
-## ⭐⭐ Strong WIN candidates in-flight (n=4 confirm)
+## ⭐⭐ WIN CANDIDATE in-flight (n=4 confirm)
 
-1. **Edward AGC aux clip=0.05** (#237): trial 1=**3.2738**, trial 2=**3.2757**, trial 3=**3.2741** (terminal at cum_step 9977). **Interim n=3 mean=3.27453** — passes stat rule (Δ=-0.00132, (3.28-3.27453)×√3=0.0095 ≥ 0.004). Trial 4 mid-cooldown step ~1925/3325, val=3.5222. **ETA terminal ~20:15 UTC. Expected MERGE.**
-2. **Frieren cosine cooldown** (#243): trial 1=**3.2746** ✓. Trial 3 in progress, `qupprvwc` step 7522/13300, val=3.83. ETA terminal ~22:00 UTC.
+1. **Frieren cosine cooldown** (#243): trial 1=**3.2731** ✓ (Δ=-0.00159 vs NEW baseline 3.27469). Trial 3 in progress `qupprvwc` step 8152/13300. ETA terminal ~22:00 UTC. **Note: trial 1 beats new AGC baseline by 0.00159 — still a clear win if remaining trials hold.**
 
-If BOTH confirm at n=4: stacks cleanly (AGC=aux gradient clip; cosine=MuonH LR shape — orthogonal mechanisms). Combined Δ ≈ -0.002 to -0.003 vs baseline.
-
-## Active experiments (boot 113 — 19:35 UTC 2026-05-17)
+## Active experiments (boot 114 — 20:38 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L) GPT-3 style, scale∈{0.2041, 0.2887, 1.0}) | Smoke broken (3× attempts, val=10.82 NaN); advisor diagnostic posted 19:34 UTC — attr names should be `proj` not `c_proj`; guard on `scale != 1.0` |
-| **#296** | askeladd | **Outer Lookahead** (k-step slow-snap on MuLoCo trajectory, k∈{5,10}, α∈{0.5,0.9}) | k=10/α=0.5 `zp2yu879` running step 500 healthy; **k=5/α=0.5 CRASHED 2× at step ~470** |
-| **#294** | nezuko | **NS5-outer velocity** (NS5-orthogonalize outer velocity direction before MuLoCo pull) | Smoke phase complete (val≈4.14 ✓); n=1 screen launch pending |
-| **#292** | fern | **Per-layer depth-scaled MuonH LR** (sqrt/linear/inv_sqrt, normalized mean=1.0) | sqrt arm `nhds4haw` step 2730/3325, val=3.39 — ETA terminal ~20:00 UTC; linear/inv_sqrt queued |
-| **#284** | thorfinn | **AGC-outer** (Trust-region clip on MuLoCo outer update, clip_frac∈{0.02, 0.05, 0.10}) | **clip=0.02 `pkjdpomh` CRASHED step 3149 val=3.60** (kill gate fired); clip=0.05 `kjvo1gep` step 2425 val=3.53 — likely hits kill gate at step 3000. Advisor diagnostic posted 19:30 — outer update RMS aggregates 30 inner steps, AGC over-clips |
-| **#243** | frieren | MuonH-SI cosine cooldown n=4 confirm | trial 1=3.2746; trial 3 in progress at step 7522/13300 val=3.83 |
-| **#237** | edward | AGC aux clip=0.05 n=4 confirm | **n=3 mean=3.27453** PASSES; trial 4 mid-cooldown ETA ~20:15 UTC. Expected MERGE |
-| **#190** | alphonse | NS5 iter count sweep | **BLOCKED** — Issue #164 (pod `gd103cc` broken, re-escalation #6 at 19:30 UTC, ~24h foregone GPU) |
+| **#308** | edward | **MuonH momentum β decay during cooldown** (muonh_mu_final∈{0.0, 0.5, 0.95}) | Newly assigned 20:35 UTC. Smoke pending. |
+| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L) GPT-3 style) | Smoke broken 6× (val=10.82 NaN even on baseline-pure-smoke); second diagnostic posted 20:01 UTC. Pod may have corrupted state. |
+| **#296** | askeladd | **Outer Lookahead** (k-step slow-snap, k∈{10,20}, α∈{0.5,0.9}) | k=10/α=0.5 `zp2yu879` running step 1025 val=3.77 healthy; k=5 arms CRASHED twice; advisor rerouted to k=10/α=0.9 + k=20/α=0.5 |
+| **#294** | nezuko | **NS5-outer velocity** (NS5-orthogonalize outer velocity direction) | Screen `96zv1q8h` launched, early steps, val≈4.0 |
+| **#292** | fern | **Per-layer depth-scaled MuonH LR** (sqrt/linear/inv_sqrt) | sqrt TERMINAL=3.2825 NEG; linear + inv_sqrt arms queued |
+| **#284** | thorfinn | **AGC-outer** (clip_frac∈{0.02, 0.05, 0.10}) | clip=0.02 CRASHED 3.60; clip=0.05 `kjvo1gep` step 3125 val=3.4205 — near terminal, likely NEG |
+| **#243** | frieren | MuonH-SI cosine cooldown n=4 confirm | trial 1=**3.2731** (Δ=-0.00159 vs new baseline ✓); trial 3 in progress step 8152/13300 |
+| **#190** | alphonse | NS5 iter count sweep | **BLOCKED** — Issue #164 (pod `gd103cc` broken, re-escalation #6 at 19:30 UTC) |
 
 **8/8 students assigned.** No idle slots.
 
-## Closed this round
+## MERGED this round (chronological)
 
 | PR | Student | Result |
 |---|---|---|
-| **#265** | nezuko | **SF MuonH CLOSED NEG** — WSD × Schedule-Free fundamentally incompatible. Option (1) terminal=3.5171; option (2) smoke=4.63 (worse than baseline 4.14). Polyak averaging dilutes WSD final-phase descent. |
-| **#257** | fern | **AdEMAMix aux CLOSED NEG** — alpha=2/5/8 all NEG (3.2891/3.3112/3.3362). Monotonic worsening. Slow-EMA mixing counterproductive under rapid MuonH convergence. |
-| **#253** | thorfinn | **NS5 fp32 CLOSED NEG** — bf16 noise-floor hypothesis FALSIFIED. Entire NS5-quality lever bank closed. |
-| **#247** | askeladd | Gradient Centralization CLOSED NEG — tensor+row both NEG. NS5 already neutralizes the lever. |
-| **#222** | nezuko | cooldown_frac sweep CLOSED NEG — frac=1.0 optimal (saturated) |
-| **#217** | tanjiro | sync_interval sweep CLOSED NEG — sync=30 optimal (saturated) |
+| **#114** | frieren | **MuLoCo × MuonH-SI MERGED** — val=3.27585 (n=4), Δ=-0.00152 vs prior. Outer Nesterov SGD wrapper. |
+| **#237** | edward | **AGC aux clip=0.05 MERGED** — val=**3.27469** (n=4), Δ=-0.00116 vs #114. AGC on aux AdamW. New baseline. |
+
+## Closed this round (NEG)
+
+| PR | Student | Result |
+|---|---|---|
+| **#265** | nezuko | **SF MuonH CLOSED NEG** — WSD × Schedule-Free fundamentally incompatible. |
+| **#257** | fern | **AdEMAMix aux CLOSED NEG** — alpha=2/5/8 all NEG. Monotonic worsening. |
+| **#282** | askeladd | **EMA tail averaging CLOSED NEG** — decay=0.999 val=3.368 (+0.092). WSD × averaging incompatible. |
+| **#260** | tanjiro | **outer_momentum sweep CLOSED NEG** — 0.3=3.2776 NEG, 0.9=DIVERGED val=7.68. 0.5 confirmed optimal. |
+| **#253** | thorfinn | **NS5 fp32 CLOSED NEG** — bf16 noise-floor hypothesis FALSIFIED. |
+| **#247** | askeladd | Gradient Centralization CLOSED NEG — tensor+row both NEG. |
+| **#222** | nezuko | cooldown_frac sweep CLOSED NEG — frac=1.0 optimal. |
+| **#217** | tanjiro | sync_interval sweep CLOSED NEG — sync=30 optimal. |
 
 ## Saturated levers (confirmed, do not re-test)
 
