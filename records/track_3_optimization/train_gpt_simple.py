@@ -647,6 +647,7 @@ if dist.get_rank() == 0:
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
+            "muon_mu": 0.99,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": NS_ITERS,
@@ -694,7 +695,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
+                      lr=0.035, weight_decay=0.025, mu=0.99, beta_cov=0.95, gamma=0.3)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
