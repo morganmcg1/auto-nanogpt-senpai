@@ -3,6 +3,40 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-17 18:05 UTC — PR #235: Embed-only cooldown shape sweep (tanjiro) — MERGED ✅
+
+- Branch: `g1r4-tanjiro/embed-only-cooldown-shape`
+- Hypothesis: Embed group (the most clip-sensitive aux group, ||g||_F ≈ 1.5e4, eff-LR rose from 8.4%→16.9% via clip=10) benefits from a sustained LR floor during cooldown. Per-group asymmetric cooldown schedule: embed uses linear_floor=15% (holds at 15% of peak after decay), while lm_head/scalar continue standard linear-to-zero.
+
+### Results (4-arm sweep + n=3 confirmation of arm-C)
+
+| Arm | Shape | val/loss | fs | Δ vs arm-A | W&B |
+|-----|-------|----------|-----|----------|-----|
+| A (control, linear) | floor=0% | 3.27673 | 3275 | — | h2fho8v0 |
+| B | cosine | 3.27633 | 3275 | −0.00040 | 3xrynrk3 |
+| **C (winner)** | **linear_floor 15%** | **3.27245** | **3250** | **−0.00428** | **ed2vgk2e** |
+| D | quadratic | 3.27886 | 3325 | +0.00213 | inwmzu36 |
+
+| n=3 Confirmation (linear_floor=15%) | val/loss | fs | W&B |
+|---|------|-----|-----|
+| arm-C original | 3.27245 | 3250 | ed2vgk2e |
+| confirm-s2 | 3.27551 | 3275 | uqqbvmjx |
+| confirm-s3 | 3.27507 | 3275 | 35cajspo |
+| **n=3 mean** | **3.27434** | **3266.7** | — |
+
+Stat-sig: (3.28 − 3.27434) × √3 = 0.00980 ≥ 0.004 ✓ PASS. Within-baseline gate: 3.27434 ≤ 3.27461 ✓ PASS.
+
+### Mechanism findings
+
+- **Clear mechanism bracket**: cosine (B) and linear (A) are flat (cosine ≈ same area-under-curve), quadratic (D) regresses (aggressive front-loaded decay starves late embed updates). Only floor=15% (C) wins.
+- **Load-bearing feature: the floor, not the shape**. If the mechanism were about schedule smoothness, cosine would have won. The floor is the critical piece.
+- **Alignment with clip=10 mechanism**: clip raised *peak* embed LR pressure; floor extends *late* embed LR pressure. Both target the same axis (embed responsiveness) from different angles — independently valuable (floor helps on top of clip=10, not instead of it).
+- **fs unchanged**: n=3 mean fs=3266.7 = prior baseline. Val improvement is the gain; step count does not regress.
+
+**New branch baseline: val=3.27434/fs=3266.7 (n=3, NANOGPT_EMBED_COOLDOWN_SHAPE=linear_floor, floor=15%)**
+
+Tanjiro assigned follow-up: PR #300 (embed floor value sweep — find optimal floor % via {10%,15%,20%,30%} bracket).
+
 ## 2026-05-17 17:30 UTC — PR #241: Muon mu (Heavy-ball momentum) constant sweep (askeladd) — CONFIRMATION SEEDS AUTHORIZED 🔬
 
 - Branch: `g1r4-askeladd/muon-mu-sweep`
