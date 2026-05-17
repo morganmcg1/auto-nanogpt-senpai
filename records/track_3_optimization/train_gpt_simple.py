@@ -52,11 +52,15 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--polyak_frac", type=float, default=float(os.environ.get("POLYAK_FRAC", "0.0")),
+                        help="Polyak-Ruppert weight averaging: fraction of training steps to average over the final phase. 0.0 disables.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not (0.0 <= args.polyak_frac <= 1.0):
+        raise ValueError("--polyak_frac must be in [0.0, 1.0]")
     return args
 
 
@@ -704,6 +708,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "polyak_frac": args.polyak_frac,
         },
     )
 
@@ -716,6 +721,15 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+
+    # Polyak-Ruppert weight averaging state. Average over the final args.polyak_frac
+    # fraction of training steps; eval swaps to averaged params and back.
+    polyak_n = 0
+    polyak_params: dict[str, Tensor] = {}
+    N_POLYAK_START = train_steps  # default = never starts when polyak_frac=0
+    if args.polyak_frac > 0:
+        polyak_params = {name: p.data.clone().float() for name, p in model.named_parameters()}
+        N_POLYAK_START = int((1.0 - args.polyak_frac) * train_steps)
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -796,6 +810,15 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # Polyak averaging: temporarily swap model params to the running average
+            # for eval, then restore for continued training. Stored shadow is fp32.
+            using_polyak = args.polyak_frac > 0 and polyak_n > 0
+            swap_buf: dict[str, Tensor] = {}
+            if using_polyak:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        swap_buf[name] = p.data.clone()
+                        p.data.copy_(polyak_params[name].to(p.dtype))
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -824,11 +847,21 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "train/polyak/active": int(using_polyak),
+                    "train/polyak/n_steps": polyak_n,
+                    "train/polyak/start_step": N_POLYAK_START,
+                    "train/polyak/frac": args.polyak_frac,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+                   + f" step_avg:{1000*step_avg:.2f}ms polyak_active:{int(using_polyak)} polyak_n:{polyak_n}", console=True)
+            # Restore training params after eval
+            if using_polyak:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        p.data.copy_(swap_buf[name])
+                swap_buf.clear()
             model.train()
             # start the clock again
             dist.barrier()
@@ -881,6 +914,15 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Polyak-Ruppert running average update on params AFTER the optimizer step.
+        # Equal-weight mean: theta_avg <- ((n-1)*theta_avg + theta_new) / n  (alpha = 1/n).
+        # First update at step == N_POLYAK_START replaces shadow with current params (alpha=1).
+        if args.polyak_frac > 0 and step >= N_POLYAK_START:
+            polyak_n += 1
+            alpha = 1.0 / polyak_n
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    polyak_params[name].mul_(1.0 - alpha).add_(p.data.float(), alpha=alpha)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
