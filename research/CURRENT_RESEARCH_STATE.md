@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 04:40 UTC. Post-#105 wave-3. Clip + NS-iter mechanism axes confirmed; first merges of round imminent.
+- **Date:** 2026-05-17 05:30 UTC. Post-#105 wave-3. **thorfinn #165 n=3 COMPLETE: mean val=3.27474/fs=3258.3 ✓ MERGE CANDIDATE awaiting student SENPAI-RESULT post.** frieren #176 confirm-2 at step 3025/3350 (~10-15 min from terminal).
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27527** — thorfinn grad clip=5.0 merged 2026-05-16 (#105)
@@ -25,25 +25,25 @@ Three independent experiments triangulate the clip mechanism:
 
 ## Confirmed winner candidates — confirmation seeds in flight (04:40 UTC)
 
-### 🔥 thorfinn #165 — clip=10 (FIRST MERGE CANDIDATE)
+### 🔥 thorfinn #165 — clip=10 — **n=3 TERMINAL, MERGE CANDIDATE (awaiting student SENPAI-RESULT)**
 | Seed | Run | val/loss | fs |
 |------|-----|----------|-----|
 | 1 (arm-B) | 84um64gj | 3.27432 | 3250 |
 | 2 (confirm-1) | lxkp0jmx | 3.27510 | 3275 |
-| 3 (confirm-2) | efnghv0f | **running** step 2650/3350 | — |
-| **n=2 mean** | — | **3.27471** | 3262.5 |
+| 3 (confirm-2) | efnghv0f | **3.27480** | **3250** |
+| **n=3 mean** | — | **3.27474** | **3258.3** |
 
-confirm-2 ETA terminal ~05:12 UTC. n=3 merge gate: need mu ≤ 3.27769 (safety margin HUGE: confirm-2 can land as high as ~3.284 and still pass).
+**Merge gate**: (3.28 − 3.27474) × √3 = 0.00911 ≥ 0.004 ✓ PASS by 2.3×. vs merged 3.27527/3266.7: **Δval=−0.00053, Δfs=−8.4 steps**. Pinged student at 05:30 UTC to post terminal SENPAI-RESULT.
 
 ### 🔥🔥 frieren #176 — NS=12→16 cooldown boost (SECOND MERGE CANDIDATE, best single-seed)
 | Seed | Run | val/loss | fs |
 |------|-----|----------|-----|
 | 1 (arm-B) | 2xp7ut5r | 3.27327 | 3250 |
 | 2 (confirm-1) | u5mqjzv1 | 3.27523 | 3275 |
-| 3 (confirm-2) | eqhe974m | **running** step 1500/3350 | — |
+| 3 (confirm-2) | eqhe974m | running step 3025/3350 | — |
 | **n=2 mean** | — | **3.27425** | 3262.5 |
 
-confirm-2 ETA terminal ~05:25 UTC. n=3 merge gate: same forgiving margin.
+confirm-2 ETA terminal ~05:45 UTC. Trajectory healthy (val 3.3036 at step 3025).
 
 **Cross-mechanism story**: frieren arm-D (NS=8→12) was compute-neutral with arm-A (NS=8 mid-training sufficient). This opens the **Wave-4 aggressive NS candidate**: NS=8 mid → NS=16 cooldown (saves ~23% Muon-block compute mid-training AND wins by ~0.003 val/loss).
 
@@ -54,7 +54,7 @@ confirm-2 ETA terminal ~05:25 UTC. n=3 merge gate: same forgiving margin.
 | **#165** | **thorfinn** | **Clip extension sweep** 🔥 | confirm-2 `efnghv0f` step 2650/3350 running. **FIRST MERGE CANDIDATE**. |
 | **#176** | **frieren** | **NS cooldown boost** 🔥🔥 | confirm-2 `eqhe974m` step 1500/3350 running. **SECOND MERGE CANDIDATE**. |
 | **#185** | **tanjiro** | **NS iteration annealing** | arm-B (NS=14→8) val=3.27385/fs=3250 winner candidate. arm-D (cosine anneal) ETA terminal ~03:40 UTC (may be done). Confirm seeds queued after arm-D. |
-| **#188** | **alphonse** | **AdamW aux LR sweep** | arm-B (1.5×) NEUTRAL. arm-D (0.5×) running, ETA ~04:35 UTC. Mechanism: uniform LR scaling does NOT reproduce clip. Axis closing. |
+| **#188** | **alphonse** | **AdamW aux LR sweep** | arm-A=3.27568/3275 (control); arm-B (1.5×) val=3.27541 NEUTRAL; arm-C dropped (clean trajectory); **arm-D (0.5×) val=3.27486/fs=3250** — Δ=−0.00041 vs merged baseline at n=1. **Sent back at 05:30 UTC for arm-E = 0.5× confirmation seed** to firm up the n=1 finding. If arm-E val ≤ 3.275 → real effect; if ≥ 3.276 → close axis at noise floor. |
 | **#189** | **askeladd** | **Muon² eps sweep** | arm-C (eps=1e-9) running, ETA ~04:10 UTC. arm-B (1e-7) mild regression. Eps axis likely closing. |
 | **#203** | **fern** | **NS polynomial coefficient sweep** | arm-B (c=0.4) neutral. arm-C (c=0.35) running ~step 1275. c axis looks robust/closing. |
 | **#206** | **edward** | **Per-group clip mechanism** 🔥🔥 | Mechanism CONFIRMED: clip is AdamW-aux only. arm-C (muon-only clip) running. arm-D (no clip) chained. |
