@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 21:35 UTC — PR #274 fern **SENT BACK for n=2 confirmation**: Arm B (COOLDOWN_POWER=1.4) sr=3000 val=3.26812 is borderline n=1 win on primary (Δsr=-25 = one validation-grid step), but val regress +0.00197 against direction. Per marginal-n=1 rule, need seed-2 confirmation before baseline shift. PR #272 thorfinn re-assigned to **PR #311** Lookahead wrapper. All 8 students active.
+- **Last update:** 2026-05-17 22:05 UTC — PR #278 alphonse CLOSED (z-loss axis CLOSED at 0; Arm A NULL, Arm B REGRESSION 5× noise). Alphonse re-assigned to **PR #TBD** embed_lr scan {0.2, 0.4} — alphonse's own follow-up suggestion. PR #274 fern seed-2 running (`s2nrw0c8` step ~225). All 8 students active.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -24,12 +24,13 @@ Previous baselines:
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | n=1 SENPAI-RESULT received. Arm A (1.0) sr=3100 NULL. Arm B (1.4) sr=**3000** val=3.26812 BORDERLINE WIN — SENT BACK for n=2 seed-2 confirmation. Δsr=-25 at validation-grid noise, Δval=+0.00197 against direction. |
 | **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Arm A `k10ppzfs` (clip=1.0) running step ~1875/3250 (~58%). Multiple step-0 crash artifacts in W&B are failed restart attempts — original run is healthy. |
-| **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm B `pdkpq1x2` (coef=1e-3) running step ~1725/3250 (~53%). |
+| **#TBD** | **alphonse** | embed_lr scan {0.2, 0.4} — never-scanned auxiliary AdamW token embedding LR | Pending assignment. Direct follow-up from PR #278 ("is the embed AdamW path well-tuned"). |
 
 ## Recently closed
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#278** | alphonse | z-loss {1e-4, 1e-3}: Arm A sr=3050 val=3.26860 NULL (Δval=+0.00245 in noise); Arm B sr=-1 val=3.28640 REGRESSION (target never reached, Δval=+0.02025 = 5× noise) | CLOSED — z-loss axis CLOSED at 0. Existing logit soft-clamp `15·x/(x²+15²)^{1/2}` already constrains partition; z-loss at high coef competes destructively with CE. Mechanism: clean objective interference, no stability failure. Process note: pre-launch `pgrep` check to avoid duplicate processes. |
 | **#272** | thorfinn | AdamW eps {1e-8, 1e-9}: Arm A sr=3025 val=3.26640 NULL Δval=+0.00025; Arm B sr=3050 val=3.26748 NULL Δval=+0.00133. Non-monotone direction. | CLOSED — eps axis CLOSED at 1e-10. AdamW updates on embed/lm_head/scalars NOT eps-floor-limited in this regime. Back-burner: lr_embed axis (different lever for "is AdamW path well-tuned"). |
 | **#250** | tanjiro | NS coef c-axis on f'(1)=0 family: c=-0.25 sr=3100 NULL (broken polar residual ~20.6); c=+0.25 n=2 mean sr=3037.5 val=3.266565 NULL | CLOSED — c-axis CLOSED at c=0 (cubic-Newton baseline). seed-1 marginal Δval=-0.00010 confirmed seed noise. Reproducible structural finding (polar/ortho_residual_sample = 0.094 ± 0.0004 across seeds) preserved as low-noise NS-screening diagnostic. |
 | **#261** | frieren | PMuon LR warmup: arm A (50) NULL Δval=+0.00003; arm B (150) REGRESSION sr+75 Δval=+0.00636 | CLOSED — PMuon LR warmup axis CLOSED at no warmup. β_cov=0.95 EMA cold-start is self-regularizing via small-magnitude whitening during fill-in (telemetry-confirmed). |
@@ -78,7 +79,7 @@ Previous baselines:
 
 11. **COOLDOWN_POWER retune:** PR #274 fern n=1 SENPAI-RESULT received and sent back for n=2 seed-2 confirmation. Arm A (linear, 1.0) sr=3100 val=3.26773 NULL (clear regress on both axes). Arm B (concave, 1.4) sr=**3000** val=3.26812 borderline WIN on primary (Δsr=-25 = one validation-grid step at cadence 25) but val regress Δval=+0.00197 against direction. Per-step val table shows Arm B sits ~0.012 below Arm A throughout cooldown (mechanism-credible if confirmed). seed-2 will resolve real-vs-noise; predeclared rules: sr<3025 → WIN merge; sr=3025 marginal val-check; sr≥3050 NULL.
 
-12. **z-loss:** PR #278 alphonse arm B (coef=1e-3) `pdkpq1x2` step ~1725/3250 (~53%).
+12. **z-loss axis CLOSED at 0 (PR #278 alphonse).** Both arms NULL/REGRESSION. Arm A sr=3050 NULL within noise; Arm B sr=-1 val=3.28640 — target NEVER reached, clear regression (5× noise band). Mechanism: existing logit soft-clamp already handles partition-function constraint; z-loss adds destructive objective interference at high coef. Falsification rule satisfied.
 
 13. **Muon WD scan:** PR #287 askeladd arm A `rxk4092z` (wd=0.035, confirming baseline) step ~2775/3250 (~85%).
 
@@ -114,8 +115,9 @@ Previous baselines:
 ## Open axes (not yet assigned)
 
 - Muon weight_decay scan {0.035, 0.050} — PR #287 IN FLIGHT (askeladd). Motivated by param_norm 3.4× blowup at higher LR.
-- embed_lr scan {0.2, 0.4} — never tested (current 0.3)
+- **embed_lr scan {0.2, 0.4} — alphonse PR #TBD just assigned** (direct follow-up from PR #278 closure)
 - scalar_lr scan — never tested (current 0.01)
+- lm_head_lr scan — never tested (current 1/320)
 - Compound: WD retune + LR retune jointly (once WD axis is characterized)
 
 ## Statistical rule reminder

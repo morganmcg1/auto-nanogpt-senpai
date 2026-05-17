@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-17 22:00 — PR #278: z-loss auxiliary scan {1e-4, 1e-3} (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/zloss-auxiliary-scan`
+- Hypothesis: z-loss (partition-function shrinkage `Z_LOSS_COEF · log(Z)²`) as a calibration regularizer at the output projection.
+
+| Arm | Z_LOSS_COEF | W&B run | sr | val/loss | Δval vs baseline (3.26615) | Status |
+|---|---|---|---|---|---|---|
+| Baseline (PR #202) | 0 (no z-loss) | `prncgzv5` | 3025 | 3.26615 | — | Current best |
+| Arm A | 1e-4 | `nmokccos` | 3050 | 3.26860 | +0.00245 | NULL — within noise band |
+| Arm B | 1e-3 | `pdkpq1x2` | -1 (target missed) | 3.28640 | +0.02025 | REGRESSION — ~5× noise band |
+
+**Mechanism analysis (alphonse):** The existing logit soft-clamp `logits = 15·logits/(logits² + 15²)^{1/2}` at line 442 already constrains both magnitude and partition function. Telemetry showed `log_z_mean ≈ 3.87` even at no z-loss pressure — there's no partition drift left to penalize. At Z=1e-3 the auxiliary gradient pulls `log_z → 0` aggressively, but this competes destructively with CE: it shrinks the effective margin between correct-token logit and the rest, so cross-entropy slowly increases. Smooth monotonic curve, no NaN — clean objective interference, not stability failure.
+
+**Conclusion:** CLOSED. z-loss axis CLOSED at 0 (no z-loss). The current logit soft-clamp is the right operating point; additional explicit partition-function shrinkage degrades the language-modelling signal. Per the predeclared falsification rule, both arms NULL closes the axis.
+
+**Process improvement noted:** `pgrep -af train_gpt_simple` pre-launch check (avoids duplicate-process incidents that cost ~30 min of contaminated wall-clock).
+
+**Suggested follow-ups preserved:**
+1. Pre-clamp z-loss (apply to unclamped logits) — different mechanism, low priority
+2. **Per-group AdamW LR scans (embed_lr, scalar_lr, lm_head_lr)** — alphonse re-assigned to embed_lr scan {0.2, 0.4} per this follow-up
+3. Per-head/per-layer PMuon LR — high-effort fresh mechanism
+
+---
+
 ## 2026-05-17 21:10 — PR #272: AdamW eps scan {1e-8, 1e-9} (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/adamw-eps-scan`
