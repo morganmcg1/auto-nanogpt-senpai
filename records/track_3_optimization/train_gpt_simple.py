@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_attn_damping", type=float, default=0.0,
+                        help="Ridge regularization lambda on attn Gram before eigendecomp (only when --soap_attn)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -477,29 +479,32 @@ def soap_ns_step(nesterov_update):
     return update
 
 
-def soap_eigenbasis(mat: Tensor) -> Tensor:
+def soap_eigenbasis(mat: Tensor, damping: float = 0.0) -> tuple[Tensor, Tensor]:
     eye = torch.eye(mat.size(0), device=mat.device)
     try:
-        _, q = torch.linalg.eigh(mat + 1e-30 * eye)
+        S, q = torch.linalg.eigh(mat + (damping + 1e-30) * eye)
     except RuntimeError:
-        _, q = torch.linalg.eigh(mat.double() + 1e-30 * eye.double())
+        S, q = torch.linalg.eigh(mat.double() + (damping + 1e-30) * eye.double())
         q = q.float()
-    return torch.flip(q, [1])
+        S = S.float()
+    return torch.flip(q, [1]), torch.flip(S, [0])
 
 
 def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     row_eig = torch.diag(q_row.T @ row_gg @ q_row)
     row_sort = torch.argsort(row_eig, descending=True)
+    row_eig_sorted = row_eig[row_sort]
     q_row = q_row[:, row_sort]
     exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
     q_row, _ = torch.linalg.qr(row_gg @ q_row)
 
     col_eig = torch.diag(q_col.T @ col_gg @ q_col)
     col_sort = torch.argsort(col_eig, descending=True)
+    col_eig_sorted = col_eig[col_sort]
     q_col = q_col[:, col_sort]
     exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
     q_col, _ = torch.linalg.qr(col_gg @ q_col)
-    return q_row, q_col, exp_avg_sq
+    return q_row, q_col, exp_avg_sq, row_eig_sorted, col_eig_sorted
 
 
 def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
@@ -514,17 +519,28 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ,
+                               damping: float = 0.0):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
+    fresh_eig = False
     if state["q_row"] is None:
-        state["q_row"] = soap_eigenbasis(state["row_gg"])
-        state["q_col"] = soap_eigenbasis(state["col_gg"])
+        q_row, s_row = soap_eigenbasis(state["row_gg"], damping=damping)
+        q_col, s_col = soap_eigenbasis(state["col_gg"], damping=damping)
+        state["q_row"] = q_row
+        state["q_col"] = q_col
+        state["last_eig_row"] = s_row.detach()
+        state["last_eig_col"] = s_col.detach()
+        fresh_eig = True
     elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+        state["q_row"], state["q_col"], state["exp_avg_sq"], row_eig, col_eig = soap_basis_qr(
             state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
         )
+        state["last_eig_row"] = row_eig.detach()
+        state["last_eig_col"] = col_eig.detach()
+        fresh_eig = True
+    state["last_eig_fresh"] = fresh_eig
     state["soap_step"] += 1
 
 
@@ -533,18 +549,24 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, attn_damping=0.0):
         assert isinstance(named_params, list) and len(named_params) >= 1
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
             p for n, p in named_params
             if any(n.endswith(suf) for suf in soap_suffixes)
         }
+        self.attn_params = {
+            p for n, p in named_params
+            if any(n.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES)
+        } if soap_attn else set()
         self.param_names = {id(p): n for n, p in named_params}
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.attn_damping = float(attn_damping)
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.attn_eig_buffer: dict[str, tuple[Tensor, Tensor, bool]] = {}
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -552,6 +574,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.attn_eig_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -585,7 +608,13 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        is_attn = p in self.attn_params
+                        damping = self.attn_damping if is_attn else 0.0
+                        soap_update_preconditioner(p.grad, state, damping=damping)
+                        if is_attn and state.get("last_eig_fresh", False):
+                            self.attn_eig_buffer[self.param_names[id(p)]] = (
+                                state["last_eig_row"], state["last_eig_col"], True
+                            )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
@@ -669,6 +698,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_attn_damping": float(args.soap_attn_damping),
         },
     )
 
@@ -706,7 +736,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+                      attn_damping=args.soap_attn_damping)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -876,6 +907,29 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.attn_eig_buffer:
+            eig_metrics = {"trial": trial_idx, "train/step": train_step}
+            top10_row, bot10_row, top10_col, bot10_col = [], [], [], []
+            for cs_name, (eig_row, eig_col, _fresh) in optimizer2.attn_eig_buffer.items():
+                er = eig_row.detach().float()
+                ec = eig_col.detach().float()
+                er_top10 = float(er[:10].mean().item())
+                er_bot10 = float(er[-10:].mean().item())
+                ec_top10 = float(ec[:10].mean().item())
+                ec_bot10 = float(ec[-10:].mean().item())
+                eig_metrics[f"soap/attn/eig_top10_mean_row/{clean_metric_name(cs_name)}"] = er_top10
+                eig_metrics[f"soap/attn/eig_bottom10_mean_row/{clean_metric_name(cs_name)}"] = er_bot10
+                eig_metrics[f"soap/attn/eig_top10_mean_col/{clean_metric_name(cs_name)}"] = ec_top10
+                eig_metrics[f"soap/attn/eig_bottom10_mean_col/{clean_metric_name(cs_name)}"] = ec_bot10
+                top10_row.append(er_top10); bot10_row.append(er_bot10)
+                top10_col.append(ec_top10); bot10_col.append(ec_bot10)
+            if top10_row:
+                tr = sum(top10_row) / len(top10_row); br = sum(bot10_row) / len(bot10_row)
+                tc = sum(top10_col) / len(top10_col); bc = sum(bot10_col) / len(bot10_col)
+                eig_metrics["soap/attn/eig_top10_mean"] = 0.5 * (tr + tc)
+                eig_metrics["soap/attn/eig_bottom10_mean"] = 0.5 * (br + bc)
+                eig_metrics["soap/attn/eig_ratio"] = (0.5 * (tr + tc)) / (0.5 * (br + bc) + 1e-12)
+            wandb.log(eig_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
