@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--ema_alpha", type=float, default=float(os.environ.get("NANOGPT_EMA_ALPHA", "0.99")),
+                        help="EMA decay rate for parameter averaging. <=0 disables EMA.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -618,7 +620,12 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "muon_method": (
+                f"pmuon-uw-floor-power-cool-1p2-ema-{str(args.ema_alpha).replace('.', 'p')}"
+                if args.ema_alpha > 0 else "pmuon-uw-floor-power-cool-1p2"
+            ),
+            "ema_enabled": bool(args.ema_alpha > 0),
+            "ema_alpha": args.ema_alpha,
         },
     )
 
@@ -648,6 +655,19 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # EMA shadow parameter buffers for post-hoc trajectory smoothing.
+    # Initialized after re-init so each trial starts from a fresh EMA matching the live weights.
+    ema_alpha = args.ema_alpha
+    ema_enabled = ema_alpha > 0
+    if ema_enabled:
+        ema_state = {
+            n: p.data.detach().clone()
+            for n, p in model.named_parameters()
+            if p.requires_grad
+        }
+    else:
+        ema_state = {}
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
@@ -712,14 +732,36 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
-            with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+            assert len(val_inputs) % mbs == 0
+
+            def _compute_val_loss():
+                vl = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        vl += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(vl, op=dist.ReduceOp.SUM)
+                return float((vl / val_tokens).item())
+
+            # Compute live val_loss (the raw post-optimizer-step weights).
+            val_loss_live_float = _compute_val_loss()
+
+            # Compute EMA val_loss by swapping in shadow weights. Use the EMA val_loss
+            # for the speedrun metric per PR #197 — sr improvement requires EMA to cross
+            # 3.28 earlier than live weights.
+            if ema_enabled:
+                saved_weights = {}
+                for n, p in model.named_parameters():
+                    if n in ema_state:
+                        saved_weights[n] = p.data.detach().clone()
+                        p.data.copy_(ema_state[n])
+                val_loss_float = _compute_val_loss()
+                for n, p in model.named_parameters():
+                    if n in saved_weights:
+                        p.data.copy_(saved_weights[n])
+                del saved_weights
+            else:
+                val_loss_float = val_loss_live_float
+
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -731,19 +773,22 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_live": val_loss_live_float,
+                    "val/loss_ema_gap": val_loss_live_float - val_loss_float,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
                     "val/single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_float - STAT_SIG_DELTA,
                     "speedrun/first_step_to_target": first_step_to_target,
                     "speedrun/reached_target": int(first_step_to_target >= 0),
+                    "ema/alpha": ema_alpha if ema_enabled else 0.0,
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f} val_loss_live:{val_loss_live_float:.5f}"
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -796,6 +841,14 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Update EMA shadow weights from post-optimizer-step live parameters.
+        # Note: dtype of ema_state[n] matches the param dtype it was cloned from
+        # (bf16 for embed, fp32 for all other learnable params).
+        if ema_enabled:
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    if n in ema_state:
+                        ema_state[n].mul_(ema_alpha).add_(p.detach(), alpha=1.0 - ema_alpha)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
