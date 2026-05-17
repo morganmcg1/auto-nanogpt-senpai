@@ -463,6 +463,7 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     raise ValueError(
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
+NANOGPT_MUON_MU = float(os.environ.get("NANOGPT_MUON_MU", "0.95"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -541,6 +542,14 @@ class Muon(torch.optim.Optimizer):
                         # divide it out so the spectrum is the pure NS output.
                         scale = max(1, p.grad.size(-2) / p.grad.size(-1))**0.5
                         u_for_svd = (update.detach().float() / scale)
+                        # Frobenius norm of the Heavy-ball momentum buffer
+                        # (post-update; muon_update mutates state["momentum"] in place).
+                        # Higher mu -> smoother/larger v norm; this is the mechanism
+                        # signal for the muon_mu sweep.
+                        try:
+                            momentum_frob = float(state["momentum"].detach().float().norm().item())
+                        except Exception:
+                            momentum_frob = float("nan")
                         try:
                             svals = torch.linalg.svdvals(u_for_svd)
                             self.spectral_stats = {
@@ -550,9 +559,15 @@ class Muon(torch.optim.Optimizer):
                                 "u_singular_range": float((svals.max() - svals.min()).item()),
                                 "u_singular_std": float(svals.std(unbiased=False).item()),
                                 "ns_iters_used": float(ns_iters),
+                                "momentum_frob": momentum_frob,
+                                "muon_mu": float(group["mu"]),
                             }
                         except Exception:
-                            self.spectral_stats = None
+                            self.spectral_stats = {
+                                "momentum_frob": momentum_frob,
+                                "muon_mu": float(group["mu"]),
+                                "ns_iters_used": float(ns_iters),
+                            }
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -641,6 +656,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_muon_mu": NANOGPT_MUON_MU,
         },
     )
 
@@ -677,7 +693,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
+                      lr=0.035, weight_decay=0.025, mu=NANOGPT_MUON_MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
