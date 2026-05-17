@@ -46,6 +46,11 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_attn_per_head", action="store_true",
+                        help="Use per-head block-diagonal SOAP on attn weights (per-head row Gram on head_dim axis "
+                             "with shared col Gram on d_model axis). Requires --soap_attn.")
+    parser.add_argument("--n_heads_soap", type=int, default=12,
+                        help="Number of head-blocks for per-head SOAP on attn weights. Must divide d_model (768).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -528,23 +533,150 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def per_head_view(grad: Tensor, suffix: str, n_heads: int, head_dim: int) -> Tensor:
+    """Reshape (d_out, d_in) grad to (n_heads, head_dim, d_other), per-head axis first.
+
+    For q/k/v: d_out=n_heads*head_dim. head_axis=axis 0 of grad.
+        grad.view(n_heads, head_dim, d_in) -> (H, head_dim, d_model).
+    For proj: d_in=n_heads*head_dim. head_axis=axis 1 of grad.
+        grad.view(d_out, n_heads, head_dim).permute(1, 2, 0) -> (H, head_dim, d_out).
+    """
+    d_out, d_in = grad.shape
+    if suffix.endswith(".proj.weight"):
+        assert d_in == n_heads * head_dim, f"proj: d_in={d_in} != {n_heads}*{head_dim}"
+        return grad.view(d_out, n_heads, head_dim).permute(1, 2, 0).contiguous()
+    else:
+        assert d_out == n_heads * head_dim, f"qkv: d_out={d_out} != {n_heads}*{head_dim}"
+        return grad.view(n_heads, head_dim, d_in)
+
+
+def per_head_unview(heads: Tensor, suffix: str) -> Tensor:
+    """Inverse of per_head_view: (n_heads, head_dim, d_other) -> (d_out, d_in)."""
+    n_heads, head_dim, d_other = heads.shape
+    if suffix.endswith(".proj.weight"):
+        return heads.permute(2, 0, 1).reshape(d_other, n_heads * head_dim)
+    else:
+        return heads.reshape(n_heads * head_dim, d_other)
+
+
+def soap_eigenbasis_batched(mat: Tensor) -> Tensor:
+    """Batched eigenbasis for a stack of square Gram matrices (..., k, k)."""
+    k = mat.size(-1)
+    eye = torch.eye(k, device=mat.device).expand_as(mat)
+    try:
+        _, q = torch.linalg.eigh(mat + 1e-30 * eye)
+    except RuntimeError:
+        _, q = torch.linalg.eigh(mat.double() + 1e-30 * eye.double())
+        q = q.float()
+    return torch.flip(q, [-1])
+
+
+def soap_precondition_momentum_perhead(update: Tensor, state, suffix: str, beta2=SOAP_BETA2, eps=1e-8):
+    """Per-head SOAP precondition: per-head row Gram (64x64) + shared col Gram (768x768).
+
+    update: full (d_out, d_in) grad tensor.
+    state: per-param SOAP state with per-head row + shared col.
+    suffix: param name suffix to determine reshape axis.
+    """
+    if state["q_row_ph"] is None:
+        return update
+    update_f = update.float()
+    heads = per_head_view(update_f, suffix, state["n_heads"], state["head_dim"])
+    # heads: (H, head_dim, d_other)
+    q_row_ph = state["q_row_ph"]  # (H, head_dim, head_dim)
+    q_col_sh = state["q_col_sh"]  # (d_other, d_other)
+    # projected[h] = q_row_ph[h].T @ heads[h] @ q_col_sh
+    projected = torch.matmul(q_row_ph.transpose(-1, -2), torch.matmul(heads, q_col_sh))
+    # exp_avg_sq_ph: (H, head_dim, d_other)
+    state["exp_avg_sq_ph"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+    inv_sqrt = state["exp_avg_sq_ph"].sqrt().add(eps)
+    precond_heads = torch.matmul(q_row_ph, torch.matmul(projected / inv_sqrt, q_col_sh.T))
+    precond = per_head_unview(precond_heads, suffix)
+    # Renormalize precond to match update's total norm (consistent with full-SOAP code path).
+    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+    return precond.to(update.dtype)
+
+
+def soap_basis_qr_perhead(row_gg_ph, col_gg_sh, q_row_ph, q_col_sh, exp_avg_sq_ph):
+    """QR refresh for per-head row + shared col SOAP basis.
+
+    row_gg_ph: (H, head_dim, head_dim)   q_row_ph: (H, head_dim, head_dim)
+    col_gg_sh: (d_other, d_other)         q_col_sh: (d_other, d_other)
+    exp_avg_sq_ph: (H, head_dim, d_other)
+    """
+    H, head_dim, _ = q_row_ph.shape
+    d_other = q_col_sh.size(0)
+
+    # Per-head row refresh: row_eig[h] = diag(q_row_ph[h].T @ row_gg_ph[h] @ q_row_ph[h])
+    rotated_row = torch.matmul(q_row_ph.transpose(-1, -2), torch.matmul(row_gg_ph, q_row_ph))  # (H, head_dim, head_dim)
+    row_eig = torch.diagonal(rotated_row, dim1=-2, dim2=-1)  # (H, head_dim)
+    row_sort = torch.argsort(row_eig, dim=-1, descending=True)  # (H, head_dim)
+    # Reorder q_row_ph columns: q_row_ph[h] = q_row_ph[h][:, row_sort[h]]
+    q_row_ph = torch.gather(q_row_ph, dim=2, index=row_sort.unsqueeze(1).expand(-1, head_dim, -1))
+    # Reorder exp_avg_sq_ph rows: exp_avg_sq_ph[h, row_sort[h], :]
+    exp_avg_sq_ph = torch.gather(exp_avg_sq_ph, dim=1, index=row_sort.unsqueeze(-1).expand(-1, -1, d_other))
+    # Per-head QR: q_row[h] = qr(row_gg[h] @ q_row[h]).Q
+    q_row_ph, _ = torch.linalg.qr(torch.matmul(row_gg_ph, q_row_ph))
+
+    # Shared col refresh (same as full SOAP)
+    col_eig = torch.diag(q_col_sh.T @ col_gg_sh @ q_col_sh)  # (d_other,)
+    col_sort = torch.argsort(col_eig, descending=True)
+    q_col_sh = q_col_sh[:, col_sort]
+    # Reorder exp_avg_sq_ph last axis
+    exp_avg_sq_ph = exp_avg_sq_ph.index_select(-1, col_sort)
+    q_col_sh, _ = torch.linalg.qr(col_gg_sh @ q_col_sh)
+
+    return q_row_ph, q_col_sh, exp_avg_sq_ph
+
+
+def soap_update_preconditioner_perhead(grad: Tensor, state, suffix: str,
+                                       shampoo_beta=SOAP_BETA2,
+                                       precondition_frequency=PRECOND_FREQ):
+    """Update per-head row Gram + shared col Gram for SOAP."""
+    grad_f = grad.float()
+    heads = per_head_view(grad_f, suffix, state["n_heads"], state["head_dim"])  # (H, head_dim, d_other)
+    # Per-head row Gram: heads[h] @ heads[h].T
+    row_gg_ph_new = torch.matmul(heads, heads.transpose(-1, -2))  # (H, head_dim, head_dim)
+    state["row_gg_ph"].lerp_(row_gg_ph_new, 1 - shampoo_beta)
+    # Shared col Gram (same as full SOAP, identical math)
+    state["col_gg_sh"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
+
+    if state["q_row_ph"] is None:
+        state["q_row_ph"] = soap_eigenbasis_batched(state["row_gg_ph"])
+        state["q_col_sh"] = soap_eigenbasis(state["col_gg_sh"])
+    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+        state["q_row_ph"], state["q_col_sh"], state["exp_avg_sq_ph"] = soap_basis_qr_perhead(
+            state["row_gg_ph"], state["col_gg_sh"], state["q_row_ph"], state["q_col_sh"], state["exp_avg_sq_ph"]
+        )
+    state["soap_step"] += 1
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_attn_per_head=False, n_heads_soap=12):
         assert isinstance(named_params, list) and len(named_params) >= 1
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
             p for n, p in named_params
             if any(n.endswith(suf) for suf in soap_suffixes)
         }
-        self.param_names = {id(p): n for n, p in named_params}
+        # Per-head SOAP is only meaningful for attn params and requires --soap_attn.
         self.soap_attn = soap_attn
+        self.soap_attn_per_head = soap_attn_per_head and soap_attn
+        self.n_heads_soap = int(n_heads_soap)
+        self.per_head_params = {
+            p for n, p in named_params
+            if self.soap_attn_per_head and any(n.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES)
+        }
+        self.param_names = {id(p): n for n, p in named_params}
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.per_head_cos_sims_buffer: dict[str, Tensor] = {}
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -552,8 +684,10 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.per_head_cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        head_dim_soap = 768 // self.n_heads_soap  # always 768 in this model
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -562,16 +696,60 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    use_per_head = p in self.per_head_params
+                    p_name = self.param_names[id(p)]
+                    suffix = p_name
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                        if use_soap:
+                        if use_per_head:
+                            n_heads = self.n_heads_soap
+                            head_dim = head_dim_soap
+                            # For q/k/v: heads view is (H, head_dim, d_model); d_other = p.size(1) = 768.
+                            # For proj: heads view is (H, head_dim, d_out); d_other = p.size(0) = 768.
+                            d_other = p.size(1) if not suffix.endswith(".proj.weight") else p.size(0)
+                            state["n_heads"] = n_heads
+                            state["head_dim"] = head_dim
+                            state["row_gg_ph"] = torch.zeros(n_heads, head_dim, head_dim,
+                                                              dtype=torch.float32, device=p.device)
+                            state["col_gg_sh"] = torch.zeros(d_other, d_other,
+                                                              dtype=torch.float32, device=p.device)
+                            state["exp_avg_sq_ph"] = torch.zeros(n_heads, head_dim, d_other,
+                                                                  dtype=torch.float32, device=p.device)
+                            state["q_row_ph"] = None
+                            state["q_col_sh"] = None
+                            state["soap_step"] = 0
+                        elif use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
                             state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
-                    if use_soap:
+                    if use_per_head:
+                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        precond_nesterov = soap_precondition_momentum_perhead(raw_nesterov, state, suffix)
+                        u_soap = soap_ns_step(precond_nesterov)
+                        if self.use_trust_gate:
+                            u_muon = soap_ns_step(raw_nesterov)
+                            us = u_soap.float()
+                            um = u_muon.float()
+                            cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
+                            update = torch.where(cos_sim_t < self.trust_threshold, u_muon, u_soap)
+                            self.cos_sims_buffer[p_name] = cos_sim_t
+                            # Per-head cos_sim for telemetry
+                            us_heads = per_head_view(us, suffix, state["n_heads"], state["head_dim"])
+                            um_heads = per_head_view(um, suffix, state["n_heads"], state["head_dim"])
+                            us_flat = us_heads.reshape(state["n_heads"], -1)
+                            um_flat = um_heads.reshape(state["n_heads"], -1)
+                            cos_per_head = (us_flat * um_flat).sum(dim=-1) / (
+                                us_flat.norm(dim=-1) * um_flat.norm(dim=-1) + 1e-8
+                            )
+                            self.per_head_cos_sims_buffer[p_name] = cos_per_head.detach()
+                        else:
+                            update = u_soap
+                        soap_update_preconditioner_perhead(p.grad, state, suffix)
+                    elif use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
@@ -582,7 +760,7 @@ class Muon(torch.optim.Optimizer):
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
                             update = torch.where(cos_sim_t < self.trust_threshold, u_muon, u_soap)
-                            self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
+                            self.cos_sims_buffer[p_name] = cos_sim_t
                         else:
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
@@ -669,6 +847,8 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_attn_per_head": bool(args.soap_attn_per_head),
+            "n_heads_soap": int(args.n_heads_soap) if args.soap_attn_per_head else 0,
         },
     )
 
@@ -706,7 +886,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+                      soap_attn_per_head=args.soap_attn_per_head, n_heads_soap=args.n_heads_soap)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -876,6 +1057,31 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.per_head_cos_sims_buffer:
+            # Aggregate per-head cos_sims across all attn params (q/k/v/proj × 12 layers × n_heads)
+            ph_metrics = {"trial": trial_idx, "train/step": train_step}
+            all_per_head_values: list[float] = []
+            per_param_means: dict[str, float] = {}
+            for ph_name, ph_tensor in optimizer2.per_head_cos_sims_buffer.items():
+                ph_values = ph_tensor.detach().cpu().tolist()  # list of length n_heads
+                all_per_head_values.extend(ph_values)
+                per_param_means[ph_name] = sum(ph_values) / len(ph_values)
+                # Log per-param per-head min/mean/max
+                ph_metrics[f"soap_attn/per_head_cos_sim_min/{clean_metric_name(ph_name)}"] = min(ph_values)
+                ph_metrics[f"soap_attn/per_head_cos_sim_max/{clean_metric_name(ph_name)}"] = max(ph_values)
+                ph_metrics[f"soap_attn/per_head_cos_sim_mean/{clean_metric_name(ph_name)}"] = (
+                    sum(ph_values) / len(ph_values)
+                )
+            if all_per_head_values:
+                aggregate_mean = sum(all_per_head_values) / len(all_per_head_values)
+                # Population std across heads (matches PR's "soap_attn/cos_sim_std_per_head")
+                ph_var = sum((v - aggregate_mean) ** 2 for v in all_per_head_values) / len(all_per_head_values)
+                ph_metrics["soap_attn/cos_sim_mean_per_head_aggregate"] = aggregate_mean
+                ph_metrics["soap_attn/cos_sim_std_per_head"] = ph_var ** 0.5
+                ph_metrics["soap_attn/cos_sim_min_per_head"] = min(all_per_head_values)
+                ph_metrics["soap_attn/cos_sim_max_per_head"] = max(all_per_head_values)
+                ph_metrics["soap_attn/n_heads_total"] = len(all_per_head_values)
+            wandb.log(ph_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
