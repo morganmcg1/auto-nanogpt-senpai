@@ -13,7 +13,7 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 | Field | Value |
 | --- | --- |
 | `train_steps` | 3175 |
-| Key change | Attn-SOAP coverage extended to attention weights at `TRUST_THRESHOLD=0.85`; SOAP gate fires when cosine-similarity between attn grad and attn weight ≥ 0.85 |
+| Key change | Attn-SOAP coverage extended to attention weights at `ATTN_SOAP_TRUST_THRESHOLD=0.85` (env var; code-level default is 0.9). SOAP gate fires when cosine-similarity between attn eigenbasis pre-QR and post-QR ≥ 0.85 |
 | Contra-Muon HPs | `CONTRA_MUON=0.5`, `TARGET_UW=0.35`, `MUON_LR=0.0375`, `MU=0.95` (unchanged) |
 | SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; now applies to `mlp.fc.weight`, `mlp.proj.weight` **AND** attn weights at T=0.85 |
 | Optimizer aux | AdamW: embed.weight lr=0.3; proj.weight lr=1/320; scalars lr=0.01; betas=(0.8, 0.95), eps=1e-10, wd=0 |
@@ -36,7 +36,7 @@ Per-trial results:
 Reproduce (from advisor branch, single GPU):
 ```bash
 cd target/
-TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5 torchrun --standalone --nproc_per_node=1 \
+ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5 torchrun --standalone --nproc_per_node=1 \
   records/track_3_optimization/train_gpt_simple.py \
   --train_steps 3175 --num_trials 4 \
   --wandb_name 'g1r2-nezuko/attn-soap-new-base-confirm-n4' \
