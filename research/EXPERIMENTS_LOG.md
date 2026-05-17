@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-17 17:41 — PR #258: Skylight u/w-floor ablation TARGET_UW ∈ {0.0, 0.7} (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/uw-floor-pruning-ablation`
+- Hypothesis: Is TARGET_UW=0.35 (Skylight floor) load-bearing on the new γ_power=0.4+cubic-Newton stack? Test both disabling (0.0) and doubling (0.7).
+
+| Arm | TARGET_UW | W&B run | sr | val/loss | Status |
+|---|---|---|---|---|---|
+| Arm A | 0.0 (disabled) | `yrvf83c0` | 3125 | 3.27504 | NULL — clear regression (+100 sr, +0.00889 val) |
+| Baseline | 0.35 | `prncgzv5` | 3025 | 3.26615 | Baseline |
+| Arm B | 0.7 | `9q7v4c4u` | DIVERGED step 2138 | — | CATASTROPHIC FAILURE — eigh crash |
+
+**Analysis:** Arm A definitively shows u/w-floor IS load-bearing — disabling costs +100 sr and +0.009 val. The floor's value is concentrated in the cooldown phase: Arm A leads baseline mid-training (step 1000: 3.6225 vs 3.6578) but loses significantly by end (3.2750 vs 3.2662). 
+
+Arm B produced the most striking diagnostic: TARGET_UW=0.7 creates a divergent amplification feedback loop. The floor sits 2.2× above the natural ratio mean (~0.31), causing every param to trigger from step 150. Amplification factor grows from 1× to 85,000× by step 2075, making the bilateral-whitening matrix numerically ill-conditioned → `torch.linalg.eigh` crash at step 2138.
+
+New telemetry (ratio_mean/min/max) confirmed Goldilocks structure: natural u/w ratio band is [0.24, 0.39] with mean ~0.31. The floor at 0.35 sits just above the band (mild 1.1–1.5× lift) while 0.7 triggers a runaway positive feedback.
+
+**Conclusion:** CLOSED. TARGET_UW axis CLOSED at 0.35. Neither removing nor doubling the floor is viable on the γ_power=0.4 stack. Follow-up: PR #293 nezuko (Polyak weight averaging — fresh mechanism).
+
+---
+
 ## 2026-05-17 16:22 — PR #248: Muon base LR retune {0.030, 0.040} (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/muon-base-lr-retune`

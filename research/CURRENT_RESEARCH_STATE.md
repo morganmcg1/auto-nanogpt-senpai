@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 16:48 UTC — Tanjiro PR #250 terminal SENPAI-RESULT: arm B (c=+0.25) sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) but well within seed noise. Sent back for n=2 seed-2 re-run before merge per program convention (Δval > 0.001 required for n=1 confidence). Frieren PR #261 arm A (warmup=50) FINISHED sr=3025 val=3.2662 NULL within noise; arm B (warmup=150) `wonlhane` running step ~225. PR #287 askeladd WD scan in early phase.
+- **Last update:** 2026-05-17 17:41 UTC — PR #258 nezuko CLOSED (TARGET_UW axis CLOSED: disabled=sr+100, 0.7=catastrophic eigh divergence). PR #293 nezuko ASSIGNED (Polyak weight averaging). Thorfinn PR #272 arm A FINISHED sr=3025 val=3.26639 NULL. Tanjiro PR #250 seed-2 running. Askeladd PR #287 WD=0.035 arm A step ~750.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -17,9 +17,9 @@ Previous baselines:
 
 | PR  | Student     | Mechanism                                                           | Status (15:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) step 1800/3250 (~55%) val=3.486 — running. Duplicate `7210vvfo` killed at 15:27 UTC. |
+| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) FINISHED sr=3025 val=3.26639 NULL (Δval=+0.00024 within noise). Awaiting arm B (eps=1e-9). |
 | **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) FINISHED sr=3025 val=3.2662 — Δval=+0.00005 NULL (tied within noise). Arm B `wonlhane` (warmup=150) running step ~225/3250 (~7%). |
-| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) FINISHED sr=3125 val=3.275 NULL. Arm B `9q7v4c4u` (TARGET_UW=0.7) step 700 val=3.92 — running. |
+| **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Just assigned. PR #258 CLOSED (TARGET_UW axis CLOSED at 0.35). |
 | **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 val=3.273 NULL. Arm B FINISHED sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) within seed noise. **SENT BACK for n=2 seed-2 re-run**. |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 1625/3250 (~50%) val=3.526 — running. |
@@ -36,6 +36,7 @@ Previous baselines:
 | **#242** | frieren | Arm A (γ=0.5) sr=3150 NULL. Arm B (γ=0.6) 3 crashes. | CLOSED — γ_power axis CLOSED at 0.4 (local optimum) |
 | **#216** | nezuko | β2=0.99 sr=3025 val=3.26640 NULL; β2=0.999 sr=3100 regression | CLOSED — β2 axis CLOSED: β2=0.95 optimal |
 | **#226** | tanjiro | Arm A sr=3050 NULL; arm B crashed step 3 (structural: a+b+c≠1) | CLOSED — structural finding → follow-up PR #250 |
+| **#258** | nezuko | u/w-floor ablation: TARGET_UW=0.0 sr=3125 NULL; TARGET_UW=0.7 DIVERGED (eigh crash at step 2138, amplification 85,000×) | CLOSED — TARGET_UW axis CLOSED at 0.35. Floor IS load-bearing. 0.7 catastrophically unstable. |
 | **#248** | askeladd | Muon LR scan: lr=0.030 sr=3025 val=3.26755 NULL; lr=0.040 sr=3050 val=3.26669 NULL. param_norm grows 3.4× for 1.33× LR | CLOSED — Muon base LR axis CLOSED at 0.035. Follow-up: PR #287 WD scan. |
 | **#211** | askeladd | Both arms NULL on stale base | CLOSED |
 | **#198** | edward | deep-strong sr=3050 NULL vs new baseline | CLOSED |
@@ -90,7 +91,7 @@ Previous baselines:
 | **NS_coef (a,b) line** | **CLOSED (PR #229)** | (a=1.5, b=-0.5) optimal | 3025 |
 | **Muon base LR** | **CLOSED (PR #248)** | 0.035 optimal (both ±14% NULL) | 3025 |
 | **mu** (gradient momentum) | ACTIVE (PR #231) | 0.95 baseline; mu=0.9 NULL | — |
-| **TARGET_UW** (Skylight floor) | ACTIVE ablation (PR #258) | 0.35 (testing 0.0/0.7) | — |
+| **TARGET_UW** (Skylight floor) | **CLOSED (PR #258)** | 0.35 optimal (0.0 NULL sr+100, 0.7 diverged) | 3025 |
 | **Muon LR warmup** | ACTIVE mechanism (PR #261) | None (new axis) | — |
 
 ## Auxiliary optimizer (AdamW) — exploration in progress
