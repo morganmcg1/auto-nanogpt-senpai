@@ -1,32 +1,25 @@
 # SENPAI Research State
 
-- 2026-05-17 ~16:15 UTC — Cycle 54 (continued)
+- 2026-05-17 ~16:40 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 
 ## CRITICAL BUG FIXED (cycle 54)
 
 `TRUST_THRESHOLD=0.85` was a **silent no-op** — the code reads `ATTN_SOAP_TRUST_THRESHOLD` (line 449). All advisor PRs and BASELINE.md corrected. Students on #271/#273/#275/#276/#277 notified. PR #281 (edward) uses correct var.
 
-## Current baseline ⭐ (UPDATED — PR #212 merged)
+## Current baseline ⭐ (UPDATED — PR #219 merged)
 
-**Attn-SOAP+trust T=0.85 + Contra+SOAP-MLP + CONTRA_MUON=0.5 (PR #212)** — n=4 mean=**3.27631**, ffs_mean=**3112.5** @ train_steps=3175
+**Annealed μ (MU_START=0.97→MU_END=0.90) + Attn-SOAP+trust T=0.85 + CONTRA_MUON=0.5 (PR #219)** — n=4 mean=**3.275835**, ffs_mean=**3087.5** @ train_steps=3175
 
-Previous baseline (PR #139): val=3.27648, ffs=3118.75
+Previous baseline (PR #212): val=3.27631, ffs=3112.5
+- **New merge bar: mean val < 3.275835 AND ffs_mean < 3087.5**
+- **All new experiments must include**: `MU_START=0.97 MU_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5`
 
-## 🚀 PENDING MERGE: THORFINN #219 — Annealed μ Arm B — n=4 COMPLETE, AWAITING REBASE
-
-| Trial | val/loss | ffs |
-|---|---|---|
-| T0 | 3.27510 | 3075 |
-| T1 | 3.27697 | 3100 |
-| T2 | 3.27489 | 3075 |
-| T3 | 3.27638 | 3100 |
-| **n=4 mean** | **3.275835** | **3087.5** |
-
-Δ vs baseline: val=−0.000475, ffs=−25.0 steps. Statsig **0.00833** (2.08× margin). All trials terminal.
-- **Sent back for rebase**: PR #212 merged after #219 launched → merge conflict in train_gpt_simple.py.
-- **Note**: result obtained on PRE-#212 stack (no trust gate). Mechanism is additive — gain holds vs new baseline.
-- **Next follow-up after merge**: assign annealed-μ + ATTN_SOAP_TRUST_THRESHOLD=0.85 compounding run.
+### THORFINN #288 — Annealed μ finer sweep (just assigned)
+- Arm A: MU_START=0.97 → MU_END=0.92 (tighter range, less decay). Tests if warmup stabilization is the primary benefit.
+- Arm B: cooldown-phase-only anneal MU_COOLDOWN_START=0.95 → MU_COOLDOWN_END=0.90 starting at step 952. Tests if cooldown reactivity is the primary benefit.
+- Both arms run on FULL merged stack (MU_START + ATTN_SOAP_TRUST_THRESHOLD=0.85 + CONTRA_MUON=0.5).
+- _THORFINN #219 (Annealed μ 0.97→0.90) MERGED ⭐_ — new baseline val=3.275835/ffs=3087.5 (+25 ffs steps vs PR #212).
 
 ## Active in-flight experiments
 
@@ -129,7 +122,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 |---|---|---|---|
 | ~14:30 | Alphonse | Trial 1 data | SOAP_PRECOND_FREQ=5 screening signal |
 | ~15:00 | Tanjiro | Arm A terminal (NS_ITERS=10) | TBD |
-| ~15:30 | Thorfinn | n=4 all trials | **STRONG MERGE CANDIDATE** |
+| ~16:35 | Thorfinn | **MERGED** (n=4 val=3.275835/ffs=3087.5) | ✅ New baseline |
 | ~16:00 | Frieren | Terminal SENPAI-RESULT (overdue) | MISS (close + reassign) |
 | TBD | Edward | Per-head SOAP screen (#281) | First result ~3h |
 | TBD | Askeladd | Polyak EMA implementation + screen (#286) | First result ~3h |
@@ -140,11 +133,11 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 
 Primary goal: beat record #20 (3030 steps). Current baseline = 3112.5 steps.
 
-**If thorfinn n=4 merges** (~15:30): new ffs baseline ~3075-3090. Gap to record = ~45 steps.
-**Compounding thorfinn + new axes**: ffs ~3050. Gap to record = ~20 steps.
+**Thorfinn #219 MERGED** (~16:35): new ffs baseline 3087.5. Gap to record = ~57 steps.
+**Compounding current in-flight axes**: best case ffs ~3050. Gap to record = ~20 steps.
 
 Most promising paths (ranked):
-1. **Annealed μ Arm B n=4** (thorfinn #219) — screen val=3.2755/ffs=3075; n=4 2/4 done (best val=3.27697/ffs=3100). Monitor: if n=4 mean val barely misses new baseline, rerun WITH TRUST_THRESHOLD=0.85.
+1. **Annealed μ finer sweep** (thorfinn #288) — cooldown-only arm may unlock further +5-10 ffs. Direct follow-on from merged winner.
 2. **MLP-SOAP trust gate** (frieren #275) — symmetric extension of merged PR #212 win.
 3. **Asymmetric Attn-SOAP trust QK vs VO** (nezuko #273) — direct follow-up to merged win.
 4. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis.
@@ -156,10 +149,10 @@ Most promising paths (ranked):
 ## Operational notes
 
 - W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
-- **NEW** Merge bar: BOTH mean val < 3.27631 AND ffs_mean < 3112.5
+- **NEW** Merge bar: BOTH mean val < 3.275835 AND ffs_mean < 3087.5
 - All n=4 statsig: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800
 - All n=3 (1 NaN): mean ≤ 3.27769
-- **All new experiments should include `TRUST_THRESHOLD=0.85` to run on new baseline**
+- **All new experiments must include**: `MU_START=0.97 MU_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5`
 - **Lookahead-on-Muon**: do not reassign — fundamentally incompatible (state rollback problem).
 - **Muon momentum bias correction**: CLOSED (PR #221). Do not reassign.
 - **NorMuon EMA bias correction**: CLOSED (PR #263). Global EMA BC is a no-op due to Frobenius renorm. Any future BC attempt must be row-conditional.
