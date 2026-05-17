@@ -46,6 +46,12 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_lm_head", action="store_true",
+                        help="Move lm_head (model.proj.weight, 50304x768) from AdamW to Muon with col-only SOAP preconditioning.")
+    parser.add_argument("--soap_lm_head_lr", type=float, default=0.01,
+                        help="Initial LR for lm_head when --soap_lm_head is set (default 0.01).")
+    parser.add_argument("--soap_lm_head_freq", type=int, default=32,
+                        help="Col-side eigendecomp refresh frequency for lm_head (default 32; blocks use PRECOND_FREQ=16).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -502,8 +508,17 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
-def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
+def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8, col_only=False):
     update_f = update.float()
+    if col_only:
+        if state["q_col"] is None:
+            return update
+        q_col = state["q_col"]
+        projected = update_f @ q_col
+        state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+        precond = (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+        precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+        return precond.to(update.dtype)
     if state["q_row"] is None:
         return update
     q_row, q_col = state["q_row"], state["q_col"]
@@ -514,17 +529,28 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ, col_only=False):
     grad_f = grad.float()
-    state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
-    if state["q_row"] is None:
-        state["q_row"] = soap_eigenbasis(state["row_gg"])
-        state["q_col"] = soap_eigenbasis(state["col_gg"])
-    elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
-        )
+    if not col_only:
+        state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
+    if col_only:
+        if state["q_col"] is None:
+            state["q_col"] = soap_eigenbasis(state["col_gg"])
+        elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+            col_eig = torch.diag(state["q_col"].T @ state["col_gg"] @ state["q_col"])
+            col_sort = torch.argsort(col_eig, descending=True)
+            q_col = state["q_col"][:, col_sort]
+            state["exp_avg_sq"] = state["exp_avg_sq"].index_select(1, col_sort)
+            state["q_col"], _ = torch.linalg.qr(state["col_gg"] @ q_col)
+    else:
+        if state["q_row"] is None:
+            state["q_row"] = soap_eigenbasis(state["row_gg"])
+            state["q_col"] = soap_eigenbasis(state["col_gg"])
+        elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
+            state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+                state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+            )
     state["soap_step"] += 1
 
 
@@ -556,27 +582,30 @@ class Muon(torch.optim.Optimizer):
         rank = dist.get_rank()
         for group in self.param_groups:
             params = group["params"]
+            col_only = group.get("soap_col_only", False)
+            precond_freq = group.get("soap_precond_freq", PRECOND_FREQ)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
                     state = self.state[p]
-                    use_soap = p in self.soap_params
+                    use_soap = col_only or (p in self.soap_params)
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
-                            state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
                             state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
-                            state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                            if not col_only:
+                                state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
+                                state["q_row"] = None
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, col_only=col_only)
                         u_soap = soap_ns_step(precond_nesterov)
-                        if self.use_trust_gate:
+                        if self.use_trust_gate and not col_only:
                             u_muon = soap_ns_step(raw_nesterov)
                             us = u_soap.float()
                             um = u_muon.float()
@@ -585,7 +614,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, precondition_frequency=precond_freq, col_only=col_only)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
@@ -669,6 +698,9 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_lm_head": bool(args.soap_lm_head),
+            "soap_lm_head_lr": float(args.soap_lm_head_lr),
+            "soap_lm_head_freq": int(args.soap_lm_head_freq),
         },
     )
 
@@ -700,14 +732,33 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if args.soap_lm_head:
+        # lm_head moved into Muon with col-only SOAP; embed and scalars stay in AdamW
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=0.035, weight_decay=0.025,
+                          soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        optimizer2.add_param_group(dict(
+            params=[model.proj.weight],
+            lr=args.soap_lm_head_lr,
+            weight_decay=0.025,
+            mu=0.95,
+            name="muon_lm_head",
+            soap_col_only=True,
+            soap_precond_freq=args.soap_lm_head_freq,
+        ))
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=0.035, weight_decay=0.025,
+                          soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -841,6 +892,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and args.soap_lm_head and telemetry_due:
+            wandb.log({
+                "trial": trial_idx,
+                "lm_head/grad_norm": float(model.proj.weight.grad.float().norm().item()),
+                "lm_head/param_norm": float(model.proj.weight.float().norm().item()),
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
