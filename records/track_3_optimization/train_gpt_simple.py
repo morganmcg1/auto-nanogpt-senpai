@@ -44,6 +44,10 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
+    parser.add_argument("--ema_decay", type=float, default=float(os.environ.get("EMA_DECAY", "0.0")),
+                        help="EMA decay for Polyak param averaging applied at final validation. 0.0 disables.")
+    parser.add_argument("--ema_warmup_steps", type=int, default=int(os.environ.get("EMA_WARMUP_STEPS", "0")),
+                        help="Steps before EMA shadow updates begin. 0 = update from step 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -666,6 +670,8 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "train_steps": args.train_steps,
+            "ema_decay": args.ema_decay,
+            "ema_warmup_steps": args.ema_warmup_steps,
         },
     )
 
@@ -758,6 +764,13 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Polyak param EMA: maintain a shadow copy and swap it in for the final
+    # validation. Disabled when ema_decay == 0.0 (bit-identical to baseline).
+    ema_active = args.ema_decay > 0.0
+    ema_shadow = (
+        {name: p.data.clone() for name, p in model.named_parameters()}
+        if ema_active else None
+    )
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -781,6 +794,11 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # At final step, swap EMA shadow into params (one-way; no restore)
+            # so the reported val/loss reflects Polyak-averaged params.
+            if step == train_steps and ema_active:
+                for name, p in model.named_parameters():
+                    p.data.copy_(ema_shadow[name])
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -866,6 +884,9 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if ema_active and step >= args.ema_warmup_steps:
+            for name, p in model.named_parameters():
+                ema_shadow[name].mul_(args.ema_decay).add_(p.data, alpha=1.0 - args.ema_decay)
         if dist.get_rank() == 0 and telemetry_due:
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             for opt in optimizers:
