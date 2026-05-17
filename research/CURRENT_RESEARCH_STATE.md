@@ -1,16 +1,17 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #99, ~18:15 UTC)
+- **Last updated:** 2026-05-17 (poll #100, ~19:00 UTC)
 - **⭐⭐ FRIEREN PHASE 2 HEALTHY**: `ym6jprxe` **Trial 0 FINAL: val=3.27022 ffs=3125** (Δ=-0.00114 vs baseline). **Now in Trial 1/4 at step 1426/3250.** For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. ETA all-trials terminal ~22:30Z. **STRONGEST MERGE CANDIDATE.** PR has `needs_rebase` — rebase before merge.
 - **NEW TERMINALS THIS POLL (3 cells finished, sweeps advance):**
   - **nezuko Cell A** (AGC ctrl, λ=0) `1j9tl8k9` FINISHED **val=3.27208 ffs=3150** (Δ=+0.00072 vs baseline, ~0.6σ). Cell B (λ=0.01) `5l7vmnhf` auto-launched 17:41Z, step 566.
   - **thorfinn Cell B** (eigvec EMA α=0.3) `37w0mwla` FINISHED **val=3.27263 ffs=3125** (Δ=+0.00127, ~1.1σ; ffs matches baseline best). Cell C (α=0.5) `32n3p8a8` auto-launched 17:43Z, step 537.
   - **edward Cell B** (β2-warmup 0.50→0.90 over 200) `gf426fxo` FINISHED **val=3.27340 ffs=3150** (Δ=+0.00204, ~1.7σ). Cell C (warmup over 500) `oifl1px1` auto-launched, step 235. β2-warmup so far not helping at n=1 (Cell B worse than Cell A control).
+- **PR #232 CLOSED** (NS5 iter sweep, g1r5-askeladd): clean-neutral vs new baseline. Cell B (iters=10) n=2 mean=3.27295 (Δ=+0.00159). Default iters=12 stays. **Reassigned PR #301 (NS5 polynomial coefficient sweep).**
 - **AWAITING terminal SENPAI-RESULTs (mid-flight):**
-  - askeladd Cell B trial2 `hw7rlwgu` step 3042/3250 (94%) val=3.290. ETA ~5min then close PR clean-neutral.
-  - tanjiro #289 combo trial 0 `v1mhx9f2` step 2847/3250 (88%). ETA terminal ~10min, then trials 1-3.
-  - fern Cell E `9sjzd75z` step 2447/3250 (75%).
-  - alphonse Cell C `74bh7oal` step 2355/3250 (72%).
+  - tanjiro #289 combo trial 0 `v1mhx9f2` step 3100/3250 (~95%) val=3.284. ETA terminal any moment.
+  - fern Cell E `9sjzd75z` step 2750/3250 (85%). ETA ~25min.
+  - alphonse Cell C `74bh7oal` step 2625/3250 (81%). ETA ~25min.
+  - askeladd PR #301 (NS5 coeff sweep): just assigned, student pod will pick up soon.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
@@ -27,7 +28,8 @@
 | 264  | g1r5-thorfinn   | SOAP eigvec EMA: smooth attn eigenbasis across refreshes (α sweep 0,0.3,0.5,0.7,0.9) | explore | Cell A FINISHED val/loss=3.2750. **Cell B (α=0.3) `37w0mwla` step 1066/3250 (33%) val=3.6168.** Cells C/D/E sequential. |
 | 270  | g1r5-edward     | SOAP beta2 cold-start warmup: ramp β₂ from low→0.90 over first K steps to fix early eigenvec noise | explore | **Cell A (ctrl, β₂=0.90 no warmup) FINISHED val/loss=3.2727** (+0.0014 above new baseline, 1.1σ within noise). Cell B (β₂_init=0.50/200) should auto-launch sequentially. |
 | 262  | g1r5-alphonse   | AdamW eps sweep on embed/lm_head: eps ∈ {1e-10, 1e-9, 1e-8, 1e-7} | exploit | Cell A (1e-10) FINISHED 3.2738. **Cell B (1e-9) FINISHED 3.2739** (Δ=+0.0025). **Cell C (1e-8) `74bh7oal` step 173/3250 (5%) auto-launched.** Cell D queued. |
-| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | **Phase 1 COMPLETE**: A(8)=3.27444, B(10)=3.27393, C(12)=3.27687, D(14)=3.27475, E(16)=3.27396. **All within 1-3σ of OLD baseline**; vs NEW baseline all regress (B best at Δ=+0.0023, 2σ). **n=2 retry `hw7rlwgu`** (Cell B trial 2 at OLD baseline config lr_mlp=0.035, num_trials=1) step 960/3250 (29%). Advisor comment posted: close clean-neutral after trial2, reassign to fresh mechanism. |
+| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | **CLOSED 19:00Z clean-neutral** — Cell B (iters=10) n=2 mean=3.27295 (Δ=+0.00159 vs new baseline). Default iters=12 stays. |
+| 301  | g1r5-askeladd   | NS5 polynomial coeff sweep: (a,b,c) at fixed iters=12 | explore | **ASSIGNED 19:00Z**. Sweep: A=ctrl(2,-1.5,0.5), B=Muon-paper(3.4445,-4.775,2.0315), C=(2.5,-2.5,1.0), D=(1.7,-1.1,0.4), E=(4,-6,3). Phase 1 ETA ~5h, then n=4 Phase 2 if best cell ≤ 3.270. |
 | 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20}; **Phase 2: n=4 confirm at D config** | exploit | Cells A(0.10)=3.2803, B(0.30)=3.2750, C(0.50)=3.2740, **D(0.80)=3.2707 ⭐**, E(1.20)=3.2715 ALL FINISHED. **⭐ Phase 2 n=4 `ym6jprxe` step 1897/13000 (14.6%) val=3.4589 (mid-train healthy).** ETA terminal ~8h. If mean ≤ 3.269362, NEXT MERGE. PR has merge conflicts — rebase before merging. |
 | 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | **CLOSED 16:25Z clean-neutral vs new baseline.** n=4 mean=3.271133 ffs=3131.25. Δ=-0.000229 vs new baseline (0.11× statsig gate). WAS 1.30× statsig vs OLD baseline. Reassigned to PR #289 combo-confirm. |
 | 289  | g1r5-tanjiro    | Combo-confirm: lr_mlp=0.055 (merged) + wd_mlp=0.035/wd_attn=0.015 (best WD corner) at n=4 | exploit | **ASSIGNED 16:30Z.** Tests additive composition of lr_mlp + asymm WD. Expected mu ~3.2688 if additive → below n=4 merge threshold 3.269362. ETA Phase-1 terminal ~23:30Z. |
