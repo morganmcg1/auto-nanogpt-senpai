@@ -443,6 +443,7 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+MUON_BIAS_CORR = bool(int(os.environ.get("MUON_BIAS_CORR", "0")))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -581,6 +582,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        state["muon_step"] = 0
                         # NorMuon-lite per-row (or per-col) variance buffer.
                         if p.size(-2) >= p.size(-1):
                             state["second_moment"] = torch.zeros(
@@ -600,7 +602,14 @@ class Muon(torch.optim.Optimizer):
                             state["soap_step"] = 0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    state["muon_step"] += 1
+                    # Adam-style bias correction on the first moment.
+                    if MUON_BIAS_CORR:
+                        bc = 1.0 - group["mu"] ** state["muon_step"]
+                        corrected_momentum = state["momentum"] / bc
+                    else:
+                        corrected_momentum = state["momentum"]
+                    momentum_update = grad.lerp(corrected_momentum, group["mu"])
                     use_soap = p in self.soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14 train_gpt_contra_normuon_soapish_mlp.py).
@@ -699,6 +708,7 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/muon_bias_corr": int(MUON_BIAS_CORR),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
