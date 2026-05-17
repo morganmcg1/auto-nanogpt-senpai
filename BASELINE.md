@@ -17,6 +17,40 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-17 ~20:32 UTC — PR #237 edward AGC aux clip=0.05.** Adaptive Gradient Clipping on aux AdamW parameter groups (`clip_ratio=0.05`). Stacks on top of MuLoCo × MuonH-SI. All 4 trials reached the 3.28 target. Passes stat rule with margin 0.01062.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| Aux AdamW | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` + **AGC `clip_ratio=0.05`** |
+| LR schedule | Linear cooldown; `cooldown_frac=1.0` for MuonH, `0.4` for aux |
+| `val/loss` | **3.27469** (n=4 mean; trials: 3.27382/3.27568/3.27408/3.27518) |
+| `speedrun/final_first_step_to_target` | **3262** (n=4 mean; trials: 3250/3275/3250/3275) |
+| stat margin | `(3.28 - 3.27469) * sqrt(4) = 0.01062` ≥ 0.004 ✓ |
+| Baseline W&B runs | `efgqupvv`, `hzxm8aaj`, `9l9le6dc`, `pwbrxwez` |
+| Baseline PR | [#237](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/237) |
+
+### Reproduce AGC + MuLoCo × MuonH-SI baseline
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 4 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05
+```
+
+---
+
+## Previous baseline — PR #114 MuLoCo × MuonH-SI (2026-05-16 ~23:43 UTC)
+
 **Merged 2026-05-16 ~23:43 UTC — PR #114 frieren MuLoCo × MuonH-SI.** Outer Nesterov SGD wrapper (MuLoCo) over MuonH-SI inner optimizer. Passes stat rule at n=4 with margin 0.0083. Consistent improvement across all 4 seeds: 3 of 4 trials individually beat the prior baseline mean.
 
 | Field | Value |
