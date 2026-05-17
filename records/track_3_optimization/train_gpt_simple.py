@@ -46,6 +46,10 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_eigvec_ema_alpha", type=float, default=0.0,
+                        help="EMA alpha for SOAP attn eigenvectors across refreshes. "
+                             "0.0 = no EMA (baseline). >0 = weight on NEW basis (1-alpha on prev). "
+                             "Applied only to attn param groups.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -477,29 +481,48 @@ def soap_ns_step(nesterov_update):
     return update
 
 
-def soap_eigenbasis(mat: Tensor) -> Tensor:
+def soap_eigenbasis(mat: Tensor, q_prev: Tensor | None = None, ema_alpha: float = 0.0) -> Tensor:
     eye = torch.eye(mat.size(0), device=mat.device)
     try:
         _, q = torch.linalg.eigh(mat + 1e-30 * eye)
     except RuntimeError:
         _, q = torch.linalg.eigh(mat.double() + 1e-30 * eye.double())
         q = q.float()
-    return torch.flip(q, [1])
+    q = torch.flip(q, [1])
+    if q_prev is not None and ema_alpha > 0:
+        dots = (q * q_prev).sum(dim=0)
+        q = q * torch.sign(dots).unsqueeze(0)
+        q_blend = ema_alpha * q + (1.0 - ema_alpha) * q_prev
+        q, _ = torch.linalg.qr(q_blend)
+    return q
 
 
-def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq, ema_alpha: float = 0.0, track_rotation: bool = False):
     row_eig = torch.diag(q_row.T @ row_gg @ q_row)
     row_sort = torch.argsort(row_eig, descending=True)
-    q_row = q_row[:, row_sort]
+    q_row_sorted = q_row[:, row_sort]
     exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
-    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+    q_row, _ = torch.linalg.qr(row_gg @ q_row_sorted)
+    if ema_alpha > 0:
+        dots = (q_row * q_row_sorted).sum(dim=0)
+        q_row = q_row * torch.sign(dots).unsqueeze(0)
+        q_blend = ema_alpha * q_row + (1.0 - ema_alpha) * q_row_sorted
+        q_row, _ = torch.linalg.qr(q_blend)
+    rot_row = float((q_row * q_row_sorted).sum(dim=0).abs().mean().item()) if track_rotation else None
 
     col_eig = torch.diag(q_col.T @ col_gg @ q_col)
     col_sort = torch.argsort(col_eig, descending=True)
-    q_col = q_col[:, col_sort]
+    q_col_sorted = q_col[:, col_sort]
     exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
-    q_col, _ = torch.linalg.qr(col_gg @ q_col)
-    return q_row, q_col, exp_avg_sq
+    q_col, _ = torch.linalg.qr(col_gg @ q_col_sorted)
+    if ema_alpha > 0:
+        dots = (q_col * q_col_sorted).sum(dim=0)
+        q_col = q_col * torch.sign(dots).unsqueeze(0)
+        q_blend = ema_alpha * q_col + (1.0 - ema_alpha) * q_col_sorted
+        q_col, _ = torch.linalg.qr(q_blend)
+    rot_col = float((q_col * q_col_sorted).sum(dim=0).abs().mean().item()) if track_rotation else None
+
+    return q_row, q_col, exp_avg_sq, rot_row, rot_col
 
 
 def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
@@ -514,18 +537,23 @@ def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
-def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ):
+def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ,
+                                ema_alpha: float = 0.0, track_rotation: bool = False):
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - shampoo_beta)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - shampoo_beta)
+    rot_row = None
+    rot_col = None
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
     elif state["soap_step"] > 0 and state["soap_step"] % precondition_frequency == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+        state["q_row"], state["q_col"], state["exp_avg_sq"], rot_row, rot_col = soap_basis_qr(
+            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"],
+            ema_alpha=ema_alpha, track_rotation=track_rotation,
         )
     state["soap_step"] += 1
+    return rot_row, rot_col
 
 
 class Muon(torch.optim.Optimizer):
@@ -533,18 +561,24 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, eigvec_ema_alpha: float = 0.0):
         assert isinstance(named_params, list) and len(named_params) >= 1
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
             p for n, p in named_params
             if any(n.endswith(suf) for suf in soap_suffixes)
         }
+        self.soap_attn_params_set = {
+            p for n, p in named_params
+            if any(n.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES)
+        } if soap_attn else set()
         self.param_names = {id(p): n for n, p in named_params}
         self.soap_attn = soap_attn
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
+        self.eigvec_ema_alpha = float(eigvec_ema_alpha)
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.eigvec_rot_buffer: dict[str, tuple[float, float]] = {}
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -552,6 +586,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.eigvec_rot_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -562,6 +597,7 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    is_attn_soap = p in self.soap_attn_params_set
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -585,7 +621,13 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        ema_alpha_p = self.eigvec_ema_alpha if is_attn_soap else 0.0
+                        track_rot_p = is_attn_soap
+                        rot_row, rot_col = soap_update_preconditioner(
+                            p.grad, state, ema_alpha=ema_alpha_p, track_rotation=track_rot_p,
+                        )
+                        if rot_row is not None:
+                            self.eigvec_rot_buffer[self.param_names[id(p)]] = (rot_row, rot_col)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
@@ -669,6 +711,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_eigvec_ema_alpha": float(args.soap_eigvec_ema_alpha),
         },
     )
 
@@ -706,7 +749,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+                      eigvec_ema_alpha=args.soap_eigvec_ema_alpha)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -843,6 +887,22 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and optimizer2.eigvec_rot_buffer:
+            rot_names = list(optimizer2.eigvec_rot_buffer.keys())
+            rot_vals = list(optimizer2.eigvec_rot_buffer.values())
+            rot_rows = [v[0] for v in rot_vals]
+            rot_cols = [v[1] for v in rot_vals]
+            rot_metrics = {"trial": trial_idx, "train/step": train_step}
+            for rn, rr, rc in zip(rot_names, rot_rows, rot_cols):
+                rot_metrics[f"soap/eigvec_rot/row/{clean_metric_name(rn)}"] = rr
+                rot_metrics[f"soap/eigvec_rot/col/{clean_metric_name(rn)}"] = rc
+            all_rots = rot_rows + rot_cols
+            rot_metrics["soap/attn/eigvec_rotation_cos_sim"] = sum(all_rots) / len(all_rots)
+            rot_metrics["soap/attn/eigvec_rotation_cos_sim_row"] = sum(rot_rows) / len(rot_rows)
+            rot_metrics["soap/attn/eigvec_rotation_cos_sim_col"] = sum(rot_cols) / len(rot_cols)
+            rot_metrics["soap/attn/eigvec_rotation_cos_sim_min"] = min(all_rots)
+            rot_metrics["soap/attn/eigvec_rotation_cos_sim_max"] = max(all_rots)
+            wandb.log(rot_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
