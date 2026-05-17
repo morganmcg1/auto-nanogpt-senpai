@@ -789,3 +789,28 @@ Arm-A v2 reproduces merged n=3 baseline within 0.00002. No arm reaches merge gat
 
 **Axis sealed**: NS quintic polynomial coefficient family exhausted at c=0.5 default. Follow-on: fern #290 tests per-iter coefficient schedule (varying c across the 12 NS iters within each step, average c=0.5 held constant to isolate the schedule axis).
 
+
+## 2026-05-17 22:52 — PR #266: lm_head + scalar cooldown shape: does embed floor generalize to other aux groups?
+
+- g1r4-nezuko/lmhead-scalar-cooldown-shape
+- **Hypothesis:** tanjiro #235's embed linear_floor=15% mechanism — does it generalize to lm_head and scalar aux groups? 4-arm design: arm-A (all linear, control), arm-B (lm_head=floor:15), arm-C (scalar=floor:15), arm-D (lm_head+scalar=floor:15).
+
+| Arm | Config | W&B run | val_loss | fs | Within-pod Δ |
+|-----|--------|---------|----------|------|--------------|
+| A | all linear (control) | qzn7z186 | 3.27484 | 3250 | (ref) |
+| B | lm_head=floor:15 | wy1xxm5n | 3.27779 | 3300 | +0.00295 (HURTS) |
+| C | scalar=floor:15 | 39on1zw4 | 3.27411 | 3250 | −0.00073 (null) |
+| D | lm_head+scalar=floor:15 | omm7w6et | 3.27693 | 3300 | +0.00209 (HURTS) |
+
+**Verdict: CLOSED — productive null / mechanism falsification**
+
+**Analysis**: Hypothesis decisively falsified. Embed-floor mechanism is embed-specific:
+1. lm_head arm-B: clear regression (+0.00295) — lm_head wants steeper decay, not a floor.
+2. scalar arm-C: within null gate (−0.00073) — scalar is indifferent to floor vs linear.
+3. Combined arm-D: lm_head penalty dominates (+0.00209 ≈ arm-B magnitude), scalar's neutral effect is absorbed.
+
+**Mechanism insight**: Consistent with #165's clip=10 finding: clip=10 preferentially raises embed's eff-LR (8.4%→16.9%), indicating embed has unique structural properties (high-fan-in, sparse-token-driven gradient). The floor extends THAT specific property late in training. lm_head and scalar don't share this structural property — lm_head benefits from finalizing sharp predictions as training ends (steeper decay = cleaner convergence), scalar is a small group not exploited by either schedule.
+
+**Wave-5 implications**: Aux-group LR-shape lever is fully mapped at floor=15%. NOT a stacking axis beyond embed. Orthogonal wave-5 candidates (thorfinn aux WD, alphonse β2, askeladd Muon mu, fern NS c-schedule, edward per-group β2) unaffected.
+
+**Follow-up assigned (PR #315)**: nezuko lmhead-decay-shape — test lm_head=quadratic/cubic/exp_decay (steeper than linear) to test the inverse hypothesis (does opposite of floor help lm_head?).
