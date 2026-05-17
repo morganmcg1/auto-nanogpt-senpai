@@ -14,8 +14,8 @@
 | 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)   | exploit | WIP — 3 smokes finished (val 3.905-3.909 ~baseline); 4th smoke running. Needs to graduate to full run. |
 | 186  | g1r5-frieren    | z-loss auxiliary regularizer (α·log²Z on partition function, α∈{1e-4,3e-4,1e-3}) | explore | **BLOCKED → FIX SENT** — 3 OOM crashes on `logits.float()` autograd buffer (13.2 GB on top of 75 GB SOAP baseline). Advisor sent bf16 logsumexp fix at poll #57. |
 | 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | WIP — Cell A (0.015,0.015) trial 0 running step ~4449. ETA full sweep multi-cell ~24h. |
-| 170  | g1r5-fern       | SOAP-attn precond_freq=8 (halve attn eigenbasis refresh period vs MLP=16) | exploit | WIP — 2 smokes finished (val 3.899-3.901 ~baseline); 3rd smoke running. Needs to graduate to full run. |
-| 171  | g1r5-nezuko     | SOAP trust-gate threshold sweep (0.3 / 0.5 / 0.7) on SOAP-attn base  | exploit | WIP — Arm A (0.3) ffs=3150, val=3.27307 ~baseline; Arm B (0.5) ffs=3175, val=3.27497 (worse); Arm C (0.7) running step ~1908. |
+| 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | Newly assigned. Smoke then 3-cell n=1 screen. Orthogonal to edward's lr_mlp work. |
+| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | Newly assigned. 12-group Muon param split. Smoke then 4-cell screen. |
 | 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | WIP — debug-300 finished val=3.991 (~baseline); smoke `r3jbtzrs` running. Awaits smoke pass + full run. |
 
 ## Closed PRs Summary
@@ -33,6 +33,8 @@
 | 98   | Cautious-Muon (sign-agreement mask)| **CLOSED** clean negative — mask harms NS                                           |
 | 116  | SOAP-attn + trust gate             | **MERGED ✓** — ffs=3150/3125, mu=3.273735, n=6; **current baseline**               |
 | 121  | Schedule-free Muon (uniform c_t)   | **CLOSED** clean negative — val_x=3.366; z diverges + warmup mass dominates        |
+| 170  | SOAP-attn precond_freq=8           | **CLOSED** clean negative — n=2 mean ffs=3175 (+25), val=3.275062 (+0.001327); cos_sim moved +0.011 (correct direction) but structural attn-MLP gap dominates |
+| 171  | SOAP trust-gate threshold sweep    | **CLOSED** clean negative — Arms 0.3/0.5/0.7 all within 1σ of baseline; gate is decorative (PR #116 framing confirmed); fires concentrated at eigendecomp boundary events |
 | 123  | Newton-Muon (activation-cov on attn)| **CLOSED** ffs regression — n=6 mean ffs=3208 (+58 vs baseline 3150); run also used train_steps=3350 vs baseline 3250 |
 | 130  | Label smoothing ε sweep            | **CLOSED** clean negative — all arms ffs=-1; CE margin already small at step 3200  |
 | 141  | Gradient Centralization pre-momentum| **CLOSED** clean negative — n=4 mu=3.27863 (10σ worse); NS5 subsumes row-mean     |
@@ -58,8 +60,8 @@ Cell D n=1: ffs=3125, val=**3.26987** — beats baseline (3.273735) by 0.00387 o
 4. **SOAP β2 cooldown anneal** (askeladd PR #175) — 3 smokes finished ~baseline; needs full run promotion.
 5. **z-loss auxiliary** (frieren PR #186) — BLOCKED on OOM; advisor sent bf16 logsumexp fix.
 6. **Asymmetric WD** (tanjiro PR #194) — Cell A (0.015/0.015) trial 0 running.
-7. **Attn precond_freq=8** (fern PR #170) — 2 smokes finished ~baseline; needs full run promotion.
-8. **Trust-gate threshold sweep** (nezuko PR #171) — Arm A ≈baseline (val=3.27307), Arm B WORSE (val=3.27497), Arm C running.
+7. **lr_attn sweep** (fern PR #209) — sweep lr_attn ∈ {0.025,0.045,0.055} with lr_mlp=0.035 fixed; mirror of edward's lr_mlp work.
+8. **Per-layer LR decay** (nezuko PR #210) — geometric γ^k LR scaling across 12 blocks; γ ∈ {0.93,0.97,1.03,1.07}.
 
 **Closed mechanism slots (do NOT re-open):**
 - Per-module init-multiplier: NorMuonH, MuonH
@@ -73,6 +75,8 @@ Cell D n=1: ffs=3125, val=**3.26987** — beats baseline (3.273735) by 0.00387 o
 - Label smoothing ε sweep (CE margin already small)
 - Gradient Centralization pre-momentum (NS5 subsumes; disrupts SOAP eigenbasis)
 - Activation-covariance Newton-Muon on attn (PR #123) — ffs regression; gate too conservative at cos<0.5
+- SOAP-attn precond_freq=8 (PR #170) — structural attn-MLP gap dominates; QR noise increases at higher refresh frequency
+- Trust-gate threshold sweep 0.3/0.5/0.7 (PR #171) — gate is decorative; fires only at eigendecomp boundary events
 
 ## Infrastructure Notes
 

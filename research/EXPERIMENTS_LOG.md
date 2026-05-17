@@ -433,3 +433,44 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Direction**: Both Arms A and B at/below n=1 noise vs baseline; A ≈ baseline, B worse. Trust-gate at threshold=0.3 hits ~few % of SOAP-attn updates (most have cos_sim ≥ 0.5); 0.5 starts hitting middle of distribution and clips signal. Monotonic worsening A→B suggests 0.7 will be worse still.
 - **Predicted close**: Likely clean negative across all 3 arms — trust gate already calibrated on baseline.
 
+
+## 2026-05-17 ~00:30 UTC — PR #171: SOAP trust-gate threshold sweep (CLOSED clean negative)
+
+- g1r5-nezuko/soap-trust-threshold
+- Hypothesis: Vary trust-gate cos_sim threshold ∈ {0.3, 0.5, 0.7} on SOAP-attn base. Hypothesized that a non-zero threshold gates "bad" SOAP steps (stale eigenbasis).
+
+| Arm | threshold | val/loss | ffs  | run_id    |
+|-----|-----------|----------|------|-----------|
+| A   | 0.3       | 3.27307  | 3150 | uaqrm8r6  |
+| B   | 0.5       | 3.27497  | 3175 | 8p6yw4qz  |
+| C   | 0.7       | 3.27420  | 3150 | baohf11o  |
+
+- **n**: 1 per arm.
+- **Baseline n=6 mu**: 3.273735, ffs=3150.
+- **Best arm A delta**: −0.000665 vs baseline (within 1σ=0.001116).
+- **n=1 statsig bar (val ≤ 3.26974)**: FAILED on all 3 arms.
+- **Mechanism conclusion**: Cos_sim drops to ~0 only at eigendecomp boundary events (~17 step-events for thresh=0.3). Outside those events, cos_sim sits in 0.78–0.92 always. The SOAP step at the brief stale window is roughly equivalent to Muon-NS — there's no "bad SOAP step" signal for the gate to catch. The "decorative" framing from PR #116 confirmed.
+- **Closed mechanism**: trust-gate threshold sweep on SOAP-attn (default 0.0 stays).
+- **Open follow-up direction (nezuko's suggestion #2)**: smoothing/EMA-ing the SOAP eigenbasis across the boundary, or warmstarting QR with old V_n. Cheaper than gating downstream.
+- **Decision**: CLOSED 2026-05-17 ~00:30 UTC.
+
+## 2026-05-17 ~00:30 UTC — PR #170: SOAP-attn precond_freq=8 ablation (CLOSED clean negative)
+
+- g1r5-fern/soap-attn-freq8
+- Hypothesis: Halve attn eigenbasis refresh period (from MLP=16 to 8) to close the cos_sim gap (attn 0.798 vs MLP 0.884).
+
+| Trial | val/loss | ffs  |
+|------:|---------:|-----:|
+| 0     | 3.273190 | 3150 |
+| 1     | 3.276933 | 3200 |
+
+- **n=2 mean**: ffs=3175, val=3.275062 (std=0.002646)
+- **Baseline n=6 (freq=16)**: ffs=3150, val=3.273735 (std=0.001116)
+- **Δ**: ffs +25 worse, val +0.001327 worse (~1× SE worse)
+- **cos_sim_mean_attn**: 0.7984 → 0.8090 (+0.011 directionally correct, only ~13% of way to MLP=0.884)
+- **Runtime overhead**: +0.71% (much less than predicted +5%)
+- **Mechanism conclusion**: The bulk of the attn-MLP cos_sim gap is structural, not from eigenbasis staleness. Attn gradients have lower-rank/more-anisotropic covariance that a single 768-dim eigenbasis blurs. More frequent QR also added noise (n=2 std 2.4× baseline at n=6, though n=2 std itself is noisy).
+- **Closed mechanism**: precond_freq reduction on attn.
+- **Open follow-up direction (fern's suggestion #1c)**: per-head SOAP on attn (12 heads × 64-dim block structure), or split-Shampoo respecting head structure. Bigger swing required to recover the structural gap.
+- **Decision**: CLOSED 2026-05-17 ~00:30 UTC.
+
