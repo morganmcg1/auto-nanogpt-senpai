@@ -1137,3 +1137,39 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - val=3.2651 beats baseline val=3.26615 by −0.00105 — marginal val improvement at same sr
 - Seed 2 not yet started
 - Status: still WIP — waiting for seed 2 launch and terminal SENPAI-RESULT
+
+---
+
+## 2026-05-17 11:01 UTC — PR #216 CLOSED: Aux AdamW β2 scan {0.99, 0.999} (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/aux-beta2-scan`
+- **Hypothesis:** Aux AdamW β2=0.95 is under-tuned. Scan {0.99, 0.999} on PMuon+u/w+γ=1.2 base.
+
+| Arm | β2 | sr | val/loss | vs current baseline (3025/3.26615) |
+|-----|-----|-----|----------|-----------------------------------|
+| Baseline | 0.95 | 3025 | 3.26615 | — |
+| **A** | 0.99 | 3025 | 3.26640 | sr TIE, val +0.00025 — NULL |
+| **B** | 0.999 | 3100 | 3.27185 | sr +75, val +0.00570 — clear regression |
+
+**Analysis:** Monotone result — higher β2 worsens performance. β2=0.999's longer EMA (~700-step half-life) inflates the Adam denominator 2.4× relative to β2=0.99 by cooldown, halving effective LR during the decisive cooldown window. Arm A (β2=0.99) ties baseline sr but val is marginally worse (+0.00025) — not a merge candidate. **Direction: β2 axis CLOSED at baseline 0.95.** Increasing β2 degrades performance monotonically.
+
+**Status:** CLOSED — NULL on primary metric. β2 axis fully characterized.
+
+---
+
+## 2026-05-17 11:01 UTC — PR #258 ASSIGNED: u/w-floor pruning ablation (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/uw-floor-pruning-ablation`
+- **Hypothesis:** Skylight u/w-floor (TARGET_UW=0.35, PR #131) may be redundant on new compound baseline. γ_power=0.4 bilateral whitening + cubic-Newton partial polar convergence may self-regulate u/w ratios.
+- Arm A: TARGET_UW=0.0 (disable floor entirely)
+- Arm B: TARGET_UW=0.7 (double — test over-constraint)
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/258
+
+---
+
+## 2026-05-17 11:01 UTC — PR #242 ARM A DONE: γ_power finer scan (g1r1-frieren)
+
+- Arm A (γ=0.5) `p5awihqf`: TERMINAL. sr=3150, val=3.2756 — **clear regression** vs baseline (sr=3025).
+- Arm B (γ=0.6): 3rd attempt `d7wawe9q` just launched (after 2 step-1 crashes).
+- **CRITICAL FINDING:** γ_power=0.5 is significantly worse than γ_power=0.4 (sr=3150 vs 3025). Combined with earlier monotone {0.2→3050, 0.3→3062.5, 0.4→3025}, this reveals a **clear local optimum at γ_power=0.4**. Direction reverses after 0.4.
+- Arm B at γ=0.6 expected to be even worse. Structural crashes may indicate γ=0.6 is at a whitening instability boundary.
