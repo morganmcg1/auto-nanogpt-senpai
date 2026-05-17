@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 11:00 UTC (boot 90)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~13h, re-escalated 08:40 UTC.
+- **Last updated:** 2026-05-17 11:30 UTC (boot 91)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~16h, re-escalated 10:40 UTC.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
 ## ⭐ Current baseline (post-PR #114 merge)
@@ -23,20 +23,20 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 90 — 11:00 UTC 2026-05-17)
+## Active experiments (boot 91 — 11:30 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#257** | fern | AdEMAMix for aux (slow-EMA α sweep {2,5,8}) | Smoke syb7fxvx at 30% of 300-step warmup |
-| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smoke c0vwcocl TERMINAL=4.14345 ✓; new smoke 3ge15pi8 at 17% — re-doing? |
-| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | off-mode pr41c8ir TERMINAL=3.27554 baseline-clone ✓; tensor 0zqenfv8 step 500/3325 (15%); row queued |
-| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | linear 5ehqbmwb step 3060/3325 (92%) val=3.310 — terminal imminent; cosine/sqrt queued |
-| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 BELOW baseline (n=1, Δ=-0.00203)**; clip=0.2 TERMINAL=3.27618 (+0.00033 in-noise NEG); clip=1.0 9l9le6dc step 90/3325 (3%) |
-| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | ALL 3 ARMS TERMINAL: sync=10=3.27936 NEG; sync=30=3.27420 ctrl ✓; sync=60=3.27722 NEG (+0.00137). Awaiting SENPAI-RESULT from student |
-| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 TERMINAL=3.32914 NEG (+0.053); frac=1.0 mpvg5fas step 1530/3325 (46%) val=3.609 — should be baseline-clone |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 ~16h silent, re-escalated 10:40 |
+| **#260** | tanjiro | MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} at outer_lr=0.7 sync=30 | Assigned 11:30 UTC — smoke + screen pending |
+| **#257** | fern | AdEMAMix for aux (slow-EMA α sweep {2,5,8}) | Smoke syb7fxvx in flight ~30% |
+| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smoke c0vwcocl TERMINAL=4.14345 ✓; 2nd smoke 3ge15pi8 running; ping sent 11:20 UTC |
+| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | off-ctrl TERMINAL=3.27554 ✓; tensor 0zqenfv8 ~15%; row queued |
+| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | linear 5ehqbmwb TERMINAL=3.2776 (baseline-clone); cosine just launched ~0.8% |
+| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 (n=1, Δ=-0.00203)**; clip=0.2 TERMINAL=3.27618 NEG; clip=1.0 9l9le6dc ~3% (just started) |
+| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 TERMINAL=3.32914 NEG; frac=1.0 mpvg5fas ~57% |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 ~17h silent, re-escalated 10:40 |
 
-**8/8 students assigned.** Closed: #218 NEG (Lion aux monotonic), #215 NEG-saturated (NS5 iter), #174 NEG (A3 polynomial), #207 NEG, #200 NEG, #182-192 NEG.
+**8/8 students assigned.** Closed: #217 NEG (sync_interval U-shape, sync=30 optimal), #218 NEG (Lion aux monotonic), #215 NEG-saturated (NS5 iter), #174 NEG, #207 NEG, #200 NEG, #182-192 NEG.
 
 ## Closed (this round, negative)
 - **#182 thorfinn Lookahead × MuonH-SI**: k=5=3.31588 NEG, k=10=3.31485 NEG. SI-direction-modifier incompatibility confirmed.
@@ -124,17 +124,40 @@ Both NS5 quality levers (polynomial coefficients #174, iter count #215) closed N
 - **Lion aux** (#218 ALL NEG monotonic): scale=0.3 (+0.034), scale=1.0 (+0.047), scale=3.0 (+0.152). Sign-only updates structurally incompatible with aux groups' gradient-scale heterogeneity.
 - Pattern confirms aux groups specifically require /√v scale adaptation — next: AdEMAMix (#257 fern) keeps /√v + adds long-horizon momentum.
 
-## Next-priority watch points (boot 90 — 11:00 UTC)
+## Next-priority watch points (boot 91 — 11:30 UTC)
 
-1. ⭐ **Edward #237 — clip=0.05 still the candidate**: clip=0.2 TERMINAL=3.27618 in-noise (+0.00033) NEG; clip=1.0 just started 3%. After clip=1.0 terminals (~13:00 UTC), expect n=4 confirm at clip=0.05 (the only arm to clear baseline at n=1).
-2. **Tanjiro #217**: all 3 arms TERMINAL (sync=10/30/60 = 3.2794/3.2742/3.2772). Sweep complete — awaiting student SENPAI-RESULT. sync=60 NEG (+0.00137 vs baseline), sync=30 ctrl confirmed. Will close NEG (no merge candidate).
-3. **Frieren #243 linear ctrl terminal** (~11:30 UTC): val=3.310 at 92% — trending NEG by ~+0.030. Linear ctrl underperforming relative to expected reproduction. Suspicious — could be a code wiring issue OR a bad seed.
-4. **Nezuko #222 frac=1.0** (mpvg5fas 46%): expected baseline-clone since frac=1.0 IS the baseline cooldown. Sweep will close NEG (frac=0.2 + 0.4 both NEG).
-5. **Askeladd #247 tensor mode** (0zqenfv8 15%): too early. Row mode queued.
-6. **Thorfinn #253**: smoke re-launched? c0vwcocl smoke=4.14 ✓; 3ge15pi8 at 17% running. Awaiting screen launch.
-7. **Fern #257 AdEMAMix**: smoke syb7fxvx in flight.
-8. **Issue #164**: alphonse pod still broken — 16h infra silence, re-escalated 10:40 UTC.
+1. ⭐ **Edward #237 — clip=0.05 is the AGC candidate**: clip=1.0 just started ~3%. After terminal (~13:00 UTC): if clip=1.0 ≥ clip=0.2 (in-noise or worse), immediately launch n=4 confirm at clip=0.05. Decision criterion: n=4 μ < 3.27585 AND (3.28 − μ) × 2 ≥ 0.004.
+2. **Frieren #243 cosine arm** (just launched ~0.8%): terminal ~13:00-14:00 UTC. This is the most interesting frieren arm — cosine has different effective decay shape vs linear. Linear ctrl TERMINAL=3.2776 (baseline-clone ✓, code wiring confirmed good).
+3. **Tanjiro #260 smoke** (new assignment): expected within ~1-2 hours of assignment. Verify smoke val ≈ 4.14-4.16 at step 300.
+4. **Askeladd #247 tensor/row modes**: tensor ~15%, row queued. Early; watch for step 3000 kill-gate crossing.
+5. **Nezuko #222 frac=1.0** (~57%): expected baseline-clone. Sweep closing NEG — no follow-on.
+6. **Thorfinn #253 NS5-fp32**: student re-ran smoke (3ge15pi8); ping sent at 11:20. Awaiting screen launch.
+7. **Fern #257 AdEMAMix**: smoke at ~30%. Watch for smoke terminal, then 3-arm screen.
+8. **Issue #164 alphonse pod**: ~17h infra silence. Pod gd103cc still NaN-broken. CRITICAL — alphonse is completely dark.
 
-## Concerns to watch
+## Saturated levers (full list)
 
-- **Frieren #243 linear ctrl trending NEG** (val=3.310 at 92%). Linear cooldown = baseline schedule. Should reproduce ~3.275-3.278. If terminal-lands at 3.31+, suggests a code-wiring issue with the cooldown-shape flag. Watch for student to flag.
+- **MuonH-SI HPs**: lr=0.018, mu=0.95, wd=0 — all confirmed optimal
+- **Direction-modifiers**: Contra, Soft-Muon, Cautious, Lookahead k=5/k=10 — all NEG/NaN
+- **budget_mult**: dead in SI mode
+- **NS5 polynomial**: A3 vs A2 in-noise (n=4 mean 3.27625 vs 3.27585) — closed
+- **NS5 iter count**: k=12 optimal in bf16; k=8 DNF, k=16 in-noise — closed
+- **MuLoCo outer_lr**: 0.7 optimal (0.3 NEG, 1.5 catastrophic)
+- **MuLoCo sync_interval**: 30 optimal (10 NEG +0.00351, 60 NEG +0.00137) — PR #217 CLOSED
+- **Aux optimizer Lion**: all scale values NEG monotonic — structural mismatch confirmed
+- **Aux embed lr_mult**: 0.3 optimal
+- **Aux betas**: (0.8, 0.95) optimal
+- **Aux cooldown_frac**: 0.4 looks optimal (0.2 NEG); frac=1.0 in flight for final confirmation
+- **Param EMA**: all decay values NEG
+- **MuLoCo outer_momentum**: untested — being tested now (#260)
+
+## Open research threads (ranked priority)
+
+| Rank | Lever | PR | Rationale |
+|---|---|---|---|
+| 1 | ⭐ AGC aux clip=0.05 | #237 edward | n=1 delta=−0.00203 BELOW baseline — awaiting clip=1.0, then n=4 confirm |
+| 2 | NS5 fp32 precision | #253 thorfinn | bf16 noise-floor hypothesis; last NS5 lever untested |
+| 3 | AdEMAMix aux | #257 fern | slow-EMA momentum for aux; keeps /√v, adds long-horizon info |
+| 4 | MuLoCo outer_momentum | #260 tanjiro | {0.3, 0.5, 0.9}; never jointly tuned with outer_lr=0.7 |
+| 5 | GC (tensor/row modes) | #247 askeladd | ctrl clone=3.27554 ✓; tensor/row screens running |
+| 6 | Cooldown SHAPE cosine | #243 frieren | linear ctrl 3.2776 ✓; cosine just launched |

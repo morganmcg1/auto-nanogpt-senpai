@@ -6,6 +6,23 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 11:20 UTC — PR #217: MuLoCo sync_interval sweep {10, 30, 60}
+
+- **Branch**: g1r3-tanjiro/muloco-sync-sweep
+- **Hypothesis**: MuLoCo sync_interval (outer-step cadence) is a critical HP coupled with outer_lr=0.7; the baseline sync=30 was set by grid search at outer_lr=0.5 and may not be optimal at the newly merged outer_lr=0.7.
+- **Results** (3-arm screen n=1, 3325 steps):
+
+| Arm | W&B Run | val/loss (terminal) | Δ vs baseline (3.27585) |
+|---|---|---|---|
+| sync=10 | *(reported by student)* | 3.27936 | +0.00351 NEG |
+| sync=30 (ctrl) | *(reported by student)* | 3.27420 | −0.00165 (baseline-clone ✓) |
+| sync=60 | *(reported by student)* | 3.27722 | +0.00137 NEG |
+
+- **Analysis**: U-shape with sync=30 at the bottom — both higher and lower cadences hurt. sync=10 over-updates the outer anchor relative to inner trajectory, creating noisy outer corrections. sync=60 under-updates, losing responsiveness. sync=30 confirmed optimal at outer_lr=0.7. The ctrl arm reproduces within −0.00165 of baseline mean (seed noise range).
+- **Conclusion**: **CLOSED NEG.** sync=30 is the optimal MuLoCo cadence at this stack. Tanjiro's own follow-up suggestion (#3 from their closing note): "outer_momentum was never jointly tuned with outer_lr=0.7; it inherited 0.5 from PR #114." Reassigned to MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} at fixed outer_lr=0.7 sync=30 (PR #260).
+
+---
+
 ## 2026-05-17 10:35 UTC — PR #218: Lion optimizer for aux groups
 
 - **Branch**: g1r3-fern/lion-aux-sweep
