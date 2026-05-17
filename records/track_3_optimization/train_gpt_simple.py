@@ -25,6 +25,7 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
+AUX_BETA2 = 0.999
 
 
 def parse_args():
@@ -230,6 +231,45 @@ def log_training_telemetry(
     for name, grad in grads:
         metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
     wandb.log(metrics, step=wandb_step)
+
+
+def log_aux_adam_telemetry(
+    optimizer: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+    beta2: float,
+):
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "aux/beta2": beta2,
+    }
+    any_state = False
+    for group in optimizer.param_groups:
+        name = group.get("name", "unknown")
+        lr = group["lr"]
+        v_chunks = []
+        for p in group["params"]:
+            state = optimizer.state.get(p, None)
+            if state is None or "exp_avg_sq" not in state:
+                continue
+            v_chunks.append(state["exp_avg_sq"].detach().flatten().float())
+        if not v_chunks:
+            continue
+        any_state = True
+        v = torch.cat(v_chunks)
+        v_sqrt = v.sqrt()
+        metrics[f"aux/{name}/v_mean"] = v.mean().item()
+        metrics[f"aux/{name}/v_std"] = v.std().item()
+        metrics[f"aux/{name}/v_max"] = v.max().item()
+        metrics[f"aux/{name}/v_min"] = v.min().item()
+        metrics[f"aux/{name}/v_sqrt_mean"] = v_sqrt.mean().item()
+        metrics[f"aux/{name}/effective_lr_mean"] = (lr / (v_sqrt + 1e-10)).mean().item()
+        metrics[f"aux/{name}/effective_lr_median"] = (lr / (v_sqrt + 1e-10)).median().item()
+        metrics[f"aux/{name}/lr"] = lr
+    if any_state:
+        wandb.log(metrics, step=wandb_step)
 
 
 def log_weight_telemetry(
@@ -618,7 +658,9 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "aux_beta1": 0.8,
+            "aux_beta2": AUX_BETA2,
+            "muon_method": f"pmuon-uw-floor-power-cool-1p2-aux-beta2-{str(AUX_BETA2).replace('.', 'p')}",
         },
     )
 
@@ -653,7 +695,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, AUX_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -823,6 +865,13 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            log_aux_adam_telemetry(
+                optimizer=optimizer1,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+                beta2=AUX_BETA2,
+            )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
