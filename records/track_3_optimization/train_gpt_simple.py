@@ -46,6 +46,10 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--lr_mlp", type=float, default=0.035,
+                        help="Muon LR for SOAP_MLP_SUFFIXES params (default 0.035 = baseline uniform).")
+    parser.add_argument("--lr_attn", type=float, default=0.035,
+                        help="Muon LR for SOAP_ATTN_SUFFIXES + remaining block params (default 0.035 = baseline uniform).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +673,8 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "lr_mlp": float(args.lr_mlp),
+            "lr_attn": float(args.lr_attn),
         },
     )
 
@@ -704,10 +710,30 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025,
+    all_block_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    # Pass full named list so Muon.__init__ populates soap_params and param_names
+    # for both MLP and attn (when --soap_attn). Then split the single auto-created
+    # param_group into two groups with independent lr_mlp / lr_attn.
+    optimizer2 = Muon(all_block_named,
+                      lr=args.lr_mlp, weight_decay=0.025,
                       soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    mlp_named = [(n, p) for n, p in all_block_named
+                 if any(n.endswith(s) for s in Muon.SOAP_MLP_SUFFIXES)]
+    non_mlp_named = [(n, p) for n, p in all_block_named
+                     if not any(n.endswith(s) for s in Muon.SOAP_MLP_SUFFIXES)]
+    mlp_params_sorted = sorted([p for _, p in mlp_named], key=lambda x: x.size(), reverse=True)
+    non_mlp_params_sorted = sorted([p for _, p in non_mlp_named], key=lambda x: x.size(), reverse=True)
+    # Replace auto-created group with MLP-only group at lr_mlp, then add attn+other at lr_attn.
+    optimizer2.param_groups[0]["params"] = mlp_params_sorted
+    optimizer2.param_groups[0]["lr"] = args.lr_mlp
+    optimizer2.param_groups[0]["name"] = "muon_mlp"
+    optimizer2.add_param_group(dict(
+        params=non_mlp_params_sorted,
+        lr=args.lr_attn,
+        weight_decay=0.025,
+        mu=0.95,
+        name="muon_attn_other",
+    ))
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
