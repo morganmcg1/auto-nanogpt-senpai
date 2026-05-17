@@ -443,11 +443,13 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+NS5_FP32 = bool(int(os.environ.get("NS5_FP32", "0")))  # 0 = bf16 (default)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
-    X = G.bfloat16()
+    use_fp32 = NS5_FP32
+    X = G.float() if use_fp32 else G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
 
@@ -462,6 +464,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     if G.size(-2) > G.size(-1):
         X = X.mT
+    if use_fp32:
+        X = X.bfloat16()
     return X
 
 
@@ -699,6 +703,7 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/ns5_fp32": int(NS5_FP32),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
