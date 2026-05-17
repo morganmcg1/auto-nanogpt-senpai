@@ -6,6 +6,43 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 17:22 UTC — PR #265: Schedule-Free MuonH-SI (primal-dual averaging)
+
+- **Branch**: g1r3-nezuko/schedule-free-muonh
+- **Hypothesis**: Replace WSD linear cooldown on MuonH with Schedule-Free averaging (Defazio et al. 2024). Maintain primal variable z (MuonH inner step target) + dual averaging variable x (Polyak-Ruppert: x ← (1-1/t)·x + (1/t)·z). At validation, evaluate x (the running average, not the noisy z iterate). In-training forward: y = (1-β)·z + β·x. MuLoCo's outer sync requires a resync protocol since it externally overwrites p.
+- **Results**:
+
+| Option | Run | Step-300 val | Terminal (step 3325) | Notes |
+|---|---|---|---|---|
+| Option (1): reset z,x,t at each MuLoCo sync (β=0.85) | ofnnicf6 | — | **3.5171** | catastrophic NEG |
+| Option (1): β=0.9 | 5g6h2jaj | — | crashed | predicted broken |
+| Option (2): reset z,x, keep t (smoke 1) | af5d3mcm | **4.6345** | — | WORSE than baseline 4.14 |
+| Option (2): reset z,x, keep t (smoke 2) | fv6z1q50 | **4.6349** | — | WORSE than option (1) smoke |
+
+- **Conclusion**: CLOSED NEG. **WSD × Schedule-Free is philosophically incompatible.** WSD achieves low terminal loss by concentrating aggressive LR decay in the final phase — the optimal strategy is to use the final iterate. Schedule-Free achieves low loss by Polyak-Ruppert averaging the training trajectory. At step 3325, x ≈ mean(z_1 through z_3325) ≈ 4.5–5.0 because early iterates (loss >5) get equal weight with final iterates (loss ~3.27) in the 1/t average. Option (2) (keep t, reset z/x to MuLoCo value at sync) made things WORSE than option (1) because t grows to 3325, making x even more diluted by high-loss early iterates. There is no compatible SF formulation for WSD short of switching to EMA-weighted averaging (which is askeladd's PR #282).
+- **Student note**: Excellent early diagnosis of the MuLoCo rewriting issue (options 1/2/3). The option analysis correctly identified the incompatibility before wasting a full screen.
+- **Next assignment**: NS5-orthogonalized MuLoCo outer velocity — PR #294 assigned to nezuko.
+
+---
+
+## 2026-05-17 17:18 UTC — PR #257: AdEMAMix for aux: slow-EMA momentum buffer (alpha sweep)
+
+- **Branch**: g1r3-fern/ademamix-aux
+- **Hypothesis**: Apply AdEMAMix (De et al. 2024) to the auxiliary AdamW optimizer — add a slow-EMA second momentum buffer (α=2/5/8) that blends recent and historical gradients, exploiting longer-horizon information in the aux groups (embed, lm_head, scalars).
+- **Results** (3-arm screen n=1, 3325 steps each):
+
+| Arm | W&B Run | val/loss | Δ vs baseline (3.27585) |
+|---|---|---|---|
+| alpha=2 | x35cudj5 | **3.2891** | +0.0133 NEG |
+| alpha=5 | woz337i3 | 3.3112 | +0.0354 NEG |
+| alpha=8 | qp60ti6s | 3.3362 | +0.0604 NEG (worst) |
+
+- **Conclusion**: CLOSED NEG. Monotonic worsening with α — larger slow-EMA blending is more harmful. The aux groups (embed/lm_head/scalars, ~20% of params by count) update ~independently from the inner MuonH blocks. Adding slow-EMA momentum makes aux updates stale relative to the rapidly converging MuonH inner parameters. AdEMAMix requires a stable loss landscape where historical gradients remain informative — the MuonH-SI convergence creates rapidly shifting gradients that make slow-EMA mixing counterproductive.
+- **Student note**: Clean sweep wrapper with corrected kill-gate (3.40 at step 3000, fixing the original 3.285 mis-threshold). Kill-gate correction propagated to all subsequent PR assignments.
+- **Next assignment**: Per-layer depth-scaled MuonH LR — PR #292 assigned to fern.
+
+---
+
 ## 2026-05-17 15:42 UTC — PR #253: NS5 fp32 accumulation: test bf16 noise floor hypothesis
 
 - **Branch**: g1r3-thorfinn/ns5-fp32
