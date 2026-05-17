@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 16:22 UTC — PR #248 askeladd CLOSED (Muon LR axis CLOSED at 0.035 — both arms NULL; key finding: param_norm grows 3.4× for 1.33× LR, WD=0.025 too low). PR #287 askeladd ASSIGNED (Muon WD scan {0.035, 0.050}). Frieren PR #261 arm A finishing (~step 3100, val=3.277 — likely near sr=3025-3075). All 8 students productively WIP.
+- **Last update:** 2026-05-17 16:48 UTC — Tanjiro PR #250 terminal SENPAI-RESULT: arm B (c=+0.25) sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) but well within seed noise. Sent back for n=2 seed-2 re-run before merge per program convention (Δval > 0.001 required for n=1 confidence). Frieren PR #261 arm A (warmup=50) FINISHED sr=3025 val=3.2662 NULL within noise; arm B (warmup=150) `wonlhane` running step ~225. PR #287 askeladd WD scan in early phase.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -18,9 +18,9 @@ Previous baselines:
 | PR  | Student     | Mechanism                                                           | Status (15:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
 | **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) step 1800/3250 (~55%) val=3.486 — running. Duplicate `7210vvfo` killed at 15:27 UTC. |
-| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) step ~3100/3250 (~95%) val=3.277 — nearly terminal. val crossed 3.28 between step 2950-3050. sr pending. |
+| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) FINISHED sr=3025 val=3.2662 — Δval=+0.00005 NULL (tied within noise). Arm B `wonlhane` (warmup=150) running step ~225/3250 (~7%). |
 | **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) FINISHED sr=3125 val=3.275 NULL. Arm B `9q7v4c4u` (TARGET_UW=0.7) step 700 val=3.92 — running. |
-| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `8tbjkmnc` (c=+0.25) step 2275/3250 (~70%) val=3.391 — running. |
+| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 val=3.273 NULL. Arm B FINISHED sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) within seed noise. **SENT BACK for n=2 seed-2 re-run**. |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 1625/3250 (~50%) val=3.526 — running. |
 | **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `s7tsyxrt` (β1=0.9, restarted after crash) step 1350/3250 (~41%) val=3.611 — running. |
