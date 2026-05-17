@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_shared_qk_gram", action="store_true", default=False,
+                        help="Share SOAP Gram preconditioner between Q and K attn weights (averaged outer products)")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -495,19 +497,21 @@ def soap_eigenbasis(mat: Tensor) -> Tensor:
     return torch.flip(q, [1])
 
 
-def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+def soap_basis_qr_orders(row_gg, col_gg, q_row, q_col):
     row_eig = torch.diag(q_row.T @ row_gg @ q_row)
     row_sort = torch.argsort(row_eig, descending=True)
-    q_row = q_row[:, row_sort]
-    exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
-    q_row, _ = torch.linalg.qr(row_gg @ q_row)
+    new_q_row, _ = torch.linalg.qr(row_gg @ q_row[:, row_sort])
 
     col_eig = torch.diag(q_col.T @ col_gg @ q_col)
     col_sort = torch.argsort(col_eig, descending=True)
-    q_col = q_col[:, col_sort]
-    exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
-    q_col, _ = torch.linalg.qr(col_gg @ q_col)
-    return q_row, q_col, exp_avg_sq
+    new_q_col, _ = torch.linalg.qr(col_gg @ q_col[:, col_sort])
+    return new_q_row, new_q_col, row_sort, col_sort
+
+
+def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
+    new_q_row, new_q_col, row_sort, col_sort = soap_basis_qr_orders(row_gg, col_gg, q_row, q_col)
+    exp_avg_sq = exp_avg_sq.index_select(0, row_sort).index_select(1, col_sort)
+    return new_q_row, new_q_col, exp_avg_sq
 
 
 def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
@@ -536,12 +540,71 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def soap_update_preconditioner_shared_qk(
+    grad_q, grad_k, state_q, state_k,
+    shampoo_beta=SOAP_BETA2, precondition_frequency=PRECOND_FREQ,
+):
+    """Update a shared Gram preconditioner for a Q/K attn weight pair.
+
+    state_q['row_gg'] / state_q['col_gg'] are the shared Gram tensors (state_k
+    aliases the same memory). Updates use the per-step outer-product average
+    `(g_q outer + g_k outer) / 2`, which preserves the EMA decay scale while
+    doubling the effective batch contributing to the Gram estimate.
+
+    Returns the per-step row-Gram cosine similarity between Q and K (for
+    diagnostic logging) before the EMA blend is applied.
+    """
+    g_q = grad_q.float()
+    g_k = grad_k.float()
+    row_q = g_q @ g_q.T
+    row_k = g_k @ g_k.T
+    col_q = g_q.T @ g_q
+    col_k = g_k.T @ g_k
+    row_outer = (row_q + row_k) * 0.5
+    col_outer = (col_q + col_k) * 0.5
+
+    # Per-step Q/K Gram cosine-similarity diagnostic (averages row and col).
+    row_q_f = row_q.flatten()
+    row_k_f = row_k.flatten()
+    cos_row = (row_q_f * row_k_f).sum() / (row_q_f.norm() * row_k_f.norm() + 1e-12)
+    col_q_f = col_q.flatten()
+    col_k_f = col_k.flatten()
+    cos_col = (col_q_f * col_k_f).sum() / (col_q_f.norm() * col_k_f.norm() + 1e-12)
+    cos_qk_outer = (cos_row + cos_col) * 0.5
+
+    state_q["row_gg"].lerp_(row_outer, 1 - shampoo_beta)
+    state_q["col_gg"].lerp_(col_outer, 1 - shampoo_beta)
+    # state_k["row_gg"] / state_k["col_gg"] alias state_q's, so they reflect the update.
+
+    if state_q["q_row"] is None:
+        new_q_row = soap_eigenbasis(state_q["row_gg"])
+        new_q_col = soap_eigenbasis(state_q["col_gg"])
+    elif state_q["soap_step"] > 0 and state_q["soap_step"] % precondition_frequency == 0:
+        new_q_row, new_q_col, row_sort, col_sort = soap_basis_qr_orders(
+            state_q["row_gg"], state_q["col_gg"], state_q["q_row"], state_q["q_col"]
+        )
+        # Apply the same permutation to both per-param projected variance buffers.
+        state_q["exp_avg_sq"] = state_q["exp_avg_sq"].index_select(0, row_sort).index_select(1, col_sort)
+        state_k["exp_avg_sq"] = state_k["exp_avg_sq"].index_select(0, row_sort).index_select(1, col_sort)
+    else:
+        new_q_row = state_q["q_row"]
+        new_q_col = state_q["q_col"]
+
+    state_q["q_row"] = new_q_row
+    state_q["q_col"] = new_q_col
+    state_k["q_row"] = new_q_row
+    state_k["q_col"] = new_q_col
+    state_q["soap_step"] += 1
+    state_k["soap_step"] = state_q["soap_step"]
+    return cos_qk_outer
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, soap_shared_qk_gram=False):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -565,6 +628,36 @@ class Muon(torch.optim.Optimizer):
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
+        # Q/K shared-Gram pairing. Build id(K) -> Q-param map keyed by attn-block prefix.
+        # Only active when soap_attn is enabled (otherwise Q/K aren't SOAP params).
+        self.soap_shared_qk_gram = bool(soap_shared_qk_gram) and bool(soap_attn)
+        self.qk_leader_of: dict[int, Tensor] = {}
+        self.qk_leaders_set: set[int] = set()
+        self.qk_followers_set: set[int] = set()
+        self.qk_prefix_of: dict[int, str] = {}
+        if self.soap_shared_qk_gram:
+            if dist.is_initialized() and dist.get_world_size() > 1:
+                raise NotImplementedError(
+                    "--soap_shared_qk_gram requires world_size=1 (Q and K must be on same rank)"
+                )
+            qs: dict[str, Tensor] = {}
+            ks: dict[str, Tensor] = {}
+            for n, p in all_named:
+                if n.endswith(".attn.q.weight"):
+                    qs[n[:-len(".attn.q.weight")]] = p
+                elif n.endswith(".attn.k.weight"):
+                    ks[n[:-len(".attn.k.weight")]] = p
+            for prefix, q_p in qs.items():
+                k_p = ks.get(prefix)
+                if k_p is None:
+                    continue
+                self.qk_leader_of[id(k_p)] = q_p
+                self.qk_leaders_set.add(id(q_p))
+                self.qk_followers_set.add(id(k_p))
+                self.qk_prefix_of[id(q_p)] = prefix
+                self.qk_prefix_of[id(k_p)] = prefix
+        self.qk_outer_cos_sim_buffer: dict[str, Tensor] = {}
+
         param_groups = []
         for g in groups_raw:
             g_params = sorted([p for _, p in g["named_params"]], key=lambda x: x.size(), reverse=True)
@@ -583,6 +676,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.qk_outer_cos_sim_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -594,15 +688,23 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    is_qk_follower = self.soap_shared_qk_gram and id(p) in self.qk_followers_set
+                    is_qk_leader = self.soap_shared_qk_gram and id(p) in self.qk_leaders_set
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
-                            state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
-                            state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                            if is_qk_follower:
+                                leader_state = self.state[self.qk_leader_of[id(p)]]
+                                assert len(leader_state) > 0, "leader Q must be initialized before follower K"
+                                state["row_gg"] = leader_state["row_gg"]
+                                state["col_gg"] = leader_state["col_gg"]
+                            else:
+                                state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
+                                state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -617,7 +719,18 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        if is_qk_leader:
+                            # Defer Gram update; the follower K will update the shared Gram.
+                            pass
+                        elif is_qk_follower:
+                            leader_p = self.qk_leader_of[id(p)]
+                            leader_state = self.state[leader_p]
+                            cos_qk_outer = soap_update_preconditioner_shared_qk(
+                                leader_p.grad, p.grad, leader_state, state,
+                            )
+                            self.qk_outer_cos_sim_buffer[self.qk_prefix_of[id(p)]] = cos_qk_outer
+                        else:
+                            soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -727,6 +840,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_shared_qk_gram": bool(args.soap_shared_qk_gram),
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
@@ -778,6 +892,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_shared_qk_gram=args.soap_shared_qk_gram,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -958,6 +1073,18 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and optimizer2.qk_outer_cos_sim_buffer:
+            qk_names = list(optimizer2.qk_outer_cos_sim_buffer.keys())
+            qk_tensors = list(optimizer2.qk_outer_cos_sim_buffer.values())
+            qk_vals = torch.stack(qk_tensors).detach().cpu().tolist()
+            qk_metrics = {"trial": trial_idx, "train/step": train_step}
+            for qk_name, qk_val in zip(qk_names, qk_vals):
+                qk_metrics[f"train/soap/qk_gram_outer_cos_sim/{clean_metric_name(qk_name)}"] = qk_val
+            qk_metrics["train/soap/qk_gram_outer_cos_sim_mean"] = sum(qk_vals) / len(qk_vals)
+            qk_metrics["train/soap/qk_gram_outer_cos_sim_min"] = min(qk_vals)
+            qk_metrics["train/soap/qk_gram_outer_cos_sim_max"] = max(qk_vals)
+            qk_metrics["train/soap/shared_qk_gram"] = int(args.soap_shared_qk_gram)
+            wandb.log(qk_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
