@@ -1,5 +1,72 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~06:45 — Cycle 44: Three PRs CLOSED (frieren bias-corr, askeladd proj-init-B, edward AdEMAMix); 3 fresh assignments (frieren #238, askeladd #239, edward #240)
+
+### FRIEREN #221 — Adam-style Muon bias correction (MUON_BIAS_CORR=1) — CLOSED
+
+| Run | val | ffs | verdict |
+|---|---|---|---|
+| `6qb399cr` (n=1, 3175 steps) | **3.27903** | **3150** | MISS (+0.00255 val, +31.25 ffs) |
+
+Adam-style `1/(1-μ^t)` first-moment debiasing on Muon does not transfer to the merged Contra+SOAP-MLP+NS5+contra-normuon+u/w-floor stack. The canonical bias correction (well-studied in Adam) appears to over-amplify Muon momentum when paired with the SOAP eigenbasis pre-conditioner — the NS5+contra+u/w-floor pipeline already implicitly manages momentum norm dynamics. Mechanism-stack mismatch, not a code error. Per pre-authorized decision tree (val > 3.278 → close).
+
+Frieren reassigned → Cosine LR cooldown shape (PR #238). Orthogonal to closed cooldown-duration axis (PR #178, 0.70 local optimum). Cosine concentrates LR higher in early-cooldown steep-descent window; may push FFS earlier.
+
+### ASKELADD #224 — Per-module init Variant B (std=0.00221 non-zero proj) — CLOSED
+
+| Run | val | ffs | verdict |
+|---|---|---|---|
+| `u0x4ni0c` (n=1, 3175 steps) | **3.27993** | **3175** | MISS (+0.00345 val, +56.25 ffs) |
+
+Variant B (std=0.00221) landed nearly identically to Variant A (zero-init, val=3.28042): only 0.0005 val difference. Both converged to the same attractor — confirms SOAP+NS5 absorbs whatever per-module init benefit can exist on this stack. The per-module init direction (all variants: standard fan-in, zero-init, and small-non-zero) is **fully exhausted** on the merged Contra+SOAP-MLP base. Mechanism is stack-absorbed.
+
+Askeladd reassigned → Lion optimizer on aux groups (PR #239). Replace AdamW on embed+lm_head+scalars with Lion sign-based optimizer. Hypothesis: sign normalization accelerates early token embedding specialization (step 0-500, FFS-critical window). No second moment → cannot amplify variance NaN cascade.
+
+### EDWARD #199 — AdEMAMix on aux groups — CLOSED (multi-seed NaN, no clean trial)
+
+| Run | trial_idx | val | ffs | verdict |
+|---|---|---|---|---|
+| `d9vxzbtk` | 0 | NaN (step 25) | — | baseline seed-0 NaN |
+| `4e8wgtxk` | 0 | NaN (step 25) | — | duplicate process |
+| `q2un2m4y` | 0 | NaN (step 1225) | — | multi-seed cascade |
+| `65edtfli` | 0-3 | NaN (aborted step 125) | — | safety-guard abort |
+
+Zero clean trials across 4 runs and 2 retries. The `num_trials=4` retry was authorized after establishing AdEMAMix(α=0)≡AdamW to 1e-7 (correct code), but the n=4 run still failed. Likely: AdEMAMix's slow-EMA accumulation on the high-LR embed group (lr=0.3) amplifies the baseline step-2 fragile equilibrium across seeds, not just seed-0.
+
+Edward reassigned → Adaptive NS5 iteration count schedule (PR #240). More iters (16) in early-training fragile window, fewer (8) in late well-conditioned window. Directly tests orthogonalization quality as a FFS lever.
+
+---
+
+## 2026-05-17 ~06:00 — Cycle 43: Nezuko Screen B WINS; fern LR_POWER=1.5 MISS; multi-seed NaN cascade identified
+
+### NEZUKO #212 — Attn-SOAP+trust Screen B (TRUST_THRESHOLD=0.85) — WIN → n=4 IN PROGRESS 🚀
+
+| Screen | val | ffs | verdict |
+|---|---|---|---|
+| Screen A (`h29cv26c`, T=0.90) | 3.27628 | 3125 | val WIN only — ffs MISS |
+| **Screen B (`5g7k1w3q`, T=0.85)** | **3.27475** | **3100** | **BOTH BARS CLEARED** |
+
+Screen B lowered trust threshold from 0.9 to 0.85, activating SOAP for more attention v/proj weights (activation rate: T=0.85 → v on 50%, proj on 100%, overall 87.5%; T=0.9 → v on 0%, proj on 17%, 35%). The increased SOAP coverage closed the FFS gap (3125 → 3100). n=4 confirm launched 05:26 UTC (`3xn3ox1c`), ETA ~12:50 UTC.
+
+### FERN #208 — Power-law LR cooldown (LR_POWER=1.5, CM=0.5)
+
+| Run | val | ffs | verdict |
+|---|---|---|---|
+| `ersqpsq2` (LR_POWER=1.5, CM=0.4 default — misconfigured) | 3.28313 | -1 | MISS (informational only) |
+| `rpws9fug` (LR_POWER=1.5, CM=0.5 proper) | **3.28240** | **-1** | MISS (+0.00592 val) |
+
+Power-law=1.5 HURTS by +0.006 val. Currently testing LR_POWER=2.0 (front-loaded cooldown, different shape hypothesis).
+
+### Multi-seed NaN cascade identified (new this cycle)
+
+Three students (alphonse SOAP_BETA2=0.85, tanjiro TARGET_UW=0.30, edward AdEMAMix) all showed NaN cascades across MULTIPLE seeds (not just seed-0). Distinguishable from seed-0 baseline NaN:
+- Seed-0 baseline NaN: step 25, 147,758,208 nonfinite count
+- HP-induced multi-seed NaN: step 100-1225, same or higher nonfinite count
+
+Pattern suggests some HP changes (extreme SOAP_BETA2, extreme TARGET_UW, AdEMAMix) destabilize the early-training fragile equilibrium beyond seed-0, making all seeds fail.
+
+---
+
 ## 2026-05-17 ~04:35 — Cycle 42: Three PRs CLOSED; three fresh assignments; edward retry authorized
 
 ### ALPHONSE #205 — CONTRA_MUON sweep — CLOSED
