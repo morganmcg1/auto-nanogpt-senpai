@@ -64,8 +64,9 @@ All 8 students WIP, zero idle.
 ### fern #203 (NS polynomial coefficient sweep) ✓ CLOSED NULL
 **Final verdict:** 5-arm bracket c∈{0.35,0.4,0.5,0.6,0.7}. All arms regress vs c=0.5 control. c=0.5 is local optimum. Key finding: NS=16-cooldown × soft-polynomial antagonism (arm-B c=0.4 flipped from neutral to +0.003 regression). Axis sealed.
 
-### fern #290 (NS per-iter coefficient schedule) 🆕 ASSIGNED
+### fern #290 (NS per-iter coefficient schedule) ⚡ STRONG ARM-B SIGNAL
 **Hypothesis:** Fern #203 closed constant-c sweep. This tests VARYING c across the 12 NS iter positions (early→aggressive, late→gentle) with average c=0.5 held fixed. Discriminates whether spectrum-tracking per iter beats the constant baseline.
+**Result so far** (20:20 UTC, OLD baseline): arm-A=3.27667 (drift Δ=+0.00206 vs new baseline, gate pass), **arm-B (aggressive_to_gentle, c=0.7→0.3) val=3.27382/fs=3250, within-pod Δ=−0.00285**. arm-C (inverse, gentle_to_aggressive) is the falsification test — running, ETA ~21:55 UTC. arm-D (linear ramp-down) ETA ~23:38 UTC. If arm-C regresses, mechanism is confirmed asymmetric. Confirmation seeds will require rebase to NEW baseline.
 
 ## Closed this cycle (wave-4)
 
@@ -86,7 +87,7 @@ All 8 students WIP, zero idle.
 6. ⚡ **AdamW aux WD=0.005 (thorfinn #279)** — arm-B single-seed val=3.27158 (within-pod Δ=−0.00277). Chain still running (arms C/D for WD=0.01, 0.025). **STRONGEST single-seed signal of wave-5**. Mechanism: explicit embed regularization (Fro norm 22528 vs 71680).
 7. **Per-group β2 ablation (edward #280)** — triangulates which aux group drives alphonse #236's β2 win
 8. **NS cooldown SHAPE (frieren #285)** — graduated/ramped vs step jump (compute-neutral)
-9. **NS per-iter coefficient schedule (fern #290)** — varying c across 12 NS iters, avg c=0.5 fixed
+9. ⚡ **NS per-iter c-schedule (fern #290) arm-B agg→gentle** — single-seed val=3.27382, within-pod Δ=−0.00285 (OLD baseline). arm-C (inverse) and arm-D (smoother) still pending. **Two clean wave-5 signals now**: thorfinn aux WD=0.005 and fern c=0.7→0.3 schedule. Both are mechanistically distinct from #235 and orthogonal to alphonse/askeladd candidates.
 10. ~~Per-group Muon clip (edward #206)~~ — closed null/mechanism study
 11. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed compute-neutral
 12. ~~AdamW β1 cooldown (nezuko #227)~~ — closed null
