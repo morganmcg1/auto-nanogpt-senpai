@@ -236,6 +236,7 @@ def log_weight_telemetry(
     trial_idx: int,
     step: int,
     wandb_step: int,
+    optimizers: list[torch.optim.Optimizer] | None = None,
 ):
     weights = [(name, p.data) for name, p in model.named_parameters()]
     weight_stats = aggregate_stats(weights)
@@ -247,6 +248,12 @@ def log_weight_telemetry(
         "train/weight/max_abs": weight_stats.get("max_abs", 0.0),
         "train/weight/nonfinite_count": weight_stats.get("nonfinite_count", 0.0),
     }
+    if optimizers is not None:
+        for opt in optimizers:
+            if isinstance(opt, Muon) and hasattr(opt, "last_trust_count") and opt.last_trust_count > 0:
+                metrics["optimizer/trust_scale_mean"] = opt.last_trust_mean
+                metrics["optimizer/trust_clipped_fraction"] = opt.last_trust_clipped_fraction
+                metrics["optimizer/trust_param_count"] = opt.last_trust_count
     metrics.update(prefixed("train/weight/all", weight_stats))
     for module_type, tensors in grouped_by_type(weights, module_types).items():
         metrics.update(prefixed(f"train/weight_type/{module_type}", aggregate_stats(tensors)))
@@ -443,6 +450,9 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# LARS/LAMB-style trust-region cap on the applied (-lr*update) delta per parameter block.
+# 0 = OFF (exact baseline). When > 0, caps ||delta_p|| <= TRUST_RATIO * ||p||.
+TRUST_RATIO = float(os.environ.get("TRUST_RATIO", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -572,6 +582,9 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        trust_sum = 0.0
+        trust_count = 0
+        trust_clipped = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -615,11 +628,25 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
+                    if TRUST_RATIO > 0:
+                        # Cap the actually-applied delta (lr * ||update||) at TRUST_RATIO * ||p||.
+                        u_norm = update.float().norm().clamp_min(1e-8)
+                        w_norm = p.float().norm().clamp_min(1e-8)
+                        trust_scale = (TRUST_RATIO * w_norm / (group["lr"] * u_norm)).clamp(max=1.0)
+                        update = update * trust_scale.to(update.dtype)
+                        ts = float(trust_scale.item())
+                        trust_sum += ts
+                        trust_count += 1
+                        if ts < 1.0 - 1e-6:
+                            trust_clipped += 1
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self.last_trust_count = trust_count
+        self.last_trust_mean = (trust_sum / trust_count) if trust_count > 0 else 1.0
+        self.last_trust_clipped_fraction = (trust_clipped / trust_count) if trust_count > 0 else 0.0
 
 
 ########################################
@@ -699,6 +726,7 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/trust_ratio": TRUST_RATIO,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
@@ -880,6 +908,7 @@ for trial_idx in range(args.num_trials):
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
+                optimizers=optimizers,
             )
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
