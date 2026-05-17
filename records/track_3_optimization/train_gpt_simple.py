@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_beta2_final", type=float, default=0.90,
+                        help="Final SOAP beta2 at end of cooldown (0.90=no annealing; 0.75 recommended).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -572,9 +574,10 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["soap_step"] = 0
                     if use_soap:
+                        soap_beta2 = group.get("soap_beta2", SOAP_BETA2)
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, beta2=soap_beta2)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -585,7 +588,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=soap_beta2)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
@@ -669,6 +672,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_beta2_final": float(args.soap_beta2_final),
         },
     )
 
@@ -726,6 +730,18 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+
+        # anneal SOAP beta2 during cooldown: stay at SOAP_BETA2 for stable phase,
+        # then linearly interp to args.soap_beta2_final by end of training.
+        stable_end = 1.0 - cooldown_frac
+        if progress >= stable_end:
+            cooldown_t = (progress - stable_end) / cooldown_frac  # in [0, 1]
+            current_soap_beta2 = SOAP_BETA2 - (SOAP_BETA2 - args.soap_beta2_final) * cooldown_t
+        else:
+            current_soap_beta2 = SOAP_BETA2
+        for group in optimizer2.param_groups:
+            group["soap_beta2"] = current_soap_beta2
+        return current_soap_beta2
 
 
     ########################################
@@ -814,7 +830,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        current_soap_beta2 = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -822,6 +838,8 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        if dist.get_rank() == 0 and (step == 0 or (step + 1) % 50 == 0 or step + 1 == train_steps):
+            wandb.log({"trial": trial_idx, "optim/soap_beta2_current": current_soap_beta2}, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
