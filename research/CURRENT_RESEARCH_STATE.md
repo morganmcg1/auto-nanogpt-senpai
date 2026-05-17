@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 10:40 UTC (boot 89)
+- **Last updated:** 2026-05-17 11:00 UTC (boot 90)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~13h, re-escalated 08:40 UTC.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
@@ -23,18 +23,18 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 89 — 10:40 UTC 2026-05-17)
+## Active experiments (boot 90 — 11:00 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#257** | fern | AdEMAMix for aux (slow-EMA α sweep {2,5,8}) | **NEWLY ASSIGNED** — #218 Lion closed NEG (monotonic all arms) |
-| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smoke c0vwcocl at ~58% of 300-step smoke |
-| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | Screen pr41c8ir off-mode step 2100/3325 (63%) val=3.498 |
-| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | Linear arm 5ehqbmwb step 1275/3325 (38%) val=3.643 running; cosine/sqrt queued |
-| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 BELOW baseline (n=1, Δ=-0.00203)**; clip=0.2 hzxm8aaj 1700/3325 (51%) val=3.580; clip=1.0 queued |
-| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | sync=10 TERMINAL=3.2794 NEG; sync=30 ctrl TERMINAL=3.2742 baseline-clone ✓; sync=60 grckndpv step 2875/3325 (86%) val=3.335 — last cooldown phase |
-| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 zo06rxgl step 3100/3325 (93%) val=3.382 — likely NEG; frac=1.0 queued |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 now ~16h silent |
+| **#257** | fern | AdEMAMix for aux (slow-EMA α sweep {2,5,8}) | Smoke syb7fxvx at 30% of 300-step warmup |
+| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smoke c0vwcocl TERMINAL=4.14345 ✓; new smoke 3ge15pi8 at 17% — re-doing? |
+| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | off-mode pr41c8ir TERMINAL=3.27554 baseline-clone ✓; tensor 0zqenfv8 step 500/3325 (15%); row queued |
+| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | linear 5ehqbmwb step 3060/3325 (92%) val=3.310 — terminal imminent; cosine/sqrt queued |
+| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 BELOW baseline (n=1, Δ=-0.00203)**; clip=0.2 TERMINAL=3.27618 (+0.00033 in-noise NEG); clip=1.0 9l9le6dc step 90/3325 (3%) |
+| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | ALL 3 ARMS TERMINAL: sync=10=3.27936 NEG; sync=30=3.27420 ctrl ✓; sync=60=3.27722 NEG (+0.00137). Awaiting SENPAI-RESULT from student |
+| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 TERMINAL=3.32914 NEG (+0.053); frac=1.0 mpvg5fas step 1530/3325 (46%) val=3.609 — should be baseline-clone |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 ~16h silent, re-escalated 10:40 |
 
 **8/8 students assigned.** Closed: #218 NEG (Lion aux monotonic), #215 NEG-saturated (NS5 iter), #174 NEG (A3 polynomial), #207 NEG, #200 NEG, #182-192 NEG.
 
@@ -124,13 +124,17 @@ Both NS5 quality levers (polynomial coefficients #174, iter count #215) closed N
 - **Lion aux** (#218 ALL NEG monotonic): scale=0.3 (+0.034), scale=1.0 (+0.047), scale=3.0 (+0.152). Sign-only updates structurally incompatible with aux groups' gradient-scale heterogeneity.
 - Pattern confirms aux groups specifically require /√v scale adaptation — next: AdEMAMix (#257 fern) keeps /√v + adds long-horizon momentum.
 
-## Next-priority watch points (boot 89 — 10:40 UTC)
+## Next-priority watch points (boot 90 — 11:00 UTC)
 
-1. ⭐ **Edward #237 AGC clip=0.2 terminal** (~noon UTC): step 51%, compare vs clip=0.05=3.27382. clip=1.0 queued. n=4 confirm at best arm thereafter.
-2. **Tanjiro #217 sync=60** (grckndpv 86% val=3.335): in cooldown phase — terminal imminent. Final drop to ~3.27x possible but unlikely from 3.335. Watch.
-3. **Nezuko #222 frac=0.4** (zo06rxgl 93% val=3.382): terminal imminent — likely NEG. frac=1.0 = baseline-clone queued.
-4. **Frieren #243 linear ctrl** (5ehqbmwb 38% val=3.643): in normal mid-training. Linear = baseline ctrl. Then cosine (most-promising arm).
-5. **Askeladd #247 GC off-mode** (pr41c8ir 63% val=3.498): off-mode = baseline ctrl; tensor/row screen arms queued.
-6. **Thorfinn #253 NS5 fp32**: smoke c0vwcocl finishing; screen pending.
-7. **Fern #257 AdEMAMix**: just assigned; smoke gate pending.
-8. **Issue #164**: alphonse pod still NaN on gd103cc — 16h infra silence.
+1. ⭐ **Edward #237 — clip=0.05 still the candidate**: clip=0.2 TERMINAL=3.27618 in-noise (+0.00033) NEG; clip=1.0 just started 3%. After clip=1.0 terminals (~13:00 UTC), expect n=4 confirm at clip=0.05 (the only arm to clear baseline at n=1).
+2. **Tanjiro #217**: all 3 arms TERMINAL (sync=10/30/60 = 3.2794/3.2742/3.2772). Sweep complete — awaiting student SENPAI-RESULT. sync=60 NEG (+0.00137 vs baseline), sync=30 ctrl confirmed. Will close NEG (no merge candidate).
+3. **Frieren #243 linear ctrl terminal** (~11:30 UTC): val=3.310 at 92% — trending NEG by ~+0.030. Linear ctrl underperforming relative to expected reproduction. Suspicious — could be a code wiring issue OR a bad seed.
+4. **Nezuko #222 frac=1.0** (mpvg5fas 46%): expected baseline-clone since frac=1.0 IS the baseline cooldown. Sweep will close NEG (frac=0.2 + 0.4 both NEG).
+5. **Askeladd #247 tensor mode** (0zqenfv8 15%): too early. Row mode queued.
+6. **Thorfinn #253**: smoke re-launched? c0vwcocl smoke=4.14 ✓; 3ge15pi8 at 17% running. Awaiting screen launch.
+7. **Fern #257 AdEMAMix**: smoke syb7fxvx in flight.
+8. **Issue #164**: alphonse pod still broken — 16h infra silence, re-escalated 10:40 UTC.
+
+## Concerns to watch
+
+- **Frieren #243 linear ctrl trending NEG** (val=3.310 at 92%). Linear cooldown = baseline schedule. Should reproduce ~3.275-3.278. If terminal-lands at 3.31+, suggests a code-wiring issue with the cooldown-shape flag. Watch for student to flag.
