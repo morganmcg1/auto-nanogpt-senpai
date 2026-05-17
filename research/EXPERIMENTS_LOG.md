@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~17:20 — Cycle 54 (continued): thorfinn #219 MERGED ⭐ NEW BASELINE; fern #271 FALSIFIED; fern reassigned (#291)
+
+### THORFINN #219 — Annealed Muon μ schedule (MU_START=0.97 → MU_END=0.90) — MERGED ⭐ NEW BASELINE
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27510 | 3075 |
+| T1 | 3.27697 | 3100 |
+| T2 | 3.27489 | 3075 |
+| T3 | 3.27638 | 3100 |
+| **n=4 mean** | **3.275835** | **3087.5** |
+
+Δ vs PR #212 baseline (3.27631 / 3112.5): val=−0.000475, ffs=−25.0. Statsig 0.00833 ≥ 0.004 (2.08× margin).
+
+**Mechanism (well-supported)**:
+1. **Early training**: high μ=0.97 = long EMA window. CONTRA_MUON's spectral perturbation noise is averaged out before being pushed through NS5. Reduces noise-driven moves through parameter space during fragile warmup.
+2. **Cooldown phase**: μ → 0.90 = shorter EMA. Momentum buffer becomes more reactive precisely when LR cooldown reduces step magnitude — Muon can track finer-grained signal during the critical ffs-determining phase.
+3. **Warmup-style (Arm A: 0.90→0.97) failed**: low μ early lets gradient noise dominate; high μ late over-smooths in cooldown. Worst-of-both schedule.
+
+W&B run: `47bb0bf2`. PR squash-merged after rebase (PR #212 conflict resolved by student). Thorfinn reassigned → annealed μ finer sweep (PR #288: 0.97→0.92 tight range vs cooldown-phase-only anneal).
+
+---
+
+### FERN #271 — Decoupled SOAP eigenbasis refresh freq (MLP vs ATTN) — FALSIFIED
+
+| Arm | SOAP_PRECOND_FREQ_ATTN | val/loss | ffs | vs new bar |
+|---|---|---|---|---|
+| A | 5 (faster) | 3.27633 | 3100 | MISS (+0.00050 val, +12.5 ffs) |
+| B | 20 (slower) | 3.27909 | 3150 | CLEAR MISS (+0.00326 val, +62.5 ffs) |
+
+**Mechanistic insight (project knowledge update)**: SOAP_PRECOND_FREQ and SOAP_BETA2 are entangled through the EMA effective horizon. Fern's drift telemetry showed that at β2=0.90, the post-refresh Gram already substantially equilibrates within 10 steps. Increasing refresh frequency by 4× (freq=5) only reduces Frobenius drift by ~6% (64K → 68K Frobenius units) — not enough to change gradient direction quality. Refresh frequency optimum ≈ EMA effective horizon = 1/(1-β2) → for β2=0.90, that's 10 steps.
+
+**Key axis-coupling insight**: This implies SOAP_BETA2 is the primary control over eigenbasis dynamics, not refresh frequency. Annealing β2 (rather than refresh freq) is the natural follow-up — directly motivated this PR's mechanistic explanation.
+
+W&B runs: `5873pgbt` (Arm A), `w9t7l423` (Arm B). Fern reassigned → annealed SOAP β2 (PR #291: 0.95→0.85 full range vs 0.92→0.88 tight range).
+
+---
+
 ## 2026-05-17 ~16:15 — Cycle 54 (continued): askeladd #268 FALSIFIED; thorfinn #219 n=4 COMPLETE awaiting rebase; askeladd reassigned (#286)
 
 ### ASKELADD #268 — Per-block-depth Muon LR scaling — FALSIFIED

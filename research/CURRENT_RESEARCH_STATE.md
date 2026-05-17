@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-17 ~16:40 UTC — Cycle 54 (continued)
+- 2026-05-17 ~17:20 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 
 ## CRITICAL BUG FIXED (cycle 54)
@@ -41,8 +41,11 @@ Previous baseline (PR #212): val=3.27631, ffs=3112.5
 - Just assigned. Muon stays on linear cooldown; aux groups (embed, lm_head, scalars) try cosine or no cooldown.
 - _TANJIRO #259 (NS_ITERS sweep) CLOSED_ — multi-seed NaN cascade: NS_ITERS=10 leaves NS5 under-converged → catastrophic update → NaN. NS5 iter axis fully exhausted (also closed: fp32 NS5, 16-iter, and all {8,10,12,14,16} sweep).
 
-### FERN #271 — Decoupled SOAP eigenbasis refresh freq: MLP vs ATTN
-- Just assigned. Arm A: SOAP_PRECOND_FREQ_ATTN=5; Arm B: SOAP_PRECOND_FREQ_ATTN=20.
+### FERN #291 — Annealed SOAP β2 (0.95→0.85): adaptive Gram EMA
+- Just assigned. Direct follow-up from #271 mechanistic insight (β2 is the primary control over eigenbasis dynamics, not refresh freq).
+- Arm A: β2 anneal 0.95 → 0.85 (full range, ~20-step → ~7-step EMA horizon). Arm B: 0.92 → 0.88 (tight range).
+- Composition with merged annealed-μ (#219): both anneals target the same stabilization-vs-reactivity tradeoff across training phases.
+- _FERN #271 (decoupled SOAP freq MLP vs ATTN) FALSIFIED_ — Arm A val=3.27633/ffs=3100 (miss); Arm B val=3.27909/ffs=3150 (clear miss). Drift telemetry showed Gram already equilibrates by step 10 → refresh frequency optimum ≈ EMA horizon = 1/(1-β2).
 
 ### EDWARD #281 — Per-head SOAP for attention weights
 - Just assigned. Split Q.weight (512×512 Gram) into n_head separate (64×64) Grams — one per head.
@@ -73,6 +76,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | SOAP_PRECOND_FREQ sweep (PR #256) | FALSIFIED | Both freq=5 AND freq=20 cause multi-seed NaN at step 25. Stability window is uniquely at freq=10 |
 | Gradient Centralization on Muon (PR #267) | FALSIFIED | Row-centering → rank-deficient gradient → NS5 polar-factor instability → NaN at step 25 |
 | Per-block-depth Muon LR scaling (PR #268) | FALSIFIED | Arm A starves early blocks (never hits 3.28); Arm B starves late blocks (divergence). SOAP per-shape preconditioning already absorbs per-layer gradient structure |
+| Decoupled SOAP freq MLP vs ATTN (PR #271) | FALSIFIED | Arm A (freq=5): val=3.27633/ffs=3100 miss; Arm B (freq=20): val=3.27909/ffs=3150 clear miss. Drift telemetry: refresh-freq optimum ≈ EMA horizon = 1/(1-β2) ≈ 10 steps |
 
 ## Closed axes (full record)
 
@@ -115,6 +119,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 9. **Frobenius renorm scrubs scalar prefactors** (confirmed PR #263): any EMA bias-correction on NorMuon must be row-conditional or modify the renorm step itself.
 10. **SOAP eigenbasis stability window**: SOAP_PRECOND_FREQ=10 is uniquely stable. Both 5 and 20 cause multi-seed NaN at step 25 via different mechanisms (too-early Gram vs too-long initial-eigenbasis exposure).
 11. **NS5 iter count = 12 is the unique stable operating point**: iters in {8, 10, 14, 16} all cause NaN cascade; 12 is the convergence point for this stack's singular value distribution.
+12. **SOAP_PRECOND_FREQ ≈ EMA horizon = 1/(1-β2)** (confirmed PR #271 drift telemetry): refresh frequency optimum is bounded below by Gram EMA equilibration time. At β2=0.90, freq=10 ≈ horizon — refreshing 4× more often only reduces Frobenius drift by ~6%. This couples β2 and freq axes: changing β2 should shift the optimal freq.
 
 ## Upcoming decisions
 
@@ -127,7 +132,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | TBD | Edward | Per-head SOAP screen (#281) | First result ~3h |
 | TBD | Askeladd | Polyak EMA implementation + screen (#286) | First result ~3h |
 | TBD | Nezuko | Asymmetric trust telemetry → screen | First screen result ~2-3h |
-| TBD | Fern | Decoupled SOAP freq screen | First result ~3h |
+| TBD | Fern | Annealed SOAP β2 implementation + screen (#291) | First result ~3h |
 
 ## Research programme direction
 
@@ -141,7 +146,7 @@ Most promising paths (ranked):
 2. **MLP-SOAP trust gate** (frieren #275) — symmetric extension of merged PR #212 win.
 3. **Asymmetric Attn-SOAP trust QK vs VO** (nezuko #273) — direct follow-up to merged win.
 4. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis.
-5. **Decoupled SOAP freq MLP vs ATTN** (fern #271) — orthogonal to attn trust gating.
+5. **Annealed SOAP β2** (fern #291) — direct application of #219 anneal mechanism to SOAP eigenbasis dynamics.
 6. **Decoupled aux cooldown shape** (tanjiro #276) — aux groups may benefit from cosine or no cooldown vs linear.
 7. **GC on Muon** (edward #267) — removes low-rank mean from gradient before NS5.
 8. **Polyak-Ruppert weight EMA** (askeladd #286) — post-processing, orthogonal to all optimizer mechanisms.
