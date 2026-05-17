@@ -1,15 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 22:25 UTC. **Wave-5 mid-flight state — multiple confirmation chains converging**. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **In-flight summary**:
-  - **alphonse #236 (β2=0.99) — confirmation n=2 mean BELOW baseline**: seed-1=3.27480 (+0.00046), seed-2=**3.27341** (−0.00093). **n=2 mean=3.27411** < baseline. Seed-3 ETA ~23:45 UTC. Margin thin (−0.00023 below), seed-3 decisive.
-  - **askeladd #241 (mu=0.97) — confirmation chain UNFAVORABLE**: seed-1=3.27421 (−0.00013), seed-2=**3.27664** (+0.00230). **n=2 mean=3.27543** ABOVE baseline. Seed-3 needs ≤3.27217 for merge gate. Seed-3 ETA ~00:08 UTC. Likely DOA for merge — informative as cross-pod confirmation noise baseline.
-  - **edward #280 (per-group β2) — STRONG TRIANGULATION**: arm-B (embed=0.99 only) val=**3.27351**, within-pod Δ=**−0.00280**. Matches alphonse's global β2 gain — embed is the load-bearing aux group. arm-C (lm_head=0.99) ETA ~23:53 UTC, arm-D (scalar=0.99) ETA ~01:37 UTC.
-  - **nezuko #266 (lm_head/scalar floor) — productive null**: arm-B (lm_head floor) HURTS (Δ=+0.00295), arm-C (scalar floor) NEUTRAL (Δ=−0.00073, within null). arm-D (both) ETA ~22:30 UTC. Embed-specific floor mechanism confirmed.
-  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=3 confirmation chain in flight**: arm-B screening val=3.27158 (Δ=−0.00277, U-curve apex). Seed-2 ETA ~23:15 UTC, terminal SENPAI-RESULT ~01:15 UTC.
-  - **fern #290 (NS per-iter c schedule) — mechanism partially falsified**: arm-B (agg→gentle) val=3.27382 (Δ=−0.00285, STRONG), arm-C (gentle→agg) val=3.27574 (Δ=−0.00093, WITHIN NULL — does not regress as strict asymmetric predicts). arm-D (linear_ramp_down) ETA ~23:58 UTC — discriminator between order vs variance-redistribution.
-  - frieren #285 (NS cooldown SHAPE): arms A, B, C all flat. arm-D (late_peak) still running.
-  - tanjiro #300 (embed floor value sweep): arm-A complete val=3.27441 (drift gate pass); arm-B (floor=0.10) running; chain ETA ~02:10 UTC.
-All 8 students WIP, zero idle. **3 strong wave-5 signals**: alphonse β2=0.99 (mid-confirmation), thorfinn aux WD=0.005 (mid-confirmation), edward embed-β2=0.99 (mechanism triangulation). fern c-schedule mechanism partially redrawn.
+- **Date:** 2026-05-17 23:55 UTC. **Wave-5 mid-flight state — 3 strong signal chains, 1 near-miss, 1 productive null closed, 1 new assignment**. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **In-flight summary**:
+  - **alphonse #236 (β2=0.99) — confirmation n=2 mean BELOW baseline**: seed-1=3.27480, seed-2=3.27341. **n=2 mean=3.27411** < baseline. Seed-3 ETA ~23:45 UTC. Margin thin (−0.00023).
+  - **askeladd #241 (mu=0.97) — confirmation UNFAVORABLE**: seed-1=3.27421, seed-2=3.27664. **n=2 mean=3.27543** ABOVE baseline. Seed-3 needs ≤3.27217. ETA ~00:08 UTC. Likely DOA.
+  - **edward #280 (per-group β2) — STRONG TRIANGULATION**: arm-B (embed=0.99) val=**3.27351**, within-pod Δ=**−0.00280**. arm-C (lm_head=0.99) ETA ~23:53 UTC, arm-D (scalar=0.99) ETA ~01:37 UTC.
+  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=2 mean BELOW baseline**: seed-1=3.27158 (strong), seed-2=3.27526. **n=2 mean=3.27342** < baseline. Wider variance than expected but comfortable margin (−0.00092). Seed-3 ETA ~01:00-01:15 UTC. Strongest wave-5 candidate so far.
+  - **fern #290 (NS per-iter c) — partially falsified**: arm-B (agg→gentle) val=3.27382, arm-C (gentle→agg) val=3.27574 (within null — doesn't regress as strict asymmetric predicts). arm-D ETA ~23:58 UTC.
+  - **frieren #285 (NS cooldown SHAPE) — NEAR-MISS, n=3 confirmation requested**: arm-D (late_peak 12/20) val=**3.27442**, fs=**3250**, Δ_val=−0.00143 (0.00007 short of −0.0015 threshold). PR sent back at 23:52 UTC for n=3 within-pod confirmation chain on post-#235 baseline. Mechanism coherent (concentration in late-cooldown precision window), fs Δ=−25 substantial.
+  - **nezuko #266 (lm_head/scalar floor) ✓ CLOSED 22:52 UTC** — productive null, embed-specific mechanism confirmed. NEW PR **#315 lmhead-decay-shape** assigned (test steeper-than-linear lm_head decay; quadratic/cubic/exp_decay).
+  - **tanjiro #300 (embed floor value sweep)** — arm-A=3.27441 (control), arm-B=3.27630 (floor=0.10, Δ=+0.00189 HURTS). arm-C (floor=0.20) running ETA ~01:00 UTC, arm-D (floor=0.30) ETA ~02:50 UTC. Monotone direction confirmed below 0.15.
+All 8 students WIP. **3 strong wave-5 signals (alphonse β2, thorfinn aux WD, edward embed-β2)** all converging toward n=3 confirmation. Frieren late_peak in confirmation. Plateau Protocol not yet triggered (active progress, just below merge gate).
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27434** — tanjiro embed linear_floor=15% cooldown, PR #235 merged 2026-05-17
