@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-17 18:05 — PR #230: Aux AdamW β1 scan {0.7, 0.9} (g1r1-edward)
+
+- Branch: `g1r1-edward/aux-adamw-beta1-scan`
+- Hypothesis: β1=0.8 for the auxiliary AdamW (embed, lm_head, scalars) has never been explicitly tested. Scan ±0.1 to characterize the gradient momentum timescale axis.
+
+| Arm | aux β1 | W&B run | sr | val/loss | Δval vs PR #193 (3.26773) | Status |
+|---|---|---|---|---|---|---|
+| Arm A | 0.7 | `j4nfypgf` | 3050 | 3.26775 | +0.00002 | NULL — tied within seed noise |
+| Baseline (PR #193) | 0.8 | `q8aduc16` | 3050 | 3.26773 | — | Stale base |
+| Arm B | 0.9 | `s7tsyxrt` | 3075 | 3.27005 | +0.00232 | NULL — clearly worse |
+
+**Re-anchored vs current baseline (PR #202, sr=3025, val=3.26615):** Both arms NULL — neither beats current baseline.
+
+**Analysis:** Clear asymmetric result. β1=0.7 is statistically indistinguishable from β1=0.8 (Δval=+0.00002, well within 2σ seed noise). β1=0.9 genuinely regresses (+0.0023 val, sr+25). The β1 landscape has a flat plateau on the lower side (≤0.8) and rises sharply on the upper side. Edward's interpretation: "A shorter momentum window doesn't help the embed/lm_head/scalar updates; a longer momentum window (0.9) slows adaptation." The lm_head cooldown-responsiveness hypothesis (shorter β1 → faster react in cooldown) is falsified — the effective half-life difference (β1=0.7→2 steps vs β1=0.8→3.1 steps) is too small relative to the 75-step val-check grid.
+
+Note: run used stale base (PR #193, sr=3050) — arm A's sr=3050 matches stale base rather than current best. Both arms definitively NULL on either anchor.
+
+**Conclusion:** CLOSED. Aux AdamW β1 axis CLOSED at 0.8. β1=0.9 (longer memory) is clearly suboptimal; β1=0.7 provides no benefit over 0.8. Axis re-visit conditions: cooldown length change or radical aux-LR change. Edward reassigned to PR #297 (global gradient norm clipping — fresh mechanism, never tested).
+
+---
+
 ## 2026-05-17 17:41 — PR #258: Skylight u/w-floor ablation TARGET_UW ∈ {0.0, 0.7} (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/uw-floor-pruning-ablation`

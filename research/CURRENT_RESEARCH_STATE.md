@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 17:38 UTC — Four arm-A runs FINISHED in same wave: thorfinn `edobz4wx` (eps=1e-8) sr=3025 val=3.2664 NULL; frieren `2sjpvck2` (warmup=50) sr=3025 val=3.2662 NULL; fern `dnecfiuq` (COOLDOWN_POWER=1.0) sr=3100 val=3.2677 NULL; edward `s7tsyxrt` (β1=0.9 arm B) sr=3075 val=3.2701 NULL. All 4 PRs still `status:wip` awaiting student terminal SENPAI-RESULT posts. Tanjiro PR #250 seed-2 step 700. Alphonse PR #278 step 2625. Askeladd PR #287, nezuko PR #293 newly assigned.
+- **Last update:** 2026-05-17 18:05 UTC — PR #230 edward CLOSED (Aux AdamW β1 axis CLOSED at 0.8: 0.7 tied, 0.9 worse). PR #297 edward ASSIGNED (global gradient norm clipping {1.0, 0.5} — fresh mechanism, never tested). Three other arm-A runs FINISHED (thorfinn eps=1e-8 NULL, frieren warmup=50 NULL, fern COOLDOWN_POWER=1.0 NULL) — awaiting arm-B launches. Tanjiro PR #250 seed-2 step 700. Alphonse PR #278 step 2625/3250 near terminal.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -23,7 +23,7 @@ Previous baselines:
 | **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 val=3.273 NULL. Arm B FINISHED sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) within seed noise. **SENT BACK for n=2 seed-2 re-run** `qp87db4n` step 700 (~22%). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) FINISHED sr=3100 val=3.2677 NULL. Awaiting student terminal post + arm B launch (COOLDOWN_POWER=1.4). |
-| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `s7tsyxrt` (β1=0.9) FINISHED sr=3075 val=3.2701 NULL. Awaiting student terminal post. |
+| **#297** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Just assigned. PR #230 CLOSED (β1 axis CLOSED at 0.8: 0.7 tied, 0.9 worse). |
 | **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm A `nmokccos` step 2625/3250 (~81%) val=3.334 — running. Duplicate `9s2c4r6o` killed earlier. |
 
 ## Recently closed
@@ -36,6 +36,7 @@ Previous baselines:
 | **#242** | frieren | Arm A (γ=0.5) sr=3150 NULL. Arm B (γ=0.6) 3 crashes. | CLOSED — γ_power axis CLOSED at 0.4 (local optimum) |
 | **#216** | nezuko | β2=0.99 sr=3025 val=3.26640 NULL; β2=0.999 sr=3100 regression | CLOSED — β2 axis CLOSED: β2=0.95 optimal |
 | **#226** | tanjiro | Arm A sr=3050 NULL; arm B crashed step 3 (structural: a+b+c≠1) | CLOSED — structural finding → follow-up PR #250 |
+| **#230** | edward | Aux AdamW β1=0.7 tied (Δval=+0.00002); β1=0.9 worse (Δval=+0.0023, sr+25 on stale base) | CLOSED — β1 axis CLOSED at 0.8. Flat plateau below, sharp rise above. |
 | **#258** | nezuko | u/w-floor ablation: TARGET_UW=0.0 sr=3125 NULL; TARGET_UW=0.7 DIVERGED (eigh crash at step 2138, amplification 85,000×) | CLOSED — TARGET_UW axis CLOSED at 0.35. Floor IS load-bearing. 0.7 catastrophically unstable. |
 | **#248** | askeladd | Muon LR scan: lr=0.030 sr=3025 val=3.26755 NULL; lr=0.040 sr=3050 val=3.26669 NULL. param_norm grows 3.4× for 1.33× LR | CLOSED — Muon base LR axis CLOSED at 0.035. Follow-up: PR #287 WD scan. |
 | **#211** | askeladd | Both arms NULL on stale base | CLOSED |
@@ -60,7 +61,7 @@ Previous baselines:
 
 4. **Aux AdamW β2 axis CLOSED at 0.95.** Monotone: smaller β2 better.
 
-5. **Aux AdamW β1 axis: β1=0.7 arm A finished NULL (stale base). β1=0.9 arm B running (~step 1350).** Current β1=0.8 baseline. Both arms will be reviewed together.
+5. **Aux AdamW β1 axis CLOSED at 0.8 (PR #230 edward).** β1=0.7 tied baseline within noise; β1=0.9 clearly worse (Δval=+0.0023, sr+25). Asymmetric landscape: flat below 0.8, rising sharply above. Axis closed, no follow-up scan warranted.
 
 6. **Muon mu: baseline mu=0.95 locally optimal.** mu=0.9 worse (sr=3125). mu=0.99 arm pending.
 
@@ -98,7 +99,7 @@ Previous baselines:
 
 | PR | Axis | Arm A result | Status |
 |---|---|---|---|
-| PR #230 (edward) | Aux β1 {0.7, 0.9} | β1=0.7 DONE sr=3050 val=3.2678 NULL (stale base) | Arm B (β1=0.9) running |
+| PR #230 (edward) CLOSED | Aux β1 {0.7, 0.9} | β1=0.7 NULL (tied); β1=0.9 NULL (worse Δ+0.0023) | CLOSED — β1=0.8 optimal |
 | PR #216 (nezuko) CLOSED | Aux β2 {0.99, 0.999} | β2=0.99: sr=3025 val=3.26640 NULL | CLOSED — β2=0.95 optimal |
 
 ## Open axes (not yet assigned)
