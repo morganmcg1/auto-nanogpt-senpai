@@ -1,5 +1,79 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~13:00 — Cycle 54: PR #212 MERGED (new baseline); 4 axes closed; 3 students reassigned
+
+### NEZUKO #212 — Attn-SOAP+trust T=0.85 — MERGED ⭐ NEW BASELINE
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.2764 | 3125 |
+| T1 | 3.2761 | 3100 |
+| T2 | 3.2775 | 3125 |
+| T3 | 3.2752 | 3100 |
+| **n=4 mean** | **3.27631** | **3112.5** |
+
+W&B run: `3xn3ox1c`. Statsig: (3.28-3.27631)×√4 = 0.00738 ≥ 0.004. BOTH BARS CLEARED vs PR #139 (val<3.27648, ffs<3118.75).
+
+**Key finding**: Extending SOAP eigenbasis preconditioning to attention weights (via cosine-similarity trust gate, TRUST_THRESHOLD=0.85) gives consistent −6.25 mean ffs improvement. All 4 trials hit val < 3.28 target. Tight variance (T3=3.2752 strongest, T2=3.2775 weakest). Mechanism: SOAP coverage of attention projection matrices reduces curvature mismatch in the direction most sensitive to early-step convergence.
+
+**Merged**: ffs 3118.75 → 3112.5 (−6.25), val 3.27648 → 3.27631 (−0.00017). Gap to record #20 (3030): ~82 steps.
+
+---
+
+### FERN #245 — Trust-region Muon (LARS-style, TRUST_RATIO sweep) — CLOSED
+
+| Arm | TRUST_RATIO | val | ffs |
+|---|---|---|---|
+| A | 0.10 | 3.29988 | -1 |
+| B | 0.05 | 3.32456 | -1 |
+
+**MISS — monotonic worsening.** Telemetry revealed: at TRUST_RATIO=0.05, 38-50% of params clipped at steps 50-200, trust_scale≈0.22. Natural Muon update magnitude is ~20-25% of weight norm — any ratio ≤ 0.10 is throttling signal. The LARS-style trust constraint is fundamentally wrong for Muon (designed for small Adam-like updates, not large NS5 polar-factor updates).
+
+**Recorded finding**: Natural Muon delta ≈ 20-25% of weight norm during early steps. Adam-family trust ratios (5-10%) are unsuitable for Muon/NS5 family. Any successful trust intervention would need gradient-conditioned per-outlier clipping, not blanket per-param normalization.
+
+---
+
+### EDWARD #251 — Lookahead on Muon (K=5, K=10) — CLOSED (INCOMPATIBLE)
+
+All 3 attempts NaN'd at step 25 including trial 1 of n=4 retry.
+
+| Run | K | NaN @ T0 | NaN @ T1 |
+|---|---|---|---|
+| 2lx8q0n6 | 5 | step 25 | — |
+| wpcgf9e4 | 10 | step 25 | — |
+| s6uvyg4y | 5 (n=4 retry) | step 25 | **step 25** |
+
+**Multi-seed cascade confirmed** — NOT seed-0. The merged baseline (db1rrfx3) has NO NaN trials; all NaN is Lookahead-induced.
+
+**Mechanism**: Lookahead's `fast := slow` param rollback every K steps leaves Muon's momentum buffer, NorMuon second_moment, and SOAP eigenbasis tracking the discarded fast trajectory while params jump back to slow. By step 25 (5 sync cycles at K=5), state-vs-param mismatch produces unbounded updates → all 12 blocks' Linear weights NaN simultaneously (123,701,376 nonfinite). Zhang et al 2019 designed Lookahead for first-moment-only optimizers; Lookahead is incompatible with multi-buffer preconditioners unless ALL state buffers are rolled back synchronously with params.
+
+---
+
+### ASKELADD #239 — Lion optimizer on aux groups — CLOSED
+
+| Arm | embed_lr / lm_head_lr | val | ffs |
+|---|---|---|---|
+| v2 (gxxlpakh) | 0.03 / 1e-3 | 3.29854 | -1 |
+| Arm B (n72pnmj3) | 0.05 / 3e-3 | 3.30050 | -1 |
+
+**MISS by ~0.022 val.** Arm B's higher LR gives −0.073 nat head start at step 125 but crossover at step 2500 with Arm A ending 0.002 worse. Lion lacks second-moment estimation; in the critical cooldown phase (steps 2500-3175), AdamW's per-coord variance compensation is essential for aux groups (embed + lm_head) to stay on the efficient descent path. Sign-momentum is suboptimal for groups that need precise scaling in the precision window.
+
+---
+
+## 2026-05-17 ~11:35 — Cycle 53: Tanjiro reassigned; embed-warmup falsified
+
+### TANJIRO #252 — Decoupled embedding LR warmup — FALSIFIED
+
+60× variation in embedding LR at the NaN step (0.05 vs 0.30) produces bit-identical cascade:
+- Arm A (EMBED_WARMUP=50): NaN step 25, nonfinite_count 123,701,376
+- Arm B (EMBED_WARMUP=150): NaN step 25, nonfinite_count 123,701,376
+
+Seed-0 NaN is NOT embedding-driven. The blocks.0.attn.proj.bias (attention path) is the real trigger. Embedding LR is a red herring.
+
+Tanjiro reassigned → NS_ITERS sweep (PR #259): NS_ITERS ∈ {10, 8} vs baseline 12. Hypothesis: fewer NS5 iterations reduce bf16 rounding error compounding.
+
+---
+
 ## 2026-05-17 ~10:30 — Cycle 51: SOAP_BETA2 axis closed; alphonse reassigned to SOAP_PRECOND_FREQ
 
 ### ALPHONSE #223 — SOAP_BETA2 retune {0.85, 0.92} — CLOSED (axis exhausted)
