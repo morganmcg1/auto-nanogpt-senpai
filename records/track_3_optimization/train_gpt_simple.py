@@ -444,6 +444,19 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 
+# Schedule-Free Muon (SFM) — eliminate LR cooldown via Polyak averaging of iterates.
+# Two parameter sequences:
+#   z: optimizer iterates (updated each step with grad evaluated at y)
+#   y: running Polyak average of z; model.params == y for forward/eval
+# Each step: y_{t+1} = (1 - c_t) * y_t + c_t * z_{t+1}, with c_t = 1/(t+1) (uniform).
+# LR schedule: linear warmup over SFM_WARMUP_STEPS, then constant (no cooldown).
+SFM_ENABLED = True
+SFM_LR = MUON_LR              # match merged baseline Muon LR
+SFM_WARMUP_STEPS = 100
+SFM_USE_COOLDOWN = False
+SFM_C_T_KIND = "const"        # "uniform" (c_t = 1/(t+1)) or "const" (c_t = SFM_C_CONST)
+SFM_C_CONST = 0.01            # EMA with ~100-step effective window (used when SFM_C_T_KIND == "const")
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -699,7 +712,15 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/sfm_enabled": SFM_ENABLED,
+            "optimizer/sfm_lr": SFM_LR,
+            "optimizer/sfm_warmup_steps": SFM_WARMUP_STEPS,
+            "optimizer/sfm_use_cooldown": SFM_USE_COOLDOWN,
+            "optimizer/sfm_c_t_kind": SFM_C_T_KIND,
+            "optimizer/sfm_c_const": SFM_C_CONST,
+            "optimizer/recipe": ("schedule-free-muon (contra+SOAP-MLP + polyak averaging + constant LR)"
+                                 if SFM_ENABLED else
+                                 "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)"),
         },
     )
 
@@ -745,14 +766,30 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    # Schedule-Free state buffers: z (iterates) and y_temp (saves y_old during step).
+    # At start of each trial, y == z == initial params; model.params holds y.
+    sf_z: dict[str, Tensor] = {}
+    sf_y_temp: dict[str, Tensor] = {}
+    if SFM_ENABLED:
+        for name, p in model.named_parameters():
+            sf_z[name] = p.data.detach().clone()
+            sf_y_temp[name] = torch.empty_like(p.data)
+
+    # learning rate schedule: stable then decay (or SFM linear-warmup-then-constant)
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+        if SFM_ENABLED:
+            # Schedule-Free: linear LR warmup, then constant (no cooldown).
+            if step < SFM_WARMUP_STEPS:
+                eta = (step + 1) / SFM_WARMUP_STEPS
+            else:
+                eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            if progress < 1 - cooldown_frac:
+                eta = 1.0
+            else:
+                eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -871,8 +908,22 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Schedule-Free swap: save y_old, set p.data = z so opt.step updates z.
+        if SFM_ENABLED:
+            for name, p in model.named_parameters():
+                sf_y_temp[name].copy_(p.data)
+                p.data.copy_(sf_z[name])
         for opt in optimizers:
             opt.step()
+        # Schedule-Free averaging: save z_new in sf_z, write y_new into p.data.
+        if SFM_ENABLED:
+            if SFM_C_T_KIND == "const":
+                sfm_c_t = SFM_C_CONST
+            else:
+                sfm_c_t = 1.0 / (step + 1)
+            for name, p in model.named_parameters():
+                sf_z[name].copy_(p.data)
+                p.data.mul_(sfm_c_t).add_(sf_y_temp[name], alpha=1.0 - sfm_c_t)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -881,6 +932,17 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        if SFM_ENABLED and dist.get_rank() == 0 and telemetry_due:
+            with torch.no_grad():
+                diffs = torch.stack([(p.data - sf_z[name]).pow(2).sum()
+                                     for name, p in model.named_parameters()])
+                y_z_diff_fro = float(diffs.sum().sqrt().item())
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "sfm/c_t": sfm_c_t,
+                "sfm/y_z_diff_fro": y_z_diff_fro,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
