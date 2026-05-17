@@ -1273,3 +1273,25 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 - Arm A: COOLDOWN_POWER=1.0 (linear cooldown)
 - Arm B: COOLDOWN_POWER=1.4 (more concave, front-loaded LR drop)
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/274
+
+---
+
+## 2026-05-17 14:15 UTC — PR #229 CLOSED: NS coef (a,b) line scan {a=1.3, 1.7} (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/ns-coef-ab-line-scan`
+- **Hypothesis:** Move along the doubly-tangent (a, b=1-a, c=0) line away from cubic-Newton (a=1.5). Tests whether a=1.5 is a sharp optimum or has wiggle room.
+- W&B runs: `la9l6roq` (arm A, gentle a=1.3), `xphiroo2` (arm B, aggressive a=1.7)
+
+| Arm | NS_A | NS_B | NS_C | f'(1) | sr | val/loss | ortho_res @ 3000 |
+|-----|------|------|------|-------|-----|----------|--------------------|
+| Baseline (q8aduc16, c=0, a=1.5) | 1.5 | -0.5 | 0 | 0 | 3050 | 3.26773 | 0.0979 |
+| Arm A (la9l6roq, gentle) | 1.3 | -0.3 | 0 | +0.4 | 3075 | 3.26921 | 16.297 |
+| Arm B (xphiroo2, aggressive) | 1.7 | -0.7 | 0 | -0.4 | 3050 | 3.26786 | 0.1608 |
+
+**Result:** Both NULL. Arm A clearly worse (+0.00306 val, +50 sr); Arm B effectively tied baseline (+0.00171 val within seed noise, sr same 3050).
+
+**Key program-level finding:** f'(1)=0 doubly-tangent constraint is NOT strictly required for performance. Arm B with f'(1)=-0.4 (over-contractive) performs identically to baseline. But gentler contraction (Arm A) is strongly disfavored — ortho_residual blows up 160× (0.10 → 16.3) and val degrades measurably. With NS_ITERS=12, the polynomial must drive σ→1 quickly; the "tangent at 1" property is geometrically nice but not the constraint that matters.
+
+**Axis decision: CLOSED at (a=1.5, b=-0.5, c=0).** Cubic-Newton confirmed locally optimal. Excellent diagnostic logging with `polar/ortho_residual_sample` — the ortho_residual trajectory is what made the mechanism legible. Combined with PR #184 (NS_ITERS flat 6-18) and PR #250 (c-scan, c=-0.25 NULL), the NS coef family is largely closed.
+
+**Status:** CLOSED. Next assignment incoming for alphonse.

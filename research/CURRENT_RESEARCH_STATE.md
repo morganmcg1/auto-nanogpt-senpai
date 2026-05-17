@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 13:40 UTC — PR #274 fern PICKED UP (arm A `dnecfiuq` cooldown-power=1.0 step 25). PR #272 thorfinn arm A `edobz4wx` eps=1e-8 running step 250. PR #229 alphonse arm A FINISHED sr=3075 val=3.2692 NULL; arm B `xphiroo2` (a=1.7) step 2925/3250 (~90%) val=3.29 — finishing ~14:00 UTC. PR #250 tanjiro arm A FINISHED sr=3100 NULL; arm B `8tbjkmnc` (c=+0.25) step 575 — student terminal SENPAI-RESULT still pending both arms. 8 students productively WIP, zero idle.
+- **Last update:** 2026-05-17 14:15 UTC — PR #229 CLOSED (NS coef line scan: both arms NULL; a=1.3 sr=3075, a=1.7 sr=3050 tied baseline. Cubic-Newton (a=1.5, b=-0.5) confirmed locally optimal; f'(1)=0 doubly-tangent NOT strictly required). alphonse now idle — fresh experiment assignment pending. PR #250 tanjiro partial SENPAI-RESULT: arm A c=-0.25 sr=3100 NULL (with diagnostic finding: NS not orthogonalizing — polar residual stuck near √n). Other 7 students all productively WIP.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -24,12 +24,13 @@ Previous baselines:
 | **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 1100 val=3.68 — running. |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 25 — just picked up |
 | **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `zu55900j` (β1=0.9) step 1600 (~49%) val=3.55 — running. |
-| **#229** | **alphonse** | NS coef (a,b) line scan {a=1.3, 1.7} | Arm A `la9l6roq` FINISHED sr=3075 val=3.2692 NULL. Arm B `xphiroo2` (a=1.7) step 2925/3250 (~90%) val=3.29 — finishing ~14:00 UTC. |
+| **#???** | **alphonse** | TBA fresh mechanism (z-loss auxiliary) | Idle — pending assignment |
 
 ## Recently closed
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#229** | alphonse | NS coef (a,b) line scan: a=1.3 sr=3075 val=3.26921 NULL; a=1.7 sr=3050 val=3.26786 tied baseline within noise | CLOSED — NS coef line scan AXIS CLOSED at (a=1.5, b=-0.5). f'(1)=0 NOT strictly required; aggressive ok, gentle disfavored |
 | **#231** | fern | Muon mu scan: 0.90 sr=3125 NULL; 0.99 DIVERGED killed step 1957 (val=4.37) | CLOSED — mu axis CLOSED at 0.95 baseline (both perturbations unstable/null) |
 | **#225** | thorfinn | Wave 7 (deep-WD + lm_head 1/160) n=2: mean sr=3037.5 (+12.5), mean val=3.266425 (+0.00028) | CLOSED — NULL on both axes; γ_power=0.4 already absorbs the regularization gain |
 | **#242** | frieren | Arm A (γ=0.5) sr=3150 NULL. Arm B (γ=0.6) 3 crashes. | CLOSED — γ_power axis CLOSED at 0.4 (local optimum) |
@@ -53,7 +54,7 @@ Previous baselines:
 
 2. **γ_power LOCAL OPTIMUM AT 0.4. AXIS CLOSED.** Full monotone: {0.2→3050, 0.3→3062.5, 0.4→3025 (baseline), 0.5→3150 (NULL), 0.6→crash (structural instability)}. Sharp optimum, direction reverses after 0.4.
 
-3. **NS coef family: f'(1)=0 constraint required.** Valid family: (a,b,c) = (1.5+c, -0.5-2c, c). c=0 cubic-Newton is baseline best. c-scan {-0.25, +0.25} pending (PR #250 — arm B c=+0.25 failed step 1 despite valid constraint; may have separate stability issue).
+3. **NS coef (a,b) line CLOSED at (1.5, -0.5).** PR #229 — gentle a=1.3 NULL (ortho_residual 160× larger); aggressive a=1.7 tied baseline. f'(1)=0 doubly-tangent constraint NOT strictly required; with NS_ITERS=12 the polynomial must drive σ→1 quickly. c-axis: c=-0.25 NULL (PR #250, similar polar-residual blowup); c=+0.25 arm B pending.
 
 4. **Aux AdamW β2 axis CLOSED at 0.95.** Monotone: smaller β2 better.
 
@@ -79,7 +80,7 @@ Previous baselines:
 | **γ_power** (whitening strength) | **CLOSED — optimum at 0.4** | 0.4 | **3025** |
 | **NS_ITERS** (polar convergence) | CLOSED (PR #184) | Wide flat: 6–18 | — |
 | **NS_coef c-axis** (f'(1)=0 family) | ACTIVE c-scan (PR #250) | c=0 cubic-Newton | 3025 |
-| **NS_coef (a,b) line** | ACTIVE (PR #229) | c=0, a=1.5 baseline; a=1.3 NULL | — |
+| **NS_coef (a,b) line** | **CLOSED (PR #229)** | (a=1.5, b=-0.5) optimal | 3025 |
 | **Muon base LR** | ACTIVE retune (PR #248) | 0.035 (testing 0.030/0.040) | — |
 | **mu** (gradient momentum) | ACTIVE (PR #231) | 0.95 baseline; mu=0.9 NULL | — |
 | **TARGET_UW** (Skylight floor) | ACTIVE ablation (PR #258) | 0.35 (testing 0.0/0.7) | — |
