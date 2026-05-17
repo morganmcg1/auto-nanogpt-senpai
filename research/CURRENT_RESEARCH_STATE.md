@@ -1,25 +1,25 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #108, ~19:49 UTC)
+- **Last updated:** 2026-05-17 (poll #109, ~20:23 UTC)
 - **⭐⭐⭐ FRIEREN PHASE 2 ON TRACK — 2/4 trials TERMINAL, BOTH STRONG**:
   - Trial 0=3.270223 ffs=3125
-  - **Trial 1=3.269885 ffs=3125** (BELOW n=4 threshold 3.269362 individually — single-best result in entire round!)
+  - **Trial 1=3.269885 ffs=3125** (BELOW n=4 threshold 3.269362 individually — best single-trial in entire round)
   - 2-trial mean=3.270054 (std=0.000239)
-  - Trial 2/4 in-flight, ym6jprxe step 8514/13000 (~2013/3250 within trial, ~62% of trial 2)
-  - Trial 3/4 pending (~110 min after t2 terminal)
-  - ETA trial 2 terminal **~20:20Z** (~30 min); n=4 terminal **~22:10Z** (~2h20m)
-  - For n=4 merge (mu ≤ 3.269362), trials 2+3 mean must be ≤ 3.268670 (tight but feasible — trial-to-trial std only 0.00024)
+  - Trial 2/4 in-flight, ym6jprxe step 8853/13000 (~2352/3250 within trial, ~72% of trial 2)
+  - Trial 3/4 pending (~108 min after t2 terminal)
+  - ETA trial 2 terminal **~20:55Z** (~30 min); n=4 terminal **~22:43Z** (~2h20m)
+  - For n=4 merge (mu ≤ 3.269362), trials 2+3 mean must be ≤ 3.268670 (tight but feasible — trial std only 0.00024)
   - **POTENTIAL FIRST MERGE WINNER SINCE PR #162.** PR has `needs_rebase` — student warned at 17:35Z to prep rebase post-terminal.
-- **NEW TERMINALS THIS POLL (2 cells):**
-  - **EDWARD Cell C** (β2_init=0.50, warmup over 500) FINISHED **val=3.27154 ffs=3150** (Δ=+0.00018 vs baseline, ~0.15σ — best edward cell, ~baseline). **CORRECTION from poll #107**: my prior speculation that Cell C would fail 3.28 kill gate was wrong — the 3.28892 reading was mid-validation, final terminal=3.27154. Pattern: A(no warmup)=3.27266, B(50/200)=3.27340 (worst), **C(50/500)=3.27154 ⭐**. Longer warmup with low β₂ init helps. Cell D (0.70/200) running step 787. If Cell C holds at n=4, marginal merge candidate (~3.270 mu projected).
-  - **TANJIRO Trial 1/4** at step 6501 of n=4 run: val=3.27195 ffs=3150 (already terminal). 2-trial mean=3.271755. For n=4 merge mu ≤ 3.269362, trials 2+3 mean must be ≤ 3.266969 — essentially impossible at trial std ~0.0002. **NOT a merge candidate**; let it finish for clean closure ~04:30Z.
-- **NEAR-TERMINAL (~5-10 min):**
-  - **askeladd** NS5 coeff Cell A `g1r5-askeladd/ns5-coeff-A` step 3031/3250 (~93%, ETA ~7 min). First terminal of NS5 coeff sweep imminent.
-  - **alphonse** Cell D (eps=1e-7) step 3000/3250 (~92%, ETA ~8 min). val=3.2957 mid-eval. Likely closes sweep clean-neutral if D > 3.28 or marginal.
+- **NEW TERMINAL THIS POLL (1 cell):**
+  - **ASKELADD Cell A** (NS5 default ctrl: a=2,b=-1.5,c=0.5) FINISHED **val=3.27235 ffs=3150** (Δ=+0.00099 vs baseline, ~0.84σ — ctrl reproduces baseline within noise). Cell B (Muon paper aggressive: 3.4445,-4.775,2.0315) just launched. Advisor comment posted on #301.
+- **NEAR-TERMINAL (single digits min):**
+  - **alphonse** Cell D (eps=1e-7) step 3224/3250 (~99%, ETA <1 min). Last cell of sweep. Trend: A(1e-10)=3.27379, B(1e-9)=3.27388, C(1e-8)=3.27481, D pending. Sweep will close clean-neutral if D ≥ 3.275; eps=1e-10 default is best.
+- **TANJIRO trial 1=3.27195 already terminal** (poll #108). 2-trial mean=3.271755. Not a merge candidate at n=4. Trial 2/4 in-flight at v1mhx9f2 step 6961 (~14% of trial 2 — slow progress, monitor). ETA terminal ~04:30Z.
 - **MID-FLIGHT (no action):**
-  - **thorfinn** Cell D (α=0.7) step 1004/3250 (~31%).
-  - **nezuko** Cell C (λ=0.03) step 1014/3250 (~31%).
-  - **fern** SOAP Q/K shared Gram Cell A step 2095/3250 (~64%). ETA ~1h.
+  - **thorfinn** Cell D (α=0.7) step 1400/3250 (~43%).
+  - **nezuko** Cell C (λ=0.03) step 1267/3250 (~39%).
+  - **edward** Cell D (β₂=0.70/200) step 1109/3250 (~34%). Cells A=3.27266, B=3.27340, C=3.27154⭐.
+  - **fern** SOAP Q/K shared Gram Cell A step 2511/3250 (~77%). ETA ~30 min.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
