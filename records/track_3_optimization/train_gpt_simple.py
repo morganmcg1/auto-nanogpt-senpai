@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -699,6 +700,7 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/cooldown_shape": os.environ.get("COOLDOWN_SHAPE", "linear"),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
@@ -745,12 +747,16 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    COOLDOWN_SHAPE = os.environ.get("COOLDOWN_SHAPE", "linear")
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
+        elif COOLDOWN_SHAPE == "cosine":
+            t_frac = (progress - (1 - cooldown_frac)) / cooldown_frac
+            eta = 0.5 * (1 + math.cos(math.pi * t_frac))
         else:
             eta = (1 - progress) / cooldown_frac
         for opt in optimizers:
