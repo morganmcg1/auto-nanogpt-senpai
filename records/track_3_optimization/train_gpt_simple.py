@@ -43,6 +43,10 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--lookahead_k", type=int, default=int(os.environ.get("LOOKAHEAD_K", "0")),
+        help="Lookahead k (sync interval). 0 = disabled (vanilla MuonH-SI).")
+    parser.add_argument("--lookahead_alpha", type=float, default=float(os.environ.get("LOOKAHEAD_ALPHA", "0.5")),
+        help="Lookahead slow-weight update rate (0 < alpha <= 1).")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -594,6 +598,47 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Lookahead:
+    """Lookahead wrapper (Zhang et al 2019): every k inner steps, pull slow
+    weights toward fast weights by alpha, then reset fast = slow.
+
+    Operates in weight space and never touches the inner optimizer's state
+    or update rule. param_groups is forwarded to the inner optimizer so the
+    LR schedule and telemetry that iterate over param_groups still work.
+    """
+    def __init__(self, optimizer, k=5, alpha=0.5):
+        self.optimizer = optimizer
+        self.k = k
+        self.alpha = alpha
+        self._step = 0
+        self.param_groups = optimizer.param_groups
+        self.state = optimizer.state
+        self.defaults = optimizer.defaults
+        self.slow_weights = [
+            [p.data.clone() for p in group["params"]]
+            for group in optimizer.param_groups
+        ]
+
+    @torch.no_grad()
+    def step(self):
+        self.optimizer.step()
+        self._step += 1
+        if self._step % self.k == 0:
+            for group, slow_group in zip(self.optimizer.param_groups, self.slow_weights):
+                for p, slow in zip(group["params"], slow_group):
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    p.data.copy_(slow)
+
+    def zero_grad(self, set_to_none=True):
+        self.optimizer.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return self.optimizer.state_dict()
+
+    def load_state_dict(self, sd):
+        self.optimizer.load_state_dict(sd)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -665,6 +710,8 @@ if dist.get_rank() == 0:
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
             "train_steps": args.train_steps,
         },
     )
@@ -721,6 +768,9 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # Wrap MuonH (and only MuonH — not aux AdamW) with Lookahead if enabled.
+    if args.lookahead_k > 0:
+        optimizer2 = Lookahead(optimizer2, k=args.lookahead_k, alpha=args.lookahead_alpha)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -869,10 +919,11 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and telemetry_due:
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             for opt in optimizers:
-                if isinstance(opt, MuonH):
-                    muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
-                    muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
-                    muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                inner_opt = opt.optimizer if isinstance(opt, Lookahead) else opt
+                if isinstance(inner_opt, MuonH):
+                    muonh_metrics["train/muonh/active_fraction"] = inner_opt._last_active_fraction
+                    muonh_metrics["train/muonh/radius_to_norm_max"] = inner_opt._last_radius_to_norm_max
+                    muonh_metrics["train/muonh/norm_to_radius_max"] = inner_opt._last_norm_to_radius_max
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
