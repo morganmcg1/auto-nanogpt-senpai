@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 21:15 UTC — PR #272 thorfinn CLOSED (AdamW eps axis CLOSED at 1e-10; both arms NULL within noise, non-monotone direction confirms noise). Thorfinn idle pending Lookahead assignment (online weight-trajectory smoothing wrapper, Zhang et al. NeurIPS 2019). frieren PR #305 AdEMAMix active; tanjiro PR #307 PMuon bias correction active.
+- **Last update:** 2026-05-17 21:20 UTC — PR #272 thorfinn CLOSED (AdamW eps axis CLOSED at 1e-10). Thorfinn re-assigned to **PR #311** Lookahead optimizer wrapper (Zhang et al. NeurIPS 2019, online slow-weight interpolation, α ∈ {0.5, 0.8}). All 8 students active.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -17,7 +17,7 @@ Previous baselines:
 
 | PR  | Student     | Mechanism                                                           | Status (20:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#TBD** | **thorfinn** | Lookahead optimizer wrapper — online slow-weight interpolation every k=5 steps; α ∈ {0.5, 0.8} | Pending assignment — fresh wrapper-level mechanism complementary to polyak post-hoc, AdEMAMix, PMuon bias correction. |
+| **#311** | **thorfinn** | Lookahead optimizer wrapper — online slow-weight interpolation every k=5 steps; α ∈ {0.5, 0.8} | Just assigned. Fresh wrapper-level mechanism (Zhang et al. NeurIPS 2019). Complementary to polyak post-hoc (#293), AdEMAMix momentum (#305), PMuon bias correction (#307). |
 | **#305** | **frieren** | AdEMAMix dual-EMA aux AdamW: slow-EMA mixing weight α scan {4, 8} — fresh optimizer mechanism (NeurIPS 2024) | Arm A α=4 pending launch. PR #261 CLOSED (PMuon warmup axis CLOSED). |
 | **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Arm A `igfcn9a1` (frac=0.25) running step ~2225/3250 (~68%). |
 | **#307** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
@@ -86,7 +86,7 @@ Previous baselines:
 
 16. **PMuon EMA bias correction:** PR #307 tanjiro (new assignment). Arms {FULL, SQRT} bias correction `L_cov / (1-β_cov^step)` — frieren's PR #261 follow-up suggestion. Tests opposite hypothesis to closed LR warmup: instead of slowing LR during cold-start, sharpen the EMA estimate via Adam-style bias correction. Telemetry shows correction matters only first ~50 steps.
 
-17. **Lookahead optimizer wrapper:** thorfinn (pending assignment). Online slow-weight interpolation every k=5 steps with α ∈ {0.5, 0.8}. Fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), distinct from all in-flight mechanisms — polyak post-hoc (nezuko #293), AdEMAMix dual-EMA momentum (frieren #305), PMuon bias correction (tanjiro #307). Memory cost ~550 MB (fp32 slow-weight copy).
+17. **Lookahead optimizer wrapper (PR #311 thorfinn).** Online slow-weight interpolation every k=5 steps with α ∈ {0.5, 0.8}. Fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), distinct from all in-flight mechanisms — polyak post-hoc (nezuko #293), AdEMAMix dual-EMA momentum (frieren #305), PMuon bias correction (tanjiro #307). Memory cost ~550 MB (fp32 slow-weight copy). Primary diagnostic: `lookahead/embed_slow_fast_diff_ratio`.
 
 14. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
 

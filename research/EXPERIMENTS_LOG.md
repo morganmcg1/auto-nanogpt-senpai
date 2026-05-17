@@ -17,7 +17,7 @@ Both arms reach the 3.28 target comfortably (margins 0.0136 and 0.0125). Neither
 
 **Mechanism reading:** AdamW effective updates on embed/lm_head/scalars are NOT eps-floor-limited in this regime. The rare-token "update headroom" that eps=1e-10 provides is benign — dampening more (1e-8) doesn't help final loss, and the intermediate (1e-9) is also slightly worse on sr. The original hypothesis (eps-floor as oversized-update damper at low-variance positions) is falsified for this configuration.
 
-**Conclusion:** CLOSED. AdamW eps axis CLOSED at 1e-10. Per the predeclared falsification rule in the PR body, both arms NULL closes the axis. Thorfinn re-assigned to **PR #TBD Lookahead optimizer wrapper** — fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), complementary to in-flight polyak post-hoc (nezuko #293), AdEMAMix momentum (frieren #305), and PMuon bias correction (tanjiro #307).
+**Conclusion:** CLOSED. AdamW eps axis CLOSED at 1e-10. Per the predeclared falsification rule in the PR body, both arms NULL closes the axis. Thorfinn re-assigned to **PR #311 Lookahead optimizer wrapper** — fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), complementary to in-flight polyak post-hoc (nezuko #293), AdEMAMix momentum (frieren #305), and PMuon bias correction (tanjiro #307).
 
 **Suggested follow-up from student (kept for back-burner):** "is the embed AdamW path well-tuned" as an lr_embed axis question rather than eps. Clean diagnostic question — easier to characterize the AdamW path via per-group LR than via eps.
 
