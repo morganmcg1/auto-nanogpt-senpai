@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 20:15 UTC — PR #261 frieren CLOSED (PMuon LR warmup axis CLOSED — both arms NULL/regression, cold-start EMA self-regularizes via small-magnitude whitening). frieren now idle — selecting fresh mechanism. Tanjiro `qp87db4n` step 3075/3250 near completion. All 7 in-flight runs healthy (multiple step-0 crash artifacts in W&B are failed restart attempts, not real run failures).
+- **Last update:** 2026-05-17 20:30 UTC — PR #261 frieren CLOSED (PMuon LR warmup axis CLOSED). frieren re-assigned to **PR #305** AdEMAMix dual-EMA aux AdamW (α scan {4, 8} — fresh optimizer mechanism; NeurIPS 2024). Tanjiro `qp87db4n` step 3075/3250 near completion. All 8 students active. W&B crash artifacts (step-0 runs) are failed restart attempts — original runs healthy.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -15,16 +15,16 @@ Previous baselines:
 
 ## Active experiments (status:wip)
 
-| PR  | Student     | Mechanism                                                           | Status (17:38 UTC) |
+| PR  | Student     | Mechanism                                                           | Status (20:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) FINISHED sr=3025 val=3.2664 NULL (Δval=+0.00025 within noise). Arm B `w0oobk88` (eps=1e-9) running step ~325/3250 (~10%). |
-| ~~#261~~ | ~~frieren~~ | ~~PMuon LR warmup scan~~ CLOSED — axis CLOSED at no warmup (cold-start EMA self-regularizing) | CLOSED 20:15 UTC; frieren idle pending new assignment |
-| **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Just assigned. PR #258 CLOSED (TARGET_UW axis CLOSED at 0.35). |
-| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 val=3.273 NULL. Arm B FINISHED sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) within seed noise. **SENT BACK for n=2 seed-2 re-run** `qp87db4n` step 700 (~22%). |
-| **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
-| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) FINISHED sr=3100 val=3.2677 NULL. Awaiting student terminal post + arm B launch (COOLDOWN_POWER=1.4). |
-| **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Re-assignment of #297 (FF-merge trap closed prior). PR #230 CLOSED (β1 axis CLOSED at 0.8). |
-| **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm A `nmokccos` step 2625/3250 (~81%) val=3.334 — running. Duplicate `9s2c4r6o` killed earlier. |
+| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) FINISHED sr=3025 val=3.2664 NULL. Arm B `w0oobk88` (eps=1e-9) running step ~2600/3250 (~80%). |
+| **#305** | **frieren** | AdEMAMix dual-EMA aux AdamW: slow-EMA mixing weight α scan {4, 8} — fresh optimizer mechanism (NeurIPS 2024) | Arm A α=4 pending launch. PR #261 CLOSED (PMuon warmup axis CLOSED). |
+| **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Arm A `igfcn9a1` (frac=0.25) running step ~2225/3250 (~68%). |
+| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 NULL. Arm B seed-2 `qp87db4n` running step ~3075/3250 (~95%) — near completion. |
+| **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
+| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A FINISHED sr=3100 NULL. Arm B `vw0595an` (power=1.4) running step ~2200/3250 (~68%). |
+| **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Arm A `k10ppzfs` (clip=1.0) running step ~1875/3250 (~58%). Multiple step-0 crash artifacts in W&B are failed restart attempts — original run is healthy. |
+| **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm B `pdkpq1x2` (coef=1e-3) running step ~1725/3250 (~53%). |
 
 ## Recently closed
 
@@ -72,13 +72,15 @@ Previous baselines:
 
 9. **PMuon LR warmup axis CLOSED at no warmup (PR #261 frieren).** Arm A (50) NULL Δval=+0.00003, arm B (150) regression sr+75 Δval=+0.00636. Mechanism: β_cov EMA self-regularizes via small-magnitude whitening during cold-start fill-in; LR warmup adds double regularization with no upside. Follow-ups on back-burner: direct EMA bias correction (opposite direction — use cov estimate more aggressively early), larger β_cov {0.97, 0.99}, identity prior for `L_cov`/`R_cov` init.
 
-10. **AdamW eps scan:** PR #272 thorfinn arm A (eps=1e-8) step ~2025 (~62%), contamination resolved.
+10. **AdamW eps scan:** PR #272 thorfinn arm B (eps=1e-9) step ~2600/3250 (~80%).
 
-11. **COOLDOWN_POWER retune:** PR #274 fern arm A (power=1.0) step ~1775 (~55%).
+11. **COOLDOWN_POWER retune:** PR #274 fern arm B (power=1.4) `vw0595an` step ~2200/3250 (~68%). Arm A FINISHED sr=3100 NULL.
 
-12. **z-loss:** PR #278 alphonse arm A (coef=1e-4) step ~675 (~21%), early phase.
+12. **z-loss:** PR #278 alphonse arm B (coef=1e-3) `pdkpq1x2` step ~1725/3250 (~53%).
 
-13. **Muon WD scan:** PR #287 askeladd just assigned {0.035, 0.050}.
+13. **Muon WD scan:** PR #287 askeladd arm A `rxk4092z` (wd=0.035, confirming baseline) step ~2775/3250 (~85%).
+
+15. **AdEMAMix dual-EMA aux AdamW:** PR #305 frieren (new assignment). Arm A (α=4) pending launch. Fresh optimizer mechanism, complementary to PMuon, targets aux path (embed/lm_head/scalars).
 
 14. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
 
