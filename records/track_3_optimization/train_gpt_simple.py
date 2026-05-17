@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -454,6 +455,14 @@ NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
 NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+# Per-group embed cooldown shape (applies to adam_embed group only; lm_head/scalars keep linear).
+# options: "linear" (baseline), "cosine", "linear_floor", "quadratic"
+NANOGPT_EMBED_COOLDOWN_SHAPE = os.environ.get("NANOGPT_EMBED_COOLDOWN_SHAPE", "linear")
+_VALID_EMBED_COOLDOWN_SHAPES = ("linear", "cosine", "linear_floor", "quadratic")
+if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
+    raise ValueError(
+        f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
+    )
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -581,6 +590,8 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
+       f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
@@ -629,6 +640,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters": NS_ITERS,
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
+            "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
         },
     )
 
@@ -679,17 +691,34 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: stable then decay.
+    # All groups follow the default linear-to-zero cooldown except the
+    # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_default = 1.0
+            eta_embed = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta_default = (1 - progress) / cooldown_frac
+            cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
+            if NANOGPT_EMBED_COOLDOWN_SHAPE == "linear":
+                eta_embed = eta_default
+            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "cosine":
+                eta_embed = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
+            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "linear_floor":
+                eta_embed = 0.15 + 0.85 * eta_default  # decays from 1.0 to 0.15
+            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "quadratic":
+                eta_embed = eta_default ** 2
+            else:
+                raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                if group.get("name") == "adam_embed":
+                    group["lr"] = group["initial_lr"] * eta_embed
+                else:
+                    group["lr"] = group["initial_lr"] * eta_default
 
 
     ########################################
@@ -835,6 +864,37 @@ for trial_idx in range(args.num_trials):
                 del ns_iters_history[:-100]
         for opt in optimizers:
             opt.step()
+        # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
+        # This is the *direction* (pre-LR) so it captures whether the schedule change
+        # is modulating the bias-corrected Adam update magnitude on the embed group.
+        embed_step_due = (train_step % 100 == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and embed_step_due:
+            with torch.no_grad():
+                embed_state = optimizer1.state.get(model.embed.weight, {})
+                if "exp_avg" in embed_state and "exp_avg_sq" in embed_state:
+                    embed_group = next(
+                        g for g in optimizer1.param_groups if g.get("name") == "adam_embed"
+                    )
+                    beta1, beta2 = embed_group["betas"]
+                    eps = embed_group["eps"]
+                    raw_step = embed_state.get("step", 0)
+                    step_count = float(raw_step.item() if torch.is_tensor(raw_step) else raw_step)
+                    if step_count > 0:
+                        bias1 = 1.0 - beta1 ** step_count
+                        bias2 = 1.0 - beta2 ** step_count
+                        m_hat = embed_state["exp_avg"].to(torch.float32) / bias1
+                        v_hat = embed_state["exp_avg_sq"].to(torch.float32) / bias2
+                        adam_step = m_hat / (v_hat.sqrt() + eps)
+                        embed_step_norm = float(adam_step.norm().item())
+                        embed_step_rms = float(adam_step.square().mean().sqrt().item())
+                        wandb.log({
+                            "trial": trial_idx,
+                            "train/step": train_step,
+                            "train/embed_schedule/adam_step_norm": embed_step_norm,
+                            "train/embed_schedule/adam_step_rms": embed_step_rms,
+                            "train/embed_schedule/lr_embed": embed_group["lr"],
+                            "train/embed_schedule/adam_steps_taken": step_count,
+                        }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
