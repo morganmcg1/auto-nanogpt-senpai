@@ -1010,6 +1010,18 @@ for trial_idx in range(args.num_trials):
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # Early-abort this trial if val/loss is NaN within the first 250 steps.
+            # 1-GPU baseline is seed-stochastically unstable at step 2 (blocks.0.attn.proj.bias);
+            # once NaN, params never recover. Skip to next trial_idx instead of burning compute.
+            if step > 0 and step <= 250 and not math.isfinite(val_loss_float):
+                if dist.get_rank() == 0:
+                    print0(f"[TRIAL {trial_idx}] aborting: val/loss NaN at step {step}", console=True)
+                    wandb.log({
+                        "trial": trial_idx,
+                        "speedrun/aborted_at_step": step,
+                        "speedrun/aborted": 1,
+                    }, step=trial_idx * (train_steps + 1) + step)
+                break
             model.train()
             # start the clock again
             dist.barrier()
