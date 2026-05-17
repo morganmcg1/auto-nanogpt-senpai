@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 15:55 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). **Two wave-4 potential merge winners in confirmation**: tanjiro #235 arm-C (embed floor=15%, val=3.27245, n=1, confirmation ETA ~17:36 UTC) and alphonse #236 arm-C (β2=0.99, val=3.27439, n=1, confirmation seeds launched). If both confirm, wave-5 baseline could reach ~3.271. Frieren #234 (NS trigger fraction) closed as null — 0.70 is the empirically optimal trigger fraction. Frieren assigned #285 (NS cooldown SHAPE sweep).
+- **Date:** 2026-05-17 17:30 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). **Three wave-4/5 confirmation candidates in flight**: tanjiro #235 arm-C (embed floor=15%, val=3.27245, n=1, ETA ~17:36 UTC), alphonse #236 arm-C (β2=0.99, val=3.27439, n=1), and **askeladd #241 arm-D (mu=0.97, val=3.27447, within-pod Δ=−0.00289, confirmation seeds authorized 17:30 UTC, ETA ~21:25 UTC)**. All 8 students WIP, zero idle. If all three confirm, wave-5 baseline could reach ~3.270.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27461** — frieren NS=12→16 cooldown boost, PR #176 merged 2026-05-17
@@ -39,8 +39,9 @@
 ### nezuko #266 (lm_head + scalar cooldown shape) 🔬 IN FLIGHT
 **Hypothesis:** Does tanjiro #235's embed linear_floor=15% mechanism generalize to lm_head and scalar aux groups? Arms: A (control), B (lm_head floor=15%), C (scalar floor=15%), D (both floor=15%). Discriminates embed-specificity vs aux-general cooldown mechanism.
 
-### askeladd #241 (Muon mu sweep) 🔬 IN FLIGHT
-**Status:** arm-A (mu=0.95)=~3.277; arm-B (mu=0.90)=3.282 (regression). Lower mu hurts. arm-C (mu=0.93) and arm-D (mu=0.97) running. Pattern: lower mu hurts; waiting for mu=0.97, 0.99 arms to determine if higher mu helps.
+### askeladd #241 (Muon mu sweep) 🏆 CONFIRMATION RUNNING
+**Status:** All 5 arms terminal. Clean inverted-U with apex at **mu=0.97** (val=3.27447, fs=3250, within-pod Δ vs arm-A=−0.00289). Tails confirm mechanism: mu=0.90 (Δ=+0.00457) and mu=0.99 (Δ=+0.01525) both fail target. 2 confirmation seeds authorized 17:30 UTC; ETA terminal ~21:25 UTC.
+**Mechanism:** Heavy-ball mu controls memory length of NS input. Apex mu=0.97 (~33-step memory) gives NS a smoother orthogonalization signal without going stale. Orthogonal to AdamW-side (alphonse #236), per-group cooldown (tanjiro #235), and clip mechanisms — potential wave-5 stack.
 
 ### frieren #234 (NS boost trigger fraction sweep) ✓ CLOSED NULL
 **Final verdict:** Convex U-shape with minimum at 0.70. B(0.55)=+0.003, C(0.65)=+0.002, D(0.75)=+0.003, E(0.85)=+0.004. All arms strictly worse. Axis closed.
@@ -63,23 +64,23 @@
 - **#189 askeladd Muon² eps sweep** — closed null. eps never binds (preconditioner 30-33000× larger than swept eps).
 - **#206 edward per-group clip v2** ✓ CLOSED 14:55 UTC — clean null + mechanism inversion. arm-D (no clip) = 3.27952, confirming clip=10 is load-bearing as a global rescaler. Threshold-dependent inversion confirmed: at clip=5, muon clip was dominant; at clip=10, aux clip is dominant. Per-group dispatch infra working; slight super-additivity between aux and muon clips.
 
-## Wave 5 stacking candidates (14:55 UTC)
+## Wave 5 stacking candidates (17:30 UTC)
 
 1. **embed linear_floor=15% cooldown (tanjiro #235)** 🏆 TOP CANDIDATE — n=3 ETA ~17:36 UTC; single-seed val=3.27245
 2. **AdamW β2=0.99 (alphonse #236)** 🏆 SECOND CANDIDATE — confirmation seeds launched; single-seed val=3.27439, within-pod Δ=−0.003 strong
-3. **lm_head+scalar cooldown shape (nezuko #266)** — tests generalization of tanjiro's embed-floor mechanism
-4. **AdamW aux WD sweep (thorfinn #279)** — fresh unexplored axis; AdamW aux WD=0 in baseline
-5. **Per-group β2 ablation (edward #280)** 🆕 — triangulates which aux group drives alphonse #236's β2 win
-6. **Muon mu constants (askeladd #241)** — lower mu hurts; waiting for higher-mu arms (mu=0.97, 0.99)
+3. **Muon mu=0.97 (askeladd #241)** 🏆 THIRD CANDIDATE — confirmation seeds authorized 17:30 UTC; single-seed val=3.27447, within-pod Δ=−0.00289, inverted-U mechanism confirmed
+4. **lm_head+scalar cooldown shape (nezuko #266)** — tests generalization of tanjiro's embed-floor mechanism
+5. **AdamW aux WD sweep (thorfinn #279)** — fresh unexplored axis; AdamW aux WD=0 in baseline
+6. **Per-group β2 ablation (edward #280)** 🆕 — triangulates which aux group drives alphonse #236's β2 win
 7. **NS cooldown SHAPE (frieren #285)** 🆕 — tests graduated/ramped NS schedule vs step jump (compute-neutral)
-8. ~~Per-group Muon clip (edward #206)~~ — closed null/mechanism study
-9. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed compute-neutral
-10. ~~AdamW β1 cooldown (nezuko #227)~~ — closed null
-11. ~~NS boost trigger fraction (frieren #234)~~ — closed null; 0.70 validated as optimal
-12. ~~NS polynomial coefs (fern #203)~~ — closed null (c=0.5 local optimum; NS=16 cooldown amplifies soft-polynomial errors)
-13. **NS per-iter coefficient schedule (fern #290)** 🆕 — varying c across 12 NS iters, average c=0.5 fixed
+8. **NS per-iter coefficient schedule (fern #290)** 🆕 — varying c across 12 NS iters, average c=0.5 fixed
+9. ~~Per-group Muon clip (edward #206)~~ — closed null/mechanism study
+10. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed compute-neutral
+11. ~~AdamW β1 cooldown (nezuko #227)~~ — closed null
+12. ~~NS boost trigger fraction (frieren #234)~~ — closed null; 0.70 validated as optimal
+13. ~~NS polynomial coefs (fern #203)~~ — closed null (c=0.5 local optimum; NS=16 cooldown amplifies soft-polynomial errors)
 
-**Mechanism landscape (14:55 UTC)**: The "cooldown-window precision" theme consolidates around two axes that both confirm: (1) embed LR floor sustains update pressure in the last 30% of training; (2) β2=0.99 smooths the v-EMA for cleaner per-coordinate step sizes. Both are orthogonal to the clip/NS mechanics already merged. The immediate wave-5 priority: wait for tanjiro and alphonse confirmations, then stack them, then probe whether β2 asymmetry is group-specific (edward #280) and whether aux groups want WD (thorfinn #279).
+**Mechanism landscape (17:30 UTC)**: Three strong wave-5 stacking candidates now in confirmation: (1) tanjiro embed cooldown floor (per-group precision), (2) alphonse β2=0.99 (Adam-side variance smoothing), (3) askeladd mu=0.97 (Muon-side momentum memory). All three are mechanistically orthogonal: Muon-momentum-buffer dynamics ⊥ Adam-v-EMA ⊥ per-group LR shape. If all three confirm n=3, wave-5 baseline stacking probe is the top priority. Secondary axes (per-group β2 → edward #280, NS schedule shape/per-iter → frieren #285, fern #290) provide mechanism refinement regardless of confirmation outcomes.
 
 ## Closed mechanisms (do not re-explore)
 

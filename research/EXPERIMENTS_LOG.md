@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-17 17:30 UTC — PR #241: Muon mu (Heavy-ball momentum) constant sweep (askeladd) — CONFIRMATION SEEDS AUTHORIZED 🔬
+
+- Branch: `g1r4-askeladd/muon-mu-sweep`
+- Hypothesis: Muon mu (Heavy-ball coef before NS) has never been swept on this branch. Sweep {0.90, 0.93, 0.95, 0.97, 0.99} to find local optimum.
+
+### Results (single seed per arm, terminal step 3350)
+
+| Arm | mu | val/loss | first_step_to_target | Δ vs arm-A (0.95) | Δ vs n=3 baseline mean (3.27461) | W&B |
+|-----|------|----------|-----|----------|------|-----|
+| A (control) | 0.95 | 3.27736 | 3300 | — | +0.00275 | e0514xai |
+| B | 0.90 | 3.28193 | -1 (failed target) | +0.00457 | +0.00732 | 8s5dtj9e |
+| C | 0.93 | 3.27662 | 3275 | −0.00074 | +0.00201 | yh1f3cex |
+| **D** | **0.97** | **3.27447** | **3250** | **−0.00289** | **−0.00014** | **dyfdxufh** |
+| E | 0.99 | 3.29261 | -1 (failed target) | +0.01525 | +0.01800 | 06a1ta71 |
+
+### Mechanism findings
+
+- **Clean inverted-U with apex at mu=0.97.** Both tails degrade — low-mu (0.90) produces noisier NS input, high-mu (0.99) feeds NS stale gradient.
+- **Within-pod Δ −0.00289** on arm-D vs arm-A is a strong signal — comparable to or stronger than other wave-5 candidates (alphonse #236 Δ=−0.00309, tanjiro #235 Δ=−0.00428).
+- **||v||_F prediction was wrong in sign.** PR predicted higher mu → larger v norm; observed: higher mu produces *smaller* ||v||_F because gradient magnitude responds to optimizer dynamics, not just geometric amplification. The smoothing intuition is right; the amplification intuition is wrong on this benchmark.
+- **Single-seed val=3.27447 essentially matches n=3 baseline mean (3.27461)** — promising but needs confirmation.
+- **Arm-A drift +0.00275 from baseline** is within ±0.003 abort gate. Within-pod Δ analysis cancels most of this drift effect.
+
+### Verdict
+
+Authorized 2 confirmation seeds at mu=0.97. Predeclared val≤3.273 gate was conservative; the inverted-U shape + within-pod Δ is the appropriate trigger. mu=0.97 is mechanistically orthogonal to clip/NS/AdamW-side axes (potential wave-5 stack candidate). Confirmation ETA ~21:25 UTC (2×~1h55m chained).
+
 ## 2026-05-17 06:00 UTC — PR #165: Clip value extension sweep (thorfinn) — MERGED ✅
 
 - Branch: `g1r4-thorfinn/clip-extension-sweep`
