@@ -1,9 +1,10 @@
 # SENPAI Research State
 
-- 2026-05-17 22:30 UTC — Cycle 54 (continued)
+- 2026-05-17 23:40 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
-- 🚨 **THORFINN #288 Arm B trial 0 hit BOTH bars at n=1**: val=3.2757 (Δ−0.000135), ffs=3075 (Δ−12.5). Cooldown-only μ anneal (MU_COOLDOWN_START=0.95 → END=0.90 from step 952). n=2 mean pending trial 1; n=4 confirmation requested.
-- 🔻 **NEZUKO #295 Polar Express CLOSED**: val=3.2802 (just above 3.28 target; reached_target=0). PR closed. NS5 coefficient tuning not productive at 12 iters. Reassigned #316 (NorMuon β2 cooldown anneal).
+- 🚨 **THORFINN #288 Arm B trial 0 hit BOTH bars at n=1**: val=3.2757, ffs=3075. Trial 1 at step 1525/3175 as of 23:08 UTC. N=2 mean pending.
+- 🔻 **NEZUKO #295 Polar Express CLOSED**: NS5 coeff tuning dead end. Reassigned #316 (NorMuon β2 cooldown anneal).
+- 🔻 **ASKELADD #286 Polyak EMA CLOSED**: EMA path val=3.3097 vs raw val=3.2764 — averaging pre-cooldown weights strictly hurts our aggressive cooldown schedule. Reassigned #319 (Muon LR warmup).
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -87,6 +88,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | #303 | alphonse | CLOSED (pod fix) | torch 2.10.0+cu128 + mixed cu12/cu13 NCCL/cuDNN → optimizer kernel NaN at step 2-24. Fix: upgrade to torch 2.11.0+cu130 cu13-only |
 | #275 | frieren | FALSIFIED | MLP-SOAP trust gate; MLP precond is robust to rotation noise (inverse of attn). MLP eigenbasis rotates as much as attn but the precond is noise-tolerant; gating hurts |
 | #295 | nezuko | MISS | Polar Express adaptive NS5; SV quality perfect (100% within ±1% band) but no benefit over fixed (2,-1.5,0.5) at 12-iter bf16 budget. NS5 coeff tuning not productive. |
+| #286 | askeladd | FALSIFIED | Polyak-Ruppert weight averaging; EMA path val=3.3097 vs raw val=3.2764. Averaging pre-cooldown weights (start=2000) with converged final weights guarantees worse model — aggressive cooldown already eliminates SGD variance that Polyak targets. |
 
 ## Key patterns (updated cycle 54)
 
@@ -122,7 +124,7 @@ Gap to record #20 (~3030 ffs steps): ~57.5 ffs steps.
 5. **Frieren #313** (logit z-loss) — baseline smoke; z_loss arms launching.
 6. **Edward #281** (per-head SOAP) — Arm A screen launching after re-implementation.
 7. **Fern #304** (annealed SOAP_PRECOND_FREQ) — pod fixed, Arm A screen launched.
-8. **Askeladd #286** (Polyak-Ruppert EMA) — smoke rerun `bsfu3ua0` ETA 22:53 UTC.
+8. **Askeladd #319** (Muon LR warmup) — just assigned; smoke then Arm A (100-step) / Arm B (50-step) screens. Portfolio gap: warmup phase completely unexplored while cooldown is thoroughly tuned.
 
 ## Operational notes
 

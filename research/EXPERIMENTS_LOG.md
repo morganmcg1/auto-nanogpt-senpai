@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 23:40 UTC — Cycle 54 (continued): askeladd #286 CLOSED (Polyak EMA FALSIFIED); reassigned #319 Muon LR warmup
+
+### ASKELADD #286 — Polyak-Ruppert weight averaging — FALSIFIED
+
+| Path | val/loss at step 3175 | reached_target | ffs |
+|---|---|---|---|
+| Non-EMA (raw model) | **3.2764** | yes | 3100 |
+| EMA (Polyak β=0.999, start=2000) | **3.3097** | no | — |
+
+EMA path is +0.0339 worse — far outside any noise band. Mechanism: POLYAK_START=2000, β=0.999 → EMA has effective horizon ~1000 steps, heavily weighted toward step ~2200 (val ~3.50 era). Our aggressive LR cooldown already eliminates the late-training variance that Polyak-Ruppert targets. Final weights ARE the optimum; averaging earlier high-LR weights strictly degrades the model.
+
+**Conclusion**: Polyak averaging is fundamentally incompatible with aggressive linear cooldown. Do not reassign at any POLYAK_START/BETA setting.
+
+Askeladd reassigned → PR #319: Muon LR warmup (100-step and 50-step arms).
+
+---
+
 ## 2026-05-17 22:50 UTC — Cycle 54 (continued): nezuko #295 CLOSED (Polar Express MISS); reassigned #316 NorMuon β2 cooldown anneal
 
 ### NEZUKO #295 — Newton-Schulz NS5 polynomial coefficient sweep / Polar Express — MISS
