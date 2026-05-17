@@ -1,14 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #92, ~16:55 UTC)
-- **⭐ HOTTEST SIGNAL: frieren Phase 2 n=4 confirm RUNNING** — `ym6jprxe` step 1897/13000 (14.6%). ETA terminal ~8h. If n=4 mean ≤ 3.269362, **next merge**. Slope healthy.
-- **NEW TERMINALS THIS POLL (await student SENPAI-RESULT markers):**
-  - **edward Cell A FINISHED**: `z0xf0p9l` val/loss=**3.2727** ffs (TBD by student). +0.0014 above new baseline (1.1σ, within noise). Cell B (0.50/200) should auto-launch sequentially.
-  - **askeladd Cell E FINISHED**: `ra03b9q7` val/loss=**3.2740**. 5-cell NS5 sweep COMPLETE: A(8)=3.27444, B(10)=3.27390 best, C(12)=3.27687, D(14)=3.27480, E(16)=3.27400. None beat new baseline. Awaiting student terminal SENPAI-RESULT.
-- **NEAR-TERMINAL:**
-  - **fern Cell D `muvrbbef`** step 2984/3250 (92%), val=3.2984. ETA ~10 min.
-  - **alphonse Cell B `ptcttsgd`** step 2876/3250 (88%), val=3.3103. ETA ~15 min.
-- **tanjiro PR #289 combo-confirm LAUNCHED**: `v1mhx9f2` step 69 (just started). 4 trials × 3250 = 13000 steps. ETA ~7h.
+- **Last updated:** 2026-05-17 (poll #93, ~17:30 UTC)
+- **⭐ HOTTEST SIGNAL: frieren Phase 2 n=4 confirm RUNNING** — `ym6jprxe` step 2205/13000 (17%) val=3.4201. ETA terminal ~7h. If n=4 mean ≤ 3.269362, **next merge**.
+- **NEAR-TERMINAL THIS POLL:**
+  - **fern Cell D `muvrbbef`** step 3247/3250 (99.9%) val=3.2752. Terminal NOW. Cell B(λ=1e-4) best at 3.2730 (1.4σ above baseline). None beat new baseline.
+  - **alphonse Cell B `ptcttsgd`** step 3157/3250 (97%) val=3.2790. Terminal in <5 min. Cell C (eps=1e-8) needs to auto-launch.
+- **PROGRESS:**
+  - **edward Cell B auto-launched** `gf426fxo` (β₂_init=0.50, warmup=200) step 1030/3250 (32%).
+  - **tanjiro PR #289** `v1mhx9f2` step 383/13000 (3%) — combo-confirm progressing.
+  - **thorfinn Cell B** `37w0mwla` step 1386/3250 (43%).
+  - **nezuko Cell A AGC** `1j9tl8k9` step 1749/3250 (54%).
+- **AWAITING student terminal SENPAI-RESULTs**: edward Cell A=3.2727, askeladd 5-cell sweep complete.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
