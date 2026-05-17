@@ -1,5 +1,32 @@
 # SENPAI Research Results
 
+## 2026-05-17 20:35 — PR #250: NS coef c-scan on f'(1)=0 family seed-2 confirmation (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-uw-ns-coef-c-scan`
+- Hypothesis (originally): c-axis exploration on f'(1)=0 family at c ∈ {-0.25, +0.25}. Seed-1 of c=+0.25 produced a marginal numerical win (Δval=-0.00010, 10× below noise threshold). Sent back for n=2 seed-2 confirmation.
+
+| Seed | sr | val/loss | polar/ortho_residual_sample | W&B run |
+|---|---|---|---|---|
+| seed-1 | **3025** | **3.26605** | 0.09399 | `8tbjkmnc` |
+| **seed-2** | **3050** | **3.26708** | 0.09438 | **`qp87db4n`** |
+| **mean (n=2)** | **3037.5** | **3.266565** | 0.09418 | — |
+| baseline c=0 | 3025 | 3.26615 | not logged | `prncgzv5` |
+| Arm A c=-0.25 | 3100 | 3.27291 | **20.637 (broken)** | `ecwyk0ej` |
+
+**Analysis:** Per pre-declared advisor decision rule (seed-2 sr > 3025 → close), c-axis CLOSED at c=0. seed-1 marginal numerical win (Δval=-0.00010) confirmed as seed noise; mean n=2 Δval=-0.000585 is below both the stat-sig 0.004 threshold and the seed-noise 0.002 threshold. Arm B's two-seed evaluation correctly falsified the marginal seed-1 result.
+
+**Reproducible structural finding preserved (not a sr/val win, but useful diagnostic):**
+`polar/ortho_residual_sample` final value is **highly reproducible across seeds** (0.094 ± 0.0004 at c=+0.25). This is genuinely useful as a low-noise NS-screening diagnostic — future PMuon-iteration PRs can compare residual trajectories to screen NS polynomial variants without paying for full 3.4h runs.
+
+**Mechanism finding (also preserved):**
+c=-0.25 (b=0, no cubic term) has `polar/ortho_residual_sample ≈ 20.6` throughout training — essentially the random-Gaussian baseline (√768≈27.7). The NS iteration with f(x)=1.25x−0.25x⁵ does NOT orthogonalize: small SVs grow weakly (linear amp 1.25 too gentle), and SVs ≳1.39 flip into negative branch. **PMuon is partially robust to a broken polar factor** — c=-0.25 still reached val ≤ 3.28, just 75 sr-steps later. The bilateral whitening contributes orthogonalization independently of the NS iteration. Good cross-mechanism finding.
+
+**Conclusion:** CLOSED. NS coef c-axis on f'(1)=0 family CLOSED at c=0 (cubic-Newton). Tanjiro re-assigned to PR #306 PMuon EMA bias correction (frieren's PR #261 follow-up — opposite direction from closed LR warmup).
+
+**Backlog item retained:** `NS_ITERS=8 at c=+0.25` might match c=0 `NS_ITERS=12` on residual quality at ~33% compute savings per Muon step. Not pursuing now (c-axis closed for this family); flagged for any future Muon-iteration follow-up.
+
+---
+
 ## 2026-05-17 20:15 — PR #261: PMuon LR warmup scan {50, 150 steps} (g1r1-frieren)
 
 - Branch: `g1r1-frieren/muon-lr-warmup-scan`

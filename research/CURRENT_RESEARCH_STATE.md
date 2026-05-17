@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 20:30 UTC — PR #261 frieren CLOSED (PMuon LR warmup axis CLOSED). frieren re-assigned to **PR #305** AdEMAMix dual-EMA aux AdamW (α scan {4, 8} — fresh optimizer mechanism; NeurIPS 2024). Tanjiro `qp87db4n` step 3075/3250 near completion. All 8 students active. W&B crash artifacts (step-0 runs) are failed restart attempts — original runs healthy.
+- **Last update:** 2026-05-17 20:35 UTC — PR #250 tanjiro CLOSED (NS coef c-axis on f'(1)=0 family CLOSED at c=0; n=2 mean seed-2 sr=3050 > 3025 fails decision rule). Tanjiro re-assigned via **PR #306** PMuon EMA bias correction (frieren's PR #261 follow-up — opposite direction from closed LR warmup axis). frieren active on PR #305 AdEMAMix dual-EMA. All 8 students active.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -20,7 +20,7 @@ Previous baselines:
 | **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) FINISHED sr=3025 val=3.2664 NULL. Arm B `w0oobk88` (eps=1e-9) running step ~2600/3250 (~80%). |
 | **#305** | **frieren** | AdEMAMix dual-EMA aux AdamW: slow-EMA mixing weight α scan {4, 8} — fresh optimizer mechanism (NeurIPS 2024) | Arm A α=4 pending launch. PR #261 CLOSED (PMuon warmup axis CLOSED). |
 | **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Arm A `igfcn9a1` (frac=0.25) running step ~2225/3250 (~68%). |
-| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 NULL. Arm B seed-2 `qp87db4n` running step ~3075/3250 (~95%) — near completion. |
+| **#306** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A FINISHED sr=3100 NULL. Arm B `vw0595an` (power=1.4) running step ~2200/3250 (~68%). |
 | **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Arm A `k10ppzfs` (clip=1.0) running step ~1875/3250 (~58%). Multiple step-0 crash artifacts in W&B are failed restart attempts — original run is healthy. |
@@ -30,6 +30,7 @@ Previous baselines:
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#250** | tanjiro | NS coef c-axis on f'(1)=0 family: c=-0.25 sr=3100 NULL (broken polar residual ~20.6); c=+0.25 n=2 mean sr=3037.5 val=3.266565 NULL | CLOSED — c-axis CLOSED at c=0 (cubic-Newton baseline). seed-1 marginal Δval=-0.00010 confirmed seed noise. Reproducible structural finding (polar/ortho_residual_sample = 0.094 ± 0.0004 across seeds) preserved as low-noise NS-screening diagnostic. |
 | **#261** | frieren | PMuon LR warmup: arm A (50) NULL Δval=+0.00003; arm B (150) REGRESSION sr+75 Δval=+0.00636 | CLOSED — PMuon LR warmup axis CLOSED at no warmup. β_cov=0.95 EMA cold-start is self-regularizing via small-magnitude whitening during fill-in (telemetry-confirmed). |
 | **#229** | alphonse | NS coef (a,b) line scan: a=1.3 sr=3075 val=3.26921 NULL; a=1.7 sr=3050 val=3.26786 tied baseline within noise | CLOSED — NS coef line scan AXIS CLOSED at (a=1.5, b=-0.5). f'(1)=0 NOT strictly required; aggressive ok, gentle disfavored |
 | **#231** | fern | Muon mu scan: 0.90 sr=3125 NULL; 0.99 DIVERGED killed step 1957 (val=4.37) | CLOSED — mu axis CLOSED at 0.95 baseline (both perturbations unstable/null) |
@@ -58,7 +59,7 @@ Previous baselines:
 
 2. **γ_power LOCAL OPTIMUM AT 0.4. AXIS CLOSED.** Full monotone: {0.2→3050, 0.3→3062.5, 0.4→3025 (baseline), 0.5→3150 (NULL), 0.6→crash (structural instability)}. Sharp optimum, direction reverses after 0.4.
 
-3. **NS coef (a,b) line CLOSED at (1.5, -0.5).** PR #229 — gentle a=1.3 NULL (ortho_residual 160× larger); aggressive a=1.7 tied baseline. f'(1)=0 doubly-tangent constraint NOT strictly required; with NS_ITERS=12 the polynomial must drive σ→1 quickly. c-axis: c=-0.25 NULL (PR #250, similar polar-residual blowup); c=+0.25 arm B pending.
+3. **NS coef (a,b) line CLOSED at (1.5, -0.5) (PR #229); c-axis on f'(1)=0 family CLOSED at c=0 (PR #250).** Gentle a=1.3 NULL (ortho_residual 160× larger); aggressive a=1.7 tied baseline. c=-0.25 (b=0, no cubic) NULL — polar/residual stuck at ~20.6 (Gaussian baseline), NS iteration doesn't orthogonalize but PMuon partially robust to broken polar factor. c=+0.25 n=2 mean sr=3037.5 val=3.266565 NULL. **f'(1)=0 doubly-tangent constraint NOT strictly required** for c=0; tight 2nd-order constraint not load-bearing. New diagnostic finding (PR #250): polar/ortho_residual_sample is highly reproducible across seeds (~0.094 ± 0.0004 at c=+0.25) → useful low-noise NS-screening tool.
 
 4. **Aux AdamW β2 axis CLOSED at 0.95.** Monotone: smaller β2 better.
 
@@ -80,7 +81,9 @@ Previous baselines:
 
 13. **Muon WD scan:** PR #287 askeladd arm A `rxk4092z` (wd=0.035, confirming baseline) step ~2775/3250 (~85%).
 
-15. **AdEMAMix dual-EMA aux AdamW:** PR #305 frieren (new assignment). Arm A (α=4) pending launch. Fresh optimizer mechanism, complementary to PMuon, targets aux path (embed/lm_head/scalars).
+15. **AdEMAMix dual-EMA aux AdamW:** PR #305 frieren. Arm A (α=4) pending launch. Fresh optimizer mechanism, complementary to PMuon, targets aux path (embed/lm_head/scalars).
+
+16. **PMuon EMA bias correction:** PR #306 tanjiro (new assignment). Arms {FULL, SQRT} bias correction `L_cov / (1-β_cov^step)` — frieren's PR #261 follow-up suggestion. Tests opposite hypothesis to closed LR warmup: instead of slowing LR during cold-start, sharpen the EMA estimate via Adam-style bias correction. Telemetry shows correction matters only first ~50 steps.
 
 14. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
 
@@ -91,7 +94,7 @@ Previous baselines:
 | **β_cov** (covariance horizon) | CLOSED (PR #129) | 0.95 | — |
 | **γ_power** (whitening strength) | **CLOSED — optimum at 0.4** | 0.4 | **3025** |
 | **NS_ITERS** (polar convergence) | CLOSED (PR #184) | Wide flat: 6–18 | — |
-| **NS_coef c-axis** (f'(1)=0 family) | ACTIVE c-scan (PR #250) | c=0 cubic-Newton | 3025 |
+| **NS_coef c-axis** (f'(1)=0 family) | **CLOSED (PR #250)** | c=0 cubic-Newton (n=2 mean at c=+0.25 sr=3037.5 NULL) | 3025 |
 | **NS_coef (a,b) line** | **CLOSED (PR #229)** | (a=1.5, b=-0.5) optimal | 3025 |
 | **Muon base LR** | **CLOSED (PR #248)** | 0.035 optimal (both ±14% NULL) | 3025 |
 | **mu** (gradient momentum) | ACTIVE (PR #231) | 0.95 baseline; mu=0.9 NULL | — |
