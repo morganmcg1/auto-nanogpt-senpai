@@ -450,6 +450,10 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Polyak-Ruppert weight averaging (PR #286)
+POLYAK_ENABLED = os.environ.get("POLYAK_ENABLED", "0") == "1"
+POLYAK_BETA = float(os.environ.get("POLYAK_BETA", "0.999"))
+POLYAK_START = int(os.environ.get("POLYAK_START", "2000"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -841,6 +845,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/polyak_enabled": POLYAK_ENABLED,
+            "optimizer/polyak_beta": POLYAK_BETA,
+            "optimizer/polyak_start": POLYAK_START,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -915,11 +922,19 @@ for trial_idx in range(args.num_trials):
     last_val_step = 0
     best_val_loss = float("inf")
     best_val_step = -1
+    best_val_loss_ema = float("inf")
+    best_val_step_ema = -1
     first_step_to_target = -1
+    first_step_to_target_ema = -1
     slope_interval = max(1, round(train_steps * SLOPE_FRACTION))
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # Polyak-Ruppert EMA buffers (populated lazily once train_step >= POLYAK_START).
+    polyak_buffers: dict[str, Tensor] = {}
+    polyak_live_backup: dict[str, Tensor] = {}
+    polyak_started = False
+    last_val_loss_ema = float("nan")
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -942,6 +957,26 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # Polyak EMA validation: swap EMA weights into model, eval, restore live weights.
+            val_loss_ema_float = float("nan")
+            if POLYAK_ENABLED and polyak_started:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        if name not in polyak_live_backup:
+                            polyak_live_backup[name] = torch.empty_like(p.data)
+                        polyak_live_backup[name].copy_(p.data)
+                        p.data.copy_(polyak_buffers[name])
+                val_loss_ema = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_ema += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_ema, op=dist.ReduceOp.SUM)
+                val_loss_ema /= val_tokens
+                val_loss_ema_float = float(val_loss_ema.item())
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        p.data.copy_(polyak_live_backup[name])
+                last_val_loss_ema = val_loss_ema_float
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -949,10 +984,17 @@ for trial_idx in range(args.num_trials):
                     best_val_step = step
                 if first_step_to_target < 0 and val_loss_float <= TARGET_VAL_LOSS:
                     first_step_to_target = step
+                if val_loss_ema_float == val_loss_ema_float:  # not NaN
+                    if val_loss_ema_float < best_val_loss_ema:
+                        best_val_loss_ema = val_loss_ema_float
+                        best_val_step_ema = step
+                    if first_step_to_target_ema < 0 and val_loss_ema_float <= TARGET_VAL_LOSS:
+                        first_step_to_target_ema = step
                 metrics = {
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_live": val_loss_float,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
@@ -962,10 +1004,21 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if val_loss_ema_float == val_loss_ema_float:  # not NaN
+                    metrics["val/loss_ema"] = val_loss_ema_float
+                    metrics["val/delta_live_minus_ema"] = val_loss_float - val_loss_ema_float
+                    metrics["val/best_loss_ema"] = best_val_loss_ema
+                    metrics["val/best_step_ema"] = best_val_step_ema
+                    metrics["val/target_margin_ema"] = TARGET_VAL_LOSS - val_loss_ema_float
+                    metrics["speedrun/first_step_to_target_ema"] = first_step_to_target_ema
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            if val_loss_ema_float == val_loss_ema_float:
+                print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} val_loss_ema:{val_loss_ema_float:.5f}"
+                       + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
+            else:
+                print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+                       + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1042,6 +1095,16 @@ for trial_idx in range(args.num_trials):
                 param_histogram_limit=args.param_histogram_limit,
             )
         model.zero_grad(set_to_none=True)
+        # Polyak-Ruppert EMA update: in-place EMA of post-step weights once train_step >= POLYAK_START.
+        if POLYAK_ENABLED and train_step >= POLYAK_START:
+            with torch.no_grad():
+                if not polyak_started:
+                    for name, p in model.named_parameters():
+                        polyak_buffers[name] = p.data.detach().clone()
+                    polyak_started = True
+                else:
+                    for name, p in model.named_parameters():
+                        polyak_buffers[name].mul_(POLYAK_BETA).add_(p.data.detach(), alpha=1 - POLYAK_BETA)
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
@@ -1049,16 +1112,29 @@ for trial_idx in range(args.num_trials):
     if dist.get_rank() == 0:
         print0(
             f"trial:{trial_idx} best_val_loss:{best_val_loss:.5f} best_val_step:{best_val_step}"
-            + f" first_step_to_target:{first_step_to_target}",
+            + f" first_step_to_target:{first_step_to_target}"
+            + (f" best_val_loss_ema:{best_val_loss_ema:.5f} last_val_loss_ema:{last_val_loss_ema:.5f}"
+               if POLYAK_ENABLED and polyak_started else ""),
             console=True,
         )
-        wandb.log({
+        final_metrics = {
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+            "speedrun/final_val_loss_live": best_val_loss,
+        }
+        if POLYAK_ENABLED and polyak_started:
+            final_metrics["speedrun/final_val_loss_ema"] = last_val_loss_ema
+            final_metrics["speedrun/final_best_val_loss_ema"] = best_val_loss_ema
+            final_metrics["speedrun/final_best_val_step_ema"] = best_val_step_ema
+            final_metrics["speedrun/final_first_step_to_target_ema"] = first_step_to_target_ema
+            final_metrics["speedrun/final_reached_target_ema"] = int(first_step_to_target_ema >= 0)
+        wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
+    # Free Polyak buffers between trials so next trial starts fresh.
+    polyak_buffers.clear()
+    polyak_live_backup.clear()
 
 if dist.get_rank() == 0:
     wandb.finish()
