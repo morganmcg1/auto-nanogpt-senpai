@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 20:45 UTC — Cycle 54 (continued): tanjiro #276 CLOSED (decoupled aux cooldown FALSIFIED); reassigned #309 AdamW β1 anneal
+
+### TANJIRO #276 — Decoupled aux cooldown shape (cosine / none) — FALSIFIED
+
+| Arm | aux_cooldown_shape | val/loss | ffs | val < 3.275835? | ffs < 3087.5? | W&B |
+|---|---|---|---|---|---|---|
+| Baseline (n=4) | linear (coupled) | **3.275835** | **3087.5** | — | — | `3xn3ox1c` (pre-#219), `47bb0bf2` (n=4 PR #219) |
+| A | cosine | 3.27696 | 3100 | ❌ +0.00113 | ❌ +12.5 | `lkh6dlbz` |
+| B | none | 3.30208 | -1 (never reached 3.28) | ❌❌ +0.02625 | ❌ never reached | `yjmbml3f` |
+
+Both arms confirmed at n=1. Arm A (cosine on aux) marginally worse than linear — within natural variation, but can't beat the strict bar. Arm B (no aux cooldown) catastrophically worse — model never reaches target val=3.28.
+
+**Mechanistic insight — aux groups are tightly coupled to the readout-convergence stage**:
+> The Arm B failure is the diagnostic: holding embed at lr=0.3 and lm_head at lr=1/320 through the final 30% of training prevents convergence. The model never gets within target distance.
+>
+> This contradicts the hypothesis premise ("aux groups don't have a Newton-Schulz fixed-point requirement"). They DO need to cool down — because embedding-table noise and lm_head noise late in training are read out as token-distribution variance. At the end the model is no longer learning, it is *converging the readout*, and embed/lm_head must follow Muon's cooldown.
+>
+> **Corollary**: aux groups want the same reactivity-vs-smoothness tradeoff as Muon — high momentum stability early, low momentum reactivity late. PR #219 won by doing this on Muon's μ. The natural follow-up is to test the same mechanism on AdamW's β1 (the only other scalar momentum-buffer coefficient in the system).
+
+Cross-axis confirmation: r1 also tested cosine cooldown on the **whole stack** (Muon + aux together) and got val=3.2882 — also worse. Two independent experiments confirm linear cooldown is a stable optimum across all groups.
+
+Tanjiro reassigned → PR #309: **Annealed AdamW β1** (0.90→0.70 broad, 0.85→0.75 tight). Direct parallel to PR #219 on the orthogonal aux-optimizer axis.
+
 ## 2026-05-17 20:05 UTC — Cycle 54 (continued): fern #291 FALSIFIED; alphonse #277 CLOSED (pod issue); both reassigned
 
 ### FERN #291 — Annealed SOAP β2 (0.95→0.85): adaptive Gram EMA — FALSIFIED
