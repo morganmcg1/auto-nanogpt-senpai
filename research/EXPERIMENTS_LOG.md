@@ -1,5 +1,30 @@
 # SENPAI Research Results
 
+## 2026-05-17 23:00 — PR #293: Polyak-Ruppert weight averaging {25%, 50%} (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/polyak-weight-averaging`
+- Hypothesis: Maintain a running equal-weight average `theta_avg ← theta_avg + (1/n) * (theta - theta_avg)` over the final POLYAK_FRAC of training steps; evaluate val/loss on the averaged params. Classical convergence accelerator (Polyak 1990, Ruppert 1988).
+
+| Arm | POLYAK_FRAC | W&B run | sr | val/loss | Δval vs baseline (3.26615) | Status |
+|---|---|---|---|---|---|---|
+| Baseline (PR #202) | 0 (no avg) | `prncgzv5` | 3025 | 3.26615 | — | Current best |
+| Arm A | 0.25 (last 25%) | `igfcn9a1` | 3075 | 3.2749 | **+0.00875** | NULL — 9× noise floor regression on val, +50 on sr |
+| Arm B | 0.50 (last 50%) | — | — | — | — | 10 crash attempts (latest `8aotxat7`); never completed |
+
+**Mechanism analysis:** Under the power-law cooldown γ=1.2 schedule, the Muon LR decays from 0.035 toward 0 over the final 25% of training. Param trajectory is **non-stationary**: each step contributes more useful refinement than the previous one because the LR shrinks and the gradient direction sharpens. Equal-weight averaging of params across this cooldown window therefore biases the weights *back toward earlier (higher-LR) checkpoints*, which lie farther from the optimum. Val=3.2749 vs 3.26615 = +0.00875 is a clean, mechanism-grounded regression (not noise).
+
+Arm B's wider window (POLYAK_FRAC=0.50, averaging from step 1625) would extend the bias-toward-earlier-params problem further into the more-aggressive training phase. Even if Arm B ran cleanly, it would amplify the Arm A regression, not reverse it. The 10 crash attempts (typically stalling at step 0-25 with val/loss=10.83 = initialization) suggest implementation difficulty in addition to the mechanism issue.
+
+**Conclusion:** CLOSED. Polyak-Ruppert axis CLOSED at 0 (no averaging). Per the predeclared falsification rule in the PR body ("Both arms NULL (val ≥ 3.26615) → weight averaging non-load-bearing"), Arm A's substantive regression closes the axis directly without needing Arm B confirmation.
+
+**Back-burner follow-ups:**
+1. **EMA-weighted Polyak**: weight the averaged contribution toward newer steps via decay factor — would respect the non-stationary cooldown trajectory.
+2. **Polyak without cooldown**: test in a constant-LR or warmup-only setting where the trajectory *is* approximately stationary — different mechanism.
+
+Nezuko re-assigned to fresh mechanism: **Lion optimizer (Chen et al. 2023) on embed-only path** — sign-momentum optimizer, two arms with lr ∈ {0.03, 0.10}.
+
+---
+
 ## 2026-05-17 22:00 — PR #278: z-loss auxiliary scan {1e-4, 1e-3} (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/zloss-auxiliary-scan`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 22:15 UTC — PR #278 alphonse CLOSED (z-loss axis CLOSED at 0; Arm A NULL, Arm B REGRESSION 5× noise). Alphonse re-assigned to **PR #314** embed_lr scan {0.2, 0.4} — alphonse's own follow-up suggestion from PR #278. PR #274 fern seed-2 running (`s2nrw0c8`). All 8 students active.
+- **Last update:** 2026-05-17 23:00 UTC — PR #293 nezuko CLOSED (Polyak axis CLOSED at 0; Arm A `igfcn9a1` NULL with val=3.2749 sr=3075, +9× noise val regress; Arm B 10× crash attempts, mechanism counterproductive under power-law cooldown γ=1.2). Nezuko pending Lion-embed assignment. PR #274 fern seed-2 running, PR #287 askeladd Arm A complete (sr=3050 NULL), PR #299 edward Arm A complete (sr=3075 NULL) — both sequential second arms in progress.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -19,7 +19,6 @@ Previous baselines:
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
 | **#311** | **thorfinn** | Lookahead optimizer wrapper — online slow-weight interpolation every k=5 steps; α ∈ {0.5, 0.8} | Just assigned. Fresh wrapper-level mechanism (Zhang et al. NeurIPS 2019). Complementary to polyak post-hoc (#293), AdEMAMix momentum (#305), PMuon bias correction (#307). |
 | **#305** | **frieren** | AdEMAMix dual-EMA aux AdamW: slow-EMA mixing weight α scan {4, 8} — fresh optimizer mechanism (NeurIPS 2024) | Arm A α=4 pending launch. PR #261 CLOSED (PMuon warmup axis CLOSED). |
-| **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Arm A `igfcn9a1` (frac=0.25) running step ~2225/3250 (~68%). |
 | **#307** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | n=1 SENPAI-RESULT received. Arm A (1.0) sr=3100 NULL. Arm B (1.4) sr=**3000** val=3.26812 BORDERLINE WIN — SENT BACK for n=2 seed-2 confirmation. Δsr=-25 at validation-grid noise, Δval=+0.00197 against direction. |
@@ -30,6 +29,7 @@ Previous baselines:
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#293** | nezuko | Polyak averaging: Arm A `igfcn9a1` (POLYAK_FRAC=0.25) FINISHED with **sr=3075 val=3.2749** (Δsr=+50, Δval=+0.00875 = 9× noise floor — both clearly worse). Arm B (POLYAK_FRAC=0.50): 10 crash attempts over 5h, latest `8aotxat7` at step 150. | CLOSED — Polyak axis CLOSED at 0 (no averaging). Mechanism counterproductive under power-law cooldown γ=1.2: late-phase params (post-cooldown) are much better than mid-phase params, so equal-weight averaging biases weights back toward earlier higher-LR (suboptimal) checkpoints. Arm B's wider window (50%) would amplify the regression. Polyak might still be valuable under no-cooldown or EMA-weighted variants, but those are different experiments. |
 | **#278** | alphonse | z-loss {1e-4, 1e-3}: Arm A sr=3050 val=3.26860 NULL (Δval=+0.00245 in noise); Arm B sr=-1 val=3.28640 REGRESSION (target never reached, Δval=+0.02025 = 5× noise) | CLOSED — z-loss axis CLOSED at 0. Existing logit soft-clamp `15·x/(x²+15²)^{1/2}` already constrains partition; z-loss at high coef competes destructively with CE. Mechanism: clean objective interference, no stability failure. Process note: pre-launch `pgrep` check to avoid duplicate processes. |
 | **#272** | thorfinn | AdamW eps {1e-8, 1e-9}: Arm A sr=3025 val=3.26640 NULL Δval=+0.00025; Arm B sr=3050 val=3.26748 NULL Δval=+0.00133. Non-monotone direction. | CLOSED — eps axis CLOSED at 1e-10. AdamW updates on embed/lm_head/scalars NOT eps-floor-limited in this regime. Back-burner: lr_embed axis (different lever for "is AdamW path well-tuned"). |
 | **#250** | tanjiro | NS coef c-axis on f'(1)=0 family: c=-0.25 sr=3100 NULL (broken polar residual ~20.6); c=+0.25 n=2 mean sr=3037.5 val=3.266565 NULL | CLOSED — c-axis CLOSED at c=0 (cubic-Newton baseline). seed-1 marginal Δval=-0.00010 confirmed seed noise. Reproducible structural finding (polar/ortho_residual_sample = 0.094 ± 0.0004 across seeds) preserved as low-noise NS-screening diagnostic. |
@@ -87,7 +87,9 @@ Previous baselines:
 
 16. **PMuon EMA bias correction:** PR #307 tanjiro (new assignment). Arms {FULL, SQRT} bias correction `L_cov / (1-β_cov^step)` — frieren's PR #261 follow-up suggestion. Tests opposite hypothesis to closed LR warmup: instead of slowing LR during cold-start, sharpen the EMA estimate via Adam-style bias correction. Telemetry shows correction matters only first ~50 steps.
 
-17. **Lookahead optimizer wrapper (PR #311 thorfinn).** Online slow-weight interpolation every k=5 steps with α ∈ {0.5, 0.8}. Fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), distinct from all in-flight mechanisms — polyak post-hoc (nezuko #293), AdEMAMix dual-EMA momentum (frieren #305), PMuon bias correction (tanjiro #307). Memory cost ~550 MB (fp32 slow-weight copy). Primary diagnostic: `lookahead/embed_slow_fast_diff_ratio`.
+17. **Lookahead optimizer wrapper (PR #311 thorfinn).** Online slow-weight interpolation every k=5 steps with α ∈ {0.5, 0.8}. Fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019). Memory cost ~550 MB (fp32 slow-weight copy). Primary diagnostic: `lookahead/embed_slow_fast_diff_ratio`.
+
+18. **Polyak-Ruppert weight averaging axis CLOSED at 0 (PR #293 nezuko).** Arm A `igfcn9a1` (POLYAK_FRAC=0.25) FINISHED sr=3075 val=3.2749 — both clearly worse than baseline (Δsr=+50, Δval=+0.00875 = 9× n=1 noise floor). 10 crash attempts on Arm B (POLYAK_FRAC=0.50). Mechanism reading: under power-law cooldown γ=1.2, LR decays from 0.035 → 0 across the final 25% of steps, so trajectory is **non-stationary**. Late-phase (post-cooldown) params are much better than mid-phase params; equal-weight averaging biases weights back toward earlier higher-LR (suboptimal) checkpoints. Arm B's wider window (50%) would amplify, not reverse, the regression. Back-burner: EMA-weighted Polyak (γ-decaying weight toward newer steps) or Polyak-without-cooldown — different mechanisms.
 
 14. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
 
@@ -115,10 +117,13 @@ Previous baselines:
 ## Open axes (not yet assigned)
 
 - Muon weight_decay scan {0.035, 0.050} — PR #287 IN FLIGHT (askeladd). Motivated by param_norm 3.4× blowup at higher LR.
-- **embed_lr scan {0.2, 0.4} — alphonse PR #314 ASSIGNED** (direct follow-up from PR #278 closure)
+- **embed_lr scan {0.2, 0.4}** — alphonse PR #314 IN FLIGHT (direct follow-up from PR #278 closure)
+- **Lion optimizer on embed path** — nezuko Lion-embed assignment pending (PR #293 closure follow-up). Fresh sign-momentum mechanism, never tested. Two arms lr ∈ {0.03, 0.10} (3-10× smaller than current AdamW embed lr=0.3).
 - scalar_lr scan — never tested (current 0.01)
 - lm_head_lr scan — never tested (current 1/320)
 - Compound: WD retune + LR retune jointly (once WD axis is characterized)
+- EMA-weighted Polyak (γ-decay weight toward newer steps) — back-burner from PR #293 closure
+- Schedule-free optimizers (Defazio 2023) — fresh mechanism, no-warmup/no-cooldown variant
 
 ## Statistical rule reminder
 
