@@ -49,9 +49,12 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - New arms: per-iteration adaptive (a,b,c) = [(8,-16,8), (4,-8,4), (3,-4,1.5), then (2,-1.5,0.5) for iters 4-12].
 - No terminal result yet. Implementation in progress.
 
-### FRIEREN #275 — MLP-SOAP trust gate
-- Rebased onto PR #219 baseline. Killed pre-rebase invalid run. Smoke + n=4 confirmation pipeline starting.
-- No terminal result yet.
+### FRIEREN #313 — Logit z-loss regularization (NEW — just assigned 22:05 UTC)
+- Arm A: Z_LOSS_COEF=1e-4 (PaLM-style, very small)
+- Arm B: Z_LOSS_COEF=1e-3 (T5-style, 10×)
+- z_loss = z_loss_coef * mean(log_Z²) where log_Z = logsumexp(logits). Penalizes partition function magnitude → constrains logit drift.
+- ONLY loss-function axis on r2 (all other in-flight PRs touch optimizer). Complements alphonse #312 (lm_head wd regularizes the weight matrix; z-loss regularizes the output distribution).
+- PR #275 (MLP-SOAP trust gate) closed: both arms missed (val=3.27868/3.28009). Insight: MLP precond is ROBUST to rotation noise (unlike attn which is sensitive); gating hurts the MLP path even though MLP eigenbasis rotates as much as attn.
 
 ### FERN #304 — Annealed SOAP_PRECOND_FREQ (BLOCKED on pod fix)
 - Arm A: FREQ_START=15 → FREQ_END=7 (slower refreshes early, faster late)
@@ -77,6 +80,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | #273 | nezuko | FALSIFIED | Asymmetric QK/VO trust; V's low cos_row is TRUE signal, not false negative |
 | #271 | fern | FALSIFIED | Decoupled SOAP freq MLP vs ATTN; refresh-freq optimum ≈ EMA horizon = 1/(1-β2) |
 | #303 | alphonse | CLOSED (pod fix) | torch 2.10.0+cu128 + mixed cu12/cu13 NCCL/cuDNN → optimizer kernel NaN at step 2-24. Fix: upgrade to torch 2.11.0+cu130 cu13-only |
+| #275 | frieren | FALSIFIED | MLP-SOAP trust gate; MLP precond is robust to rotation noise (inverse of attn). MLP eigenbasis rotates as much as attn but the precond is noise-tolerant; gating hurts |
 
 ## Key patterns (updated cycle 54)
 
@@ -96,6 +100,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 14. **μ-anneal works; β2-anneal doesn't** (PR #291): μ controls scalar momentum buffer (robust to rate changes); β2 controls Gram EMA matrix (eigenvectors highly sensitive to perturbations, especially when they haven't converged early in training). Additionally, β2 is coupled to FREQ via the matching constraint — changing β2 breaks the optimal FREQ=10 coupling.
 15. **Pod-specific instability confirmed on alphonse pod**: all runs NaN at step 125 regardless of hypothesis (including no-freeze baseline control). Peer pods healthy on identical config. Pod diagnostic in progress.
 16. **Aux groups need the same cooldown shape as Muon** (PR #276): linear, aggressive. They couple to readout-convergence and must land together with Muon. Open question (PR #309): do they also benefit from the same kind of momentum anneal that Muon got (PR #219)?
+17. **MLP-SOAP precond is robust to rotation noise; attn-SOAP precond is sensitive** (PR #275 inverse of #212): MLP eigenbasis rotates AS MUCH as attn (mean_cos_row 0.885 vs 0.890), but applying a moderately-rotated MLP precond is net-beneficial (skipping costs more than rotation noise). Attn precond is the opposite — sensitive to rotation, so the gate helps. Different geometries, different sensitivities.
 
 ## Research programme direction
 

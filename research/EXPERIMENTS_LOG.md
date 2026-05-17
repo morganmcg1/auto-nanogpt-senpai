@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 22:05 UTC — Cycle 54 (continued): frieren #275 CLOSED (MLP-SOAP trust gate FALSIFIED); reassigned #313 logit z-loss + alphonse #303 CLOSED (pod fix via torch upgrade)
+
+### ALPHONSE #303 — Pod diagnostic — CLOSED (pod fixed)
+
+Pod was on `torch 2.10.0+cu128` with mixed cu12/cu13 NCCL/cuDNN libs while healthy peers run `torch 2.11.0+cu130 cu13-only`. Step-1 gradients bit-identical to peer; divergence inside optimizer kernels (mixed-version libs) causes NaN cascade in steps 2-24.
+
+**Fix**: In-place `pip install --upgrade 'torch==2.11.0'`. Post-upgrade 200-step diagnostic clean (val=4.166/4.176 at step 200, finite). Same pattern also affects fern #304 (in remediation).
+
+Alphonse reassigned → PR #312: AdamW lm_head weight decay sweep {0.01, 0.05}.
+
+### FRIEREN #275 — MLP-SOAP trust gate — FALSIFIED
+
+| Arm | T_mlp | val/loss | ffs | val < 3.275835? | ffs < 3087.5? | W&B |
+|---|---|---|---|---|---|---|
+| A | 0.85 | 3.27868 | 3150 | ❌ +0.00284 | ❌ +62.5 | `m5qmpwwq` |
+| B | 0.90 | 3.28009 | -1 (never 3.28) | ❌ +0.00425 | ❌ misses | `wpo63vdn` |
+
+Both arms miss. Arm A close to bar but doesn't beat; Arm B never reaches target.
+
+**Telemetry diagnostic — opposite of attn-trust-gate prior**:
+| Arm | T_mlp | mlp/on_fraction | mlp/mean_cos_row | attn/on_fraction |
+|---|---|---|---|---|
+| A | 0.85 | 0.625 (37.5% skipped) | 0.885 | 0.83-0.85 (only 15-17% skipped) |
+| B | 0.90 | 0.417 (58% skipped) | 0.885 | — |
+
+**Mechanistic insight — MLP precond is robust to rotation noise; attn precond is sensitive**:
+> The hypothesis was: MLP SOAP eigenbasis rotates LESS than attn (so a gate at the same T fires LESS often). The data shows the opposite — MLP eigenbasis rotates AS MUCH as attn (mean_cos_row 0.885 vs 0.890; min_cos_row 0.83 vs 0.84). But the trust gate fires MUCH MORE often on MLP (37-58% vs attn's 15-17%) because the rotation-noise distribution has heavier tails on MLP.
+>
+> The real asymmetry is not "MLP stable / attn unstable" — both rotate similarly. The asymmetry is in **sensitivity**: applying a moderately-rotated MLP precond is net-beneficial (the precond is robust to rotation noise); applying a moderately-rotated attn precond is net-harmful (the precond is fragile). Gating helps on attn but hurts on MLP.
+>
+> Geometric interpretation: MLPs have higher effective rank in their gradient covariance (more spread eigenvalues), so the precond is dominated by the bulk of the eigenspectrum which rotates slowly even when individual eigenvectors rotate. Attn has more concentrated eigenvalue distribution (few large eigenvalues dominate), so eigenvector rotations directly affect precondition quality.
+
+Frieren reassigned → PR #313: logit z-loss regularization (z_loss_coef ∈ {1e-4, 1e-3}). Fresh axis — only **loss-function** axis tested on r2; orthogonal to all optimizer-side work in-flight.
+
 ## 2026-05-17 20:45 UTC — Cycle 54 (continued): tanjiro #276 CLOSED (decoupled aux cooldown FALSIFIED); reassigned #309 AdamW β1 anneal
 
 ### TANJIRO #276 — Decoupled aux cooldown shape (cosine / none) — FALSIFIED
