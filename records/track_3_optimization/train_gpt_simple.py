@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -430,6 +431,38 @@ class GPT(nn.Module):
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
+RESID_PROJ_STD = 1.0 / (320.0 * math.sqrt(2.0))  # Variant B (advisor-specified): ~0.00221
+
+
+def init_weights(model: "GPT") -> None:
+    """Per-module init — Variant B (non-zero residual projections).
+
+    Embedding: std=0.02 (down from PyTorch default N(0,1)).
+    Residual projections (mlp.proj, attn.proj): std=1/(320*sqrt(2)) ≈ 0.00221.
+        Non-zero so layer-0 has something to flow gradients through at step 0;
+        targets the step-2 NaN at blocks.0.attn.proj.bias seen on this baseline.
+    lm_head (model.proj): zero (prevents early logit explosion).
+    QKV and MLP-fc: fan_in-scaled normal, std=1/sqrt(fan_in).
+    Biases: zero. RMSNorm gains: 1.0 (reset for multi-trial runs).
+    """
+    nn.init.normal_(model.embed.weight, std=0.02)
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            fan_in = module.weight.size(1)
+            if "mlp.proj" in name or "attn.proj" in name:
+                nn.init.normal_(module.weight, std=RESID_PROJ_STD)
+            else:
+                nn.init.normal_(module.weight, std=1.0 / math.sqrt(fan_in))
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+    nn.init.zeros_(model.proj.weight)
+    if model.proj.bias is not None:
+        nn.init.zeros_(model.proj.bias)
+    for name, p in model.named_parameters():
+        if name.endswith("gains"):
+            p.data.fill_(1.0)
+
+
 ########################################
 #              Optimizer               #
 ########################################
@@ -700,6 +733,8 @@ if dist.get_rank() == 0:
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "init/recipe": "variantB: embed=0.02, resid-proj=N(0,1/(320*sqrt(2))), qkv+fc=1/sqrt(fan_in), lm_head=zero",
+            "init/resid_proj_std": RESID_PROJ_STD,
         },
     )
 
@@ -713,22 +748,24 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = args.train_steps if args.train_steps is not None else 3175
 
-    # initialize model parameters
-    for name, p in model.named_parameters():
-        w = p.data
-        if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
-            elif "embed" in name:
-                w.normal_()  # default torch init
-            else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
-        elif name.endswith("bias"):
-            w.zero_()
-        elif name.endswith("gains"):
-            w.normal_(mean=1, std=0)
-        else:
-            raise Exception(f"Uninitialized parameter: {name}")
+    # initialize model parameters (per-module init; see init_weights above)
+    init_weights(model)
+
+    # critical init diagnostic — verify init_weights fired correctly
+    if dist.get_rank() == 0:
+        def _rms(t):
+            return float(t.detach().float().pow(2).mean().sqrt().item())
+        init_stats = {
+            "trial": trial_idx,
+            "param_stats/embed_weight_rms": _rms(model.embed.weight),
+            "param_stats/lm_head_weight_rms": _rms(model.proj.weight),
+        }
+        for layer_idx, block in enumerate(model.blocks):
+            init_stats[f"param_stats/block{layer_idx}_attn_proj_rms"] = _rms(block.attn.proj.weight)
+            init_stats[f"param_stats/block{layer_idx}_mlp_proj_rms"] = _rms(block.mlp.proj.weight)
+            init_stats[f"param_stats/block{layer_idx}_attn_q_rms"] = _rms(block.attn.q.weight)
+            init_stats[f"param_stats/block{layer_idx}_mlp_fc_rms"] = _rms(block.mlp.fc.weight)
+        wandb.log(init_stats, step=trial_idx * (train_steps + 1))
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
