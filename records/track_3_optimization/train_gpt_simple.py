@@ -25,6 +25,11 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
+# Per-block WD multiplier slope: wd_mult(l) = 1 + WD_SLOPE * (l/(L-1) - 0.5)
+# 0.0 (default) → uniform WD (baseline). +0.5 → deeper blocks get MORE WD. −0.5 → deeper LESS WD.
+WD_SLOPE = float(os.environ.get("NANOGPT_WD_SLOPE", "0.0"))
+MUON_BASE_LR = 0.035
+MUON_BASE_WD = 0.025
 
 
 def parse_args():
@@ -229,6 +234,33 @@ def log_training_telemetry(
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
         metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
+    wandb.log(metrics, step=wandb_step)
+
+
+def log_per_block_norms(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+    wd_slope: float,
+):
+    """Log per-block parameter and gradient norms for the 2-D Muon-managed weights."""
+    metrics = {
+        "trial": trial_idx,
+        "train/step": step,
+        "train/wd_slope": wd_slope,
+    }
+    for block_idx, block in enumerate(model.blocks):
+        param_sq_sum = 0.0
+        grad_sq_sum = 0.0
+        for p in block.parameters():
+            if p.ndim < 2:
+                continue
+            param_sq_sum += float(p.detach().float().square().sum().item())
+            if p.grad is not None:
+                grad_sq_sum += float(p.grad.detach().float().square().sum().item())
+        metrics[f"train/param_norm/muon_block_{block_idx:02d}"] = param_sq_sum ** 0.5
+        metrics[f"train/grad_norm/muon_block_{block_idx:02d}"] = grad_sq_sum ** 0.5
     wandb.log(metrics, step=wandb_step)
 
 
@@ -494,8 +526,14 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=0.3):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        elif isinstance(params[0], dict):
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            raise TypeError(f"Muon params must be a list of Parameter or dict, got {type(params[0])}")
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma)
         super().__init__(params, defaults)
 
@@ -618,7 +656,17 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "wd_slope": WD_SLOPE,
+            "wd_direction": (
+                "deeper_stronger" if WD_SLOPE > 0
+                else "deeper_weaker" if WD_SLOPE < 0
+                else "uniform"
+            ),
+            "muon_method": (
+                f"pmuon-uw-floor-power-cool-1p2-perblock-wd-{WD_SLOPE:+.2f}"
+                if WD_SLOPE != 0.0
+                else "pmuon-uw-floor-power-cool-1p2"
+            ),
         },
     )
 
@@ -654,9 +702,20 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=0.3)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Per-block Muon param groups with depth-coupled weight decay: wd_l = MUON_BASE_WD * (1 + WD_SLOPE * (l/(L-1) - 0.5))
+    num_blocks = len(model.blocks)
+    muon_groups = []
+    for block_idx, block in enumerate(model.blocks):
+        block_2d_params = [p for p in block.parameters() if p.ndim >= 2]
+        wd_mult = 1.0 + WD_SLOPE * (block_idx / (num_blocks - 1) - 0.5) if num_blocks > 1 else 1.0
+        muon_groups.append({
+            "params": block_2d_params,
+            "weight_decay": MUON_BASE_WD * wd_mult,
+            "block_idx": block_idx,
+            "wd_mult": wd_mult,
+            "name": f"muon_block_{block_idx:02d}",
+        })
+    optimizer2 = Muon(muon_groups, lr=MUON_BASE_LR, weight_decay=MUON_BASE_WD, beta_cov=0.95, gamma=0.3)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -793,6 +852,13 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 train_steps=train_steps,
                 wandb_step=wandb_step,
+            )
+            log_per_block_norms(
+                model=model,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+                wd_slope=WD_SLOPE,
             )
         for opt in optimizers:
             opt.step()
