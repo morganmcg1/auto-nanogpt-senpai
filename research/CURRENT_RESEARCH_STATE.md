@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 09:35 UTC (boot 87)
+- **Last updated:** 2026-05-17 10:00 UTC (boot 88)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~13h, re-escalated 08:40 UTC.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
@@ -23,18 +23,18 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 87 — 09:35 UTC 2026-05-17)
+## Active experiments (boot 88 — 10:00 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | **NEWLY ASSIGNED** — follow-up to #215 NS5 iter saturated |
-| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | Screen pr41c8ir off-mode step 30/3325 (1%) — just started |
-| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | cosine arm jlnc9w1y terminal soon (~09:15 UTC); linear + sqrt arms pending; watching closely |
-| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | clip=0.05 efgqupvv step 3025/3325 (91%) val=3.310 — terminal ~09:15; clip=0.2 + 1.0 queued |
-| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | sync=10 TERMINAL=3.2794 NEG; sync=30 ctrl b56g5pss TERMINAL=3.2742 (baseline-clone); sync=60 grckndpv step 780/3325 (23%) |
-| **#218** | fern | Lion aux optimizer for 1D params (lr_scale sweep) | scale=0.3 TERMINAL=3.3102 NEG; scale=1.0 TERMINAL=3.3232 NEG; scale=3.0 (bhpgxxp4) step 1920/3325 (58%) val=3.72 |
-| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 zo06rxgl step 1328/3325 (40%); frac=1.0 queued |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 re-escalated 08:40 |
+| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smoke iaa0z6qe step 30/3325 (1%) — warmup |
+| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | Screen pr41c8ir off-mode step 540/3325 (16%) — early |
+| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | only smoke done; r3 screen arms NOT YET LAUNCHED — pinged at 09:55 |
+| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 BELOW baseline (n=1, Δ=-0.00203)**; clip=0.2 hzxm8aaj 4%; clip=1.0 queued |
+| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | sync=10 TERMINAL=3.2794 NEG; sync=30 ctrl TERMINAL=3.2742 baseline-clone ✓; sync=60 grckndpv step 1325/3325 (40%) val=3.625 — tracking NEG |
+| **#218** | fern | Lion aux optimizer for 1D params (lr_scale sweep) | scale=0.3 TERMINAL=3.3102 NEG; scale=1.0 TERMINAL=3.3232 NEG; scale=3.0 (bhpgxxp4) step 2425/3325 (73%) val=3.613 — still tracking NEG |
+| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 zo06rxgl step 1620/3325 (49%) val=3.754 — tracking very high; frac=1.0 queued |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 re-escalated 08:40 (~13h silent) |
 
 **8/8 students assigned.** Closed: #215 NEG-saturated (NS5 iter), #174 NEG (A3 polynomial), #207 NEG, #200 NEG, #182-192 NEG.
 
@@ -115,13 +115,17 @@ All active screens use `--muonh_mode scale_invariant`. Default is `clip` — ope
 
 Both NS5 quality levers (polynomial coefficients #174, iter count #215) closed NEG/in-noise. **Hypothesis: bf16 numerical noise floor is the actual NS5 ceiling**, not algorithmic design. This drives PR #253 (NS5 fp32) as the direct next test. If NS5 fp32 beats baseline, it reopen the polynomial + iter design space for follow-up — A3 and k=16 might benefit too.
 
-## Next-priority watch points (boot 87 — 09:35 UTC)
+## ⭐ Top result this round
 
-1. **Frieren #243 cosine cooldown terminal**: jlnc9w1y at 88%+ — terminal imminent. Cosine well-known to outperform linear in LM pretraining. Watch closely. If < 3.27585 single-trial, n=4 confirm before merge.
-2. **Edward #237 AGC clip=0.05 terminal** (~09:15 UTC): step 91% val=3.31 — trending above baseline; then clip=0.2 and 1.0.
-3. **Tanjiro #217 sync=60** (grckndpv step 23%): the interesting arm — if sync=60 < sync=30 (baseline), worth n=4.
-4. **Nezuko #222 frac=0.4** (zo06rxgl step 40%): the critical arm — frac=0.4 IS the baseline config. Should reproduce 3.275. Then frac=1.0 (full WSD = full linear from warmup-end).
-5. **Fern #218 Lion scale=3.0** (~11:00 UTC): last hope for Lion aux. Both 0.3 and 1.0 NEG; 3.0 running.
-6. **Askeladd #247 grad-centralization**: pr41c8ir screen-off just started; expected terminal ~noon UTC.
-7. **Thorfinn #253 NS5 fp32**: newly assigned, smoke gate pending.
-8. **Issue #164**: alphonse pod still broken on gd103cc, re-escalated 08:40 UTC.
+**#237 edward AGC clip=0.05 = 3.27382 (n=1) — Δ=-0.00203 vs baseline 3.27585**. Real mechanism change (per-param adaptive grad clip on aux groups), not a baseline-clone. Single-trial below baseline mean; n=4 confirm needed before merge claim. Awaiting clip=0.2 and clip=1.0 to complete the screen, then n=4 at best arm.
+
+## Next-priority watch points (boot 88 — 10:00 UTC)
+
+1. ⭐ **Edward #237 AGC clip=0.2 terminal** (~11:30 UTC): if also clears < 3.27585 at n=1, compare. clip=1.0 queued. n=4 confirm at best arm thereafter.
+2. **Frieren #243 cooldown-shape screen**: NOT yet launched in r3 group — pinged at 09:55. Awaiting student response.
+3. **Askeladd #247 grad-centralization**: pr41c8ir screen-off at 16% — early. Smoke ✓.
+4. **Thorfinn #253 NS5 fp32**: smoke iaa0z6qe at 1%, warmup. Expected terminal ~10:30 UTC.
+5. **Tanjiro #217 sync=60** (grckndpv step 40%): tracking NEG (val=3.625). Likely will close NEG once terminal.
+6. **Nezuko #222 frac=0.4** (zo06rxgl step 49% val=3.754): tracking very high — possibly will need kill-gate. frac=1.0 queued.
+7. **Fern #218 Lion scale=3.0** (bhpgxxp4 step 73% val=3.613): close to terminal, tracking NEG. Likely close as 'Lion incompatible with aux'.
+8. **Issue #164**: alphonse pod still broken on gd103cc, re-escalated ~13h silent.
