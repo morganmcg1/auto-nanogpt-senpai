@@ -25,6 +25,8 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
+TARGET_UW = 0.25  # ARM A (sweep values: 0.25, 0.30, 0.40, 0.45; PR #94 baseline used 0.35)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -503,9 +505,9 @@ class Muon(torch.optim.Optimizer):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        ratio_sum = 0.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -530,13 +532,18 @@ class Muon(torch.optim.Optimizer):
                     w_norm = p.norm()
                     if w_norm > 0:
                         ratio = update.norm() / w_norm
+                        ratio_sum += float(ratio)
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._floor_diag = {
+            "fired": floor_fired_count,
+            "eligible": floor_eligible_count,
+            "ratio_sum": ratio_sum,
+        }
 
 
 ########################################
@@ -613,8 +620,8 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": 0.3,
             "ns_iterations": 12,
-            "target_uw_floor": 0.35,
-            "muon_method": "pmuon+uw-floor",
+            "target_uw_floor": TARGET_UW,
+            "muon_method": "pmuon-uw-sweep",
         },
     )
 
@@ -800,12 +807,15 @@ for trial_idx in range(args.num_trials):
             if floor_diag is not None:
                 eligible = floor_diag.get("eligible", 0)
                 fired = floor_diag.get("fired", 0)
+                ratio_sum = floor_diag.get("ratio_sum", 0.0)
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/mean_ratio": (ratio_sum / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/target_uw": TARGET_UW,
                 }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
