@@ -475,6 +475,29 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Decision**: CLOSED 2026-05-17 ~00:30 UTC.
 
 
+## 2026-05-17 ~03:45 UTC — PR #148: Depth-Scaled Residual Init n=4 (CLOSED clean negative per screen gate)
+
+- g1r5-thorfinn/depth-scaled-init
+- Hypothesis: Replace zero-init residual-output projections (modded-nanogpt's Fixup/T-Fixup-style) with depth-scaled Gaussian (1/√(2L) ≈ 0.204, applied to `(0.33/d_in)^0.5` base std). Tested 24 residual-output projections.
+
+| Trial | val/loss   | ffs  | run_id    |
+|-------|------------|------|-----------|
+| 0     | 3.277495   | 3200 | sn61ims4  |
+| 1     | 3.277343   | 3200 | sn61ims4  |
+| 2     | 3.277539   | 3200 | sn61ims4  |
+| 3     | 3.277081   | 3200 | sn61ims4  |
+
+- **n=4 mean**: val=**3.277365**, ffs=**3200**, SE=1.04e-4 (very tight variance)
+- **Baseline n=6 (zero-init)**: mu=3.273735, ffs=3150
+- **Unpaired delta**: Δ=+0.00363 val (3.3σ worse), +50 ffs
+- **Paired vs baseline first 4 seeds** (mu_baseline_4=3.27744): Δ=−0.000150, t=−1.09, **not statsig in either direction**
+- **Screen gate** (`mu ≤ 3.2770` for n=6 expansion): FAILED, mu=3.27736 > 3.2770
+- **Mechanism conclusion**: At n=4 on this stack/budget, depth-scaled Gaussian and zero-init residual outputs are **statistically indistinguishable**. The unpaired comparison vs full baseline looks worse but is dominated by which 4 baseline seeds happened to be the "best 4 of 6" in the n=6 baseline. Variance injection at init (~0.003 std) decays rapidly because the residual stream is dominated by the embedding contribution at step 0; by step 200 the trajectory difference is invisible.
+- **Closed mechanism**: 1/√(2L) depth-scaled residual output init. No clear positive signal worth confirming at n=16+. Zero-init Fixup-style stays.
+- **Notable technique**: thorfinn's paired-seed analysis is the right framing for n=4 screens landing near baseline. Should be applied prospectively to other near-baseline mechanisms.
+- **Decision**: CLOSED 2026-05-17 ~03:45 UTC.
+
+
 ## 2026-05-17 ~01:25 UTC — PR #162: Per-group LR sweep (full n=1 screen, n=4 confirm launched)
 
 - g1r5-edward/per-group-lr-sweep / per-group-lr-confirm
