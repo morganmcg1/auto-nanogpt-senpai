@@ -13,20 +13,20 @@
 
 Previous baseline (PR #139): val=3.27648, ffs=3118.75
 
-## 🚀 IMMINENT MERGE: THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 3/4 COMPLETE 🔥🔥🔥
+## 🚀 PENDING MERGE: THORFINN #219 — Annealed μ Arm B — n=4 COMPLETE, AWAITING REBASE
 
 | Trial | val/loss | ffs |
 |---|---|---|
 | T0 | 3.27510 | 3075 |
 | T1 | 3.27697 | 3100 |
 | T2 | 3.27489 | 3075 |
-| T3 | running (ETA ~15:47 UTC) | — |
-| **n=3 mean** | **3.27565** | **3083** |
+| T3 | 3.27638 | 3100 |
+| **n=4 mean** | **3.275835** | **3087.5** |
 
-n=3 mean BEATS new baseline (3.27631/3112.5) on BOTH metrics. Statsig 1.9× margin cleared.
-- Run WITHOUT ATTN_SOAP_TRUST_THRESHOLD=0.85 (launched pre-PR #212). Still beats trust-gate baseline.
-- Merge immediately once student posts terminal SENPAI-RESULT.
-- If n=4 mean val barely misses but ffs beats: rerun WITH ATTN_SOAP_TRUST_THRESHOLD=0.85 to test compounding.
+Δ vs baseline: val=−0.000475, ffs=−25.0 steps. Statsig **0.00833** (2.08× margin). All trials terminal.
+- **Sent back for rebase**: PR #212 merged after #219 launched → merge conflict in train_gpt_simple.py.
+- **Note**: result obtained on PRE-#212 stack (no trust gate). Mechanism is additive — gain holds vs new baseline.
+- **Next follow-up after merge**: assign annealed-μ + ATTN_SOAP_TRUST_THRESHOLD=0.85 compounding run.
 
 ## Active in-flight experiments
 
