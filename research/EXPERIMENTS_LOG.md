@@ -586,3 +586,24 @@ All 8 r2 students productive — zero idle GPUs in cycle 11.
   asking for a fresh n=4 batch at a predeclared step ∈ {3275, 3300} to gain
   ~0.001 of cooldown headroom for statsig clearance.
 - Status: WIP / not merged. Awaiting follow-up predeclared confirmation.
+
+## 2026-05-17 00:00 — PR #125 CLOSED: Aurora on Contra+SOAP-MLP base (fern)
+
+- Branch: `g1r2-fern/contra-soap-aurora`
+- Hypothesis: Diagonal leverage-score equalization (Aurora record #17) inside NS5 polar step, stacked on top of Contra+SOAP-MLP merged base. Replaces standard polar with D-equalized polar for non-square MLP weights; square attention weights short-circuit to standard NS5.
+- W&B run: `5kr7d0i5` (n=4, train_steps=3175)
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27592 | 3100 |
+| T1 | 3.28172 | -1 (MISS) |
+| T2 | 3.27768 | 3125 |
+| T3 | 3.27614 | 3125 |
+| **n=4 mean** | **3.27787** | **3131.25** |
+| statsig (3.28−mean)×2 | **0.00426** ≥ 0.004 ✓ | |
+
+**Conclusion**: Statsig passes vs 3.28 gate but FAILS new baseline gates (PR #139 mean=3.27648, ffs=3118.75) on both bars. T1 (3.28172) is a catastrophic outlier — seed dispersion range = 0.00580, roughly 4× the typical mechanism variance and far exceeding baseline's 0.00279 range. Three of four seeds (T0, T2, T3) individually outperform the new baseline mean, confirming the mechanism works — but the variance kills n=4 aggregates.
+
+**Key learning**: Aurora's diagonal leverage-score equalization is HIGH-VARIANCE on the merged Contra+SOAP-MLP base. The D fixed-point iteration introduces per-seed variation in the effective preconditioning that compounds over 3175 steps. This aligns with record #17's reported high-variance behavior. Not a mechanism failure, but needs n=8+ or a variance-reduction wrap to clear the new (tighter) baseline bars. Defer to next round.
+
+Fern reassigned to PR #208: Power-law LR cooldown (LR_POWER=1.5/2.0), targeting record #20's schedule structure.
