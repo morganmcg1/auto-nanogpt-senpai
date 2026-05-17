@@ -437,6 +437,9 @@ class GPT(nn.Module):
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.4"))
 USE_LION_AUX = bool(int(os.environ.get("USE_LION_AUX", "0")))
+LION_EMBED_LR = float(os.environ.get("LION_EMBED_LR", "0.03"))
+LION_LM_HEAD_LR = float(os.environ.get("LION_LM_HEAD_LR", "1e-3"))
+LION_SCALARS_LR = float(os.environ.get("LION_SCALARS_LR", "3e-3"))
 MU = 0.95
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
@@ -725,6 +728,9 @@ if dist.get_rank() == 0:
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
             "optimizer/use_lion_aux": int(USE_LION_AUX),
+            "optimizer/lion_embed_lr": LION_EMBED_LR,
+            "optimizer/lion_lm_head_lr": LION_LM_HEAD_LR,
+            "optimizer/lion_scalars_lr": LION_SCALARS_LR,
             "optimizer/mu": MU,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
@@ -765,9 +771,9 @@ for trial_idx in range(args.num_trials):
 
     # create the optimizer(s)
     if USE_LION_AUX:
-        optimizer1 = Lion([dict(params=[model.embed.weight], lr=0.03, name="lion_embed"),
-                            dict(params=[model.proj.weight], lr=1e-3, name="lion_lm_head"),
-                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=3e-3, name="lion_scalars")],
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=LION_EMBED_LR, name="lion_embed"),
+                            dict(params=[model.proj.weight], lr=LION_LM_HEAD_LR, name="lion_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=LION_SCALARS_LR, name="lion_scalars")],
                            betas=(0.9, 0.99), weight_decay=0.0)
     else:
         optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
