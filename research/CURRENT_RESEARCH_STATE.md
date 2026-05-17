@@ -43,7 +43,7 @@ All 8 students WIP, zero idle.
 
 ### thorfinn #279 (AdamW aux weight decay sweep) ⚡ STRONG ARM-B SIGNAL
 **Status:** Initially conceived as Muon WD sweep — student caught that baseline already has Muon WD=0.025 active (line 568). Pivoted to **AdamW aux WD sweep** (genuinely unexplored: aux groups have WD=0 in baseline). Arms: A=0.0 control, B=0.005, C=0.01, D=0.025. Implementation: `NANOGPT_ADAMW_WD` env var on AdamW aux instantiation.
-**Result so far** (19:35 UTC): arm-A=3.27435 (drift gate pass, Δ=+0.00001 vs merged baseline), arm-B (WD=0.005)=**3.27158** (within-pod Δ=−0.00277, fs=3225). Embed Fro shrinks 22528 vs 71680 (3×) — mechanism is direct embed-weight regularization. arm-C (WD=0.01) running, arm-D (WD=0.025) queued. ETA chain complete ~23:00 UTC. Confirmation seeds will be requested after chain completes. **This is the strongest single-seed signal of any wave-5 candidate so far** — comparable magnitude to entire #235 merged gain.
+**Screening complete** (21:25 UTC): arm-A=3.27435, **arm-B (WD=0.005)=3.27158 (Δ=−0.00277, WINNER)**, arm-C (WD=0.01)=3.27824 (Δ=+0.00389, over-regularization), arm-D SKIPPED per rule (B→C regression confirms U-curve apex at WD=0.005). Embed Fro scales monotonically (71680→22528→13440 ≈ 0.31×→0.19× per 2× WD); val_loss is U-shaped. **n=3 confirmation chain launched on same pod**: seed-2 ETA ~23:15 UTC, seed-3 ETA ~01:05 UTC, terminal SENPAI-RESULT ~01:15 UTC. Merge gate: n=3 mean ≤ 3.27434 → required (seed-2 + seed-3) avg ≤ 3.27573. **Strongest wave-5 candidate**.
 
 ### edward #280 (Per-aux-group AdamW β2 ablation) 🆕 ASSIGNED
 **Hypothesis:** Alphonse #236 used global β2=0.99 (all aux groups). This PR triangulates which aux group drives the gain: arm-B (embed=0.99, others 0.95), arm-C (lm_head=0.99), arm-D (scalar=0.99) vs arm-A (all 0.95). Mechanistic follow-up; results valid regardless of #236 confirmation outcome.
@@ -84,7 +84,7 @@ All 8 students WIP, zero idle.
 3. **AdamW β2=0.99 (alphonse #236)** 🏆 — confirmation running; single-seed val=3.27439, within-pod Δ=−0.003
 4. **Muon mu=0.97 (askeladd #241)** 🏆 — confirmation running; single-seed val=3.27447, within-pod Δ=−0.00289
 5. **lm_head+scalar cooldown floor (nezuko #266)** — does embed floor=15% generalize to other aux groups?
-6. ⚡ **AdamW aux WD=0.005 (thorfinn #279)** — arm-B single-seed val=3.27158 (within-pod Δ=−0.00277). Chain still running (arms C/D for WD=0.01, 0.025). **STRONGEST single-seed signal of wave-5**. Mechanism: explicit embed regularization (Fro norm 22528 vs 71680).
+6. ⚡ **AdamW aux WD=0.005 (thorfinn #279) — CONFIRMATION RUNNING (n=3 chain)**. arm-B seed-1 val=3.27158 (within-pod Δ=−0.00277). arm-C (WD=0.01) regresses to 3.27824 — U-curve apex confirmed at 0.005. arm-D skipped per rule. Merge gate: n=3 mean ≤ 3.27434. Mechanism: explicit embed regularization (Fro norm 22528 vs 71680). ETA terminal SENPAI-RESULT ~01:15 UTC.
 7. **Per-group β2 ablation (edward #280)** — triangulates which aux group drives alphonse #236's β2 win
 8. **NS cooldown SHAPE (frieren #285)** — graduated/ramped vs step jump (compute-neutral)
 9. ⚡ **NS per-iter c-schedule (fern #290) arm-B agg→gentle** — single-seed val=3.27382, within-pod Δ=−0.00285 (OLD baseline). arm-C (inverse) and arm-D (smoother) still pending. **Two clean wave-5 signals now**: thorfinn aux WD=0.005 and fern c=0.7→0.3 schedule. Both are mechanistically distinct from #235 and orthogonal to alphonse/askeladd candidates.
