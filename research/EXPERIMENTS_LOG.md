@@ -1098,3 +1098,42 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - **Hypothesis:** Muon base LR=0.035 has never been retuned since PMuon's introduction. After γ_power=0.4 (stronger whitening) + cubic-Newton (partial polar convergence), the optimal step size may have shifted. Arms: {0.030, 0.040} bracket current 0.035.
 - **Expected arm B win** (LR=0.040): γ_power=0.4's more isotropic gradient allows larger steps. **Expected arm A win** (LR=0.030): cubic-Newton's partial convergence means direction is noisier; tighter steps help.
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/248
+
+---
+
+## 2026-05-17 09:00 UTC — PR #226 CLOSED: NS coef c-scan {0.1, 0.25} (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/ns-coef-c-scan`
+- **Hypothesis:** Scan NS coef c values {0.1, 0.25} on cubic-Newton base (a=1.5, b=-0.5 fixed).
+
+| Arm | c | (a,b,c) | sr | val | Verdict |
+|-----|---|---------|-----|------|---------|
+| Baseline | 0.0 | (1.5, -0.5, 0) | 3025 | 3.26615 | — |
+| **A** | 0.1 | (1.5, -0.5, 0.1) | 3050 | 3.26849 | NULL (val +0.00234) |
+| **B** | 0.25 | (1.5, -0.5, 0.25) | crashed step 3 | — | Divergence |
+
+**Analysis:** Arm B crashed deterministically at step 3 with `torch.linalg.eigh` error. Student diagnosed root cause: a+b+c=1.25 violates σ=1 fixed-point (discriminant b²−4c(a−1) = -0.25 < 0, no real positive fixed point → monotone divergence → L_cov near-singular). This is a structural finding: naive c-variations must preserve a+b+c=1. Arm A (c=0.1) is NULL — slight noise increase from the non-fixed-point-preserving perturbation shows as +0.00234 val.
+
+**Key finding:** The correct c-scan must follow the f'(1)=0 family: (a,b,c) = (1.5+c, -0.5-2c, c). Preserves both σ=1 fixed point and smooth attractor.
+
+**Status:** CLOSED. Follow-up assigned (PR #250, tanjiro).
+
+---
+
+## 2026-05-17 09:00 UTC — PR #250 ASSIGNED: NS coef c-scan f'(1)=0 family (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/ns-coef-c-scan-fp1-family`
+- **Hypothesis:** Scan c ∈ {-0.25, +0.25} on the valid f'(1)=0 NS family (a=1.5+c, b=-0.5-2c, c). Known endpoints: c=0 cubic-Newton (sr=3025 baseline), c=0.5 quintic (sr≈3062.5 worse). Question: does c<0 further improve?
+  - Arm A c=-0.25: (1.25, 0, -0.25) — b=0, no cubic term, pure linear+quintic damping
+  - Arm B c=+0.25: (1.75, -1.0, +0.25) — quintic-leaning, expected worse
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/250
+
+---
+
+## 2026-05-17 08:55 UTC — PR #225 SEED 1 DONE: Wave 7 stack (g1r1-thorfinn)
+
+- Seed 1 run `y69hfn95`: step=3250, val=**3.2651** (strong partial result)
+- W&B reports sr=3025 already hit during run — same as baseline sr
+- val=3.2651 beats baseline val=3.26615 by −0.00105 — marginal val improvement at same sr
+- Seed 2 not yet started
+- Status: still WIP — waiting for seed 2 launch and terminal SENPAI-RESULT
