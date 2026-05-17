@@ -9,6 +9,44 @@ All 8 PRs are draft, `status:wip`, awaiting student execution. See
 `CURRENT_RESEARCH_STATE.md` for the full assignment table. Results will be
 appended below as each PR returns terminal `SENPAI-RESULT` markers.
 
+## 2026-05-17 16:25 UTC — PR #194: Asymmetric per-group WD (wd_mlp vs wd_attn corners + n=4 confirm) — **CLOSED clean-neutral vs new baseline**
+
+- Branch: `g1r5-tanjiro/asymmetric-per-group-weight-decay`
+- Student: g1r5-tanjiro
+- Hypothesis: Splitting weight_decay per Muon param group (wd_mlp on SOAP_MLP_SUFFIXES, wd_attn on remainder) reduces val/loss vs uniform wd=0.025.
+
+### Phase 1 — n=2 corner screen
+
+| Cell | wd_mlp | wd_attn | W&B run | n=2 mean best_val | n=2 mean ffs |
+|------|--------|---------|---------|-------------------|--------------|
+| A    | 0.015  | 0.015   | 2ggox8g8 | 3.27822 | 3200 |
+| B    | 0.015  | 0.035   | jq083ofi | 3.27881 | (miss) |
+| **C**| 0.035  | 0.015   | **s0jx9g57** | **3.27094** | **3125** |
+| D    | 0.035  | 0.035   | (killed early, Option A) | — | — |
+
+### Phase 2 — n=4 confirm at Cell C config (wd_mlp=0.035, wd_attn=0.015)
+
+| Trial | best_val | ffs |
+|-------|----------|-----|
+| 0 | 3.27040 | 3125 |
+| 1 | 3.27333 | 3150 |
+| 2 | 3.26974 | 3125 |
+| 3 | 3.27106 | 3125 |
+| **n=4 mean** | **3.271133** | **3131.25** |
+| std (ddof=1) | 0.001561 | 12.5 |
+| SE | 0.000780 | — |
+
+W&B confirm run: `d4dvvkzk` (group `g1r5-tanjiro/asym-wd-C-confirm-n4`).
+
+### Statsig analysis
+
+- vs OLD baseline (PR #116, mu=3.273735): Δmu=-0.002602, n=4 margin=0.005205 ≥ 0.004 → **would have merged** (1.30× threshold).
+- vs NEW baseline (PR #162, mu=3.271362, merged 12:42Z mid-confirm): Δmu=-0.000229, n=4 margin=0.000459 ≪ 0.004 → **clean-neutral** (0.11× threshold).
+
+### Conclusion
+
+Real signal: asymmetric WD (mlp_high/attn_low) is a meaningful direction (1.30× over old baseline). But PR #162 raced ahead, capturing the lr_mlp=0.055 effect first. Since both PRs target the same SOAP-MLP curvature region, they share a margin. Reassigning tanjiro to combo-confirm (lr_mlp=0.055 + wd_mlp=0.035 + wd_attn=0.015 at n=4). If additive, expected mu ~3.2688 → below n=4 merge threshold 3.269362.
+
 ## 2026-05-17 16:00 UTC — PR #210: Per-layer LR decay (γ^k across 12 transformer blocks) — **CLOSED clean negative**
 
 - Branch: `g1r5-nezuko/per-layer-lr-decay`
