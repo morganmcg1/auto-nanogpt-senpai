@@ -5,8 +5,8 @@
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
 - **TWO HOT MERGE CANDIDATES IN FLIGHT:**
-  - **edward PR #162 n=4 confirm `t1jfegcf`** — trial 3 completing ~08:48Z. 3-trial mean = **3.2715** (BEATS n=4 statsig 3.271735). Trial 3 step 2788/3250 val=3.333 at 08:33Z (normal trajectory, cooldown drops val ~0.058 in final 462 steps).
-  - **tanjiro PR #194 n=4 confirm** — Cell C n=2 mean=**3.27094** (Trial 0=3.27046/3125, Trial 1=3.27142/3125). Student directed to kill Cell D + launch n=4 at wd_mlp=0.035/wd_attn=0.015. ETA n=4 ~15:30Z.
+  - **edward PR #162 n=4 done, n=6 extension launched.** All 4 trials: 3.270245/3.272365/3.272831/3.271610 ffs=3125/3150/3150/3150. **n=4 mean=3.271763** (MISSES n=4 statsig 3.271735 by 0.000028). Student launched `3j8v4owb` n=2 extension at lr_mlp=0.055; n=6 threshold mu ≤ 3.272103. New 2 trials need mean ≤ 3.272784. ETA n=6 result ~12:30Z.
+  - **tanjiro PR #194 n=4 confirm launched `d4dvvkzk`** — at wd_mlp=0.035/wd_attn=0.015. Step 609/13000 (4.7%). ETA ~15:30Z.
 
 ## Active Wave-3 Portfolio (all on merged SOAP-MLP + SOAP-attn base)
 
