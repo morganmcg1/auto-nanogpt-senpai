@@ -435,7 +435,7 @@ class GPT(nn.Module):
 ########################################
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
-CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.4"))
+CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
 MU = 0.95
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
@@ -443,6 +443,10 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# Attention SOAP (record #16) hyperparameters
+ATTN_SOAP_BETA2 = 0.90
+ATTN_SOAP_PRECOND_FREQ = 10
+ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -528,24 +532,69 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
-def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ):
-    """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps."""
+def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
+                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD):
+    """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps.
+
+    When ``use_trust_gate`` is True (record #16 extension), the refresh runs the
+    sort+QR subspace-iteration step inline so the pre-QR (but already sorted)
+    basis can be compared against the post-QR basis. Comparing pre-sort q_old
+    to post-QR q_new measures permutation overlap (~1/sqrt(D)), not rotation,
+    which is why this path doesn't reuse ``soap_basis_qr``."""
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
+        if use_trust_gate:
+            state["trust_gate"] = 1.0
+            state["trust_cos_row"] = 1.0
+            state["trust_cos_col"] = 1.0
     elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
-        state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
-            state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
-        )
+        if use_trust_gate:
+            row_gg = state["row_gg"]
+            col_gg = state["col_gg"]
+            q_row_old = state["q_row"]
+            q_col_old = state["q_col"]
+            exp_avg_sq = state["exp_avg_sq"]
+
+            row_eig = torch.diag(q_row_old.T @ row_gg @ q_row_old)
+            row_sort = torch.argsort(row_eig, descending=True)
+            q_row_sorted = q_row_old[:, row_sort]
+            exp_avg_sq = exp_avg_sq.index_select(0, row_sort)
+            q_row_new, _ = torch.linalg.qr(row_gg @ q_row_sorted)
+
+            col_eig = torch.diag(q_col_old.T @ col_gg @ q_col_old)
+            col_sort = torch.argsort(col_eig, descending=True)
+            q_col_sorted = q_col_old[:, col_sort]
+            exp_avg_sq = exp_avg_sq.index_select(1, col_sort)
+            q_col_new, _ = torch.linalg.qr(col_gg @ q_col_sorted)
+
+            state["q_row"] = q_row_new
+            state["q_col"] = q_col_new
+            state["exp_avg_sq"] = exp_avg_sq
+
+            cos_row = (q_row_new.T @ q_row_sorted).diagonal().abs().mean().item()
+            cos_col = (q_col_new.T @ q_col_sorted).diagonal().abs().mean().item()
+            state["trust_cos_row"] = cos_row
+            state["trust_cos_col"] = cos_col
+            state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col >= trust_threshold) else 0.0
+        else:
+            state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
+                state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
+            )
     state["soap_step"] += 1
 
 
 def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
-    """Project update into the row/col eigenbasis, scale by inverse sqrt of second-moment EMA, project back, renormalize."""
+    """Project update into the row/col eigenbasis, scale by inverse sqrt of second-moment EMA, project back, renormalize.
+
+    Trust gate: if state['trust_gate'] == 0.0 (eigenbasis rotated too far at last refresh),
+    fall back to the unpreconditioned update."""
     if state["q_row"] is None:
+        return update
+    if state.get("trust_gate", 1.0) == 0.0:
         return update
     update_f = update.float()
     q_row, q_col = state["q_row"], state["q_col"]
@@ -559,11 +608,29 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
-        # Identify MLP weights (mlp.fc.weight / mlp.proj.weight) — only these receive SOAP preconditioning.
+        # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
         self.soap_params = {
             p for n, p in named_params
             if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
         }
+        # Attention weights (qkv + proj) receive trust-gated SOAP (public record #16 extension).
+        self.attn_soap_params = {
+            p for n, p in named_params
+            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight"))
+        }
+        # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
+        self.attn_soap_kind: dict[int, str] = {}
+        for n, p in named_params:
+            if p in self.attn_soap_params:
+                if n.endswith(".attn.q.weight"):
+                    self.attn_soap_kind[id(p)] = "q"
+                elif n.endswith(".attn.k.weight"):
+                    self.attn_soap_kind[id(p)] = "k"
+                elif n.endswith(".attn.v.weight"):
+                    self.attn_soap_kind[id(p)] = "v"
+                elif n.endswith(".attn.proj.weight"):
+                    self.attn_soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -590,7 +657,7 @@ class Muon(torch.optim.Optimizer):
                             state["second_moment"] = torch.zeros(
                                 (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
                             )
-                        if p in self.soap_params:
+                        if p in self.soap_params or p in self.attn_soap_params:
                             m, n = p.size(0), p.size(1)
                             state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
                             state["col_gg"] = torch.zeros(n, n, dtype=torch.float32, device=p.device)
@@ -598,13 +665,19 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["soap_step"] = 0
+                            if p in self.attn_soap_params:
+                                # Default trust gate is 1.0 until the first basis refresh.
+                                state["trust_gate"] = 1.0
+                                state["trust_cos_row"] = 1.0
+                                state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
+                    use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
-                    # (matches public record #14 train_gpt_contra_normuon_soapish_mlp.py).
-                    if use_soap:
+                    # (matches public record #14/16 — pre-NS5 placement).
+                    if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
@@ -619,7 +692,68 @@ class Muon(torch.optim.Optimizer):
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
+                    elif use_attn_soap:
+                        soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
+                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     use_trust_gate=True,
+                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def trust_gate_stats(self) -> dict[str, float]:
+        """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
+
+        Aggregate keys: count, on_fraction, mean_cos_row/col, min_cos_row/col.
+        Per-type keys (kind in {q, k, v, proj}):
+          {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col.
+        """
+        cos_rows: list[float] = []
+        cos_cols: list[float] = []
+        on_count = 0
+        by_kind: dict[str, dict[str, list[float] | int]] = {
+            "q": {"on": 0, "cos_row": [], "cos_col": []},
+            "k": {"on": 0, "cos_row": [], "cos_col": []},
+            "v": {"on": 0, "cos_row": [], "cos_col": []},
+            "proj": {"on": 0, "cos_row": [], "cos_col": []},
+        }
+        for p in self.attn_soap_params:
+            state = self.state.get(p)
+            if state is None or "trust_gate" not in state:
+                continue
+            on = state["trust_gate"] >= 0.5
+            cr = state.get("trust_cos_row", 1.0)
+            cc = state.get("trust_cos_col", 1.0)
+            cos_rows.append(cr)
+            cos_cols.append(cc)
+            if on:
+                on_count += 1
+            kind = self.attn_soap_kind.get(id(p))
+            if kind is not None:
+                by_kind[kind]["cos_row"].append(cr)
+                by_kind[kind]["cos_col"].append(cc)
+                if on:
+                    by_kind[kind]["on"] += 1
+        counts = len(cos_rows)
+        if counts == 0:
+            return {}
+        out: dict[str, float] = {
+            "count": counts,
+            "on_fraction": on_count / counts,
+            "mean_cos_row": sum(cos_rows) / counts,
+            "mean_cos_col": sum(cos_cols) / counts,
+            "min_cos_row": min(cos_rows),
+            "min_cos_col": min(cos_cols),
+        }
+        for kind, agg in by_kind.items():
+            crs = agg["cos_row"]
+            ccs = agg["cos_col"]
+            kn = len(crs)
+            if kn == 0:
+                continue
+            out[f"{kind}/count"] = kn
+            out[f"{kind}/on_fraction"] = agg["on"] / kn
+            out[f"{kind}/mean_cos_row"] = sum(crs) / kn
+            out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
 
 
 ########################################
@@ -699,7 +833,10 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
+            "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
+            "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
 
@@ -873,6 +1010,12 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            for opt in optimizers:
+                if hasattr(opt, "trust_gate_stats"):
+                    stats = opt.trust_gate_stats()
+                    if stats:
+                        wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
