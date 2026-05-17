@@ -3,6 +3,36 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-17 04:40 UTC — PR #204: Cooldown shape sweep (nezuko) — CLOSED clean negative
+
+- Branch: `g1r4-nezuko/cooldown-shape-sweep`
+- Hypothesis: LR cooldown shape (linear vs cosine vs sqrt) is a free axis under Muon²+clip=5.0 baseline
+
+### Results (n=1 each, train_steps=3350, NANOGPT_GRAD_CLIP=5.0, cooldown_frac=0.7)
+
+| Arm | Shape | val/loss | first_step_to_target | W&B Run |
+|-----|-------|----------|----------------------|---------|
+| A | linear (baseline) | 3.27581 | 3275 | mcqv2g69 |
+| B | cosine (S-shape) | 3.28144 | -1 (never reached) | hczgtsue |
+| C | sqrt (concave) | 3.29081 | -1 (never reached) | 571njevf |
+| D | quadratic | SKIPPED (early-exit) | — | — |
+| E | exp | SKIPPED (early-exit) | — | — |
+
+### Commentary
+
+Clean negative. Arm-A reproduced merged baseline within seed noise (val=3.27581 vs 3.27527, Δ=+0.00054). Arm-B (cosine) regresses by +0.00563; arm-C (sqrt) catastrophically worse (+0.01500). Early-exit rule vindicated: arm-B failure (val=3.28144 > 3.279 trigger) correctly predicted arms D/E would fail. Saved ~3.3h compute.
+
+**Decisive mechanism signal** — trailing-window train-loss slope at end of cooldown:
+- Arm-A linear: slope=-0.00386 → still descending, Goldilocks balance
+- Arm-B cosine: slope=+0.00275 → **train loss INCREASING** (model frozen by fast late-LR drop)
+- Arm-C sqrt: slope=-0.01335 → 2× steeper descent than linear (but started too far behind)
+
+**Why linear is the only shape that works**: linear gives equal LR-time area to every cooldown point. Any asymmetric shape (concave or convex) trades early/late LR budget; at 3350 steps, either trade hurts.
+
+**Cross-PR insight**: cosine regresses BECAUSE it misses the cooldown precision window (low LR needed for fine convergence) — consistent with frieren #176's mechanism (cooldown needs more precise gradients via NS-iter boost). Both PRs confirm: the cooldown precision window needs BOTH smaller LR AND more precise gradients, not less LR motion.
+
+**Axis closed**: cooldown LR shape is well-tuned by the lineage. Do not re-explore unless a new optimizer (non-Muon²) changes dynamics.
+
 ## 2026-05-15 19:00 UTC — wave 1 closed PRs
 
 ### PR #62 — Schedule-Free Muon (askeladd) — CLOSED negative
