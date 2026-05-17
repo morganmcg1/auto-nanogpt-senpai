@@ -1,16 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #101, ~19:30 UTC)
+- **Last updated:** 2026-05-17 (poll #102, ~20:05 UTC)
 - **⭐⭐ FRIEREN PHASE 2 HEALTHY**: `ym6jprxe` **Trial 0 FINAL: val=3.27022 ffs=3125** (Δ=-0.00114 vs baseline). **Now in Trial 1/4 at step 1426/3250.** For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. ETA all-trials terminal ~22:30Z. **STRONGEST MERGE CANDIDATE.** PR has `needs_rebase` — rebase before merge.
 - **NEW TERMINALS THIS POLL (3 cells finished, sweeps advance):**
   - **nezuko Cell A** (AGC ctrl, λ=0) `1j9tl8k9` FINISHED **val=3.27208 ffs=3150** (Δ=+0.00072 vs baseline, ~0.6σ). Cell B (λ=0.01) `5l7vmnhf` auto-launched 17:41Z, step 566.
   - **thorfinn Cell B** (eigvec EMA α=0.3) `37w0mwla` FINISHED **val=3.27263 ffs=3125** (Δ=+0.00127, ~1.1σ; ffs matches baseline best). Cell C (α=0.5) `32n3p8a8` auto-launched 17:43Z, step 537.
   - **edward Cell B** (β2-warmup 0.50→0.90 over 200) `gf426fxo` FINISHED **val=3.27340 ffs=3150** (Δ=+0.00204, ~1.7σ). Cell C (warmup over 500) `oifl1px1` auto-launched, step 235. β2-warmup so far not helping at n=1 (Cell B worse than Cell A control).
-- **TANJIRO TRIAL 0 LANDED**: `v1mhx9f2` Trial 0 final_best_val=**3.27160 ffs=3150** (Δ=+0.000238 vs baseline at n=1 — modest, NOT additive as hoped). Combo (lr_mlp=0.055 + wd_mlp=0.035 + wd_attn=0.015) ≈ baseline at n=1, not the expected -0.0026 from naive additivity. Trial 1/4 at 27%. ETA terminal ~01:30Z. For n=4 merge: trials 1-3 mean ≤ 3.2683 (extremely tight). stale_wip ack'd as false positive.
+- **TANJIRO TRIAL 0 LANDED**: `v1mhx9f2` Trial 0 final_best_val=**3.27160 ffs=3150** (Δ=+0.000238 vs baseline — modest, NOT additive as hoped). Trial 1/4 at step 3750/13000 (29%). ETA terminal ~01:30Z. For n=4 merge: trials 1-3 mean ≤ 3.2683 (extremely tight).
+- **PR #249 CLOSED** (fern, SOAP attn Gram damping): all 5 cells regress vs new baseline. Best B (λ=1e-4)=3.27300 (Δ=+0.00164). Light damping marginally better than no damping — but nowhere near merge threshold. **Reassigned PR #302 (SOAP attn Q/K shared Gram).**
 - **AWAITING terminal SENPAI-RESULTs (mid-flight):**
-  - alphonse Cell C `74bh7oal` step 3058/3250 (~94%). ETA ~5min.
-  - fern Cell E `9sjzd75z` step 3134/3250 (~96%). ETA ~5min.
-  - askeladd PR #301 (NS5 coeff sweep): assigned 19:00Z, no run yet (~30min normal pod startup lag).
+  - alphonse Cell D `zxiaakjm` (eps=1e-7) just launched — sweep near-terminal.
+  - askeladd PR #301 Cell A (ns5_a=2.0 ctrl) `gjpqh9x` running step 46.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
@@ -32,7 +32,8 @@
 | 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20}; **Phase 2: n=4 confirm at D config** | exploit | Cells A(0.10)=3.2803, B(0.30)=3.2750, C(0.50)=3.2740, **D(0.80)=3.2707 ⭐**, E(1.20)=3.2715 ALL FINISHED. **⭐ Phase 2 n=4 `ym6jprxe` step 1897/13000 (14.6%) val=3.4589 (mid-train healthy).** ETA terminal ~8h. If mean ≤ 3.269362, NEXT MERGE. PR has merge conflicts — rebase before merging. |
 | 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | **CLOSED 16:25Z clean-neutral vs new baseline.** n=4 mean=3.271133 ffs=3131.25. Δ=-0.000229 vs new baseline (0.11× statsig gate). WAS 1.30× statsig vs OLD baseline. Reassigned to PR #289 combo-confirm. |
 | 289  | g1r5-tanjiro    | Combo-confirm: lr_mlp=0.055 (merged) + wd_mlp=0.035/wd_attn=0.015 (best WD corner) at n=4 | exploit | **ASSIGNED 16:30Z.** Tests additive composition of lr_mlp + asymm WD. Expected mu ~3.2688 if additive → below n=4 merge threshold 3.269362. ETA Phase-1 terminal ~23:30Z. |
-| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | Cells A(λ=0)=3.2752, B(1e-4)=3.2730, C(1e-3)=3.2749, **D(λ=1e-2) FINISHED 3.2748**. **Cell E (λ=1e-1) `9sjzd75z` step 274/3250 (8%) auto-launched.** Cell B best n=1; non-monotonic. None beat new baseline. |
+| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | **CLOSED 20:05Z clean-neutral**. All 5 cells regress: A=3.27518, **B=3.27300** (best), C=3.27493, D=3.27478, E=3.27380. Light damping (λ=1e-4) marginally best; none beat new baseline (Δ=+0.00164 for B). |
+| 302  | g1r5-fern       | SOAP attn Q/K shared Gram preconditioner | explore | **ASSIGNED 20:05Z**. 2-cell screen: A=ctrl (separate Q/K Grams), B=shared Q/K Gram. Tests if doubling curvature signal + Q/K symmetry helps. Phase 2 n=4 confirm if Cell B ≤ 3.270. ETA Phase 1 ~2h. |
 | 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | **CLOSED 16:00Z** clean negative — all 4 cells A=3.27922, B=3.27563, C=3.27433, D=3.27501 worse than new baseline (best C γ=1.03 Δ=+0.003). Per-layer LR doesn't stack with per-group LR meaningfully. Reassigned PR #283 (AGC). |
 | 283  | g1r5-nezuko     | Adaptive Gradient Clipping (AGC, NFNets-style, λ ∈ {0,0.01,0.03,0.1,0.3}) | explore | **Cell A (λ=0 ctrl) `1j9tl8k9` step 1439/3250 (44%) val=3.5446.** ETA ~2.5h. Sequential cells B/C/D/E queued. |
 | 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | **CLOSED 11:33Z** — all 3 LR arms regress vs old baseline. Vocab-row curvature is load-bearing for lm_head; Muon spectral norm is wrong inductive bias. Reassigned PR #262 (AdamW eps). |
