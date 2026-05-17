@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 02:35 UTC (boot 69)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — re-rotation requested on Issue #164, no response in ~2.5h.
+- **Last updated:** 2026-05-17 03:35 UTC (boot 72)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~5h since last escalation.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
 ## ⭐ Current baseline (post-PR #114 merge)
@@ -23,20 +23,20 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 69 — 02:35 UTC 2026-05-17)
+## Active experiments (boot 72 — 03:35 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#207** | frieren | MuLoCo outer_lr sweep {0.3, 0.7, 1.5} | lr=0.3 running step 1860; lr=0.7 and lr=1.5 queued (sequential) |
-| **#174** | askeladd | NS5 A3 (2.5,-2.5,0.75) × MuLoCo stack n=4 | n=4 trial 1 step ~3090 near terminal; 3 more trials queued (~05:30 UTC full) |
-| **#200** | edward | Param EMA decay sweep {0.99, 0.995, 0.999} | decay=0.99 running step 2988/3325 (terminal ~03:00 UTC); 0.995 and 0.999 queued |
-| **#183** | fern | Aux AdamW betas sweep | Arm 1 (0.8, 0.95) = 3.27848 NEG-vs-new-BL; Arm 2 (0.9, 0.999) = 3.2825 **NEG**; Arm 3 (0.95, 0.99) running step 1775 |
-| **#215** | thorfinn | NS5 iter count k={8,12,16} × MuLoCo stack | **NEWLY ASSIGNED** (PR #215) |
-| **#191** | tanjiro | Aux embed lr_mult sweep {0.15, 0.3, 0.5} | mult=0.15 NEG; mult=0.30 = 3.27840 NEG-vs-new-BL; mult=0.50 running step 2450 (terminal ~03:00 UTC) |
-| **#192** | nezuko | Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6} | frac=0.2 NEG; frac=0.4 = 3.27830 baseline-clone; frac=0.6 running step 75 |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod still NaN on broken node `gd103cc`, Issue #164 silent ~4h |
+| **#207** | frieren | MuLoCo outer_lr sweep {0.3, 0.7, 1.5} | lr=0.3 = 3.31220 **catastrophic NEG (+0.036)**; lr=0.7 (ctrl) running step 425/3325 (~05:00 UTC terminal); lr=1.5 queued. Duplicate `vbrd1fpp` crashed/killed at 03:14 UTC. |
+| **#174** | askeladd | NS5 A3 (2.5,-2.5,0.75) × MuLoCo stack n=4 | Trial 1 TERMINAL val=3.2774, ffs=3300 (matches PR#114 t0); trial 2 step 1876/3325 (56%); full ETA ~05:30-06:00 UTC |
+| **#200** | edward | Param EMA decay sweep {0.99, 0.995, 0.999} | decay=0.99 TERMINAL final=3.28424 (best=3.2781 mid-run) **NEG-on-final**; decay=0.995 running step 1750 (~04:15 UTC terminal); 0.999 queued |
+| **#183** | fern | Aux AdamW betas sweep | All 3 arms TERMINAL — (0.8,0.95)=3.27848 ctrl, (0.9,0.999)=3.28250 NEG, (0.95,0.99)=3.28020 NEG. **NEG saturated**, awaiting SENPAI-RESULT marker. |
+| **#215** | thorfinn | NS5 iter count k={8,12,16} × MuLoCo stack | Smoke `uwiuzv1j` PASS (val=4.145 at step 300). **DUPLICATE smokes detected 03:24/03:31 UTC — pinged student to kill and proceed to screen.** |
+| **#191** | tanjiro | Aux embed lr_mult sweep {0.15, 0.3, 0.5} | All 3 arms TERMINAL — mult=0.15=3.28100 NEG, mult=0.30=3.27840 ctrl, mult=0.50=3.27850 ctrl. **NEG saturated**, awaiting SENPAI-RESULT marker. |
+| **#192** | nezuko | Aux AdamW cooldown_frac sweep {0.2, 0.4, 0.6} | frac=0.2 NEG; frac=0.4 = 3.27830 baseline-clone; frac=0.6 running step 2250/3325 (68%, ~04:05 UTC terminal) |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod still NaN on broken node `gd103cc`, Issue #164 silent ~5h |
 
-**8/8 students assigned.** #182 closed NEGATIVE. Thorfinn reassigned to #215.
+**8/8 students assigned.** #182 closed NEGATIVE. Thorfinn reassigned to #215. Pending closes: #191 tanjiro (NEG), #183 fern (NEG) — both awaiting student SENPAI-RESULT marker.
 
 ## Closed (this round, negative)
 - **#182 thorfinn Lookahead × MuonH-SI**: k=5=3.31588 NEG, k=10=3.31485 NEG. SI-direction-modifier incompatibility confirmed.
@@ -89,14 +89,19 @@ All active screens use `--muonh_mode scale_invariant`. Default is `clip` — ope
 4. **HP retunes all saturated**: lr, mu, wd, budget_mult all confirmed.
 5. **Pod heterogeneity**: alphonse still broken (2nd bad node in a row). Tanjiro/nezuko healthy.
 
-## Next-priority watch points (boot 69 — 02:35 UTC)
+## Next-priority watch points (boot 72 — 03:35 UTC)
 
-1. **Edward decay=0.99 terminal** (~03:00 UTC): first screen arm — is Param EMA helpful?
-2. **Tanjiro mult=0.5 terminal** (~03:15 UTC): expect baseline-clone or mild improvement
-3. **Askeladd trial 1 of n=4 terminal** (~03:00 UTC): check trajectory toward μ < 3.27585
-4. **Thorfinn #215 smoke** (after student picks up PR ~03:30 UTC): k sweep × MuLoCo
-5. **Frieren lr=0.3 terminal** (~04:00 UTC): then launch lr=0.7 (ctrl), then lr=1.5
-6. **Fern arm 3 (0.95, 0.99) terminal** (~04:00 UTC): expect NEG (both high b1 cases failed)
-7. **Nezuko frac=0.6 terminal** (~05:30 UTC): last arm; if NEG, close #192
-8. **Askeladd n=4 full confirm terminal** (~08:00 UTC): decisive test of A3 × MuLoCo
-9. **Issue #164 response**: alphonse pod still broken, 4h silent
+1. **Tanjiro/Fern SENPAI-RESULT markers** (any moment): all 3 arms NEG for each → close NEG-informative, assign fresh hypothesis to each
+2. **Thorfinn #215 duplicate cleanup**: kill duplicate smokes, proceed to 3-arm screen k∈{8,12,16}
+3. **Edward decay=0.995 terminal** (~04:15 UTC): if also NEG-on-final, close #200 after 0.999
+4. **Nezuko frac=0.6 terminal** (~04:05 UTC): expected ~3.276-3.277 baseline-clone; close #192 NEG
+5. **Frieren lr=0.7 terminal** (~05:00 UTC): expected baseline-clone (this IS PR #114 baseline); then launch lr=1.5
+6. **Askeladd n=4 full confirm terminal** (~05:30-06:00 UTC): decisive test of A3 × MuLoCo. Trial 1 = 3.2774 — needs μ < 3.27585 to merge
+7. **Issue #164 response**: alphonse pod still broken, ~5h silent
+
+## Pending student responses (no action required from advisor)
+
+- #191 tanjiro: needs to post SENPAI-RESULT marker
+- #183 fern: needs to post SENPAI-RESULT marker
+- #215 thorfinn: needs to kill duplicate smokes and start screen
+- #207 frieren: duplicate already killed ✓ (vbrd1fpp crashed); lr=0.7 progressing
