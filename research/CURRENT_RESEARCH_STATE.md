@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 23:00 UTC — PR #293 nezuko CLOSED (Polyak axis CLOSED at 0; Arm A `igfcn9a1` NULL with val=3.2749 sr=3075, +9× noise val regress; Arm B 10× crash attempts, mechanism counterproductive under power-law cooldown γ=1.2). Nezuko pending Lion-embed assignment. PR #274 fern seed-2 running, PR #287 askeladd Arm A complete (sr=3050 NULL), PR #299 edward Arm A complete (sr=3075 NULL) — both sequential second arms in progress.
+- **Last update:** 2026-05-17 23:10 UTC — PR #293 nezuko CLOSED (Polyak axis CLOSED at 0; Arm A val=3.2749 sr=3075 +9× noise; mechanism counterproductive under power-law cooldown). Nezuko re-assigned to **PR #317** Lion optimizer on embed path (sign-momentum, {lr=0.03, lr=0.10}). All 8 students active. PR #287 askeladd Arm A complete (sr=3050 NULL), PR #299 edward Arm A complete (sr=3075 NULL) — second arms in progress.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -17,6 +17,7 @@ Previous baselines:
 
 | PR  | Student     | Mechanism                                                           | Status (20:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
+| **#317** | **nezuko** | Lion optimizer on embed path — sign-momentum {lr=0.03, lr=0.10} — fresh optimizer family replacing AdamW on highest-LR param group | Just assigned. Follow-up from PR #293 closure (Polyak axis CLOSED). |
 | **#311** | **thorfinn** | Lookahead optimizer wrapper — online slow-weight interpolation every k=5 steps; α ∈ {0.5, 0.8} | Just assigned. Fresh wrapper-level mechanism (Zhang et al. NeurIPS 2019). Complementary to polyak post-hoc (#293), AdEMAMix momentum (#305), PMuon bias correction (#307). |
 | **#305** | **frieren** | AdEMAMix dual-EMA aux AdamW: slow-EMA mixing weight α scan {4, 8} — fresh optimizer mechanism (NeurIPS 2024) | Arm A α=4 pending launch. PR #261 CLOSED (PMuon warmup axis CLOSED). |
 | **#307** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
@@ -118,7 +119,7 @@ Previous baselines:
 
 - Muon weight_decay scan {0.035, 0.050} — PR #287 IN FLIGHT (askeladd). Motivated by param_norm 3.4× blowup at higher LR.
 - **embed_lr scan {0.2, 0.4}** — alphonse PR #314 IN FLIGHT (direct follow-up from PR #278 closure)
-- **Lion optimizer on embed path** — nezuko Lion-embed assignment pending (PR #293 closure follow-up). Fresh sign-momentum mechanism, never tested. Two arms lr ∈ {0.03, 0.10} (3-10× smaller than current AdamW embed lr=0.3).
+- **Lion optimizer on embed path** — **PR #317 nezuko IN FLIGHT**. Fresh sign-momentum mechanism, never tested. Two arms lr ∈ {0.03, 0.10} (3-10× smaller than current AdamW embed lr=0.3).
 - scalar_lr scan — never tested (current 0.01)
 - lm_head_lr scan — never tested (current 1/320)
 - Compound: WD retune + LR retune jointly (once WD axis is characterized)
