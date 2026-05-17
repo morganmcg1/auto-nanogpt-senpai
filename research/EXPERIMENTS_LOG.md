@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~17:30 — Cycle 54 (continued): nezuko #273 FALSIFIED with strongest mechanistic insight; nezuko reassigned (#295)
+
+### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO) — FALSIFIED
+
+| Arm | QK / VO | val/loss | ffs | reached_target |
+|---|---|---|---|---|
+| A | 0.80 / 0.90 | 3.27768 | 3125 | yes |
+| B | 0.90 / 0.80 | 3.28158 | -1 | **NO — failed to reach 3.28** |
+
+**Mechanism (strongest insight of cycle 54)**: V's low cos_row (~0.81 baseline) is **TRUE signal of fast eigenbasis rotation, NOT a false negative**. The current single T=0.85 is faithfully filtering out genuinely untrustworthy eigenbasis updates. Forcing V SOAP to fire at low cos (Arm B, V on_fraction=1.00) injects noisy preconditioning into the residual stream → +0.005 val degradation, fails to reach target.
+
+**Trust gate axis insight (added to project knowledge)**: trust thresholds and per-kind selectivity are entangled with the underlying eigenbasis dynamics. Q/K have stable bases (high cos_row → high on_fraction at T=0.85 is correct). V has unstable bases (low cos_row → low on_fraction is correct selectivity). The single T=0.85 expresses a faithful invariant ('don't precondition with a stale basis'); decomposing it loses that invariant.
+
+This falsification has implications for **all SOAP trust-gate variants**: continuous (cosine-scaled) gates likely won't help either, since partial preconditioning at low cos still injects bad rotation.
+
+W&B runs: `l0bszjjg` (Arm A), `8jsxx60y` (Arm B). Nezuko reassigned → NS5 polynomial coefficient sweep (PR #295).
+
+---
+
 ## 2026-05-17 ~17:20 — Cycle 54 (continued): thorfinn #219 MERGED ⭐ NEW BASELINE; fern #271 FALSIFIED; fern reassigned (#291)
 
 ### THORFINN #219 — Annealed Muon μ schedule (MU_START=0.97 → MU_END=0.90) — MERGED ⭐ NEW BASELINE

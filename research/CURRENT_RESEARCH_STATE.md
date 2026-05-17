@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-17 ~17:20 UTC — Cycle 54 (continued)
+- 2026-05-17 ~17:30 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 
 ## CRITICAL BUG FIXED (cycle 54)
@@ -34,8 +34,10 @@ Previous baseline (PR #212): val=3.27631, ffs=3112.5
 - Arm A: K=500 (stable phase), Arm B: K=952 (start of cooldown).
 - _ALPHONSE #256 (SOAP_PRECOND_FREQ) FALSIFIED_ — both freq=5 and freq=20 cause multi-seed NaN at step 25. SOAP_PRECOND_FREQ=10 is the unique stability window.
 
-### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO)
-- Implementing. Smoke test → 2-arm screen (T_QK=0.80,T_VO=0.90 vs T_QK=0.90,T_VO=0.80) → n=4 confirm.
+### NEZUKO #295 — NS5 polynomial coefficient sweep (just assigned)
+- Newton-Schulz NS5 default (a,b,c)=(2,-1.5,0.5). Arms: (3,-3,1), (2.5,-2,0.75), (1.75,-1.25,0.5). Smoke test → screen → confirm with strict NaN protocol.
+- Genuinely fresh axis — NS5 iter count & precision exhausted but coefficients unexplored.
+- _NEZUKO #273 (asymmetric QK vs VO trust) FALSIFIED_ — Arm A val=3.27768/ffs=3125 (miss); Arm B val=3.28158/ffs=-1 (failed to reach target). Strongest mechanistic insight of cycle 54: V's low cos_row is TRUE signal of bad rotation, not false negative. Trust gates correctly filter genuinely untrustworthy updates.
 
 ### TANJIRO #276 — Decoupled aux cooldown shape (cosine vs none for AdamW groups)
 - Just assigned. Muon stays on linear cooldown; aux groups (embed, lm_head, scalars) try cosine or no cooldown.
@@ -77,6 +79,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | Gradient Centralization on Muon (PR #267) | FALSIFIED | Row-centering → rank-deficient gradient → NS5 polar-factor instability → NaN at step 25 |
 | Per-block-depth Muon LR scaling (PR #268) | FALSIFIED | Arm A starves early blocks (never hits 3.28); Arm B starves late blocks (divergence). SOAP per-shape preconditioning already absorbs per-layer gradient structure |
 | Decoupled SOAP freq MLP vs ATTN (PR #271) | FALSIFIED | Arm A (freq=5): val=3.27633/ffs=3100 miss; Arm B (freq=20): val=3.27909/ffs=3150 clear miss. Drift telemetry: refresh-freq optimum ≈ EMA horizon = 1/(1-β2) ≈ 10 steps |
+| Asymmetric Attn-SOAP trust QK vs VO (PR #273) | FALSIFIED | Arm A val=3.27768/ffs=3125 (miss); Arm B val=3.28158/ffs=-1 (failed to reach target). V's low cos_row is TRUE signal of bad rotation, not false negative — single T=0.85 already optimal |
 
 ## Closed axes (full record)
 
@@ -120,6 +123,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 10. **SOAP eigenbasis stability window**: SOAP_PRECOND_FREQ=10 is uniquely stable. Both 5 and 20 cause multi-seed NaN at step 25 via different mechanisms (too-early Gram vs too-long initial-eigenbasis exposure).
 11. **NS5 iter count = 12 is the unique stable operating point**: iters in {8, 10, 14, 16} all cause NaN cascade; 12 is the convergence point for this stack's singular value distribution.
 12. **SOAP_PRECOND_FREQ ≈ EMA horizon = 1/(1-β2)** (confirmed PR #271 drift telemetry): refresh frequency optimum is bounded below by Gram EMA equilibration time. At β2=0.90, freq=10 ≈ horizon — refreshing 4× more often only reduces Frobenius drift by ~6%. This couples β2 and freq axes: changing β2 should shift the optimal freq.
+13. **Trust gate cos_row is TRUE signal, not false negative** (confirmed PR #273): V's low on_fraction (~12%) at T=0.85 reflects genuinely fast V eigenbasis rotation. Forcing V SOAP to fire at low cos degrades convergence by ~0.005 val. The single T=0.85 expresses a faithful invariant; per-kind or continuous-scaling decompositions lose the invariant.
 
 ## Upcoming decisions
 
@@ -131,7 +135,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | ~16:00 | Frieren | Terminal SENPAI-RESULT (overdue) | MISS (close + reassign) |
 | TBD | Edward | Per-head SOAP screen (#281) | First result ~3h |
 | TBD | Askeladd | Polyak EMA implementation + screen (#286) | First result ~3h |
-| TBD | Nezuko | Asymmetric trust telemetry → screen | First screen result ~2-3h |
+| TBD | Nezuko | NS5 coefficient sweep smoke + screen (#295) | First result ~3h |
 | TBD | Fern | Annealed SOAP β2 implementation + screen (#291) | First result ~3h |
 
 ## Research programme direction
@@ -144,7 +148,7 @@ Primary goal: beat record #20 (3030 steps). Current baseline = 3112.5 steps.
 Most promising paths (ranked):
 1. **Annealed μ finer sweep** (thorfinn #288) — cooldown-only arm may unlock further +5-10 ffs. Direct follow-on from merged winner.
 2. **MLP-SOAP trust gate** (frieren #275) — symmetric extension of merged PR #212 win.
-3. **Asymmetric Attn-SOAP trust QK vs VO** (nezuko #273) — direct follow-up to merged win.
+3. **NS5 polynomial coefficient sweep** (nezuko #295) — genuinely fresh axis; coefficients (a,b,c) unexplored on this stack.
 4. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis.
 5. **Annealed SOAP β2** (fern #291) — direct application of #219 anneal mechanism to SOAP eigenbasis dynamics.
 6. **Decoupled aux cooldown shape** (tanjiro #276) — aux groups may benefit from cosine or no cooldown vs linear.
