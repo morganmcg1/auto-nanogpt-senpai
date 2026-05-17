@@ -644,3 +644,35 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 - **Wave-4 implication**: NS=8mid→NS=16cooldown is an aggressive stack candidate — saves ~23% Muon-block compute mid-training while preserving the NS=16 cooldown win. Orthogonal to clip=10 axis (Muon blocks vs AdamW aux). Assigned to thorfinn for wave-4 stacking test.
 - **PR guard bug fix**: student correctly diagnosed senpai-pr-guard.py false-positive on prose mentions of SENPAI-RESULT. Fix applied (line.lstrip().startswith() vs "in" check).
 
+## 2026-05-17 14:55 UTC — PR #206: Per-group gradient clipping v2 (edward) — CLOSED null/mechanism study
+
+- Branch: `g1r4-edward/per-group-clip`
+- Hypothesis: clip=5.0 effect is purely on AdamW aux groups (lm_head/embed), with Muon blocks inert (since NS absorbs gradient magnitudes). Follow-on v2 re-ran the ablation at the new clip=10 + NS=12→16 baseline.
+- W&B runs: arm-A `74yootm3`, arm-B `q1599b2c`, arm-C `kfxcnn9a`, arm-D `ihg3vw7j`
+
+### v2 results (clip=10 + NS=12→16 cooldown baseline)
+
+| Arm | Config | val/loss | fs | Δ vs new baseline (3.27461) | Δ vs arm-A within-pod |
+|-----|--------|----------|-----|---:|---:|
+| A | clip=10 ALL (control) | 3.27434 | 3250 | −0.00027 (noise) | — |
+| B | clip=10 aux only | 3.27729 | 3300 | +0.00268 (regression) | +0.00295 |
+| C | clip=10 muon only | 3.27499 | 3275 | +0.00038 (noise) | +0.00065 |
+| D | no clip | 3.27952 | 3350 | +0.00491 (regression) | +0.00518 |
+
+### Mechanism inversion at clip=10 vs pre-rebase clip=5
+
+| Ecosystem | Arm-B (aux only) | Arm-C (muon only) | Reading |
+|---|---|---|---|
+| clip=5 pre-rebase | 3.27626 (better) | 3.27459 (best) | muon clip was load-bearing |
+| clip=10 v2 | 3.27729 (regression) | 3.27499 (noise) | aux clip is dominant |
+
+Decision tree: arm-D (no clip) = 3.27952 ≥ 3.279 → clip=10 is load-bearing as a global rescaler. No per-group config beats clip-all; no merge candidate.
+
+**Key findings (cite):**
+1. Both aux clip and muon clip contribute at clip=10; aux is dominant (~0.003), muon secondary (~0.001).
+2. Slight super-additivity: D regression (0.00518) > B + C (0.00360). Clips reinforce each other.
+3. Mechanism is threshold-dependent: at clip=5 muon clip was inert/mildly harmful; at clip=10 both matter.
+4. Per-group dispatch infrastructure is correct — clean telemetry across 8 arms.
+
+Closed as null + mechanism study. No confirmation seeds warranted (arm-A is baseline reproduction; arm-C within noise at n=1; GPU time better spent on wave-5 stacking).
+
