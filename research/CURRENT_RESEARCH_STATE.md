@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 07:30 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176).
+- **Date:** 2026-05-17 07:45 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). Wave 4: 8 PRs in flight covering 7 orthogonal mechanism axes.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27461** — frieren NS=12→16 cooldown boost, PR #176 merged 2026-05-17
@@ -40,8 +40,8 @@
 ### edward #206 (Per-group clip — rebased + sharpened) 🔥
 **Hypothesis after rebase:** With clip=10 merged, the no-clip arm-D is now the decisive discriminator: is clip ≥ 10 even better, or is clip itself superfluous at the new effective-LR? Per-group arms updated to clip=10 references.
 
-### askeladd #189 (Muon² eps sweep — rebasing)
-**Hypothesis:** Sweep eps in `sqrt(v) + eps` denominator of Muon². Orthogonal to clip and NS schedule.
+### askeladd #241 (Muon mu Heavy-ball constant sweep) 🆕
+**Hypothesis:** Sweep Muon `mu` (Heavy-ball momentum) ∈ {0.90, 0.93, 0.95, 0.97, 0.99}. Primary optimizer hyperparameter never swept in isolation on this branch. Establishes baseline for edward's queued Muon mu cooldown scheduling.
 
 ### fern #203 (NS polynomial coefficient sweep — rebasing)
 **Hypothesis:** Sweep (a, b, c) coefficients in NS quintic polynomial. Orthogonal to NS iter count and clip.
@@ -50,6 +50,7 @@
 
 - **#185 tanjiro NS=14→8 anneal** — closed. Frieren arm-D mechanically falsified the NS-high-early hypothesis: mid-training spectrum saturates at NS=8 (extra iters mid-training buy nothing). Tanjiro's NS=14 mid + NS=8 cooldown is anti-correlated with what wins.
 - **#188 alphonse aux LR sweep** — closed. Uniform aux LR scaling triangulated as neutral (arm-B 1.5×, arm-D 0.5× both ≈ baseline). Combined with thorfinn single-peak sweep + edward arm-B regression, the clip mechanism is now: per-group asymmetric global-norm rescaling, NOT uniform LR scaling.
+- **#189 askeladd Muon² eps sweep** — closed. Decisive telemetry: `eps_dominates_frac_block0_q = 0` across all 4 swept arms (1e-9 to 1e-6, a 1000× range). Preconditioner mean ~3e-5 is always 30× to 33000× larger than swept eps. eps floor never engages; val differences across arms are seed noise (non-monotonic: arm-B 1e-7 worse than arm-E 1e-6). Axis cleanly closed — eps=1e-8 is safe default forever.
 
 ## Wave 4 stacking matrix (post-confirmation candidates)
 
@@ -81,6 +82,7 @@ These are 6 orthogonal axes targeting precision/responsiveness from independent 
 | NS=8 floor test | constant NS=8 | #75 |
 | NS high-early anneal | NS=14→8 | #185 (foreclosed by frieren arm-D) |
 | Uniform aux LR scaling | 0.5× / 1.5× embed/lm_head/scalar | #188 (mechanism triangulated) |
+| Muon² eps floor | sweep 1e-9 to 1e-6 | #189 (eps never binds, 30× below preconditioner) |
 
 ## Statistical target
 
