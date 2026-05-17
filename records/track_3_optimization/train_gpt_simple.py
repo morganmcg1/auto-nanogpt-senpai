@@ -450,6 +450,9 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# MLP SOAP trust gate threshold (PR #275). Defaults to attn threshold so a single env
+# var can drive both, while still allowing independent tuning when set explicitly.
+MLP_SOAP_TRUST_THRESHOLD = float(os.environ.get("MLP_SOAP_TRUST_THRESHOLD", str(ATTN_SOAP_TRUST_THRESHOLD)))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -668,11 +671,11 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["soap_step"] = 0
-                            if p in self.attn_soap_params:
-                                # Default trust gate is 1.0 until the first basis refresh.
-                                state["trust_gate"] = 1.0
-                                state["trust_cos_row"] = 1.0
-                                state["trust_cos_col"] = 1.0
+                            # Default trust gate is 1.0 until the first basis refresh.
+                            # Initialized for both attn (record #16) and MLP (PR #275) SOAP params.
+                            state["trust_gate"] = 1.0
+                            state["trust_cos_row"] = 1.0
+                            state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
@@ -694,7 +697,9 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state,
+                                     use_trust_gate=True,
+                                     trust_threshold=MLP_SOAP_TRUST_THRESHOLD)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -703,11 +708,15 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
-        """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
+        """Return aggregate + per-weight-type trust-gate telemetry across SOAP params.
 
-        Aggregate keys: count, on_fraction, mean_cos_row/col, min_cos_row/col.
-        Per-type keys (kind in {q, k, v, proj}):
+        Top-level aggregate keys (over attention SOAP params, preserved for
+        backwards-compat with record #16 dashboards): count, on_fraction,
+        mean_cos_row/col, min_cos_row/col.
+        Per-type attn keys (kind in {q, k, v, proj}):
           {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col.
+        MLP aggregate keys (PR #275):
+          mlp/count, mlp/on_fraction, mlp/mean_cos_row/col, mlp/min_cos_row/col.
         """
         cos_rows: list[float] = []
         cos_cols: list[float] = []
@@ -736,26 +745,48 @@ class Muon(torch.optim.Optimizer):
                 if on:
                     by_kind[kind]["on"] += 1
         counts = len(cos_rows)
-        if counts == 0:
-            return {}
-        out: dict[str, float] = {
-            "count": counts,
-            "on_fraction": on_count / counts,
-            "mean_cos_row": sum(cos_rows) / counts,
-            "mean_cos_col": sum(cos_cols) / counts,
-            "min_cos_row": min(cos_rows),
-            "min_cos_col": min(cos_cols),
-        }
-        for kind, agg in by_kind.items():
-            crs = agg["cos_row"]
-            ccs = agg["cos_col"]
-            kn = len(crs)
-            if kn == 0:
+        out: dict[str, float] = {}
+        if counts > 0:
+            out.update({
+                "count": counts,
+                "on_fraction": on_count / counts,
+                "mean_cos_row": sum(cos_rows) / counts,
+                "mean_cos_col": sum(cos_cols) / counts,
+                "min_cos_row": min(cos_rows),
+                "min_cos_col": min(cos_cols),
+            })
+            for kind, agg in by_kind.items():
+                crs = agg["cos_row"]
+                ccs = agg["cos_col"]
+                kn = len(crs)
+                if kn == 0:
+                    continue
+                out[f"{kind}/count"] = kn
+                out[f"{kind}/on_fraction"] = agg["on"] / kn
+                out[f"{kind}/mean_cos_row"] = sum(crs) / kn
+                out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        # MLP SOAP trust-gate telemetry (PR #275).
+        mlp_cos_rows: list[float] = []
+        mlp_cos_cols: list[float] = []
+        mlp_on_count = 0
+        for p in self.soap_params:
+            state = self.state.get(p)
+            if state is None or "trust_gate" not in state:
                 continue
-            out[f"{kind}/count"] = kn
-            out[f"{kind}/on_fraction"] = agg["on"] / kn
-            out[f"{kind}/mean_cos_row"] = sum(crs) / kn
-            out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+            cr = state.get("trust_cos_row", 1.0)
+            cc = state.get("trust_cos_col", 1.0)
+            mlp_cos_rows.append(cr)
+            mlp_cos_cols.append(cc)
+            if state["trust_gate"] >= 0.5:
+                mlp_on_count += 1
+        mlp_counts = len(mlp_cos_rows)
+        if mlp_counts > 0:
+            out["mlp/count"] = mlp_counts
+            out["mlp/on_fraction"] = mlp_on_count / mlp_counts
+            out["mlp/mean_cos_row"] = sum(mlp_cos_rows) / mlp_counts
+            out["mlp/mean_cos_col"] = sum(mlp_cos_cols) / mlp_counts
+            out["mlp/min_cos_row"] = min(mlp_cos_rows)
+            out["mlp/min_cos_col"] = min(mlp_cos_cols)
         return out
 
 
@@ -841,7 +872,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/mlp_soap_trust_threshold": MLP_SOAP_TRUST_THRESHOLD,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp-trust-gate + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16 + PR #275)",
         },
     )
 
