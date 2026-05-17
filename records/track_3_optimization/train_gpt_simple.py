@@ -444,7 +444,9 @@ MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
-SOAP_BETA2 = 0.90
+SOAP_BETA2 = 0.90  # static default; used by attn SOAP precondition path (legacy behavior)
+SOAP_BETA2_START = float(os.environ.get("SOAP_BETA2_START", str(SOAP_BETA2)))
+SOAP_BETA2_END = float(os.environ.get("SOAP_BETA2_END", str(SOAP_BETA2)))
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
@@ -609,7 +611,8 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
+    def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU,
+                 soap_beta2=SOAP_BETA2_START):
         assert isinstance(named_params, list) and len(named_params) >= 1
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
         self.soap_params = {
@@ -635,7 +638,7 @@ class Muon(torch.optim.Optimizer):
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, soap_beta2=soap_beta2)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -680,7 +683,10 @@ class Muon(torch.optim.Optimizer):
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
                     # (matches public record #14/16 — pre-NS5 placement).
-                    if use_soap or use_attn_soap:
+                    if use_soap:
+                        momentum_update = soap_precondition(momentum_update, state,
+                                                            beta2=group["soap_beta2"])
+                    elif use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
@@ -694,7 +700,7 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state, beta2=group["soap_beta2"])
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -837,6 +843,8 @@ if dist.get_rank() == 0:
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
+            "optimizer/soap_beta2_start": SOAP_BETA2_START,
+            "optimizer/soap_beta2_end": SOAP_BETA2_END,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
@@ -896,11 +904,13 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         cur_mu = MU + (MU_END - MU) * progress
+        cur_soap_beta2 = SOAP_BETA2_START + (SOAP_BETA2_END - SOAP_BETA2_START) * progress
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    group["soap_beta2"] = cur_soap_beta2
 
 
     ########################################
@@ -1016,6 +1026,14 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and telemetry_due:
+            sched_metrics = {"trial": trial_idx, "train/step": train_step}
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if group.get("name") == "muon_blocks":
+                        sched_metrics["optimizer/cur_mu"] = group["mu"]
+                        sched_metrics["optimizer/cur_soap_beta2"] = group["soap_beta2"]
+            wandb.log(sched_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
