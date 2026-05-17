@@ -9,6 +9,25 @@ All 8 PRs are draft, `status:wip`, awaiting student execution. See
 `CURRENT_RESEARCH_STATE.md` for the full assignment table. Results will be
 appended below as each PR returns terminal `SENPAI-RESULT` markers.
 
+## 2026-05-17 16:00 UTC — PR #210: Per-layer LR decay (γ^k across 12 transformer blocks) — **CLOSED clean negative**
+
+- Branch: `g1r5-nezuko/per-layer-lr-decay`
+- Student: g1r5-nezuko
+- Hypothesis: Geometric per-layer LR scaling `lr_block_k = base_lr × γ^k` would improve val/loss vs uniform LR across 12 blocks. Pre-LN can suffer residual signal attenuation in deeper blocks → uniform LR sub-optimal.
+
+**4-cell screen results (n=1 each, sequential, 3250 steps)**
+
+| Cell | γ    | lr_block_0 | lr_block_11 | val/loss | ffs   | Δ vs new baseline (3.271362) | W&B |
+|------|------|------------|-------------|----------|-------|------------------------------|-----|
+| A    | 0.93 | 0.035      | 0.0166      | 3.27922  | 3225  | +0.00786 (worse)             | e3jfdq2d |
+| B    | 0.97 | 0.035      | 0.0252      | 3.27563  | 3175  | +0.00427 (worse)             | uzpoeelg |
+| **C** | **1.03** | **0.035** | **0.0488** | **3.27433** | **3175** | **+0.00297 (best of sweep, still worse)** | odnulg96 |
+| D    | 1.07 | 0.035      | 0.0744      | 3.27501  | 3175  | +0.00365 (worse)             | p5vcfyxr |
+
+**Pattern:** Monotonic improvement A→C with mild γ>1 (deeper-larger LR) peak at γ=1.03-1.07. But all cells fail to beat new baseline by ~3σ. Per-layer LR decay does not stack with per-group LR (lr_mlp=0.055) meaningfully on this 12-layer model. The per-group LR optimization from PR #162 captured the layer-direction signal already.
+
+**Decision: CLOSED clean negative.** Student reassigned to PR #283 (AGC, NFNets-style adaptive gradient clipping).
+
 ## 2026-05-17 12:42 UTC — PR #162: Per-group LR: lr_mlp=0.055 sweep — **MERGED ✓** (NEW BASELINE)
 
 - Branch: `g1r5-edward/per-group-lr-sweep`
