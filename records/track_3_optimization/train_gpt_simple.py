@@ -247,6 +247,65 @@ def log_training_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def log_adamw_step_direction(
+    optimizer: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Per-group ||m_hat / (sqrt(v_hat) + eps)|| for AdamW.
+    Bias-corrected step direction whose variance over time reflects β2 stability."""
+    beta1, beta2 = optimizer.param_groups[0].get("betas", (None, None))
+    eps = optimizer.param_groups[0].get("eps", 1e-10)
+    metrics = {"trial": trial_idx, "train/step": step}
+    if beta1 is not None and beta2 is not None:
+        metrics["train/optimizer1/beta1"] = float(beta1)
+        metrics["train/optimizer1/beta2"] = float(beta2)
+        metrics["train/optimizer1/eps"] = float(eps)
+    grand_sq = 0.0
+    grand_n = 0
+    for group in optimizer.param_groups:
+        group_name = group.get("name", "unknown")
+        group_b1, group_b2 = group.get("betas", (beta1, beta2))
+        group_eps = group.get("eps", eps)
+        sq_sum = 0.0
+        nel = 0
+        max_abs = 0.0
+        for p in group["params"]:
+            st = optimizer.state.get(p, {})
+            if "exp_avg" not in st or "exp_avg_sq" not in st:
+                continue
+            t = st.get("step")
+            t_val = float(t.item()) if torch.is_tensor(t) else float(t or 0)
+            if t_val <= 0:
+                continue
+            bc1 = 1.0 - group_b1 ** t_val
+            bc2 = 1.0 - group_b2 ** t_val
+            m_hat = st["exp_avg"] / bc1
+            v_hat = st["exp_avg_sq"] / bc2
+            step_dir = m_hat / (v_hat.sqrt() + group_eps)
+            sq = float((step_dir * step_dir).sum().item())
+            sq_sum += sq
+            nel += step_dir.numel()
+            m_abs = float(step_dir.abs().max().item())
+            if m_abs > max_abs:
+                max_abs = m_abs
+        if nel > 0:
+            norm = sq_sum ** 0.5
+            rms = (sq_sum / nel) ** 0.5
+            metrics[f"train/optimizer1_step_dir/{group_name}_norm"] = norm
+            metrics[f"train/optimizer1_step_dir/{group_name}_rms"] = rms
+            metrics[f"train/optimizer1_step_dir/{group_name}_max_abs"] = max_abs
+            metrics[f"train/optimizer1_step_dir/{group_name}_numel"] = nel
+            grand_sq += sq_sum
+            grand_n += nel
+    if grand_n > 0:
+        metrics["train/optimizer1_step_dir/all_norm"] = grand_sq ** 0.5
+        metrics["train/optimizer1_step_dir/all_rms"] = (grand_sq / grand_n) ** 0.5
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_weight_telemetry(
     model: nn.Module,
     module_types: dict[str, str],
@@ -463,6 +522,7 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     raise ValueError(
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
+NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -592,6 +652,8 @@ print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLI
        console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
@@ -641,6 +703,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
         },
     )
 
@@ -675,7 +738,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -895,6 +958,14 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/lr_embed": embed_group["lr"],
                             "train/embed_schedule/adam_steps_taken": step_count,
                         }, step=wandb_step)
+        adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and adamw_step_dir_due:
+            log_adamw_step_direction(
+                optimizer=optimizer1,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
