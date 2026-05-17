@@ -46,6 +46,10 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--wd_mlp", type=float, default=0.025,
+                        help="Weight decay for SOAP_MLP_SUFFIXES params (default 0.025 = baseline uniform).")
+    parser.add_argument("--wd_attn", type=float, default=0.025,
+                        help="Weight decay for SOAP_ATTN_SUFFIXES + remaining blocks params (default 0.025 = baseline uniform).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +673,8 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "wd_mlp": float(args.wd_mlp),
+            "wd_attn": float(args.wd_attn),
         },
     )
 
@@ -704,10 +710,25 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025,
+    all_block_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    mlp_pset = {id(p) for n, p in all_block_named
+                if any(n.endswith(s) for s in Muon.SOAP_MLP_SUFFIXES)}
+    optimizer2 = Muon(all_block_named,
+                      lr=0.035, weight_decay=args.wd_attn,
                       soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    base_group = optimizer2.param_groups[0]
+    mlp_params = [p for p in base_group["params"] if id(p) in mlp_pset]
+    attn_other_params = [p for p in base_group["params"] if id(p) not in mlp_pset]
+    base_group["params"] = mlp_params
+    base_group["weight_decay"] = args.wd_mlp
+    base_group["name"] = "muon_mlp"
+    optimizer2.add_param_group(dict(
+        params=attn_other_params,
+        lr=0.035,
+        weight_decay=args.wd_attn,
+        mu=0.95,
+        name="muon_attn_other",
+    ))
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
