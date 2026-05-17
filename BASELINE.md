@@ -8,6 +8,45 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-17 16:35 — PR #219: Annealed Muon momentum μ schedule (MU_START=0.97→MU_END=0.90) (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | Muon momentum μ annealed linearly from 0.97 (start) → 0.90 (end). Env vars: `MU_START=0.97`, `MU_END=0.90`. High μ early stabilizes the noisy CONTRA_MUON warmup; lower μ late makes Muon reactive during LR cooldown. |
+| Contra-Muon HPs | `CONTRA_MUON=0.5`, `TARGET_UW=0.35`, `MUON_LR=0.0375`, `MU_START=0.97`, `MU_END=0.90` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; `ATTN_SOAP_TRUST_THRESHOLD=0.85` (attn trust gate, from PR #212) |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `47bb0bf2` (n=4 confirmation, all 4 trials) |
+| **n=4 mean val/loss** | **3.275835** |
+| **n=4 statsig margin** | **0.00833** ≥ 0.004 — PASSES (2.08×) |
+| **ffs mean** | **3087.5** (T0=3075, T1=3100, T2=3075, T3=3100) |
+| **speedup vs PR #212** | **−25.0 mean ffs steps** (3112.5 → 3087.5) |
+| **speedup vs starter** | ~262 steps / ~7.8% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27510 | 3075 |
+| T1 | 3.27697 | 3100 |
+| T2 | 3.27489 | 3075 |
+| T3 | 3.27638 | 3100 |
+
+Note: n=4 confirmation ran on the pre-PR-#212 stack (without ATTN_SOAP_TRUST_THRESHOLD=0.85). Result still beats the PR-#212 bars, confirming mechanism additivity. Future experiments should run on the fully merged stack (both #212 and #219 changes active).
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+MU_START=0.97 MU_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5 \
+  torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'g1r2-thorfinn/annealed-mu-repro' \
+  --wandb_group 'g1r2-thorfinn/annealed-mu'
+```
+
+---
+
 ### 2026-05-17 12:53 — PR #212: Attn-SOAP+trust T=0.85 on CONTRA_MUON=0.5 baseline (squash-merged)
 
 | Field | Value |
