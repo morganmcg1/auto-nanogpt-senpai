@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 20:05 UTC — Cycle 54 (continued): fern #291 FALSIFIED; alphonse #277 CLOSED (pod issue); both reassigned
+
+### FERN #291 — Annealed SOAP β2 (0.95→0.85): adaptive Gram EMA — FALSIFIED
+
+| Arm | β2_start | β2_end | val/loss | ffs | W&B |
+|---|---|---|---|---|---|
+| A | 0.95 | 0.85 | 3.2790 | 3150 | `joq5iz2h` |
+| B | 0.92 | 0.88 | NaN (step 25) | — | `ku1hbldn` |
+
+Arm A: n=1 trial (trial 2 killed — gap Δ=+0.0032 exceeds max n=1 rescue potential). Misses both bars.
+Arm B: NaN by step 25. β2=0.92 starts in the documented multi-seed instability zone; the hypothesis that "annealing protects the start" was wrong — instability hits within 25 steps, before EMA can decay to safe range.
+
+**Mechanistic insight — why μ-anneal works but β2-anneal doesn't**:
+> μ controls a velocity-like momentum buffer (scalar contraction). Retiming it is forgiving because buffer quantity = gradient magnitude, robust to EMA rate.
+> β2 controls the **Gram EMA matrix** whose eigendecomposition drives Muon's rotation. Eigenvectors are highly sensitive to perturbations, especially early in training when basis hasn't converged.
+> The matching constraint `SOAP_PRECOND_FREQ ≈ 1/(1-β2)` (PR #271) means annealing β2 while keeping freq=10 static **breaks the optimal coupling**. At β2=0.95, optimal freq=20; at β2=0.85, optimal freq=7. Static freq=10 only matches at β2=0.90.
+
+Fern reassigned → PR #304: anneal SOAP_PRECOND_FREQ (15→7 and 7→15) while keeping β2=0.90 static. Tests the orthogonal axis that respects the matching constraint.
+
+### ALPHONSE #277 — SOAP eigenbasis freeze after step K — CLOSED (untested)
+
+All 8 runs on alphonse's pod NaN'd at step 25-125. Student ran a critical diagnostic (POD-DIAG baseline, run `ej3fvmpy`) with freeze code **completely removed** — reverted to pre-#277 state — and it ALSO NaN'd at step 125. Side-by-side trajectory byte-identical with K=100 freeze run.
+
+**Conclusion**: the merged-stack baseline itself is unstable on alphonse's pod. The freeze mechanism is untested (not falsified). Peer pods (tanjiro, frieren, fern) run healthy on identical config. This is a pod-specific issue (hardware/CUDA/driver/data-shard).
+
+My earlier interpretation ("125 steps after freeze = 125 steps of compounding misalignment") was **wrong** — the POD-DIAG diagnostic proved the NaN is independent of the freeze. Acknowledging error; alphonse caught it correctly.
+
+Alphonse reassigned → PR #303: pod diagnostic (env fingerprint + hard reset + clean baseline repro). No training experiment until pod health confirmed.
+
+---
+
 ## 2026-05-17 ~17:30 — Cycle 54 (continued): nezuko #273 FALSIFIED with strongest mechanistic insight; nezuko reassigned (#295)
 
 ### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO) — FALSIFIED
