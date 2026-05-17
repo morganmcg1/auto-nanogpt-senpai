@@ -1,24 +1,25 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #106, ~19:21 UTC)
+- **Last updated:** 2026-05-17 (poll #107, ~19:40 UTC)
 - **⭐⭐⭐ FRIEREN PHASE 2 ON TRACK — 2/4 trials TERMINAL, BOTH STRONG**:
   - Trial 0=3.270223 ffs=3125
   - **Trial 1=3.269885 ffs=3125** (BELOW n=4 threshold 3.269362 individually!)
   - 2-trial mean=3.270054 (std=0.000239)
-  - Trial 2/4 in-flight at step 7091 (~589/3250 internal, ~18% of trial)
-  - Trial 3/4 pending (~111 min after t2)
-  - ETA n=4 terminal **~22:45Z** (~3h25min from now)
+  - Trial 2/4 in-flight, ym6jprxe step 7493/13000 (~991/3250 within trial, ~30% of trial 2)
+  - Trial 3/4 pending (~110 min after t2 terminal)
+  - ETA n=4 terminal **~22:45Z** (~3h05min from now)
   - For n=4 merge (mu ≤ 3.269362), trials 2+3 mean must be ≤ 3.268670 (tight but feasible — trial-to-trial std only 0.00024)
   - **POTENTIAL FIRST MERGE WINNER SINCE PR #162.** PR has `needs_rebase` — student warned at 17:35Z to prep rebase post-terminal.
-- **NO NEW TERMINALS this poll** — all 8 students mid-flight. Approaching milestones (per agent W&B query):
-  - **thorfinn** Cell C? `32n3p8a8` step 3019/3250 (~93%, ETA ~8 min, ~19:29Z). Cell D pending. Stale_wip ack'd (#264).
-  - **nezuko** AGC Cell A? `5l7vmnhf` step 2955/3250 (~91%, ETA ~10 min, ~19:31Z). Cells B-E pending.
-  - **edward** β2-warmup Cell C? `oifl1px1` step 2715/3250 (~84%, ETA ~20 min, ~19:41Z). Cells D-E pending.
-  - **tanjiro** combo-confirm trial 1/4 at step 5292/13000 (~63% of trial 1). ETA all-trials terminal ~04:30Z. Trial 0=3.27156 modest, unlikely merge winner at n=4.
-  - **alphonse** AdamW eps Cell D? `zxiaakjm` step 1567/3250 (~48%). Cell B (1e-9)=3.2739, Cell C (1e-8) pending or running. Cell E queued.
-  - **askeladd** NS5 coeff Cell A? `0gjpqh9x` step 1605/3250 (~49%). Phase 1 5-cell sweep just started; ETA Phase 1 ~5h.
-  - **fern** SOAP Q/K shared Gram Cell A? `raaqoxgr` step 776/3250 (~24%). Phase 1 ETA ~2h.
-- **PR #228 needs_rebase** is persistent flag — student must rebase post-terminal if merge eligible.
+- **NEW TERMINALS THIS POLL (3 cells):**
+  - **THORFINN Cell C** (α=0.5) `32n3p8a8` FINISHED **val=3.27558 ffs=3175** (Δ=+0.00422, ~3.6σ — worse). Trend: A=3.27496, B=3.27263 ⭐ best, C=3.27558. Inverted-U with peak at α=0.3 (mild EMA). Cell D α=0.7 just launched (step 93). Advisor comment posted on #264.
+  - **NEZUKO Cell B** (AGC λ=0.01) `5l7vmnhf` FINISHED **val=3.27226 ffs=3150** (Δ=+0.00090, ~0.76σ — neutral). **Scale-invariance hypothesis confirmed**: clip_rate=1.0 (every param clipped) yet val_loss within 0.0002 of unclipped ctrl A=3.27208. Cell C λ=0.03 just launched (step 7). Advisor comment posted on #283.
+  - **ALPHONSE Cell C** (eps=1e-8) `74bh7oal` FINISHED **val=3.27481 ffs=3150** (Δ=+0.00345, ~2.9σ — worse). Trend: A(1e-10)=3.27379 ⭐ best, B(1e-9)=3.27388, C(1e-8)=3.27481. eps=1e-10 default is near-optimal. Cell D (1e-7) running step 1953/3250 (~60%).
+- **NEAR-TERMINAL (single digit min):**
+  - **EDWARD Cell C** (β2-warmup 50→500) `oifl1px1` step 3074/3250 (~95%, ETA ~3 min). val=3.28892 at this step — **WILL FAIL 3.28 kill gate**. Trend so far: A(no warmup)=3.27266 ⭐ best, B(50→200)=3.27340 (worse), C(50→500) ≥ 3.28 (much worse). Longer warmup harms. Cells D(0.70→200) and E(0.30→200) pending.
+- **MID-FLIGHT (no action):**
+  - **tanjiro** combo-confirm trial 1/4 at step 5682/13000 (~44%). Trial 0=3.27156. ETA terminal ~04:30Z.
+  - **askeladd** NS5 coeff Cell A `0gjpqh9x` step 2000/3250 (~62%). 5-cell Phase 1 ETA ~5h.
+  - **fern** SOAP Q/K shared Gram Cell A step 1176/3250 (~36%). Phase 1 ETA ~2h.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
