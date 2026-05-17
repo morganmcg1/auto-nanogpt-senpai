@@ -1,22 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #103, ~20:35 UTC)
+- **Last updated:** 2026-05-17 (poll #104, ~21:05 UTC)
 - **⭐⭐ FRIEREN PHASE 2 HEALTHY**: `ym6jprxe` **Trial 0 FINAL: val=3.27022 ffs=3125** (Δ=-0.00114 vs baseline). **Now in Trial 1/4 at step 1426/3250.** For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. ETA all-trials terminal ~22:30Z. **STRONGEST MERGE CANDIDATE.** PR has `needs_rebase` — rebase before merge.
 - **NEW TERMINALS THIS POLL (3 cells finished, sweeps advance):**
   - **nezuko Cell A** (AGC ctrl, λ=0) `1j9tl8k9` FINISHED **val=3.27208 ffs=3150** (Δ=+0.00072 vs baseline, ~0.6σ). Cell B (λ=0.01) `5l7vmnhf` auto-launched 17:41Z, step 566.
   - **thorfinn Cell B** (eigvec EMA α=0.3) `37w0mwla` FINISHED **val=3.27263 ffs=3125** (Δ=+0.00127, ~1.1σ; ffs matches baseline best). Cell C (α=0.5) `32n3p8a8` auto-launched 17:43Z, step 537.
   - **edward Cell B** (β2-warmup 0.50→0.90 over 200) `gf426fxo` FINISHED **val=3.27340 ffs=3150** (Δ=+0.00204, ~1.7σ). Cell C (warmup over 500) `oifl1px1` auto-launched, step 235. β2-warmup so far not helping at n=1 (Cell B worse than Cell A control).
-- **⭐⭐ FRIEREN trial 1/4 at 43%** (step 5626/13000). Trial 0 best_val=3.27022 ffs=3125 still strongest signal. ETA all-trials terminal ~02:30Z (revised, slower than earlier estimate).
-- **TANJIRO trial 1/4 at step 4196/13000 (~32%)**. Trial 0 best=3.27156 (Δ=+0.0002 vs baseline). For n=4 merge: trials 1-3 mean ≤ 3.2683.
-- **NO new terminals this poll** — most cells mid-flight (40-60%). Next terminals expected ~21:00Z (nezuko Cell B, thorfinn Cell C, edward Cell C).
+- **⭐⭐ FRIEREN trial 1/4 at step 6300/13000 (48%)**. Trial 0 best_val=3.27022 ffs=3125. Expected merge probability ~5-10% at n=4 given trial 0 magnitude. ETA terminal ~03:00Z.
+- **TANJIRO trial 1/4 at step 4447/13000 (~34%)**. Trial 0 best=3.27156. ETA terminal ~04:30Z.
+- **FERN PR #302**: Q/K shared Gram implementation in progress. Debug run `n6qju5ip` in `g1r5-fern/soap-attn-qk-gram-debug` group at step 23 — testing implementation. Real Phase 1 run expected within next 1-2h.
+- **NO new terminals this poll** — sequential cells still mid-flight. Step counts per run are 3250 total (not 13000 as poll #103 estimates assumed). Corrected ETAs:
+  - nezuko Cell B `5l7vmnhf` step 2162/3250 (67%). ETA ~22:25Z.
+  - thorfinn Cell C `32n3p8a8` step 2195/3250 (68%). ETA ~22:20Z.
+  - edward Cell C `oifl1px1` step 1872/3250 (58%). ETA ~22:50Z.
+  - alphonse Cell D `zxiaakjm` step 716/3250 (22%). ETA ~23:40Z.
+  - askeladd #301 Cell A `0gjpqh9x` step 755/3250 (23%). ETA ~23:40Z.
 - **PR #228 needs_rebase** is persistent flag — student must rebase post-terminal if merge eligible.
-- **AWAITING (mid-flight):**
-  - nezuko Cell B `5l7vmnhf` step 1750/3250 (54%). ETA ~15min.
-  - thorfinn Cell C `32n3p8a8` step 1875/3250 (58%). ETA ~12min.
-  - edward Cell C `oifl1px1` step 1375/3250 (42%). ETA ~22min.
-  - alphonse Cell D `zxiaakjm` step 375/3250 (12%). ETA ~55min.
-  - askeladd #301 Cell A `0gjpqh9x` step 375 (12%). ETA ~55min.
-  - fern #302: no runs yet (assigned 30min ago — implementing Q/K Gram sharing requires nontrivial code change, expect launch within 1h).
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
