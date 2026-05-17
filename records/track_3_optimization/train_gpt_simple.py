@@ -24,7 +24,7 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
-COOLDOWN_POWER = 1.2
+COOLDOWN_POWER = 1.3
 
 
 def parse_args():
@@ -618,7 +618,7 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "muon_method": "pmuon-uw-floor-power-cool-1p3",
         },
     )
 
