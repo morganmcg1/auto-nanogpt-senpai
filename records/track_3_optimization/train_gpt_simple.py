@@ -57,6 +57,12 @@ def parse_args():
     # Default 0.0 disables (no-op for bit-identical baseline).
     parser.add_argument("--aux_agc_clip_ratio", type=float, default=float(os.environ.get("AUX_AGC_CLIP_RATIO", "0.0")))
     parser.add_argument("--aux_agc_eps", type=float, default=float(os.environ.get("AUX_AGC_EPS", "1e-3")))
+    # Per-layer depth-scaled MuonH LR. "none" preserves baseline (single group across all blocks).
+    # "sqrt"/"linear"/"inv_sqrt" splits the MuonH params into 12 per-block groups, each with
+    # lr = muonh_lr * depth_scale(i), normalised so mean(depth_scale)=1.0 (preserves global mean LR).
+    parser.add_argument("--depth_lr_scale_mode", type=str,
+                        default=os.environ.get("DEPTH_LR_SCALE_MODE", "none"),
+                        choices=["none", "sqrt", "linear", "inv_sqrt"])
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -560,9 +566,16 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        if isinstance(params[0], torch.nn.Parameter):
+            # Flat list: sort by size for round-robin across ranks.
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            # List of param-group dicts: sort each group's params by size in place.
+            assert isinstance(params[0], dict)
+            for group in params:
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -677,6 +690,7 @@ if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on aux AdamW groups (clip_ratio=0)", console=True)
+print0(f"Depth LR scale mode={args.depth_lr_scale_mode}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -725,6 +739,7 @@ if dist.get_rank() == 0:
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
+            "depth_lr_scale_mode": args.depth_lr_scale_mode,
         },
     )
 
@@ -775,11 +790,49 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # Per-layer MuonH groups. With mode="none" we keep the legacy single-group
+    # construction (bit-identical to the prior baseline). Otherwise we split the
+    # 2D block params into one group per transformer block and scale each group's
+    # lr by depth_scales[i] (normalised so mean=1.0 preserves the global mean LR).
+    num_layers = len(model.blocks)
+    if args.depth_lr_scale_mode == "none":
+        depth_scales = [1.0] * num_layers
+    else:
+        if args.depth_lr_scale_mode == "sqrt":
+            raw_scales = [((i + 1) / num_layers) ** 0.5 for i in range(num_layers)]
+        elif args.depth_lr_scale_mode == "linear":
+            raw_scales = [(i + 1) / num_layers for i in range(num_layers)]
+        elif args.depth_lr_scale_mode == "inv_sqrt":
+            raw_scales = [((num_layers - i) / num_layers) ** 0.5 for i in range(num_layers)]
+        else:
+            raise ValueError(f"unknown depth_lr_scale_mode {args.depth_lr_scale_mode}")
+        mean_scale = sum(raw_scales) / num_layers
+        depth_scales = [s / mean_scale for s in raw_scales]
+
+    if args.depth_lr_scale_mode == "none":
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
+        optimizer2.param_groups[0]["_depth_scale"] = 1.0
+        optimizer2.param_groups[0]["_layer_idx"] = -1
+    else:
+        muonh_groups = []
+        for i, block in enumerate(model.blocks):
+            block_2d_params = [p for p in block.parameters() if p.ndim >= 2]
+            if block_2d_params:
+                muonh_groups.append(dict(
+                    params=block_2d_params,
+                    lr=args.muonh_lr * depth_scales[i],
+                    name=f"muonh_block_{i:02d}",
+                    _depth_scale=depth_scales[i],
+                    _layer_idx=i,
+                ))
+        optimizer2 = MuonH(muonh_groups,
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -798,6 +851,20 @@ for trial_idx in range(args.num_trials):
         group["cooldown_frac"] = aux_cooldown_frac
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
+
+    # Per-layer depth-scale telemetry: log the resolved scales and initial LRs
+    # at trial start so the W&B run shows the exact per-block allocation.
+    if dist.get_rank() == 0:
+        depth_metrics = {
+            "trial": trial_idx,
+            "train/depth_lr/mode_idx": ["none", "sqrt", "linear", "inv_sqrt"].index(args.depth_lr_scale_mode),
+        }
+        for group in optimizer2.param_groups:
+            layer_idx = group.get("_layer_idx", -1)
+            if layer_idx >= 0:
+                depth_metrics[f"train/depth_lr/scale_layer_{layer_idx:02d}"] = float(group["_depth_scale"])
+                depth_metrics[f"train/depth_lr/initial_lr_layer_{layer_idx:02d}"] = float(group["initial_lr"])
+        wandb.log(depth_metrics, step=trial_idx * (train_steps + 1))
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     def set_hparams(step):
