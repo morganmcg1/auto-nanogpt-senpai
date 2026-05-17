@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 17:22 UTC (boot 110)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 re-escalation #5 posted 17:22 UTC. Pod degrading (NaN at step 25).
+- **Last updated:** 2026-05-17 19:35 UTC (boot 113)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 re-escalation #6 posted 19:30 UTC (~24h since last operator update).
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **Baseline: val=3.27585, ffs=3275 (n=4 mean).**
 
 ## ⭐ Current baseline (post-PR #114 merge)
@@ -25,23 +25,23 @@ All active screens must use `--muonh_mode scale_invariant`. Default is `clip`.
 
 ## ⭐⭐ Strong WIN candidates in-flight (n=4 confirm)
 
-1. **Edward AGC clip=0.05** (#237): n=1=**3.27382**, trial 1=**3.2738** ✓, trial 2=**3.2757** ✓. Trial 3 in-progress (~step 7400). Interim n=2 mean=**3.27475** — already passes stat rule (Δ=-0.00110, (3.28-3.27475)×√2=0.0074 ≥ 0.004). ETA full n=4 ~20:15 UTC.
-2. **Frieren cosine cooldown** (#243): n=1=**3.2746** (Δ=-0.00125 vs baseline). n=4 confirm `qupprvwc` at step ~3125/3325 (trial 1 near terminal). ETA trial 1 terminal ~17:25 UTC.
+1. **Edward AGC aux clip=0.05** (#237): trial 1=**3.2738**, trial 2=**3.2757**, trial 3=**3.2741** (terminal at cum_step 9977). **Interim n=3 mean=3.27453** — passes stat rule (Δ=-0.00132, (3.28-3.27453)×√3=0.0095 ≥ 0.004). Trial 4 mid-cooldown step ~1925/3325, val=3.5222. **ETA terminal ~20:15 UTC. Expected MERGE.**
+2. **Frieren cosine cooldown** (#243): trial 1=**3.2746** ✓. Trial 3 in progress, `qupprvwc` step 7522/13300, val=3.83. ETA terminal ~22:00 UTC.
 
 If BOTH confirm at n=4: stacks cleanly (AGC=aux gradient clip; cosine=MuonH LR shape — orthogonal mechanisms). Combined Δ ≈ -0.002 to -0.003 vs baseline.
 
-## Active experiments (boot 110 — 17:22 UTC 2026-05-17)
+## Active experiments (boot 113 — 19:35 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#294** | nezuko | **NS5-outer velocity** (NS5-orthogonalize outer velocity direction before MuLoCo pull) | Newly assigned 17:22 UTC |
-| **#292** | fern | **Per-layer depth-scaled MuonH LR** (sqrt/linear/inv_sqrt, normalized mean=1.0) | Newly assigned 17:18 UTC |
-| **#284** | thorfinn | **AGC-outer** (Trust-region clip on MuLoCo outer update, clip_frac∈{0.02, 0.05, 0.10}) | clip=0.02 `pkjdpomh` step 1650 val=4.08 — likely hitting kill gate at step 3000 (~17:50) |
-| **#282** | askeladd | EMA tail averaging (Polyak-Ruppert, decay∈{0.999, 0.9995, 0.9999}) | decay=0.999 `g3qng1yg` ~terminal, val=3.38 mid-cooldown; arms 2+3 pending |
-| **#260** | tanjiro | MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} | mom=0.3=3.2776 NEG; mom=0.5=3.2750 (baseline clone); **mom=0.9 `me1zrslw` DIVERGED** (val=6.59 step 2370) — kill gate ~17:35 |
-| **#243** | frieren | MuonH-SI cooldown shape cosine n=4 confirm | `qupprvwc` trial 1 near terminal (~17:25) |
-| **#237** | edward | AGC aux clip=0.05 n=4 confirm | trial 1=3.2738, trial 2=3.2757, trial 3 in-progress |
-| **#190** | alphonse | NS5 iter count sweep | **BLOCKED** — Issue #164 (pod `gd103cc` broken, degrading, re-escalation #5 at 17:22 UTC) |
+| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L) GPT-3 style, scale∈{0.2041, 0.2887, 1.0}) | Smoke broken (3× attempts, val=10.82 NaN); advisor diagnostic posted 19:34 UTC — attr names should be `proj` not `c_proj`; guard on `scale != 1.0` |
+| **#296** | askeladd | **Outer Lookahead** (k-step slow-snap on MuLoCo trajectory, k∈{5,10}, α∈{0.5,0.9}) | k=10/α=0.5 `zp2yu879` running step 500 healthy; **k=5/α=0.5 CRASHED 2× at step ~470** |
+| **#294** | nezuko | **NS5-outer velocity** (NS5-orthogonalize outer velocity direction before MuLoCo pull) | Smoke phase complete (val≈4.14 ✓); n=1 screen launch pending |
+| **#292** | fern | **Per-layer depth-scaled MuonH LR** (sqrt/linear/inv_sqrt, normalized mean=1.0) | sqrt arm `nhds4haw` step 2730/3325, val=3.39 — ETA terminal ~20:00 UTC; linear/inv_sqrt queued |
+| **#284** | thorfinn | **AGC-outer** (Trust-region clip on MuLoCo outer update, clip_frac∈{0.02, 0.05, 0.10}) | **clip=0.02 `pkjdpomh` CRASHED step 3149 val=3.60** (kill gate fired); clip=0.05 `kjvo1gep` step 2425 val=3.53 — likely hits kill gate at step 3000. Advisor diagnostic posted 19:30 — outer update RMS aggregates 30 inner steps, AGC over-clips |
+| **#243** | frieren | MuonH-SI cosine cooldown n=4 confirm | trial 1=3.2746; trial 3 in progress at step 7522/13300 val=3.83 |
+| **#237** | edward | AGC aux clip=0.05 n=4 confirm | **n=3 mean=3.27453** PASSES; trial 4 mid-cooldown ETA ~20:15 UTC. Expected MERGE |
+| **#190** | alphonse | NS5 iter count sweep | **BLOCKED** — Issue #164 (pod `gd103cc` broken, re-escalation #6 at 19:30 UTC, ~24h foregone GPU) |
 
 **8/8 students assigned.** No idle slots.
 
