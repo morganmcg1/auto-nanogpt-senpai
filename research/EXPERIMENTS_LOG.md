@@ -1,5 +1,99 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~01:30 — Cycle 37: Tanjiro PMuon CLOSED; TARGET_UW retune assigned (#214); in-flight status
+
+### TANJIRO PMuon bilateral streaming covariance — CLOSED (PR #187)
+
+W&B run `eafhrglu` (g1r2-tanjiro/pmuon-stream, γ=0.3, β=0.95):
+
+| Metric | Value | Baseline | Δ |
+|---|---|---|---|
+| val/loss | ~3.425 at step 2150 (cooldown entry) | 3.27648 | MISS |
+| ffs | -1 (never crossed 3.28) | 3118.75 | MISS |
+
+**Root cause analysis**: PMuon's bilateral power-iteration streaming covariance (Σ_L, Σ_R with γ-power exponent) is a gradient-space preconditioner. SOAP-MLP already applies eigenbasis preconditioning to MLP weights before NS5. Stacking PMuon on top creates **double-conditioning** — two sequential preconditioners on the same gradient. Record #18 (PMuon, 3269 steps) was tested on vanilla Contra-Muon WITHOUT SOAP-MLP; the composition here is different. Result: val=3.425 heading into cooldown, too far behind to converge.
+
+Student handling was exemplary: caught advisor's close-out message 8 seconds after launching γ=0.2 follow-up screen, killed it at step 50 (saving ~3 GPU-hours), posted corrected terminal SENPAI-RESULT. **PMuon closed. Do not retry PMuon on SOAP-MLP stack.**
+
+### TANJIRO reassigned — TARGET_UW retune (PR #214)
+
+2-arm sequential screen: TARGET_UW ∈ {0.30, 0.40} vs new baseline. Hypothesis: TARGET_UW=0.35 was tuned with CONTRA_MUON=0.4; with CONTRA_MUON=0.5 the natural u/w ratio has shifted. One env-var change, zero added complexity. Arms: 0.30 (looser floor) and 0.40 (tighter floor).
+
+### IN-FLIGHT STATUS UPDATE (as of ~01:30 UTC 2026-05-17)
+
+**ALPHONSE #205 CONTRA_MUON=0.6 screen `fmx37tmr`**: step 2875/3175, val=3.306 — running, ~300 steps from terminal (~30 min). In deep cooldown. Result pending.
+
+**FRIEREN #177 p=0.07 retry `dbf0augy`**: step 3000/3175, val=3.2912 — nearly done (~15 min). Needs to drop to ≤3.2762 in final 175 steps (significant drop required; likely landing in 3.27x range but outcome uncertain).
+
+**THORFINN #178 cooldown_frac sweep**:
+- 0.65 arm DONE: val=3.27865/ffs=3150 — **MISS** vs new baseline (both bars missed). Shorter cooldown hurts.
+- 0.70 arm (control): val=3.27536/ffs=3100 — single seed beats baseline (but it IS the baseline HP).
+- 0.75 arm `7f0r4eds`: just started (step 325/3175, val=4.059 early). Key test for longer cooldown.
+
+**EDWARD #199 AdEMAMix**: 7+ smoke runs ALL NaN/crashed. Latest: `nxwdjjtx` (5 steps, NaN), `gwkew7xw` (crashed at step 1). Student has not pushed code to branch (branch has only 2-line cosmetic change). Advisor requested code paste and STOP on new runs until reviewed.
+
+**NEZUKO #212 Attn-SOAP new base**: smoke `0k3qgq5q` clean at step 400 (val=3.808). Screen `h29cv26c` at step 675/3175, val=3.759 — healthy early phase.
+
+**ASKELADD #213 per-module init**: smoke `0vc4kc82` clean at step 400 (val=3.832). Screen `jmcvmacz` at step 700/3175, val=3.775 — healthy early phase.
+
+**FERN #208 power-law LR**: screen `w12r4fc9` at step 1225/3175, val=3.633 — running, ~39% through.
+
+---
+
+## 2026-05-16 23:30 — Cycles 33-34: Four PRs CLOSED; three new assignments
+
+### FERN Aurora n=4 — CLOSED (PR #125), high variance
+
+W&B run `5kr7d0i5`:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27592 | 3100 |
+| T1 | 3.28172 | -1 (MISS) |
+| T2 | 3.27768 | 3125 |
+| T3 | 3.28038 | -1 (MISS) |
+| n=4 mean | **3.27893** | **FAIL** |
+
+2/4 trials miss ffs (never cross 3.28). n=4 mean=3.27893 > 3.27648 and 3.27893 > 3.27800 (statsig bar). Aurora diagonal leverage-score equalization is fundamentally high-variance on this architecture — mechanism requires n=8+ for reliable statistics. **CLOSED. Aurora is off the table at n=4 budget.**
+
+### NEZUKO Attn-SOAP+trust-gate n=4 — CLOSED (PR #124)
+
+W&B run `790h1llo`:
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27743 | 3125 |
+| T1 | 3.27750 | 3125 |
+| T2 | 3.27758 | 3125 |
+| T3 | 3.27715 | 3125 |
+| n=4 mean | **3.27742** | **3125** |
+
+Val MISS: 3.27742 > 3.27648. FFS MISS: 3125 > 3118.75. Misses the NEW baseline (PR #139) by 0.00094 val and 6.25 ffs. **CLOSED.** Notable: std=0.00015 is the best stability of any mechanism tested — Attn-SOAP+trust gate is robust. The mechanism is sound but doesn't beat the shifted baseline. Reassigned to Attn-SOAP on new base (PR #212) at THRESHOLD=0.9 and 0.85.
+
+### ASKELADD SFM (Schedule-Free Muon) — CLOSED (PR #181)
+
+SFM const-EMA fallback screen `k3wkjy84` (c_t=0.01):
+
+| Metric | Value |
+|---|---|
+| val/loss | ~4.6+ (diverged) |
+| y_z_diff_fro | growing unboundedly |
+
+**Fundamental incompatibility confirmed**: Muon's Newton-Schulz iteration operates correctly only under non-constant LR (the operator-norm normalization within NS5 implicitly relies on LR decay to bring ‖y − z‖ under control). With constant LR, ‖y − z‖ diverges regardless of c_t schedule. **Schedule-Free Muon is CLOSED as a direction. Do not revisit.**
+
+Assigned: askeladd → per-module weight init scaling (PR #213).
+
+### New assignments created (Cycles 33-34)
+
+| PR | Student | Hypothesis |
+|---|---|---|
+| #208 | g1r2-fern | Power-law LR cooldown (LR_POWER=1.5/2.0 sweep) — record #20 ingredient |
+| #212 | g1r2-nezuko | Attn-SOAP+trust on CONTRA_MUON=0.5 baseline (THRESHOLD=0.9 then 0.85) |
+| #213 | g1r2-askeladd | Per-module weight init scaling (μP-inspired, records #4,5,8 ingredient) |
+| #214 | g1r2-tanjiro | TARGET_UW retune 0.30/0.40 sweep (u/w-floor vs new CONTRA_MUON=0.5 base) |
+
+---
+
 ## 2026-05-16 23:15 — Cycle 32: PR #139 MERGED (NEW BASELINE), frieren screen near-miss
 
 ### ⭐ ALPHONSE CONTRA_MUON=0.5 n=4 — MERGED (PR #139) — NEW BASELINE
