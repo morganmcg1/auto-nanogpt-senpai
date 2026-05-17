@@ -1,15 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 19:25 UTC. **Wave-4 first merge confirmed**: tanjiro #235 (embed linear_floor=15% cooldown) merged 18:05 UTC. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **Wave-5 in flight (post-merge state)**:
-  - alphonse #236 (β2=0.99): 3 confirmation seeds launched 18:25 UTC on rebased baseline, ETA ~21:00 UTC
-  - askeladd #241 (mu=0.97): rebased + replanned on new baseline at 18:28 UTC
-  - edward #280 (per-aux-group β2): rebased + 4-arm chain restarted at 18:24 UTC; ETA ~01:00 UTC next day
-  - nezuko #266 (lm_head/scalar floor): continuing on OLD baseline (within-pod Δ valid); arm-B clear NEG (Δ=+0.00295); arm-C restarted at 18:54 UTC after rebase whiplash; ETA arm-C ~20:35 UTC, arm-D ~22:15 UTC
-  - **thorfinn #279 (AdamW aux WD) ⚡ STRONG ARM-B SIGNAL**: arm-A=3.27435 (drift gate pass), arm-B (WD=0.005)=**3.27158** (within-pod Δ=−0.00277, single-seed gain ~entire #235 magnitude). Embed Fro 22528 (vs arm-A 71680 — 3× shrinkage). arm-C running, ETA ~21:07 UTC; chain ETA ~23:00 UTC
-  - frieren #285 (NS cooldown SHAPE): arm-A in flight ~65% (no terminal posted yet)
-  - fern #290 (NS per-iter c schedule): arm-A terminal val=3.27667 (OLD baseline drift gate); arm-B running ~32%; chain ETA ~23:37 UTC
-  - tanjiro #300 (embed floor value sweep): arm-A launched 19:10 UTC with smoke verified (floor=0.156 at step 200 matches schedule); chain ETA ~02:10 UTC
-All 8 students WIP, zero idle.
+- **Date:** 2026-05-17 22:25 UTC. **Wave-5 mid-flight state — multiple confirmation chains converging**. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **In-flight summary**:
+  - **alphonse #236 (β2=0.99) — confirmation n=2 mean BELOW baseline**: seed-1=3.27480 (+0.00046), seed-2=**3.27341** (−0.00093). **n=2 mean=3.27411** < baseline. Seed-3 ETA ~23:45 UTC. Margin thin (−0.00023 below), seed-3 decisive.
+  - **askeladd #241 (mu=0.97) — confirmation chain UNFAVORABLE**: seed-1=3.27421 (−0.00013), seed-2=**3.27664** (+0.00230). **n=2 mean=3.27543** ABOVE baseline. Seed-3 needs ≤3.27217 for merge gate. Seed-3 ETA ~00:08 UTC. Likely DOA for merge — informative as cross-pod confirmation noise baseline.
+  - **edward #280 (per-group β2) — STRONG TRIANGULATION**: arm-B (embed=0.99 only) val=**3.27351**, within-pod Δ=**−0.00280**. Matches alphonse's global β2 gain — embed is the load-bearing aux group. arm-C (lm_head=0.99) ETA ~23:53 UTC, arm-D (scalar=0.99) ETA ~01:37 UTC.
+  - **nezuko #266 (lm_head/scalar floor) — productive null**: arm-B (lm_head floor) HURTS (Δ=+0.00295), arm-C (scalar floor) NEUTRAL (Δ=−0.00073, within null). arm-D (both) ETA ~22:30 UTC. Embed-specific floor mechanism confirmed.
+  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=3 confirmation chain in flight**: arm-B screening val=3.27158 (Δ=−0.00277, U-curve apex). Seed-2 ETA ~23:15 UTC, terminal SENPAI-RESULT ~01:15 UTC.
+  - **fern #290 (NS per-iter c schedule) — mechanism partially falsified**: arm-B (agg→gentle) val=3.27382 (Δ=−0.00285, STRONG), arm-C (gentle→agg) val=3.27574 (Δ=−0.00093, WITHIN NULL — does not regress as strict asymmetric predicts). arm-D (linear_ramp_down) ETA ~23:58 UTC — discriminator between order vs variance-redistribution.
+  - frieren #285 (NS cooldown SHAPE): arms A, B, C all flat. arm-D (late_peak) still running.
+  - tanjiro #300 (embed floor value sweep): arm-A complete val=3.27441 (drift gate pass); arm-B (floor=0.10) running; chain ETA ~02:10 UTC.
+All 8 students WIP, zero idle. **3 strong wave-5 signals**: alphonse β2=0.99 (mid-confirmation), thorfinn aux WD=0.005 (mid-confirmation), edward embed-β2=0.99 (mechanism triangulation). fern c-schedule mechanism partially redrawn.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27434** — tanjiro embed linear_floor=15% cooldown, PR #235 merged 2026-05-17
