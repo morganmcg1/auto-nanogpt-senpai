@@ -618,7 +618,11 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "muon_method": "pmuon-uw-floor-power-cool-1p2-lmhead-lr-2x",
+            "aux_embed_lr": 0.3,
+            "aux_lmhead_lr": 1/160,
+            "aux_lmhead_lr_factor": 2.0,
+            "aux_scalars_lr": 0.01,
         },
     )
 
@@ -651,7 +655,7 @@ for trial_idx in range(args.num_trials):
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
@@ -794,6 +798,9 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        lmhead_pre_step_clone = None
+        if dist.get_rank() == 0 and telemetry_due:
+            lmhead_pre_step_clone = model.proj.weight.detach().clone()
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -823,6 +830,31 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            lmhead_p = model.proj.weight
+            if lmhead_p.grad is not None and lmhead_pre_step_clone is not None:
+                lmhead_initial_lr = next(
+                    g["initial_lr"] for g in optimizer1.param_groups if g.get("name") == "adam_lm_head"
+                )
+                lmhead_grad_norm = float(lmhead_p.grad.detach().norm().item())
+                lmhead_param_norm = float(lmhead_p.detach().norm().item())
+                lmhead_lr_now = lmhead_initial_lr * sched_eta
+                lmhead_update_norm_heuristic = lmhead_lr_now * lmhead_grad_norm
+                actual_delta = (lmhead_p.detach() - lmhead_pre_step_clone)
+                lmhead_update_norm_actual = float(actual_delta.norm().item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "aux/lmhead_grad_norm": lmhead_grad_norm,
+                    "aux/lmhead_param_norm": lmhead_param_norm,
+                    "aux/lmhead_update_norm": lmhead_update_norm_heuristic,
+                    "aux/lmhead_update_norm_actual": lmhead_update_norm_actual,
+                    "aux/lmhead_update_to_param_ratio": (lmhead_update_norm_heuristic / lmhead_param_norm) if lmhead_param_norm > 0 else 0.0,
+                    "aux/lmhead_actual_update_to_param_ratio": (lmhead_update_norm_actual / lmhead_param_norm) if lmhead_param_norm > 0 else 0.0,
+                    "aux/lmhead_actual_to_heuristic_ratio": (lmhead_update_norm_actual / lmhead_update_norm_heuristic) if lmhead_update_norm_heuristic > 0 else 0.0,
+                    "aux/lmhead_lr": lmhead_lr_now,
+                    "aux/lmhead_initial_lr": lmhead_initial_lr,
+                }, step=wandb_step)
+            lmhead_pre_step_clone = None
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
