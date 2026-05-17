@@ -708,3 +708,26 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
   - n=6: need mu ≤ 3.272103 (advisor approved expanding to n=6 after n=4 passes).
 - **Status**: AWAITING n=4 confirm. If passes, expand to n=6 immediately, then merge as new baseline (expected ~ffs=3125, mu~3.270).
 
+
+## 2026-05-17 20:33 UTC — PR #262: AdamW eps sweep (embed/lm_head eps ∈ {1e-10,1e-9,1e-8,1e-7}) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-alphonse/adamw-eps-embed-lmhead`
+- Student: g1r5-alphonse
+- Hypothesis: eps=1e-10 (AdamW default for aux groups) may be suboptimal for embed/lm_head due to rare token second-moment near-zero — higher eps would stabilize low-v elements.
+
+| Cell | eps | val/loss | ffs | W&B run | Δ vs (old) baseline |
+|------|-----|----------|-----|---------|---------------------|
+| A (ctrl) | 1e-10 | 3.27379 | 3150 | `4em1x12v` | +0.000055 |
+| B | 1e-9 | 3.27388 | 3150 | `ptcttsgd` | +0.000145 |
+| C | 1e-8 | 3.27481 | 3150 | `74bh7oal` | +0.001075 |
+| D | 1e-7 | 3.27472 | 3150 | `zxiaakjm` | +0.000985 |
+
+**Notes:**
+- Runs used OLD baseline stack (lr_mlp default=0.035, launched before PR #162 merged). Against NEW baseline (mu=3.271362), all cells are ~Δ+0.002 — clean neutral regardless.
+- Trend: weakly monotonic in wrong direction (higher eps → slightly worse). eps_dominant_fraction <0.7% at eps=1e-7 → mechanism barely engages.
+- v_min/adam_embed=0 across all cells → rare token second-moments are zero but don't bottleneck training.
+- effective_lr_p95 decreasing with higher eps (0.15354 → 0.15127) confirms eps clipping is functional but negligible in scale.
+
+**Conclusion:** eps=1e-10 default is near-optimal at this 3250-step budget. The rare-token-underflow story is real but the affected parameter slice (~0.6% of embed elements) is too small to move val/loss against seed noise.
+
+**Follow-on:** PR #306 (alphonse) — lm_head LR sweep. Hardcoded lr_lm_head=1/320=0.003125 never swept. Natural counterpart to frieren PR #228 embed_lr signal.
