@@ -52,6 +52,15 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # Aux optimizer (1D / embed / lm_head) selection. "adamw" preserves the
+    # baseline; "lion" swaps in Chen et al. 2023 sign-momentum optimizer.
+    # aux_lion_lr_scale multiplies the per-group aux LRs (embed=0.3, lm_head=1/320,
+    # scalars=0.01) when Lion is selected. 1.0 = same LR as AdamW; standard Lion
+    # guidance is ~3-10x smaller LR than AdamW.
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"), choices=["adamw", "lion"])
+    parser.add_argument("--aux_lion_lr_scale", type=float, default=float(os.environ.get("AUX_LION_LR_SCALE", "1.0")))
+    parser.add_argument("--aux_lion_beta1", type=float, default=float(os.environ.get("AUX_LION_BETA1", "0.9")))
+    parser.add_argument("--aux_lion_beta2", type=float, default=float(os.environ.get("AUX_LION_BETA2", "0.99")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -602,6 +611,52 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al. 2023, "Symbolic Discovery of Optimization Algorithms").
+
+    Update: p <- p - lr * sign(b1 * m + (1 - b1) * g)
+    Momentum: m <- b2 * m + (1 - b2) * g
+    Decoupled weight decay matches AdamW: p <- p * (1 - lr * wd).
+
+    Only one buffer per parameter (exp_avg). For the aux groups in this script
+    (embed, lm_head, scalars) that is a small VRAM win over AdamW. Lion typically
+    wants 3-10x smaller LR than AdamW; the caller is expected to apply that
+    scaling explicitly via --aux_lion_lr_scale.
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            b1, b2 = group["betas"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                if wd != 0:
+                    p.data.mul_(1.0 - lr * wd)
+                state = self.state[p]
+                if "exp_avg" not in state:
+                    state["exp_avg"] = torch.zeros_like(p.data)
+                exp_avg = state["exp_avg"]
+                # Compute update direction with a copy of the momentum buffer to
+                # avoid mutating exp_avg before applying sign().
+                update = exp_avg.mul(b1).add_(g, alpha=1.0 - b1).sign_()
+                p.data.add_(update, alpha=-lr)
+                # Update the persistent momentum buffer (note: different betas
+                # from the update direction is intentional in Lion).
+                exp_avg.mul_(b2).add_(g, alpha=1.0 - b2)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -684,6 +739,10 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_lion_lr_scale": args.aux_lion_lr_scale,
+            "aux_lion_beta1": args.aux_lion_beta1,
+            "aux_lion_beta2": args.aux_lion_beta2,
         },
     )
 
@@ -730,10 +789,26 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    aux_lrs = {"embed": 0.3, "lm_head": 1.0 / 320.0, "scalars": 0.01}
+    if args.aux_optimizer == "lion":
+        scale = args.aux_lion_lr_scale
+        aux_betas = (args.aux_lion_beta1, args.aux_lion_beta2)
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=aux_lrs["embed"] * scale, name="lion_embed"),
+                           dict(params=[model.proj.weight], lr=aux_lrs["lm_head"] * scale, name="lion_lm_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=aux_lrs["scalars"] * scale, name="lion_scalars")],
+                          betas=aux_betas, weight_decay=0.0)
+        if trial_idx == 0:
+            print0(f"Aux optimizer: Lion betas={aux_betas} lr_scale={scale} "
+                   f"effective_lrs=embed={aux_lrs['embed']*scale:.6g} "
+                   f"lm_head={aux_lrs['lm_head']*scale:.6g} "
+                   f"scalars={aux_lrs['scalars']*scale:.6g}", console=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=aux_lrs["embed"], name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=aux_lrs["lm_head"], name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=aux_lrs["scalars"], name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+        if trial_idx == 0:
+            print0("Aux optimizer: AdamW betas=(0.8, 0.95) eps=1e-10", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
