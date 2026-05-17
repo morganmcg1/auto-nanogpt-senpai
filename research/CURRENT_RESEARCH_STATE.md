@@ -1,6 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #85, ~14:20 UTC)
+- **Last updated:** 2026-05-17 (poll #86, ~15:00 UTC)
+- **⭐ HOT SIGNAL:** frieren PR #228 Cell D (lr_embed=0.80) n=1 = **3.2707** — beats new baseline by Δ=-0.000662. Strongest n=1 in portfolio. Briefed student on n=4 promotion plan after Cell E (lr=1.20) completes.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
@@ -13,14 +14,14 @@
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
 | 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **✅ MERGED 12:42Z** — n=6 mu=3.271362, ffs_mean=3141.67. New baseline. |
 | 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram) | explore | **CLOSED 12:07Z** — trials 0/1 = 3.27368/3.28081. Per-head Grams have MORE eigenvec noise, not less. Clean negative. Reassigned PR #264 (eigvec EMA). |
-| 264  | g1r5-thorfinn   | SOAP eigvec EMA: smooth attn eigenbasis across refreshes (α sweep 0,0.3,0.5,0.7,0.9) | explore | WIP — no runs visible in W&B yet (possibly different group name). Cells not started per W&B. |
-| 270  | g1r5-edward     | SOAP beta2 cold-start warmup: ramp β₂ from low→0.90 over first K steps to fix early eigenvec noise | explore | **NEW ASSIGNED ~14:10Z** — 5 cells: ctrl + {0.50/200, 0.50/500, 0.70/200, 0.30/200}. ETA Phase-1 ~23:00Z. |
-| 262  | g1r5-alphonse   | AdamW eps sweep on embed/lm_head: eps ∈ {1e-10, 1e-9, 1e-8, 1e-7} | exploit | **NEW ASSIGNED** — follows PR #196 (col-only SOAP closed). Tests if rare-token v-buffer underflow drives instability. Cell A control starting. ETA Phase-1 ~17:00Z. |
-| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | Cells A(8)=3.27444, B(10)=3.2739, C(12)=3.27687 FINISHED. **Cell D(14) running ~step 1032.** Cell E(16) queued. All vs old baseline — none beat new baseline 3.271362. |
-| 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} | exploit | Cells A/B/C FINISHED: 3.2803/3.2750/3.2740. **Cell D (lr=0.80) `uaczok17` running ~60%.** Cell E queued. Best so far Cell C (lr_embed=0.50). All above new baseline 3.271362. |
-| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | n=4 `asym-wd-C-confirm-0035-0015-n4` RUNNING at step ~7687 (trial 1-2 of 4 in progress). Trial 0 FINISHED val=3.27040. Cell D `asym-wd-D-0035-0035-n2` heartbeat 4.4h stale (likely dead — just comparison arm). ETA n=4 complete ~16:00Z. |
-| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | Cell A (λ=0) FINISHED val=3.275183 (vs new baseline Δ+0.0038). Cell B (λ=1e-4) FINISHED val=3.272995 (Δ+0.0016, sub-statsig). Cell C (λ=1e-3) CRASHING+relaunching. Cells D/E queued. Advisory comment left. |
-| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | Cells A(0.93)=3.27922, B(0.97)=3.27348, C(1.03)=3.27433 FINISHED. **Cell D (γ=1.07) started at step ~12.** All cells worse than new baseline 3.271362. |
+| 264  | g1r5-thorfinn   | SOAP eigvec EMA: smooth attn eigenbasis across refreshes (α sweep 0,0.3,0.5,0.7,0.9) | explore | Cell A (α=0 ctrl) running step ~1179/3250 val=3.5914. Cell B (α=0.3) crashed at step 0 — needs investigation. |
+| 270  | g1r5-edward     | SOAP beta2 cold-start warmup: ramp β₂ from low→0.90 over first K steps to fix early eigenvec noise | explore | Cell A (ctrl) running step ~787/3250 val=3.6997. Multiple earlier crashed attempts, current run progressing. |
+| 262  | g1r5-alphonse   | AdamW eps sweep on embed/lm_head: eps ∈ {1e-10, 1e-9, 1e-8, 1e-7} | exploit | Cell A (eps=1e-10 ctrl) running step ~2950/3250 (91%, near final). val=3.3005 mid-run. Cells B/C/D queued. |
+| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | Cells A(8)=3.27444, B(10)=3.27390, C(12)=3.27687, D(14)=3.27480 FINISHED. **Cell E(16) running step ~463/3250.** B (10 iters) is best n=1; all worse than new baseline. Stale_wip false positive cleared, advisor comment posted. |
+| 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} | exploit | Cells A(0.10)=3.2803, B(0.30)=3.2750, C(0.50)=3.2740, **D(0.80)=3.2707 ⭐** FINISHED. Cell E(1.20) running step ~2262. **Cell D beats new baseline 3.271362 by Δ=-0.000662 at n=1 — strongest signal in portfolio. Advisor comment: promote D to n=4 after E completes.** |
+| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | n=4 `asym-wd-C-confirm-0035-0015-n4` RUNNING. Trial 0 FINISHED val=3.27040. Cell D zombie (6h-old heartbeat) — likely dead, just comparison arm. ETA n=4 complete ~16-18:00Z. |
+| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | Cell A (λ=0)=3.2752, Cell B (λ=1e-4)=3.2730 FINISHED. **Cell C (λ=1e-3) running step ~3056/3250 val=3.2896 — likely worse than baseline.** Cells D/E queued. Damping shows monotonic improvement A>B but B still doesn't beat new baseline. |
+| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | Cells A(0.93)=3.27922, B(0.97)=3.2756, C(1.03)=3.2743 FINISHED. **Cell D (γ=1.07) running step ~2824/3250 val=3.3396.** Best so far Cell C (γ=1.03). All n=1 worse than new baseline 3.271362. |
 | 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | **CLOSED 11:33Z** — all 3 LR arms regress vs old baseline. Vocab-row curvature is load-bearing for lm_head; Muon spectral norm is wrong inductive bias. Reassigned PR #262 (AdamW eps). |
 
 ## Closed PRs Summary
@@ -104,16 +105,16 @@
 
 ## Next Research Directions (post lr_mlp=0.055 merge)
 
-1. **Joint-confirm: lr_mlp=0.055 + wd_mlp=0.035/wd_attn=0.015** — once tanjiro n=4 closes (~16:00Z), reassign tanjiro to this joint-confirm. Expected Δ≈−0.001; n=6 statsig at ~3.269 is achievable.
-2. **SOAP beta2 cold-start warmup** (edward PR #270) — NEW in flight. If β₂_init=0.50 wins, this stacks with lr_mlp=0.055 immediately.
-3. **SOAP attn damping** (fern PR #249) — Cell C crashing; if any λ > 0 beats new baseline, promote n=4 immediately.
-4. **AdamW eps tuning** (alphonse PR #262) — Cell A running. If eps=1e-8/1e-7 wins, stack immediately.
-5. **SOAP eigvec EMA** (thorfinn PR #264) — no runs visible yet. First cell should appear soon.
-6. **Embed LR optimization** (frieren PR #228) — best cell so far C(lr_embed=0.50)=3.2740; all cells worse than new baseline. Follow-up: stack winner with lr_mlp=0.055 in a joint confirm.
-7. **NS5 iters** (askeladd #232) — B(10) is best n=1 at 3.2739; if any cell beats new baseline, stack. Otherwise data suggests 10 iters is optimal direction.
-8. **KL-SOAP-H / PMuon** (records #19/#18) — wave-4 candidates if current mechanism slots exhaust.
-9. **Joint multi-axis confirm**: Ultimate goal = stack lr_mlp=0.055 + best_wd + best_eps + best_eigvec on n=6. Design this confirm run once individual components have non-null signals.
-10. **Do NOT re-assign:** Cautious-Muon (PR #98 closed), Lookahead (PR #49), SWA/Polyak (PR #50), Schedule-free Muon (PR #121/#155).
+1. **⭐ Embed LR optimization (frieren PR #228)** — Cell D (lr_embed=0.80) = **3.2707** n=1, beats new baseline by Δ=-0.000662. STRONGEST signal in portfolio. Advisor comment posted directing n=4 confirm after Cell E (lr=1.20) completes (~30 min). If n=4 mean lands ≤ 3.269362, merge. **This is the most likely next merge.**
+2. **Joint-confirm: lr_mlp=0.055 + wd_mlp=0.035/wd_attn=0.015** — once tanjiro n=4 closes (~16-18:00Z), reassign tanjiro to this joint-confirm. Expected Δ≈−0.001; n=6 statsig at ~3.269 is achievable.
+3. **SOAP beta2 cold-start warmup** (edward PR #270) — NEW in flight. If β₂_init=0.50 wins, stacks with lr_mlp=0.055.
+4. **SOAP attn damping** (fern PR #249) — Cell A=3.2752, B=3.2730 monotonic improvement. Cell C running. If any λ > 0 beats new baseline at n=1, promote.
+5. **AdamW eps tuning** (alphonse PR #262) — Cell A control near done. If eps=1e-8/1e-7 wins, complements frieren's embed_lr signal (both attack embed/lm_head).
+6. **SOAP eigvec EMA** (thorfinn PR #264) — Cell A control mid-run. Cell B crashed at step 0 (investigate).
+7. **NS5 iters** (askeladd #232) — Cell summary A(8)=3.27444, B(10)=3.27390, C(12)=3.27687, D(14)=3.27480, E(16) running. B (10 iters) best n=1; no cell beats baseline.
+8. **Per-layer LR decay** (nezuko #210) — Cells A/B/C done, none beat baseline. Cell D (γ=1.07) running.
+9. **Joint multi-axis confirm**: Ultimate goal = stack lr_mlp=0.055 + lr_embed=0.80 + best_wd + best_eps on n=6.
+10. **Do NOT re-assign:** Cautious-Muon (PR #98), Lookahead (PR #49), SWA/Polyak (PR #50), Schedule-free Muon (PR #121/#155), Per-head SOAP (PR #220), Col-only SOAP lm_head (PR #196), z-loss (PR #186), depth-scaled init (PR #148), beta2 cooldown (PR #175 — note: edward PR #270 tests warmup which is opposite direction).
 
 ## Standing Constraints
 
