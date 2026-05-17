@@ -30,8 +30,11 @@
 **Status:** arm-A (clip=10 ALL)=3.27434/3250 (within noise vs baseline); arm-B (aux only)=3.27729/3300 (+0.003 regression); arm-C (muon only)=3.27500/3275 (within noise). arm-D (no clip) running step ~50, ETA terminal ~14:11 UTC.
 **Finding:** at clip=10, **aux clip is load-bearing, muon clip is essentially inert** — OPPOSITE of pre-rebase finding at clip=5. Threshold-dependent inversion (clip=5 aux-clip is harmful, clip=10 aux-clip is essential). Arm-D the decisive discriminator.
 
-### nezuko #227 (AdamW β1 cooldown decay) ✓ AXIS NULL
-**Status:** arm-A (β1=0.8 const)=3.27338/3250; arm-B (β1→0.5)=3.27834/3325 (+0.005 regression); arm-C (β1→0.3)=3.27340/3250. **arm-A ≈ arm-C within ±0.0001** — β1 cooldown decay is null. arm-B U-shape outlier likely seed noise. Awaiting terminal SENPAI-RESULT to close.
+### nezuko #227 (AdamW β1 cooldown decay) ✓ CLOSED — NULL
+**Final verdict:** arm-A=arm-C within ±0.0001 (3.2734); arm-B +0.005 regression (plausible seed noise). β1 cooldown decay is a null mechanism. PR closed 2026-05-17.
+
+### nezuko #266 (lm_head + scalar cooldown shape) 🆕 ASSIGNED
+**Hypothesis:** If tanjiro #235 embed linear_floor=15% wins, does the same floor mechanism apply to lm_head and scalar aux groups? Tests 4 arms: A (baseline control), B (lm_head floor=15%), C (scalar floor=15%), D (lm_head + scalar both floor=15%). Discriminates embed-specificity vs aux-general. Critical for wave-5 stacking strategy.
 
 ### thorfinn #233 (Wave 4 Stack A) ✓ WEAK STACK
 **Status:** arm-A (control)=3.27806/3300; arm-B (NS=8mid+16cd+clip=10)=3.27705/3300 (-0.001 within-pod, small); arm-C (NS=8mid+20cd) running step ~375, ETA terminal ~14:15 UTC. Pod inflated by +0.003 vs merged baseline; only within-pod Δ is meaningful, and Δ_AB=-0.001 is unlikely to survive re-pod variance.
@@ -48,7 +51,7 @@
 ### fern #203 (NS polynomial coefficient sweep)
 **Status:** arm-A/B/C terminal at ~3.275/3.277/3.276; arm-D (c=0.35) running step ~350. NS coef axis appears mostly flat near merged baseline.
 
-## Closed this cycle
+## Closed this cycle (wave-4)
 
 - **#185 tanjiro NS=14→8 anneal** — closed. Frieren arm-D mechanically falsified the NS-high-early hypothesis: mid-training spectrum saturates at NS=8 (extra iters mid-training buy nothing). Tanjiro's NS=14 mid + NS=8 cooldown is anti-correlated with what wins.
 - **#188 alphonse aux LR sweep** — closed. Uniform aux LR scaling triangulated as neutral (arm-B 1.5×, arm-D 0.5× both ≈ baseline). Combined with thorfinn single-peak sweep + edward arm-B regression, the clip mechanism is now: per-group asymmetric global-norm rescaling, NOT uniform LR scaling.
