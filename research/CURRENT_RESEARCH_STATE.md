@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 01:40 UTC — **TWO independent arm A WINS detected via W&B: thorfinn ns_iter=6 (sr=3050, val=3.26774) AND edward deep-strong WD (sr=3050, val=3.26819). Both tie on sr; orthogonal mechanisms. Alphonse α=0.99 NEGATIVE, nezuko/fern/tanjiro arm A NULL. Frieren γ_power=0.4 78%, nezuko γ=1.3 82%.**
+- **Last update:** 2026-05-17 02:34 UTC — **THREE INDEPENDENT ARM A WINS: frieren γ_power=0.4 sr=3025 val=3.26615 (BIGGEST, −37.5 sr), thorfinn ns_iter=6 sr=3050 val=3.26774 (−12.5 sr), edward deep-strong WD sr=3050 val=3.26819 (−12.5 sr). Nezuko closed γ axis + reassigned aux β2. 3-way stack est. sr=3000-3025, targeting Record #20 (3030).**
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3062.5 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -11,112 +11,102 @@ W&B runs: `8quuvdrj` (seed-1, sr=3075, val=3.270012) + `l5bdkm6e` (seed-2, sr=30
 
 n=2 stat-sig margin: (3.28 − 3.269090)·√2 = 0.01543 ✓
 
-**TWO PENDING NEW BASELINES (terminal post + arm B needed):**
-- **thorfinn arm A** (ns_iter=6): sr=3050, val=3.26774, run `crelrjzb` — partial posted ✓, arm B running
-- **edward arm A** (deep-strong WD): sr=3050, val=3.26819, run `7lzjw46u` — partial NOT YET posted, arm B running
+**THREE PENDING WINS (terminal post + arm B confirmation needed):**
+- **frieren arm A** (γ_power=0.4): sr=3025, val=3.26615, run `prncgzv5` — **BIGGEST (−37.5 sr)**
+- **thorfinn arm A** (ns_iter=6): sr=3050, val=3.26774, run `crelrjzb` — partial posted ✓
+- **edward arm A** (deep-strong WD): sr=3050, val=3.26819, run `7lzjw46u` — partial NOT posted
 
 ## Active experiments (status:wip)
 
-| PR  | Student     | Arm A result                                                        | Arm B status (01:40 UTC) |
-| --- | ----------- | ------------------------------------------------------------------- | ----------------- |
-| **#211** | **askeladd** | lm_head LR scan — arm A (1/160) running (~25%, step 825/3250) | Sequential |
-| **#202** | **frieren** | γ_power=0.4 running (~78%, step 2525/3250) | After arm A |
-| **#198** | **edward** | **deep-strong WD WIN sr=3050 val=3.26819** (partial pending post) | deep-weak running (~4%) |
-| **#197** | **alphonse** | EMA α=0.99 NEGATIVE sr=3100 val=3.27504 | α=0.999 running (~3%) |
-| **#195** | **fern** | cf=0.85 NULL sr=3075 val=3.27214 (partial pending post) | cf=0.5 running (~4%) |
-| **#193** | **tanjiro** | Jordan-opt NULL sr=3075 val=3.27041 (partial pending post) | cubic-Newton running (~34%) |
-| **#184** | **thorfinn** | **ns_iter=6 WIN sr=3050 val=3.26774** | ns_iter=18 running (~31%) |
-| **#179** | **nezuko** | γ=1.1 NULL on sr=3075 val=3.26813 | γ=1.3 running (~82%) |
+| PR  | Student     | Mechanism                                                           | Status (02:34 UTC) |
+| --- | ----------- | ------------------------------------------------------------------- | ------------------ |
+| **#216** | **nezuko** | **Aux AdamW β2 scan {0.99, 0.999}** (just assigned) | Arm A starting |
+| **#211** | **askeladd** | lm_head LR scan — arm A (1/160) | Running (~52%, step 1700/3250) |
+| **#202** | **frieren** | PMuon γ_power=0.4 WIN arm A; γ_power=0.2 arm B | Arm B just launched |
+| **#198** | **edward** | deep-strong WD WIN arm A; deep-weak arm B | Running (~26%, step 850/3250) |
+| **#197** | **alphonse** | EMA α=0.99 NEGATIVE; α=0.999 arm B | Running (~29%, step 950/3250) |
+| **#195** | **fern** | cf=0.85 NULL arm A; cf=0.5 arm B | Running (~29%, step 950/3250) |
+| **#193** | **tanjiro** | Jordan NULL arm A; cubic-Newton arm B | Running (~60%, step 1950/3250) |
+| **#184** | **thorfinn** | ns_iter=6 WIN arm A; ns_iter=18 arm B | Running (~55%, step 1801/3250) |
 
 ## Recently closed (this session)
 
 | PR  | Student  | Result | Decision |
 | --- | -------- | ------ | -------- |
-| **#131** | **askeladd** | TARGET_UW {0.25, 0.30, 0.40, 0.45}: all NULL; best sr=3100 (uw=0.30); fired_fraction collapses below uw=0.30 | **CLOSED NULL** — TARGET_UW=0.35 at fired_fraction transition sweet spot |
-| **#129** | **frieren** | β_cov scan: all 3 arms NULL; eigh shows β=0.95 at conditioning sweet spot | **CLOSED NULL** — β_cov axis fully characterized |
-| **#169** | **alphonse** | Per-head polar: sr=3125, polar saturation confirmed structural | **CLOSED NULL** |
-| **#158** | **edward** | LLRD: sr=-1 both arms (NEGATIVE) — direction reversed | **NEGATIVE** |
-| **#168** | **fern** | Cosine: sr=3075 (NULL vs merged baseline) | **CLOSED NULL** |
-| **#167** | **tanjiro** | SOAP-attn: sr=3100, post_to_pre_ratio≈1.0 | **CLOSED NULL** |
+| **#179** | **nezuko** | γ=1.1: sr=3075; γ=1.3: sr=3075 — both NULL | **CLOSED** — γ=1.2 confirmed local optimum |
+| **#131** | **askeladd** | TARGET_UW {0.25-0.45}: all NULL | **CLOSED NULL** — TARGET_UW=0.35 sweet spot |
+| **#129** | **frieren** | β_cov: all 3 arms NULL | **CLOSED NULL** — β=0.95 at optimum |
+| **#169** | **alphonse** | Per-head polar: sr=3125 | **CLOSED NULL** |
+| **#158** | **edward** | LLRD: sr=-1 both arms | **NEGATIVE** |
+| **#168** | **fern** | Cosine: sr=3075 | **CLOSED NULL** |
+| **#167** | **tanjiro** | SOAP-attn: sr=3100 | **CLOSED NULL** |
 | **#143** | **thorfinn** | Lookahead: sr=-1 both arms | **NEGATIVE** |
-| #137 | nezuko | Power-law γ=1.2 n=2: sr=3062.5 val=3.269090 | **MERGED — current baseline** |
+| #137 | nezuko | Power-law γ=1.2 n=2 | **MERGED — current baseline** |
 
-## 🏆🏆 DUAL ARM A WIN: thorfinn × edward
+## 🏆🏆🏆 THREE ARM A WINS — 3-WAY STACKING PLAN
 
-**Two orthogonal mechanisms tie on sr=3050 (n=1):**
+| Rank | Source PR | Mechanism | sr | val | Δsr |
+|---|---|---|---|---|---|
+| **#1** | frieren PR #202 arm A | γ_power=0.4 (stronger PMuon whitening) | **3025** | **3.26615** | **−37.5** |
+| #2 | thorfinn PR #184 arm A | ns_iter=6 (less precise polar) | 3050 | 3.26774 | −12.5 |
+| #3 | edward PR #198 arm A | deep-strong per-block WD | 3050 | 3.26819 | −12.5 |
 
-| Axis            | Mechanism                | Δsr vs baseline | Δval vs baseline | Bypasses PMuon u/w-floor? |
-|----------------|-------------------------|-----------------|------------------|---------------------------|
-| Polar projection | ns_iter=6 (PR #184)      | −12.5           | −0.00135         | No (still gradient direction) |
-| Weight decay   | deep-strong WD (PR #198) | −12.5           | −0.00090         | **Yes** (acts on `p` directly) |
+**All three are orthogonal mechanisms:**
+- **γ_power=0.4:** Changes the whitening exponent in PMuon's covariance preconditioning. More aggressive spectral normalization of the gradient space before polar projection.
+- **ns_iter=6:** Changes the polar projection convergence. Fewer iterations = less precise but preserves more gradient direction information. `ortho_residual=2.31` (high — "useful impurity").
+- **deep-strong WD:** Changes per-block parameter regularization. WD acts on `p` directly (`p ← p·(1−lr·wd)`), bypassing PMuon whitening and u/w-floor. Counterbalances block_11's 1.5-3× grad-norm dominance (diagnosed in PR #158).
 
-**Mechanistic distinction:**
-- **thorfinn (ns_iter=6):** changes the gradient direction quality. `polar/ortho_residual_sample=2.31` (high — less convergent) means the polar step preserves more momentum direction information. Over-orthogonalization removes useful gradient signal.
-- **edward (deep-strong WD):** changes the weight regularization. WD acts on `p` directly (`p ← p·(1 − lr·wd)`), so it bypasses PMuon whitening + u/w-floor and provides a damping term that scales with parameter magnitude. Deep-strong (block_11 = 1.5-3× grad-norm dominance, per PR #158 LLRD diagnostic) successfully counterbalances without starving its LR (LLRD's failure mode).
+**3-way stacking prediction:**
+- Conservative additive (each win independent): 3062.5 − 37.5 − 12.5 − 12.5 = **sr=3000 steps**
+- Sub-additive (50% compounding): ~3025-3037
+- This would **tie or beat Prime Intellect public Record #20 (3030 steps)**
 
-**Why these are orthogonal:** ns_iter changes the optimizer step direction at the polar projection level. Per-block WD changes the parameter regularization independently. They modify different parts of the update equation:
-- ns_iter affects `D_polar = polar(D_whitened)` (one matrix per param)
-- WD affects `p_t+1 = (1 − lr·wd)·p_t − lr·D_polar` (subtractive penalty)
-
-**Stacking prediction for Wave 7:**
-- Conservative additive estimate: 3062.5 − 12.5 − 12.5 = **3037.5** (if effects compound linearly at n=1)
-- If interactive (sub-additive): 3050 or so
-- If synergistic (super-additive, rare): could push toward 3025 or below
-- Public record is 3030 (Record #20 Contra-Soft-Muon stack)
-
-**Action plan:**
-1. Wait for thorfinn arm B (ns_iter=18) terminal (~04:30 UTC)
-2. Wait for edward arm A partial post + arm B (deep-weak) terminal (~06:20 UTC)
-3. Wave 7 PR: ns_iter=6 + deep-strong WD stacking on PMuon+u/w-floor+γ=1.2 base, n=1 screening then n=2 confirmation
-
-## Polar saturation context — updated by thorfinn finding
-
-Prior characterization was "all polar mechanism additions null". Thorfinn arm A nuances this:
-- The polar MAP itself can be changed — fewer NS iterations changes the polar projection character
-- The saturation is not "polar is always useless" but "post-polar additions are useless"
-- Action: if thorfinn terminal confirms ns_iter=6, explore {ns_iter=3, 4, 5} and interaction with γ_power
+**Wave 7 plan (3-way stack, n=2 directly):**
+- Wait for thorfinn arm B + edward arm B + frieren arm B terminals to confirm arm A wins hold
+- Then assign one student the 3-way stacking PR (n=2, seeds 1+2)
+- Expected timeline: ~04:30 UTC for thorfinn terminal; ~06:00 UTC for edward terminal
+- Frieren arm B (γ_power=0.2) ETA: ~06:00 UTC
 
 ## PMuon hyperparameter status
 
 - **β_cov** (covariance horizon): CLOSED — β=0.95 at local optimum
-- **γ_power** (whitening strength): ACTIVE PR #202 (frieren) — arm A γ_power=0.4 78% done, expect terminal ~02:30 UTC
-- **NS_iters** (polar convergence): ACTIVE PR #184 (thorfinn) — ARM A WINS at ns_iter=6
-- **NS_coef** (polar polynomial): ACTIVE PR #193 (tanjiro) — arm A Jordan NULL (sr=3075); cubic-Newton at 34%
+- **γ_power** (whitening strength): ACTIVE PR #202 — arm A 0.4 WINS BIG; arm B 0.2 just launched
+- **NS_iters** (polar convergence): ACTIVE PR #184 — arm A ns_iter=6 WINS; arm B ns_iter=18 at 55%
+- **NS_coef** (polar polynomial): ACTIVE PR #193 — arm A Jordan NULL; arm B cubic-Newton at 60%
+- **TARGET_UW** (Skylight floor): CLOSED — 0.35 at fired_fraction sweet spot
 
-**Ortho_residual connection:** Jordan coef gives residual=11.12 (worse than ns_iter=6's 2.31) but Jordan arm is NULL while ns_iter=6 WINS. Mechanism: the PATH to impure polar matters — ns_iter=6 is "early exit from good convergence direction" while Jordan is "aggressive but different polynomial path."
+## Auxiliary optimizer (AdamW) — exploration in progress
 
-## Auxiliary optimizer (AdamW) — NEW DIRECTION
-
-**First probe ever on aux optimizer hyperparameters:**
-- lm_head LR scan {1/640, 1/160} — PR #211 (askeladd) arm A (1/160) running 25%, expect terminal ~04:00 UTC
-- Static config since PR #64 era: embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, 0.95), eps=1e-10
-- Next: if PR #211 nulls, sweep aux β1={0.85, 0.95} and/or β2={0.99, 0.999}
-
-## Wave 5 — multi-axis portfolio status
-
-| PR | Mechanism | Status |
+| PR | Axis | Status |
 |---|---|---|
-| PR #137 (merged) | γ=1.2, cf=0.7 | **Baseline (sr=3062.5)** |
-| PR #179 (nezuko) | γ ∈ {1.1, 1.3}, cf=0.7 | Arm A NULL (γ=1.1 sr=3075); arm B (γ=1.3) 82% done |
-| PR #195 (fern) | γ=1.2, cf ∈ {0.5, 0.85} | Arm A NULL (cf=0.85 sr=3075); arm B running |
-| PR #184 (thorfinn) | NS_ITERS ∈ {6, 18} | **ARM A WIN (sr=3050)**; arm B 31% |
-| PR #193 (tanjiro) | NS coefficients {Jordan, cubic-Newton} | Arm A Jordan NULL (sr=3075); arm B 34% |
-| PR #197 (alphonse) | EMA weight averaging α ∈ {0.99, 0.999} | Arm A NEGATIVE (sr=3100); arm B 3% |
-| PR #198 (edward) | Per-block WD coupling {strong, weak} | **ARM A WIN (sr=3050)**; arm B running |
-| PR #202 (frieren) | PMuon γ_power ∈ {0.2, 0.4} | Arm A γ_power=0.4 at 78% done |
+| PR #211 (askeladd) | lm_head LR {1/160, 1/640} | Arm A running ~52% |
+| PR #216 (nezuko) | Aux β2 {0.99, 0.999} | Just assigned |
 
-## Null/negative tally — mechanism additions on PMuon+u/w-floor
+Static config: embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, **0.95**), eps=1e-10. β2=0.95 is unusually low vs AdamW default of 0.999.
 
-**19 consecutive nulls/negatives → TWO non-schedule WINS arm A (thorfinn + edward, both at sr=3050)**
+## Wave 5 — multi-axis portfolio final status
 
-Schedule shape confirmed win (PR #137). FIRST and SECOND non-schedule wins:
-1. NS_ITERS=6 (PR #184 arm A) — polar projection quality
-2. Deep-strong per-block WD (PR #198 arm A) — parameter regularization
+| PR | Mechanism | Final result |
+|---|---|---|
+| #137 (merged) | γ=1.2, cf=0.7 | **Baseline (sr=3062.5)** |
+| #179 (CLOSED) | γ ∈ {1.1, 1.3} | Both NULL — γ=1.2 optimum, axis closed |
+| #195 (fern) | cf ∈ {0.5, 0.85} | Arm A NULL (cf=0.85); arm B cf=0.5 running |
+| #184 (thorfinn) | NS_ITERS ∈ {6, 18} | **ARM A WIN (ns_iter=6, sr=3050)** |
+| #193 (tanjiro) | NS coefs | Arm A Jordan NULL; arm B cubic-Newton running |
+| #197 (alphonse) | EMA avg | Arm A NEGATIVE (α=0.99); arm B α=0.999 running |
+| #198 (edward) | Per-block WD | **ARM A WIN (deep-strong, sr=3050)** |
+| #202 (frieren) | γ_power ∈ {0.2, 0.4} | **ARM A WIN (γ_power=0.4, sr=3025, BIGGEST)** |
 
-Both at n=1, need terminal SENPAI-RESULTs to merge.
+## Null/negative tally
+
+**19 consecutive nulls/negatives → THREE non-schedule WINS arm A:**
+1. γ_power=0.4 (frieren PR #202 arm A) — sr=3025, biggest win
+2. ns_iter=6 (thorfinn PR #184 arm A) — sr=3050
+3. deep-strong WD (edward PR #198 arm A) — sr=3050
 
 ## Statistical rule reminder
 
 `(3.28 - mu) * sqrt(n) >= 0.004`. **Current baseline: sr=3062.5, val=3.269090** (n=2 PR #137).
-Thorfinn arm A n=1: (3.28-3.26774)×√1 = 0.01226 ✓ (margin 3× above threshold)
-Edward arm A n=1: (3.28-3.26819)×√1 = 0.01181 ✓ (margin 3× above threshold)
+- Frieren arm A n=1: (3.28−3.26615)×√1 = **0.01385 ✓** (3.46× threshold)
+- Thorfinn arm A n=1: (3.28−3.26774)×√1 = **0.01226 ✓** (3.07× threshold)
+- Edward arm A n=1: (3.28−3.26819)×√1 = **0.01181 ✓** (2.95× threshold)

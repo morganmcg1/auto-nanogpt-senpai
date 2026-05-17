@@ -849,3 +849,57 @@ Arm B status (mid-flight): thorfinn ns_iter=18 (31%), tanjiro cubic-Newton (34%)
 **Connection to PR #129 + #131 closures:** β_cov is at conditioning optimum (β=0.95) and TARGET_UW is at fired_fraction transition (0.35). PMuon hyperparameter axis is converged. Wins come from changes *around* the PMuon core: polar projection quality (NS_iter) and gradient damping (WD on `p`). γ_power (frieren PR #202) and lm_head LR (askeladd PR #211) are the next two axes to characterize.
 
 ---
+
+## 2026-05-17 02:34 UTC — PR #202 PARTIAL (arm A done): frieren γ_power=0.4 MASSIVE WIN
+
+- Branch: `g1r1-frieren/pmuon-uw-gamma-power-scan`
+- Arm A (γ_power=0.4 — stronger whitening): **sr=3025, val=3.26615** — confirmed via W&B run `prncgzv5`
+
+| Metric | γ_power=0.4 (arm A) | Baseline PR #137 | Δ |
+|---|---|---|---|
+| `speedrun/final_first_step_to_target` | **3025** | 3062.5 (n=2) | **−37.5 sr-steps** |
+| `val/loss` | **3.26615** | 3.269090 | **−0.00294** |
+| stat-sig n=1 | (3.28−3.26615)×√1 = 0.01385 ✓ | threshold 0.004 | 3.46× above threshold |
+
+**This is the single largest Δsr arm A win on the program to date.** Exceeds both thorfinn (−12.5) and edward (−12.5) by 3× on sr.
+
+**Mechanism:** γ_power controls the whitening exponent in PMuon's covariance preconditioning. With default γ_power=0.3, the spectral conditioning is moderate; with γ_power=0.4, the covariance EMA is more aggressively scaled. Hypothesis: stronger whitening better removes the ill-conditioning from block weight matrices' spectral structure, allowing the NS polar projection to operate in a more isotropic gradient space. The net effect is faster convergence in the late cooldown phase.
+
+**Three arm A wins now on PMuon+u/w+γ=1.2 base (all pending terminals):**
+1. **frieren γ_power=0.4: sr=3025, val=3.26615** (BIGGEST)
+2. thorfinn ns_iter=6: sr=3050, val=3.26774
+3. edward deep-strong WD: sr=3050, val=3.26819
+
+**Arm B (γ_power=0.2 — weaker whitening) just started.** If arm B is worse (monotone stronger→better), finer scan {0.5, 0.6} warranted. If arm B also wins, broad sweet spot (0.2–0.4 range all good).
+
+**Wave 7 stacking revision:** Original stacking plan (ns_iter=6 + deep-strong WD → est. sr=3037.5) is NOW upgraded to 3-way stack (ns_iter=6 + deep-strong WD + γ_power=0.4 → est. sr=3000-3025). This would tie/beat the Prime Intellect public Record #20 reference (3030 steps).
+
+---
+
+## 2026-05-17 02:34 UTC — PR #179 TERMINAL: nezuko γ scan CLOSED NULL
+
+- Branch: `g1r1-nezuko/pmuon-uw-gamma-scan`
+- Arm A (γ=1.1): sr=3075, val=3.26813 — NULL
+- Arm B (γ=1.3): sr=3075, val=3.27249 — NULL
+
+| Metric | γ=1.1 (arm A) | γ=1.2 (baseline, n=2) | γ=1.3 (arm B) |
+|---|---|---|---|
+| sr | 3075 | 3062.5 | 3075 |
+| val | 3.26813 | 3.269090 | 3.27249 |
+| Δsr vs γ=1.2 | +12.5 | — | +12.5 |
+
+**Conclusion:** γ=1.2 is the confirmed local optimum on the power-law cooldown concavity axis. Both 1.1 (too mild) and 1.3 (too aggressive) cross 3.28 12.5 steps later than baseline. Axis CLOSED. Terminal SENPAI-RESULT posted 02:27 UTC.
+
+Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first probe of aux optimizer variance horizon.
+
+---
+
+## 2026-05-17 02:34 UTC — PR #216 ASSIGNED: aux AdamW β2 scan (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/aux-beta2-scan`
+- Hypothesis: AdamW β2=0.95 (static since PR #64) is unusually low vs default 0.999. Scan {0.99, 0.999} to characterize variance EMA horizon.
+- Arms: β2=0.99 (arm A, longer horizon), β2=0.999 (arm B, standard AdamW)
+- Telemetry: aux/embed_effective_lr, aux/lmhead_effective_lr, aux/embed_v_mean/std per step
+- Baseline to beat: sr=3062.5, val=3.269090 (PR #137)
+
+---
