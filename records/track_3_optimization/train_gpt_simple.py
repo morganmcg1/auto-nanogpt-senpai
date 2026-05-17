@@ -35,7 +35,8 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+MUON_BASE_LR = 0.040  # PR #248 Muon base LR retune (arm B); was 0.035 baseline
+MUON_METHOD = f"pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4-muon-lr-{MUON_BASE_LR:.4f}"
 
 
 def parse_args():
@@ -690,7 +691,8 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
-            "muon_lr": 0.035,
+            "muon_lr": MUON_BASE_LR,
+            "muon_base_lr": MUON_BASE_LR,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
@@ -740,7 +742,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=MUON_BASE_LR, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -868,6 +870,7 @@ for trial_idx in range(args.num_trials):
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
+        muon_pre_grad_norm_sq = 0.0
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
                 model=model,
@@ -879,6 +882,9 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            for p in optimizer2.param_groups[0]["params"]:
+                if p.grad is not None:
+                    muon_pre_grad_norm_sq += float(p.grad.norm().item()) ** 2
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -919,6 +925,20 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            muon_params = optimizer2.param_groups[0]["params"]
+            muon_param_norm = sum(float(p.norm().item()) ** 2 for p in muon_params) ** 0.5
+            muon_update_norm = muon_pre_grad_norm_sq ** 0.5
+            muon_effective_lr = float(optimizer2.param_groups[0]["lr"])
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "muon/base_lr": MUON_BASE_LR,
+                "muon/effective_lr": muon_effective_lr,
+                "muon/sched_eta": sched_eta,
+                "muon/update_norm": muon_update_norm,
+                "muon/param_norm": muon_param_norm,
+                "muon/update_to_param_ratio": (muon_update_norm / muon_param_norm) if muon_param_norm > 0 else 0.0,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
