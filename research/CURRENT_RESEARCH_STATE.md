@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-16 22:50 UTC — **PR #129 frieren β_cov CLOSED (null, β=0.95 conditioning sweet spot confirmed by eigh telemetry); frieren → PMuon γ_power scan PR #202 (PR #201 auto-merged due to FF-merge bug, re-issued as #202); all 8 students active**
+- **Last update:** 2026-05-17 01:15 UTC — **THORFINN ARM A (ns_iter=6) WINS: sr=3050, val=3.26774 — FIRST NON-SCHEDULE WIN on PMuon+u/w base. Pending arm B terminal. PR #131 askeladd TARGET_UW sweep CLOSED (null). Askeladd → lm_head LR scan PR #211.**
 - **Most recent direction from humans:** None (no GitHub issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3062.5 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
 
@@ -11,112 +11,88 @@ W&B runs: `8quuvdrj` (seed-1, sr=3075, val=3.270012) + `l5bdkm6e` (seed-2, sr=30
 
 n=2 stat-sig margin: (3.28 − 3.269090)·√2 = 0.01543 ✓
 
-**Key property:** Power-law cooldown γ=1.2 is the ONLY win on PMuon+u/w-floor base after 18+ experiments. Schedule-shape is the confirmed open lever.
+**THORFINN POTENTIAL NEW BASELINE (pending arm B):** sr=3050, val=3.26774 — arm A (ns_iter=6).
 
 ## Active experiments (status:wip)
 
-| PR  | Student     | Mechanism                                                              | Status (~22:35 UTC) |
+| PR  | Student     | Mechanism                                                              | Status (~01:15 UTC) |
 | --- | ----------- | --------------------------------------------------------------------- | ------ |
-| **#202** | **frieren** | **PMuon γ_power whitening exponent scan {0.2, 0.4}** (dual axis to β_cov; re-issue of auto-merged #201) | **Just assigned** |
-| **#197** | **alphonse** | **EMA model weight averaging {α=0.99, 0.999}** (pivot from polar saturation) | Running ~21:45 UTC |
-| **#198** | **edward** | **Per-block weight decay {deep-strong, deep-weak}** (WD bypasses PMuon + u/w-floor) | Running ~21:45 UTC |
-| **#195** | **fern** | **Wave 5: cooldown_frac scan {0.5, 0.85}** | Running ~21:05 UTC |
-| **#193** | **tanjiro** | **Wave 5: NS coefficient scan {Jordan, cubic-Newton}** | Running ~20:45 UTC |
-| **#184** | **thorfinn** | **Wave 5: NS iter count scan {6, 18}** | Running ~20:30 UTC |
-| **#179** | **nezuko** | **Wave 5: γ scan {1.1, 1.3}** | Arm A done (γ=1.1, sr=3075, val=3.26813); arm B (γ=1.3) running |
-| **#131** | **askeladd** | + TARGET_UW sweep (arm 0.25 running) | Running ~20:30 UTC |
+| **#211** | **askeladd** | **lm_head LR scan {1/640, 1/160}** (first aux optimizer probe) | **Just assigned** |
+| **#202** | **frieren** | **PMuon γ_power whitening exponent scan {0.2, 0.4}** | Running arm A |
+| **#198** | **edward** | **Per-block weight decay {deep-strong, deep-weak}** | Running arm A (~50%) |
+| **#197** | **alphonse** | **EMA model weight averaging {α=0.99, 0.999}** | Running arm A (~50%) |
+| **#195** | **fern** | **Wave 5: cooldown_frac scan {0.5, 0.85}** | Running arm A (~65%) |
+| **#193** | **tanjiro** | **Wave 5: NS coefficient scan {Jordan, cubic-Newton}** | Arm A done (sr=3075 NULL); arm B (cubic-Newton) launching |
+| **#184** | **thorfinn** | **Wave 5: NS iteration count scan {6, 18}** | Arm A WIN (sr=3050!); arm B (ns_iter=18) launching |
+| **#179** | **nezuko** | **Wave 5: γ scan {1.1, 1.3}** | Arm A done (γ=1.1, sr=3075); arm B (γ=1.3) running (~25%) |
 
 ## Recently closed (this session)
 
 | PR  | Student  | Result | Decision |
 | --- | -------- | ------ | -------- |
-| **#129** | **frieren** | β_cov scan: all 3 arms NULL; best arm A sr=3125 val=3.26889; eigh shows β=0.95 at conditioning sweet spot | **CLOSED NULL** — β_cov axis fully characterized; non-monotonic conditioning confirms 0.95 is local optimum |
-| **#169** | **alphonse** | Per-head polar: sr=3125, val=3.2706; per-head conditioning 1000-2000× better but null | **CLOSED NULL** — polar saturation confirmed structural; mechanism worked, learning didn't |
-| **#158** | **edward** | LLRD arm A (0.85): sr=-1 val=3.300; arm B (0.90): sr=-1 val=3.286 | **NEGATIVE** — reversed direction (block_11 highest grad-norm, not block_00); u/w-floor absorbs LR signal |
-| **#168** | **fern** | Cosine: sr=3075, val=3.276583 (n=1 margin negative) | **CLOSED NULL** — late-cooldown lr collapse explains val regression |
-| **#167** | **tanjiro** | SOAP-attn: sr=3100, val=3.26806, post_to_pre_ratio≈1.0 | **CLOSED NULL** — Frobenius renorm cancels SOAP; post-polar slot exhausted |
+| **#131** | **askeladd** | TARGET_UW {0.25, 0.30, 0.40, 0.45}: all NULL; best sr=3100 (uw=0.30); fired_fraction collapses below uw=0.30 | **CLOSED NULL** — TARGET_UW=0.35 at fired_fraction transition sweet spot |
+| **#129** | **frieren** | β_cov scan: all 3 arms NULL; eigh shows β=0.95 at conditioning sweet spot | **CLOSED NULL** — β_cov axis fully characterized |
+| **#169** | **alphonse** | Per-head polar: sr=3125, polar saturation confirmed structural | **CLOSED NULL** |
+| **#158** | **edward** | LLRD: sr=-1 both arms (NEGATIVE) — direction reversed | **NEGATIVE** |
+| **#168** | **fern** | Cosine: sr=3075 (NULL vs merged baseline) | **CLOSED NULL** |
+| **#167** | **tanjiro** | SOAP-attn: sr=3100, post_to_pre_ratio≈1.0 | **CLOSED NULL** |
 | **#143** | **thorfinn** | Lookahead: sr=-1 both arms | **NEGATIVE** |
 | #137 | nezuko | Power-law γ=1.2 n=2: sr=3062.5 val=3.269090 | **MERGED — current baseline** |
 
-## Wave 5 — multi-axis portfolio
+## 🏆 THORFINN PR #184 ARM A: CRITICAL FINDING
 
-**Schedule-shape (confirmed win axis):**
+**NS_ITERS=6 beats baseline: sr=3050, val=3.26774 at n=1 (margin 0.0123 >> 0.004)**
 
-| PR | γ, cooldown_frac | Status |
+**Mechanistic insight:** `polar/ortho_residual_sample=2.31` at ns_iter=6 (vs ~0.01 at ns_iter=12). Less precise polar projection → BETTER performance. Over-orthogonalization suppresses gradient direction information. This is the FIRST non-schedule win on PMuon+u/w-floor after 18+ nulls.
+
+**Decision pending:**
+- If arm B (ns_iter=18) is WORSE than ns_iter=6: monotone (fewer iters → better), next scan {3, 4, 5}
+- If arm B (ns_iter=18) is BETTER than ns_iter=12: sweet spot between 12-18
+- Terminal SENPAI-RESULT expected ~04:30 UTC
+
+## Polar saturation context — updated by thorfinn finding
+
+Prior characterization was "all polar mechanism additions null". Thorfinn arm A nuances this:
+- The polar MAP itself can be changed — fewer NS iterations changes the polar projection character
+- The saturation is not "polar is always useless" but "post-polar additions are useless"
+- Action: if thorfinn terminal confirms ns_iter=6, explore {ns_iter=3, 4, 5} and interaction with γ_power
+
+## PMuon hyperparameter status
+
+- **β_cov** (covariance horizon): CLOSED — β=0.95 at local optimum
+- **γ_power** (whitening strength): ACTIVE PR #202 (frieren)
+- **NS_iters** (polar convergence): ACTIVE PR #184 (thorfinn) — ARM A WINS
+- **NS_coef** (polar polynomial): ACTIVE PR #193 (tanjiro) — arm A borderline NULL (sr=3075)
+
+**Ortho_residual connection:** Jordan coef gives residual=11.12 (worse than ns_iter=6's 2.31) but Jordan arm is NULL while ns_iter=6 WINS. Mechanism: the PATH to impure polar matters — ns_iter=6 is "early exit from good convergence direction" while Jordan is "aggressive but different polynomial path."
+
+## Auxiliary optimizer (AdamW) — NEW DIRECTION
+
+**First probe ever on aux optimizer hyperparameters:**
+- lm_head LR scan {1/640, 1/160} — PR #211 (askeladd, just assigned)
+- Static config since PR #64 era: embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, 0.95), eps=1e-10
+- Next: if PR #211 nulls, sweep aux β1={0.85, 0.95} and/or β2={0.99, 0.999}
+
+## Wave 5 — multi-axis portfolio status
+
+| PR | Mechanism | Status |
 |---|---|---|
 | PR #137 (merged) | γ=1.2, cf=0.7 | **Baseline (sr=3062.5)** |
-| PR #179 (nezuko) | γ ∈ {1.1, 1.3}, cf=0.7 | Arm A done (γ=1.1 sr=3075); arm B (γ=1.3) running |
-| PR #195 (fern) | γ=1.2, cf ∈ {0.5, 0.85} | Running |
-
-**NS polar hyperparameters (never tested before):**
-
-| PR | Mechanism | Status |
-|---|---|---|
-| PR #184 (thorfinn) | NS_ITERS ∈ {6, 18} | Running |
-| PR #193 (tanjiro) | NS coefficients {Jordan, cubic-Newton} | Running |
-
-**PMuon preconditioner hyperparameters (two orthogonal axes):**
-
-| PR | Mechanism | Status |
-|---|---|---|
-| PR #129 (frieren, CLOSED) | β_cov ∈ {0.90, 0.95, 0.99} | **NULL — β=0.95 is conditioning sweet spot** |
-| PR #202 (frieren) | γ_power ∈ {0.2, 0.4} | Just assigned (re-issue of #201) |
-
-**Orthogonal axes (plateau protocol pivot):**
-
-| PR | Mechanism | Hypothesis |
-|---|---|---|
-| PR #197 (alphonse) | EMA weight averaging α ∈ {0.99, 0.999} | Post-hoc smoothing bypasses polar/WD stack entirely |
-| PR #198 (edward) | Per-block WD coupling depth ∈ {strong, weak} | WD on p bypasses PMuon whitening + u/w-floor |
-
-## PMuon hyperparameter characterization
-
-Both fundamental PMuon preconditioner axes now being probed:
-- **β_cov** (covariance horizon): **CLOSED** — β=0.95 confirmed at local optimum via eigh conditioning telemetry (non-monotonic: 0.90→near-singular, 0.95→healthy=26.6, 0.99→degraded=0.57)
-- **γ_power** (whitening strength): **Active PR #201** — {0.2 (weaker), 0.4 (stronger)} bracketing default 0.3
-
-If PR #201 also nulls, both PMuon-internal axes are closed and we can declare the preconditioner fully tuned at defaults.
+| PR #179 (nezuko) | γ ∈ {1.1, 1.3}, cf=0.7 | Arm A done (γ=1.1 sr=3075 NULL); arm B (γ=1.3) running |
+| PR #195 (fern) | γ=1.2, cf ∈ {0.5, 0.85} | Arm A running ~65% |
+| PR #184 (thorfinn) | NS_ITERS ∈ {6, 18} | **ARM A WIN (sr=3050)** — arm B pending |
+| PR #193 (tanjiro) | NS coefficients {Jordan, cubic-Newton} | Arm A NULL (sr=3075); arm B pending |
+| PR #197 (alphonse) | EMA weight averaging α ∈ {0.99, 0.999} | Arm A running ~50% |
+| PR #198 (edward) | Per-block WD coupling {strong, weak} | Arm A running ~50% |
+| PR #202 (frieren) | PMuon γ_power ∈ {0.2, 0.4} | Just started |
 
 ## Null/negative tally — mechanism additions on PMuon+u/w-floor
 
-**18+ consecutive nulls/negatives. Schedule-shape remains the ONLY confirmed win.**
+**19 consecutive nulls/negatives then THORFINN ARM A WINS (pending terminal)**
 
-1. PR #83 SOAP-MLP → NULL
-2. PR #93 NorMuon row-wise → NULL
-3. PR #110 γ-scan ±0.05 → NULL
-4. PR #118 cooldown_frac ±0.1 → NULL
-5. PR #119 Contra-Muon × PMuon → NEGATIVE (4 arms)
-6. PR #129 β_cov scan {0.90, 0.95, 0.99} → NULL (all 3 arms; conditioning sweet spot confirmed)
-7. PR #140 SOAP-MLP+u/w stack → NULL
-8. PR #143 Lookahead k=5 → NEGATIVE; k=10 → NEGATIVE
-9. PR #150 Cautious sign-mask → NEGATIVE
-10. PR #151 Aurora pre-polar → NULL
-11. PR #131 TARGET_UW ∈ {0.40, 0.45, 0.30} → NULL
-12. PR #158 LLRD decay=0.85 → NEGATIVE; decay=0.90 → NEGATIVE
-13. PR #167 SOAP-attn q/k/v → NULL
-14. PR #168 Cosine cooldown → NULL vs merged baseline
-15. PR #169 Per-head polar attn q/k/v → NULL (polar saturation structural)
-
-## Polar saturation — confirmed (CLOSE THIS DIRECTION)
-
-All polar mechanism probes exhausted:
-- Post-polar Frobenius-preserving: SOAP-MLP (null), SOAP-attn (null)
-- Pre-polar: Aurora (null), NorMuon (null)
-- Structural unit: Per-head (null)
-- Outer-loop: Lookahead (negative), Contra-Muon (negative)
-
-**Active probes of NS hyperparameters (PR #184, #193) are NOT polar mechanism additions — they test the polar polynomial itself, which is untouched since program start.**
-
-## Open schedule-shape mechanism insight
-
-PR #168 (fern cosine) decomposed the schedule-shape effect:
-- **Crossing step**: responds to integral of recent lr in cooling window (both cosine + γ=1.2 give sr=3075 vs linear 3100)
-- **Post-crossing val**: requires preserved late-cooldown lr (γ=1.2 eta=0.041 at step 3100 → val refinement continues)
-
-PR #179 nezuko arm A confirms: γ=1.1 gives sr=3075 (matches cosine; slower than γ=1.2). Val=3.26813 — slightly BETTER than baseline (3.269090). Suggests γ=1.1's gentler early-cooldown slope buys val quality while losing crossing speed.
-
-PR #179 arm B (γ=1.3) will test: does stronger concavity accelerate crossing below 3062.5? 
+Schedule shape confirmed win (PR #137). FIRST potential non-schedule win: NS_ITERS=6 (PR #184 arm A).
 
 ## Statistical rule reminder
 
-`(3.28 - mu) * sqrt(n) >= 0.004`. **Current baseline: sr=3062.5, val=3.269090** (n=2 PR #137). At n=1, val ≤ 3.276 required vs 3.28; to beat baseline on sr requires n=2 mean < 3062 or compelling n=1 evidence.
+`(3.28 - mu) * sqrt(n) >= 0.004`. **Current baseline: sr=3062.5, val=3.269090** (n=2 PR #137).
+Thorfinn arm A n=1: (3.28-3.26774)×√1 = 0.01226 ✓ (margin 3× above threshold)

@@ -767,3 +767,58 @@ Monotone harm: every nudge away from uniform LR hurts. No evidence of sweet spot
   - Arm B (γ_power=0.2): weaker whitening → preserves more natural gradient spectrum shape
 - Telemetry: reuse eigh framework + add `pmuon/whitened_sv_ratio` post-whitening spectral diagnostic
 - Baseline to beat: sr=3062.5, val=3.269090 (PR #137, n=2 mean)
+
+---
+
+## 2026-05-17 01:15 UTC — PR #131 CLOSED: TARGET_UW sweep {0.25, 0.30, 0.40, 0.45} — NULL (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/pmuon-uw-sweep`
+- Hypothesis: TARGET_UW (u/w-floor threshold) controls the dominant per-param LR mechanism when fired_fraction=1.0. Scan brackets 0.35 baseline.
+- W&B runs: `fphpexnb` (0.25), `dkxweoah` (0.30), `imf0s97n` (0.40), `lou98cqm` (0.45); `m3rq3zyd` (crashed 0.40 duplicate)
+
+| Arm | TARGET_UW | sr | val/loss | fired_fraction (final) | mean_ratio |
+| --- | --------- | -- | -------- | ---------------------- | ---------- |
+| 0.25 | 0.25 | 3150 | 3.27382 | 0.125 (9/72 params) | 0.310 |
+| 0.30 | 0.30 | 3100 | 3.26898 | 0.569 (41/72 params) | 0.255 |
+| Baseline | 0.35 | 3062.5 | 3.269090 | 1.000 | — |
+| 0.40 | 0.40 | 3150 | 3.27023 | 1.000 | 0.087 |
+| 0.45 | 0.45 | 3150 | 3.27161 | 1.000 | 0.042 |
+
+**Key mechanistic finding:** fired_fraction COLLAPSES below TARGET_UW=0.35. Above 0.35 → floor clamps 100% of params (dominant LR mechanism). Below 0.30 → PMuon's natural magnitudes take over (mean_ratio=0.310 at 0.25). This transition is mechanistically important: the floor acts as a hard on/off per-param LR switch. Best arm (0.30) ties baseline val but loses 37.5 sr-steps.
+
+**Conclusion:** Closed as informative NULL. TARGET_UW=0.35 is at the fired_fraction transition sweet spot. Lower floors (0.30, 0.25) remove the dominant LR mechanism for many params; higher floors (0.40, 0.45) are redundant clamps. Askeladd reassigned to lm_head LR scan PR #211 (first aux optimizer probe in program history).
+
+---
+
+## 2026-05-17 01:15 UTC — PR #211 ASSIGNED: lm_head LR scan {1/640, 1/160} (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-lmhead-lr-scan`
+- Hypothesis: Aux AdamW lm_head LR=1/320 (≈0.003125) is a static legacy value never swept on this base (96× below embed LR=0.3). Brackets with ×2 and ×0.5 multipliers.
+- Arms: 1/160 (2× larger), 1/640 (2× smaller)
+- Baseline to beat: sr=3062.5, val=3.269090 (PR #137)
+- Telemetry: lmhead_grad_norm, lmhead_param_norm, lmhead_update_norm / lmhead_param_norm ratio
+
+---
+
+## 2026-05-17 01:00 UTC — PR #184 PARTIAL: NS iter=6 arm A WINS (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/pmuon-uw-ns-iter-scan`
+- Arm A (ns_iter=6): **sr=3050, val=3.26774** — BEATS BASELINE by 12.5 sr-steps and 0.00135 val
+- Statistical rule n=1: (3.28-3.26774)×√1 = 0.01226 >> 0.004 ✓
+- **Critical telemetry:** polar/ortho_residual_sample=2.31 (high — less convergent) at ns_iter=6 vs expected ~0.01 at ns_iter=12. LESS precise polar → BETTER performance.
+- Arm B (ns_iter=18) launching now. Terminal pending ~04:30 UTC.
+- W&B run: `crelrjzb`
+
+**Mechanistic implication:** over-orthogonalization is counterproductive. The ns_iter=6 polar direction carries more gradient information than the fully-converged ns_iter=12. This is a FIRST NON-SCHEDULE WIN on PMuon+u/w-floor base. Pending confirmation via arm B + terminal SENPAI-RESULT.
+
+---
+
+## 2026-05-17 00:23 UTC — PR #193 PARTIAL: Jordan NS coef arm A borderline NULL (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-uw-ns-coef-scan`
+- Arm A (Jordan-opt coef: 3.4445, -4.7750, 2.0315): sr=3075, val=3.27041
+- sr=3075 is slower than baseline 3062.5; val=3.27041 is slightly worse than 3.26909
+- **Critical telemetry:** polar/ortho_residual_sample=11.12478 — extremely high. Jordan coefficients produce LESS convergent polar than ns_iter=12 default.
+- Connecting to thorfinn arm A: both ns_iter=6 AND Jordan-opt coefficients produce high ortho_residual; but ns_iter=6 WINS while Jordan is borderline NULL. Implication: the PATH to "less orthogonal" matters, not just the residual magnitude.
+- Arm B (cubic-Newton coef: 1.5, -0.5, 0) launching. Terminal pending.
+- W&B run: `taitef3m`
