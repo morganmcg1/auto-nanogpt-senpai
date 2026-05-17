@@ -9,6 +9,78 @@ All 8 PRs are draft, `status:wip`, awaiting student execution. See
 `CURRENT_RESEARCH_STATE.md` for the full assignment table. Results will be
 appended below as each PR returns terminal `SENPAI-RESULT` markers.
 
+## 2026-05-17 12:42 UTC — PR #162: Per-group LR: lr_mlp=0.055 sweep — **MERGED ✓** (NEW BASELINE)
+
+- Branch: `g1r5-edward/per-group-lr-sweep`
+- Student: g1r5-edward
+- Hypothesis: Per-group LR differentiation on the SOAP-MLP + SOAP-attn stack — sweep lr_mlp ∈ {0.025, 0.035, 0.045, 0.055, 0.065} with lr_attn fixed at 0.035. Inverted-U optimum at lr_mlp=0.055 predicted from curvature structure: SOAP whitening lets MLP block tolerate higher LR than attn.
+
+**Screen results (n=1 each)**
+
+| Cell | lr_mlp | val/loss | ffs | W&B |
+|------|--------|----------|-----|-----|
+| A    | 0.025  | 3.27769  | 3200 | zgchg6u5 |
+| B    | 0.035 (ctrl) | 3.27569 | 3175 | eabllnva |
+| C    | 0.045  | 3.27131  | 3125 | hjizd4ca |
+| **D** | **0.055** | **3.26987** | **3125** | **w0o14lia** |
+| E    | 0.065  | 3.27236  | 3150 | 4j1ai2qr |
+
+**n=6 confirm results (all non-cherry-picked)**
+
+| Trial | Source | best_val_loss | ffs |
+|-------|--------|---------------|-----|
+| 0 | t1jfegcf | 3.27025 | 3125 |
+| 1 | t1jfegcf | 3.27237 | 3150 |
+| 2 | t1jfegcf | 3.27283 | 3150 |
+| 3 | t1jfegcf | 3.27161 | 3150 |
+| 4 | 3j8v4owb | 3.26978 | 3125 |
+| 5 | 3j8v4owb | 3.27133 | 3150 |
+| **mean** | | **3.271362** | **3141.67** |
+
+- **Statsig:** `(3.273735 − 3.271362) × √6 = 0.005813 ≥ 0.004` ✅ PASS (1.45× margin)
+- Analysis: Clean inverted-U with peak at lr_mlp=0.055 (1.57× baseline lr). SOAP whitening on MLP allows higher effective LR since preconditioner absorbs curvature heterogeneity. Attn (cos_sim ≈ 0.81) cannot tolerate higher LR (PR #209 confirmed monotonic regression on lr_attn axis) — so per-group split is the correct design: lr_mlp=0.055, lr_attn=0.035. n=4 missed statsig by 0.000028 (0.025σ); n=6 extension cleared with generous slack.
+- **New baseline:** mu=3.271362 (std=0.001181, n=6), ffs_mean=3141.67, ffs_best=3125
+- **New merge statsig rule:** `(3.271362 - mu) × sqrt(n) ≥ 0.004` → mu ≤ 3.269362 for n=4, ≤ 3.269729 for n=6
+
+---
+
+## 2026-05-17 11:33 UTC — PR #196: Col-only SOAP for lm_head (AdamW→Muon) — CLOSED (clean negative)
+
+- Branch: `g1r5-alphonse/soap-lm-head-col-only`
+- Student: g1r5-alphonse
+- Hypothesis: Replace AdamW on lm_head (50304×768) with Muon+col-only SOAP (768×768 col-Gram). Remove vocab-row scaling, retain feature-dimension preconditioning.
+
+| Arm | lr | trials | best_val | mean_val | ffs | W&B |
+|-----|----|--------|----------|----------|-----|-----|
+| C   | 0.020 | 2 | 3.27786 | 3.27838 | 3212 | vk1x1dno |
+| B   | 0.010 | 1 (killed) | 3.28106 | — | -1 | vqfxng50 |
+| A   | 0.005 | 1 (killed) | 3.28436 | — | -1 | of0uuvj7 |
+
+- **Baseline** (PR #116): mu=3.273735, ffs=3150. All arms worse.
+- Analysis: Fundamental mechanism failure, not LR mis-tuning. (1) Vocab-side curvature (50304-row axis) captures per-token-frequency structure — discarding it removes essential scaling signal. (2) Muon's spectral norm flattens rare-token gradients that should have their own update scales. (3) Non-monotonic LR landscape with all arms ≥ 3.28 for arms A/B = gate tripping across the board. Student's root-cause diagnosis correct.
+- Suggested follow-up: AdamW eps tuning on embed/lm_head (PR #262 assigned to alphonse) — refine AdamW config rather than replacing AdamW.
+
+---
+
+## 2026-05-17 12:07 UTC — PR #220: Per-head SOAP on attn (12×64×64 block-diagonal Gram) — CLOSED (dead-end)
+
+- Branch: `g1r5-thorfinn/per-head-soap-attn`
+- Student: g1r5-thorfinn
+- Hypothesis: Replace single 768×768 attn SOAP Gram with 12 per-head 64×64 block-diagonal Grams (4 attn projections × 12 heads × 64×64). Rationale: per-head structure tracks head-specific curvature, potentially closing the cos_sim_mean_attn gap (0.81 vs MLP 0.88).
+
+| Trial | val/loss | ffs | Source |
+|-------|----------|-----|--------|
+| 0 | 3.27368 | 3150 | 4qxghq80 |
+| 1 | 3.28081 | -1 (REGRESSION) | 4qxghq80 |
+| n=2 partial mean | 3.27725 | — | — |
+
+- Kill decision (after trial 1): best-case n=4 mean with 2 ideal trials at 3.26978 = 3.27351 → still above old n=4 threshold 3.271735. **Cannot pass even with perfect remaining trials.** GPU freed at 12:07Z.
+- Analysis: Per-head 64×64 blocks have HIGHER eigenvector noise than full 768×768 Gram (smaller matrix → more degenerate near-zero eigenvalues → more eigenvector flipping per refresh). Trial 1 regression (val=3.281) vs trial 0 (val=3.274) confirms variance increased, not decreased. The full 768×768 Gram actually has better spectral conditioning from the cross-head co-activation signal.
+- cos_sim_mean_per_head_aggregate ≈ 0.737 (lower than full-attn SOAP 0.81) — confirms per-head conditioning is LESS stable.
+- Suggested follow-up: SOAP eigenvector EMA across refreshes (PR #264 assigned to thorfinn) — stabilize the existing 768×768 Gram's eigenbasis rather than fragmenting it.
+
+---
+
 ## 2026-05-17 06:15 UTC — PR #175: SOAP β2 cooldown annealing (β2 0.90→0.75) — CLOSED (neutral)
 
 - Branch: `g1r5-askeladd/soap-beta2-cooldown-anneal`
