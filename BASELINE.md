@@ -7,7 +7,28 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-17 04:30 UTC — PR #193: Cubic-Newton NS Coefficients (a=1.5, b=-0.5, c=0) (g1r1-tanjiro) ← CURRENT BEST
+### 2026-05-17 06:40 UTC — PR #202: PMuon γ_power=0.4 (frieren arm A WIN) (g1r1-frieren) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 3025 (n=1)
+- **val/loss:** 3.26615 (n=1)
+- **stat-sig margin:** (3.28 − 3.26615)·√1 = 0.01385 ≥ 0.004 ✓ (3.46×)
+- **Δ vs PR #193 baseline:** −25 sr-steps ✅, −0.00158 val ✅ (absolute sr=3025 < 3050)
+- **W&B run:** `prncgzv5`
+- **Key config:** cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon + u/w-floor + γ=1.2 cooldown + **γ_power=0.4** (was 0.3). Other: NS_ITERS=12, muon_lr=0.035, wd=0.025, embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, 0.95), eps=1e-10.
+- **Mechanism:** Increasing γ_power from 0.3 → 0.4 makes PMuon's bilateral whitening more aggressive. The whitened SV ratio increases (mean 9.37 at γ=0.4 vs 5.89 at γ=0.2), and the covariance eigh condition number grows (lcov_eigh_ratio median 18441 vs 7509). Stronger whitening pre-conditions the gradient direction more precisely, reducing steps to the 3.28 crossing. The monotone signal (γ=0.2 → sr=3050, γ=0.3 → sr=3062.5, γ=0.4 → sr=3025) suggests finer optimum near {0.5, 0.6}.
+- **Note:** Arm A tested on PR #137 base (pre-cubic-Newton, sr vs 3062.5 baseline). Merged onto cubic-Newton base (PR #193) as compound. Wave 7 stack (PR #225 thorfinn) will independently confirm γ_power=0.4 on cubic-Newton base.
+- **Statistical threshold (n=1):** val ≤ 3.276 to clear bar. New **n=1 threshold: val ≤ 3.275** (tighter: (3.28 − 3.26615)·√1 ≥ 0.004, so new bar = 3.276).
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "baseline-reproduction-pr202" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** Arm B (γ_power=0.2) sr=3050 val=3.268887 — ties new baseline on sr, slight val regression. Monotone direction confirmed. Next: scan γ_power ∈ {0.5, 0.6}. Spectral diagnostic telemetry (pmuon_spectral_diag, 100-step logging) added to train_gpt_simple.py.
+
+### 2026-05-17 04:30 UTC — PR #193: Cubic-Newton NS Coefficients (a=1.5, b=-0.5, c=0) (g1r1-tanjiro)
 
 - **speedrun/final_first_step_to_target:** 3050 (n=1; seed-1 only)
 - **val/loss:** 3.26773 (n=1)
