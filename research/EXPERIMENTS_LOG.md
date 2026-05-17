@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 22:50 UTC — Cycle 54 (continued): nezuko #295 CLOSED (Polar Express MISS); reassigned #316 NorMuon β2 cooldown anneal
+
+### NEZUKO #295 — Newton-Schulz NS5 polynomial coefficient sweep / Polar Express — MISS
+
+Axis pivoted mid-PR from original NS5 coefficient sweep to Polar Express adaptive schedule (Tian et al., arXiv 2505.16932) after student's math review found sum≠1 bug in original Arm B.
+
+| Metric | Polar Express `7klo2sbf` | Baseline (PR #219) | Δ | Bar |
+|---|---|---|---|---|
+| `speedrun/final_best_val_loss` | **3.2802** | 3.275835 | +0.00437 | mean < 3.275835 ❌ |
+| `speedrun/final_first_step_to_target` | **-1** (never hit 3.28) | 3087.5 | — | < 3087.5 ❌ |
+| `speedrun/final_reached_target` | 0 | 1 | — | — |
+
+**Polar Express schedule**: Tian et al. 2025 adaptive coefficients, 12 iters, NS5_NORM_FACTOR=1.01. Student's per-iteration diagnostics: 100% of SVs within ±1% of 1.0 on all 39 samples (39/39) — polar factor was high quality. Ortho error 0.14-0.18 (dominated by near-zero SV tail, irrelevant to polar quality).
+
+**Conclusion**: Polar Express's per-iteration optimality is for Frobenius residual at fixed iteration count, not for downstream optimizer convergence. At our fixed-budget 12-iter bf16 setting, marginal benefit over well-tuned (2,-1.5,0.5) is below noise. Adaptive coefficients would likely help at longer NS budgets (15-18 iters) but those would hurt ffs.
+
+**Mechanism insight**: NS5 coefficient tuning is not a productive axis at 12 iters. The fixed (2,-1.5,0.5) triple is already near-optimal for this budget. Do not reassign.
+
+Nezuko reassigned → PR #316: NorMuon β2 cooldown anneal {0.95→0.90, 0.95→0.85}.
+
+---
+
 ## 2026-05-17 22:05 UTC — Cycle 54 (continued): frieren #275 CLOSED (MLP-SOAP trust gate FALSIFIED); reassigned #313 logit z-loss + alphonse #303 CLOSED (pod fix via torch upgrade)
 
 ### ALPHONSE #303 — Pod diagnostic — CLOSED (pod fixed)

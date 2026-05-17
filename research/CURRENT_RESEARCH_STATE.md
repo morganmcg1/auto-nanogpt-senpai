@@ -3,7 +3,7 @@
 - 2026-05-17 22:30 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 - 🚨 **THORFINN #288 Arm B trial 0 hit BOTH bars at n=1**: val=3.2757 (Δ−0.000135), ffs=3075 (Δ−12.5). Cooldown-only μ anneal (MU_COOLDOWN_START=0.95 → END=0.90 from step 952). n=2 mean pending trial 1; n=4 confirmation requested.
-- 🔻 **NEZUKO #295 Polar Express MISS**: val=3.2802 (just above 3.28 target; never reached). Awaiting terminal SENPAI-RESULT post; axis to close after.
+- 🔻 **NEZUKO #295 Polar Express CLOSED**: val=3.2802 (just above 3.28 target; reached_target=0). PR closed. NS5 coefficient tuning not productive at 12 iters. Reassigned #316 (NorMuon β2 cooldown anneal).
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -48,11 +48,12 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - 50-step smoke passed (no NaN, both arms). Arm A 2-trial screen now running (~3.5h ETA).
 - Architecture confirmed: 6 heads × 128 head_dim (Q.weight = 768×768 → 6× 128×128 Gram matrices).
 
-### NEZUKO #295 — Polar Express adaptive NS5 coefficients (MISS, axis closing)
-- Pivoted to Polar Express adaptive scheme per student's math review of original arms (sum≠1 bug).
-- Run `7klo2sbf` (NS5_USE_SCHEDULE=1, Tian et al. 2025 coefficients, 12 iters, NS5_NORM_FACTOR=1.01): **MISS** — `speedrun/final_best_val_loss=3.2802` (above 3.28 target), `reached_target=0`.
-- Mechanism: at 12-iter budget in bf16, Polar Express's per-iteration optimal coefficients don't beat the well-tuned `(2,-1.5,0.5)` triple. The adaptive schedule may benefit longer (15-18 iter) NS budgets but those move us the wrong direction for ffs.
-- Awaiting terminal SENPAI-RESULT marker; will close axis and reassign.
+### NEZUKO #316 — NorMuon β2 cooldown anneal (NEW — just assigned 22:50 UTC)
+- Direct parallel to PR #288 Arm B mechanism (cooldown-phase-only anneal) on the NorMuon variance buffer
+- Arm A: NORMUON_COOLDOWN_BETA2_START=0.95 → END=0.90 (mirrors μ-anneal scale exactly; β2 decays only during cooldown from step 952)
+- Arm B: NORMUON_COOLDOWN_BETA2_START=0.95 → END=0.85 (more aggressive; faster variance adaptation)
+- Mechanism: lower β2 during cooldown lets NorMuon's per-row variance estimator track the rapidly-changing gradient scale at final steps, improving update quality at the critical LR decay phase
+- Orthogonal to all in-flight: μ anneal (PR #288) on momentum buffer; this is on variance buffer; no interaction
 
 ### FRIEREN #313 — Logit z-loss regularization (NEW — just assigned 22:05 UTC)
 - Arm A: Z_LOSS_COEF=1e-4 (PaLM-style, very small)
@@ -85,6 +86,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | #271 | fern | FALSIFIED | Decoupled SOAP freq MLP vs ATTN; refresh-freq optimum ≈ EMA horizon = 1/(1-β2) |
 | #303 | alphonse | CLOSED (pod fix) | torch 2.10.0+cu128 + mixed cu12/cu13 NCCL/cuDNN → optimizer kernel NaN at step 2-24. Fix: upgrade to torch 2.11.0+cu130 cu13-only |
 | #275 | frieren | FALSIFIED | MLP-SOAP trust gate; MLP precond is robust to rotation noise (inverse of attn). MLP eigenbasis rotates as much as attn but the precond is noise-tolerant; gating hurts |
+| #295 | nezuko | MISS | Polar Express adaptive NS5; SV quality perfect (100% within ±1% band) but no benefit over fixed (2,-1.5,0.5) at 12-iter bf16 budget. NS5 coeff tuning not productive. |
 
 ## Key patterns (updated cycle 54)
 
@@ -113,13 +115,14 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 Gap to record #20 (~3030 ffs steps): ~57.5 ffs steps.
 
 **Most promising active paths**:
-1. ⭐ **Thorfinn #288 Arm B** (cooldown-only μ anneal) — **n=1 trial 0 cleared both bars**. N=4 confirmation pending. Top priority.
-2. **Tanjiro #309** (AdamW β1 anneal) — direct parallel to merged PR #219 on the orthogonal aux-optimizer axis. Smokes done; arms launching.
-3. **Alphonse #312** (lm_head wd) — Arm A (wd=0.01) running ~step 400. Readout regularization.
-4. **Frieren #313** (logit z-loss) — baseline smoke done; z_loss arms launching.
-5. **Edward #281** (per-head SOAP) — re-implementation pushed, Arm A screen launching.
-6. **Fern #304** (annealed SOAP_PRECOND_FREQ) — pod fixed, Arm A screen `49bb9ye1` launching.
-7. **Askeladd #286** (Polyak-Ruppert EMA) — smoke rerun `bsfu3ua0` ETA 22:53 UTC.
+1. ⭐ **Thorfinn #288 Arm B** (cooldown-only μ anneal) — **n=1 trial 0 cleared both bars**. Trial 1 at step 1125/3175 as of 22:50 UTC. N=4 confirmation to be requested after n=2 mean.
+2. **Tanjiro #309** (AdamW β1 anneal) — Arm A screen `06dfy8gr` running step 525/3175, ETA ~00:10 UTC.
+3. **Alphonse #312** (lm_head wd) — Arm A (wd=0.01) running; readout regularization.
+4. **Nezuko #316** (NorMuon β2 cooldown anneal) — just assigned; smoke then Arm A/B screens.
+5. **Frieren #313** (logit z-loss) — baseline smoke; z_loss arms launching.
+6. **Edward #281** (per-head SOAP) — Arm A screen launching after re-implementation.
+7. **Fern #304** (annealed SOAP_PRECOND_FREQ) — pod fixed, Arm A screen launched.
+8. **Askeladd #286** (Polyak-Ruppert EMA) — smoke rerun `bsfu3ua0` ETA 22:53 UTC.
 
 ## Operational notes
 
