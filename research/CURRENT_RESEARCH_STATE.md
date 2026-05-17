@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 11:01 UTC — PR #216 CLOSED (β2 axis fully characterized: β2=0.95 optimal, increasing worsens). PR #258 assigned nezuko (u/w-floor pruning ablation). PR #242 arm A terminal: γ=0.5 sr=3150 — **γ_power local optimum confirmed at 0.4**. Multiple axes now closed.
+- **Last update:** 2026-05-17 11:35 UTC — PR #230 edward arm A `j4nfypgf` FINISHED sr=3050 val=3.2678 (NULL vs new baseline 3025; on stale cubic-Newton base). Arm B (β1=0.9) likely launched. PR #225 thorfinn seed 2 at step 1825 (~56%). PR #250 tanjiro arm A at step 1925 (~60%); arm B failed step 1. All 8 students still WIP — zero idle GPUs.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -17,14 +17,14 @@ Previous baselines:
 
 | PR  | Student     | Mechanism                                                           | Status (11:01 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#225** | **thorfinn** | **Wave 7: deep-WD slope=+0.5 + lm_head 1/160 on new baseline (n=2)** | Seed 1 DONE val=3.26513 sr=3025. Seed 2 step ~1100 (~34%). ETA 12:55 UTC. |
-| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Just assigned |
-| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Running |
-| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) at step ~1750 |
-| **#242** | **frieren** | γ_power finer scan {0.5, 0.6} | Arm A DONE sr=3150 NULL. Arm B γ=0.6 `d7wawe9q` 3rd attempt running. γ=0.5 crash pattern may be structural. |
-| **#231** | **fern** | Muon mu scan {0.9, 0.99} | Arm A DONE sr=3125 NULL. Arm B (mu=0.99) `gfn921tj` CRASHED step 0. Needs relaunch. |
-| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | 3rd retry arm A `j4nfypgf` step 2500 val=3.354 — running normally. |
-| **#229** | **alphonse** | NS coef (a,b) line scan {a=1.3, 1.7} | Arm A DONE sr=3075 NULL. Arm B (a=1.7) `xphiroo2` just launched step 200. |
+| **#225** | **thorfinn** | **Wave 7: deep-WD slope=+0.5 + lm_head 1/160 on new baseline (n=2)** | Seed 1 DONE val=3.26513 sr=3025. Seed 2 `phsvmx45` step 1825 (~56%). ETA ~12:55 UTC. |
+| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Running |
+| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) step 1925 (~60%). Arm B `qkxe6okw` (c=+0.25) FAILED step 1 — step-1 failure despite f'(1)=0 constraint satisfied. Awaiting student investigation. |
+| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) step 2500 (~77%) val=3.34. |
+| **#242** | **frieren** | γ_power finer scan {0.5, 0.6} | Arm A DONE sr=3150 NULL. Arm B `d7wawe9q` (γ=0.6) 3rd attempt step 750 val=3.72 — running. |
+| **#231** | **fern** | Muon mu scan {0.9, 0.99} | Arm A DONE sr=3125 NULL. Arm B `axf513rf` (mu=0.99) relaunch step 625 val=3.92 — running. |
+| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` FINISHED sr=3050 val=3.2678 (NULL on stale base — pre-PR #202). Arm B (β1=0.9) likely launched. Awaiting student SENPAI-RESULT. |
+| **#229** | **alphonse** | NS coef (a,b) line scan {a=1.3, 1.7} | Arm A DONE sr=3075 NULL. Arm B `xphiroo2` (a=1.7) step 975 val=3.69 — running. |
 
 ## Recently closed
 
