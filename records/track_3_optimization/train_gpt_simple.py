@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -454,6 +455,40 @@ NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
 NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+# Per-group AdamW aux cooldown shape. Each shape controls the multiplier on
+# the corresponding group's initial_lr during the LR cooldown phase.
+# Supported shapes: "linear" (baseline), "linear_floor:<percent>", "cosine", "quadratic".
+EMBED_COOLDOWN_SHAPE = os.environ.get("NANOGPT_EMBED_COOLDOWN_SHAPE", "linear")
+LMHEAD_COOLDOWN_SHAPE = os.environ.get("NANOGPT_LMHEAD_COOLDOWN_SHAPE", "linear")
+SCALAR_COOLDOWN_SHAPE = os.environ.get("NANOGPT_SCALAR_COOLDOWN_SHAPE", "linear")
+
+
+def get_cooldown_multiplier(shape: str, cooldown_frac: float) -> float:
+    """Return the LR multiplier for a given cooldown shape.
+
+    cooldown_frac in [0, 1]: 0 = start of cooldown phase, 1 = end of training.
+    "linear" reproduces the baseline (1 - cooldown_frac).
+    """
+    if shape == "linear":
+        return 1.0 - cooldown_frac
+    if shape.startswith("linear_floor:"):
+        floor = float(shape.split(":", 1)[1]) / 100.0
+        return max(floor, 1.0 - cooldown_frac)
+    if shape == "cosine":
+        return 0.5 * (1.0 + math.cos(math.pi * cooldown_frac))
+    if shape == "quadratic":
+        return (1.0 - cooldown_frac) ** 2
+    raise ValueError(f"Unknown cooldown shape: {shape}")
+
+
+# Validate each shape at import time by probing endpoints (no expensive runtime work).
+for _shape_name, _shape_value in (
+    ("NANOGPT_EMBED_COOLDOWN_SHAPE", EMBED_COOLDOWN_SHAPE),
+    ("NANOGPT_LMHEAD_COOLDOWN_SHAPE", LMHEAD_COOLDOWN_SHAPE),
+    ("NANOGPT_SCALAR_COOLDOWN_SHAPE", SCALAR_COOLDOWN_SHAPE),
+):
+    get_cooldown_multiplier(_shape_value, 0.0)
+    get_cooldown_multiplier(_shape_value, 1.0)
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -581,6 +616,9 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(f"COOLDOWN_SHAPES: embed={EMBED_COOLDOWN_SHAPE} lm_head={LMHEAD_COOLDOWN_SHAPE} "
+       f"scalar={SCALAR_COOLDOWN_SHAPE} (per-group AdamW aux only; Muon stays linear)",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
@@ -629,6 +667,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters": NS_ITERS,
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
+            "embed_cooldown_shape": EMBED_COOLDOWN_SHAPE,
+            "lmhead_cooldown_shape": LMHEAD_COOLDOWN_SHAPE,
+            "scalar_cooldown_shape": SCALAR_COOLDOWN_SHAPE,
         },
     )
 
@@ -679,17 +720,46 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: stable then decay. All groups follow the default
+    # linear-to-zero cooldown except the AdamW aux groups (adam_embed,
+    # adam_lm_head, adam_scalars), which can be remapped independently via
+    # NANOGPT_{EMBED,LMHEAD,SCALAR}_COOLDOWN_SHAPE.
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_default = 1.0
+            embed_mult = 1.0
+            lmhead_mult = 1.0
+            scalar_mult = 1.0
+            in_cooldown = False
+            cd_frac = 0.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta_default = (1 - progress) / cooldown_frac
+            cd_frac = 1.0 - eta_default  # 0 at cooldown start, 1 at end
+            embed_mult = get_cooldown_multiplier(EMBED_COOLDOWN_SHAPE, cd_frac)
+            lmhead_mult = get_cooldown_multiplier(LMHEAD_COOLDOWN_SHAPE, cd_frac)
+            scalar_mult = get_cooldown_multiplier(SCALAR_COOLDOWN_SHAPE, cd_frac)
+            in_cooldown = True
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                name = group.get("name", "")
+                if name == "adam_embed":
+                    group["lr"] = group["initial_lr"] * embed_mult
+                elif name == "adam_lm_head":
+                    group["lr"] = group["initial_lr"] * lmhead_mult
+                elif name == "adam_scalars":
+                    group["lr"] = group["initial_lr"] * scalar_mult
+                else:
+                    group["lr"] = group["initial_lr"] * eta_default
+        return {
+            "eta_default": eta_default,
+            "cd_frac": cd_frac,
+            "embed_mult": embed_mult,
+            "lmhead_mult": lmhead_mult,
+            "scalar_mult": scalar_mult,
+            "in_cooldown": in_cooldown,
+        }
 
 
     ########################################
@@ -792,7 +862,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        cooldown_mults = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -822,6 +892,16 @@ for trial_idx in range(args.num_trials):
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
             )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/cooldown/eta_default": cooldown_mults["eta_default"],
+                "train/cooldown/cd_frac": cooldown_mults["cd_frac"],
+                "train/cooldown/embed_lr_mult": cooldown_mults["embed_mult"],
+                "train/cooldown/lmhead_lr_mult": cooldown_mults["lmhead_mult"],
+                "train/cooldown/scalar_lr_mult": cooldown_mults["scalar_mult"],
+                "train/cooldown/in_cooldown": int(cooldown_mults["in_cooldown"]),
+            }, step=wandb_step)
         # NS iteration schedule: optionally swap to NS_ITERS_COOLDOWN in the
         # last (1 - NS_COOLDOWN_START_FRAC) fraction of training.
         if NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step:
