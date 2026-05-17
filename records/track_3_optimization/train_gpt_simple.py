@@ -443,6 +443,11 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# PMuon (bilateral streaming covariance power preconditioning), applied AFTER NS5.
+PMUON_BETA = 0.95         # streaming covariance EMA decay
+PMUON_GAMMA = 0.2         # power exponent for (Σ + εI)^(-γ) — decision-tree branch from γ=0.3 screen (borderline)
+PMUON_EPS = 1e-6          # ridge for numerical stability
+PMUON_WARMUP = 50         # bypass preconditioning until Σ accumulators warm up
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -556,6 +561,94 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     return precond.to(update.dtype)
 
 
+def _eigh_robust(mat: Tensor) -> tuple[Tensor, Tensor] | None:
+    """Symmetric PSD eigendecomposition robust to repeated/degenerate eigenvalues.
+
+    Post-NS5 covariances for non-square Muon params (e.g. MLP 3072x768) are
+    intrinsically rank ≤ min(m,n) on the larger side. LAPACK's syevd QR iteration
+    can fail with "too many repeated eigenvalues" on such matrices (observed in
+    practice at the warmup boundary). We fall back through SVD (more robust to
+    degenerate spectra) and then float64 + jitter. Returns (evals_ascending,
+    eigenvectors) or None when every path fails — callers must skip preconditioning
+    in that case rather than crash training.
+    """
+    try:
+        return torch.linalg.eigh(mat)
+    except torch._C._LinAlgError:
+        pass
+    try:
+        U, S, _ = torch.linalg.svd(mat)
+        # SVD returns singular values descending; eigh's contract is ascending.
+        return S.flip(0).contiguous(), U.flip(1).contiguous()
+    except torch._C._LinAlgError:
+        pass
+    try:
+        eye = torch.eye(mat.size(0), device=mat.device, dtype=torch.float64)
+        jitter = (1e-4 * mat.diag().abs().mean().double()).clamp_min(1e-8)
+        evals, q = torch.linalg.eigh(mat.double() + jitter * eye)
+        return evals.float(), q.float()
+    except torch._C._LinAlgError:
+        return None
+
+
+def pmuon_precondition(update: Tensor, state, beta=PMUON_BETA, gamma=PMUON_GAMMA,
+                       eps=PMUON_EPS, warmup=PMUON_WARMUP, collect_telemetry: bool = False):
+    """Bilateral streaming covariance power preconditioning, applied AFTER NS5.
+
+    Updates streaming Σ_L = β·Σ_L + (1−β)·M Mᵀ and Σ_R = β·Σ_R + (1−β)·MᵀM, then
+    returns (Σ_L + εI)^(−γ) · M · (Σ_R + εI)^(−γ). Each (Σ + εI)^(−γ) is normalised
+    to unit spectral footprint (Frobenius norm = √dim), matching the original PMuon
+    record implementation; without this the ridge-floor amplification on rank-deficient
+    sides would blow up the update scale. If either eigendecomp fails for a step
+    (rank-deficient + degenerate spectrum), we gracefully skip PMuon for that step
+    on that param: Contra+SOAP+NS5 alone still runs.
+    """
+    M_f = update.float()
+    state["pmuon_L"].lerp_(M_f @ M_f.T, 1 - beta)
+    state["pmuon_R"].lerp_(M_f.T @ M_f, 1 - beta)
+    state["pmuon_step"] += 1
+    tele = None
+    if state["pmuon_step"] <= warmup:
+        return update, tele
+    L = state["pmuon_L"]
+    R = state["pmuon_R"]
+    m, n = L.size(0), R.size(0)
+    eye_L = torch.eye(m, device=L.device, dtype=L.dtype)
+    eye_R = torch.eye(n, device=R.device, dtype=R.dtype)
+    res_L = _eigh_robust(L + eps * eye_L)
+    res_R = _eigh_robust(R + eps * eye_R)
+    if res_L is None or res_R is None:
+        state["pmuon_eigh_fail"] = state.get("pmuon_eigh_fail", 0) + 1
+        return update, tele
+    evals_L, U_L = res_L
+    evals_R, U_R = res_R
+    pow_L = evals_L.clamp_min(eps).pow(-gamma)
+    pow_R = evals_R.clamp_min(eps).pow(-gamma)
+    pow_L = pow_L * (m**0.5 / pow_L.norm().clamp_min(eps))
+    pow_R = pow_R * (n**0.5 / pow_R.norm().clamp_min(eps))
+    # M_out = U_L diag(pow_L) U_L^T  M_f  U_R diag(pow_R) U_R^T
+    tmp = U_L.T @ M_f
+    tmp = pow_L.unsqueeze(-1) * tmp
+    tmp = U_L @ tmp
+    tmp = tmp @ U_R
+    tmp = tmp * pow_R
+    M_out = tmp @ U_R.T
+    if collect_telemetry:
+        eps_t = torch.tensor(eps, device=L.device, dtype=L.dtype)
+        L_min = evals_L.min().clamp_min(eps_t)
+        R_min = evals_R.min().clamp_min(eps_t)
+        tele = {
+            "L_max_eig": float(evals_L.max().item()),
+            "L_min_eig": float(L_min.item()),
+            "R_max_eig": float(evals_R.max().item()),
+            "R_min_eig": float(R_min.item()),
+            "L_cond_num": float((evals_L.max() / L_min).item()),
+            "R_cond_num": float((evals_R.max() / R_min).item()),
+            "norm_ratio": float((M_out.norm() / M_f.norm().clamp_min(eps_t)).item()),
+        }
+    return M_out.to(update.dtype), tele
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
@@ -567,11 +660,15 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self.collect_pmuon_telemetry = False
+        self.last_pmuon_telemetry: dict[str, float] = {}
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        collect_tele = self.collect_pmuon_telemetry
+        tele_accum: dict[str, list[float]] = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -598,6 +695,14 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["soap_step"] = 0
+                        # PMuon streaming covariance buffers (applied AFTER NS5 to all 2D Muon params).
+                        state["pmuon_L"] = torch.zeros(
+                            p.size(0), p.size(0), dtype=torch.float32, device=p.device
+                        )
+                        state["pmuon_R"] = torch.zeros(
+                            p.size(1), p.size(1), dtype=torch.float32, device=p.device
+                        )
+                        state["pmuon_step"] = 0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
@@ -608,6 +713,11 @@ class Muon(torch.optim.Optimizer):
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # PMuon bilateral covariance power preconditioning stacked AFTER NS5/contra/NorMuon.
+                    update, pmuon_tele = pmuon_precondition(update, state, collect_telemetry=collect_tele)
+                    if pmuon_tele is not None:
+                        for k, v in pmuon_tele.items():
+                            tele_accum.setdefault(k, []).append(v)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -620,6 +730,24 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if collect_tele:
+            total_fail = sum(int(self.state[p].get("pmuon_eigh_fail", 0))
+                             for group in self.param_groups for p in group["params"])
+            if tele_accum:
+                agg: dict[str, float] = {}
+                for k, vals in tele_accum.items():
+                    agg[f"pmuon/{k}_mean"] = sum(vals) / len(vals)
+                    agg[f"pmuon/{k}_max"] = max(vals)
+                    agg[f"pmuon/{k}_min"] = min(vals)
+                agg["pmuon/active_params"] = float(len(next(iter(tele_accum.values()))))
+                agg["pmuon/eigh_fail_total"] = float(total_fail)
+                self.last_pmuon_telemetry = agg
+            else:
+                self.last_pmuon_telemetry = {"pmuon/eigh_fail_total": float(total_fail)}
+        else:
+            # Leave telemetry untouched between sampled steps so the main loop can
+            # still pull the most recent reading at its own logging cadence.
+            pass
 
 
 ########################################
@@ -699,7 +827,11 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/pmuon_beta": PMUON_BETA,
+            "optimizer/pmuon_gamma": PMUON_GAMMA,
+            "optimizer/pmuon_eps": PMUON_EPS,
+            "optimizer/pmuon_warmup": PMUON_WARMUP,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5) + pmuon (post-NS5)",
         },
     )
 
@@ -871,6 +1003,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Tell the Muon optimizer whether to collect PMuon eigenvalue / norm-ratio
+        # telemetry during this step. Only sampled at telemetry intervals because each
+        # tensor->python `.item()` call forces a CUDA sync.
+        for opt in optimizers:
+            if isinstance(opt, Muon):
+                opt.collect_pmuon_telemetry = telemetry_due
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -881,6 +1019,14 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            pmuon_metrics: dict[str, float] = {}
+            for opt in optimizers:
+                if isinstance(opt, Muon) and opt.last_pmuon_telemetry:
+                    pmuon_metrics.update(opt.last_pmuon_telemetry)
+            if pmuon_metrics:
+                pmuon_metrics["trial"] = trial_idx
+                pmuon_metrics["train/step"] = train_step
+                wandb.log(pmuon_metrics, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
