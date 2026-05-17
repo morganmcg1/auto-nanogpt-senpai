@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -450,6 +451,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Decoupled-aux cooldown shape (PR #276): "linear" (default, same as Muon), "cosine", or "none".
+# Muon always uses linear cooldown; only AdamW aux groups (adam_embed, adam_lm_head, adam_scalars)
+# follow this shape.
+AUX_COOLDOWN_SHAPE = os.environ.get("AUX_COOLDOWN_SHAPE", "linear").strip().lower()
+assert AUX_COOLDOWN_SHAPE in ("linear", "cosine", "none"), (
+    f"AUX_COOLDOWN_SHAPE must be one of linear|cosine|none, got: {AUX_COOLDOWN_SHAPE!r}"
+)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -841,6 +849,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/aux_cooldown_shape": AUX_COOLDOWN_SHAPE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -887,18 +896,30 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: stable then decay.
+    # Muon always uses linear cooldown (proven default). Aux AdamW groups (adam_*) use
+    # AUX_COOLDOWN_SHAPE: linear (same as Muon), cosine (soft landing), or none (no decay).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
+        in_cooldown = progress >= 1 - cooldown_frac
+        if not in_cooldown:
+            eta_muon = 1.0
+            eta_aux = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta_muon = (1 - progress) / cooldown_frac
+            if AUX_COOLDOWN_SHAPE == "cosine":
+                t = (progress - (1 - cooldown_frac)) / cooldown_frac  # 0->1 within cooldown
+                eta_aux = 0.5 * (1 + math.cos(math.pi * t))
+            elif AUX_COOLDOWN_SHAPE == "none":
+                eta_aux = 1.0
+            else:  # "linear"
+                eta_aux = eta_muon
         cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                is_aux = group.get("name", "").startswith("adam_")
+                group["lr"] = group["initial_lr"] * (eta_aux if is_aux else eta_muon)
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
 
