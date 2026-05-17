@@ -443,6 +443,11 @@ class GPT(nn.Module):
 
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+# β1 cooldown decay on AdamW aux groups (PR #227): ramps β1 linearly from
+# NANOGPT_BETA1_INITIAL to NANOGPT_BETA1_COOLDOWN_END during the cooldown
+# window only. When both equal 0.8, behaviour matches current baseline.
+NANOGPT_BETA1_INITIAL = float(os.environ.get("NANOGPT_BETA1_INITIAL", "0.8"))
+NANOGPT_BETA1_COOLDOWN_END = float(os.environ.get("NANOGPT_BETA1_COOLDOWN_END", "0.8"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
@@ -574,6 +579,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
             "nanogpt_ns_iters": NS_ITERS,
+            "nanogpt_beta1_initial": NANOGPT_BETA1_INITIAL,
+            "nanogpt_beta1_cooldown_end": NANOGPT_BETA1_COOLDOWN_END,
         },
     )
 
@@ -625,11 +632,18 @@ for trial_idx in range(args.num_trials):
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
+            beta1 = NANOGPT_BETA1_INITIAL
         else:
             eta = (1 - progress) / cooldown_frac
+            # eta goes 1.0 -> 0.0 during cooldown; β1 ramps INITIAL -> END synchronously.
+            beta1 = NANOGPT_BETA1_INITIAL * eta + NANOGPT_BETA1_COOLDOWN_END * (1.0 - eta)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+        # Apply β1 only to AdamW aux groups (optimizer1). Keep Muon optimizer untouched.
+        for group in optimizer1.param_groups:
+            group["betas"] = (beta1, group["betas"][1])
+        return beta1
 
 
     ########################################
@@ -723,7 +737,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        current_beta1 = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -739,6 +753,17 @@ for trial_idx in range(args.num_trials):
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
+        # Snapshot AdamW aux-group parameters before opt.step() so we can compute
+        # per-group AdamW step magnitudes (|Δp| / lr ≈ |m_hat / (sqrt(v_hat)+eps)|).
+        adamw_pre_step_snapshot = None
+        if dist.get_rank() == 0 and telemetry_due:
+            adamw_pre_step_snapshot = {}
+            for group_idx, group in enumerate(optimizer1.param_groups):
+                group_name = group.get("name", f"adamw_group_{group_idx}")
+                adamw_pre_step_snapshot[group_name] = {
+                    "lr": float(group["lr"]),
+                    "params": [(id(p), p.detach().clone()) for p in group["params"]],
+                }
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
                 model=model,
@@ -754,6 +779,30 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0:
+            # Always log current β1 (cheap scalar; useful for verifying cooldown schedule).
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/adamw_beta1/current": float(current_beta1),
+            }, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and adamw_pre_step_snapshot is not None:
+            adamw_step_metrics = {"trial": trial_idx, "train/step": train_step}
+            for group_idx, group in enumerate(optimizer1.param_groups):
+                group_name = group.get("name", f"adamw_group_{group_idx}")
+                snapshot = adamw_pre_step_snapshot[group_name]
+                group_lr = max(snapshot["lr"], 1e-12)
+                delta_sq_sum = 0.0
+                update_sq_sum = 0.0
+                for p_id, p_before in snapshot["params"]:
+                    p_after = next(p for p in group["params"] if id(p) == p_id)
+                    delta = (p_after.detach() - p_before).float()
+                    delta_norm_sq = float(delta.square().sum().item())
+                    delta_sq_sum += delta_norm_sq
+                    update_sq_sum += delta_norm_sq / (group_lr * group_lr)
+                adamw_step_metrics[f"train/adamw_step/{group_name}/delta_norm"] = delta_sq_sum ** 0.5
+                adamw_step_metrics[f"train/adamw_step/{group_name}/update_norm"] = update_sq_sum ** 0.5
+            wandb.log(adamw_step_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
