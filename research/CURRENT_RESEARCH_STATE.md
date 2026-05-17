@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 12:55 UTC (boot 93)
+- **Last updated:** 2026-05-17 13:30 UTC (boot 97)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~16h, re-escalated 10:40 UTC.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
@@ -23,20 +23,27 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 93 — 12:55 UTC 2026-05-17)
+## Active experiments (boot 97 — 13:30 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#265** | nezuko | Schedule-Free MuonH-SI (primal-dual averaging, β∈{0.85, 0.9, 0.95}) | Assigned 12:55 UTC — smoke pending |
-| **#260** | tanjiro | MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} at outer_lr=0.7 sync=30 | Smoke ✓ 4.13998; mom=0.3 dpihyfo7 ~13% |
-| **#257** | fern | AdEMAMix for aux (slow-EMA α sweep {2,5,8}) | Smoke ✓; alpha=5 woz337i3 ~51% (3.584); alpha=2/8 queued |
-| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smokes ✓; bf16 ctrl 14g9fw3a ~46% (3.607); fp32 arm queued |
-| **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | off-ctrl TERMINAL=3.27554 ✓; tensor 0zqenfv8 ~82% (3.387) — dead arm, kill-gate at step 3000 imminent |
-| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | linear=3.27755 baseline-clone ✓; cosine xw81lpch ~58% (3.513) tracking NEG; sqrt queued |
-| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 (n=1, Δ=-0.00203)**; clip=0.2=3.27618 NEG; clip=1.0 ~70% (3.467) clearly NEG |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 ~18h silent, re-escalated 10:40 |
+| **#265** | nezuko | Schedule-Free MuonH-SI (β∈{0.85, 0.9, 0.95}) | 1st smoke ✓ 4.1471; 2nd smoke `fypv71p6` running |
+| **#260** | tanjiro | MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} | Smoke ✓; mom=0.3 dpihyfo7 ~39% |
+| **#257** | fern | AdEMAMix for aux (α sweep {2,5,8}) | Smoke ✓; alpha=5 ~78%; alpha=2/8 queued |
+| **#253** | thorfinn | NS5 fp32 accumulation | Smokes ✓; bf16 ctrl 14g9fw3a ~73%; fp32 queued |
+| **#247** | askeladd | Gradient Centralization (off/tensor/row) | off ctrl=3.27554 ✓; **tensor TERMINAL=3.2776 baseline-clone**; row o0yqx57f ~14% |
+| **#243** | frieren | MuonH-SI cooldown SHAPE | linear=3.2776 ctrl ✓; **⭐ cosine TERMINAL=3.2746 (Δ=-0.00125 vs baseline mean, Δ=-0.003 vs linear)**; sqrt 7z72ffcj running |
+| **#237** | edward | AGC aux clip {0.05, 0.2, 1.0} → n=4 confirm | clip=0.05=3.27382 ⭐; clip=0.2=3.27618; clip=1.0=3.27550. **n=4 confirm pwbrxwez running ~10%** |
+| **#190** | alphonse | NS5 iteration count sweep | **BLOCKED** — Issue #164 ~18h silent |
 
-**8/8 students assigned.** Closed: #222 NEG (cooldown_frac=1.0 optimal), #217 NEG, #218 NEG, #215 NEG, #174 NEG, #207 NEG, #200 NEG, #182-192 NEG.
+**8/8 students assigned.** Closed: #222, #217, #218, #215, #174, #207, #200, #182-192 all NEG.
+
+## ⭐⭐⭐ Two parallel candidates this round
+
+1. **Edward AGC clip=0.05** (n=1: 3.27382, Δ=-0.00203). n=4 confirm in progress (pwbrxwez ~10%).
+2. **Frieren cosine cooldown** (n=1: 3.2746, Δ=-0.00125 vs baseline, Δ=-0.003 vs linear ctrl). sqrt arm running; n=4 confirm pending sqrt terminal.
+
+If BOTH confirm, they likely STACK (AGC affects aux gradient clipping; cosine affects MuonH inner LR schedule — orthogonal mechanisms). Potential combined Δ ≈ -0.003 to -0.004 vs current 3.27585.
 
 ## Closed (this round, negative)
 - **#182 thorfinn Lookahead × MuonH-SI**: k=5=3.31588 NEG, k=10=3.31485 NEG. SI-direction-modifier incompatibility confirmed.
