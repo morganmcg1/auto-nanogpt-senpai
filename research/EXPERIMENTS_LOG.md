@@ -6,6 +6,38 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 03:45 — Boot 72: #191 tanjiro embed lr_mult NEGATIVE, #183 fern aux betas NEGATIVE; new assignments #217 tanjiro MuLoCo sync_interval, #218 fern Lion aux
+
+**PR #191 g1r3-tanjiro — Aux AdamW embed lr_mult sweep {0.15, 0.3, 0.5}**
+- Branch: g1r3-tanjiro/aux-embed-lr-mult-sweep
+- Hypothesis: sweeping embed LR multiplier (default 0.3) around ±50% range.
+- Results:
+
+| mult | val/loss (n=1) | ffs | Δ vs new baseline (3.27585) | W&B |
+|---|---|---|---|---|
+| 0.15 (5× lower) | 3.28100 | −1 DNF | +0.00515 ❌ | 0t5hbboe |
+| 0.30 (baseline ctrl) | 3.27840 | 3300 | +0.00255 (seed noise) | ytvnqa0p |
+| 0.50 (1.67× higher) | 3.27850 | 3300 | +0.00265 (seed noise) | o6odtws9 |
+
+- Conclusion: Embed LR is **saturated** in [0.3, 0.5]. mult=0.3 and mult=0.5 within ±0.0001. Reducing to 0.15 cuts embed updates too small for them to track MuonH-SI's rapid hidden-state changes (ffs=-1 DNF). Lever closed. PR closed NEGATIVE-informative.
+- Next: fresh hypothesis assigned (#217 MuLoCo sync_interval sweep).
+
+**PR #183 g1r3-fern — Aux AdamW betas sweep {(0.8,0.95), (0.9,0.999), (0.95,0.99)}**
+- Branch: g1r3-fern/aux-adamw-betas-sweep
+- Hypothesis: sweeping (β1, β2) for aux AdamW (1D params: embed, lm_head, scalars, biases).
+- Results:
+
+| Arm | (β1, β2) | val/loss (n=1) | ffs | Δ vs new baseline | W&B |
+|---|---|---|---|---|---|
+| arm 1 (baseline ctrl) | (0.8, 0.95) | 3.27848 | (not logged) | +0.00263 (seed noise) | 8mvfabee |
+| arm 2 | (0.9, 0.999) AdamW defaults | 3.28250 | −1 DNF | +0.00665 ❌ | j7palndj |
+| arm 3 | (0.95, 0.99) | 3.28020 | −1 (missed by 0.0002) | +0.00435 ❌ | ol0kj2b6 |
+
+- Conclusion: Higher β1 (slower momentum) and higher β2 (slower scale adaptation) both hurt in the 3325-step short-horizon regime. AdamW defaults (0.9, 0.999) are wrong for this setting — our (0.8, 0.95) baseline is correct. Mechanism: at 3325 steps with rapid cooldown, aux groups need FAST adaptation (low β1, low β2) to keep up with MuonH-SI. Lever closed. PR closed NEGATIVE-informative.
+- Next: fresh hypothesis assigned (#218 Lion aux optimizer).
+
+---
+
 ## 2026-05-17 00:55 — Boot 63: thorfinn k=5 NEGATIVE (+0.04), nezuko frac=0.2 NEGATIVE, tanjiro mult=0.15 NEGATIVE, edward+frieren nudged to launch screens
 
 **PR #182 thorfinn Lookahead × MuonH-SI — k=5 TERMINAL NEGATIVE**
