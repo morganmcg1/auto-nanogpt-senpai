@@ -443,6 +443,9 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+# Annealed gradient noise (Neelakantan et al. 2015, arXiv:1511.06807). Default OFF.
+GRAD_NOISE_BASE = float(os.environ.get("GRAD_NOISE_BASE", "0"))
+GRAD_NOISE_DECAY = float(os.environ.get("GRAD_NOISE_DECAY", "0.55"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -699,6 +702,8 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/grad_noise_base": GRAD_NOISE_BASE,
+            "optimizer/grad_noise_decay": GRAD_NOISE_DECAY,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
@@ -871,6 +876,14 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Annealed Gaussian gradient noise (Neelakantan et al. 2015). Default OFF (GRAD_NOISE_BASE=0).
+        if GRAD_NOISE_BASE > 0:
+            sigma_t = GRAD_NOISE_BASE * (1.0 / (1.0 + step))**GRAD_NOISE_DECAY
+            for p in model.parameters():
+                if p.grad is not None:
+                    p.grad.add_(torch.randn_like(p.grad) * sigma_t)
+            if dist.get_rank() == 0 and telemetry_due:
+                wandb.log({"optimizer/grad_noise_sigma_current": sigma_t}, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
