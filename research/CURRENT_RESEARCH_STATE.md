@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #71, ~05:40 UTC)
+- **Last updated:** 2026-05-17 (poll #72, ~06:20 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
@@ -11,7 +11,7 @@
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
 | 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **STRONGEST SIGNAL — n=4 confirm RUNNING.** Trial 0 (`tysiwoqg`) val=**3.270245**, ffs=3125 (beats statsig at n=1). Combined n=4 job `t1jfegcf` step ~5415/13000 (~42% overall, trial 1 step ~2165/3250 ~67%). ETA ~08:40 UTC. Advisor approved expanding to n=6 if n=4 passes mu≤3.271735. |
 | 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | NEW. Pod picked up assignment iter-37 at 04:28Z. Smoke launch imminent then n=4. |
-| 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)   | exploit | WIP — full run `b5o53z6z` step ~4769/6500 (~73%). ETA ~05:15Z. SENPAI-RESULT pending. |
+| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | NEW (assigned 06:15Z). PR #175 β2 anneal CLOSED neutral (n=2 Δ=+0.000037). 5 cells × 3250 steps sequential; key diagnostic: post-orth residual ‖U·Uᵀ−I‖_F per block. |
 | 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | NEW (assigned 05:35Z). PR #186 closed clean negative (softcap + z-loss redundant). Smoke each arm 3250 steps, sequential, then n=4 confirm if val≤3.2720. |
 | 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | WIP — Cell A val=3.27791 (≈ baseline). Cell B `jq083ofi` finished recently. Cells C, D pending. |
 | 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | WIP — Phase 2 Cell A `j5i05ctb` lr_attn=0.025 full run in progress (advisor confirmed running via `vqjmay37` query). Cells C/D pending sequential. |
@@ -23,6 +23,7 @@
 | PR # | Hypothesis                         | Outcome                                                                              |
 |------|------------------------------------|--------------------------------------------------------------------------------------|
 | 186  | z-loss auxiliary regularizer (α·log²Z) | **CLOSED** clean negative — α=1e-4 val=3.27392 (neutral, +0.00018 vs baseline); α=3e-4 val=3.28117 ffs=-1 (6.6σ regression); softcap+z-loss redundant |
+| 175  | SOAP β2 cooldown annealing (β2 0.90→0.75) | **CLOSED** neutral — n=2 mu=3.273772, ffs=3150; Δ=+0.000037 (1/30σ); wiring confirmed correct, anneal functional |
 | 148  | Depth-Scaled Residual Init (1/√(2L)) | **CLOSED** clean negative — n=4 mu=3.27737, ffs=3200; +0.00363 vs baseline unpaired; paired Δ=-0.00015 not statsig (t=-1.09); zero-init stays | 
 | 43   | NorMuonH (record #8)               | **CLOSED** clean negative — n=8 mu=3.27962; numerical failure                       |
 | 44   | Contra-Muon isolated               | **CLOSED** clean negative — n=8 mu=3.27876; ffs=3325 +125 steps slow               |
@@ -64,7 +65,7 @@ Merge math n=4: need mu ≤ 3.271735. Cell D n=1 mu=3.26987 → slack 0.00187.
 1. **Per-group LR** (edward PR #162) — **n=4 confirm at lr_mlp=0.055 running**. ETA ~08:30 UTC. If n=4 mu ≤ 3.271735, expand to n=6 then merge.
 2. **lm_head SOAP col-only** (alphonse PR #196) — Cell C `vk1x1dno` step 1982/3250. 4 prior crashes; current run past failure point.
 3. **Per-head SOAP on attn** (thorfinn PR #220) — 12×64×64 block-diagonal Gram replacing single 768×768. Addresses structural cos_sim gap from PR #170 closure. NEWLY ASSIGNED 04:00Z.
-4. **SOAP β2 cooldown anneal** (askeladd PR #175) — full run `2br8i9ql` crashed at step 591 (external SIGTERM); restart smoke finished; full run relaunching.
+4. **NS5 iteration count sweep** (askeladd PR #232) — iters ∈ {8,10,12(ctrl),14,16}; test if SOAP eigenbasis makes extra NS5 iterations redundant. PR #175 β2 anneal CLOSED neutral.
 5. **AdamW embed LR sweep** (frieren PR #228) — lr_embed ∈ {0.10,0.30(ctrl),0.50,0.80,1.20}; n=1 screen 3250 steps each sequential. PR #186 z-loss CLOSED clean negative.
 6. **Asymmetric WD** (tanjiro PR #194) — Cell A val=3.27791 (≈ baseline); Cell B running step 1769; C/D pending.
 7. **lr_attn sweep** (fern PR #209) — 4 smokes at lr_attn=0.045, no Phase-2 cells launched. **Advisor poking for status.**
@@ -102,8 +103,8 @@ Merge math n=4: need mu ≤ 3.271735. Cell D n=1 mu=3.26987 → slack 0.00187.
 3. **lm_head SOAP col-only** (alphonse PR #196) — runs on existing SOAP-attn base.
 4. **AdamW eps tuning** — eps=1e-10 for all groups; sweep eps∈{1e-8,1e-9,1e-10} for embed/lm_head.
 5. **KL-SOAP-H / PMuon** (records #19/#18) — wave-4 candidates if mechanism slots exhaust.
-6. **Monitor**: PR #175 askeladd β2 anneal (still running), PR #196 alphonse lm_head (running), PR #220 thorfinn per-head SOAP attn (smoke done, full run launching).
-   - PRs #148, #186 closed as clean negatives (poll #69 and #71 respectively).
+6. **Monitor**: PR #196 alphonse lm_head (running), PR #220 thorfinn per-head SOAP attn (smoke done, full run launching).
+   - PRs #148, #175, #186 closed (clean negatives / neutral). PR #175 β2 anneal: wiring confirmed correct, stacks cleanly onto edward's win when it merges.
 
 ## Standing Constraints
 

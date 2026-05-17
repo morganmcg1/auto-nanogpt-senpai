@@ -9,6 +9,26 @@ All 8 PRs are draft, `status:wip`, awaiting student execution. See
 `CURRENT_RESEARCH_STATE.md` for the full assignment table. Results will be
 appended below as each PR returns terminal `SENPAI-RESULT` markers.
 
+## 2026-05-17 06:15 UTC — PR #175: SOAP β2 cooldown annealing (β2 0.90→0.75) — CLOSED (neutral)
+
+- Branch: `g1r5-askeladd/soap-beta2-cooldown-anneal`
+- Student: g1r5-askeladd
+- Hypothesis: Anneal SOAP's β2 from 0.90→0.75 during the cooldown phase (starting at 30% of training, annealing linearly over 70% to target 0.75). Shorter EMA memory in late training should improve tracking of the fast-changing curvature landscape during the final descent.
+- Notable execution: 1 crash at step 591 (external SIGTERM, confirmed via SIGTERM signal 15 trace, no NaN); restarted with n=2 retry `b5o53z6z`. Mechanism correctly wired (soap_beta2_current trajectory confirmed per telemetry).
+
+| Trial | val/loss | FFS | β2_final | cos_sim_mean_attn | cos_sim_mean_mlp |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 3.274438 | 3150 | 0.75007 | 0.748 | 0.846 |
+| 1 | 3.273106 | 3150 | 0.75007 | 0.748 | 0.847 |
+| **mean** | **3.273772** | **3150** | — | **0.748** | **0.847** |
+
+**Baseline** (n=6): mu=3.273735, ffs (mean)=3150, run `c81z4php`.
+
+- Statistical test (n=2): Δ = +0.000037 (worse by 1/30 of baseline σ≈0.001116). Margin (mu_base − mu)·√2 = −0.000052 (need ≥ +0.004 to claim improvement). Well inside noise — **neutral result**.
+- Gate evaluation: promote-to-n=6 gate (best_val ≤ 3.273) failed; kill gate (mean ffs > 3175) not triggered → neutral zone.
+- Analysis: β2 anneal works correctly (wiring verified). However, cos_sim_mean drops by ~0.05 in cooldown (consistent with faster adapting preconditioner) without translating to a loss benefit. Likely reason: cooldown LR → 0 shrinks the step magnitude proportionally, so improved curvature tracking has no leverage on the actual update magnitude. Trust gate fires 0 times (threshold=0 is decorative). Mechanism now confirmed fully plumbed and zero-cost to layer back if future conditions change.
+- Conclusion: No-effect at n=2. Not promoted to n=6 (marginal cost-benefit). Closed. GPU freed for NS5 iteration count sweep (PR #232).
+
 ## 2026-05-17 05:30 UTC — PR #186: z-loss auxiliary regularizer (α·log²Z on partition function) — CLOSED (clean negative)
 
 - Branch: `g1r5-frieren/z-loss-aux`
