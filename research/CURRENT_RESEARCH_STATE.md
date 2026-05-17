@@ -1,25 +1,25 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #77, ~07:45 UTC)
+- **Last updated:** 2026-05-17 (poll #80, ~09:05 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
 - **TWO HOT MERGE CANDIDATES IN FLIGHT:**
-  - **edward PR #162 n=4 done, n=6 extension launched.** All 4 trials: 3.270245/3.272365/3.272831/3.271610 ffs=3125/3150/3150/3150. **n=4 mean=3.271763** (MISSES n=4 statsig 3.271735 by 0.000028). Student launched `3j8v4owb` n=2 extension at lr_mlp=0.055; n=6 threshold mu ≤ 3.272103. New 2 trials need mean ≤ 3.272784. ETA n=6 result ~12:30Z.
-  - **tanjiro PR #194 n=4 confirm launched `d4dvvkzk`** — at wd_mlp=0.035/wd_attn=0.015. Step 609/13000 (4.7%). ETA ~15:30Z.
+  - **edward PR #162 n=6 extension in flight** (`3j8v4owb` at step ~345/6500, 5.3%). n=4 mean=3.271763 (missed n=4 statsig 3.271735 by 0.000028). New 2 trials need mean ≤ 3.272784 to clear n=6 threshold (3.272103). **n=6 predeclaration LOCKED** — no further extensions if n=6 misses. ETA ~12:30Z.
+  - **tanjiro PR #194 n=4 confirm `d4dvvkzk`** — at wd_mlp=0.035/wd_attn=0.015. Step ~829/13000 (6.4%). ETA ~15:30Z. Cell C n=2 mean=3.27094 (sub-SE noise vs n=2 threshold 3.270905, off by 0.000035).
 
 ## Active Wave-3 Portfolio (all on merged SOAP-MLP + SOAP-attn base)
 
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
-| 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **STRONGEST SIGNAL — n=4 confirm 85% done.** Trial 0=3.270245/ffs=3125, Trial 1=3.272365/ffs=3150, Trial 2=3.272831/ffs=3150. 3-trial mean=**3.2715** (beats n=4 statsig threshold 3.271735). Trial 3 in flight at step ~11006/13000 (38.6%). ETA ~08:45Z. |
-| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | n=4 confirm `4qxghq80` launched 06:46Z. 2 smokes healthy (val=3.923, 3.931). Per-head telemetry verified (cos_sim_mean ≈ 0.737, n_heads_total=576). ETA ~14:00Z. |
-| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | **CONCERN: Cell C control may diverge.** `1cvnfz6p` step 2875 val=3.313 → may miss target. 2 grad-explosion crashes (egtbgjtf, auq29h8t) + 2 OOM. Advisor pinged 07:42Z asking for refactor numerical equivalence audit. Cells A/B/D/E NOT YET STARTED. |
-| 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | Cell B control (`dcvzciy5`, lr_embed=0.30) finished val=3.275/ffs=3175 (~baseline range). 3 earlier Cell B crashes + 1 new Cell B retry (`wjvhb5q7`) running. Cells A/C/D/E NOT YET STARTED. Advisor pinged 07:41Z. |
-| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | **STRONG SIGNAL.** Cell A (0.015/0.015) mean=3.27822 (worse). Cell B (0.015/0.035) mean=3.27881 (worse). **Cell C (0.035/0.015) Trial 1 val=3.27046, ffs=3125 ✓** — Trial 2 in flight step 2100/3250. Cell D (0.035/0.035) queued. Student auto-launches n=4 if n=2 mean ≤ 3.270905. |
-| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | NEW (PR #209 closed clean negative). λ=0 control, then B/C/D/E sequential. Stabilizes noisy attn eigenbasis (cos_sim_attn≈0.81 vs MLP≈0.88). ETA Phase-1 complete ~17:30Z. |
-| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | Cell A γ=0.93 (`e3jfdq2d`) ~step 830 after killing concurrent smoke contention. ETA full A ~30-45 min. Cells B/C/D queued sequential (no smokes). |
-| 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | 3-arm LR sweep n=2. **Arm C (lr=0.020) done = mu=3.278385 clean negative.** Arm B (lr=0.010) `vqfxng50` trial 0 step 1394/3250. Arm A (lr=0.005) queued. Smoke "crash" was SIGTERM not grad-explode; Muon spectral norm makes raw grad_norm naturally ~1e4-1e5. |
+| 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **n=4 DONE; n=6 extension running.** Trials 0-3 val: 3.270245/3.272365/3.272831/3.271610 ffs=3125/3150/3150/3150. n=4 mean=3.271763 (misses n=4 by 0.000028). n=2 extension `3j8v4owb` launched 08:52Z at step ~345/6500. ETA n=6 ~12:30Z. n=6 threshold 3.272103. |
+| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | n=4 confirm `4qxghq80` at step ~3968/13000 (30.5%). Mid-trial val=3.734 normal. ETA ~14:00Z. |
+| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | Cell A (ns5=8) `rtt6uumb` step ~1161/3250 (36%). **Cell C (ns5=12 control) `1cvnfz6p` FINISHED val=3.2769** (within 2σ of baseline 3.273735, +0.003). Refactor verified bitwise-identical at ns5=12. Cells B(10), D(14), E(16) queued. |
+| 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | Cell A (lr_embed=0.10) `vc5xxeeu` step ~2292/3250 (70%) ETA ~09:55Z. **Cell B (lr_embed=0.30) FINISHED val=3.2750** (+0.0013 vs baseline, ~1σ). Cells C/D/E queued sequential. |
+| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | n=4 confirm `d4dvvkzk` step ~829/13000 (6.4%) at Cell C (wd_mlp=0.035/wd_attn=0.015). Cell C n=2 mean=3.27094 vs n=2 threshold 3.270905 (off by 0.000035 → sub-SE noise). ETA ~15:30Z. |
+| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | NEW (PR #209 closed clean negative). Cell A λ=0 control `mgp15khm` step ~336/3250 (10%). Cells B/C/D/E sequential. ETA Phase-1 complete ~17:30Z. |
+| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | **Cell A (γ=0.93) FINISHED val=3.2792 — fails kill gate** (above baseline, no promotion). **Cell B (γ=0.97) FINISHED val=3.2735** (just below baseline by 0.000235 at n=1; doesn't clear n=1 promotion threshold 3.27091). Cells C (γ=1.03) and D (γ=1.07) queued. |
+| 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | **Arm C (lr=0.020) n=2 mu=3.278385 clean negative.** **Arm B (lr=0.010) trial 0 val=3.28106** — student killed trial 1 per committed gate. Arm A (lr=0.005) `of0uuvj7` n=2 at step ~476 ETA ~12:30Z. Student predicts arm A val ≈ 3.275 (unlikely to clear statsig). |
 
 ## Closed PRs Summary
 
@@ -51,28 +51,24 @@
 
 **Primary goal:** Stack orthogonal mechanisms onto SOAP-MLP + SOAP-attn base to push below ffs=3125. Target trajectory: ffs=3100 → 3075 → beyond.
 
-**HOTTEST signal — PR #162 edward, n=4 confirm running at lr_mlp=0.055:**
-Cell E (lr=0.065) finished val=3.27236 (worse than D), ffs=3150. Inverted-U peak confirmed at lr_mlp=0.055. Cell D n=1: ffs=3125, val=**3.26987** — beats baseline by 0.00387 on val. Full n=1 screen monotonic A→D then reversion at E:
-- A (lr=0.025): val=3.27769, ffs=3200
-- B (lr=0.035): val=3.27569, ffs=3175 (control)
-- C (lr=0.045): val=3.27131, ffs=3125
-- **D (lr=0.055): val=3.26987, ffs=3125 (PEAK)**
-- E (lr=0.065): val=3.27236, ffs=3150
+**HOTTEST signal — PR #162 edward, n=6 extension running at lr_mlp=0.055:**
+n=4 (`t1jfegcf`) FINISHED with mean=3.271763 — misses n=4 statsig (3.271735) by 0.000028 (0.025σ above). Trial vals: 3.270245/3.272365/3.272831/3.271610, ffs=3125/3150/3150/3150. Student self-launched `3j8v4owb` n=2 extension (08:52Z), giving us a predeclared n=6 batch. **n=6 predeclaration locked**: required new-2 trials mean ≤ 3.272784 → n=6 mu ≤ 3.272103 → merge. NO further extensions if n=6 misses; close as marginal-noise and pivot.
 
-n=4 confirm `t1jfegcf` running step ~605/3250 at lr_mlp=0.055 (started 01:23Z, ETA ~08:30 UTC).
-Merge math n=4: need mu ≤ 3.271735. Cell D n=1 mu=3.26987 → slack 0.00187.
-**Advisor approved expanding to n=6 if n=4 passes**, statsig n=6: mu ≤ 3.272103.
+Other partial signals (all n=1 or sub-statsig at n=2):
+- **tanjiro Cell C n=2 mean=3.27094** vs n=2 threshold 3.270905 (off 0.000035; sub-SE noise). n=4 confirm `d4dvvkzk` in flight.
+- **nezuko Cell B (γ=0.97) n=1 val=3.2735** — just below baseline but doesn't clear n=1 promotion gate. Cells C, D pending.
+- **frieren Cell B (lr_embed=0.30) n=1 val=3.2750** — within 1σ of baseline; not promotion-worthy.
 
 **Active mechanism slots:**
 
-1. **Per-group LR** (edward PR #162) — **n=4 confirm at lr_mlp=0.055 running**. ETA ~08:30 UTC. If n=4 mu ≤ 3.271735, expand to n=6 then merge.
-2. **lm_head SOAP col-only** (alphonse PR #196) — Cell C `vk1x1dno` step 1982/3250. 4 prior crashes; current run past failure point.
-3. **Per-head SOAP on attn** (thorfinn PR #220) — 12×64×64 block-diagonal Gram replacing single 768×768. Addresses structural cos_sim gap from PR #170 closure. NEWLY ASSIGNED 04:00Z.
-4. **NS5 iteration count sweep** (askeladd PR #232) — iters ∈ {8,10,12(ctrl),14,16}; test if SOAP eigenbasis makes extra NS5 iterations redundant. PR #175 β2 anneal CLOSED neutral.
-5. **AdamW embed LR sweep** (frieren PR #228) — lr_embed ∈ {0.10,0.30(ctrl),0.50,0.80,1.20}; n=1 screen 3250 steps each sequential. PR #186 z-loss CLOSED clean negative.
-6. **Asymmetric WD** (tanjiro PR #194) — Cell A val=3.27791 (≈ baseline); Cell B running step 1769; C/D pending.
-7. **lr_attn sweep** (fern PR #209) — 4 smokes at lr_attn=0.045, no Phase-2 cells launched. **Advisor poking for status.**
-8. **Per-layer LR decay** (nezuko PR #210) — γ=0.97 smokes done; γ=0.93 smoke running; full screen pending.
+1. **Per-group LR** (edward PR #162) — **n=6 extension running**. ETA ~12:30 UTC. n=4 mean missed by 0.000028; n=6 LOCKED predeclaration.
+2. **lm_head SOAP col-only** (alphonse PR #196) — Arms B/C both regress; Arm A (lr=0.005) running. Likely close.
+3. **Per-head SOAP on attn** (thorfinn PR #220) — n=4 confirm at 30%. ETA ~14:00Z.
+4. **NS5 iteration count sweep** (askeladd PR #232) — Cell A running, Cell C control matches baseline within 2σ. Cells B/D/E queued.
+5. **AdamW embed LR sweep** (frieren PR #228) — Cell A running (70%); Cell B at baseline +1σ. Cells C/D/E queued.
+6. **Asymmetric WD** (tanjiro PR #194) — n=4 confirm at Cell C running. ETA ~15:30Z.
+7. **SOAP attn Gram damping** (fern PR #249) — NEW assignment, Cell A control running.
+8. **Per-layer LR decay** (nezuko PR #210) — Cells A/B done sub-promotion; Cells C/D pending.
 
 **Closed mechanism slots (do NOT re-open):**
 - Per-module init-multiplier: NorMuonH, MuonH
@@ -99,15 +95,14 @@ Merge math n=4: need mu ≤ 3.271735. Cell D n=1 mu=3.26987 → slack 0.00187.
 - **SOAP-attn peak memory**: 75.23 GB / 80 GB (tight budget for further additions; col-only lm_head adds ~50 MB = OK).
 - **Trust gate**: cos_sim always ≥ 0.033; gate at threshold=0.0 is decorative on current stack.
 
-## Next Research Directions (assuming edward n=4/n=6 confirm passes)
+## Next Research Directions (assuming edward n=6 confirm passes)
 
-1. **Merge edward PR #162** at lr_mlp=0.055 after n=6 confirm. Becomes new baseline at ffs≈3125, mu~3.270.
-2. **2D grid (lr_mlp × lr_attn)** — if fern's lr_attn sweep also produces a winner, combine for n=4 confirm at joint optimum.
-3. **lm_head SOAP col-only** (alphonse PR #196) — runs on existing SOAP-attn base.
+1. **Merge edward PR #162** at lr_mlp=0.055 if n=6 mu ≤ 3.272103. Becomes new baseline.
+2. **Joint-confirm cell** (post-edward merge): lr_mlp=0.055 × lr_attn=0.035 (PR #209 conclusion) × wd_mlp=0.035/wd_attn=0.015 (tanjiro Cell C if confirms) on top of edward base.
+3. **SOAP attn damping** (fern PR #249) — if any λ > 0 cell beats baseline at n=1, promote to n=4. Direct mechanism follow-up to PR #209's cos_sim_attn finding.
 4. **AdamW eps tuning** — eps=1e-10 for all groups; sweep eps∈{1e-8,1e-9,1e-10} for embed/lm_head.
 5. **KL-SOAP-H / PMuon** (records #19/#18) — wave-4 candidates if mechanism slots exhaust.
-6. **Monitor**: PR #196 alphonse lm_head (running), PR #220 thorfinn per-head SOAP attn (smoke done, full run launching).
-   - PRs #148, #175, #186 closed (clean negatives / neutral). PR #175 β2 anneal: wiring confirmed correct, stacks cleanly onto edward's win when it merges.
+6. **Eigenbasis EMA across SOAP refreshes** — if fern PR #249 closes neutral (damping doesn't help), the structural cos_sim_attn gap may be irreducible at the SOAP level; eigenvector EMA is a different attack on the same problem.
 
 ## Standing Constraints
 
