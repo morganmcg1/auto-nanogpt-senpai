@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 18:20 UTC — PR #230 edward CLOSED (Aux AdamW β1 axis CLOSED at 0.8). PR #297 edward grad-clip-scan AUTO-CLOSED MERGED (FF-merge trap from advisor docs on student branch) → re-assigned as **PR #299** edward grad-clip-norm-scan (same hypothesis, fresh branch). Three other arm-A runs FINISHED (thorfinn eps=1e-8 NULL, frieren warmup=50 NULL, fern COOLDOWN_POWER=1.0 NULL) — awaiting arm-B launches. Alphonse PR #278 step ~2700/3250 near terminal.
+- **Last update:** 2026-05-17 20:15 UTC — PR #261 frieren CLOSED (PMuon LR warmup axis CLOSED — both arms NULL/regression, cold-start EMA self-regularizes via small-magnitude whitening). frieren now idle — selecting fresh mechanism. Tanjiro `qp87db4n` step 3075/3250 near completion. All 7 in-flight runs healthy (multiple step-0 crash artifacts in W&B are failed restart attempts, not real run failures).
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -18,7 +18,7 @@ Previous baselines:
 | PR  | Student     | Mechanism                                                           | Status (17:38 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
 | **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) FINISHED sr=3025 val=3.2664 NULL (Δval=+0.00025 within noise). Arm B `w0oobk88` (eps=1e-9) running step ~325/3250 (~10%). |
-| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) FINISHED sr=3025 val=3.2662 — Δval=+0.00005 NULL (tied within noise). Arm B `wonlhane` (warmup=150) running step ~1150/3250 (~35%) val=3.636. |
+| ~~#261~~ | ~~frieren~~ | ~~PMuon LR warmup scan~~ CLOSED — axis CLOSED at no warmup (cold-start EMA self-regularizing) | CLOSED 20:15 UTC; frieren idle pending new assignment |
 | **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Just assigned. PR #258 CLOSED (TARGET_UW axis CLOSED at 0.35). |
 | **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A FINISHED sr=3100 val=3.273 NULL. Arm B FINISHED sr=3025 val=3.26605 — marginal numerical win (Δval=-0.00010) within seed noise. **SENT BACK for n=2 seed-2 re-run** `qp87db4n` step 700 (~22%). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
@@ -30,6 +30,7 @@ Previous baselines:
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#261** | frieren | PMuon LR warmup: arm A (50) NULL Δval=+0.00003; arm B (150) REGRESSION sr+75 Δval=+0.00636 | CLOSED — PMuon LR warmup axis CLOSED at no warmup. β_cov=0.95 EMA cold-start is self-regularizing via small-magnitude whitening during fill-in (telemetry-confirmed). |
 | **#229** | alphonse | NS coef (a,b) line scan: a=1.3 sr=3075 val=3.26921 NULL; a=1.7 sr=3050 val=3.26786 tied baseline within noise | CLOSED — NS coef line scan AXIS CLOSED at (a=1.5, b=-0.5). f'(1)=0 NOT strictly required; aggressive ok, gentle disfavored |
 | **#231** | fern | Muon mu scan: 0.90 sr=3125 NULL; 0.99 DIVERGED killed step 1957 (val=4.37) | CLOSED — mu axis CLOSED at 0.95 baseline (both perturbations unstable/null) |
 | **#225** | thorfinn | Wave 7 (deep-WD + lm_head 1/160) n=2: mean sr=3037.5 (+12.5), mean val=3.266425 (+0.00028) | CLOSED — NULL on both axes; γ_power=0.4 already absorbs the regularization gain |
@@ -69,7 +70,7 @@ Previous baselines:
 
 8. **u/w-floor ablation:** PR #258 nezuko arm A (TARGET_UW=0.0) FINISHED sr=3125 val=3.275 NULL. Arm B (TARGET_UW=0.7) running step ~700.
 
-9. **PMuon LR warmup:** PR #261 frieren arm A (warmup=50) nearly terminal (step ~3100, val crossed 3.28 between step 2950-3050).
+9. **PMuon LR warmup axis CLOSED at no warmup (PR #261 frieren).** Arm A (50) NULL Δval=+0.00003, arm B (150) regression sr+75 Δval=+0.00636. Mechanism: β_cov EMA self-regularizes via small-magnitude whitening during cold-start fill-in; LR warmup adds double regularization with no upside. Follow-ups on back-burner: direct EMA bias correction (opposite direction — use cov estimate more aggressively early), larger β_cov {0.97, 0.99}, identity prior for `L_cov`/`R_cov` init.
 
 10. **AdamW eps scan:** PR #272 thorfinn arm A (eps=1e-8) step ~2025 (~62%), contamination resolved.
 
@@ -93,7 +94,7 @@ Previous baselines:
 | **Muon base LR** | **CLOSED (PR #248)** | 0.035 optimal (both ±14% NULL) | 3025 |
 | **mu** (gradient momentum) | ACTIVE (PR #231) | 0.95 baseline; mu=0.9 NULL | — |
 | **TARGET_UW** (Skylight floor) | **CLOSED (PR #258)** | 0.35 optimal (0.0 NULL sr+100, 0.7 diverged) | 3025 |
-| **Muon LR warmup** | ACTIVE mechanism (PR #261) | None (new axis) | — |
+| **Muon LR warmup** | **CLOSED (PR #261)** | No warmup optimal (50 NULL, 150 regression sr+75) | 3025 |
 
 ## Auxiliary optimizer (AdamW) — exploration in progress
 

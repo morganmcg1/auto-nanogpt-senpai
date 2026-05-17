@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-17 20:15 — PR #261: PMuon LR warmup scan {50, 150 steps} (g1r1-frieren)
+
+- Branch: `g1r1-frieren/muon-lr-warmup-scan`
+- Hypothesis: PMuon's bilateral covariance EMAs (β_cov=0.95, ~20-sample equivalent) might benefit from a Muon-only LR warmup window during the cold-start EMA fill-in phase, when aggressive γ_power=0.4 whitening could be destabilizing.
+
+| Arm | warmup steps | W&B run | sr | val/loss | Δval vs baseline (3.26615) | Status |
+|---|---|---|---|---|---|---|
+| Baseline (PR #202) | 0 | `prncgzv5` | 3025 | 3.26615 | — | Current best |
+| Arm A | 50 | `2sjpvck2` | 3025 | 3.26618 | +0.00003 | NULL — tied within seed noise |
+| Arm B | 150 | `wonlhane` | 3100 | 3.27251 | +0.00636 | REGRESSION — sr+75, clear capacity loss |
+
+**Analysis:** Asymmetric null/regression result. Frieren's telemetry analysis nailed the mechanism:
+
+1. **Cold-start whitening is self-regularizing**: `pmuon/whitened_sv_max` rises smoothly from low values during EMA fill-in — when `L_cov`/`R_cov` are near-zero, `matrix_neg_power(L_cov, γ=0.4)` returns a near-isotropic preconditioner that produces small-magnitude whitened gradients. The "aggressive whitening at cold start" problem the hypothesis assumed doesn't exist.
+
+2. **EMA convergence is set by β_cov, not LR**: `lcov_eigh_ratio` and `rcov_eigh_ratio` evolve identically across configs in the first ~200 steps. LR warmup doesn't speed EMA settling; it only delays useful gradient application.
+
+3. **Arm B regression = pure capacity loss**: 150 steps of linear ramp ≈ 75 full-LR-equivalent steps lost. On a fixed-budget benchmark with no cooldown extension, this manifests directly as sr+75 and Δval=+0.006.
+
+4. **Arm A null reinforces direction**: 50 warmup steps ≈ 25 full-LR-equivalent steps lost — below per-seed noise floor.
+
+**Conclusion:** CLOSED. PMuon LR warmup axis CLOSED at no warmup. The β_cov=0.95 EMA cold-start is self-correcting via small-magnitude whitening during fill-in; adding LR warmup is double regularization with no upside.
+
+**Suggested follow-ups from student (kept for back-burner):**
+- **Direct EMA bias correction**: divide `L_cov`/`R_cov` by `(1-β_cov^k)` for first ~50 steps to use the cov estimate MORE aggressively (opposite direction from warmup). Could tighten early whitening.
+- Larger β_cov ∈ {0.97, 0.99}: longer effective sample window — trades slower adaptation for less variance.
+- Initialize `L_cov`/`R_cov` with small identity prior (e.g. `λI`): replaces early near-zero pathology with known-stable start.
+
+---
+
 ## 2026-05-17 18:05 — PR #230: Aux AdamW β1 scan {0.7, 0.9} (g1r1-edward)
 
 - Branch: `g1r1-edward/aux-adamw-beta1-scan`
