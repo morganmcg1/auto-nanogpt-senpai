@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+TARGET_UW = 0.35   # Skylight u/w-floor — PR #258 confirmed 0.35 optimal vs {0.0, 0.7}
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -535,9 +536,11 @@ class Muon(torch.optim.Optimizer):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        ratio_sum = 0.0
+        ratio_min = float("inf")
+        ratio_max = 0.0
         polar_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
@@ -566,14 +569,26 @@ class Muon(torch.optim.Optimizer):
                     floor_eligible_count += 1
                     w_norm = p.norm()
                     if w_norm > 0:
-                        ratio = update.norm() / w_norm
+                        ratio = float((update.norm() / w_norm).item())
+                        ratio_sum += ratio
+                        if ratio < ratio_min:
+                            ratio_min = ratio
+                        if ratio > ratio_max:
+                            ratio_max = ratio
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._floor_diag = {
+            "fired": floor_fired_count,
+            "eligible": floor_eligible_count,
+            "ratio_mean": (ratio_sum / floor_eligible_count) if floor_eligible_count > 0 else 0.0,
+            "ratio_min": ratio_min if ratio_min != float("inf") else 0.0,
+            "ratio_max": ratio_max,
+            "target_uw": TARGET_UW,
+        }
         self._polar_diag = polar_diag
 
 
@@ -699,8 +714,8 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
-            "target_uw_floor": 0.35,
-            "target_uw": 0.35,
+            "target_uw_floor": TARGET_UW,
+            "target_uw": TARGET_UW,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
@@ -899,6 +914,10 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/ratio_mean": floor_diag.get("ratio_mean", 0.0),
+                    "train/uw_floor/ratio_min": floor_diag.get("ratio_min", 0.0),
+                    "train/uw_floor/ratio_max": floor_diag.get("ratio_max", 0.0),
+                    "train/uw_floor/target_uw": floor_diag.get("target_uw", TARGET_UW),
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
