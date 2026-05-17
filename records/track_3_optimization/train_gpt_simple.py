@@ -450,6 +450,15 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Per-head Attention SOAP (PR #281): split Gram/eigenbasis along the per-head axis
+# of an attn weight (row axis for Q/K/V; col axis for proj). The opposite-axis
+# Gram/eigenbasis stays at d_model size. Trust gate uses min-cos-across-heads
+# so any single rotated head zeroes the matrix-level gate (conservative).
+PER_HEAD_SOAP_Q = os.environ.get("PER_HEAD_SOAP_Q", "0") == "1"
+PER_HEAD_SOAP_ALL = os.environ.get("PER_HEAD_SOAP_ALL", "0") == "1"
+# Model architecture constants used by per-head SOAP (modded-nanogpt 12L/768d/6H/128hd).
+NUM_HEADS = 6
+HEAD_DIM = 128
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -543,7 +552,17 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
     sort+QR subspace-iteration step inline so the pre-QR (but already sorted)
     basis can be compared against the post-QR basis. Comparing pre-sort q_old
     to post-QR q_new measures permutation overlap (~1/sqrt(D)), not rotation,
-    which is why this path doesn't reuse ``soap_basis_qr``."""
+    which is why this path doesn't reuse ``soap_basis_qr``.
+
+    Dispatches to per-head variants when state['per_head_axis'] is 'row' or 'col'
+    (PR #281)."""
+    axis = state.get("per_head_axis")
+    if axis == "row":
+        return soap_refresh_per_head_row(grad, state, beta2=beta2, refresh_freq=refresh_freq,
+                                          trust_threshold=trust_threshold)
+    if axis == "col":
+        return soap_refresh_per_head_col(grad, state, beta2=beta2, refresh_freq=refresh_freq,
+                                          trust_threshold=trust_threshold)
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
@@ -594,7 +613,15 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     """Project update into the row/col eigenbasis, scale by inverse sqrt of second-moment EMA, project back, renormalize.
 
     Trust gate: if state['trust_gate'] == 0.0 (eigenbasis rotated too far at last refresh),
-    fall back to the unpreconditioned update."""
+    fall back to the unpreconditioned update.
+
+    Dispatches to per-head variants when state['per_head_axis'] is 'row' or 'col'
+    (PR #281). Otherwise uses the matrix-level SOAP path."""
+    axis = state.get("per_head_axis")
+    if axis == "row":
+        return soap_precondition_per_head_row(update, state, beta2=beta2, eps=eps)
+    if axis == "col":
+        return soap_precondition_per_head_col(update, state, beta2=beta2, eps=eps)
     if state["q_row"] is None:
         return update
     if state.get("trust_gate", 1.0) == 0.0:
@@ -604,6 +631,182 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     projected = q_row.T @ update_f @ q_col
     state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+    return precond.to(update.dtype)
+
+
+def batched_soap_eigenbasis(mat: Tensor, eps: float = 1e-30) -> Tensor:
+    """Initial SOAP eigenbasis for a batched stack of square matrices.
+
+    mat: (..., n, n). Returns eigenvectors sorted in descending eigenvalue order
+    along the last axis. Falls back to float64 on cuSolver failure (rare)."""
+    n = mat.size(-1)
+    eye = eps * torch.eye(n, device=mat.device).expand_as(mat)
+    try:
+        _, q = torch.linalg.eigh(mat + eye)
+    except RuntimeError:
+        _, q = torch.linalg.eigh(mat.double() + eye.double())
+        q = q.float()
+    return torch.flip(q, [-1])
+
+
+def soap_refresh_per_head_row(grad, state, beta2, refresh_freq, trust_threshold,
+                              num_heads=NUM_HEADS, head_dim=HEAD_DIM):
+    """Per-head SOAP refresh for Q/K/V weights (row axis = num_heads * head_dim).
+
+    Maintains a stacked row-axis Gram of shape (num_heads, head_dim, head_dim) and
+    a single shared col-axis Gram (N, N). At refresh time, each head's eigenbasis
+    is refreshed via sort+QR (subspace iteration). Trust-gate decision is taken on
+    the min cos across heads — any single rotated head zeroes the gate."""
+    grad_f = grad.float()
+    M, N = grad_f.size(0), grad_f.size(1)
+    assert M == num_heads * head_dim
+    grad_heads = grad_f.view(num_heads, head_dim, N)
+    row_gg_new = grad_heads @ grad_heads.mT  # (num_heads, head_dim, head_dim)
+    col_gg_new = grad_f.T @ grad_f  # (N, N)
+    state["row_gg"].lerp_(row_gg_new, 1 - beta2)
+    state["col_gg"].lerp_(col_gg_new, 1 - beta2)
+    if state["q_row"] is None:
+        state["q_row"] = batched_soap_eigenbasis(state["row_gg"])  # (num_heads, head_dim, head_dim)
+        state["q_col"] = soap_eigenbasis(state["col_gg"])  # (N, N)
+        state["trust_gate"] = 1.0
+        state["trust_cos_row"] = 1.0
+        state["trust_cos_col"] = 1.0
+        state["trust_cos_row_mean_heads"] = 1.0
+    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+        row_gg = state["row_gg"]
+        col_gg = state["col_gg"]
+        q_row_old = state["q_row"]  # (num_heads, head_dim, head_dim)
+        q_col_old = state["q_col"]  # (N, N)
+        exp_avg_sq = state["exp_avg_sq"]  # (num_heads, head_dim, N)
+
+        # Per-head row sort+QR
+        row_eig = (q_row_old.mT @ row_gg @ q_row_old).diagonal(dim1=-2, dim2=-1)  # (num_heads, head_dim)
+        row_sort = torch.argsort(row_eig, dim=-1, descending=True)  # (num_heads, head_dim)
+        q_row_sorted = torch.gather(q_row_old, -1, row_sort.unsqueeze(-2).expand(-1, head_dim, -1))
+        exp_avg_sq = torch.gather(exp_avg_sq, -2, row_sort.unsqueeze(-1).expand(-1, -1, N))
+        q_row_new, _ = torch.linalg.qr(row_gg @ q_row_sorted)
+
+        # Global col sort+QR
+        col_eig = torch.diag(q_col_old.T @ col_gg @ q_col_old)
+        col_sort = torch.argsort(col_eig, descending=True)
+        q_col_sorted = q_col_old[:, col_sort]
+        exp_avg_sq = exp_avg_sq.index_select(-1, col_sort)
+        q_col_new, _ = torch.linalg.qr(col_gg @ q_col_sorted)
+
+        state["q_row"] = q_row_new
+        state["q_col"] = q_col_new
+        state["exp_avg_sq"] = exp_avg_sq
+
+        # Per-head cos diagonals
+        cos_row_per_head = (q_row_new.mT @ q_row_sorted).diagonal(dim1=-2, dim2=-1).abs().mean(dim=-1)
+        cos_row_min = cos_row_per_head.min().item()
+        cos_row_mean = cos_row_per_head.mean().item()
+        cos_col = (q_col_new.T @ q_col_sorted).diagonal().abs().mean().item()
+        state["trust_cos_row"] = cos_row_min  # used for gate decision (worst head)
+        state["trust_cos_row_mean_heads"] = cos_row_mean
+        state["trust_cos_col"] = cos_col
+        state["trust_gate"] = 1.0 if (cos_row_min >= trust_threshold and cos_col >= trust_threshold) else 0.0
+    state["soap_step"] += 1
+
+
+def soap_refresh_per_head_col(grad, state, beta2, refresh_freq, trust_threshold,
+                              num_heads=NUM_HEADS, head_dim=HEAD_DIM):
+    """Per-head SOAP refresh for proj weight (col axis = num_heads * head_dim).
+
+    Mirror of soap_refresh_per_head_row with the per-head split on the column axis.
+    Stacked col-axis Gram (num_heads, head_dim, head_dim); shared row Gram (M, M)."""
+    grad_f = grad.float()
+    M, N = grad_f.size(0), grad_f.size(1)
+    assert N == num_heads * head_dim
+    grad_heads = grad_f.view(M, num_heads, head_dim).permute(1, 0, 2)  # (num_heads, M, head_dim)
+    col_gg_new = grad_heads.mT @ grad_heads  # (num_heads, head_dim, head_dim)
+    row_gg_new = grad_f @ grad_f.T  # (M, M)
+    state["row_gg"].lerp_(row_gg_new, 1 - beta2)
+    state["col_gg"].lerp_(col_gg_new, 1 - beta2)
+    if state["q_col"] is None:
+        state["q_col"] = batched_soap_eigenbasis(state["col_gg"])  # (num_heads, head_dim, head_dim)
+        state["q_row"] = soap_eigenbasis(state["row_gg"])  # (M, M)
+        state["trust_gate"] = 1.0
+        state["trust_cos_row"] = 1.0
+        state["trust_cos_col"] = 1.0
+        state["trust_cos_col_mean_heads"] = 1.0
+    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+        row_gg = state["row_gg"]
+        col_gg = state["col_gg"]
+        q_row_old = state["q_row"]  # (M, M)
+        q_col_old = state["q_col"]  # (num_heads, head_dim, head_dim)
+        exp_avg_sq = state["exp_avg_sq"]  # (num_heads, M, head_dim)
+
+        # Global row sort+QR
+        row_eig = torch.diag(q_row_old.T @ row_gg @ q_row_old)
+        row_sort = torch.argsort(row_eig, descending=True)
+        q_row_sorted = q_row_old[:, row_sort]
+        exp_avg_sq = exp_avg_sq.index_select(-2, row_sort)
+        q_row_new, _ = torch.linalg.qr(row_gg @ q_row_sorted)
+
+        # Per-head col sort+QR
+        col_eig = (q_col_old.mT @ col_gg @ q_col_old).diagonal(dim1=-2, dim2=-1)  # (num_heads, head_dim)
+        col_sort = torch.argsort(col_eig, dim=-1, descending=True)
+        q_col_sorted = torch.gather(q_col_old, -1, col_sort.unsqueeze(-2).expand(-1, head_dim, -1))
+        exp_avg_sq = torch.gather(exp_avg_sq, -1, col_sort.unsqueeze(-2).expand(-1, M, -1))
+        q_col_new, _ = torch.linalg.qr(col_gg @ q_col_sorted)
+
+        state["q_row"] = q_row_new
+        state["q_col"] = q_col_new
+        state["exp_avg_sq"] = exp_avg_sq
+
+        cos_row = (q_row_new.T @ q_row_sorted).diagonal().abs().mean().item()
+        cos_col_per_head = (q_col_new.mT @ q_col_sorted).diagonal(dim1=-2, dim2=-1).abs().mean(dim=-1)
+        cos_col_min = cos_col_per_head.min().item()
+        cos_col_mean = cos_col_per_head.mean().item()
+        state["trust_cos_row"] = cos_row
+        state["trust_cos_col"] = cos_col_min  # used for gate decision (worst head)
+        state["trust_cos_col_mean_heads"] = cos_col_mean
+        state["trust_gate"] = 1.0 if (cos_row >= trust_threshold and cos_col_min >= trust_threshold) else 0.0
+    state["soap_step"] += 1
+
+
+def soap_precondition_per_head_row(update, state, beta2=SOAP_BETA2, eps=1e-8,
+                                   num_heads=NUM_HEADS, head_dim=HEAD_DIM):
+    """Per-head SOAP precondition for Q/K/V weights (row axis split)."""
+    if state["q_row"] is None:
+        return update
+    if state.get("trust_gate", 1.0) == 0.0:
+        return update
+    update_f = update.float()
+    M, N = update_f.size(0), update_f.size(1)
+    assert M == num_heads * head_dim
+    update_heads = update_f.view(num_heads, head_dim, N)
+    q_row = state["q_row"]  # (num_heads, head_dim, head_dim)
+    q_col = state["q_col"]  # (N, N)
+    projected = (q_row.mT @ update_heads) @ q_col  # (num_heads, head_dim, N)
+    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+    scaled = projected / state["exp_avg_sq"].sqrt().add(eps)
+    precond_heads = q_row @ (scaled @ q_col.T)  # (num_heads, head_dim, N)
+    precond = precond_heads.reshape(M, N)
+    precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
+    return precond.to(update.dtype)
+
+
+def soap_precondition_per_head_col(update, state, beta2=SOAP_BETA2, eps=1e-8,
+                                   num_heads=NUM_HEADS, head_dim=HEAD_DIM):
+    """Per-head SOAP precondition for proj weight (col axis split)."""
+    if state["q_col"] is None:
+        return update
+    if state.get("trust_gate", 1.0) == 0.0:
+        return update
+    update_f = update.float()
+    M, N = update_f.size(0), update_f.size(1)
+    assert N == num_heads * head_dim
+    update_heads = update_f.view(M, num_heads, head_dim).permute(1, 0, 2)  # (num_heads, M, head_dim)
+    q_row = state["q_row"]  # (M, M)
+    q_col = state["q_col"]  # (num_heads, head_dim, head_dim)
+    projected = (q_row.T @ update_heads) @ q_col  # (num_heads, M, head_dim)
+    state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
+    scaled = projected / state["exp_avg_sq"].sqrt().add(eps)
+    precond_heads = q_row @ (scaled @ q_col.mT)  # (num_heads, M, head_dim)
+    precond = precond_heads.permute(1, 0, 2).reshape(M, N)
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
 
@@ -624,16 +827,27 @@ class Muon(torch.optim.Optimizer):
         }
         # Track which sub-type each attention-SOAP param is (q/k/v/proj) for per-type telemetry.
         self.attn_soap_kind: dict[int, str] = {}
+        # Per-head SOAP axis selection (PR #281): "row" splits Q/K/V row axis;
+        # "col" splits proj col axis. Arm A = Q only; Arm B = all four attn weights.
+        self.attn_soap_per_head_axis: dict[int, str] = {}
         for n, p in named_params:
             if p in self.attn_soap_params:
                 if n.endswith(".attn.q.weight"):
                     self.attn_soap_kind[id(p)] = "q"
+                    if PER_HEAD_SOAP_Q or PER_HEAD_SOAP_ALL:
+                        self.attn_soap_per_head_axis[id(p)] = "row"
                 elif n.endswith(".attn.k.weight"):
                     self.attn_soap_kind[id(p)] = "k"
+                    if PER_HEAD_SOAP_ALL:
+                        self.attn_soap_per_head_axis[id(p)] = "row"
                 elif n.endswith(".attn.v.weight"):
                     self.attn_soap_kind[id(p)] = "v"
+                    if PER_HEAD_SOAP_ALL:
+                        self.attn_soap_per_head_axis[id(p)] = "row"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+                    if PER_HEAD_SOAP_ALL:
+                        self.attn_soap_per_head_axis[id(p)] = "col"
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -662,17 +876,42 @@ class Muon(torch.optim.Optimizer):
                             )
                         if p in self.soap_params or p in self.attn_soap_params:
                             m, n = p.size(0), p.size(1)
-                            state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
-                            state["col_gg"] = torch.zeros(n, n, dtype=torch.float32, device=p.device)
+                            per_head_axis = self.attn_soap_per_head_axis.get(id(p))
+                            state["per_head_axis"] = per_head_axis
+                            if per_head_axis == "row":
+                                # Row axis = NUM_HEADS * HEAD_DIM; per-head stacked Gram on rows.
+                                assert m == NUM_HEADS * HEAD_DIM, (
+                                    f"per-head-row SOAP expects row axis = {NUM_HEADS}*{HEAD_DIM}, got {m}"
+                                )
+                                state["row_gg"] = torch.zeros(NUM_HEADS, HEAD_DIM, HEAD_DIM,
+                                                              dtype=torch.float32, device=p.device)
+                                state["col_gg"] = torch.zeros(n, n, dtype=torch.float32, device=p.device)
+                                state["exp_avg_sq"] = torch.zeros(NUM_HEADS, HEAD_DIM, n,
+                                                                  dtype=torch.float32, device=p.device)
+                            elif per_head_axis == "col":
+                                # Col axis = NUM_HEADS * HEAD_DIM; per-head stacked Gram on cols.
+                                assert n == NUM_HEADS * HEAD_DIM, (
+                                    f"per-head-col SOAP expects col axis = {NUM_HEADS}*{HEAD_DIM}, got {n}"
+                                )
+                                state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
+                                state["col_gg"] = torch.zeros(NUM_HEADS, HEAD_DIM, HEAD_DIM,
+                                                              dtype=torch.float32, device=p.device)
+                                state["exp_avg_sq"] = torch.zeros(NUM_HEADS, m, HEAD_DIM,
+                                                                  dtype=torch.float32, device=p.device)
+                            else:
+                                state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
+                                state["col_gg"] = torch.zeros(n, n, dtype=torch.float32, device=p.device)
+                                state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["q_row"] = None
                             state["q_col"] = None
-                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["soap_step"] = 0
                             if p in self.attn_soap_params:
                                 # Default trust gate is 1.0 until the first basis refresh.
                                 state["trust_gate"] = 1.0
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
+                                state["trust_cos_row_mean_heads"] = 1.0
+                                state["trust_cos_col_mean_heads"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
@@ -708,15 +947,19 @@ class Muon(torch.optim.Optimizer):
         Aggregate keys: count, on_fraction, mean_cos_row/col, min_cos_row/col.
         Per-type keys (kind in {q, k, v, proj}):
           {kind}/count, {kind}/on_fraction, {kind}/mean_cos_row, {kind}/mean_cos_col.
+        When per-head SOAP is active for a kind, also emits
+          {kind}/mean_cos_row_heads, {kind}/mean_cos_col_heads
+        (mean across heads; trust_cos_row/col stays the min-across-heads value
+        used for the gate decision).
         """
         cos_rows: list[float] = []
         cos_cols: list[float] = []
         on_count = 0
         by_kind: dict[str, dict[str, list[float] | int]] = {
-            "q": {"on": 0, "cos_row": [], "cos_col": []},
-            "k": {"on": 0, "cos_row": [], "cos_col": []},
-            "v": {"on": 0, "cos_row": [], "cos_col": []},
-            "proj": {"on": 0, "cos_row": [], "cos_col": []},
+            "q": {"on": 0, "cos_row": [], "cos_col": [], "cos_row_heads": [], "cos_col_heads": []},
+            "k": {"on": 0, "cos_row": [], "cos_col": [], "cos_row_heads": [], "cos_col_heads": []},
+            "v": {"on": 0, "cos_row": [], "cos_col": [], "cos_row_heads": [], "cos_col_heads": []},
+            "proj": {"on": 0, "cos_row": [], "cos_col": [], "cos_row_heads": [], "cos_col_heads": []},
         }
         for p in self.attn_soap_params:
             state = self.state.get(p)
@@ -733,6 +976,11 @@ class Muon(torch.optim.Optimizer):
             if kind is not None:
                 by_kind[kind]["cos_row"].append(cr)
                 by_kind[kind]["cos_col"].append(cc)
+                axis = state.get("per_head_axis")
+                if axis == "row":
+                    by_kind[kind]["cos_row_heads"].append(state.get("trust_cos_row_mean_heads", 1.0))
+                elif axis == "col":
+                    by_kind[kind]["cos_col_heads"].append(state.get("trust_cos_col_mean_heads", 1.0))
                 if on:
                     by_kind[kind]["on"] += 1
         counts = len(cos_rows)
@@ -756,6 +1004,10 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+            if agg["cos_row_heads"]:
+                out[f"{kind}/mean_cos_row_heads"] = sum(agg["cos_row_heads"]) / len(agg["cos_row_heads"])
+            if agg["cos_col_heads"]:
+                out[f"{kind}/mean_cos_col_heads"] = sum(agg["cos_col_heads"]) / len(agg["cos_col_heads"])
         return out
 
 
@@ -841,7 +1093,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/per_head_soap_q": int(PER_HEAD_SOAP_Q),
+            "optimizer/per_head_soap_all": int(PER_HEAD_SOAP_ALL),
+            "optimizer/num_heads": NUM_HEADS,
+            "optimizer/head_dim": HEAD_DIM,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate + per-head-attn-soap (pre-NS5, record #14 + record #16 + PR #281)",
         },
     )
 
