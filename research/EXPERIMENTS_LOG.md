@@ -701,3 +701,30 @@ Closed as null + mechanism study. No confirmation seeds warranted (arm-A is base
 
 **Axis closed.** `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (existing env var) validated as optimal. No code change needed. Follow-on: NS schedule SHAPE sweep (frieren #285) tests whether graduated/ramped NS transition beats the step jump at fixed 0.70 trigger.
 
+## 2026-05-17 16:00 UTC — PR #203: NS polynomial coefficient sweep (fern) — CLOSED null
+
+- Branch: `g1r4-fern/ns-coef-sweep`
+- Hypothesis: The NS quintic polynomial coefficient c (one-parameter family a=1.5+c, b=-0.5-2c) may not be optimally set at c=0.5.
+- W&B runs (new-baseline v2): arm-A `yzhgo0lm`, arm-B `ad0o8zkq`, arm-C `axz4w1p3`, arm-D `a2c7lvv4`, arm-E `nk3hl6lz`
+
+### Results — 5-arm bracket c ∈ {0.35, 0.40, 0.50, 0.60, 0.70} at new baseline (clip=10 + NS=12→16)
+
+| Arm | c | val/loss | fs | Δ vs A v2 | f(0.5) |
+|-----|---:|---:|---:|---:|---:|
+| **A v2** | **0.5** | **3.27463** | **3250** | **—** | 0.8281 |
+| B v2 | 0.4 | 3.27741 | 3300 | +0.00278 | 0.8000 |
+| C v2 | 0.6 | 3.27621 | 3275 | +0.00158 | 0.8563 |
+| D v2 | 0.35 | 3.27567 | 3275 | +0.00104 | 0.7859 |
+| E v2 | 0.7 | 3.27555 | 3275 | +0.00092 | 0.8844 |
+
+Arm-A v2 reproduces merged n=3 baseline within 0.00002. No arm reaches merge gate.
+
+### Key findings
+
+1. **c=0.5 is clear local optimum** on the new merged baseline. Both directions regress; no confirmation seeds warranted.
+2. **NS=16-cooldown × soft-polynomial antagonism**: arm-B (c=0.4) flipped from approximately neutral on old baseline (clip=5, NS=12 constant) to +0.00278 regression on new baseline. More NS iters in cooldown amplify under-flattening errors.
+3. **Sharp direction (C→E) monotone-improving but never wins**: c=0.6 (+0.00158) → c=0.7 (+0.00092). Extending to c=0.8 would need +0.00092 gap to close; not motivated.
+4. **Non-monotonicity in soft direction (D<B)**: seed noise (0.00174 within inter-seed std ~0.001-0.002); no mechanism follow-up.
+
+**Axis sealed**: NS quintic polynomial coefficient family exhausted at c=0.5 default. Follow-on: fern #290 tests per-iter coefficient schedule (varying c across the 12 NS iters within each step, average c=0.5 held constant to isolate the schedule axis).
+

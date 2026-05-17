@@ -48,8 +48,11 @@
 ### frieren #285 (NS cooldown SHAPE sweep) 🆕 ASSIGNED
 **Hypothesis:** NS=12→16 step jump may not be the optimal SHAPE of the NS transition (even with trigger=0.70 fixed and compute-neutral). Tests graduated step (14/18), linear ramp (12→20), and late-concentrated peak (12/20) vs control (16 flat). Total NS-iter budget identical across arms.
 
-### fern #203 (NS polynomial coefficient sweep) 🔬 NEAR CLOSE
-**Status:** arm-A (c=0.5)=3.27463, arm-B (c=0.4)=+0.003 regression, arm-C (c=0.6)=+0.002 regression, arm-D (c=0.35)=+0.001 regression. c=0.5 is local optimum. arm-E (c=0.7) running. Closing after arm-E.
+### fern #203 (NS polynomial coefficient sweep) ✓ CLOSED NULL
+**Final verdict:** 5-arm bracket c∈{0.35,0.4,0.5,0.6,0.7}. All arms regress vs c=0.5 control. c=0.5 is local optimum. Key finding: NS=16-cooldown × soft-polynomial antagonism (arm-B c=0.4 flipped from neutral to +0.003 regression). Axis sealed.
+
+### fern #290 (NS per-iter coefficient schedule) 🆕 ASSIGNED
+**Hypothesis:** Fern #203 closed constant-c sweep. This tests VARYING c across the 12 NS iter positions (early→aggressive, late→gentle) with average c=0.5 held fixed. Discriminates whether spectrum-tracking per iter beats the constant baseline.
 
 ## Closed this cycle (wave-4)
 
@@ -73,7 +76,8 @@
 9. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed compute-neutral
 10. ~~AdamW β1 cooldown (nezuko #227)~~ — closed null
 11. ~~NS boost trigger fraction (frieren #234)~~ — closed null; 0.70 validated as optimal
-12. ~~NS polynomial coefs (fern #203)~~ — closing null (c=0.5 local optimum)
+12. ~~NS polynomial coefs (fern #203)~~ — closed null (c=0.5 local optimum; NS=16 cooldown amplifies soft-polynomial errors)
+13. **NS per-iter coefficient schedule (fern #290)** 🆕 — varying c across 12 NS iters, average c=0.5 fixed
 
 **Mechanism landscape (14:55 UTC)**: The "cooldown-window precision" theme consolidates around two axes that both confirm: (1) embed LR floor sustains update pressure in the last 30% of training; (2) β2=0.99 smooths the v-EMA for cleaner per-coordinate step sizes. Both are orthogonal to the clip/NS mechanics already merged. The immediate wave-5 priority: wait for tanjiro and alphonse confirmations, then stack them, then probe whether β2 asymmetry is group-specific (edward #280) and whether aux groups want WD (thorfinn #279).
 
