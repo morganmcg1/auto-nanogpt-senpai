@@ -43,6 +43,8 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--muonh_ns5_dtype", type=str, default=os.environ.get("MUONH_NS5_DTYPE", "bf16"), choices=["bf16", "fp32"],
+                        help="Working dtype for NS5 polynomial iterations. bf16 matches baseline; fp32 tests bf16 noise-floor hypothesis.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -447,9 +449,12 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+_NS5_DTYPE = torch.bfloat16  # overwritten from --muonh_ns5_dtype before compile/training
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
-    X = G.bfloat16()
+    out_dtype = G.dtype
+    X = G.to(_NS5_DTYPE)
     if G.size(-2) > G.size(-1):
         X = X.mT
 
@@ -464,7 +469,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     if G.size(-2) > G.size(-1):
         X = X.mT
-    return X
+    return X.to(out_dtype)
 
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
@@ -638,6 +643,8 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
+_NS5_DTYPE = torch.bfloat16 if args.muonh_ns5_dtype == "bf16" else torch.float32
+print0(f"MuonH NS5 working dtype={args.muonh_ns5_dtype} ({_NS5_DTYPE})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -679,6 +686,7 @@ if dist.get_rank() == 0:
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
+            "muonh_ns5_dtype": args.muonh_ns5_dtype,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
