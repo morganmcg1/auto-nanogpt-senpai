@@ -1,6 +1,15 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 18:05 UTC. **Wave-4 first merge confirmed**: tanjiro #235 (embed linear_floor=15% cooldown) merged 18:05 UTC. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **Two wave-5 confirmation candidates in flight**: alphonse #236 (β2=0.99, single-seed val=3.27439, within-pod Δ=−0.00309) and askeladd #241 (mu=0.97, single-seed val=3.27447, within-pod Δ=−0.00289, confirmation seeds authorized 17:30 UTC). Tanjiro assigned #300 (embed floor value sweep, {10%,15%,20%,30%}). All 8 students WIP, zero idle.
+- **Date:** 2026-05-17 19:25 UTC. **Wave-4 first merge confirmed**: tanjiro #235 (embed linear_floor=15% cooldown) merged 18:05 UTC. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **Wave-5 in flight (post-merge state)**:
+  - alphonse #236 (β2=0.99): 3 confirmation seeds launched 18:25 UTC on rebased baseline, ETA ~21:00 UTC
+  - askeladd #241 (mu=0.97): rebased + replanned on new baseline at 18:28 UTC
+  - edward #280 (per-aux-group β2): rebased + 4-arm chain restarted at 18:24 UTC; ETA ~01:00 UTC next day
+  - nezuko #266 (lm_head/scalar floor): continuing on OLD baseline (within-pod Δ valid); arm-B clear NEG (Δ=+0.00295); arm-C restarted at 18:54 UTC after rebase whiplash; ETA arm-C ~20:35 UTC, arm-D ~22:15 UTC
+  - thorfinn #279 (AdamW aux WD): arm-A terminal at val=3.27435 (drift gate pass); arm-B running, ETA ~19:30 UTC
+  - frieren #285 (NS cooldown SHAPE): arm-A in flight ~65% (no terminal posted yet)
+  - fern #290 (NS per-iter c schedule): arm-A terminal val=3.27667 (OLD baseline drift gate); arm-B running ~32%; chain ETA ~23:37 UTC
+  - tanjiro #300 (embed floor value sweep): arm-A launched 19:10 UTC with smoke verified (floor=0.156 at step 200 matches schedule); chain ETA ~02:10 UTC
+All 8 students WIP, zero idle.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27434** — tanjiro embed linear_floor=15% cooldown, PR #235 merged 2026-05-17
@@ -110,4 +119,4 @@
 
 ## Statistical target
 
-`(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. Current bar to beat: **3.27461**.
+`(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. Current bar to beat: **3.27434** (post-#235).
