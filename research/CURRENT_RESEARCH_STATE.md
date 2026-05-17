@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 06:20 UTC (boot 78)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~12h since last operator update.
+- **Last updated:** 2026-05-17 07:30 UTC (boot 81)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~13h since last operator update.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
 ## ⭐ Current baseline (post-PR #114 merge)
@@ -23,20 +23,20 @@
 
 All active screens use `--muonh_mode scale_invariant`. Default is `clip` — operational risk.
 
-## Active experiments (boot 78 — 06:15 UTC 2026-05-17)
+## Active experiments (boot 81 — 07:30 UTC 2026-05-17)
 
 | PR | Student | Lever | Status |
 | --- | --- | --- | --- |
-| **#207** | frieren | MuLoCo outer_lr sweep {0.3, 0.7, 1.5} | lr=0.3=3.31220 NEG; **lr=0.7=3.27569 baseline-clone** ✓; lr=1.5 step 1328/3325 (40%) |
-| **#174** | askeladd | NS5 A3 (2.5,-2.5,0.75) × MuLoCo stack n=4 | **T1=3.27739, T2=3.27615, T3=3.27539 (all ≤ baseline!)** T4 step 476/3325 (14%). n=3 mean=3.27631. ETA T4 ~07:30 UTC |
-| **#237** | edward | AGC (Adaptive Gradient Clipping) for aux AdamW: clip ratio sweep {0.05, 0.2, 1.0} | **NEWLY ASSIGNED** (#200 Param EMA closed NEG) |
-| **#215** | thorfinn | NS5 iter count k={8,12,16} × MuLoCo stack | **k=8 TERMINAL=3.28312 NEG-DNF**; k=12 step 725/3325 (22%); k=16 queued |
-| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | Smoke baseline ✓; **sync=10 step 800/3325 (24%)**; sync=30, 60 queued |
-| **#218** | fern | Lion aux optimizer for 1D params (lr_scale sweep) | scale=0.3 step 1900/3325 (57%); scale=1.0, 3.0 queued |
-| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | Smoke done (4.135 ✓); nudged to launch screen; code change in progress |
-| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod still NaN at step 25 (`5ctlikby` 04:33 UTC), Issue #164 silent ~12h |
+| **#174** | askeladd | NS5 A3 (2.5,-2.5,0.75) × MuLoCo stack n=4 | **T1=3.27739, T2=3.27615, T3=3.27539** T4 step 12468/13302 (75%). **MERGE IMMINENT if T4 < 3.27447.** ETA terminal ~07:35 UTC |
+| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | **NEWLY ASSIGNED** (#207 outer_lr=0.7 saturated, lr=1.5=4.127 catastrophic) |
+| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | Smoke done (4.138 ✓); screen not launched yet |
+| **#215** | thorfinn | NS5 iter count k={8,12,16} × MuLoCo stack | k=8=3.28312 NEG; **k=12=3.27411 baseline-clone ✓ (n=1 seed drift)**; k=16 running |
+| **#217** | tanjiro | MuLoCo sync_interval sweep {10, 30, 60} | **sync=10 TERMINAL=3.27936 NEG** (+0.00351); sync=30 (baseline ctrl) in progress |
+| **#218** | fern | Lion aux optimizer for 1D params (lr_scale sweep) | **scale=0.3 TERMINAL=3.31021 NEG**; scale=1.0 step 1440/3325 (43%) |
+| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | **frac=0.2 step 990/3325 (30%)** running; frac=0.4, 1.0 queued |
+| **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod still NaN, Issue #164 silent ~13h |
 
-**8/8 students assigned.** Closed this round: #200 NEG (Param EMA), #182 NEG, #191 NEG, #183 NEG, #192 NEG.
+**8/8 students assigned.** Closed: #207 NEG (outer_lr saturated), #200 NEG (Param EMA), #182-183-191-192 NEG.
 
 ## Closed (this round, negative)
 - **#182 thorfinn Lookahead × MuonH-SI**: k=5=3.31588 NEG, k=10=3.31485 NEG. SI-direction-modifier incompatibility confirmed.
@@ -100,13 +100,13 @@ All active screens use `--muonh_mode scale_invariant`. Default is `clip` — ope
 - **Aux betas**: (0.8, 0.95) optimal; higher betas hurt in short-horizon regime — PR #183 closed
 - **Aux cooldown_frac**: 0.4 looks optimal (0.2 NEG; 0.6 in flight)
 
-## Next-priority watch points (boot 78 — 06:20 UTC)
+## Next-priority watch points (boot 81 — 07:30 UTC)
 
-1. **Askeladd #174 T4 terminal** (~07:30 UTC): **MOST CRITICAL** — T3=3.27539 BELOW baseline! Need T4 < 3.27447 for n=4 mean to clear merge bar. T4 at step 476/3325 (14%).
-2. **Frieren #207 lr=1.5 terminal** (~07:00 UTC): expected catastrophic NEG. Then close #207, assign frieren fresh.
-3. **Fern #218 Lion scale=0.3 terminal** (~07:30 UTC): at 57%. If NEG, scale=1.0, scale=3.0 continue.
-4. **Thorfinn #215 k=12 terminal** (~07:50 UTC): baseline ctrl expected; k=16 queued.
-5. **Tanjiro #217 sync=10 terminal** (~07:50 UTC): then sync=30 ctrl, sync=60.
-6. **Nezuko #222 screen**: nudged, code change in progress, screen {0.2, 0.4, 1.0} should launch soon.
-7. **Edward #237 AGC smoke+screen**: just assigned, ~8:00-12:00 UTC.
-8. **Issue #164**: alphonse pod still NaN; ~12h silent from infra team.
+1. **Askeladd #174 T4 TERMINAL IMMINENT** (~07:35 UTC): CRITICAL. Need T4 < 3.27447 for n=4 mean < 3.27585. T4 at 75%, val=3.44 (descending).
+2. **Thorfinn #215 k=16 terminal** (~08:30 UTC): if < k=12 = 3.27411, potentially interesting.
+3. **Tanjiro #217 sync=30 ctrl** (~08:30 UTC): must reproduce baseline; then sync=60.
+4. **Fern #218 Lion scale=1.0 terminal** (~08:30 UTC): scale=0.3 was NEG=3.31021; scale=1.0 running.
+5. **Nezuko #222 frac=0.2 terminal** (~09:00 UTC): then frac=0.4, frac=1.0.
+6. **Edward #237 AGC screen launch**: smoke done (4.138 ✓); screen {0.05, 0.2, 1.0} should launch.
+7. **Frieren #243 cooldown-shape**: just assigned; smoke + 3-arm screen incoming.
+8. **Issue #164**: alphonse pod still NaN (~13h silent).
