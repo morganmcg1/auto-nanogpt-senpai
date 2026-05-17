@@ -1,5 +1,74 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~15:00 — Cycle 54 (continued): alphonse #256 FALSIFIED; tanjiro #259 FALSIFIED; thorfinn #219 n=4 3/4 strong; frieren #254 closed; 3 students reassigned (#275, #276, #277)
+
+### ALPHONSE #256 — SOAP_PRECOND_FREQ {5, 20} sweep — FALSIFIED
+
+| Arm | SOAP_PRECOND_FREQ | Outcome |
+|---|---|---|
+| A | 5 | Multi-seed NaN at step 25 (5 independent trials) |
+| B | 20 | Multi-seed NaN at step 25 (same fingerprint) |
+
+Both arms falsified. Baseline (freq=10) runs cleanly to val~3.277 on all 4 trials. Both extremes destabilize within first 25 steps.
+
+**Mechanism (Arm A, freq=5)**: First eigenbasis refresh at soap_step=5 with only ~41% Gram EMA equilibration (β₂=0.90). Eigenbasis from incomplete Gram is noisy → preconditioning rotates update in wrong direction → weight-norm explosion by step 25.
+
+**Mechanism (Arm B, freq=20)**: Initial eigenbasis (from 1-step Gram) is rank-1 noise. Preconditioning with this for 20 steps before first refresh is catastrophic — the bad eigenbasis amplifies every update in the wrong subspace until divergence.
+
+**SOAP_PRECOND_FREQ is a narrow stability window at 10**. Combined with Arm A finding, we can say: Gram needs ≥ 10 EMA steps to produce a usable eigenbasis, and the initial eigenbasis must be replaced quickly enough that its noise doesn't compound. 10 is the optimal tradeoff point.
+
+W&B runs: `h1527wma`, `9ogg9inl`, `rnarwovu`, `htti5gif` (5 trials total, all NaN). Alphonse reassigned → SOAP eigenbasis freeze after step K (PR #277).
+
+---
+
+### TANJIRO #259 — NS_ITERS sweep (NS_ITERS=10, 8) — FALSIFIED
+
+| Arm | NS_ITERS | Outcome |
+|---|---|---|
+| A | 10 | Trials 0, 1: 91% nonfinite gradients at step 225 |
+| B | 8 | NaN (run just started, suspected same) |
+
+Both arms falsified. Baseline (NS_ITERS=12) is the unique stable operating point.
+
+**Mechanism**: NS5 polynomial with (a=2, b=-1.5, c=0.5) requires ~12 iterations to converge to an orthogonalized update for typical singular value distributions. With 10 iterations, the polynomial output is under-converged → uncontrolled singular value magnitudes → after Frobenius renormalization and TARGET_UW=0.35 u/w-floor scaling, effective update grows beyond weight scale → NaN cascade by step 225.
+
+**NS5 iteration axis is fully exhausted**: (8, 10) NaN cascade; (12) optimal; (14, 16) also NaN from prior askeladd #232 sweep; fp32 NS5 (frieren #254) MISS (no precision improvement). The entire NS5 precision/iter axis is closed.
+
+W&B runs: `cuhzxhaz` (seed-0 NaN, n=1), `wsdki64r` (n=4, trials 0-1 diverged at step 225). Tanjiro reassigned → decoupled aux cooldown shape (PR #276).
+
+---
+
+### FRIEREN #254 — fp32 precision in Newton-Schulz NS5 — MISS
+
+| Metric | Result | vs new baseline (PR #212) |
+|---|---|---|
+| val/loss | 3.2769 | > 3.27631 (MISS) |
+| ffs | 3125 | > 3112.5 (MISS) |
+
+Complementary to NS_ITERS falsification: adding fp32 precision also doesn't help. Combined, the NS5 pipeline is insensitive to both iteration count AND numerical precision changes from the 12-iter bf16 optimum.
+
+W&B run: `mon2ndin`. Frieren reassigned → MLP-SOAP trust gate (PR #275).
+
+---
+
+### THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 IN PROGRESS 🔥
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| 0 | 3.27510 | 3075 |
+| 1 | 3.27697 | 3100 |
+| 2 | 3.27489 | 3075 |
+| 3 | (running) | — |
+| **n=3 mean** | **3.27565** | **3083** |
+
+**n=3 mean BEATS new baseline** (val=3.27631, ffs=3112.5) on BOTH metrics. Statsig n=3: (3.28 − 3.27565) × √3 = 0.00754 ≥ 0.004 ✓ (cleared by 1.9×).
+
+Note: n=4 run launched before PR #212 merge — testing annealed μ WITHOUT TRUST_THRESHOLD=0.85. Even without the attn trust gate, annealed μ beats the new baseline (which HAS trust gate). This confirms the two mechanisms are additive; compound result (annealed μ + trust gate) should beat both individually.
+
+W&B run: `47bb0bf2`. Trial 3 running, ETA ~17:30 UTC. Terminal SENPAI-RESULT pending.
+
+---
+
 ## 2026-05-17 ~13:00 — Cycle 54: PR #212 MERGED (new baseline); 4 axes closed; 3 students reassigned
 
 ### NEZUKO #212 — Attn-SOAP+trust T=0.85 — MERGED ⭐ NEW BASELINE

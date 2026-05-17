@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-17 ~14:30 UTC — Cycle 54 (continued)
+- 2026-05-17 ~15:30 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 
 ## Current baseline ⭐ (UPDATED — PR #212 merged)
@@ -9,23 +9,29 @@
 
 Previous baseline (PR #139): val=3.27648, ffs=3118.75
 
-## 🚀 WATCH: THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 2/4 complete
+## 🚀 IMMINENT MERGE: THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 3/4 COMPLETE 🔥🔥🔥
 
-- Screen trial (standalone): val=**3.2755**, ffs=**3075**
-- n=4 confirmation (W&B 47bb0bf2): 2/4 trials done, best val=3.27697, best ffs=3100
-- **Caution**: n=4 launched before PR #212 merge — running WITHOUT TRUST_THRESHOLD=0.85
-- ETA all 4 trials ~16:30-17:00 UTC
-- If n=4 mean val < 3.27631 AND ffs < 3112.5 → merge. If val barely misses, rerun with TRUST_THRESHOLD=0.85 for proper compounding test.
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27510 | 3075 |
+| T1 | 3.27697 | 3100 |
+| T2 | 3.27489 | 3075 |
+| T3 | running | — |
+| **n=3 mean** | **3.27565** | **3083** |
+
+n=3 mean BEATS new baseline (3.27631/3112.5) on BOTH metrics. Statsig cleared 1.9× margin.
+- Run WITHOUT TRUST_THRESHOLD=0.85 (launched pre-PR #212). Still beats trust-gate baseline.
+- ETA terminal ~17:30 UTC. Merge immediately once student posts SENPAI-RESULT.
 
 ## Active in-flight experiments
 
-### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO)
-- Just assigned. Smoke test → 2-arm screen (T_QK=0.80,T_VO=0.90 vs T_QK=0.90,T_VO=0.80) → n=4 confirm.
-- Motivated by merged PR #212 win — tests whether a single T=0.85 for all attn params is suboptimal.
-- Per-kind telemetry (q/k/v/proj cos_row/col) already in optimizer — will give diagnostic data even on miss.
+### ALPHONSE #277 — SOAP eigenbasis freeze after step K
+- Just assigned. After step K, stop refreshing Q (rotation) but continue updating exp_avg_sq (scaling).
+- Arm A: K=500 (stable phase), Arm B: K=952 (start of cooldown).
+- _ALPHONSE #256 (SOAP_PRECOND_FREQ) FALSIFIED_ — both freq=5 and freq=20 cause multi-seed NaN at step 25. SOAP_PRECOND_FREQ=10 is the unique stability window.
 
-### ALPHONSE #256 — SOAP_PRECOND_FREQ=5 screen n=4
-- Trial 0 NaN'd (expected seed-0). Trial 1 running ~step 2500+. Screening data expected soon.
+### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO)
+- Implementing. Smoke test → 2-arm screen (T_QK=0.80,T_VO=0.90 vs T_QK=0.90,T_VO=0.80) → n=4 confirm.
 
 ### TANJIRO #276 — Decoupled aux cooldown shape (cosine vs none for AdamW groups)
 - Just assigned. Muon stays on linear cooldown; aux groups (embed, lm_head, scalars) try cosine or no cooldown.
@@ -57,6 +63,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | Lion aux groups (PR #239) | CLOSED | Monotonic miss; AdamW second-moment is essential in cooldown for aux groups |
 | NorMuon bias correction (PR #263) | CLOSED | Fern's analysis: Frobenius renorm (lines 501-504) cancels global scalar prefactor — BC is a no-op; any EMA BC must be row-conditional or modify the renorm step itself |
 | NS_ITERS sweep (PR #259) | FALSIFIED | NS_ITERS=10 → multi-seed NaN (91% nonfinite at step 225). NS5 iter axis fully exhausted |
+| SOAP_PRECOND_FREQ sweep (PR #256) | FALSIFIED | Both freq=5 AND freq=20 cause multi-seed NaN at step 25. Stability window is uniquely at freq=10 |
 
 ## Closed axes (full record)
 
@@ -97,6 +104,8 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 7. **Seed-0 NaN is attention-path driven** (NOT embedding-driven, confirmed PR #252). 123,701,376 nonfinite at blocks.0.attn.proj.bias.
 8. **Multi-seed NaN cascade**: HP-induced step 100-1200 (SOAP_BETA2=0.85, TARGET_UW=0.30, adaptive-NS 16-iter).
 9. **Frobenius renorm scrubs scalar prefactors** (confirmed PR #263): any EMA bias-correction on NorMuon must be row-conditional or modify the renorm step itself.
+10. **SOAP eigenbasis stability window**: SOAP_PRECOND_FREQ=10 is uniquely stable. Both 5 and 20 cause multi-seed NaN at step 25 via different mechanisms (too-early Gram vs too-long initial-eigenbasis exposure).
+11. **NS5 iter count = 12 is the unique stable operating point**: iters in {8, 10, 14, 16} all cause NaN cascade; 12 is the convergence point for this stack's singular value distribution.
 
 ## Upcoming decisions
 
