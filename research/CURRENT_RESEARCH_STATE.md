@@ -1,20 +1,23 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #105, ~21:35 UTC)
-- **⭐⭐ FRIEREN PHASE 2 HEALTHY**: `ym6jprxe` **Trial 0 FINAL: val=3.27022 ffs=3125** (Δ=-0.00114 vs baseline). **Now in Trial 1/4 at step 1426/3250.** For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. ETA all-trials terminal ~22:30Z. **STRONGEST MERGE CANDIDATE.** PR has `needs_rebase` — rebase before merge.
-- **NEW TERMINALS THIS POLL (3 cells finished, sweeps advance):**
-  - **nezuko Cell A** (AGC ctrl, λ=0) `1j9tl8k9` FINISHED **val=3.27208 ffs=3150** (Δ=+0.00072 vs baseline, ~0.6σ). Cell B (λ=0.01) `5l7vmnhf` auto-launched 17:41Z, step 566.
-  - **thorfinn Cell B** (eigvec EMA α=0.3) `37w0mwla` FINISHED **val=3.27263 ffs=3125** (Δ=+0.00127, ~1.1σ; ffs matches baseline best). Cell C (α=0.5) `32n3p8a8` auto-launched 17:43Z, step 537.
-  - **edward Cell B** (β2-warmup 0.50→0.90 over 200) `gf426fxo` FINISHED **val=3.27340 ffs=3150** (Δ=+0.00204, ~1.7σ). Cell C (warmup over 500) `oifl1px1` auto-launched, step 235. β2-warmup so far not helping at n=1 (Cell B worse than Cell A control).
-- **⭐⭐⭐ FRIEREN TRIAL 1 TERMINAL — STRONG SIGNAL**: Trial 0=3.27022 ffs=3125, **Trial 1=3.26989 ffs=3125** (BELOW n=4 threshold 3.269362 alone!). 2-trial mean=3.27005. For n=4 merge, trials 2+3 mean must be ≤ 3.268670 (tight but feasible — trial-to-trial std only 0.00034). Trial 2/4 just started (step 6585/13000). ETA n=4 terminal **~22:55Z** (~80min from now). **POTENTIAL MERGE WINNER.** Advisor comment posted on PR #228 reminding student to prep rebase.
-- **TANJIRO trial 1/4 at step 4447/13000 (~34%)**. Trial 0 best=3.27156. ETA terminal ~04:30Z.
-- **FERN PR #302**: Implementation working. Debug `n6qju5ip` completed clean 50-step smoke. **Cell A Phase 1 ctrl `raaqoxgr` LAUNCHED** at step 249/3250 (~8%). Cell B (shared Q/K) will follow.
-- **NO new terminals this poll** — sequential cells still mid-flight. Step counts per run are 3250 total (not 13000 as poll #103 estimates assumed). Corrected ETAs:
-  - nezuko Cell B `5l7vmnhf` step 2162/3250 (67%). ETA ~22:25Z.
-  - thorfinn Cell C `32n3p8a8` step 2195/3250 (68%). ETA ~22:20Z.
-  - edward Cell C `oifl1px1` step 1872/3250 (58%). ETA ~22:50Z.
-  - alphonse Cell D `zxiaakjm` step 716/3250 (22%). ETA ~23:40Z.
-  - askeladd #301 Cell A `0gjpqh9x` step 755/3250 (23%). ETA ~23:40Z.
+- **Last updated:** 2026-05-17 (poll #106, ~19:21 UTC)
+- **⭐⭐⭐ FRIEREN PHASE 2 ON TRACK — 2/4 trials TERMINAL, BOTH STRONG**:
+  - Trial 0=3.270223 ffs=3125
+  - **Trial 1=3.269885 ffs=3125** (BELOW n=4 threshold 3.269362 individually!)
+  - 2-trial mean=3.270054 (std=0.000239)
+  - Trial 2/4 in-flight at step 7091 (~589/3250 internal, ~18% of trial)
+  - Trial 3/4 pending (~111 min after t2)
+  - ETA n=4 terminal **~22:45Z** (~3h25min from now)
+  - For n=4 merge (mu ≤ 3.269362), trials 2+3 mean must be ≤ 3.268670 (tight but feasible — trial-to-trial std only 0.00024)
+  - **POTENTIAL FIRST MERGE WINNER SINCE PR #162.** PR has `needs_rebase` — student warned at 17:35Z to prep rebase post-terminal.
+- **NO NEW TERMINALS this poll** — all 8 students mid-flight. Approaching milestones (per agent W&B query):
+  - **thorfinn** Cell C? `32n3p8a8` step 3019/3250 (~93%, ETA ~8 min, ~19:29Z). Cell D pending. Stale_wip ack'd (#264).
+  - **nezuko** AGC Cell A? `5l7vmnhf` step 2955/3250 (~91%, ETA ~10 min, ~19:31Z). Cells B-E pending.
+  - **edward** β2-warmup Cell C? `oifl1px1` step 2715/3250 (~84%, ETA ~20 min, ~19:41Z). Cells D-E pending.
+  - **tanjiro** combo-confirm trial 1/4 at step 5292/13000 (~63% of trial 1). ETA all-trials terminal ~04:30Z. Trial 0=3.27156 modest, unlikely merge winner at n=4.
+  - **alphonse** AdamW eps Cell D? `zxiaakjm` step 1567/3250 (~48%). Cell B (1e-9)=3.2739, Cell C (1e-8) pending or running. Cell E queued.
+  - **askeladd** NS5 coeff Cell A? `0gjpqh9x` step 1605/3250 (~49%). Phase 1 5-cell sweep just started; ETA Phase 1 ~5h.
+  - **fern** SOAP Q/K shared Gram Cell A? `raaqoxgr` step 776/3250 (~24%). Phase 1 ETA ~2h.
 - **PR #228 needs_rebase** is persistent flag — student must rebase post-terminal if merge eligible.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
