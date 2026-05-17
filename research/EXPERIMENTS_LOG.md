@@ -1072,3 +1072,29 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - Monotone direction: γ=0.2→3050, 0.3→3062.5, 0.4→3025. Expected optimum in {0.5, 0.6} range.
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/242
 
+
+---
+
+## 2026-05-17 08:48 UTC — PR #211 CLOSED: Wave 6 lm_head LR scan (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-lmhead-lr-scan`
+- **Hypothesis:** lm_head LR=1/320 is undertuned; 2× (arm A=1/160) and 0.5× (arm B=1/640) scan on OLD base (PR #137: PMuon+u/w+γ=1.2).
+
+| Arm | lm_head LR | sr | val/loss | vs OLD baseline (3062.5/3.26909) | vs NEW baseline (3025/3.26615) |
+|-----|-----------|-----|----------|----------------------------------|-------------------------------|
+| **A** | 1/160 | 3050 | 3.26896 | Δsr=−12.5 ✓, Δval=−0.00013 ✓ (SMALL WIN on old base) | sr +25 worse, val +0.00281 NULL |
+| **B** | 1/640 | 3100 | 3.27248 | Regression (+37.5 sr, +0.00339 val) | Worse |
+| Baseline | 1/320 | 3062.5 | 3.26909 | — | — |
+
+**Analysis:** Directional monotone result — higher lm_head LR helps, lower hurts. Arm A beats OLD baseline by −12.5 sr, but the comparison contract was voided when PR #193 (cubic-Newton) and PR #202 (γ_power=0.4) merged mid-run, making the new baseline sr=3025 which arm A misses by +25 steps. Outstanding mechanistic quality: student's update/param telemetry confirmed 4× LR → 4× late-cooldown update_norm in the Adam asymptote; 1.53× larger late-cool val drop in arm A explains the γ=1.2 synergy mechanism precisely.
+
+**Status:** CLOSED — informative NULL on stale base. lm_head LR=1/160 mechanism is being re-tested on new baseline in PR #225 thorfinn Wave 7 stack (deep-WD slope=+0.5 + lm_head 1/160 on new baseline, n=2).
+
+---
+
+## 2026-05-17 08:48 UTC — PR #248 ASSIGNED: Muon base LR retune (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-base-lr-retune`
+- **Hypothesis:** Muon base LR=0.035 has never been retuned since PMuon's introduction. After γ_power=0.4 (stronger whitening) + cubic-Newton (partial polar convergence), the optimal step size may have shifted. Arms: {0.030, 0.040} bracket current 0.035.
+- **Expected arm B win** (LR=0.040): γ_power=0.4's more isotropic gradient allows larger steps. **Expected arm A win** (LR=0.030): cubic-Newton's partial convergence means direction is noisier; tighter steps help.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/248
