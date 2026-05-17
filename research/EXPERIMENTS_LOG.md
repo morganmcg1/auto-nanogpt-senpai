@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-17 21:10 — PR #272: AdamW eps scan {1e-8, 1e-9} (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/adamw-eps-scan`
+- Hypothesis: AdamW eps=1e-10 is a 100× deviation from PyTorch default 1e-8 and was never explicitly scanned. Conjecture: at rare-token / low-variance positions on embed/lm_head/scalars, `1/(√v + eps)` could blow up when eps is tiny; larger eps should dampen oversized updates.
+
+| Arm | eps | W&B run | sr | val/loss | Δval vs baseline (3.26615) | Status |
+|---|---|---|---|---|---|---|
+| Baseline (PR #202) | 1e-10 | `prncgzv5` | 3025 | 3.26615 | — | Current best |
+| Arm A | 1e-8 (PyTorch default) | `edobz4wx` | 3025 | 3.26640 | +0.00025 | NULL — tied sr, val regress within noise |
+| Arm B | 1e-9 | `w0oobk88` | 3050 | 3.26748 | +0.00133 | NULL — small sr+val regress, far below stat-sig threshold |
+
+Both arms reach the 3.28 target comfortably (margins 0.0136 and 0.0125). Neither meets n=1 win rule.
+
+**Analysis:** Non-monotone direction (sr+0 at eps=1e-8, sr+25 at eps=1e-9 — the *smaller* perturbation regresses more on sr) is more consistent with seed noise than a real trend. The data shows eps is genuinely flat above 1e-10 on this stack.
+
+**Mechanism reading:** AdamW effective updates on embed/lm_head/scalars are NOT eps-floor-limited in this regime. The rare-token "update headroom" that eps=1e-10 provides is benign — dampening more (1e-8) doesn't help final loss, and the intermediate (1e-9) is also slightly worse on sr. The original hypothesis (eps-floor as oversized-update damper at low-variance positions) is falsified for this configuration.
+
+**Conclusion:** CLOSED. AdamW eps axis CLOSED at 1e-10. Per the predeclared falsification rule in the PR body, both arms NULL closes the axis. Thorfinn re-assigned to **PR #TBD Lookahead optimizer wrapper** — fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), complementary to in-flight polyak post-hoc (nezuko #293), AdEMAMix momentum (frieren #305), and PMuon bias correction (tanjiro #307).
+
+**Suggested follow-up from student (kept for back-burner):** "is the embed AdamW path well-tuned" as an lr_embed axis question rather than eps. Clean diagnostic question — easier to characterize the AdamW path via per-group LR than via eps.
+
+---
+
 ## 2026-05-17 20:35 — PR #250: NS coef c-scan on f'(1)=0 family seed-2 confirmation (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pmuon-uw-ns-coef-c-scan`

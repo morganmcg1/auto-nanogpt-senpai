@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 20:35 UTC — PR #250 tanjiro CLOSED (NS coef c-axis on f'(1)=0 family CLOSED at c=0; n=2 mean seed-2 sr=3050 > 3025 fails decision rule). Tanjiro re-assigned via **PR #307** PMuon EMA bias correction (frieren's PR #261 follow-up — opposite direction from closed LR warmup axis). frieren active on PR #305 AdEMAMix dual-EMA. All 8 students active.
+- **Last update:** 2026-05-17 21:15 UTC — PR #272 thorfinn CLOSED (AdamW eps axis CLOSED at 1e-10; both arms NULL within noise, non-monotone direction confirms noise). Thorfinn idle pending Lookahead assignment (online weight-trajectory smoothing wrapper, Zhang et al. NeurIPS 2019). frieren PR #305 AdEMAMix active; tanjiro PR #307 PMuon bias correction active.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -17,10 +17,10 @@ Previous baselines:
 
 | PR  | Student     | Mechanism                                                           | Status (20:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) FINISHED sr=3025 val=3.2664 NULL. Arm B `w0oobk88` (eps=1e-9) running step ~2600/3250 (~80%). |
+| **#TBD** | **thorfinn** | Lookahead optimizer wrapper — online slow-weight interpolation every k=5 steps; α ∈ {0.5, 0.8} | Pending assignment — fresh wrapper-level mechanism complementary to polyak post-hoc, AdEMAMix, PMuon bias correction. |
 | **#305** | **frieren** | AdEMAMix dual-EMA aux AdamW: slow-EMA mixing weight α scan {4, 8} — fresh optimizer mechanism (NeurIPS 2024) | Arm A α=4 pending launch. PR #261 CLOSED (PMuon warmup axis CLOSED). |
 | **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Arm A `igfcn9a1` (frac=0.25) running step ~2225/3250 (~68%). |
-| **#306** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
+| **#307** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A FINISHED sr=3100 NULL. Arm B `vw0595an` (power=1.4) running step ~2200/3250 (~68%). |
 | **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Arm A `k10ppzfs` (clip=1.0) running step ~1875/3250 (~58%). Multiple step-0 crash artifacts in W&B are failed restart attempts — original run is healthy. |
@@ -30,6 +30,7 @@ Previous baselines:
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#272** | thorfinn | AdamW eps {1e-8, 1e-9}: Arm A sr=3025 val=3.26640 NULL Δval=+0.00025; Arm B sr=3050 val=3.26748 NULL Δval=+0.00133. Non-monotone direction. | CLOSED — eps axis CLOSED at 1e-10. AdamW updates on embed/lm_head/scalars NOT eps-floor-limited in this regime. Back-burner: lr_embed axis (different lever for "is AdamW path well-tuned"). |
 | **#250** | tanjiro | NS coef c-axis on f'(1)=0 family: c=-0.25 sr=3100 NULL (broken polar residual ~20.6); c=+0.25 n=2 mean sr=3037.5 val=3.266565 NULL | CLOSED — c-axis CLOSED at c=0 (cubic-Newton baseline). seed-1 marginal Δval=-0.00010 confirmed seed noise. Reproducible structural finding (polar/ortho_residual_sample = 0.094 ± 0.0004 across seeds) preserved as low-noise NS-screening diagnostic. |
 | **#261** | frieren | PMuon LR warmup: arm A (50) NULL Δval=+0.00003; arm B (150) REGRESSION sr+75 Δval=+0.00636 | CLOSED — PMuon LR warmup axis CLOSED at no warmup. β_cov=0.95 EMA cold-start is self-regularizing via small-magnitude whitening during fill-in (telemetry-confirmed). |
 | **#229** | alphonse | NS coef (a,b) line scan: a=1.3 sr=3075 val=3.26921 NULL; a=1.7 sr=3050 val=3.26786 tied baseline within noise | CLOSED — NS coef line scan AXIS CLOSED at (a=1.5, b=-0.5). f'(1)=0 NOT strictly required; aggressive ok, gentle disfavored |
@@ -73,7 +74,7 @@ Previous baselines:
 
 9. **PMuon LR warmup axis CLOSED at no warmup (PR #261 frieren).** Arm A (50) NULL Δval=+0.00003, arm B (150) regression sr+75 Δval=+0.00636. Mechanism: β_cov EMA self-regularizes via small-magnitude whitening during cold-start fill-in; LR warmup adds double regularization with no upside. Follow-ups on back-burner: direct EMA bias correction (opposite direction — use cov estimate more aggressively early), larger β_cov {0.97, 0.99}, identity prior for `L_cov`/`R_cov` init.
 
-10. **AdamW eps scan:** PR #272 thorfinn arm B (eps=1e-9) step ~2600/3250 (~80%).
+10. **AdamW eps axis CLOSED at 1e-10 (PR #272 thorfinn).** Arm A (eps=1e-8) sr=3025 val=3.26640 NULL Δval=+0.00025; Arm B (eps=1e-9) sr=3050 val=3.26748 NULL Δval=+0.00133. Non-monotone direction (sr+25 at the *smaller* perturbation) confirms noise rather than trend. AdamW updates not eps-floor-limited in this regime. Back-burner: lr_embed axis question.
 
 11. **COOLDOWN_POWER retune:** PR #274 fern arm B (power=1.4) `vw0595an` step ~2200/3250 (~68%). Arm A FINISHED sr=3100 NULL.
 
@@ -84,6 +85,8 @@ Previous baselines:
 15. **AdEMAMix dual-EMA aux AdamW:** PR #305 frieren. Arm A (α=4) pending launch. Fresh optimizer mechanism, complementary to PMuon, targets aux path (embed/lm_head/scalars).
 
 16. **PMuon EMA bias correction:** PR #307 tanjiro (new assignment). Arms {FULL, SQRT} bias correction `L_cov / (1-β_cov^step)` — frieren's PR #261 follow-up suggestion. Tests opposite hypothesis to closed LR warmup: instead of slowing LR during cold-start, sharpen the EMA estimate via Adam-style bias correction. Telemetry shows correction matters only first ~50 steps.
+
+17. **Lookahead optimizer wrapper:** thorfinn (pending assignment). Online slow-weight interpolation every k=5 steps with α ∈ {0.5, 0.8}. Fresh wrapper-level mechanism (Zhang Lucas Hinton Ba NeurIPS 2019), distinct from all in-flight mechanisms — polyak post-hoc (nezuko #293), AdEMAMix dual-EMA momentum (frieren #305), PMuon bias correction (tanjiro #307). Memory cost ~550 MB (fp32 slow-weight copy).
 
 14. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
 
