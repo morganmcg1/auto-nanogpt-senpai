@@ -54,6 +54,8 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--adam_embed_lr", type=float, default=0.3,
+                        help="AdamW LR for token embedding group (default=0.3 = baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +733,7 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "adam_embed_lr": float(args.adam_embed_lr),
         },
     )
 
@@ -762,7 +765,7 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.adam_embed_lr, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
@@ -890,7 +893,15 @@ for trial_idx in range(args.num_trials):
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
+        embed_diag_due = (step == 0 or (step + 1) % 50 == 0 or step + 1 == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        if dist.get_rank() == 0 and embed_diag_due:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "embed/grad_norm": float(model.embed.weight.grad.norm().item()),
+                "embed/param_norm": float(model.embed.weight.detach().norm().item()),
+            }, step=wandb_step)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
