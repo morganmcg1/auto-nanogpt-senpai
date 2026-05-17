@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--adamw_eps", type=float, default=1e-10,
+                        help="Adam epsilon for AdamW optimizer (embed/lm_head/scalars). Default 1e-10.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -236,6 +238,53 @@ def log_training_telemetry(
     for name, grad in grads:
         metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
     wandb.log(metrics, step=wandb_step)
+
+
+def log_adamw_eps_telemetry(
+    adamw_opt: torch.optim.Optimizer,
+    eps: float,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Log per-AdamW-group v-buffer stats and effective LR percentiles.
+
+    Effective LR per param element ≈ lr / sqrt(v + eps**2) (matches PR #262 spec).
+    Captures rare-token underflow risk: when v_min ≪ eps**2, eps caps the effective LR.
+    """
+    metrics: dict[str, float] = {"trial": trial_idx, "train/step": step}
+    for group in adamw_opt.param_groups:
+        group_name = group.get("name", "adam_unnamed")
+        v_tensors = []
+        for p in group["params"]:
+            st = adamw_opt.state.get(p, {})
+            v = st.get("exp_avg_sq")
+            if v is not None:
+                v_tensors.append(v.detach().flatten())
+        if not v_tensors:
+            continue
+        v_cat = torch.cat(v_tensors).float()
+        v_min = float(v_cat.min().item())
+        v_p50 = float(v_cat.median().item())
+        # quantile rejects huge tensors on some torch builds; subsample for stability
+        if v_cat.numel() > 1_000_000:
+            idx = torch.randint(0, v_cat.numel(), (1_000_000,), device=v_cat.device)
+            sample = v_cat[idx]
+        else:
+            sample = v_cat
+        v_p95 = float(torch.quantile(sample, 0.95).item())
+        eff_lr = group["lr"] / torch.sqrt(sample + eps * eps)
+        eff_lr_p95 = float(torch.quantile(eff_lr, 0.95).item())
+        eff_lr_median = float(eff_lr.median().item())
+        metrics[f"adamw/v_min/{group_name}"] = v_min
+        metrics[f"adamw/v_p50/{group_name}"] = v_p50
+        metrics[f"adamw/v_p95/{group_name}"] = v_p95
+        metrics[f"adamw/effective_lr_p95/{group_name}"] = eff_lr_p95
+        metrics[f"adamw/effective_lr_median/{group_name}"] = eff_lr_median
+        metrics[f"adamw/eps_dominant_fraction/{group_name}"] = float((sample < eps * eps).float().mean().item())
+    if len(metrics) > 2:
+        metrics["adamw/eps"] = eps
+        wandb.log(metrics, step=wandb_step)
 
 
 def log_weight_telemetry(
@@ -669,6 +718,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "adamw_eps": float(args.adamw_eps),
         },
     )
 
@@ -703,7 +753,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=args.adamw_eps, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025,
                       soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
@@ -843,6 +893,14 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            log_adamw_eps_telemetry(
+                adamw_opt=optimizer1,
+                eps=args.adamw_eps,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
+            )
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
