@@ -1,6 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #114, ~21:10 UTC)
+- **Last updated:** 2026-05-17 (poll #117, ~21:40 UTC)
+- **⭐⭐⭐ NEW STRONG SIGNAL: nezuko Cell C (AGC λ=0.03) val=3.27002 ffs=3125** (Δ=-0.00134 vs baseline, ~1.1σ at n=1 — strongest n=1 signal since frieren Cell D). Phase 2 n=4 directive posted PR #283 21:38Z: let Cell D finish (~23:25Z) for inverted-U disambiguation, skip Cell E, launch n=4 at λ=0.03 immediately after Cell D terminal. Requested clip_rate telemetry to verify AGC actually engaged. Phase 2 statsig: mu ≤ 3.269362 (n=1 is 0.00066 above threshold).
 - **⭐⭐ FRIEREN PHASE 2 — 3/4 trials TERMINAL, n=4 merge mathematically dead, predeclared extension to n=6/n=8**:
   - Trial 0=3.270223 ffs=3125
   - Trial 1=3.269885 ffs=3125 (below n=4 threshold individually)
@@ -21,14 +22,15 @@
   - Continuing to n=4 for closure (ETA ~01:30Z), will close clean-neutral after.
 - **FERN Cell A terminal (poll #113):** val=3.27192 ffs=3150 (Δ=+0.00056 vs new baseline, ~0.47σ — ctrl reproduces baseline). Cell B (shared Q/K Gram) `dogb3845` auto-launched, step 344/3250 (~10%).
 - **ALPHONSE PR #306 orphan-relauncher cleanup completed at ~20:59Z:** 3 duplicate Cell A runs detected at poll #113 (`8zgpvsm1`, `43z7ryib`, `gdgag170`). Student killed orphans at ~20:59Z. Live run: `gdgag170` step 173/3250 (~5%), ETA terminal ~22:50Z. Same orphan pattern as PR #262 — wrapper script needs hardening at student's next idle window.
+- **CASCADE OF TERMINALS THIS POLL (~21:30-21:40Z):**
+  - **thorfinn Cell D (α=0.7) `uevoy1si` TERMINAL: val=3.27533 ffs=3175** (Δ=+0.0040). Inverted-U confirmed around B=0.3 best. Cell E (α=0.9) `dmhtyjk4` auto-launched 21:30Z, ETA ~23:15Z. No Phase 2 trigger. Close clean-neutral after E.
+  - **nezuko Cell C (λ=0.03) `ajg0zh8f` TERMINAL: val=3.27002 ffs=3125 ⭐** (Δ=-0.00134 — STRONGEST signal, see top bullet). Cell D (λ=0.1) `frfu2t3k` auto-launched 21:37Z, ETA ~23:25Z. Phase 2 n=4 directive posted.
+  - **edward Cell D (β₂=0.70/200) `tzo7bru7` TERMINAL: val=3.27192 ffs=3150** (Δ=+0.00056, within noise). Cell C=3.27154 still best. Cell E (β₂=0.30/200) sequential next, no Phase 2 trigger.
 - **MID-FLIGHT (no action):**
-  - **thorfinn** Cell D (α=0.7) `uevoy1si` step 2575/3250 (~79%). Sweep trend: A=3.27496, B=3.27263 ⭐, C=3.27558 (inverted-U).
-  - **nezuko** Cell C (λ=0.03) `ajg0zh8f` step 2394/3250 (~74%). A=3.27208, B=3.27226 (AGC decorative under Muon+SOAP).
-  - **edward** Cell D (β₂=0.70/200) `tzo7bru7` step 2299/3250 (~71%). A=3.27266, B=3.27340, C=3.27154 ⭐. Cell E pending.
-  - **askeladd** NS5 coeff Cell B (Muon paper 3.4445,-4.775,2.0315) `lup676zw` step 1188/3250 (~37%). Cell A ctrl=3.27235.
-  - **tanjiro** combo n=4 `v1mhx9f2` step 8111/13000 (~62%, mid trial 2/4). Mathematically dead for n=4 merge — finishing for closure.
-  - **alphonse** PR #306 Cell A solo `gdgag170` step 173/3250 (~5%).
-  - **fern** PR #302 Cell B `dogb3845` step 344/3250 (~10%).
+  - **askeladd** NS5 coeff Cell B (Muon paper 3.4445,-4.775,2.0315) `lup676zw` step 2228/3250 (~69%). Cell A ctrl=3.27235.
+  - **tanjiro** combo n=4 `v1mhx9f2` step 9137/13000 (~70%, mid trial 2/4). Mathematically dead for n=4 merge — finishing for closure.
+  - **alphonse** PR #306 Cell A solo `gdgag170` step 1156/3250 (~36%).
+  - **fern** PR #302 Cell B `dogb3845` step 1373/3250 (~42%).
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
@@ -106,7 +108,7 @@
 6. **Combo-confirm** (tanjiro PR #289) — n=2 dead, finishing n=4 for closure. ETA ~01:30Z, close clean-neutral after.
 7. **SOAP beta2 cold-start warmup** (edward PR #270) — A(ctrl)=3.27266, B(50/200)=3.27340, C(70/200)=3.27154 ⭐, D(70/200_alt?) `tzo7bru7` step 2299/3250 (71%). E pending.
 8. **SOAP eigvec EMA** (thorfinn PR #264) — A(α=0)=3.27496, B(α=0.3)=3.27263 ⭐, C(α=0.5)=3.27558, D(α=0.7) `uevoy1si` step 2575/3250 (79%). Inverted-U around α=0.3.
-9. **Adaptive Gradient Clipping** (nezuko PR #283) — A(λ=0)=3.27208, B(λ=0.01)=3.27226, C(λ=0.03) `ajg0zh8f` step 2394/3250 (74%). D/E pending. AGC decorative under Muon+SOAP.
+9. **⭐ Adaptive Gradient Clipping** (nezuko PR #283) — **NEW HOTTEST** post-frieren. A(λ=0)=3.27208, B(λ=0.01)=3.27226, **C(λ=0.03)=3.27002 ⭐ ffs=3125** (Δ=-0.00134), Cell D (λ=0.1) `frfu2t3k` step 51/3250 (~2%). Phase 2 n=4 directive issued — launch n=4 confirm at λ=0.03 immediately after Cell D terminal (~23:25Z), skip Cell E.
 
 **Closed this poll:** PR #210 (per-layer LR decay nezuko) — all 4 cells worse than new baseline.
 
