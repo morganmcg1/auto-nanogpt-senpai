@@ -1,7 +1,9 @@
 # SENPAI Research State
 
-- 2026-05-17 21:55 UTC — Cycle 54 (continued)
+- 2026-05-17 22:30 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
+- 🚨 **THORFINN #288 Arm B trial 0 hit BOTH bars at n=1**: val=3.2757 (Δ−0.000135), ffs=3075 (Δ−12.5). Cooldown-only μ anneal (MU_COOLDOWN_START=0.95 → END=0.90 from step 952). n=2 mean pending trial 1; n=4 confirmation requested.
+- 🔻 **NEZUKO #295 Polar Express MISS**: val=3.2802 (just above 3.28 target; never reached). Awaiting terminal SENPAI-RESULT post; axis to close after.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -27,9 +29,11 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 
 ## Active in-flight experiments
 
-### THORFINN #288 — Annealed μ finer sweep
+### THORFINN #288 — Annealed μ finer sweep ⭐ (Arm B candidate winner)
 - Arm A: MU_START=0.97 MU_END=0.92 (tighter range). 2-trial mean val=3.27670, ffs=3112.5 — **MISS** both bars.
-- Arm B: cooldown-phase-only anneal MU_COOLDOWN_START=0.95→0.90 from step 952. Launching ~20:21 UTC, ETA ~23:50 UTC. **Most interesting test**: isolates whether cooldown reactivity drives PR #219's win.
+- Arm B: cooldown-phase-only anneal MU_COOLDOWN_START=0.95→0.90 from step 952. **Trial 0 cleared both bars at n=1** (val=3.2757, ffs=3075). Trial 1 in progress (~step 425/3175 as of 22:24 UTC).
+- Run `tqdknxth` (2-trial screen). N=4 confirmation requested immediately after trial 1.
+- **Mechanism insight**: localizes PR #219's win to cooldown phase (warmup stabilization NOT the driver). Arm A missed because the 0.07→0.05 decay tightening removed cooldown reactivity; Arm B keeps μ static during warmup AND retains full 0.95→0.90 cooldown decay → cleared bars.
 
 ### TANJIRO #309 — Annealed AdamW β1 (NEW — just assigned 20:45 UTC)
 - Arm A: ADAMW_BETA1_START=0.90 → ADAMW_BETA1_END=0.70 (broad anneal, aggressive). Predict in [3.272, 3.276].
@@ -44,10 +48,11 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - 50-step smoke passed (no NaN, both arms). Arm A 2-trial screen now running (~3.5h ETA).
 - Architecture confirmed: 6 heads × 128 head_dim (Q.weight = 768×768 → 6× 128×128 Gram matrices).
 
-### NEZUKO #295 — Polar Express adaptive NS5 coefficients
+### NEZUKO #295 — Polar Express adaptive NS5 coefficients (MISS, axis closing)
 - Pivoted to Polar Express adaptive scheme per student's math review of original arms (sum≠1 bug).
-- New arms: per-iteration adaptive (a,b,c) = [(8,-16,8), (4,-8,4), (3,-4,1.5), then (2,-1.5,0.5) for iters 4-12].
-- No terminal result yet. Implementation in progress.
+- Run `7klo2sbf` (NS5_USE_SCHEDULE=1, Tian et al. 2025 coefficients, 12 iters, NS5_NORM_FACTOR=1.01): **MISS** — `speedrun/final_best_val_loss=3.2802` (above 3.28 target), `reached_target=0`.
+- Mechanism: at 12-iter budget in bf16, Polar Express's per-iteration optimal coefficients don't beat the well-tuned `(2,-1.5,0.5)` triple. The adaptive schedule may benefit longer (15-18 iter) NS budgets but those move us the wrong direction for ffs.
+- Awaiting terminal SENPAI-RESULT marker; will close axis and reassign.
 
 ### FRIEREN #313 — Logit z-loss regularization (NEW — just assigned 22:05 UTC)
 - Arm A: Z_LOSS_COEF=1e-4 (PaLM-style, very small)
@@ -56,12 +61,11 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - ONLY loss-function axis on r2 (all other in-flight PRs touch optimizer). Complements alphonse #312 (lm_head wd regularizes the weight matrix; z-loss regularizes the output distribution).
 - PR #275 (MLP-SOAP trust gate) closed: both arms missed (val=3.27868/3.28009). Insight: MLP precond is ROBUST to rotation noise (unlike attn which is sensitive); gating hurts the MLP path even though MLP eigenbasis rotates as much as attn.
 
-### FERN #304 — Annealed SOAP_PRECOND_FREQ (BLOCKED on pod fix)
+### FERN #304 — Annealed SOAP_PRECOND_FREQ (pod fixed, screen launching)
 - Arm A: FREQ_START=15 → FREQ_END=7 (slower refreshes early, faster late)
 - Arm B: FREQ_START=7 → FREQ_END=15 (faster refreshes early, slower late)
-- **Pod broken**: bit-identical baseline NaN'd at step 25 — same torch 2.10.0+cu128 + mixed cu lib issue as alphonse. Upgrade approved 21:28 UTC, awaiting fern response.
+- Pod upgrade to torch 2.11.0 verified (same fix as alphonse #303). Fresh smoke `f03mcnpe` clean at step 200; Arm A screen `49bb9ye1` just launched.
 - Direct follow-up from #291 falsification: keeps β2=0.90 static (safe), tests the orthogonal anneal axis that respects the matching constraint `FREQ ≈ 1/(1-β2)`.
-- Resume hypothesis after pod fix verified.
 
 ### ALPHONSE #312 — AdamW lm_head weight decay sweep (NEW — just assigned 21:55 UTC)
 - Arm A: ADAMW_WD_LM_HEAD=0.01 (mild, ~5% cumulative decay)
@@ -101,6 +105,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 15. **Pod-specific instability confirmed on alphonse pod**: all runs NaN at step 125 regardless of hypothesis (including no-freeze baseline control). Peer pods healthy on identical config. Pod diagnostic in progress.
 16. **Aux groups need the same cooldown shape as Muon** (PR #276): linear, aggressive. They couple to readout-convergence and must land together with Muon. Open question (PR #309): do they also benefit from the same kind of momentum anneal that Muon got (PR #219)?
 17. **MLP-SOAP precond is robust to rotation noise; attn-SOAP precond is sensitive** (PR #275 inverse of #212): MLP eigenbasis rotates AS MUCH as attn (mean_cos_row 0.885 vs 0.890), but applying a moderately-rotated MLP precond is net-beneficial (skipping costs more than rotation noise). Attn precond is the opposite — sensitive to rotation, so the gate helps. Different geometries, different sensitivities.
+18. **PR #219's μ-anneal win is COOLDOWN-DRIVEN, not warmup-stabilization** (PR #288 trial 0 — preliminary n=1): cooldown-only anneal MU_COOLDOWN_START=0.95→0.90 (μ held static during warmup at 0.95, decays only from step 952) cleared both bars at n=1. Mechanism: μ-anneal benefit is from letting Muon chase finer signal during LR cooldown, NOT from high μ stabilizing the CONTRA_MUON warmup phase. Awaiting n=4 confirmation.
 
 ## Research programme direction
 
@@ -108,13 +113,13 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 Gap to record #20 (~3030 ffs steps): ~57.5 ffs steps.
 
 **Most promising active paths**:
-1. **Thorfinn #288 Arm B** (cooldown-only μ anneal) — isolates whether cooldown reactivity drives PR #219's win. High prior.
-2. **Tanjiro #309** (AdamW β1 anneal) — direct parallel to merged PR #219 on the orthogonal aux-optimizer axis. High prior.
-3. **Frieren #275** (MLP-SOAP trust gate) — symmetric extension of merged PR #212 win.
-4. **Nezuko #295** (Polar Express adaptive NS5) — fresh axis; per-iteration adaptive coefficients.
-5. **Edward #281** (per-head SOAP) — head-specific eigenbasis for attention weights.
-6. **Fern #304** (annealed SOAP_PRECOND_FREQ) — orthogonal axis from #291, respects matching constraint.
-7. **Askeladd #286** (Polyak-Ruppert EMA) — orthogonal post-processing; pure eval gain (pending relaunch).
+1. ⭐ **Thorfinn #288 Arm B** (cooldown-only μ anneal) — **n=1 trial 0 cleared both bars**. N=4 confirmation pending. Top priority.
+2. **Tanjiro #309** (AdamW β1 anneal) — direct parallel to merged PR #219 on the orthogonal aux-optimizer axis. Smokes done; arms launching.
+3. **Alphonse #312** (lm_head wd) — Arm A (wd=0.01) running ~step 400. Readout regularization.
+4. **Frieren #313** (logit z-loss) — baseline smoke done; z_loss arms launching.
+5. **Edward #281** (per-head SOAP) — re-implementation pushed, Arm A screen launching.
+6. **Fern #304** (annealed SOAP_PRECOND_FREQ) — pod fixed, Arm A screen `49bb9ye1` launching.
+7. **Askeladd #286** (Polyak-Ruppert EMA) — smoke rerun `bsfu3ua0` ETA 22:53 UTC.
 
 ## Operational notes
 
