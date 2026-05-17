@@ -463,6 +463,12 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     raise ValueError(
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
+# Per-aux-group AdamW β2 (PR #280 g1r4-edward): each AdamW aux group can have an
+# independent v-EMA decay so we can ablate which group drives the alphonse #236
+# global β2=0.99 gain. Defaults match the baseline global β2=0.95.
+ADAMW_BETA2_EMBED  = float(os.environ.get("NANOGPT_ADAMW_BETA2_EMBED",  "0.95"))
+ADAMW_BETA2_LMHEAD = float(os.environ.get("NANOGPT_ADAMW_BETA2_LMHEAD", "0.95"))
+ADAMW_BETA2_SCALAR = float(os.environ.get("NANOGPT_ADAMW_BETA2_SCALAR", "0.95"))
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -592,6 +598,8 @@ print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLI
        console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+print0(f"ADAMW_BETA2: embed={ADAMW_BETA2_EMBED} lmhead={ADAMW_BETA2_LMHEAD} scalar={ADAMW_BETA2_SCALAR}",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
@@ -641,6 +649,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_adamw_beta2_embed":  ADAMW_BETA2_EMBED,
+            "nanogpt_adamw_beta2_lmhead": ADAMW_BETA2_LMHEAD,
+            "nanogpt_adamw_beta2_scalar": ADAMW_BETA2_SCALAR,
         },
     )
 
@@ -672,9 +683,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    # Per-aux-group β2 (PR #280 g1r4-edward): each AdamW aux group carries an
+    # independent (β1=0.8, β2=ADAMW_BETA2_<GROUP>) tuple so we can ablate which
+    # group drives the alphonse #236 global β2=0.99 gain. Defaults reproduce the
+    # historical global β2=0.95.
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                             betas=(0.8, ADAMW_BETA2_EMBED)),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                             betas=(0.8, ADAMW_BETA2_LMHEAD)),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars",
+                             betas=(0.8, ADAMW_BETA2_SCALAR))],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
@@ -895,6 +913,37 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/lr_embed": embed_group["lr"],
                             "train/embed_schedule/adam_steps_taken": step_count,
                         }, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due:
+            # Per-aux-group AdamW v-EMA / step-norm telemetry (PR #280 g1r4-edward).
+            # Surfaces v-EMA stability mechanism alphonse #236 hypothesised and
+            # confirms per-group state separation when β2 differs across groups.
+            adamw_metrics: dict[str, float | int] = {"trial": trial_idx, "train/step": train_step}
+            name_map = {"adam_embed": "embed", "adam_lm_head": "lmhead", "adam_scalars": "scalar"}
+            with torch.no_grad():
+                for group in optimizer1.param_groups:
+                    pretty = name_map.get(group.get("name", ""), group.get("name", "unknown"))
+                    beta1, beta2 = group["betas"]
+                    eps_g = group["eps"]
+                    bc1 = 1.0 - beta1 ** train_step
+                    bc2 = 1.0 - beta2 ** train_step
+                    v_hat_means: list[float] = []
+                    step_norms: list[float] = []
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p, {})
+                        v = state.get("exp_avg_sq")
+                        m = state.get("exp_avg")
+                        if v is None or m is None or bc1 <= 0 or bc2 <= 0:
+                            continue
+                        v_hat = v.float() / bc2
+                        m_hat = m.float() / bc1
+                        v_hat_means.append(float(v_hat.mean().item()))
+                        step_norms.append(float((m_hat / (v_hat.sqrt() + eps_g)).norm().item()))
+                    if v_hat_means:
+                        adamw_metrics[f"train/adamw/{pretty}/v_hat_mean"] = sum(v_hat_means) / len(v_hat_means)
+                        adamw_metrics[f"train/adamw/{pretty}/step_norm"]  = sum(step_norms)  / len(step_norms)
+                    adamw_metrics[f"train/adamw/{pretty}/effective_beta1"] = beta1
+                    adamw_metrics[f"train/adamw/{pretty}/effective_beta2"] = beta2
+            wandb.log(adamw_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
