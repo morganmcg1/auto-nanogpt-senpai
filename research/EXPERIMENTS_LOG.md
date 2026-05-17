@@ -3,6 +3,42 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-17 06:00 UTC — PR #165: Clip value extension sweep (thorfinn) — MERGED ✅
+
+- Branch: `g1r4-thorfinn/clip-extension-sweep`
+- Hypothesis: clip=5.0 is not at the optimum — loosening to clip=10 raises embed effective-LR from 8.4% to 16.9%, staying in the "sweet spot" of asymmetric per-group rescaling
+
+### Results (4-arm sweep + n=3 confirmation at clip=10)
+
+| Arm | clip | val/loss | fs | Δ vs arm-A | W&B |
+|-----|------|----------|-----|----------|-----|
+| A (control) | 5.0 | 3.27756 | 3300 | — | f6ym89r7 |
+| **B (winner)** | **10.0** | **3.27432** | **3250** | **−0.00324** | 84um64gj |
+| C | 25.0 | 3.27442 | 3250 | −0.00314 | 2btntm04 |
+| D | 50.0 | 3.27590 | 3275 | −0.00166 | 7lpa9jmh |
+
+| n=3 Confirmation (clip=10) | val/loss | fs | W&B |
+|---|------|-----|-----|
+| seed 1 (arm-B) | 3.27432 | 3250 | 84um64gj |
+| seed 2 (confirm-1) | 3.27510 | 3275 | lxkp0jmx |
+| seed 3 (confirm-2) | 3.27480 | 3250 | efnghv0f |
+| **n=3 mean** | **3.27474** | **3258.3** | — |
+
+Stat-sig: (3.28 − 3.27474) × √3 = 0.00911 ≥ 0.004 ✓ PASS. Beats prior baseline 3.27527 by Δ=−0.00053.
+
+### Mechanism findings
+
+- Single-peak with plateau: val improves steeply from clip=5 to clip=10, flat from 10 to 25, regresses from 25 to 50
+- Per-group embed eff-LR: 8.4% (clip=5) → 16.9% (clip=10) → 41.8% (clip=25) → 83.3% (clip=50)
+- Above ~50% eff-LR, AdamW update noise re-enters → val regresses; optimum at 17–42% eff-LR
+- lm_head remains clip-saturated (<0.4% eff-LR) throughout — not the load-bearing variable
+- Triangulated mechanism (via alphonse #188 + edward #206):
+  - Uniform 1.5× aux LR scaling is NEUTRAL → clip ≠ uniform aux LR rescaler
+  - aux-only clip ≈ clip-all within ±0.001 → clip effect is NOT primarily through aux magnitude
+  - muon-only clip beats clip-all by 0.00235 (single seed) → Muon clip interaction is real (TBC)
+
+**New branch baseline: val=3.27474/fs=3258.3 (n=3, NANOGPT_GRAD_CLIP=10.0)**
+
 ## 2026-05-17 04:40 UTC — PR #204: Cooldown shape sweep (nezuko) — CLOSED clean negative
 
 - Branch: `g1r4-nezuko/cooldown-shape-sweep`
