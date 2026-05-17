@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 13:00 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). Wave 4: **major progress — tanjiro #235 arm-C at val=3.27245/fs=3250 (n=1, Δ vs baseline=-0.00216) is the headline result; n=2 confirmation seeds queued for n=3 stat-sig merge gate**. 6 of 8 students have ≥1 terminal arm result.
+- **Date:** 2026-05-17 14:40 UTC. **Two wave-3 merges complete**: thorfinn #165 (clip=10.0) and frieren #176 (NS=12→16 cooldown boost). Current best: **val=3.27461/fs=3266.7** (n=3 mean frieren #176). Wave 4: **TWO potential merge winners emerging**: tanjiro #235 arm-C (embed floor=15%, val=3.27245, confirmation seeds running) and alphonse #236 arm-C (β2=0.99, val=3.27439, confirmation seeds AUTHORIZED). If both confirm, wave-5 baseline could reach ~3.271.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27461** — frieren NS=12→16 cooldown boost, PR #176 merged 2026-05-17
@@ -42,14 +42,20 @@
 ### frieren #234 (NS boost trigger fraction sweep)
 **Status:** arm-A (0.70 = baseline reproduction)=3.2740/?; arm-B/C/D=3.277/3.276/running. arm-A clusters near baseline; sweep arms mostly noise band. Awaiting terminal posting.
 
-### alphonse #236 (AdamW β2 sweep) 🔥
-**Status:** arm-A (β2=0.95 control)=~3.277; arm-B (β2=0.98)=~3.275; arm-C (β2=0.99)=~3.274; arm-D (β2=0.999) running. **Monotonic improvement with higher β2** — promising direction.
+### alphonse #236 (AdamW β2 sweep) 🏆 POTENTIAL MERGE WINNER
+**Status:** arm-A (β2=0.95)=3.27748/3300; arm-B (β2=0.98)=3.27465/3250; **arm-C (β2=0.99)=3.27439/3250** (-0.00022 vs baseline, within-pod Δ=-0.00309); arm-D (β2=0.999)=3.27695/3300. **n=2 confirmation seeds AUTHORIZED at β2=0.99 (fresh pod preferred)**. U-shaped response confirms β2=0.99 as optimal — not monotonic. SENPAI-RESULT posted 14:21 UTC.
+
+### thorfinn #233 (Wave 4 Stack) ✓ CLOSED — COMPUTE NEUTRAL
+**Final verdict:** arm-C (NS=8mid+20cd) within-pod Δ=-0.00189, just above -0.002 threshold. Pod drift +0.00345 made confirmation unviable. PR closed 2026-05-17. Key finding: NS=8 mid-training is compute-neutral with NS=12 (23% Muon-block compute reduction free). NS=20 cooldown shows 25-step fs improvement but couldn't clear re-pod noise floor.
+
+### thorfinn #279 (Muon weight decay sweep) 🆕 ASSIGNED
+**Hypothesis:** Muon optimizer runs with WD=0 — decoupled WD on NS-orth updates would provide spectral shrinkage orthogonal to direction normalization. Sweep WD ∈ {0, 0.001, 0.005, 0.01}.
 
 ### askeladd #241 (Muon mu sweep)
-**Status:** arm-A (mu=0.95 control)=~3.277; arm-B (mu=0.90)=~3.282 (regression); arm-C (mu=0.93) running step ~1750. Lower mu hurts; expect arm-D/E (higher mu) terminal soon.
+**Status:** arm-A (mu=0.95 control)=~3.277; arm-B (mu=0.90)=3.282 (regression); arm-C (mu=0.93) running. arm-D (mu=0.97) running step ~1600. Lower mu hurts; waiting for higher-mu arms.
 
 ### fern #203 (NS polynomial coefficient sweep)
-**Status:** arm-A/B/C terminal at ~3.275/3.277/3.276; arm-D (c=0.35) running step ~350. NS coef axis appears mostly flat near merged baseline.
+**Status:** arm-A (c=0.5 control)=3.27463/3250; arm-B (c=0.4)=3.27741 (+0.003 regression); arm-C (c=0.6)=3.27621 (+0.002 regression); arm-D (c=0.35)=3.27567 (+0.001 regression); arm-E (c=0.7) running ETA ~16:00 UTC. **c=0.5 is local optimum** — both harder and softer quintics regress. Likely closing as null axis.
 
 ## Closed this cycle (wave-4)
 
@@ -57,20 +63,22 @@
 - **#188 alphonse aux LR sweep** — closed. Uniform aux LR scaling triangulated as neutral (arm-B 1.5×, arm-D 0.5× both ≈ baseline). Combined with thorfinn single-peak sweep + edward arm-B regression, the clip mechanism is now: per-group asymmetric global-norm rescaling, NOT uniform LR scaling.
 - **#189 askeladd Muon² eps sweep** — closed. Decisive telemetry: `eps_dominates_frac_block0_q = 0` across all 4 swept arms (1e-9 to 1e-6, a 1000× range). Preconditioner mean ~3e-5 is always 30× to 33000× larger than swept eps. eps floor never engages; val differences across arms are seed noise (non-monotonic: arm-B 1e-7 worse than arm-E 1e-6). Axis cleanly closed — eps=1e-8 is safe default forever.
 
-## Wave 5 stacking candidates (post-confirmation status, 12:50 UTC)
+## Wave 5 stacking candidates (post-confirmation status, 14:40 UTC)
 
-Updated based on actual wave-4 evidence:
+Updated with arm-D terminal results across wave-4:
 
-1. **embed linear_floor=15% cooldown (tanjiro #235 — pending n=3 confirm)** 🏆 most promising; if confirms, MERGE
-2. **AdamW β2 increase to 0.99 (alphonse #236 — pending arm-D)** 🔥 monotonic improvement signal, awaiting confirmation
-3. ~~clip=10 × NS=8mid→16cd (thorfinn #233)~~ — weak stack signal (within-pod Δ ~0.001)
-4. ~~AdamW β1 cooldown decay (nezuko #227)~~ — axis closed (null)
-5. ~~NS boost trigger fraction (frieren #234)~~ — sweep is mostly flat near baseline
-6. ~~NS polynomial coefs (fern #203)~~ — sweep is mostly flat near baseline
-7. **Per-group muon clip removal (edward #206 — pending arm-D)** — if arm-D ≈ arm-A, can simplify (cosmetic null); if arm-D regresses, muon clip matters
-8. **Muon mu (askeladd #241 — pending)** — lower mu hurts, awaiting higher-mu arms
+1. **embed linear_floor=15% cooldown (tanjiro #235)** 🏆 TOP CANDIDATE — confirmation seeds running; val=3.27245 n=1
+2. **AdamW β2=0.99 (alphonse #236)** 🏆 SECOND CANDIDATE — confirmation seeds authorized; val=3.27439 n=1, within-pod Δ=-0.003 strong
+3. **lm_head+scalar cooldown shape (nezuko #266)** 🆕 — tests whether embed floor generalizes to other aux groups
+4. **Muon weight decay (thorfinn #279)** 🆕 — completely fresh axis, sweeping WD ∈ {0.001, 0.005, 0.01}
+5. ~~clip=10 × NS-iter stacking (thorfinn #233)~~ — closed, compute-neutral (NS=8 mid saves compute, doesn't improve metrics)
+6. ~~AdamW β1 cooldown (nezuko #227)~~ — closed, null axis
+7. ~~NS boost trigger fraction (frieren #234)~~ — sweep mostly flat; arm-E terminal will close
+8. ~~NS polynomial coefs (fern #203)~~ — c=0.5 is local optimum; closing after arm-E
+9. **Per-group Muon clip (edward #206)** — arm-D (no-clip) near terminal; aux clip is load-bearing at clip=10; if arm-D regresses, axis closed
+10. **Muon mu constants (askeladd #241)** — lower mu hurts; awaiting higher-mu arms (mu=0.97, 0.99)
 
-**Key insight from wave-4**: cooldown-window precision mechanisms (#235 embed floor, #236 β2 increase) appear more productive than the optimizer-momentum axes (β1 in #227, mu in #241) that we expected to win. **Wave 5 should prioritize cooldown-shape mechanisms across more aux groups + variance-stabilization mechanisms.**
+**Mechanism landscape shift**: both tanjiro #235 (embed floor) and alphonse #236 (β2=0.99) confirm a **cooldown-window precision** theme. These are the first wave-4 improvements that target the variance/smoothing/LR-sustain structure in the precision window rather than clip/NS mechanics. Wave 5 priority: confirm both, then stack, then probe whether lm_head/scalar follow the same pattern (nezuko #266).
 
 ## Closed mechanisms (do not re-explore)
 
