@@ -446,7 +446,7 @@ SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
-ATTN_SOAP_TRUST_THRESHOLD = 0.9
+ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
