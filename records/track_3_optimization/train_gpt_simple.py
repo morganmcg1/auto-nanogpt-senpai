@@ -447,6 +447,8 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Gradient Centralization (Yong et al 2020): row-center grad before NS5/SOAP. 0 = OFF.
+GRAD_CENTRALIZE = bool(int(os.environ.get("GRAD_CENTRALIZE", "0")))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -631,6 +633,11 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Diagnostic for GC: track Frobenius fraction stripped from representative MLP fc weight.
+        self._gc_diag_param = next(
+            (p for n, p in named_params if n.endswith("0.mlp.fc.weight")), None
+        )
+        self._gc_last_mean_fraction_fc0: float | None = None
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -671,6 +678,14 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    if GRAD_CENTRALIZE and grad.dim() >= 2:
+                        # Row-center: subtract per-row mean (Yong et al 2020 "Gradient Centralization").
+                        mean_part = grad.mean(dim=-1, keepdim=True)
+                        if p is self._gc_diag_param:
+                            self._gc_last_mean_fraction_fc0 = (
+                                mean_part.norm() / grad.norm().clamp_min(1e-8)
+                            ).item()
+                        grad = grad - mean_part
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -698,6 +713,14 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def gc_stats(self) -> dict[str, float]:
+        """Gradient Centralization diagnostic: Frobenius fraction stripped from the
+        first MLP fc weight at the most recent step. Empty if GC is off or that
+        param has not been processed by this rank since the optimizer was created."""
+        if not GRAD_CENTRALIZE or self._gc_last_mean_fraction_fc0 is None:
+            return {}
+        return {"mean_fraction_fc0": self._gc_last_mean_fraction_fc0}
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -836,6 +859,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/grad_centralize": int(GRAD_CENTRALIZE),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1016,6 +1040,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "gc_stats"):
+                    gc_s = opt.gc_stats()
+                    if gc_s:
+                        wandb.log(prefixed("train/grad_centralization", gc_s), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
