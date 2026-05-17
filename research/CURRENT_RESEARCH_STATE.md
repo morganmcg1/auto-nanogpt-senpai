@@ -1,22 +1,25 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #72, ~06:20 UTC)
+- **Last updated:** 2026-05-17 (poll #77, ~07:45 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
+- **TWO HOT MERGE CANDIDATES IN FLIGHT:**
+  - **edward PR #162 n=4 confirm `t1jfegcf`** at step ~11006/13000 (trial 3 = 38.6%). 3-trial mean = **3.2715** (BEATS n=4 statsig threshold 3.271735 by 0.000235). Trial 4 ETA ~08:45Z.
+  - **tanjiro PR #194 Cell C n=2 `s0jx9g57`** at step ~5350/6500 (trial 2 = 65%). Trial 1 val=**3.27046**, ffs=3125. Trial 2 ETA ~08:10Z. Student auto-launches n=4 confirm if n=2 mean ≤ 3.270905.
 
 ## Active Wave-3 Portfolio (all on merged SOAP-MLP + SOAP-attn base)
 
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
-| 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **STRONGEST SIGNAL — n=4 confirm RUNNING.** Trial 0 (`tysiwoqg`) val=**3.270245**, ffs=3125 (beats statsig at n=1). Combined n=4 job `t1jfegcf` step ~5415/13000 (~42% overall, trial 1 step ~2165/3250 ~67%). ETA ~08:40 UTC. Advisor approved expanding to n=6 if n=4 passes mu≤3.271735. |
-| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | NEW. Pod picked up assignment iter-37 at 04:28Z. Smoke launch imminent then n=4. |
-| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | NEW (assigned 06:15Z). PR #175 β2 anneal CLOSED neutral (n=2 Δ=+0.000037). 5 cells × 3250 steps sequential; key diagnostic: post-orth residual ‖U·Uᵀ−I‖_F per block. |
-| 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | NEW (assigned 05:35Z). PR #186 closed clean negative (softcap + z-loss redundant). Smoke each arm 3250 steps, sequential, then n=4 confirm if val≤3.2720. |
-| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | WIP — Cell A val=3.27791 (≈ baseline). Cell B `jq083ofi` finished recently. Cells C, D pending. |
-| 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | WIP — Phase 2 Cell A `j5i05ctb` lr_attn=0.025 full run in progress (advisor confirmed running via `vqjmay37` query). Cells C/D pending sequential. |
-| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | WIP — γ=0.93 full run `f3pabdl5` running. γ=0.97 next, then γ=1.03/1.07. |
-| 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | WIP — Cell C running (`tsskmflu`). 4 prior crashes; current run past all failure points. |
+| 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **STRONGEST SIGNAL — n=4 confirm 85% done.** Trial 0=3.270245/ffs=3125, Trial 1=3.272365/ffs=3150, Trial 2=3.272831/ffs=3150. 3-trial mean=**3.2715** (beats n=4 statsig threshold 3.271735). Trial 3 in flight at step ~11006/13000 (38.6%). ETA ~08:45Z. |
+| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | n=4 confirm `4qxghq80` launched 06:46Z. 2 smokes healthy (val=3.923, 3.931). Per-head telemetry verified (cos_sim_mean ≈ 0.737, n_heads_total=576). ETA ~14:00Z. |
+| 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | **CONCERN: Cell C control may diverge.** `1cvnfz6p` step 2875 val=3.313 → may miss target. 2 grad-explosion crashes (egtbgjtf, auq29h8t) + 2 OOM. Advisor pinged 07:42Z asking for refactor numerical equivalence audit. Cells A/B/D/E NOT YET STARTED. |
+| 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | Cell B control (`dcvzciy5`, lr_embed=0.30) finished val=3.275/ffs=3175 (~baseline range). 3 earlier Cell B crashes + 1 new Cell B retry (`wjvhb5q7`) running. Cells A/C/D/E NOT YET STARTED. Advisor pinged 07:41Z. |
+| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | **STRONG SIGNAL.** Cell A (0.015/0.015) mean=3.27822 (worse). Cell B (0.015/0.035) mean=3.27881 (worse). **Cell C (0.035/0.015) Trial 1 val=3.27046, ffs=3125 ✓** — Trial 2 in flight step 2100/3250. Cell D (0.035/0.035) queued. Student auto-launches n=4 if n=2 mean ≤ 3.270905. |
+| 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | Cell A (0.025) val=3.27391/ffs=3150; Cell C (0.045) val=3.27476/ffs=3175; Cell D (0.055) `eno23pob` step 2126/3250 ETA ~36 min. lr_attn axis is FLATTER than lr_mlp (A-C span=0.00085). No promotion expected unless D unexpectedly clears. |
+| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | Cell A γ=0.93 (`e3jfdq2d`) ~step 830 after killing concurrent smoke contention. ETA full A ~30-45 min. Cells B/C/D queued sequential (no smokes). |
+| 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | 3-arm LR sweep n=2. **Arm C (lr=0.020) done = mu=3.278385 clean negative.** Arm B (lr=0.010) `vqfxng50` trial 0 step 1394/3250. Arm A (lr=0.005) queued. Smoke "crash" was SIGTERM not grad-explode; Muon spectral norm makes raw grad_norm naturally ~1e4-1e5. |
 
 ## Closed PRs Summary
 
