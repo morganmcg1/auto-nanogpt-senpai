@@ -54,6 +54,10 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--soap_beta2_init", type=float, default=SOAP_BETA2,
+                        help="Initial SOAP beta2 at step 0. Linearly ramps to SOAP_BETA2 by --soap_beta2_warmup_steps.")
+    parser.add_argument("--soap_beta2_warmup_steps", type=int, default=0,
+                        help="Steps over which to ramp soap_beta2_init -> SOAP_BETA2. 0 = no warmup (constant).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -564,6 +568,7 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.current_beta2 = SOAP_BETA2
 
         param_groups = []
         for g in groups_raw:
@@ -617,7 +622,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=self.current_beta2)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -626,6 +631,30 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    def get_soap_gram_traces(self) -> dict[str, float]:
+        """Return mean trace(row_gg)+trace(col_gg) over MLP and attn SOAP params on this rank."""
+        mlp_sum, mlp_count = 0.0, 0
+        attn_sum, attn_count = 0.0, 0
+        for p in self.soap_params:
+            state = self.state.get(p, None)
+            if state is None or "row_gg" not in state or "col_gg" not in state:
+                continue
+            trace = float(state["row_gg"].diagonal().sum().item()) \
+                  + float(state["col_gg"].diagonal().sum().item())
+            name = self.param_names.get(id(p), "")
+            if any(name.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES):
+                mlp_sum += trace
+                mlp_count += 1
+            else:
+                attn_sum += trace
+                attn_count += 1
+        return {
+            "mlp_mean": mlp_sum / mlp_count if mlp_count > 0 else 0.0,
+            "attn_mean": attn_sum / attn_count if attn_count > 0 else 0.0,
+            "mlp_count": mlp_count,
+            "attn_count": attn_count,
+        }
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -724,6 +753,8 @@ if dist.get_rank() == 0:
                 ",attn.q.weight,attn.k.weight,attn.v.weight,attn.proj.weight" if args.soap_attn else ""
             ),
             "soap_beta2": SOAP_BETA2,
+            "soap_beta2_init": args.soap_beta2_init,
+            "soap_beta2_warmup_steps": args.soap_beta2_warmup_steps,
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -912,18 +943,27 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if args.soap_beta2_warmup_steps > 0 and step < args.soap_beta2_warmup_steps:
+            current_beta2 = args.soap_beta2_init + (SOAP_BETA2 - args.soap_beta2_init) * (step / args.soap_beta2_warmup_steps)
+        else:
+            current_beta2 = SOAP_BETA2
+        optimizer2.current_beta2 = current_beta2
         for opt in optimizers:
             opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
+            gram_traces = optimizer2.get_soap_gram_traces()
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
                     per_group_metrics[f"train/update_norm/{name}"] = mean_norm
                 for name, lr in current_lrs.items():
                     per_group_metrics[f"train/lr/{name}"] = lr
+                per_group_metrics["soap/beta2_effective"] = current_beta2
+                per_group_metrics["soap/gram_trace_mlp"] = gram_traces["mlp_mean"]
+                per_group_metrics["soap/gram_trace_attn"] = gram_traces["attn_mean"]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
