@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 15:30 UTC — GPU contamination in 2 pods (thorfinn PR #272, alphonse PR #278) self-resolved by students; original runs continue clean. PR #248 askeladd arm B (lr=0.040) at step 2775/3250 (~85%, val=3.319 — likely NULL); PR #261 frieren warmup=50 at step 2625/3250 (~81%, val=3.332 — likely NULL); PR #250 tanjiro arm B (c=+0.25) at step 2275/3250 (~70%, val=3.391). All 8 students productively WIP.
+- **Last update:** 2026-05-17 16:22 UTC — PR #248 askeladd CLOSED (Muon LR axis CLOSED at 0.035 — both arms NULL; key finding: param_norm grows 3.4× for 1.33× LR, WD=0.025 too low). PR #287 askeladd ASSIGNED (Muon WD scan {0.035, 0.050}). Frieren PR #261 arm A finishing (~step 3100, val=3.277 — likely near sr=3025-3075). All 8 students productively WIP.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -18,10 +18,10 @@ Previous baselines:
 | PR  | Student     | Mechanism                                                           | Status (15:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
 | **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) step 1800/3250 (~55%) val=3.486 — running. Duplicate `7210vvfo` killed at 15:27 UTC. |
-| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) step 2625/3250 (~81%) val=3.332 — running. Likely NULL trajectory. |
+| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) step ~3100/3250 (~95%) val=3.277 — nearly terminal. val crossed 3.28 between step 2950-3050. sr pending. |
 | **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) FINISHED sr=3125 val=3.275 NULL. Arm B `9q7v4c4u` (TARGET_UW=0.7) step 700 val=3.92 — running. |
 | **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `8tbjkmnc` (c=+0.25) step 2275/3250 (~70%) val=3.391 — running. |
-| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 2775/3250 (~85%) val=3.319 — running. Likely NULL. |
+| **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Just assigned. PR #248 CLOSED (LR axis CLOSED). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 1625/3250 (~50%) val=3.526 — running. |
 | **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `s7tsyxrt` (β1=0.9, restarted after crash) step 1350/3250 (~41%) val=3.611 — running. |
 | **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm A `nmokccos` step 675/3250 (~21%) val=3.752 — running. Duplicate `9s2c4r6o` killed at 15:28 UTC. |
@@ -36,6 +36,7 @@ Previous baselines:
 | **#242** | frieren | Arm A (γ=0.5) sr=3150 NULL. Arm B (γ=0.6) 3 crashes. | CLOSED — γ_power axis CLOSED at 0.4 (local optimum) |
 | **#216** | nezuko | β2=0.99 sr=3025 val=3.26640 NULL; β2=0.999 sr=3100 regression | CLOSED — β2 axis CLOSED: β2=0.95 optimal |
 | **#226** | tanjiro | Arm A sr=3050 NULL; arm B crashed step 3 (structural: a+b+c≠1) | CLOSED — structural finding → follow-up PR #250 |
+| **#248** | askeladd | Muon LR scan: lr=0.030 sr=3025 val=3.26755 NULL; lr=0.040 sr=3050 val=3.26669 NULL. param_norm grows 3.4× for 1.33× LR | CLOSED — Muon base LR axis CLOSED at 0.035. Follow-up: PR #287 WD scan. |
 | **#211** | askeladd | Both arms NULL on stale base | CLOSED |
 | **#198** | edward | deep-strong sr=3050 NULL vs new baseline | CLOSED |
 | **#197** | alphonse | α=0.99/0.999 NULL (EMA bias-lag) | CLOSED |
@@ -58,19 +59,25 @@ Previous baselines:
 
 4. **Aux AdamW β2 axis CLOSED at 0.95.** Monotone: smaller β2 better.
 
-5. **Aux AdamW β1 axis: β1=0.7 arm A finished NULL (stale base). β1=0.9 arm B just started.** Current β1=0.8 baseline. Both arms will be reviewed together.
+5. **Aux AdamW β1 axis: β1=0.7 arm A finished NULL (stale base). β1=0.9 arm B running (~step 1350).** Current β1=0.8 baseline. Both arms will be reviewed together.
 
 6. **Muon mu: baseline mu=0.95 locally optimal.** mu=0.9 worse (sr=3125). mu=0.99 arm pending.
 
-7. **Deep-WD + lm_head LR 1/160 compound test (Wave 7):** PR #225 thorfinn seed 1 val=3.26513 sr=3025 (marginal val win). n=2 seed 2 finishing ~12:55 UTC. KEY RESULT — if n=2 confirms, this is a merge candidate.
+7. **Muon base LR axis CLOSED at 0.035.** PR #248 — symmetric NULL on both ±14% perturbations. Key finding: param_norm grows 3.4× for 1.33× LR → WD=0.025 too low. Follow-up: PR #287 WD scan.
 
-8. **Muon base LR retune:** arm A (lr=0.030) at 82%, finishing soon.
+8. **u/w-floor ablation:** PR #258 nezuko arm A (TARGET_UW=0.0) FINISHED sr=3125 val=3.275 NULL. Arm B (TARGET_UW=0.7) running step ~700.
 
-9. **u/w-floor ablation:** PR #258 nezuko arm A (TARGET_UW=0.0) at step 750.
+9. **PMuon LR warmup:** PR #261 frieren arm A (warmup=50) nearly terminal (step ~3100, val crossed 3.28 between step 2950-3050).
 
-10. **PMuon LR warmup:** PR #261 frieren just assigned. FRESH MECHANISM — never tested. Tests whether cold-start covariance EMA initialization needs LR gating.
+10. **AdamW eps scan:** PR #272 thorfinn arm A (eps=1e-8) step ~2025 (~62%), contamination resolved.
 
-11. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
+11. **COOLDOWN_POWER retune:** PR #274 fern arm A (power=1.0) step ~1775 (~55%).
+
+12. **z-loss:** PR #278 alphonse arm A (coef=1e-4) step ~675 (~21%), early phase.
+
+13. **Muon WD scan:** PR #287 askeladd just assigned {0.035, 0.050}.
+
+14. **EMA weight averaging and schedule (γ_power, cf, COOLDOWN_POWER) CLOSED.**
 
 ## PMuon hyperparameter characterization
 
@@ -81,7 +88,7 @@ Previous baselines:
 | **NS_ITERS** (polar convergence) | CLOSED (PR #184) | Wide flat: 6–18 | — |
 | **NS_coef c-axis** (f'(1)=0 family) | ACTIVE c-scan (PR #250) | c=0 cubic-Newton | 3025 |
 | **NS_coef (a,b) line** | **CLOSED (PR #229)** | (a=1.5, b=-0.5) optimal | 3025 |
-| **Muon base LR** | ACTIVE retune (PR #248) | 0.035 (testing 0.030/0.040) | — |
+| **Muon base LR** | **CLOSED (PR #248)** | 0.035 optimal (both ±14% NULL) | 3025 |
 | **mu** (gradient momentum) | ACTIVE (PR #231) | 0.95 baseline; mu=0.9 NULL | — |
 | **TARGET_UW** (Skylight floor) | ACTIVE ablation (PR #258) | 0.35 (testing 0.0/0.7) | — |
 | **Muon LR warmup** | ACTIVE mechanism (PR #261) | None (new axis) | — |
@@ -95,11 +102,10 @@ Previous baselines:
 
 ## Open axes (not yet assigned)
 
-- AdamW eps scan {1e-8, 1e-9} — never tested (current 1e-10 is 100× aggressive vs default)
-- COOLDOWN_POWER retune on γ_power=0.4 stack — last tested on old base (now stale)
+- Muon weight_decay scan {0.035, 0.050} — PR #287 IN FLIGHT (askeladd). Motivated by param_norm 3.4× blowup at higher LR.
 - embed_lr scan {0.2, 0.4} — never tested (current 0.3)
 - scalar_lr scan — never tested (current 0.01)
-- z-loss auxiliary — PR #278 NOW IN FLIGHT (alphonse)
+- Compound: WD retune + LR retune jointly (once WD axis is characterized)
 
 ## Statistical rule reminder
 

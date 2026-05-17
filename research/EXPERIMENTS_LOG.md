@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-17 16:22 — PR #248: Muon base LR retune {0.030, 0.040} (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-base-lr-retune`
+- Hypothesis: After cubic-Newton+γ_power=0.4 stack merged, baseline LR=0.035 may no longer be optimal. Scan ±14% to test.
+
+| Arm | `MUON_BASE_LR` | W&B run | `sr` | `val/loss` | Δsr vs baseline | Δval vs baseline |
+|---|---|---|---|---|---|---|
+| Arm A | 0.030 | `dcm490bd` | 3025 | 3.26755 | 0 | +0.00140 |
+| Arm B | 0.040 | `wsze97nl` | 3050 | 3.26669 | +25 | +0.00054 |
+| **Baseline** | **0.035** | `prncgzv5` | **3025** | **3.26615** | — | — |
+
+**Analysis:** Both arms NULL. Arm A ties sr but val is +0.00140 worse (regression). Arm B registers sr=3050 — 25 steps slower — but surprisingly recovers late: val/loss overtakes Arm A in final 100 steps (step 3150+) ending at 3.26669.
+
+Key unexpected finding: `param_norm` at step 3250 grows **3.4×** (1375 → 4732) for a 1.33× LR change (0.030 → 0.040). This is far more than the LR-ratio prediction (√1.33 ≈ 1.15×). The driver is weight growth, not gradient dynamics — `update_norm` tracks closely between arms (within 5-10%) while `param_norm` diverges. The γ_power=0.4 whitening + PMuon preconditioning amplifies effective update magnitudes beyond the nominal LR scale. The existing `weight_decay=0.025` is insufficient to counter this — `lr*wd = 8.75e-4/step`.
+
+The two effects pull opposite directions: higher LR hurts sr (early cooldown weight-growth under-stepping) but helps final val (+0.00086). Result: flat minimum at 0.035.
+
+**Conclusion:** CLOSED. Muon base LR axis CLOSED at 0.035. Symmetric NULL — no headroom in either direction. Follow-up: WD scan {0.035, 0.050} (PR #287) directly motivated by param_norm telemetry.
+
+---
+
 ## 2026-05-15 15:00 — PR #68: Aurora + Contra-Muon + u/w floor (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/aurora-contra`
