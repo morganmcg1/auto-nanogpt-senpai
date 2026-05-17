@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-17 ~16:00 UTC — Cycle 54 (continued)
+- 2026-05-17 ~16:15 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 
 ## CRITICAL BUG FIXED (cycle 54)
@@ -29,6 +29,12 @@ Previous baseline (PR #139): val=3.27648, ffs=3118.75
 - **Next follow-up after merge**: assign annealed-μ + ATTN_SOAP_TRUST_THRESHOLD=0.85 compounding run.
 
 ## Active in-flight experiments
+
+### ASKELADD #286 — Polyak-Ruppert weight averaging (EMA) for terminal eval
+- Just assigned. Maintain EMA of weights starting at step ~2000, use EMA weights for terminal val/loss eval.
+- Arm A: β=0.999, start=2000 (slow EMA, ~1000 step average). Arm B: β=0.99, start=2500 (fast EMA, cooldown only).
+- Zero feedback to optimizer state → no NaN risk (unlike Lookahead). Pure post-processing → orthogonal to all in-flight mechanisms.
+- _ASKELADD #268 (depth-LR scaling) FALSIFIED_ — both arms decisively miss. Arm A (up) starves early blocks (never hit 3.28); Arm B (down) starves late blocks (divergence at step 1350). SOAP per-shape preconditioning already absorbs per-layer gradient structure.
 
 ### ALPHONSE #277 — SOAP eigenbasis freeze after step K
 - Just assigned. After step K, stop refreshing Q (rotation) but continue updating exp_avg_sq (scaling).
@@ -73,6 +79,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | NS_ITERS sweep (PR #259) | FALSIFIED | NS_ITERS=10 → multi-seed NaN (91% nonfinite at step 225). NS5 iter axis fully exhausted |
 | SOAP_PRECOND_FREQ sweep (PR #256) | FALSIFIED | Both freq=5 AND freq=20 cause multi-seed NaN at step 25. Stability window is uniquely at freq=10 |
 | Gradient Centralization on Muon (PR #267) | FALSIFIED | Row-centering → rank-deficient gradient → NS5 polar-factor instability → NaN at step 25 |
+| Per-block-depth Muon LR scaling (PR #268) | FALSIFIED | Arm A starves early blocks (never hits 3.28); Arm B starves late blocks (divergence). SOAP per-shape preconditioning already absorbs per-layer gradient structure |
 
 ## Closed axes (full record)
 
@@ -125,7 +132,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | ~15:30 | Thorfinn | n=4 all trials | **STRONG MERGE CANDIDATE** |
 | ~16:00 | Frieren | Terminal SENPAI-RESULT (overdue) | MISS (close + reassign) |
 | TBD | Edward | Per-head SOAP screen (#281) | First result ~3h |
-| TBD | Askeladd | Depth-LR implementation + screen | First result ~3h |
+| TBD | Askeladd | Polyak EMA implementation + screen (#286) | First result ~3h |
 | TBD | Nezuko | Asymmetric trust telemetry → screen | First screen result ~2-3h |
 | TBD | Fern | Decoupled SOAP freq screen | First result ~3h |
 
@@ -144,7 +151,7 @@ Most promising paths (ranked):
 5. **Decoupled SOAP freq MLP vs ATTN** (fern #271) — orthogonal to attn trust gating.
 6. **Decoupled aux cooldown shape** (tanjiro #276) — aux groups may benefit from cosine or no cooldown vs linear.
 7. **GC on Muon** (edward #267) — removes low-rank mean from gradient before NS5.
-8. **Depth LR scaling** (askeladd #268) — per-block LR structure.
+8. **Polyak-Ruppert weight EMA** (askeladd #286) — post-processing, orthogonal to all optimizer mechanisms.
 
 ## Operational notes
 

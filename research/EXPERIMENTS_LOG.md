@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~16:15 — Cycle 54 (continued): askeladd #268 FALSIFIED; thorfinn #219 n=4 COMPLETE awaiting rebase; askeladd reassigned (#286)
+
+### ASKELADD #268 — Per-block-depth Muon LR scaling — FALSIFIED
+
+| Arm | Formula | val/loss @ 3175 | ffs | Outcome |
+|---|---|---|---|---|
+| A (up) | `(d+1)/6` (block 0=0.167×, block 11=2.0×) | 3.31916 | -1 (never hit 3.28) | Clear miss (+0.043 over baseline) |
+| B (down) | `(12-d)/6` (block 0=2.0×, block 11=0.167×) | 4.165 @ step 1350 | -1 | Diverged, killed |
+
+Both arms falsified per predeclared decision tree (val > 3.278 OR ffs > 3125).
+
+**Mechanism (Arm A, "up")**: Starves early blocks (block 0 gets 1/6 baseline LR). The embeddings→block 0→block 1 cascade receives insufficient updates to develop early-token representations during the first ~half of training. By the time later blocks compensate, the LR cooldown has begun and there's no headroom left. Result: never reaches val=3.28 target.
+
+**Mechanism (Arm B, "down")**: Starves late blocks. Late transformer blocks contain the most discriminative features (sharper local loss curvature). Reducing late-block LR by 6× wrecks tracking of this signal. Result: late blocks fail to converge → activations grow → gradient norms grow → divergence at step 1350.
+
+**Lesson**: SOAP's per-shape preconditioning already absorbs per-layer gradient scale differences via its Gram matrices. Imposing additional explicit depth-LR structure adds constraints without exploiting unmodeled gradient structure.
+
+W&B runs: `qfef54e1` (Arm A), `iudcq97t` (Arm B). Askeladd reassigned → Polyak weight averaging (PR #286).
+
+---
+
+### THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 COMPLETE 🚀 PENDING REBASE
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27510 | 3075 |
+| T1 | 3.27697 | 3100 |
+| T2 | 3.27489 | 3075 |
+| T3 | 3.27638 | 3100 |
+| **n=4 mean** | **3.275835** | **3087.5** |
+
+**Both new baseline bars cleared:**
+- val=3.275835 < 3.27631 (Δ=−0.000475) ✓
+- ffs=3087.5 < 3112.5 (Δ=−25.0 steps) ✓
+- statsig: (3.28 − 3.275835) × √4 = **0.00833** ≥ 0.004 ✓ (2.08× margin)
+
+n=4 was launched on PRE-#212 stack (no trust gate). The annealed-μ mechanism beats the new trust-gate baseline anyway — strong evidence of additivity. After merge, compounding run with `ATTN_SOAP_TRUST_THRESHOLD=0.85` is the natural follow-up.
+
+**Status**: Sent back to thorfinn for rebase (merge conflict with PR #212). W&B run: `47bb0bf2`. ETA to merge: ~30 min after rebase.
+
+---
+
 ## 2026-05-17 ~15:00 — Cycle 54 (continued): alphonse #256 FALSIFIED; tanjiro #259 FALSIFIED; thorfinn #219 n=4 3/4 strong; frieren #254 closed; 3 students reassigned (#275, #276, #277)
 
 ### ALPHONSE #256 — SOAP_PRECOND_FREQ {5, 20} sweep — FALSIFIED
