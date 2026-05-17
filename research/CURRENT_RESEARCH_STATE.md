@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 14:30 UTC — PR #229 CLOSED (NS coef line scan: both arms NULL; a=1.3 sr=3075, a=1.7 sr=3050 tied baseline. Cubic-Newton confirmed locally optimal; f'(1)=0 NOT strictly required). PR #278 ASSIGNED alphonse (z-loss auxiliary loss scan {1e-4, 1e-3} — first test of logit calibration regularizer). PR #250 tanjiro partial SENPAI-RESULT: arm A c=-0.25 sr=3100 NULL (polar residual stuck near √n — NS not orthogonalizing). All 8 students productively WIP.
+- **Last update:** 2026-05-17 15:30 UTC — GPU contamination in 2 pods (thorfinn PR #272, alphonse PR #278) self-resolved by students; original runs continue clean. PR #248 askeladd arm B (lr=0.040) at step 2775/3250 (~85%, val=3.319 — likely NULL); PR #261 frieren warmup=50 at step 2625/3250 (~81%, val=3.332 — likely NULL); PR #250 tanjiro arm B (c=+0.25) at step 2275/3250 (~70%, val=3.391). All 8 students productively WIP.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -15,16 +15,16 @@ Previous baselines:
 
 ## Active experiments (status:wip)
 
-| PR  | Student     | Mechanism                                                           | Status (13:15 UTC) |
+| PR  | Student     | Mechanism                                                           | Status (15:30 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) step 250 val=4.05 — running |
-| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup 50) step 1000 val=3.66 — running. 1 prior step-0 fail. |
-| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) step 2425 (~75%) val=3.36. Arm B pending. |
-| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `8tbjkmnc` (c=+0.25) step 575 val=3.81 — running. Awaiting terminal SENPAI-RESULT. |
-| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 1100 val=3.68 — running. |
-| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 25 — just picked up |
-| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `zu55900j` (β1=0.9) step 1600 (~49%) val=3.55 — running. |
-| **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Just assigned |
+| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) step 1800/3250 (~55%) val=3.486 — running. Duplicate `7210vvfo` killed at 15:27 UTC. |
+| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup=50) step 2625/3250 (~81%) val=3.332 — running. Likely NULL trajectory. |
+| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) FINISHED sr=3125 val=3.275 NULL. Arm B `9q7v4c4u` (TARGET_UW=0.7) step 700 val=3.92 — running. |
+| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `8tbjkmnc` (c=+0.25) step 2275/3250 (~70%) val=3.391 — running. |
+| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 2775/3250 (~85%) val=3.319 — running. Likely NULL. |
+| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 1625/3250 (~50%) val=3.526 — running. |
+| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `s7tsyxrt` (β1=0.9, restarted after crash) step 1350/3250 (~41%) val=3.611 — running. |
+| **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm A `nmokccos` step 675/3250 (~21%) val=3.752 — running. Duplicate `9s2c4r6o` killed at 15:28 UTC. |
 
 ## Recently closed
 
