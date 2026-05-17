@@ -1,5 +1,77 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~03:49 — Cycle 41: Thorfinn #178 CLOSED; annealed-μ assigned (#219); multi-screen status
+
+### THORFINN cooldown_frac sweep — CLOSED (PR #178)
+
+Sweep summary (n=1 each arm):
+
+| arm | val | ffs | verdict |
+|---|---|---|---|
+| 0.65 | 3.27865 | 3150 | MISS |
+| **0.70 (control)** | **3.27536** | **3100** | baseline HP — single seed beats baseline |
+| 0.75 | 3.27655 | 3125 | MISS |
+
+Both 0.65 and 0.75 are worse than 0.70. Monotone-from-both-sides signal — **0.70 is the local optimum.** This rules out cooldown_frac as a lever and confirms the current schedule duration is already at the sweet spot. Closed to focus compute on schedule *shape* (fern power-law) and mechanism changes.
+
+### THORFINN reassigned — Annealed Muon momentum μ schedule (PR #219)
+
+2-arm sequential screen: MU schedule 0.90→0.97 (Arm A, warmup-style) vs 0.97→0.90 (Arm B, inverse). Hypothesis: static μ=0.95 was set before CONTRA_MUON=0.5 baseline; annealing μ over training tests two mechanism stories about optimal EMA decay over the training trajectory. Linear interpolation in `set_hparams`. 2 × ~95 min screens.
+
+### ALPHONSE #205 — CONTRA_MUON=0.6/0.7 multi-arm status
+
+| Arm | Run | val | ffs | verdict |
+|---|---|---|---|---|
+| 0.6 (Arm A) | `u0f98rxy` | 3.27666 | 3125 | MISS — tiny (+0.00018 val, +6.25 ffs) |
+| 0.7 (Arm B) | `uoqp63dq` | IN PROGRESS | — | launched 03:44 UTC, ETA ~05:29 |
+
+CONTRA_MUON=0.6 essentially tied the baseline — within seed noise but doesn't clear win bar. Arm B (0.7) running. If 0.7 also misses, sweep is done — 0.5 was the optimum. If 0.7 wins, it would be the second monotone step (0.4→0.5→0.7 wins) — strong signal.
+
+### FRIEREN #177 — Soft-Muon-anneal p sweep — CLOSING
+
+| Screen | val | ffs | verdict |
+|---|---|---|---|
+| p=0.10 (`dhqwygng`) | 3.27667 | 3125 | MISS |
+| p=0.07 (`dbf0augy`) | 3.27659 | 3125 | MISS |
+| p=0.07 rerun (`3itp6whk`) | crashed ~step 475 | — | infra/OOM, not mechanism |
+
+Val gap is 0.00011-0.00019 (below seed noise), but ffs=3125 is structural — ffs is quantized in 25-step buckets and the mechanism is reliably landing at 3125. Cannot close the 6.25 ffs gap vs new baseline (3118.75) regardless of p_start value. Mechanism is parameter-insensitive in 0.07-0.10 range. Advisor nudged frieren to post SENPAI-RESULT; will close and reassign to fresh direction.
+
+### NEZUKO #212 — Attn-SOAP+trust (new baseline) screens
+
+| Screen | Run | val | ffs | verdict |
+|---|---|---|---|---|
+| TRUST_THRESHOLD=0.9 (A) | `h29cv26c` | 3.27628 | 3125 | VAL WIN (−0.00020), FFS MISS |
+| TRUST_THRESHOLD=0.85 (B) | running | — | — | launched 03:25 UTC, ETA ~05:00 |
+
+Screen A's val=3.27628 is a VAL WIN but ffs=3125 misses 3118.75. Threshold=0.85 activates SOAP on v/proj rows (which hover at cosine 0.85-0.89 from PR #124 data). If Screen B also wins val AND closes ffs gap, predeclare n=4 immediately.
+
+### ASKELADD #213 — Per-module init screen — MISS, Variant B predeclared
+
+W&B run `jmcvmacz`:
+
+| Metric | Value | vs baseline | verdict |
+|---|---|---|---|
+| val/loss | 3.28042 | +0.00394 | MISS |
+| ffs | never crossed 3.28 | — | MISS |
+
+Per-module init (μP-inspired: embed std=0.02, zero-init proj/lm_head, fan_in-scaled qkv) didn't improve on the merged SOAP-MLP stack. NS5 spectral normalization and SOAP eigenbasis preconditioning already absorb most of what per-module init buys on simpler optimizer stacks. Recommended Variant B: non-zero proj init (proj.weight ~ N(0, 1/(320*sqrt(2)))) — this may stabilize the step-2 NaN pattern at blocks.0.attn.proj.bias and improve early-step dynamics. Waiting for SENPAI-RESULT before launch.
+
+### FERN #208 — Power-law LR cooldown screens
+
+| Screen | CONTRA_MUON | val | ffs | verdict |
+|---|---|---|---|---|
+| `ersqpsq2` (LR_POWER=1.5) | **0.4 (wrong!)** | 3.28313 | -1 | misconfigured — CONTRA_MUON default 0.4 |
+| `rpws9fug` (LR_POWER=1.5+CM=0.5) | 0.5 ✓ | IN PROGRESS | — | launched 03:25 UTC, ETA ~04:55 |
+
+Fern correctly caught the CONTRA_MUON misconfiguration and relaunched with CM=0.5. ersqpsq2 result on 0.4 base not useful for decision tree. rpws9fug is the true LR_POWER=1.5 screen on new baseline.
+
+### EDWARD #199 — AdEMAMix aux groups — Full screen authorized
+
+After exceptional diagnostic work: Edward proved AdEMAMix(α=0) ≡ AdamW to 1e-7 (unit test), and the baseline itself (unmodified commit ae5552e) NaN-s at step-2 in `blocks.0.attn.proj.bias` stochastically. The NaN is seed-dependent baseline instability on 1-GPU short runs, NOT an AdEMAMix bug. Authorized full 3175-step screen with conservative HPs (α=1.0, β3=0.99, warmup=1024, eps=1e-8). Screen launch pending.
+
+---
+
 ## 2026-05-17 ~01:30 — Cycle 37: Tanjiro PMuon CLOSED; TARGET_UW retune assigned (#214); in-flight status
 
 ### TANJIRO PMuon bilateral streaming covariance — CLOSED (PR #187)

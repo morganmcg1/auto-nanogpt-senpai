@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-17 ~01:30 UTC — Cycle 37
+- 2026-05-17 ~03:49 UTC — Cycle 41
 - No human researcher directives this session.
 
 ## Current baseline ⭐
@@ -10,98 +10,103 @@ Merge bar (n=4): BOTH mean < 3.27648 AND ffs_mean < 3118.75
 
 ## Critical in-flight experiments (priority order)
 
-### ALPHONSE #205 — CONTRA_MUON=0.6/0.7 sweep 🔥
-- 0.6 screen `fmx37tmr`: step 2875/3175, val=3.3060 — finishing ~30 min, in deep cooldown
-- Sequential 0.7 screen if 0.6 borderline
-- Primary exploit path; direct continuation of the mechanism that merged.
+### NEZUKO #212 — Attn-SOAP+trust on NEW baseline (Screen B) 🔥
+- Screen A (TRUST_THRESHOLD=0.9 `h29cv26c`): val=3.27628 (**VAL WIN**), ffs=3125 — borderline
+- Screen B (TRUST_THRESHOLD=0.85): launched 03:25 UTC, ETA ~05:00 — activates v/proj SOAP gate
+- If Screen B wins BOTH bars → predeclare n=4 immediately
+- Mechanism: lowest-variance trigger in our stack (std=0.00015 per prior n=4)
 
-### FRIEREN #177 — Soft-Muon annealing p=0.07 retry 🔥
-- Screen `dbf0augy`: step 3000/3175, val=3.2912 — finishing ~15 min
-- Needs val ≤ 3.2762 AND ffs ≤ 3118 to be cleanly competitive
-- Decision tree applies (in original PR comment); p=0.07 OR p=0.05 as next step
+### ALPHONSE #205 — CONTRA_MUON sweep 🔥
+- Arm A (0.6 `u0f98rxy`): val=3.27666, ffs=3125 — MISS by tiny margin (+0.00018 val, +6.25 ffs)
+- Arm B (0.7 `uoqp63dq`): launched 03:44 UTC, ETA ~05:29
+- If 0.7 also misses: 0.5 is confirmed optimal (diminishing returns above 0.5)
+- If 0.7 wins: second monotone step (0.4→0.5→0.7) — very strong signal
 
-### THORFINN #178 — cooldown_frac retune sweep
-- 0.65 arm DONE: val=3.27865/ffs=3150 — MISS (shorter cooldown hurts)
-- 0.70 arm (control/baseline): val=3.27536/ffs=3100 — single seed beats baseline; this IS the baseline HP
-- 0.75 arm `7f0r4eds`: just started, step 325/3175 — key signal for longer cooldown direction
+### FERN #208 — Power-law LR cooldown (proper CM=0.5 screen)
+- Screen A (`rpws9fug`, LR_POWER=1.5 + CONTRA_MUON=0.5): launched 03:25 UTC, ETA ~04:55
+- `ersqpsq2` was misconfigured (CONTRA_MUON=0.4 default) — not decision-tree-applicable
+- After rpws9fug: launch LR_POWER=2.0 arm sequentially
 
-### NEZUKO #212 — Attn-SOAP+trust on NEW baseline (composition test) 🔥
-- Smoke `0k3qgq5q` clean at step 400 (val=3.808)
-- Screen `h29cv26c` at step 675/3175, val=3.759 — healthy, early phase
-- Arm A: TRUST_THRESHOLD=0.9; Arm B: THRESHOLD=0.85 (activates v/proj gate)
-- Projected: val ~3.276/ffs ~3106 if mechanisms compose additively
+### EDWARD #199 — AdEMAMix dual-EMA (aux groups) — authorized 🔥
+- Code validated: AdEMAMix(α=0) ≡ AdamW to 1e-7 (unit test confirmed)
+- Step-2 NaN diagnosed as stochastic BASELINE instability (not AdEMAMix bug)
+- Authorized full 3175-step screen: α=1.0, β3=0.99, warmup=1024, eps=1e-8
+- Launch pending — ETA ~5:30 UTC
 
-### ASKELADD #213 — Per-module weight init scaling 🔥
-- Smoke `0vc4kc82` clean at step 400 (val=3.832)
-- Screen `jmcvmacz` at step 700/3175, val=3.775 — healthy, early phase
-- μP-inspired: embed std=0.02, zero-init MLP proj + attn proj + lm_head, fan_in-scaled for qkv/fc
-- Records #4,5,8 all use this as key ingredient (50-100 FFS improvement each)
+### TANJIRO #214 — TARGET_UW retune (0.30/0.40 sweep)
+- Code push confirmed (commit `880860c`): `TARGET_UW = float(os.environ.get("TARGET_UW", "0.35"))`
+- Label fixed back to status:wip; predeclared launch command posted
+- Waiting for first 0.30 arm to start
 
-### FERN #208 — Power-law LR cooldown schedule
-- Screen `w12r4fc9` at step 1225/3175, val=3.633 — running, ~39% through
-- LR_POWER=1.5 then 2.0 sweep — record #20 component
-- ~39% complete
+### ASKELADD #213 — Per-module init Variant B
+- Screen A (`jmcvmacz`): val=3.28042 — MISS (NS5+SOAP stack absorbs init benefit)
+- Variant B predeclared: non-zero proj.weight init ~ N(0, 1/(320×√2))
+- Waiting for terminal SENPAI-RESULT before Variant B launch
 
-### TANJIRO #214 — TARGET_UW retune (NEW) 🔥
-- 2-arm sequential: TARGET_UW=0.30 (looser floor) then 0.40 (tighter floor)
-- Hypothesis: CONTRA_MUON=0.5 changed natural u/w ratio; floor optimum may have shifted
-- Student picking up assignment — runs not yet started
+### THORFINN #219 — Annealed Muon μ schedule (NEW) 🔥
+- 2-arm: Arm A (MU_START=0.90→MU_END=0.97), Arm B (MU_START=0.97→MU_END=0.90)
+- Fresh mechanism: linear μ annealing in `set_hparams` — student picking up
 
-### EDWARD #199 — AdEMAMix dual-EMA — BLOCKED (systematic NaN, code not pushed)
-- 7+ smoke runs ALL NaN/crashed including 2 since last advisor check
-- Branch has only 2-line cosmetic change — AdEMAMix code exists only on pod locally
-- Advisor posted STOP directive: no new runs until code pasted for review
-- Advisor will diagnose once code is shared
+### FRIEREN #177 — Soft-Muon annealing p sweep — CLOSING
+- p=0.10 (`dhqwygng`): val=3.27667, ffs=3125 — MISS
+- p=0.07 (`dbf0augy`): val=3.27659, ffs=3125 — MISS (parameter-insensitive in this range)
+- p=0.07 rerun (`3itp6whk`): crashed ~step 475 (infra/OOM)
+- FFS=3125 is structural — quantized at 25-step buckets, mechanism reliably 6.25 ffs short
+- Advisor nudged frieren to post SENPAI-RESULT; closing after
 
 ## Key patterns observed
 
-1. **CONTRA_MUON sweep works**: 0.4 → 0.5 improved both val AND ffs. Testing 0.6 → 0.7 next. If 0.6 also wins, the trend is monotone and 0.7 may follow.
+1. **CONTRA_MUON sweep partially confirmed**: 0.4→0.5 improved both val AND ffs. 0.6 essentially tied (within noise). 0.7 in progress. If 0.6 tied and 0.7 misses → 0.5 was optimal. If 0.7 wins → trend is wider.
 
-2. **Aurora high-variance CLOSED**: 2/4 trials miss ffs entirely. n=4 failure. Needs n=8+ to use reliably — too expensive for our budget. **Closed.**
+2. **Aurora high-variance CLOSED**: n=4 failure (2/4 miss ffs). Needs n=8+ to use reliably.
 
-3. **SFM (Schedule-Free Muon) CLOSED**: Fundamental incompatibility — Muon's NS5 under constant LR causes ‖y-z‖ to diverge unboundedly. Linear cooldown is doing essential spectral-norm control. **Closed.**
+3. **SFM CLOSED**: Fundamental incompatibility — NS5 under constant LR diverges.
 
-4. **PMuon CLOSED on SOAP-MLP stack**: Double-conditioning issue. PMuon stacks on SOAP-MLP which already preconditions MLP gradients. Record #18 tested PMuon on vanilla Contra-Muon, NOT Contra+SOAP-MLP. **Closed.**
+4. **PMuon CLOSED on SOAP-MLP stack**: Double-conditioning issue on merged base.
 
-5. **Trust-gate lowest variance**: nezuko Attn-SOAP T0-T3 had std=0.00015 — best stability of any mechanism. New test (PR #212) on updated baseline with THRESHOLD=0.9 → 0.85.
+5. **Attn-SOAP+trust near-miss** (nezuko Screen A): val=3.27628 is VAL WIN. FFS=3125 is the missing piece. Threshold=0.85 (Screen B) may close both.
 
-6. **Soft-Muon anneal near-miss** (frieren): p=0.10 → 3.27667/3125. p=0.07 retry nearly terminal. Single seed at step 3000 shows val=3.2912, needs significant drop in final 175 steps.
+6. **Soft-Muon annealing parameter-insensitive**: p_start variation in 0.07-0.10 range shifts val by <0.0001 (below seed noise). FFS=3125 is structural — closed direction.
 
-7. **Cooldown_frac direction**: 0.65 WORSE than 0.70 (the baseline). 0.75 unknown — if 0.75 also worse, 0.70 is the local optimum and thorfinn closes.
+7. **Cooldown_frac local optimum**: 0.70 confirmed. Both 0.65 and 0.75 worse — clean monotone-from-both-sides signal.
 
-8. **Per-module init unexplored**: three records (#4,5,8) use it as a key ingredient. Default PyTorch init is suboptimal for this architecture. First screens running now.
+8. **Step-2 NaN baseline instability**: Confirmed across edward, tanjiro, fern runs. Stochastic on seed, deterministic per-seed. 1-GPU specific (8-GPU microbatch size differs). Smokes unreliable. Full 3175 runs are the reliable filter.
+
+9. **Per-module init absorbed by SOAP+NS5 stack**: Records #4,5,8 used it on simpler stacks. NS5 spectral norm normalization + SOAP eigenbasis preconditioning already provides what per-module init buys.
 
 ## Upcoming decisions / expected results
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~01:45 | Frieren | p=0.07 terminal | Key: will val reach ≤3.276x? |
-| ~02:00 | Alphonse | 0.6 screen terminal | CONTRA_MUON=0.6 verdict |
-| ~02:30 | Thorfinn | 0.75 arm terminal | If worse than 0.70 → close #178 |
-| ~05:00+ | Nezuko | Attn-SOAP screen terminal | High-EV composition test |
-| ~05:00+ | Askeladd | Per-module init screen terminal | Records #4,5,8 ingredient |
-| ~06:00+ | Fern | Power-law LR screen terminal | Record #20 schedule component |
-| TBD | Tanjiro | TARGET_UW 0.30/0.40 screens | u/w-floor retune with new CONTRA_MUON |
-| TBD | Edward | Code paste + debug review | Blocked until code shared |
+| ~04:55 | Fern | LR_POWER=1.5+CM=0.5 screen terminal | True baseline comparison for power-law |
+| ~05:00 | Nezuko | Screen B TRUST_THRESHOLD=0.85 terminal | If val WIN + ffs ≤ 3118 → n=4 immediately |
+| ~05:29 | Alphonse | CONTRA_MUON=0.7 screen terminal | If miss → 0.5 confirmed optimal |
+| TBD | Edward | AdEMAMix 3175 screen terminal | Conservative α=1.0 AdEMAMix on aux groups |
+| TBD | Tanjiro | TARGET_UW=0.30 screen | u/w-floor retune vs new base |
+| TBD | Frieren | SENPAI-RESULT posted → close #177 | Reassign to fresh mechanism |
+| TBD | Askeladd | Variant B non-zero proj init | Stabilizer + convergence test |
+| TBD | Thorfinn | Annealed μ Arm A screen terminal | ~05:30+ after launch |
 
 ## Research programme direction
 
-Primary goal: beat record #20 (3030 steps). New baseline = 3118.75 steps. Gap = ~89 steps / ~2.8%.
-Progress this session: 3131.25 → 3118.75 (−12.5 steps via CONTRA_MUON=0.5).
+Primary goal: beat record #20 (3030 steps). Current baseline = 3118.75 steps. Gap = ~89 steps / ~2.8%.
+Progress: 3131.25 → 3118.75 (−12.5 steps via CONTRA_MUON=0.5).
 
-Most promising next paths:
-1. **CONTRA_MUON=0.6/0.7** (alphonse) — direct continuation of just-merged mechanism
-2. **Attn-SOAP+trust on new base** (nezuko) — compositional gain, ~3.276/3106 projected
-3. **Per-module init** (askeladd) — records #4,5,8 ingredient, unexplored on merged stack
-4. **Power-law LR** (fern) — record #20 schedule component
-5. **Soft-Muon-anneal p=0.07** (frieren) — near-miss retune, nearly terminal
-6. **TARGET_UW retune** (tanjiro) — one-var sweep, probes interaction with CONTRA_MUON=0.5
-7. **AdEMAMix** (edward) — blocked on NaN; needs code review before any progress
+Most promising paths:
+1. **Attn-SOAP+trust Screen B** (nezuko #212) — val already winning, need ffs to close
+2. **CONTRA_MUON=0.7** (alphonse #205) — if monotone trend holds
+3. **AdEMAMix on aux groups** (edward #199) — mechanism-level, code verified
+4. **Annealed μ schedule** (thorfinn #219) — fresh mechanism, orthogonal to all in-flight
+5. **Power-law LR** (fern #208) — proper CM=0.5 screen running now
+6. **TARGET_UW retune** (tanjiro #214) — cheap 1-HP sweep
+7. **Per-module init Variant B** (askeladd #213) — non-zero proj init as stabilizer
 
 ## Operational notes
 
 - W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
 - Merge bar: BOTH mean val < 3.27648 AND ffs_mean < 3118.75
 - All n=4: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800 (necessary but not sufficient)
-- Closed this session: PR #125 (fern Aurora), #124 (nezuko Attn-SOAP), #181 (askeladd SFM), #187 (tanjiro PMuon)
-- New assignments: PR #208 (fern power-law-lr), #212 (nezuko new-base attn-soap), #213 (askeladd per-module-init), #214 (tanjiro target-uw-retune)
+- Closed this session: PR #178 (thorfinn cooldown_frac — 0.70 local optimum confirmed)
+- New assignments this session: PR #219 (thorfinn annealed-μ schedule)
+- Pending close: PR #177 (frieren soft-muon-anneal — structural ffs miss, closing after SENPAI-RESULT)
+- Step-2 NaN: baseline instability on 1-GPU short runs — skip smokes, use 3175 full screens
