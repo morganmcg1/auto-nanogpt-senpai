@@ -822,3 +822,30 @@ Monotone harm: every nudge away from uniform LR hurts. No evidence of sweet spot
 - Connecting to thorfinn arm A: both ns_iter=6 AND Jordan-opt coefficients produce high ortho_residual; but ns_iter=6 WINS while Jordan is borderline NULL. Implication: the PATH to "less orthogonal" matters, not just the residual magnitude.
 - Arm B (cubic-Newton coef: 1.5, -0.5, 0) launching. Terminal pending.
 - W&B run: `taitef3m`
+
+---
+
+## 2026-05-17 01:35 UTC — Wave 5 arm A snapshot (W&B-verified)
+
+All 8 Wave 5/6 students have completed arm A. Two independent winners detected:
+
+| PR  | Student   | Arm A mechanism                | sr     | val      | Verdict (vs baseline 3062.5/3.26909) |
+|-----|-----------|--------------------------------|--------|----------|---------------------------------------|
+| #184 | thorfinn | ns_iter=6                       | **3050** | **3.26774** | **WIN** (sr −12.5, val −0.00135)     |
+| #198 | edward   | deep-strong per-block WD         | **3050** | **3.26819** | **WIN** (sr −12.5, val −0.00090) — partial not yet posted |
+| #197 | alphonse | EMA α=0.99                      | 3100   | 3.27504  | **NEGATIVE** (sr +37.5, val +0.006) — bias-lag in cooldown |
+| #195 | fern     | cooldown_frac=0.85              | 3075   | 3.27214  | NULL (sr +12.5, val +0.003)           |
+| #193 | tanjiro  | Jordan NS coefs                  | 3075   | 3.27041  | NULL (sr +12.5, val +0.001)           |
+| #179 | nezuko   | γ=1.1                           | 3075   | 3.26813  | NULL on sr (val tied; γ=1.2 at concavity optimum) |
+
+Arm B status (mid-flight): thorfinn ns_iter=18 (31%), tanjiro cubic-Newton (34%), alphonse EMA α=0.999 (3%), frieren γ_power=0.4 arm A (78%), nezuko γ=1.3 (82%), fern cf=0.5 (4%), edward deep-weak (4%), askeladd lm_head/160 arm A (25%).
+
+**Headline:** First two non-schedule wins on PMuon+u/w-floor base after 19 nulls/negatives. Both arms tie on sr=3050 but operate on orthogonal axes:
+- **thorfinn**: changes the polar projection (NS iterations) — over-orthogonalization is counterproductive
+- **edward**: changes the weight decay (per-block WD) — WD acts on `p` directly, bypassing PMuon whitening and u/w-floor
+
+**Stacking implication for Wave 7:** If these mechanisms compound additively or near-additively, ns_iter=6 + deep-strong WD could push sr ≤ 3025-3037.5. Designing the Wave 7 stacking PR after both terminals confirm.
+
+**Connection to PR #129 + #131 closures:** β_cov is at conditioning optimum (β=0.95) and TARGET_UW is at fired_fraction transition (0.35). PMuon hyperparameter axis is converged. Wins come from changes *around* the PMuon core: polar projection quality (NS_iter) and gradient damping (WD on `p`). γ_power (frieren PR #202) and lm_head LR (askeladd PR #211) are the next two axes to characterize.
+
+---
