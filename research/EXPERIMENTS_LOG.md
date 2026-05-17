@@ -6,6 +6,24 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 20:55 UTC — PR #284: AGC-outer (Trust-Region Clip on MuLoCo outer update) ❌ CLOSED NEG
+
+- **Branch**: g1r3-thorfinn/agc-outer-sweep
+- **Hypothesis**: Apply Edward-style AGC to the MuLoCo outer update (not aux gradients). Clip the outer update magnitude per-parameter if `||outer_update||_F > clip_frac × ||p||_F`. Three-arm sweep: clip_frac ∈ {0.02, 0.05, 0.10}.
+- **Results**:
+
+| Arm | W&B Run | Status | Terminal val/loss | Δ vs baseline (3.27585 OLD) |
+|---|---|---|---|---|
+| clip=0.02 | `pkjdpomh` | killed step 3149 | 3.60154 (at step 3149) | +0.32 ⛔ |
+| clip=0.05 | `kjvo1gep` | terminal step 3325 | **3.3911** | **+0.12** ⛔ |
+| clip=0.10 | not run | — | — | — |
+
+- **Conclusion**: **CLOSED NEG.** AGC at fixed clip_ratio doesn't generalize from per-step aux gradients (Edward's win) to multi-step aggregated outer updates. The mechanistic diagnosis: MuLoCo outer update RMS aggregates ~30 inner steps, so its scale relative to params is much larger than per-step gradients. A clip_ratio of 0.05 (which works for per-step gradients) over-clips the outer pull, effectively neutering MuLoCo's contribution. To AVOID over-clipping the outer update would require clip_ratio ≥ 0.5, at which point the mechanism is barely active and provides no benefit.
+- **Key learning**: AGC's success on aux gradients (Edward #237 → MERGED) does NOT generalize to all gradient-flavored updates. The clip_ratio is scope-dependent: per-step gradients need small clip_ratio; aggregated multi-step updates need much larger. Lever closed.
+- **Next assignment**: MuonH LR warmup — PR #310 assigned to thorfinn.
+
+---
+
 ## 2026-05-17 20:32 UTC — PR #237: AGC (Adaptive Gradient Clipping) on aux AdamW, clip_ratio=0.05 ✅ MERGED
 
 - **Branch**: g1r3-edward/agc-aux-sweep

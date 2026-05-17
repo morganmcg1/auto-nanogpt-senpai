@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 20:38 UTC (boot 114)
+- **Last updated:** 2026-05-17 21:00 UTC (boot 114.5)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 re-escalation #6 posted 19:30 UTC (~24h since last operator update).
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **Baseline: val=3.27585, ffs=3275 (n=4 mean).**
 
@@ -33,13 +33,13 @@ All active screens must use `--muonh_mode scale_invariant`. Default is `clip`.
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
+| **#310** | thorfinn | **MuonH inner LR warmup** (muonh_warmup_steps∈{0, 100, 300}) | Newly assigned 20:58 UTC. Smoke pending. |
 | **#308** | edward | **MuonH momentum β decay during cooldown** (muonh_mu_final∈{0.0, 0.5, 0.95}) | Newly assigned 20:35 UTC. Smoke pending. |
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L) GPT-3 style) | Smoke broken 6× (val=10.82 NaN even on baseline-pure-smoke); second diagnostic posted 20:01 UTC. Pod may have corrupted state. |
-| **#296** | askeladd | **Outer Lookahead** (k-step slow-snap, k∈{10,20}, α∈{0.5,0.9}) | k=10/α=0.5 `zp2yu879` running step 1025 val=3.77 healthy; k=5 arms CRASHED twice; advisor rerouted to k=10/α=0.9 + k=20/α=0.5 |
-| **#294** | nezuko | **NS5-outer velocity** (NS5-orthogonalize outer velocity direction) | Screen `96zv1q8h` launched, early steps, val≈4.0 |
-| **#292** | fern | **Per-layer depth-scaled MuonH LR** (sqrt/linear/inv_sqrt) | sqrt TERMINAL=3.2825 NEG; linear + inv_sqrt arms queued |
-| **#284** | thorfinn | **AGC-outer** (clip_frac∈{0.02, 0.05, 0.10}) | clip=0.02 CRASHED 3.60; clip=0.05 `kjvo1gep` step 3125 val=3.4205 — near terminal, likely NEG |
-| **#243** | frieren | MuonH-SI cosine cooldown n=4 confirm | trial 1=**3.2731** (Δ=-0.00159 vs new baseline ✓); trial 3 in progress step 8152/13300 |
+| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L) GPT-3 style) | Smoke broken 6× (val=10.82 NaN even on baseline-pure-smoke); second diagnostic posted 20:01 UTC — pod env may be corrupted, need branch reset |
+| **#296** | askeladd | **Outer Lookahead** (k-step slow-snap, k∈{10,20}, α∈{0.5,0.9}) | **NEEDS REBASE** (conflicts with AGC merge) — sent back 20:51 UTC |
+| **#294** | nezuko | **NS5-outer velocity** (NS5-orthogonalize outer velocity direction) | Screen `96zv1q8h` CRASHED at step 725 val=3.817 — diagnostic comment posted; gate to block 2D params, check aspect-ratio scaling |
+| **#292** | fern | **Per-layer depth-scaled MuonH LR** (sqrt/linear/inv_sqrt) | sqrt TERMINAL=3.2825 NEG; **NEEDS REBASE** for linear+inv_sqrt arms to use new AGC baseline — sent back 20:51 UTC |
+| **#243** | frieren | MuonH-SI cosine cooldown n=4 confirm | trial 1=**3.2744** (Δ=-0.00029 vs new baseline ✓); trial 4 in progress step 9978/13300 |
 | **#190** | alphonse | NS5 iter count sweep | **BLOCKED** — Issue #164 (pod `gd103cc` broken, re-escalation #6 at 19:30 UTC) |
 
 **8/8 students assigned.** No idle slots.
@@ -55,6 +55,7 @@ All active screens must use `--muonh_mode scale_invariant`. Default is `clip`.
 
 | PR | Student | Result |
 |---|---|---|
+| **#284** | thorfinn | **AGC-outer CLOSED NEG** — clip=0.02 crashed val=3.60; clip=0.05 terminal=3.39 (+0.12). AGC scope mismatch: per-step gradients ≠ multi-step aggregated outer update. |
 | **#265** | nezuko | **SF MuonH CLOSED NEG** — WSD × Schedule-Free fundamentally incompatible. |
 | **#257** | fern | **AdEMAMix aux CLOSED NEG** — alpha=2/5/8 all NEG. Monotonic worsening. |
 | **#282** | askeladd | **EMA tail averaging CLOSED NEG** — decay=0.999 val=3.368 (+0.092). WSD × averaging incompatible. |
