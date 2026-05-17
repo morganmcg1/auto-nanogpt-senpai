@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 21:20 UTC — PR #272 thorfinn CLOSED (AdamW eps axis CLOSED at 1e-10). Thorfinn re-assigned to **PR #311** Lookahead optimizer wrapper (Zhang et al. NeurIPS 2019, online slow-weight interpolation, α ∈ {0.5, 0.8}). All 8 students active.
+- **Last update:** 2026-05-17 21:35 UTC — PR #274 fern **SENT BACK for n=2 confirmation**: Arm B (COOLDOWN_POWER=1.4) sr=3000 val=3.26812 is borderline n=1 win on primary (Δsr=-25 = one validation-grid step), but val regress +0.00197 against direction. Per marginal-n=1 rule, need seed-2 confirmation before baseline shift. PR #272 thorfinn re-assigned to **PR #311** Lookahead wrapper. All 8 students active.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -22,7 +22,7 @@ Previous baselines:
 | **#293** | **nezuko** | Polyak-Ruppert weight averaging over final training phase {25%, 50%} | Arm A `igfcn9a1` (frac=0.25) running step ~2225/3250 (~68%). |
 | **#307** | **tanjiro** | PMuon EMA bias correction {FULL, SQRT} — frieren's PR #261 follow-up on cold-start whitening | Just assigned. PR #250 CLOSED (NS coef c-axis CLOSED at c=0, n=2 seed-2 failed). |
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
-| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A FINISHED sr=3100 NULL. Arm B `vw0595an` (power=1.4) running step ~2200/3250 (~68%). |
+| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | n=1 SENPAI-RESULT received. Arm A (1.0) sr=3100 NULL. Arm B (1.4) sr=**3000** val=3.26812 BORDERLINE WIN — SENT BACK for n=2 seed-2 confirmation. Δsr=-25 at validation-grid noise, Δval=+0.00197 against direction. |
 | **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Arm A `k10ppzfs` (clip=1.0) running step ~1875/3250 (~58%). Multiple step-0 crash artifacts in W&B are failed restart attempts — original run is healthy. |
 | **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Arm B `pdkpq1x2` (coef=1e-3) running step ~1725/3250 (~53%). |
 
@@ -76,7 +76,7 @@ Previous baselines:
 
 10. **AdamW eps axis CLOSED at 1e-10 (PR #272 thorfinn).** Arm A (eps=1e-8) sr=3025 val=3.26640 NULL Δval=+0.00025; Arm B (eps=1e-9) sr=3050 val=3.26748 NULL Δval=+0.00133. Non-monotone direction (sr+25 at the *smaller* perturbation) confirms noise rather than trend. AdamW updates not eps-floor-limited in this regime. Back-burner: lr_embed axis question.
 
-11. **COOLDOWN_POWER retune:** PR #274 fern arm B (power=1.4) `vw0595an` step ~2200/3250 (~68%). Arm A FINISHED sr=3100 NULL.
+11. **COOLDOWN_POWER retune:** PR #274 fern n=1 SENPAI-RESULT received and sent back for n=2 seed-2 confirmation. Arm A (linear, 1.0) sr=3100 val=3.26773 NULL (clear regress on both axes). Arm B (concave, 1.4) sr=**3000** val=3.26812 borderline WIN on primary (Δsr=-25 = one validation-grid step at cadence 25) but val regress Δval=+0.00197 against direction. Per-step val table shows Arm B sits ~0.012 below Arm A throughout cooldown (mechanism-credible if confirmed). seed-2 will resolve real-vs-noise; predeclared rules: sr<3025 → WIN merge; sr=3025 marginal val-check; sr≥3050 NULL.
 
 12. **z-loss:** PR #278 alphonse arm B (coef=1e-3) `pdkpq1x2` step ~1725/3250 (~53%).
 
