@@ -733,6 +733,48 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 **Follow-on:** PR #306 (alphonse) — lm_head LR sweep. Hardcoded lr_lm_head=1/320=0.003125 never swept. Natural counterpart to frieren PR #228 embed_lr signal.
 
 
+## 2026-05-17 23:38 UTC — PR #264: SOAP attn eigvec EMA smooth (α sweep) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-thorfinn/soap-attn-eigvec-ema`
+- Student: g1r5-thorfinn
+- Hypothesis: EMA-blending consecutive eigenbases reduces per-refresh rotation noise in SOAP attn, improving training stability and convergence.
+
+| Cell | α | val/loss | ffs | cos_sim_rot | W&B run | Δ vs new baseline (mu=3.271362) |
+|------|---:|---:|---:|---:|---|---|
+| A (ctrl) | 0.0 | 3.27496 | 3175 | 0.9073 | `ybgaz057` | +0.00360 |
+| **B** | **0.3** | **3.27263** | **3125** | 0.9924 | `37w0mwla` | **+0.00127** |
+| C | 0.5 | 3.27558 | 3175 | 0.9774 | `32n3p8a8` | +0.00422 |
+| D | 0.7 | 3.27533 | 3175 | 0.9534 | `uevoy1si` | +0.00397 |
+| E | 0.9 | 3.27573 | 3175 | 0.9239 | `dmhtyjk4` | +0.00437 |
+
+- **Mechanism:** Inverted-U with peak at α=0.3 (mild EMA). cos_sim_rot telemetry confirms EMA working as designed (monotonic 0.907→0.992 across α). Higher α (≥0.5) progressively degrades — too much smoothing washes out the curvature signal.
+- **Best cell (B, α=0.3):** val=3.27263 ffs=3125 — within 1σ of baseline at n=1, no Phase 2 trigger (need val ≤ 3.270).
+- **Control anomaly:** Cell A ctrl val=3.27496 sits ~1.1σ above new baseline mu — single-seed variance, not a regression.
+- **Conclusion:** Eigenvec EMA provides mild directional improvement at α=0.3 but below detection threshold at n=1. Mechanism exhausted on this stack at this resolution.
+- **Follow-on:** PR #321 (thorfinn) — LR cooldown fraction sweep.
+
+
+## 2026-05-17 23:40 UTC — PR #270: SOAP β₂ cold-start warmup — **CLOSED clean-neutral**
+
+- Branch: `g1r5-edward/soap-beta2-cold-start-warmup`
+- Student: g1r5-edward
+- Hypothesis: Ramping SOAP preconditioner β₂ from a low initial value up to 0.90 over the first K steps fixes noisy eigenvec initialization, improving early convergence.
+
+| Cell | β₂_init / warmup_steps | val/loss | ffs | W&B run | Δ vs new baseline (mu=3.271362) |
+|------|---|---:|---:|---|---|
+| A (ctrl) | 0.90 / 0 | 3.27266 | 3150 | `z0xf0p9l` | +0.00130 |
+| B | 0.50 / 200 | 3.27340 | 3150 | `gf426fxo` | +0.00204 |
+| **C** | **0.50 / 500** | **3.27154** | **3150** | `oifl1px1` | **+0.00018** |
+| D | 0.70 / 200 | 3.27192 | 3150 | `tzo7bru7` | +0.00056 |
+| E | 0.30 / 200 | 3.27161 | 3150 | `r6mgmfcq` | +0.00025 |
+
+- **Mechanism:** β₂ warmup gives weak directional improvement vs ctrl (C at +0.00018 is the cleanest n=1 result on this branch). Duration matters more than init: C (500 steps) beats B (200 steps) at same β₂_init=0.50 by 0.0019. Cell B going the wrong direction (0.50/200 worse than ctrl) shows the interaction is non-monotonic.
+- **Telemetry confirmed:** soap/beta2_effective schedule applied correctly, gram traces ended healthy for all cells.
+- **No Phase 2 trigger** (val ≤ 3.270 gate not passed by any cell).
+- **Key insight from edward:** β₂ warmup is a free lever (zero memory/compute overhead) that nudges in the right direction but signal is below noise floor at n=1. Phase 2 n=4 at Cell C config would be a coin flip on noise.
+- **Follow-on:** PR #320 (edward) — Adam β₂ sweep for AdamW aux groups.
+
+
 ## 2026-05-17 23:03 UTC — PR #302: SOAP attn Q/K shared Gram preconditioner — **CLOSED clean-neutral**
 
 - Branch: `g1r5-fern/soap-attn-qk-shared-gram`
