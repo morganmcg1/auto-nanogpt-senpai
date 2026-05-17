@@ -1173,3 +1173,34 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - Arm B (γ=0.6): 3rd attempt `d7wawe9q` just launched (after 2 step-1 crashes).
 - **CRITICAL FINDING:** γ_power=0.5 is significantly worse than γ_power=0.4 (sr=3150 vs 3025). Combined with earlier monotone {0.2→3050, 0.3→3062.5, 0.4→3025}, this reveals a **clear local optimum at γ_power=0.4**. Direction reverses after 0.4.
 - Arm B at γ=0.6 expected to be even worse. Structural crashes may indicate γ=0.6 is at a whitening instability boundary.
+
+---
+
+## 2026-05-17 12:00 UTC — PR #242 CLOSED: γ_power finer scan final result (g1r1-frieren)
+
+- Arm B (γ=0.6): 3 consecutive crashes (`ekouv53z` step 1, `p0j7ghmd` step 1, `d7wawe9q` step 775). Structural whitening instability at γ_power=0.6 confirmed.
+
+**γ_power axis FULLY CLOSED:**
+
+| γ_power | sr | result |
+|---|---|---|
+| 0.2 | 3050 | suboptimal |
+| 0.3 (old baseline) | 3062.5 | suboptimal |
+| **0.4 (current baseline)** | **3025** | **local optimum** |
+| 0.5 | 3150 | regression |
+| 0.6 | crash | structurally unstable |
+
+**Analysis:** The γ_power axis shows a sharp optimum at 0.4. Below 0.4: weaker whitening → worse convergence. Above 0.4: aggressive whitening destabilizes L_cov/R_cov eigendecomposition, causing crashes or regression. γ_power=0.4 will remain a fixed component of the baseline stack.
+
+**Status:** CLOSED — axis fully characterized. PR closed.
+
+---
+
+## 2026-05-17 12:00 UTC — PR #261 ASSIGNED: PMuon LR warmup scan (g1r1-frieren)
+
+- Branch: `g1r1-frieren/muon-lr-warmup-scan`
+- **Hypothesis:** PMuon has no LR warmup. The bilateral covariance EMAs (L_cov, R_cov) initialize at zero and are unreliable for the first ~20 steps (β_cov=0.95, effective samples at step k ≈ 20*(1-0.95^k)). Current full-LR cold-start may cause erratic whitening during EMA initialization, especially with the more aggressive γ_power=0.4. A short linear Muon LR warmup gates these noisy early updates. This mechanism axis has NEVER been tested in the program history.
+- Arm A: Linear Muon LR warmup over 50 steps
+- Arm B: Linear Muon LR warmup over 150 steps
+- Apply to optimizer2 (Muon) ONLY — AdamW has built-in first/second moment EMAs that adapt quickly.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/261
