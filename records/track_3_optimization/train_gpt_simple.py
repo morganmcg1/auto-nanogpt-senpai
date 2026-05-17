@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+MUON_WARMUP_STEPS = 150  # PR #261: linear Muon-only LR warmup steps (arm A=50, arm B=150)
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -35,7 +36,7 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+MUON_METHOD = f"pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4-muon-warmup-{MUON_WARMUP_STEPS}"
 
 
 def parse_args():
@@ -703,6 +704,7 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
+            "muon_warmup_steps": MUON_WARMUP_STEPS,
             "muon_method": MUON_METHOD,
         },
     )
@@ -750,6 +752,8 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # PR #261: linear Muon-only LR warmup for the first MUON_WARMUP_STEPS to gate
+    # aggressive PMuon whitening while the bilateral covariance EMAs settle.
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -760,10 +764,16 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
-            for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        if MUON_WARMUP_STEPS > 0 and step < MUON_WARMUP_STEPS:
+            muon_warmup = (step + 1) / MUON_WARMUP_STEPS
+        else:
+            muon_warmup = 1.0
+        muon_eta = eta * muon_warmup
+        for group in optimizer1.param_groups:
+            group["lr"] = group["initial_lr"] * eta
+        for group in optimizer2.param_groups:
+            group["lr"] = group["initial_lr"] * muon_eta
+        return progress, cooldown_progress, eta, muon_eta, muon_warmup
 
 
     ########################################
@@ -852,7 +862,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_muon_eta, sched_muon_warmup = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -919,6 +929,9 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/cooldown/muon_warmup": sched_muon_warmup,
+                "train/cooldown/muon_lr_multiplier": sched_muon_eta,
+                "train/cooldown/muon_warmup_steps": MUON_WARMUP_STEPS,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
