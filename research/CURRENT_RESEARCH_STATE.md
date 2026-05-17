@@ -1,41 +1,53 @@
 # SENPAI Research State
 
-- 2026-05-17 ~10:30 UTC — Cycle 51
+- 2026-05-17 ~11:15 UTC — Cycle 52
 - No human researcher directives this session.
+- ⚠️ GitHub REST API rate limit hit at 10:53 UTC; resets ~11:40 UTC.
 
 ## Current baseline ⭐
 
 **Contra+SOAP-MLP + CONTRA_MUON=0.5 (PR #139)** — n=4 mean=**3.27648**, ffs_mean=**3118.75** @ train_steps=3175
 
-## 🚀 TOP MERGE CANDIDATES (n=4 running)
+## 🚀 TOP MERGE CANDIDATES (n=4 in progress)
 
-### THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 IN PROGRESS 🔥🔥🔥
-- **Single-seed screen** (`ink642mh`): val=**3.27550** (−0.00098), ffs=**3075** (−43.75) — BOTH BARS DECISIVELY CLEARED
-- n=4 confirm running (`47bb0bf2`). ETA ~15:30 UTC.
+### THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 trial 1 running 🔥🔥🔥
+- Trial 0 done: val=**3.2751**, ffs=**3075** (matches screen — confirmed)
+- Trial 1: step 626/3175 (~20% into trial 1)
+- ETA all 4 trials ~15:30 UTC
 
-### NEZUKO #212 — Attn-SOAP+trust @ T=0.85 — n=4 IN PROGRESS
-- Trial 1: val=3.27640/ffs=3125. Trial 2 running (mid-run, val=3.60 at ~step 1000). ETA ~13:30 UTC.
+### NEZUKO #212 — Attn-SOAP+trust @ T=0.85 — n=4 trial 3 finishing
+- Trial 0: NaN (canonical seed-0)
+- Trial 1: val=**3.2764**, ffs=**3125**
+- Trial 2: val=**3.2761**, ffs=**3100**
+- Trial 3: step ~2902/3175 (~91% — finishing in ~10 min)
+- Interim n=2 mean: val=**3.27625**, ffs=**3112.5** → BOTH BARS CLEARED
+- n=3 statsig bar: mean ≤ 3.27769 (need 0.00144 margin from current — comfortable)
+- ETA terminal SENPAI-RESULT ~11:30 UTC
 
 ## Active in-flight experiments
 
-### ASKELADD #239 — Lion optimizer on aux groups
-- Screen `gxxlpakh`: step 2575/3175, val=3.3863. **Projected MISS** (cannot reach 3.28 in 600 steps). Waiting for terminal.
+### FERN #245 — Trust-region constraint Arm B
+- Arm A `h5a8aapz` MISS: val=3.2999, ffs=-1
+- Arm B `xwbr4pkn` (TRUST_RATIO=0.05) running, step 550/3175 (healthy descent)
 
-### FERN #245 — Trust-region constraint on Muon updates
-- Arm A screen `h5a8aapz`: step 3125/3175, val=3.302. **MISS confirmed**. Waiting for terminal, then launching Arm B (TRUST_RATIO=0.05). Advisor comment posted.
-
-### FRIEREN #254 — fp32 precision in Newton-Schulz NS5 iterations 🆕
-- Screen `mon2ndin` running, early training (val=10.83). Healthy.
+### FRIEREN #254 — fp32 precision in Newton-Schulz NS5
+- Screen `mon2ndin` running, step 1700/3175, val=3.5262 (slightly behind pace; needs to drop 0.25 in next 1475 steps)
 
 ### EDWARD #251 — Lookahead optimizer wrapper on Muon
-- Arm A (K=5) NaN'd at trial 0 with weight cascade (`wpcgf9e4`). **Retry with `--num_trials 4` advised.** Advisor comment posted.
+- Retry `s6uvyg4y` with num_trials=4 running (trial 0 NaN at step 125 expected — canonical seed-0)
 
-### TANJIRO #252 — Decoupled embedding LR warmup
-- Arm A (50 steps) NaN'd at trial 0 (`k736hgtg`). Embed warmup may NOT address seed-0 NaN (which is attn.proj, not embed). **Advised to debug + retry Arm B (150 steps) with `--num_trials 4`.**
+### ASKELADD #239 — Lion optimizer on aux groups
+- Arm A `gxxlpakh` MISS: val=3.2985, ffs=-1
+- Re-run `39z55i7d` (same HPs) at step 325 — advisor commented to pivot to LR variation or close
 
-### ALPHONSE #256 — SOAP eigenbasis refresh frequency sweep 🆕
-- Arm A: SOAP_PRECOND_FREQ=5 (more frequent refresh, tighter eigenbasis lag). Arm B: SOAP_PRECOND_FREQ=20 (staler eigenbasis — control). 1-line env-var change. Skip smoke.
-- Awaiting student pickup.
+### ALPHONSE #256 — SOAP_PRECOND_FREQ sweep
+- `ukizq01t` num_trials=1 NaN'd at step 100 (canonical seed-0). May need num_trials=4 retry — per PR plan.
+
+### TANJIRO ⚠️ IDLE — embed-warmup #252 falsified (need reassignment)
+- Both Arm A (50) and Arm B (150) hit canonical seed-0 NaN at step 25
+- Embed lr scaled correctly (verified telemetry) — NaN is NOT embedding-driven
+- attn.proj.bias is the actual NaN trigger (confirmed by parameter signature)
+- Reassignment pending (NS_ITERS sweep prepared at `/tmp/senpai-r2-bodies/tanjiro-ns-iters-sweep.md`)
 
 ## Closed axes (exhausted)
 
@@ -59,55 +71,56 @@
 | KL-SOAP+hyperball | CLOSED | 0.018 MISS +0.0175 val |
 | Lookahead Muon α=0.7 | CLOSED | MISS |
 | Muon² (second-order) | CLOSED | non-competitive |
+| Decoupled embed warmup | FALSIFIED | NaN-invariant across 60× lr variation (PR #252) |
 
 ## Key patterns observed
 
-1. **Annealed μ (0.97→0.90) decisive WIN**: val=3.27550/ffs=3075 single-seed. HIGH priority merge.
-2. **Attn-SOAP+trust T=0.85**: screen val=3.27475/ffs=3100. Trial 1 tight (3.2764/3125). Tighter SOAP coverage → better FFS.
-3. **Linear cooldown > cosine**: cosine never reached 3.28 target (3.2882 final).
-4. **Gradient noise + NS5 = catastrophic**: noise amplified ×35 Frobenius by NS5. Never inject noise before NS5.
+1. **Annealed μ (0.97→0.90) confirmed in n=4 trial 0**: val=3.2751/ffs=3075 trial 0 matches screen.
+2. **Attn-SOAP+trust T=0.85 confirmed at n=2**: trials 1+2 mean val=3.27625/ffs=3112.5 BOTH BARS CLEARED.
+3. **Linear cooldown > cosine**: cosine never reached 3.28 target.
+4. **Gradient noise + NS5 = catastrophic**: ×35 Frobenius amplification.
 5. **More NS5 iters early = destabilizer**: 16-iter early multi-seed NaN cascade.
-6. **Step-2 NaN**: seed-0 deterministic. Use `--num_trials 4` for uncertain mechanisms.
-7. **Multi-seed NaN cascade** (HP-induced, steps 100-1200): SOAP_BETA2=0.85, TARGET_UW=0.30, adaptive-NS 16-iter.
-8. **SOAP_BETA2 is a sharp bowl**: 0.85 unstable (different mechanism), 0.90 optimum, 0.92 multi-seed NaN. ±0.02 both destabilize.
-9. **Lion LR calibration**: 3-10× lower than AdamW. embed=0.03, lm_head=1e-3.
-10. **Schedule-Free Muon incompatible**: constant LR + NS5 = ‖y−z‖ diverges.
-11. **Seed-0 NaN propagates to weight buffers**: Lookahead slow buffer, momentum accumulator all inherit NaN from step-25 event. num_trials=4 skips it.
+6. **Step-2 NaN at blocks.0.attn.proj.bias**: seed-0 deterministic, NOT embedding-driven (confirmed by tanjiro #252).
+7. **Multi-seed NaN cascade**: HP-induced step 100-1200 (SOAP_BETA2=0.85, TARGET_UW=0.30, adaptive-NS 16-iter).
+8. **SOAP_BETA2 is a sharp bowl**: 0.85 unstable, 0.90 optimum, 0.92 multi-seed NaN.
+9. **Schedule-Free Muon incompatible**: constant LR + NS5 = ‖y−z‖ diverges.
+10. **Seed-0 NaN propagates to weight buffers**: Lookahead slow buffer, momentum accumulator all inherit NaN.
 
 ## Upcoming decisions / expected results
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~10:40 | Fern | Arm A (`h5a8aapz`) terminal | Post SENPAI-RESULT + launch Arm B |
-| ~11:00 | Askeladd | Lion screen terminal | Projected MISS; evaluate results |
-| TBD | Edward | Lookahead Arm A n=4 retry | seed-0 NaN workaround |
-| TBD | Tanjiro | Embed warmup debug+retry | Arm B (150 steps) |
-| TBD | Frieren | fp32-NS5 screen | Numerical precision improvement |
-| TBD | Alphonse | SOAP freq-5 screen | SOAP eigenbasis lag tightening |
-| ~13:30 | Nezuko | n=4 all trials | MERGE candidate |
-| ~15:30 | Thorfinn | n=4 all trials | STRONGEST MERGE candidate |
+| ~11:30 | Nezuko | n=4 trial 3 terminal | **MERGE candidate** (n=3 statsig likely passes) |
+| ~12:10 | Fern | Arm B terminal | Likely MISS (tighter than failed Arm A) |
+| ~13:30 | Askeladd | Lion re-run terminal | Same MISS (advised to pivot) |
+| TBD | Edward | Lookahead n=4 retry trials 1-3 | n=3 statsig check |
+| TBD | Frieren | fp32-NS5 terminal | Trajectory uncertain |
+| TBD | Alphonse | SOAP_PRECOND_FREQ retry | Needs num_trials=4 |
+| TBD | Tanjiro | NS_ITERS reassignment | Pending PR creation |
+| ~15:30 | Thorfinn | n=4 all trials | **STRONGEST MERGE candidate** |
 
 ## Research programme direction
 
 Primary goal: beat record #20 (3030 steps). Current baseline = 3118.75 steps.
 
-**If thorfinn n=4 confirms** (~15:30): new ffs baseline ~3075. Gap to record = ~45 steps.
-**Both nezuko AND thorfinn compounding**: mechanisms are orthogonal — both can be merged.
+**If nezuko n=3 merges** (~11:30): new ffs baseline ~3112.5. Gap to record = ~82 steps.
+**If thorfinn n=4 merges** (~15:30): new ffs baseline ~3075. Gap to record = ~45 steps.
+**Both compounding**: ffs ~3050. Gap to record = ~20 steps.
 
 Most promising paths (ranked):
-1. **Annealed μ Arm B n=4** (thorfinn #219) — strongest ever screen signal.
-2. **Attn-SOAP+trust T=0.85 n=4** (nezuko #212) — tight but orthogonal to thorfinn.
-3. **SOAP_PRECOND_FREQ=5** (alphonse #256) — 1-line change, tighter eigenbasis, orthogonal.
-4. **fp32 NS5** (frieren #254) — low-risk precision improvement, NaN portfolio multiplier.
-5. **Lookahead on Muon** (edward #251) — slow-weights variance reduction.
-6. **Decoupled embed warmup** (tanjiro #252) — seed-0 NaN suppressor (uncertain mechanism).
-7. **Trust-region Muon Arm B** (fern #245) — NaN suppressor; Arm A clear miss.
-8. **Lion aux groups** (askeladd #239) — sign-based optimizer family swap; projected miss.
+1. **Annealed μ Arm B n=4** (thorfinn #219) — strongest signal, trial 0 confirms screen.
+2. **Attn-SOAP+trust T=0.85 n=4** (nezuko #212) — trials 1+2 cleared bars.
+3. **fp32 NS5** (frieren #254) — numerical precision in NS5.
+4. **NS_ITERS sweep** (tanjiro NEW) — orthogonal to fp32-NS5, same problem different angle.
+5. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis lag.
+6. **Lookahead on Muon** (edward #251) — slow-weights variance reduction.
 
 ## Operational notes
 
 - W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
 - Merge bar: BOTH mean val < 3.27648 AND ffs_mean < 3118.75
 - All n=4: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800 (necessary but not sufficient)
+- All n=3 (1 trial NaN): `(3.28 − mean) × √3 ≥ 0.004` → mean ≤ 3.27769
 - **Workflow**: Never commit state docs on student branch. Always commit on advisor branch directly.
 - **Muon bias correction (PR #221)**: ALREADY TRIED AND CLOSED. Do not reassign. val=3.27903/ffs=3150.
+- **Decoupled embed warmup (PR #252)**: ALREADY TRIED AND CLOSED. Do not reassign. NaN-invariant.
