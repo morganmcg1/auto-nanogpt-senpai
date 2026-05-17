@@ -29,6 +29,24 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - Analysis: β2 anneal works correctly (wiring verified). However, cos_sim_mean drops by ~0.05 in cooldown (consistent with faster adapting preconditioner) without translating to a loss benefit. Likely reason: cooldown LR → 0 shrinks the step magnitude proportionally, so improved curvature tracking has no leverage on the actual update magnitude. Trust gate fires 0 times (threshold=0 is decorative). Mechanism now confirmed fully plumbed and zero-cost to layer back if future conditions change.
 - Conclusion: No-effect at n=2. Not promoted to n=6 (marginal cost-benefit). Closed. GPU freed for NS5 iteration count sweep (PR #232).
 
+## 2026-05-17 08:30 UTC — PR #209: Per-group lr_attn sweep — CLOSED (clean negative)
+
+- Branch: `g1r5-fern/per-group-lr-attn-sweep`
+- Student: g1r5-fern
+- Hypothesis: SOAP-attn's per-group LR has a separate optimum for attn vs MLP. Swept lr_attn ∈ {0.025, 0.035 (ctrl), 0.045, 0.055} holding lr_mlp at 0.035 baseline.
+
+| Cell | lr_attn | val/loss | ffs | W&B run | vs baseline |
+|------|---------|----------|-----|---------|-------------|
+| A | 0.025 | 3.27391 | 3150 | j5i05ctb | +0.16σ (noise) |
+| ctrl | 0.035 | 3.273735 (mu n=6) | 3150 (mean) | c81z4php | baseline |
+| C | 0.045 | 3.27476 | 3175 | vqjmay37 | +0.92σ |
+| D | 0.055 | 3.27940 | 3225 | eno23pob | +5.07σ regression |
+
+- Analysis: Monotonically worse A→C→D on the attn axis — **opposite of edward's lr_mlp profile** (where lr_mlp=0.055 won). Higher lr_attn → lower cos_sim_attn (0.817→0.814→0.814); the attn eigenbasis precond is mis-rotated for faster LR. MLP cos_sim invariant, confirming per-group split worked. Anti-symmetric interpretation: SOAP whitening cashes LR benefit only where eigenbases are well-aligned. MLP (cos_sim≈0.88) tolerates higher LR; attn (cos_sim≈0.81) does not.
+- **Key inference:** Joint-confirm after edward merges should use **(lr_mlp=0.055, lr_attn=0.035)** — keep attn LR at baseline. The (0.055, 0.055) joint cell is dominated by attn loss (+5σ).
+- **Forward-looking:** Attn precond stability is the right next axis — damping λ·I on attn Gram (PR #249, assigned to fern) is the direct follow-up.
+- Conclusion: Clean negative on lr_attn axis. No mechanism merge. GPU freed for SOAP attn damping (PR #249).
+
 ## 2026-05-17 05:30 UTC — PR #186: z-loss auxiliary regularizer (α·log²Z on partition function) — CLOSED (clean negative)
 
 - Branch: `g1r5-frieren/z-loss-aux`

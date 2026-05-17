@@ -5,8 +5,8 @@
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
 - **TWO HOT MERGE CANDIDATES IN FLIGHT:**
-  - **edward PR #162 n=4 confirm `t1jfegcf`** at step ~11006/13000 (trial 3 = 38.6%). 3-trial mean = **3.2715** (BEATS n=4 statsig threshold 3.271735 by 0.000235). Trial 4 ETA ~08:45Z.
-  - **tanjiro PR #194 Cell C n=2 `s0jx9g57`** at step ~5350/6500 (trial 2 = 65%). Trial 1 val=**3.27046**, ffs=3125. Trial 2 ETA ~08:10Z. Student auto-launches n=4 confirm if n=2 mean ≤ 3.270905.
+  - **edward PR #162 n=4 confirm `t1jfegcf`** — trial 3 completing ~08:48Z. 3-trial mean = **3.2715** (BEATS n=4 statsig 3.271735). Trial 3 step 2788/3250 val=3.333 at 08:33Z (normal trajectory, cooldown drops val ~0.058 in final 462 steps).
+  - **tanjiro PR #194 n=4 confirm** — Cell C n=2 mean=**3.27094** (Trial 0=3.27046/3125, Trial 1=3.27142/3125). Student directed to kill Cell D + launch n=4 at wd_mlp=0.035/wd_attn=0.015. ETA n=4 ~15:30Z.
 
 ## Active Wave-3 Portfolio (all on merged SOAP-MLP + SOAP-attn base)
 
@@ -17,7 +17,7 @@
 | 232  | g1r5-askeladd   | NS5 iteration count sweep: iters ∈ {8,10,12,14,16} on SOAP stack | explore | **CONCERN: Cell C control may diverge.** `1cvnfz6p` step 2875 val=3.313 → may miss target. 2 grad-explosion crashes (egtbgjtf, auq29h8t) + 2 OOM. Advisor pinged 07:42Z asking for refactor numerical equivalence audit. Cells A/B/D/E NOT YET STARTED. |
 | 228  | g1r5-frieren    | AdamW embed LR sweep: lr_embed ∈ {0.10,0.30,0.50,0.80,1.20} (untested dimension in current stack) | exploit | Cell B control (`dcvzciy5`, lr_embed=0.30) finished val=3.275/ffs=3175 (~baseline range). 3 earlier Cell B crashes + 1 new Cell B retry (`wjvhb5q7`) running. Cells A/C/D/E NOT YET STARTED. Advisor pinged 07:41Z. |
 | 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | **STRONG SIGNAL.** Cell A (0.015/0.015) mean=3.27822 (worse). Cell B (0.015/0.035) mean=3.27881 (worse). **Cell C (0.035/0.015) Trial 1 val=3.27046, ffs=3125 ✓** — Trial 2 in flight step 2100/3250. Cell D (0.035/0.035) queued. Student auto-launches n=4 if n=2 mean ≤ 3.270905. |
-| 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | Cell A (0.025) val=3.27391/ffs=3150; Cell C (0.045) val=3.27476/ffs=3175; Cell D (0.055) `eno23pob` step 2126/3250 ETA ~36 min. lr_attn axis is FLATTER than lr_mlp (A-C span=0.00085). No promotion expected unless D unexpectedly clears. |
+| 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | NEW (PR #209 closed clean negative). λ=0 control, then B/C/D/E sequential. Stabilizes noisy attn eigenbasis (cos_sim_attn≈0.81 vs MLP≈0.88). ETA Phase-1 complete ~17:30Z. |
 | 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | Cell A γ=0.93 (`e3jfdq2d`) ~step 830 after killing concurrent smoke contention. ETA full A ~30-45 min. Cells B/C/D queued sequential (no smokes). |
 | 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | 3-arm LR sweep n=2. **Arm C (lr=0.020) done = mu=3.278385 clean negative.** Arm B (lr=0.010) `vqfxng50` trial 0 step 1394/3250. Arm A (lr=0.005) queued. Smoke "crash" was SIGTERM not grad-explode; Muon spectral norm makes raw grad_norm naturally ~1e4-1e5. |
 
