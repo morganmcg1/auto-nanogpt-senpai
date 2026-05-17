@@ -31,9 +31,9 @@ PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
 # Arm A (Jordan-optimized): (3.4445, -4.7750, 2.0315) — aggressive contraction from Muon paper.
 # Arm B (cubic Newton):     (1.5, -0.5, 0.0)        — degenerate quintic, classical Newton iteration.
-NS_A = 1.5
-NS_B = -0.5
-NS_C = 0.0
+NS_A = 1.75   # was 1.5  (PR #250 arm B: f'(1)=0 family with c=+0.25)
+NS_B = -1.0   # was -0.5
+NS_C = 0.25   # was 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
@@ -706,6 +706,13 @@ if dist.get_rank() == 0:
             "muon_method": MUON_METHOD,
         },
     )
+    wandb.config.update({
+        "ns_c_value": NS_C,
+        "ns_family": "f_prime_1_equals_0",
+        "ns_a_exact": NS_A,
+        "ns_b_exact": NS_B,
+        "ns_c_exact": NS_C,
+    }, allow_val_change=True)
 
 for trial_idx in range(args.num_trials):
 
