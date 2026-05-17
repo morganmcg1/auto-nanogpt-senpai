@@ -8,6 +8,43 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-17 12:53 — PR #212: Attn-SOAP+trust T=0.85 on CONTRA_MUON=0.5 baseline (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | Attn-SOAP coverage extended to attention weights at `TRUST_THRESHOLD=0.85`; SOAP gate fires when cosine-similarity between attn grad and attn weight ≥ 0.85 |
+| Contra-Muon HPs | `CONTRA_MUON=0.5`, `TARGET_UW=0.35`, `MUON_LR=0.0375`, `MU=0.95` (unchanged) |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; now applies to `mlp.fc.weight`, `mlp.proj.weight` **AND** attn weights at T=0.85 |
+| Optimizer aux | AdamW: embed.weight lr=0.3; proj.weight lr=1/320; scalars lr=0.01; betas=(0.8, 0.95), eps=1e-10, wd=0 |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `3xn3ox1c` (n=4 confirmation) |
+| **n=4 mean val/loss** | **3.27631** |
+| **n=4 statsig margin** | **0.00738** ≥ 0.004 — PASSES |
+| **ffs mean** | **3112.5** (T0=3125, T1=3100, T2=3125, T3=3100) |
+| **speedup vs PR #139** | **−6.25 mean ffs steps** (3118.75 → 3112.5) |
+| **speedup vs starter** | ~237 steps / ~7.1% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.2764 | 3125 |
+| T1 | 3.2761 | 3100 |
+| T2 | 3.2775 | 3125 |
+| T3 | 3.2752 | 3100 |
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5 torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'g1r2-nezuko/attn-soap-new-base-confirm-n4' \
+  --wandb_group 'g1r2-nezuko/attn-soap-new-base'
+```
+
+---
+
 ### 2026-05-16 23:14 — PR #139: CONTRA_MUON=0.5 retune on Contra+SOAP-MLP base (squash-merged)
 
 | Field | Value |
