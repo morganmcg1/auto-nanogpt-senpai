@@ -1,5 +1,46 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 ~04:35 — Cycle 42: Three PRs CLOSED; three fresh assignments; edward retry authorized
+
+### ALPHONSE #205 — CONTRA_MUON sweep — CLOSED
+
+| Arm | val | ffs | verdict |
+|---|---|---|---|
+| 0.6 (`u0f98rxy`) | 3.27666 | 3125 | MISS — rising shoulder of optimum |
+| 0.7 (`uoqp63dq`) | NaN @ step 25 | — | catastrophic divergence |
+
+**Bowl-shape confirmed**: 0.5 → 0.6 is on the rising shoulder (slightly worse within noise); 0.7 over the cliff (NaN at step 25). CONTRA_MUON=0.5 is the confirmed local optimum. Sweep exhausted — do not revisit CONTRA_MUON axis.
+
+Alphonse reassigned → SOAP_BETA2 retune (PR #223): {0.85, 0.92} vs baseline 0.90. Hypothesis: SOAP Gram EMA decay rate was tuned before CONTRA_MUON=0.5 merged; may need re-tuning for the more perturbed gradient dynamics.
+
+### FRIEREN #177 — Soft-Muon-anneal p sweep — CLOSED
+
+| Screen | val | ffs | verdict |
+|---|---|---|---|
+| p=0.10 (`dhqwygng`) | 3.27666 | 3125 | MISS |
+| p=0.07 (`dbf0augy`) | 3.27659 | 3125 | MISS |
+| p=0.07 rerun (`3itp6whk`) | crashed ~step 475 | — | infra |
+
+Val gap is below seed noise (Δval=0.00007 between p=0.07 and p=0.10). FFS=3125 is structural — the mechanism reliably lands at the wrong ffs bucket. Parameter-insensitive in [0.07, 0.10]. Mechanism is sound but ffs gap is structural on new baseline. **CLOSED.**
+
+Frieren reassigned → Adam-style bias correction on Muon first moment (PR #221). Novel mechanism: EMA of Muon momentum is biased toward zero in early training; Adam-style bias correction via `1/(1-μ^t)` should help most in the FFS-critical early training phase.
+
+### ASKELADD #213 — Per-module init zero-init variant — CLOSED
+
+W&B run `jmcvmacz`: val=3.280419, ffs=-1 — MISS by 0.004.
+
+Zero-init proj weights (mlp.proj, attn.proj, lm_head) on merged Contra+SOAP-MLP+NS5 stack doesn't help. SOAP eigenbasis + NS5 spectral normalization already manage init scale implicitly — the μP-inspired init benefit doesn't transfer from simpler optimizer stacks (records #4,5,8).
+
+Askeladd reassigned → Variant B non-zero proj init (PR #224): std=1/(n_embd×√2) ≈ 0.00092. Tests whether a conservative small-scale init (vs zero) provides SOAP eigenbasis signal without the large-scale init explosion risk.
+
+### EDWARD #199 — AdEMAMix aux groups — BLOCKED by baseline NaN
+
+Both 3175-step screen seeds (`d9vxzbtk`, `4e8wgtxk`) NaN'd at step 25 (147,758,208 nonfinite grads at blocks.0.attn.proj.bias — canonical baseline fingerprint). Per edward's analysis: trial_idx=0 deterministically hits the NaN seed. AdEMAMix dynamics (α_t=0.023 at step 25) had no time to express — this is baseline instability, NOT AdEMAMix bug.
+
+**Advisor decision: override my own decision-tree (wrote it before understanding seed-determinism). Authorized retry with `--num_trials 4` to sample seeds {0,1,2,3}.** At least 1 seed should pass given that other students' runs (alphonse `u0f98rxy`, fern `w12r4fc9`) have shown the NaN rate is seed-selective. Retry still pending student launch.
+
+---
+
 ## 2026-05-17 ~03:49 — Cycle 41: Thorfinn #178 CLOSED; annealed-μ assigned (#219); multi-screen status
 
 ### THORFINN cooldown_frac sweep — CLOSED (PR #178)
