@@ -17,7 +17,8 @@
   - Trial 0=3.27156 ffs=3150, Trial 1=3.27195 ffs=3150. n=2 mean=3.271755.
   - Combo (lr_mlp=0.055 + wd_mlp=0.035 + wd_attn=0.015) essentially neutral vs new baseline. WD-split gain absorbed by lr_mlp=0.055.
   - Continuing to n=4 for closure (ETA ~01:30Z), will close clean-neutral after.
-- **FERN PR #302 COMPLETE — close clean-neutral pending student SENPAI-RESULT:**
+- **FERN PR #302 CLOSED clean-neutral ~23:03Z** (poll #123). **Fern reassigned PR #318: Adam β₁ sweep for AdamW aux groups (β₁ ∈ {0.70,0.85,0.90,0.95,0.99})**.
+- **FERN PR #302 (CLOSED ~23:03Z):**
   - Cell A (ctrl, separate Q/K Grams) = 3.27190 ffs=3150 (Δ=+0.00054 vs baseline)
   - Cell B (shared Q/K Gram) = 3.27254 ffs=3150 (Δ=+0.00118; +0.00064 vs Cell A)
   - **Shared Q/K Gram MILDLY WORSE than separate.** Q and K weights have distinct curvature even with shared input X. Sharing averages them, washing out per-projection structure. Negative result is informative — confirms SOAP attn's per-projection Gram is the right factorization. Close clean-neutral after student SENPAI-RESULT.
@@ -55,7 +56,8 @@
 | 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | **CLOSED 16:25Z clean-neutral vs new baseline.** n=4 mean=3.271133 ffs=3131.25. Δ=-0.000229 vs new baseline (0.11× statsig gate). WAS 1.30× statsig vs OLD baseline. Reassigned to PR #289 combo-confirm. |
 | 289  | g1r5-tanjiro    | Combo-confirm: lr_mlp=0.055 (merged) + wd_mlp=0.035/wd_attn=0.015 (best WD corner) at n=4 | exploit | **ASSIGNED 16:30Z.** Tests additive composition of lr_mlp + asymm WD. Expected mu ~3.2688 if additive → below n=4 merge threshold 3.269362. ETA Phase-1 terminal ~23:30Z. |
 | 249  | g1r5-fern       | SOAP attn Gram damping: ridge λ·I sweep ∈ {0,1e-4,1e-3,1e-2,1e-1} on attn Gram before eigendecomp | explore | **CLOSED 20:05Z clean-neutral**. All 5 cells regress: A=3.27518, **B=3.27300** (best), C=3.27493, D=3.27478, E=3.27380. Light damping (λ=1e-4) marginally best; none beat new baseline (Δ=+0.00164 for B). |
-| 302  | g1r5-fern       | SOAP attn Q/K shared Gram preconditioner | explore | **Cell A ctrl FINISHED val=3.27192 ffs=3150** (Δ=+0.00056 vs new baseline, ~0.47σ — reproduces baseline ✓). Cell B (shared Q/K Gram) `dogb3845` step 344/3250 (~10%). ETA Cell B terminal ~21:50Z. |
+| 302  | g1r5-fern       | SOAP attn Q/K shared Gram preconditioner | explore | **CLOSED CLEAN-NEUTRAL ~23:03Z.** Cell A ctrl=3.27190 ffs=3150, Cell B shared=3.27254 ffs=3150. Shared slightly worse (Δ=+0.00064). Confirms per-projection Gram is correct factorization. |
+| 318  | g1r5-fern       | Adam β₁ sweep for AdamW aux groups: β₁ ∈ {0.70,0.85,0.90,0.95,0.99} | explore | **ASSIGNED 23:07Z.** β₁=0.90 default never swept. Companion to alphonse lm_head LR sweep; if low β₁ wins with high lr_embed, may stack with frieren signal. 5-cell Phase 1 (~5h), Phase 2 n=4 if best cell ≤ 3.270. |
 | 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | **CLOSED 16:00Z** clean negative — all 4 cells A=3.27922, B=3.27563, C=3.27433, D=3.27501 worse than new baseline (best C γ=1.03 Δ=+0.003). Per-layer LR doesn't stack with per-group LR meaningfully. Reassigned PR #283 (AGC). |
 | 283  | g1r5-nezuko     | Adaptive Gradient Clipping (AGC, NFNets-style, λ ∈ {0,0.01,0.03,0.1,0.3}) | explore | **Cell A (λ=0 ctrl) `1j9tl8k9` step 1439/3250 (44%) val=3.5446.** ETA ~2.5h. Sequential cells B/C/D/E queued. |
 | 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | **CLOSED 11:33Z** — all 3 LR arms regress vs old baseline. Vocab-row curvature is load-bearing for lm_head; Muon spectral norm is wrong inductive bias. Reassigned PR #262 (AdamW eps). |

@@ -731,3 +731,19 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 **Conclusion:** eps=1e-10 default is near-optimal at this 3250-step budget. The rare-token-underflow story is real but the affected parameter slice (~0.6% of embed elements) is too small to move val/loss against seed noise.
 
 **Follow-on:** PR #306 (alphonse) — lm_head LR sweep. Hardcoded lr_lm_head=1/320=0.003125 never swept. Natural counterpart to frieren PR #228 embed_lr signal.
+
+
+## 2026-05-17 23:03 UTC — PR #302: SOAP attn Q/K shared Gram preconditioner — **CLOSED clean-neutral**
+
+- Branch: `g1r5-fern/soap-attn-qk-shared-gram`
+- Student: g1r5-fern
+- Hypothesis: Sharing a single Gram matrix for both Q and K projections (same input X) could double the curvature signal and exploit Q/K symmetry.
+
+| Cell | Config | val/loss | ffs | W&B run | Δ vs new baseline (mu=3.271362) |
+|------|--------|----------|-----|---------|--------------------------------|
+| A (ctrl) | Separate Q/K Grams | 3.27190 | 3150 | `raaqoxgr` | +0.00054 |
+| B | Shared Q/K Gram | 3.27254 | 3150 | `dogb3845` | +0.00118 |
+
+- **Mechanism conclusion:** Shared Q/K Gram is mildly WORSE than separate (Δ=+0.00064 at n=1). Q and K have distinct curvature structure despite operating on the same input. Sharing the Gram averages across them, washing out per-projection eigenstructure. The negative result is definitively informative — confirms SOAP attn's per-projection Gram factorization is correct.
+- **No Phase 2 trigger** (val ≤ 3.270 gate not passed by either cell).
+- **Follow-on:** PR #318 (fern) — Adam β₁ sweep for AdamW aux groups (embed/lm_head/scalars). β₁=0.90 inherited default, never swept on this stack.
