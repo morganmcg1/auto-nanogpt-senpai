@@ -443,9 +443,11 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+SOAP_PRECOND_FREQ_MLP = int(os.environ.get("SOAP_PRECOND_FREQ_MLP", str(SOAP_PRECOND_FREQ)))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
+SOAP_PRECOND_FREQ_ATTN = int(os.environ.get("SOAP_PRECOND_FREQ_ATTN", str(ATTN_SOAP_PRECOND_FREQ)))
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 
 
@@ -533,17 +535,23 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
 
 
 def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
-                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD):
+                 use_trust_gate=False, trust_threshold=ATTN_SOAP_TRUST_THRESHOLD,
+                 track_drift=False):
     """Update row/col Gram EMAs every step; refresh eigenbasis every `refresh_freq` steps.
 
     When ``use_trust_gate`` is True (record #16 extension), the refresh runs the
     sort+QR subspace-iteration step inline so the pre-QR (but already sorted)
     basis can be compared against the post-QR basis. Comparing pre-sort q_old
     to post-QR q_new measures permutation overlap (~1/sqrt(D)), not rotation,
-    which is why this path doesn't reuse ``soap_basis_qr``."""
+    which is why this path doesn't reuse ``soap_basis_qr``.
+
+    When ``track_drift`` is True, snapshot the Gram EMAs at refresh time so the
+    optimizer can later report Frobenius drift relative to the last refresh
+    (interprets eigenbasis staleness vs MLP/ATTN refresh-freq choice)."""
     grad_f = grad.float()
     state["row_gg"].lerp_(grad_f @ grad_f.T, 1 - beta2)
     state["col_gg"].lerp_(grad_f.T @ grad_f, 1 - beta2)
+    refreshed = False
     if state["q_row"] is None:
         state["q_row"] = soap_eigenbasis(state["row_gg"])
         state["q_col"] = soap_eigenbasis(state["col_gg"])
@@ -551,6 +559,7 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["trust_gate"] = 1.0
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
+        refreshed = True
     elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
         if use_trust_gate:
             row_gg = state["row_gg"]
@@ -584,6 +593,13 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["q_row"], state["q_col"], state["exp_avg_sq"] = soap_basis_qr(
                 state["row_gg"], state["col_gg"], state["q_row"], state["q_col"], state["exp_avg_sq"]
             )
+        refreshed = True
+    if track_drift and refreshed:
+        # Snapshot row/col Gram EMA at refresh time; drift is computed lazily
+        # in Muon.attn_soap_refresh_stats() so per-step cost stays near zero.
+        state["last_refresh_row_gg"] = state["row_gg"].clone()
+        state["last_refresh_col_gg"] = state["col_gg"].clone()
+        state["refresh_count"] = state.get("refresh_count", 0) + 1
     state["soap_step"] += 1
 
 
@@ -691,12 +707,13 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state, refresh_freq=SOAP_PRECOND_FREQ_MLP)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
-                                     refresh_freq=ATTN_SOAP_PRECOND_FREQ,
+                                     refresh_freq=SOAP_PRECOND_FREQ_ATTN,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD,
+                                     track_drift=True)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -754,6 +771,35 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
         return out
+
+    def attn_soap_refresh_stats(self) -> dict[str, float]:
+        """Aggregate refresh-count and Gram-drift telemetry across attention SOAP params.
+
+        gram_drift is Frobenius distance from the current row/col Gram EMA to the
+        snapshot taken at the last eigenbasis refresh — gauges how stale the basis
+        gets between refreshes under the chosen `SOAP_PRECOND_FREQ_ATTN`."""
+        refresh_counts: list[int] = []
+        row_drifts: list[float] = []
+        col_drifts: list[float] = []
+        for p in self.attn_soap_params:
+            state = self.state.get(p)
+            if state is None or "last_refresh_row_gg" not in state:
+                continue
+            refresh_counts.append(state.get("refresh_count", 0))
+            row_drifts.append((state["row_gg"] - state["last_refresh_row_gg"]).norm().item())
+            col_drifts.append((state["col_gg"] - state["last_refresh_col_gg"]).norm().item())
+        if not refresh_counts:
+            return {}
+        drifts = [r + c for r, c in zip(row_drifts, col_drifts)]
+        return {
+            "count": len(refresh_counts),
+            "mean_refresh_count": sum(refresh_counts) / len(refresh_counts),
+            "max_refresh_count": max(refresh_counts),
+            "mean_gram_drift": sum(drifts) / len(drifts),
+            "max_gram_drift": max(drifts),
+            "mean_row_drift": sum(row_drifts) / len(row_drifts),
+            "mean_col_drift": sum(col_drifts) / len(col_drifts),
+        }
 
 
 ########################################
@@ -833,6 +879,8 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/soap_precond_freq_mlp": SOAP_PRECOND_FREQ_MLP,
+            "optimizer/soap_precond_freq_attn": SOAP_PRECOND_FREQ_ATTN,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
@@ -1016,6 +1064,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "attn_soap_refresh_stats"):
+                    refresh_stats = opt.attn_soap_refresh_stats()
+                    if refresh_stats:
+                        wandb.log(prefixed("train/attn_soap_refresh", refresh_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
