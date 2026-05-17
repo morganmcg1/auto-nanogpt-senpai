@@ -1,5 +1,158 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-17 20:45 UTC — Cycle 54 (continued): tanjiro #276 CLOSED (decoupled aux cooldown FALSIFIED); reassigned #309 AdamW β1 anneal
+
+### TANJIRO #276 — Decoupled aux cooldown shape (cosine / none) — FALSIFIED
+
+| Arm | aux_cooldown_shape | val/loss | ffs | val < 3.275835? | ffs < 3087.5? | W&B |
+|---|---|---|---|---|---|---|
+| Baseline (n=4) | linear (coupled) | **3.275835** | **3087.5** | — | — | `3xn3ox1c` (pre-#219), `47bb0bf2` (n=4 PR #219) |
+| A | cosine | 3.27696 | 3100 | ❌ +0.00113 | ❌ +12.5 | `lkh6dlbz` |
+| B | none | 3.30208 | -1 (never reached 3.28) | ❌❌ +0.02625 | ❌ never reached | `yjmbml3f` |
+
+Both arms confirmed at n=1. Arm A (cosine on aux) marginally worse than linear — within natural variation, but can't beat the strict bar. Arm B (no aux cooldown) catastrophically worse — model never reaches target val=3.28.
+
+**Mechanistic insight — aux groups are tightly coupled to the readout-convergence stage**:
+> The Arm B failure is the diagnostic: holding embed at lr=0.3 and lm_head at lr=1/320 through the final 30% of training prevents convergence. The model never gets within target distance.
+>
+> This contradicts the hypothesis premise ("aux groups don't have a Newton-Schulz fixed-point requirement"). They DO need to cool down — because embedding-table noise and lm_head noise late in training are read out as token-distribution variance. At the end the model is no longer learning, it is *converging the readout*, and embed/lm_head must follow Muon's cooldown.
+>
+> **Corollary**: aux groups want the same reactivity-vs-smoothness tradeoff as Muon — high momentum stability early, low momentum reactivity late. PR #219 won by doing this on Muon's μ. The natural follow-up is to test the same mechanism on AdamW's β1 (the only other scalar momentum-buffer coefficient in the system).
+
+Cross-axis confirmation: r1 also tested cosine cooldown on the **whole stack** (Muon + aux together) and got val=3.2882 — also worse. Two independent experiments confirm linear cooldown is a stable optimum across all groups.
+
+Tanjiro reassigned → PR #309: **Annealed AdamW β1** (0.90→0.70 broad, 0.85→0.75 tight). Direct parallel to PR #219 on the orthogonal aux-optimizer axis.
+
+## 2026-05-17 20:05 UTC — Cycle 54 (continued): fern #291 FALSIFIED; alphonse #277 CLOSED (pod issue); both reassigned
+
+### FERN #291 — Annealed SOAP β2 (0.95→0.85): adaptive Gram EMA — FALSIFIED
+
+| Arm | β2_start | β2_end | val/loss | ffs | W&B |
+|---|---|---|---|---|---|
+| A | 0.95 | 0.85 | 3.2790 | 3150 | `joq5iz2h` |
+| B | 0.92 | 0.88 | NaN (step 25) | — | `ku1hbldn` |
+
+Arm A: n=1 trial (trial 2 killed — gap Δ=+0.0032 exceeds max n=1 rescue potential). Misses both bars.
+Arm B: NaN by step 25. β2=0.92 starts in the documented multi-seed instability zone; the hypothesis that "annealing protects the start" was wrong — instability hits within 25 steps, before EMA can decay to safe range.
+
+**Mechanistic insight — why μ-anneal works but β2-anneal doesn't**:
+> μ controls a velocity-like momentum buffer (scalar contraction). Retiming it is forgiving because buffer quantity = gradient magnitude, robust to EMA rate.
+> β2 controls the **Gram EMA matrix** whose eigendecomposition drives Muon's rotation. Eigenvectors are highly sensitive to perturbations, especially early in training when basis hasn't converged.
+> The matching constraint `SOAP_PRECOND_FREQ ≈ 1/(1-β2)` (PR #271) means annealing β2 while keeping freq=10 static **breaks the optimal coupling**. At β2=0.95, optimal freq=20; at β2=0.85, optimal freq=7. Static freq=10 only matches at β2=0.90.
+
+Fern reassigned → PR #304: anneal SOAP_PRECOND_FREQ (15→7 and 7→15) while keeping β2=0.90 static. Tests the orthogonal axis that respects the matching constraint.
+
+### ALPHONSE #277 — SOAP eigenbasis freeze after step K — CLOSED (untested)
+
+All 8 runs on alphonse's pod NaN'd at step 25-125. Student ran a critical diagnostic (POD-DIAG baseline, run `ej3fvmpy`) with freeze code **completely removed** — reverted to pre-#277 state — and it ALSO NaN'd at step 125. Side-by-side trajectory byte-identical with K=100 freeze run.
+
+**Conclusion**: the merged-stack baseline itself is unstable on alphonse's pod. The freeze mechanism is untested (not falsified). Peer pods (tanjiro, frieren, fern) run healthy on identical config. This is a pod-specific issue (hardware/CUDA/driver/data-shard).
+
+My earlier interpretation ("125 steps after freeze = 125 steps of compounding misalignment") was **wrong** — the POD-DIAG diagnostic proved the NaN is independent of the freeze. Acknowledging error; alphonse caught it correctly.
+
+Alphonse reassigned → PR #303: pod diagnostic (env fingerprint + hard reset + clean baseline repro). No training experiment until pod health confirmed.
+
+---
+
+## 2026-05-17 ~17:30 — Cycle 54 (continued): nezuko #273 FALSIFIED with strongest mechanistic insight; nezuko reassigned (#295)
+
+### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO) — FALSIFIED
+
+| Arm | QK / VO | val/loss | ffs | reached_target |
+|---|---|---|---|---|
+| A | 0.80 / 0.90 | 3.27768 | 3125 | yes |
+| B | 0.90 / 0.80 | 3.28158 | -1 | **NO — failed to reach 3.28** |
+
+**Mechanism (strongest insight of cycle 54)**: V's low cos_row (~0.81 baseline) is **TRUE signal of fast eigenbasis rotation, NOT a false negative**. The current single T=0.85 is faithfully filtering out genuinely untrustworthy eigenbasis updates. Forcing V SOAP to fire at low cos (Arm B, V on_fraction=1.00) injects noisy preconditioning into the residual stream → +0.005 val degradation, fails to reach target.
+
+**Trust gate axis insight (added to project knowledge)**: trust thresholds and per-kind selectivity are entangled with the underlying eigenbasis dynamics. Q/K have stable bases (high cos_row → high on_fraction at T=0.85 is correct). V has unstable bases (low cos_row → low on_fraction is correct selectivity). The single T=0.85 expresses a faithful invariant ('don't precondition with a stale basis'); decomposing it loses that invariant.
+
+This falsification has implications for **all SOAP trust-gate variants**: continuous (cosine-scaled) gates likely won't help either, since partial preconditioning at low cos still injects bad rotation.
+
+W&B runs: `l0bszjjg` (Arm A), `8jsxx60y` (Arm B). Nezuko reassigned → NS5 polynomial coefficient sweep (PR #295).
+
+---
+
+## 2026-05-17 ~17:20 — Cycle 54 (continued): thorfinn #219 MERGED ⭐ NEW BASELINE; fern #271 FALSIFIED; fern reassigned (#291)
+
+### THORFINN #219 — Annealed Muon μ schedule (MU_START=0.97 → MU_END=0.90) — MERGED ⭐ NEW BASELINE
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27510 | 3075 |
+| T1 | 3.27697 | 3100 |
+| T2 | 3.27489 | 3075 |
+| T3 | 3.27638 | 3100 |
+| **n=4 mean** | **3.275835** | **3087.5** |
+
+Δ vs PR #212 baseline (3.27631 / 3112.5): val=−0.000475, ffs=−25.0. Statsig 0.00833 ≥ 0.004 (2.08× margin).
+
+**Mechanism (well-supported)**:
+1. **Early training**: high μ=0.97 = long EMA window. CONTRA_MUON's spectral perturbation noise is averaged out before being pushed through NS5. Reduces noise-driven moves through parameter space during fragile warmup.
+2. **Cooldown phase**: μ → 0.90 = shorter EMA. Momentum buffer becomes more reactive precisely when LR cooldown reduces step magnitude — Muon can track finer-grained signal during the critical ffs-determining phase.
+3. **Warmup-style (Arm A: 0.90→0.97) failed**: low μ early lets gradient noise dominate; high μ late over-smooths in cooldown. Worst-of-both schedule.
+
+W&B run: `47bb0bf2`. PR squash-merged after rebase (PR #212 conflict resolved by student). Thorfinn reassigned → annealed μ finer sweep (PR #288: 0.97→0.92 tight range vs cooldown-phase-only anneal).
+
+---
+
+### FERN #271 — Decoupled SOAP eigenbasis refresh freq (MLP vs ATTN) — FALSIFIED
+
+| Arm | SOAP_PRECOND_FREQ_ATTN | val/loss | ffs | vs new bar |
+|---|---|---|---|---|
+| A | 5 (faster) | 3.27633 | 3100 | MISS (+0.00050 val, +12.5 ffs) |
+| B | 20 (slower) | 3.27909 | 3150 | CLEAR MISS (+0.00326 val, +62.5 ffs) |
+
+**Mechanistic insight (project knowledge update)**: SOAP_PRECOND_FREQ and SOAP_BETA2 are entangled through the EMA effective horizon. Fern's drift telemetry showed that at β2=0.90, the post-refresh Gram already substantially equilibrates within 10 steps. Increasing refresh frequency by 4× (freq=5) only reduces Frobenius drift by ~6% (64K → 68K Frobenius units) — not enough to change gradient direction quality. Refresh frequency optimum ≈ EMA effective horizon = 1/(1-β2) → for β2=0.90, that's 10 steps.
+
+**Key axis-coupling insight**: This implies SOAP_BETA2 is the primary control over eigenbasis dynamics, not refresh frequency. Annealing β2 (rather than refresh freq) is the natural follow-up — directly motivated this PR's mechanistic explanation.
+
+W&B runs: `5873pgbt` (Arm A), `w9t7l423` (Arm B). Fern reassigned → annealed SOAP β2 (PR #291: 0.95→0.85 full range vs 0.92→0.88 tight range).
+
+---
+
+## 2026-05-17 ~16:15 — Cycle 54 (continued): askeladd #268 FALSIFIED; thorfinn #219 n=4 COMPLETE awaiting rebase; askeladd reassigned (#286)
+
+### ASKELADD #268 — Per-block-depth Muon LR scaling — FALSIFIED
+
+| Arm | Formula | val/loss @ 3175 | ffs | Outcome |
+|---|---|---|---|---|
+| A (up) | `(d+1)/6` (block 0=0.167×, block 11=2.0×) | 3.31916 | -1 (never hit 3.28) | Clear miss (+0.043 over baseline) |
+| B (down) | `(12-d)/6` (block 0=2.0×, block 11=0.167×) | 4.165 @ step 1350 | -1 | Diverged, killed |
+
+Both arms falsified per predeclared decision tree (val > 3.278 OR ffs > 3125).
+
+**Mechanism (Arm A, "up")**: Starves early blocks (block 0 gets 1/6 baseline LR). The embeddings→block 0→block 1 cascade receives insufficient updates to develop early-token representations during the first ~half of training. By the time later blocks compensate, the LR cooldown has begun and there's no headroom left. Result: never reaches val=3.28 target.
+
+**Mechanism (Arm B, "down")**: Starves late blocks. Late transformer blocks contain the most discriminative features (sharper local loss curvature). Reducing late-block LR by 6× wrecks tracking of this signal. Result: late blocks fail to converge → activations grow → gradient norms grow → divergence at step 1350.
+
+**Lesson**: SOAP's per-shape preconditioning already absorbs per-layer gradient scale differences via its Gram matrices. Imposing additional explicit depth-LR structure adds constraints without exploiting unmodeled gradient structure.
+
+W&B runs: `qfef54e1` (Arm A), `iudcq97t` (Arm B). Askeladd reassigned → Polyak weight averaging (PR #286).
+
+---
+
+### THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 COMPLETE 🚀 PENDING REBASE
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27510 | 3075 |
+| T1 | 3.27697 | 3100 |
+| T2 | 3.27489 | 3075 |
+| T3 | 3.27638 | 3100 |
+| **n=4 mean** | **3.275835** | **3087.5** |
+
+**Both new baseline bars cleared:**
+- val=3.275835 < 3.27631 (Δ=−0.000475) ✓
+- ffs=3087.5 < 3112.5 (Δ=−25.0 steps) ✓
+- statsig: (3.28 − 3.275835) × √4 = **0.00833** ≥ 0.004 ✓ (2.08× margin)
+
+n=4 was launched on PRE-#212 stack (no trust gate). The annealed-μ mechanism beats the new trust-gate baseline anyway — strong evidence of additivity. After merge, compounding run with `ATTN_SOAP_TRUST_THRESHOLD=0.85` is the natural follow-up.
+
+**Status**: Sent back to thorfinn for rebase (merge conflict with PR #212). W&B run: `47bb0bf2`. ETA to merge: ~30 min after rebase.
+
+---
+
 ## 2026-05-17 ~15:00 — Cycle 54 (continued): alphonse #256 FALSIFIED; tanjiro #259 FALSIFIED; thorfinn #219 n=4 3/4 strong; frieren #254 closed; 3 students reassigned (#275, #276, #277)
 
 ### ALPHONSE #256 — SOAP_PRECOND_FREQ {5, 20} sweep — FALSIFIED

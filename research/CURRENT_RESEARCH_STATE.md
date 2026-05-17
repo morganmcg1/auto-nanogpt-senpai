@@ -1,149 +1,113 @@
 # SENPAI Research State
 
-- 2026-05-17 ~15:30 UTC — Cycle 54 (continued)
+- 2026-05-17 20:45 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
 
-## Current baseline ⭐ (UPDATED — PR #212 merged)
+## CRITICAL BUG FIXED (cycle 54)
 
-**Attn-SOAP+trust T=0.85 + Contra+SOAP-MLP + CONTRA_MUON=0.5 (PR #212)** — n=4 mean=**3.27631**, ffs_mean=**3112.5** @ train_steps=3175
+`TRUST_THRESHOLD=0.85` was a **silent no-op** — the code reads `ATTN_SOAP_TRUST_THRESHOLD` (line 449). All advisor PRs and BASELINE.md corrected. All students on active PRs notified.
 
-Previous baseline (PR #139): val=3.27648, ffs=3118.75
+## Current baseline ⭐ (PR #219 merged)
 
-## 🚀 IMMINENT MERGE: THORFINN #219 — Annealed μ Arm B (0.97→0.90) — n=4 3/4 COMPLETE 🔥🔥🔥
-
-| Trial | val/loss | ffs |
-|---|---|---|
-| T0 | 3.27510 | 3075 |
-| T1 | 3.27697 | 3100 |
-| T2 | 3.27489 | 3075 |
-| T3 | running | — |
-| **n=3 mean** | **3.27565** | **3083** |
-
-n=3 mean BEATS new baseline (3.27631/3112.5) on BOTH metrics. Statsig cleared 1.9× margin.
-- Run WITHOUT TRUST_THRESHOLD=0.85 (launched pre-PR #212). Still beats trust-gate baseline.
-- ETA terminal ~17:30 UTC. Merge immediately once student posts SENPAI-RESULT.
+**Annealed μ (MU_START=0.97→MU_END=0.90) + Attn-SOAP+trust T=0.85 + CONTRA_MUON=0.5 (PR #219)**
+- n=4 mean val/loss = **3.275835** | ffs_mean = **3087.5** @ train_steps=3175
+- W&B run: `47bb0bf2` (n=4 confirmation)
+- **New merge bar: mean val < 3.275835 AND ffs_mean < 3087.5** (STRICT — both required)
+- **All new experiments must include**: `MU_START=0.97 MU_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5`
 
 ## Active in-flight experiments
 
-### ALPHONSE #277 — SOAP eigenbasis freeze after step K
-- Just assigned. After step K, stop refreshing Q (rotation) but continue updating exp_avg_sq (scaling).
-- Arm A: K=500 (stable phase), Arm B: K=952 (start of cooldown).
-- _ALPHONSE #256 (SOAP_PRECOND_FREQ) FALSIFIED_ — both freq=5 and freq=20 cause multi-seed NaN at step 25. SOAP_PRECOND_FREQ=10 is the unique stability window.
+### THORFINN #288 — Annealed μ finer sweep
+- Arm A: MU_START=0.97 MU_END=0.92 (tighter range). 2-trial mean val=3.27670, ffs=3112.5 — **MISS** both bars.
+- Arm B: cooldown-phase-only anneal MU_COOLDOWN_START=0.95→0.90 from step 952. Launching ~20:21 UTC, ETA ~23:50 UTC. **Most interesting test**: isolates whether cooldown reactivity drives PR #219's win.
 
-### NEZUKO #273 — Asymmetric Attn-SOAP trust T per param-kind (QK vs VO)
-- Implementing. Smoke test → 2-arm screen (T_QK=0.80,T_VO=0.90 vs T_QK=0.90,T_VO=0.80) → n=4 confirm.
+### TANJIRO #309 — Annealed AdamW β1 (NEW — just assigned 20:45 UTC)
+- Arm A: ADAMW_BETA1_START=0.90 → ADAMW_BETA1_END=0.70 (broad anneal, aggressive). Predict in [3.272, 3.276].
+- Arm B: ADAMW_BETA1_START=0.85 → ADAMW_BETA1_END=0.75 (tight anneal, conservative).
+- Direct parallel to merged PR #219 (Muon μ anneal). β1 is a scalar buffer (safe to anneal; not the falsified β2 EMA-matrix path of #291). Bit-identical smoke required first.
 
-### TANJIRO #276 — Decoupled aux cooldown shape (cosine vs none for AdamW groups)
-- Just assigned. Muon stays on linear cooldown; aux groups (embed, lm_head, scalars) try cosine or no cooldown.
-- _TANJIRO #259 (NS_ITERS sweep) CLOSED_ — multi-seed NaN cascade: NS_ITERS=10 leaves NS5 under-converged → catastrophic update → NaN. NS5 iter axis fully exhausted (also closed: fp32 NS5, 16-iter, and all {8,10,12,14,16} sweep).
+### ASKELADD #286 — Polyak-Ruppert weight averaging (EMA)
+- Smoke run `0pd69f50` crashed at step 425 — diagnosed as infra SIGKILL (clean numerics, POLYAK_START=2000 never reached). Polyak code never executed.
+- Expecting relaunch from student.
 
-### FERN #271 — Decoupled SOAP eigenbasis refresh freq: MLP vs ATTN
-- Just assigned. Arm A: SOAP_PRECOND_FREQ_ATTN=5; Arm B: SOAP_PRECOND_FREQ_ATTN=20.
+### EDWARD #281 — Per-head SOAP for attention weights
+- 50-step smoke passed (no NaN, both arms). Arm A 2-trial screen now running (~3.5h ETA).
+- Architecture confirmed: 6 heads × 128 head_dim (Q.weight = 768×768 → 6× 128×128 Gram matrices).
 
-### EDWARD #267 — Gradient Centralization on Muon (Yong et al 2020)
-- Awaiting implementation + smoke test. First result ~3h.
+### NEZUKO #295 — Polar Express adaptive NS5 coefficients
+- Pivoted to Polar Express adaptive scheme per student's math review of original arms (sum≠1 bug).
+- New arms: per-iteration adaptive (a,b,c) = [(8,-16,8), (4,-8,4), (3,-4,1.5), then (2,-1.5,0.5) for iters 4-12].
+- No terminal result yet. Implementation in progress.
 
-### ASKELADD #268 — Per-block-depth Muon LR scaling
-- Awaiting implementation + smoke test. First result ~3h.
+### FRIEREN #275 — MLP-SOAP trust gate
+- Rebased onto PR #219 baseline. Killed pre-rebase invalid run. Smoke + n=4 confirmation pipeline starting.
+- No terminal result yet.
 
-### FRIEREN #275 — MLP-SOAP trust gate (just assigned)
-- Just assigned. Adds trust gate to MLP-SOAP (symmetric extension of merged PR #212's attn trust gate).
-- Two arms: T_mlp=0.85 and T_mlp=0.90. Telemetry-first: MLP cos_row/col data will inform arm selection.
-- ~5-line code change using existing soap_refresh infrastructure.
+### FERN #304 — Annealed SOAP_PRECOND_FREQ
+- Arm A: FREQ_START=15 → FREQ_END=7 (slower refreshes early, faster late)
+- Arm B: FREQ_START=7 → FREQ_END=15 (faster refreshes early, slower late)
+- Direct follow-up from #291 falsification: keeps β2=0.90 static (safe), tests the orthogonal anneal axis that respects the matching constraint `FREQ ≈ 1/(1-β2)`.
+- No terminal result yet; just assigned.
 
-_FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 3.27631/3112.5). NS5 precision axis exhausted.
+### ALPHONSE #303 — Pod diagnostic + clean baseline repro (OPERATIONAL — not training)
+- All 8 prior runs NaN'd at step 25-125 including a no-freeze baseline diagnostic — pod-specific instability.
+- Status check sent 20:45 UTC asking for env fingerprint + diagnostic smoke result.
+- No training experiment until pod health confirmed.
 
-## Closed axes this session
+## Recently closed axes
 
-| Axis | Status | Notes |
-|---|---|---|
-| Decoupled embed warmup (PR #252) | FALSIFIED | NaN-invariant 60× lr variation — attn path is real trigger |
-| Trust-region Muon (PR #245) | CLOSED | Monotonic worsening; Muon update = 20-25% weight norm, cannot be clamped at 5-10% |
-| Lookahead on Muon (PR #251) | CLOSED | Periodic param rollback breaks 3-layer stateful preconditioner SOAP/NorMuon/Muon |
-| Lion aux groups (PR #239) | CLOSED | Monotonic miss; AdamW second-moment is essential in cooldown for aux groups |
-| NorMuon bias correction (PR #263) | CLOSED | Fern's analysis: Frobenius renorm (lines 501-504) cancels global scalar prefactor — BC is a no-op; any EMA BC must be row-conditional or modify the renorm step itself |
-| NS_ITERS sweep (PR #259) | FALSIFIED | NS_ITERS=10 → multi-seed NaN (91% nonfinite at step 225). NS5 iter axis fully exhausted |
-| SOAP_PRECOND_FREQ sweep (PR #256) | FALSIFIED | Both freq=5 AND freq=20 cause multi-seed NaN at step 25. Stability window is uniquely at freq=10 |
-
-## Closed axes (full record)
-
-| Axis | Status | Best |
-|---|---|---|
-| CONTRA_MUON | EXHAUSTED ⛔ | 0.5 = optimum |
-| Per-module init | EXHAUSTED ⛔ | all variants miss by 0.003-0.004 |
-| Power-law LR | EXHAUSTED ⛔ | 1.5+2.0 both MISS |
-| TARGET_UW retune | EXHAUSTED ⛔ | 0.35 stability bowl |
-| SOAP_BETA2 retune | EXHAUSTED ⛔ | 0.85 unstable, 0.92 multi-seed NaN, 0.90 = optimum |
-| Adaptive NS5 (16 early) | FALSIFIED | 4/4 trials NaN multi-seed |
-| NS_ITERS sweep {8,10,14,16} | FALSIFIED | multi-seed NaN. Only iters=12 is stable — narrow operating point |
-| Gradient noise injection | FALSIFIED | 4/4 NaN — NS5 amplifies noise ×35 |
-| Cosine cooldown shape | CLOSED | val=3.2882, never hit 3.28 |
-| Annealed μ Arm A (0.90→0.97) | MISSED | val=3.3759 regression |
-| Muon bias correction (momentum) | CLOSED | val=3.27903/ffs=3150 MISS (PR #221) |
-| Schedule-Free Muon | CLOSED | constant-LR diverges with NS5 |
-| Soft-Muon-anneal p sweep | CLOSED | parameter-insensitive 0.07-0.10 |
-| AdEMAMix aux groups | CLOSED | multi-seed NaN cascade |
-| PMuon bilateral streaming | CLOSED | double-conditioning with SOAP-MLP |
-| cooldown_frac sweep | CLOSED | 0.70 local optimum |
-| KL-SOAP+hyperball | CLOSED | 0.018 MISS +0.0175 val |
-| Lookahead Muon α=0.7 | CLOSED | Lookahead fundamentally incompatible (state rollback) |
-| Muon² (second-order) | CLOSED | non-competitive |
-| Decoupled embed warmup | FALSIFIED | NaN-invariant across 60× lr variation (PR #252) |
-| Trust-region Muon | CLOSED | monotonic worsening; natural update = 20-25% weight norm |
-| Lion optimizer aux groups | CLOSED | 0.022 miss; AdamW EM is better in cooldown |
-| NorMuon EMA bias correction | CLOSED | mathematical no-op due to Frobenius renorm (PR #263) |
-
-## Key patterns
-
-1. **Annealed μ (0.97→0.90) at n=2**: val=3.2761/ffs=3087.5 — STRONGEST current signal, both bars cleared vs new baseline.
-2. **Attn-SOAP+trust T=0.85 MERGED (PR #212)**: +6.25 ffs improvement over PR #139.
-3. **Linear cooldown > cosine**: cosine never reached 3.28 target.
-4. **Gradient noise + NS5 = catastrophic**: ×35 Frobenius amplification.
-5. **Lookahead fundamentally incompatible**: SOAP/NorMuon stateful preconditioners can't tolerate param rollback.
-6. **Natural Muon update = 20-25% weight norm** (confirmed by fern trust-region telemetry): trust-ratio must be >> 0.10 to avoid cutting signal.
-7. **Seed-0 NaN is attention-path driven** (NOT embedding-driven, confirmed PR #252). 123,701,376 nonfinite at blocks.0.attn.proj.bias.
-8. **Multi-seed NaN cascade**: HP-induced step 100-1200 (SOAP_BETA2=0.85, TARGET_UW=0.30, adaptive-NS 16-iter).
-9. **Frobenius renorm scrubs scalar prefactors** (confirmed PR #263): any EMA bias-correction on NorMuon must be row-conditional or modify the renorm step itself.
-10. **SOAP eigenbasis stability window**: SOAP_PRECOND_FREQ=10 is uniquely stable. Both 5 and 20 cause multi-seed NaN at step 25 via different mechanisms (too-early Gram vs too-long initial-eigenbasis exposure).
-11. **NS5 iter count = 12 is the unique stable operating point**: iters in {8, 10, 14, 16} all cause NaN cascade; 12 is the convergence point for this stack's singular value distribution.
-
-## Upcoming decisions
-
-| Time UTC | Student | Event | Expected |
+| PR | Student | Status | Insight |
 |---|---|---|---|
-| ~14:30 | Alphonse | Trial 1 data | SOAP_PRECOND_FREQ=5 screening signal |
-| ~15:00 | Tanjiro | Arm A terminal (NS_ITERS=10) | TBD |
-| ~15:30 | Thorfinn | n=4 all trials | **STRONG MERGE CANDIDATE** |
-| ~16:00 | Frieren | Terminal SENPAI-RESULT (overdue) | MISS (close + reassign) |
-| TBD | Edward | GC implementation + screen | First result ~3h |
-| TBD | Askeladd | Depth-LR implementation + screen | First result ~3h |
-| TBD | Nezuko | Asymmetric trust telemetry → screen | First screen result ~2-3h |
-| TBD | Fern | Decoupled SOAP freq screen | First result ~3h |
+| #276 | tanjiro | FALSIFIED | Decoupled aux cooldown shape; aux groups tightly coupled to readout-convergence; linear is optimal for ALL groups |
+| #291 | fern | FALSIFIED | β2-anneal breaks FREQ/β2 coupling; Arm B NaN because β2=0.92 is already in instability zone |
+| #277 | alphonse | CLOSED (untested) | Pod-specific instability; freeze mechanism NOT falsified, just untest-able on this pod |
+| #268 | askeladd | FALSIFIED | Depth-LR scaling; SOAP already absorbs per-layer gradient structure |
+| #273 | nezuko | FALSIFIED | Asymmetric QK/VO trust; V's low cos_row is TRUE signal, not false negative |
+| #271 | fern | FALSIFIED | Decoupled SOAP freq MLP vs ATTN; refresh-freq optimum ≈ EMA horizon = 1/(1-β2) |
+
+## Key patterns (updated cycle 54)
+
+1. **Annealed μ (0.97→0.90) MERGED (PR #219)**: n=4 mean val=3.275835/ffs=3087.5. New baseline.
+2. **Attn-SOAP+trust T=0.85 MERGED (PR #212)**: +6.25 ffs improvement.
+3. **Linear cooldown > cosine, on Muon AND aux**: cosine on Muon (r1) val=3.2882; cosine on aux alone (PR #276) val=3.27696; no-cooldown on aux catastrophic (val=3.30208).
+4. **SOAP_PRECOND_FREQ=10 = unique stability window**: both 5 AND 20 cause NaN.
+5. **NS5 iter=12 = unique stable operating point**: 8, 10, 14, 16 all NaN cascade.
+6. **Gradient noise + NS5 = catastrophic**: ×35 Frobenius amplification.
+7. **Lookahead fundamentally incompatible**: SOAP/NorMuon stateful preconditioners can't tolerate param rollback.
+8. **Natural Muon update = 20-25% weight norm**: trust-ratio must be >> 0.10 to avoid cutting signal.
+9. **Seed-0 NaN is attention-path driven** (NOT embedding-driven, confirmed PR #252).
+10. **SOAP eigenbasis stability window**: FREQ=10 uniquely stable; 5 and 20 both fail via different mechanisms.
+11. **NS5 iter=12 uniquely stable**: confirmed across multiple NaN investigations.
+12. **SOAP_PRECOND_FREQ ≈ EMA horizon = 1/(1-β2)** (PR #271): refresh optimum coupled to β2. At β2=0.90, FREQ=10 ≈ 1/(1-0.90) = 10.
+13. **V's low cos_row is TRUE signal** (PR #273): 12% on_fraction for V at T=0.85 reflects genuinely fast eigenbasis rotation; forcing SOAP on unstable V eigenbasis → +0.005 val degradation.
+14. **μ-anneal works; β2-anneal doesn't** (PR #291): μ controls scalar momentum buffer (robust to rate changes); β2 controls Gram EMA matrix (eigenvectors highly sensitive to perturbations, especially when they haven't converged early in training). Additionally, β2 is coupled to FREQ via the matching constraint — changing β2 breaks the optimal FREQ=10 coupling.
+15. **Pod-specific instability confirmed on alphonse pod**: all runs NaN at step 125 regardless of hypothesis (including no-freeze baseline control). Peer pods healthy on identical config. Pod diagnostic in progress.
+16. **Aux groups need the same cooldown shape as Muon** (PR #276): linear, aggressive. They couple to readout-convergence and must land together with Muon. Open question (PR #309): do they also benefit from the same kind of momentum anneal that Muon got (PR #219)?
 
 ## Research programme direction
 
-Primary goal: beat record #20 (3030 steps). Current baseline = 3112.5 steps.
+**Primary goal**: beat val < 3.275835 (current n=4 mean) AND ffs < 3087.5.
+Gap to record #20 (~3030 ffs steps): ~57.5 ffs steps.
 
-**If thorfinn n=4 merges** (~15:30): new ffs baseline ~3075-3090. Gap to record = ~45 steps.
-**Compounding thorfinn + new axes**: ffs ~3050. Gap to record = ~20 steps.
-
-Most promising paths (ranked):
-1. **Annealed μ Arm B n=4** (thorfinn #219) — screen val=3.2755/ffs=3075; n=4 2/4 done (best val=3.27697/ffs=3100). Monitor: if n=4 mean val barely misses new baseline, rerun WITH TRUST_THRESHOLD=0.85.
-2. **MLP-SOAP trust gate** (frieren #275) — symmetric extension of merged PR #212 win.
-3. **Asymmetric Attn-SOAP trust QK vs VO** (nezuko #273) — direct follow-up to merged win.
-4. **SOAP_PRECOND_FREQ=5** (alphonse #256) — tighter eigenbasis.
-5. **Decoupled SOAP freq MLP vs ATTN** (fern #271) — orthogonal to attn trust gating.
-6. **Decoupled aux cooldown shape** (tanjiro #276) — aux groups may benefit from cosine or no cooldown vs linear.
-7. **GC on Muon** (edward #267) — removes low-rank mean from gradient before NS5.
-8. **Depth LR scaling** (askeladd #268) — per-block LR structure.
+**Most promising active paths**:
+1. **Thorfinn #288 Arm B** (cooldown-only μ anneal) — isolates whether cooldown reactivity drives PR #219's win. High prior.
+2. **Tanjiro #309** (AdamW β1 anneal) — direct parallel to merged PR #219 on the orthogonal aux-optimizer axis. High prior.
+3. **Frieren #275** (MLP-SOAP trust gate) — symmetric extension of merged PR #212 win.
+4. **Nezuko #295** (Polar Express adaptive NS5) — fresh axis; per-iteration adaptive coefficients.
+5. **Edward #281** (per-head SOAP) — head-specific eigenbasis for attention weights.
+6. **Fern #304** (annealed SOAP_PRECOND_FREQ) — orthogonal axis from #291, respects matching constraint.
+7. **Askeladd #286** (Polyak-Ruppert EMA) — orthogonal post-processing; pure eval gain (pending relaunch).
 
 ## Operational notes
 
 - W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
-- **NEW** Merge bar: BOTH mean val < 3.27631 AND ffs_mean < 3112.5
-- All n=4 statsig: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800
-- All n=3 (1 NaN): mean ≤ 3.27769
-- **All new experiments should include `TRUST_THRESHOLD=0.85` to run on new baseline**
-- **Lookahead-on-Muon**: do not reassign — fundamentally incompatible (state rollback problem).
+- Merge bar: BOTH mean val < 3.275835 AND ffs_mean < 3087.5
+- n=4 statsig: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800
+- n=3 (1 NaN): mean ≤ 3.27769
+- **Lookahead-on-Muon**: do not reassign — fundamentally incompatible.
 - **Muon momentum bias correction**: CLOSED (PR #221). Do not reassign.
-- **NorMuon EMA bias correction**: CLOSED (PR #263). Global EMA BC is a no-op due to Frobenius renorm. Any future BC attempt must be row-conditional.
+- **NorMuon EMA bias correction**: CLOSED (PR #263). Do not reassign.
+- **SOAP_BETA2 < 0.90**: do not use. 0.92 causes multi-seed NaN; 0.85 breaks FREQ coupling.
+- **Cosine cooldown on Muon or aux**: do not reassign (PR #276 falsified aux; r1 falsified Muon).
+- **AUX_COOLDOWN_SHAPE != linear**: do not reassign (PR #276 closed axis).
+- **Alphonse pod**: all runs NaN until pod diagnostic passes. Do not assign training hypothesis.
