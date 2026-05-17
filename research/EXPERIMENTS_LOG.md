@@ -1204,3 +1204,33 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - Arm B: Linear Muon LR warmup over 150 steps
 - Apply to optimizer2 (Muon) ONLY — AdamW has built-in first/second moment EMAs that adapt quickly.
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/261
+
+---
+
+## 2026-05-17 13:15 UTC — PR #225 CLOSED: Wave 7 stack NULL on n=2 (g1r1-thorfinn)
+
+Terminal SENPAI-RESULT received. Wave 7 stack = γ_power=0.4 (now in baseline) + deep-WD slope=+0.5 + lm_head LR 1/160 (2× baseline 1/320).
+
+| Seed | W&B run | sr | val | best_val_step |
+|---|---|---|---|---|
+| 1 | `y69hfn95` | 3025 | 3.26513 | 3250 |
+| 2 | `phsvmx45` | 3050 | 3.26772 | 3250 |
+| **Mean (n=2)** | — | **3037.5** | **3.266425** | — |
+| Baseline (n=1) | `prncgzv5` | **3025** | **3.26615** | — |
+| Δ vs baseline | — | **+12.5 (worse)** | **+0.00028 (worse)** | — |
+
+**Analysis:** Seed-to-seed variance on this stack (sr swing 3025→3050, Δval=0.00259) is larger than seed 1's marginal val win over baseline. Seed 1 was within noise. The Wave 7 stack does not reliably beat baseline. Mechanistically — with γ_power=0.4 already in baseline, the additional deep-WD and lm_head LR boosts are no longer additive; the whitening absorbs most of the regularization headroom that deep-WD provides.
+
+**Important program-level finding:** n=1 marginal wins (val Δ ≤ 0.001) on this task are within seed-to-seed noise. Require n=2 confirmation OR larger absolute val deltas (>0.002) before merging marginal wins.
+
+**Status:** CLOSED. NULL on primary sr metric and on val. PR #272 assigned thorfinn (AdamW eps scan).
+
+---
+
+## 2026-05-17 13:15 UTC — PR #272 ASSIGNED: AdamW eps scan {1e-8, 1e-9} (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/adamw-eps-scan`
+- **Hypothesis:** AdamW `eps=1e-10` is 100× more aggressive than PyTorch default (1e-8) and has never been scanned. Especially relevant for embed parameter (sparse-gradient with rarely-activated tokens) where `1/(sqrt(v)+eps)` denominator floor matters.
+- Arm A: eps=1e-8 (PyTorch default)
+- Arm B: eps=1e-9 (intermediate)
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/272
