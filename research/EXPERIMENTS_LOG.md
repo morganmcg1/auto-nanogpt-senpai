@@ -955,3 +955,83 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - Maps the winning NS polynomial family: does the win extend above c=0? Crossover between c=0 WIN and c=0.5 NULL.
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/226
 
+
+## 2026-05-17 05:40 UTC — PR #197 CLOSED: EMA model weight averaging (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-uw-ema-avg`
+- **Hypothesis:** EMA (α=0.99, 0.999) provides mid-training polish that survives speedrun crossing
+- W&B runs: `gmskliu2` (α=0.99), `ywlqvzay` (α=0.999)
+
+| Arm | α | sr | val/loss | Verdict |
+|-----|---|----|----------|---------|
+| Baseline | — | 3050 | 3.26773 | — |
+| Arm A | 0.99 | 3100 | 3.27504 | NEGATIVE (+50 sr) |
+| Arm B | 0.999 | -1 (never) | 3.36121 | SEVERE NEGATIVE |
+
+**Analysis:** Bias-lag mechanism confirmed conclusively. Power-law cooldown drops LR 25× over 175 steps; live weights improve faster than EMA tracks. EMA is a low-pass filter; cooldown is a high-frequency drop — structurally incompatible. Same mechanism as Lookahead (PR #143). EMA direction closed permanently.
+
+**Conclusion:** CLOSED. EMA weight averaging incompatible with speedrun cooldown geometry. Cross-axis: any post-hoc smoothing on model weights will lose on this base.
+
+---
+
+## 2026-05-17 05:40 UTC — PR #195 CLOSED: cooldown_frac scan (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-uw-cooldown-frac-scan`
+- **Hypothesis:** cooldown_frac ∈ {0.5, 0.85} (vs baseline 0.7) — longer/shorter stable phase
+- W&B runs: `wa0d9w7u` (cf=0.85), `ryp8lipu` (cf=0.5)
+
+| Arm | cf | sr | val/loss | Verdict |
+|-----|----|----|----------|---------|
+| Baseline | 0.7 | 3050 | 3.26773 | — |
+| Arm A | 0.85 | 3075 | 3.27214 | NEGATIVE (+25 sr) |
+| Arm B | 0.5 | 3150 | 3.27419 | NULL (+100 sr) |
+
+**Analysis:** cf=0.7 confirmed concave minimum. Key mechanistic update: late-eta is NOT monotonically predictive of val — cf=0.5 has highest late-eta but worst val. Real axis: stable-phase length vs cooldown integral. Model wants ~70% cooldown. Combined with PR #179 γ-scan (γ=1.2 optimal), the (γ, cf) surface is exhausted at current operating point.
+
+**Conclusion:** CLOSED. Schedule family at γ=1.2 thoroughly characterized: both cf and γ axes are at their respective sweet spots.
+
+---
+
+## 2026-05-17 05:40 UTC — PR #198 CLOSED: Per-block WD coupling (g1r1-edward)
+
+- Branch: `g1r1-edward/pmuon-uw-perblock-wd`
+- **Hypothesis:** Depth-coupled WD (slope ±0.5) bypasses PMuon+u/w-floor, reshapes parameter geometry
+- W&B runs: `7lzjw46u` (deep-strong), `4wwaiype` (deep-weak)
+
+| Arm | wd_slope | sr | val/loss | Verdict |
+|-----|----------|-----|----------|---------|
+| Baseline (PR #193) | 0.0 | 3050 | 3.26773 | — |
+| Arm A deep-strong | +0.5 | 3050 | 3.268193 | NULL (val regression +0.000463 vs new baseline) |
+| Arm B deep-weak | -0.5 | 3050 | 3.269250 | NULL (val regression +0.001520) |
+
+**Analysis:** Both arms beat old PR #137 baseline but NOT new PR #193 cubic-Newton baseline. Mechanism CONFIRMED via per-block param-norm divergence (b00 535→270, b11 597.9→1159.6 between arms). WD acts on `p` before update path, bypassing both PMuon whitening and u/w-floor. Deep-strong arm A has cleaner val (3.268193 vs 3.269250 deep-weak). Deep-strong mechanism is already included as ingredient in Wave 7 stack PR #225.
+
+**Conclusion:** CLOSED as informative. Mechanism confirmed active and included in Wave 7 stack. If Wave 7 stack wins, deep-strong WD contribution is validated. If not, axis needs a fresh look on the compound base. Follow-up candidate: asymmetric step-function WD profile (wd_mult={0.8 for l<6, 1.2 for l≥6}).
+
+---
+
+## 2026-05-17 05:45 UTC — PR #229 ASSIGNED: NS coef (a,b) cubic-family line scan (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/ns-coef-ab-line-scan`
+- **Assignment:** Scan (a,b) along the cubic family line a+b=1, c=0: Arm A (a=1.3, b=-0.3, f'(1)=+0.4), Arm B (a=1.7, b=-0.7, f'(1)=-0.4)
+- Orthogonal to PR #226 c-axis scan. Maps contraction aggressiveness of the cubic NS family.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/229
+
+---
+
+## 2026-05-17 05:45 UTC — PR #230 ASSIGNED: Aux AdamW β1 scan (g1r1-edward)
+
+- Branch: `g1r1-edward/aux-adamw-beta1-scan`
+- **Assignment:** β1 ∈ {0.7, 0.9} for the auxiliary AdamW (embed/scalars/lm_head params), current β1=0.8
+- Orthogonal to PR #216 nezuko β2 scan. Completes aux AdamW momentum characterization.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/230
+
+---
+
+## 2026-05-17 05:45 UTC — PR #231 ASSIGNED: Muon gradient momentum scan (g1r1-fern)
+
+- Branch: `g1r1-fern/muon-momentum-scan`
+- **Assignment:** Muon gradient momentum mu ∈ {0.9, 0.99} (current mu=0.95, nesterov=True)
+- Distinct from EMA weight averaging (closed PR #197) and β_cov (closed PR #129). Tests gradient smoothing window before NS polar projection.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/231
+
