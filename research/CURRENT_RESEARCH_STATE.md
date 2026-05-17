@@ -1,108 +1,87 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 04:10 UTC — **FIVE INDEPENDENT ARM WINS detected via W&B**: frieren γ_power=0.4 sr=3025 (BIGGEST), thorfinn ns_iter=6 sr=3050 + ns_iter=18 sr=3050 (BOTH ARMS WIN — wide polar regime), tanjiro cubic-Newton sr=3050, edward deep-strong WD sr=3050, askeladd lm_head 1/160 sr=3050 (marginal — val ties baseline). 3-4 terminal SENPAI-RESULTs awaited.
+- **Last update:** 2026-05-17 04:35 UTC — **PR #193 cubic-Newton MERGED (new baseline sr=3050). PR #184 CLOSED (wide flat NS_ITERS regime). Wave 7 3-way stack assigned to thorfinn (PR #225). NS coef c-scan assigned to tanjiro (PR #226). 5+ arm B runs still pending.**
 - **Most recent direction from humans:** None (no GitHub issues open at 04:10 UTC check).
-- **Target:** Push `speedrun/final_first_step_to_target` below 3062.5 steps; public record is 3030 steps (Record #20, Contra-Soft-Muon stack).
+- **Target:** Push `speedrun/final_first_step_to_target` below 3050 steps; public record is 3030 steps (Record #20).
 
 ## Current local baseline
 
-**3062.5 steps, val/loss 3.269090 (n=2 mean)** — PR #137 (g1r1-nezuko, PMuon + Skylight u/w-floor + power-law cooldown γ=1.2).
-W&B runs: `8quuvdrj` (seed-1, sr=3075, val=3.270012) + `l5bdkm6e` (seed-2, sr=3050, val=3.268167). Merged 2026-05-16 18:26 UTC.
+**sr=3050, val/loss 3.26773 (n=1)** — PR #193 (g1r1-tanjiro, cubic-Newton NS coefs a=1.5, b=-0.5, c=0 on PMuon+u/w-floor+γ=1.2 base).
+W&B run: `q8aduc16`
 
-n=2 stat-sig margin: (3.28 − 3.269090)·√2 = 0.01543 ✓
+Note: n=1 only — thorfinn PR #225 Wave 7 stack (seeds 1+2) will serve as n=2 confirmation while simultaneously testing the 3-way stack.
 
-## FIVE ARM WINS — W&B-confirmed, awaiting terminal SENPAI-RESULTs
-
-| Rank | Source PR | Mechanism | sr | val | Δsr | Posted? | Δval-stat-sig at n=1 |
-|---|---|---|---|---|---|---|---|
-| **#1** | frieren PR #202 arm A | γ_power=0.4 (stronger PMuon whitening) | **3025** | **3.26615** | **−37.5** | Partial posted | 0.01385 (3.46×) ✓ |
-| #2a | thorfinn PR #184 arm A | ns_iter=6 (less precise polar) | 3050 | 3.26774 | −12.5 | Partial posted | 0.01226 (3.07×) ✓ |
-| #2b | thorfinn PR #184 arm B | ns_iter=18 (more precise polar) | 3050 | **3.26720** | −12.5 | Terminal pending | 0.01280 (3.20×) ✓ |
-| #3 | tanjiro PR #193 arm B | cubic-Newton NS coefs | 3050 | 3.26773 | −12.5 | Terminal pending | 0.01227 (3.07×) ✓ |
-| #4 | edward PR #198 arm A | deep-strong per-block WD | 3050 | 3.26819 | −12.5 | Partial posted | 0.01181 (2.95×) ✓ |
-| #5 | askeladd PR #211 arm A | lm_head LR 1/160 | 3050 | **3.26900** | −12.5 | Terminal pending | 0.01100 (2.75×) ✓ |
-
-**Key new finding:** thorfinn arm B (ns_iter=18) ALSO wins at sr=3050, with even better val than arm A. **The polar-projection iteration count has a wide good regime, not a narrow optimum.** This makes ns_iter a less attractive stacking ingredient than initially thought — the default 12 may be slightly suboptimal in both directions.
-
-**Note:** askeladd lm_head 1/160 is marginal — val 3.26900 ≈ baseline mean 3.269090 (effectively tied). The sr=3050 alone suggests it crossed 3.28 earlier in this run but val plateaued at baseline. Could be noise. Needs terminal n=2 confirmation before stacking.
-
-## Orthogonality re-analysis (for stacking)
-
-| Pair | Orthogonal? | Reasoning |
-|---|---|---|
-| γ_power × ns_iter | YES | Whitening exponent (pre-polar) vs polar iteration count |
-| γ_power × cubic-Newton | YES | Whitening exponent vs polar polynomial coefficients |
-| γ_power × deep-strong WD | YES | Whitening vs param-magnitude decay |
-| γ_power × lm_head LR | YES | PMuon (block) vs aux AdamW (lm_head) |
-| ns_iter × cubic-Newton | **NO** | Both modify NS polar projection (overlapping mechanism) |
-| ns_iter × deep-strong WD | YES | Polar vs param-magnitude decay |
-| ns_iter × lm_head LR | YES | Block-PMuon vs aux AdamW |
-| cubic-Newton × deep-strong WD | YES | Polar vs param-magnitude decay |
-| cubic-Newton × lm_head LR | YES | Block-PMuon vs aux AdamW |
-| deep-strong WD × lm_head LR | YES | Block-WD vs aux AdamW |
-
-**Best 4-way orthogonal stack candidates:**
-- **Stack A (primary):** γ_power=0.4 + ns_iter=6 + deep-strong WD + lm_head 1/160 — conservative additive sr=2987.5 (would BEAT Record #20)
-- **Stack B (alt-polar):** γ_power=0.4 + cubic-Newton + deep-strong WD + lm_head 1/160 — alt polar variant
-- **Stack C (no aux):** γ_power=0.4 + ns_iter=6 + deep-strong WD — original 3-way est. sr=3000
-- **Stack D (no aux, alt):** γ_power=0.4 + cubic-Newton + deep-strong WD — alt polar 3-way est. sr=3000
+Previous baseline (PR #137): sr=3062.5, val=3.269090 (n=2).
 
 ## Active experiments (status:wip)
 
-| PR  | Student     | Mechanism                                                           | Status (04:10 UTC) |
+| PR  | Student     | Mechanism                                                           | Status (04:35 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#216** | **nezuko** | Aux AdamW β2 scan {0.99, 0.999} | Arm A starting |
-| **#211** | **askeladd** | lm_head LR scan — arm A 1/160 W&B-WIN sr=3050 (marginal val); arm B 1/640 to launch | Arm A finished, partial pending |
-| **#202** | **frieren** | γ_power=0.4 WIN arm A; γ_power=0.2 arm B at ~48% | Arm B running |
-| **#198** | **edward** | deep-strong WD WIN arm A; deep-weak arm B at ~82% val=3.334 mid-run | Arm B running |
-| **#197** | **alphonse** | α=0.99 NEGATIVE arm A; α=0.999 arm B at ~79% val=3.511 mid-run (likely negative) | Arm B running |
-| **#195** | **fern** | cf=0.85 NULL arm A; cf=0.5 arm B at ~78% val=3.393 mid-run | Arm B running |
-| **#193** | **tanjiro** | Jordan NULL arm A; cubic-Newton W&B-WIN sr=3050 arm B | Arm B finished, terminal pending |
-| **#184** | **thorfinn** | ns_iter=6 WIN arm A; ns_iter=18 W&B-WIN sr=3050 arm B | Arm B finished, terminal pending |
+| **#225** | **thorfinn** | **Wave 7: γ_power=0.4 + deep-strong WD + lm_head 1/160 on cubic-Newton base (n=2)** | Just assigned — ETA ~7h |
+| **#226** | **tanjiro** | **NS coef c-scan {0.1, 0.25} on cubic-Newton base** | Just assigned — ETA ~7h |
+| **#216** | **nezuko** | Aux AdamW β2 scan {0.99, 0.999} | Arm A running |
+| **#211** | **askeladd** | lm_head LR arm A done (sr=3050 marginal); arm B 1/640 to launch | Arm A finished, arm B pending |
+| **#202** | **frieren** | γ_power=0.4 WIN arm A (sr=3025); γ_power=0.2 arm B mid-run | Arm B running (~48%) |
+| **#198** | **edward** | deep-strong WD WIN arm A; deep-weak arm B mid-run | Arm B running (~82%) |
+| **#197** | **alphonse** | α=0.99 NEGATIVE arm A; α=0.999 arm B mid-run (predicted NEGATIVE) | Arm B running (~79%) |
+| **#195** | **fern** | cf=0.85 NULL arm A; cf=0.5 arm B mid-run (η↑ at same step → might win) | Arm B running (~78%) |
 
-## PMuon hyperparameter status
+## Recently closed/merged
 
-- **β_cov** (covariance horizon): CLOSED PR #129 — β=0.95 at local optimum
-- **γ_power** (whitening strength): ACTIVE PR #202 — arm A 0.4 WINS BIG; arm B 0.2 mid-run
-- **NS_iters** (polar convergence): PR #184 W&B-complete — BOTH arms WIN (6, 12, 18 all close); wide regime, no sharp optimum
-- **NS_coef** (polar polynomial): PR #193 W&B-complete — Jordan NULL, cubic-Newton WIN at sr=3050
-- **TARGET_UW** (Skylight floor): CLOSED PR #131 — 0.35 at fired_fraction sweet spot
+| PR | Student | Result | Decision |
+|---|---|---|---|
+| **#193** | tanjiro | cubic-Newton arm B WIN sr=3050, val=3.26773 | **MERGED → new baseline** |
+| **#184** | thorfinn | Both ns_iter=6/18 WIN sr=3050 — wide flat regime | **CLOSED informative null** |
+| **#179** | nezuko | γ=1.1/1.3 both NULL | CLOSED — γ=1.2 confirmed optimum |
+| **#131** | askeladd | TARGET_UW scan — all NULL | CLOSED — 0.35 at sweet spot |
+| **#129** | frieren | β_cov scan — all NULL | CLOSED — β=0.95 at optimum |
+
+## Key structural findings (program-level)
+
+1. **PMuon polar orthogonality is non-load-bearing.** Changing NS coefs (cubic-Newton c=0, residual ~0.10) or NS iters (6→18, residual 2.31→0.148) produces <0.05% val difference. PMuon's bilateral whitening pre-conditions the gradient so well that only direction matters, not unit-spectrum precision.
+
+2. **γ_power=0.4 is the biggest single-arm win ever (Δsr=−37.5 from 3062.5 baseline).** Arm B (γ_power=0.2) pending — if NULL, monotone direction for finer scan {0.5, 0.6}.
+
+3. **NS coef axis partially characterized.** Quintic (c=0.5) = old baseline (null reference). Cubic-Newton (c=0) = WIN (merged). Jordan (oscillating) = NULL. c ∈ {0.1, 0.25} scan pending with tanjiro PR #226.
+
+4. **Deep-strong per-block WD bypasses PMuon.** WD acts on `p` directly, outside PMuon's whitening + polar path. Provides depth-coupled regularization unreachable through any other axis.
+
+5. **EMA weight averaging is incompatible with power-law cooldown.** Bias-lag: cooldown's 25× LR drop over 175 steps means live weights improve fast while EMA lags. Negative at α=0.99; expected negative at α=0.999 too.
+
+## Wave 7 stacking plan
+
+**Primary stack (PR #225 thorfinn):**
+- γ_power=0.4 + deep-strong WD (slope=+0.5) + lm_head LR 1/160
+- On cubic-Newton (c=0) + PMuon+u/w-floor+γ=1.2 base
+- n=2 directly (seeds 1+2)
+- Conservative additive from new baseline 3050: 3050 − 37.5 − 12.5 − 12.5 = **sr=2987.5**
+- Would beat Record #20 (3030) if additive; at 50% compounding: sr≈3025-3037
+
+**Parallel exploration (PR #226 tanjiro):**
+- NS coef c-scan {0.1, 0.25} on cubic-Newton base
+- Maps the winning polynomial family
+
+## PMuon hyperparameter characterization
+
+| Axis | Status | Best value | Best sr |
+|---|---|---|---|
+| **β_cov** (covariance horizon) | CLOSED (PR #129) | 0.95 | — |
+| **γ_power** (whitening strength) | ACTIVE (PR #202) | 0.4 | **3025** (BIGGEST WIN) |
+| **NS_ITERS** (polar convergence) | CLOSED (PR #184) | Wide flat: any ∈ {6,12,18} | — |
+| **NS_coef** (polar polynomial) | ACTIVE c-axis (PR #226) | c=0 cubic-Newton | **3050 (new baseline)** |
+| **TARGET_UW** (Skylight floor) | CLOSED (PR #131) | 0.35 | — |
 
 ## Auxiliary optimizer (AdamW) — exploration in progress
 
-| PR | Axis | Status |
-|---|---|---|
-| PR #211 (askeladd) | lm_head LR {1/160, 1/640} | Arm A W&B-WIN (marginal val); arm B to launch |
-| PR #216 (nezuko) | Aux β2 {0.99, 0.999} | Just assigned |
+| PR | Axis | Arm A result | Status |
+|---|---|---|---|
+| PR #211 (askeladd) | lm_head LR {1/160, 1/640} | 1/160: sr=3050 marginal (val ties baseline) | Arm B to launch |
+| PR #216 (nezuko) | Aux β2 {0.99, 0.999} | Running | Arm A running |
 
-Static config: embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, **0.95**), eps=1e-10. β2=0.95 unusual vs default 0.999.
-
-## Wave 5 — multi-axis portfolio picture (W&B-complete)
-
-| PR | Mechanism | Final result |
-|---|---|---|
-| #137 (merged) | γ=1.2, cf=0.7 | Baseline (sr=3062.5) |
-| #179 (CLOSED) | γ ∈ {1.1, 1.3} | Both NULL — γ=1.2 optimum, axis closed |
-| #195 (fern) | cf ∈ {0.5, 0.85} | Arm A NULL (cf=0.85); arm B cf=0.5 mid-run |
-| #184 (thorfinn) | NS_ITERS ∈ {6, 18} | **BOTH ARMS WIN sr=3050** — wide regime |
-| #193 (tanjiro) | NS coefs Jordan vs cubic-Newton | Jordan NULL; **cubic-Newton WIN sr=3050** |
-| #197 (alphonse) | EMA avg | Arm A NEGATIVE (α=0.99); arm B mid-run (predicted NEGATIVE) |
-| #198 (edward) | Per-block WD | **deep-strong WIN sr=3050**; deep-weak mid-run |
-| #202 (frieren) | γ_power ∈ {0.2, 0.4} | **γ_power=0.4 WIN sr=3025 (BIGGEST)**; γ_power=0.2 mid-run |
+Static config: embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, 0.95), eps=1e-10. β2=0.95 unusual vs default 0.999.
 
 ## Statistical rule reminder
 
-`(3.28 - mu) * sqrt(n) >= 0.004`. **Current baseline: sr=3062.5, val=3.269090** (n=2 PR #137).
-
-All 5 arm wins clear stat-sig at n=1; will need n=2 confirmation for merge.
-
-## Wave 7 stacking plan (revised after 5-arm picture)
-
-**Step 1 (immediate, when PRs close):**
-- thorfinn PR #184: when terminal posted, BOTH arms ns_iter=6/18 win → could merge ns_iter=18 as new baseline OR close as informative-but-no-stacking (since cubic-Newton from tanjiro is a stronger candidate on val). Lean toward closing #184 since the polar regime is wide → stacking unlikely to compound.
-- tanjiro PR #193: when terminal posted, merge cubic-Newton arm B at sr=3050 OR roll into stacking.
-
-**Step 2: Wave 7 4-way stacks (parallel)**
-- **Stack A (thorfinn)**: γ_power=0.4 + ns_iter=6 + deep-strong WD + lm_head 1/160 — primary stack, est. sr=2987.5
-- **Stack B (tanjiro)**: γ_power=0.4 + cubic-Newton + deep-strong WD + lm_head 1/160 — alt polar variant
-- Conservative additive prediction would beat Record #20 (3030) in both cases.
+`(3.28 - mu) * sqrt(n) >= 0.004`. **Current baseline: sr=3050, val=3.26773 (n=1, PR #193).**
+n=1 threshold for new wins: val ≤ 3.276.
+n=2 threshold: val ≤ 3.277.

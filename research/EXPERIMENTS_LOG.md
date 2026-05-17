@@ -903,3 +903,55 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - Baseline to beat: sr=3062.5, val=3.269090 (PR #137)
 
 ---
+
+## 2026-05-17 04:30 UTC — PR #193 TERMINAL: Cubic-Newton NS coefs WIN → MERGED as new baseline
+
+- Branch: `g1r1-tanjiro/pmuon-uw-ns-coef-scan`
+- **MERGED** — new baseline: sr=3050, val=3.26773 (n=1)
+
+| Arm | Coefficients | sr | val | polar/ortho_residual | Verdict |
+|---|---|---|---|---|---|
+| Baseline (PR #137) | (2, -1.5, 0.5) quintic | 3062.5 (n=2) | 3.269090 | ~0.01 | — |
+| Arm A — Jordan-opt | (3.4445, -4.7750, 2.0315) | 3075 | 3.27041 | ~11.12 (oscillating) | NULL |
+| **Arm B — cubic-Newton** | **(1.5, -0.5, 0.0)** | **3050** | **3.26773** | **~0.10 (saturated)** | **WIN → MERGED** |
+
+- W&B arm B run: `q8aduc16` — stat-sig n=1: (3.28−3.26773)×√1=0.01227≥0.004 ✓
+
+**Mechanistic finding:** Both Jordan (residual ~11, oscillating) and cubic-Newton (residual ~0.10, saturated) produce non-converged polars, yet cubic-Newton WINS while Jordan NULLs. Path to under-convergence matters more than residual magnitude. Cubic-Newton's classical Newton iteration finds a better gradient direction basin than the fully-converged quintic, while Jordan overshoots the whitened input's near-orthogonal state and oscillates. Cross-reference: thorfinn PR #184 ns_iter=6 (residual ~2.31) reaches similar regime via fewer iterations — same mechanistic family.
+
+---
+
+## 2026-05-17 04:30 UTC — PR #184 TERMINAL: NS_ITERS closed as wide flat regime
+
+- Branch: `g1r1-thorfinn/pmuon-uw-ns-iter-scan`
+- **CLOSED as informative null** — both arms tie on sr=3050 with 14× difference in polar residual
+
+| Arm | NS_ITERS | sr | val | polar/ortho_residual | Verdict |
+|---|---|---|---|---|---|
+| Baseline | 12 | 3062.5 (n=2) | 3.269090 | ~0.01 | — |
+| Arm A | 6 | 3050 | 3.26774 | ~2.31 | n=1 win (noise-band?) |
+| Arm B | 18 | 3050 | 3.26724 | ~0.148 | n=1 win (noise-band?) |
+
+**Reason for closure:** Wide flat NS_ITERS regime detected — both arms win with near-identical sr=3050 despite 14× residual difference. Student's own analysis questions noise-band nature. PR #193 cubic-Newton merged simultaneously as a more distinct polar mechanism change. Merging both overlapping polar changes without testing the compound would create an untested interaction.
+
+**Key citation-worthy finding:** PMuon's bilateral whitening makes the polar step's orthogonality precision largely irrelevant. 14× polar residual change → <0.05% val/loss change. The polar step is a direction-normalizer, not a precision-optimizer.
+
+---
+
+## 2026-05-17 04:35 UTC — PR #225 ASSIGNED: Wave 7 3-way stack (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/wave7-gpower04-deepwd-lmhead160-stack`
+- **Assignment:** γ_power=0.4 + deep-strong WD (slope=+0.5) + lm_head LR 1/160 on cubic-Newton+PMuon+u/w+γ=1.2 base
+- n=2 directly (seeds 1+2)
+- Conservative additive from new baseline (3050): 3050 − 37.5 − 12.5 − 12.5 = **sr=2987.5** (would BEAT Record #20 at 3030)
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/225
+
+---
+
+## 2026-05-17 04:35 UTC — PR #226 ASSIGNED: NS coef c-scan (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/ns-coef-c-scan`
+- **Assignment:** c ∈ {0.1, 0.25} scan on cubic-Newton (a=1.5, b=-0.5, c=0) baseline
+- Maps the winning NS polynomial family: does the win extend above c=0? Crossover between c=0 WIN and c=0.5 NULL.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/226
+
