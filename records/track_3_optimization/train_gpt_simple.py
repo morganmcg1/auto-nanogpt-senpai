@@ -52,6 +52,12 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # EMA tail averaging (Polyak-Ruppert) for evaluation. Tracks an fp32 EMA of
+    # all trainable params in parallel with training; at validation the model
+    # forward uses EMA weights, then live weights are restored. Pure eval-side
+    # lever — training trajectory is unchanged. 0.0 disables (bit-identical to
+    # baseline). Effective horizon ≈ 1/(1-decay) optimizer steps.
+    parser.add_argument("--ema_decay", type=float, default=float(os.environ.get("EMA_DECAY", "0.0")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -638,6 +644,11 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
+if args.ema_decay > 0.0:
+    print0(f"EMA tail averaging ENABLED: decay={args.ema_decay} "
+           f"(effective horizon ≈ {1.0 / (1.0 - args.ema_decay):.0f} steps)", console=True)
+else:
+    print0("EMA tail averaging DISABLED", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -684,6 +695,7 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "ema_decay": args.ema_decay,
         },
     )
 
@@ -777,6 +789,19 @@ for trial_idx in range(args.num_trials):
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
 
+    # EMA tail averaging (Polyak-Ruppert) state. Stored in fp32 to avoid bf16
+    # accumulation drift over thousands of EMA updates. swap_buffer keeps the
+    # live params in their native dtype while the model forward runs validation
+    # against the EMA snapshot, after which the live params are restored.
+    if args.ema_decay > 0.0:
+        ema_params = {n: p.detach().clone().to(torch.float32)
+                      for n, p in model.named_parameters()}
+        swap_buffer = {n: p.detach().clone()
+                       for n, p in model.named_parameters()}
+    else:
+        ema_params = None
+        swap_buffer = None
+
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
     # trainable params so the outer pull is applied uniformly across MuonH-SI
@@ -815,6 +840,19 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # EMA swap: save live params to swap_buffer, load EMA into the
+            # model for the validation forward pass. Drift norm is computed
+            # before the swap so it reflects the gap between EMA and live.
+            ema_buffer_drift = 0.0
+            if args.ema_decay > 0.0:
+                with torch.no_grad():
+                    drift_sq = torch.zeros((), device=device, dtype=torch.float64)
+                    for n, p in model.named_parameters():
+                        diff = ema_params[n] - p.data.to(torch.float32)
+                        drift_sq = drift_sq + diff.to(torch.float64).square().sum()
+                        swap_buffer[n].copy_(p.data)
+                        p.data.copy_(ema_params[n].to(p.dtype))
+                    ema_buffer_drift = float(drift_sq.sqrt().item())
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -845,9 +883,18 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if args.ema_decay > 0.0:
+                    metrics["train/ema/decay"] = args.ema_decay
+                    metrics["train/ema/buffer_drift_norm_global"] = ema_buffer_drift
+                metrics["train/peak_memory_mb"] = torch.cuda.max_memory_allocated() / (1024 * 1024)
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # Restore live params after the validation forward.
+            if args.ema_decay > 0.0:
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(swap_buffer[n])
             model.train()
             # start the clock again
             dist.barrier()
@@ -965,6 +1012,15 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # EMA tail averaging update: tracks the post-outer-corrected iterate.
+        # Placed after the MuLoCo outer step so the EMA averages the smoothed
+        # trajectory, not the noisier inner iterate. fp32 accumulation avoids
+        # bf16 drift over thousands of EMA updates.
+        if args.ema_decay > 0.0:
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    ema_params[n].lerp_(p.data.to(torch.float32), 1.0 - args.ema_decay)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
