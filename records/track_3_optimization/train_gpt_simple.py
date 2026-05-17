@@ -10,13 +10,13 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
 
 import torch
 from torch import Tensor, nn
-from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
@@ -223,6 +223,8 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+        if isinstance(opt, AdEMAMix):
+            metrics.update(opt.ademamix_telemetry())
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -433,6 +435,181 @@ class GPT(nn.Module):
 ########################################
 #              Optimizer               #
 ########################################
+
+# AdEMAMix hyperparameters (Pagliardini et al., NeurIPS 2024, https://arxiv.org/abs/2409.03137).
+# Drop-in replacement for AdamW on aux groups (embeddings, lm_head, scalar params).
+# Maintains a second slow EMA (beta3) and mixes it into the update with coefficient alpha.
+# Conservative variant after advisor diagnosis of divergence with alpha=5.0/beta3=0.999/warmup=256
+# (six prior smokes all NaN'd). The aux-group LRs (embed=0.3, scalars=0.01, lm_head=1/320) are
+# tuned for AdamW, so a 6x update amplification from alpha=5.0 fully-ramped blew up training.
+ADEMAMIX_BETA1 = 0.9
+ADEMAMIX_BETA2 = 0.95
+ADEMAMIX_BETA3 = 0.99        # slow EMA decay (effective half-life ~69 steps)
+ADEMAMIX_ALPHA = 1.0         # mixing coefficient on slow EMA (was 5.0)
+ADEMAMIX_EPS = 1e-8
+ADEMAMIX_ALPHA_WARMUP = 1024  # linear warmup, alpha: 0 -> ADEMAMIX_ALPHA
+ADEMAMIX_BETA3_WARMUP = 1024  # half-life-linear warmup, beta3: ADEMAMIX_BETA1 -> ADEMAMIX_BETA3
+ADEMAMIX_DEBUG_PRINT = bool(int(os.environ.get("ADEMAMIX_DEBUG_PRINT", "0")))
+
+
+def _ademamix_linear_warmup(step, alpha_end, alpha_start=0.0, warmup=1):
+    if step >= warmup:
+        return alpha_end
+    a = step / float(warmup)
+    return (1.0 - a) * alpha_start + a * alpha_end
+
+
+def _ademamix_hl(beta, eps=1e-8):
+    # Half-life of EMA with decay beta: t such that beta^t = 0.5  -> t = log(0.5)/log(beta).
+    # Apple's reference subtracts 1 so f(beta_start=0) gives -1; cancels in the inverse.
+    return math.log(0.5) / math.log(beta + eps) - 1.0
+
+
+def _ademamix_hl_inv(t):
+    # Inverse of f: given a half-life t, return the beta with that half-life.
+    return math.pow(0.5, 1.0 / (t + 1.0))
+
+
+def _ademamix_beta3_schedule(step, beta_end, beta_start, warmup):
+    """Half-life-linear interpolation from beta_start -> beta_end (Apple canonical schedule)."""
+    if step >= warmup:
+        return beta_end
+    a = step / float(warmup)
+    return _ademamix_hl_inv((1.0 - a) * _ademamix_hl(beta_start) + a * _ademamix_hl(beta_end))
+
+
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix optimizer (Pagliardini et al., NeurIPS 2024).
+
+    Adam-style fast EMA m1 (bias-corrected) plus a slow EMA m2 (no bias correction) blended via
+    alpha. Both schedules (alpha, beta3) are warmed up over the first ALPHA_WARMUP / BETA3_WARMUP
+    steps. The beta3 warmup uses half-life-linear interpolation per Apple's reference impl.
+
+    Per step:
+        m1 = beta1*m1 + (1-beta1)*grad           (fast EMA)
+        m2 = beta3_t*m2 + (1-beta3_t)*grad       (slow EMA, NOT bias-corrected)
+        v  = beta2*v + (1-beta2)*grad^2          (second moment)
+        denom = sqrt(v / (1 - beta2^t)) + eps
+        update = (m1 / (1 - beta1^t) + alpha_t * m2) / denom
+        p -= lr * (update + wd * p)
+    """
+
+    def __init__(self, params, lr=1e-3,
+                 betas=(ADEMAMIX_BETA1, ADEMAMIX_BETA2, ADEMAMIX_BETA3),
+                 alpha=ADEMAMIX_ALPHA, eps=ADEMAMIX_EPS, weight_decay=0.0,
+                 alpha_warmup=ADEMAMIX_ALPHA_WARMUP, beta3_warmup=ADEMAMIX_BETA3_WARMUP):
+        beta1, beta2, beta3 = betas
+        defaults = dict(lr=lr, beta1=beta1, beta2=beta2, beta3=beta3, alpha=alpha, eps=eps,
+                        weight_decay=weight_decay, alpha_warmup=alpha_warmup, beta3_warmup=beta3_warmup)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1 = group["beta1"]
+            beta2 = group["beta2"]
+            beta3 = group["beta3"]
+            alpha = group["alpha"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            alpha_warmup = group["alpha_warmup"]
+            beta3_warmup = group["beta3_warmup"]
+            gname = group.get("name", "ademamix_group")
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m1"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["m2"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"]  = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m1 = state["m1"]
+                m2 = state["m2"]
+                v  = state["v"]
+
+                alpha_t = _ademamix_linear_warmup(t, alpha_end=alpha, alpha_start=0.0,
+                                                  warmup=alpha_warmup)
+                beta3_t = _ademamix_beta3_schedule(t, beta_end=beta3, beta_start=beta1,
+                                                   warmup=beta3_warmup)
+
+                gf = p.grad.float()
+                m1.mul_(beta1).add_(gf, alpha=1.0 - beta1)
+                m2.mul_(beta3_t).add_(gf, alpha=1.0 - beta3_t)
+                v.mul_(beta2).addcmul_(gf, gf, value=1.0 - beta2)
+
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                denom = (v / bc2).sqrt().add_(eps)
+                update = (m1 / bc1 + alpha_t * m2) / denom
+
+                if wd != 0.0:
+                    p.data.mul_(1.0 - lr * wd)
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+
+                # Debug: print update + state norms at first few steps and any non-finite event
+                if ADEMAMIX_DEBUG_PRINT and t <= 5:
+                    gnorm = float(gf.norm().item())
+                    m1n = float(m1.norm().item())
+                    m2n = float(m2.norm().item())
+                    vn = float(v.norm().item())
+                    un = float(update.norm().item())
+                    pn = float(p.data.float().norm().item())
+                    print(f"  [ADEMAMIX-DEBUG] {gname} t={t} lr={lr:.4g} a_t={alpha_t:.4g} b3_t={beta3_t:.4g} "
+                          f"|g|={gnorm:.3e} |m1|={m1n:.3e} |m2|={m2n:.3e} |v|={vn:.3e} "
+                          f"|update|={un:.3e} |p|={pn:.3e}",
+                          flush=True)
+                if ADEMAMIX_DEBUG_PRINT and not torch.isfinite(p.data.float()).all():
+                    print(f"  [ADEMAMIX-DEBUG] NONFINITE p detected at step t={t} group={gname}", flush=True)
+
+    def ademamix_telemetry(self) -> dict[str, float]:
+        """Group-aware norms of m1/m2 (for the slow-EMA growth diagnostic), plus alpha_t / beta3_t."""
+        metrics = {}
+        total_m1_sq, total_m2_sq, total_count = 0.0, 0.0, 0
+        alpha_t_observed = 0.0
+        beta3_t_observed = 0.0
+        for group in self.param_groups:
+            gname = group.get("name", "ademamix_group")
+            group_m1_sq, group_m2_sq, gp_count = 0.0, 0.0, 0
+            for p in group["params"]:
+                state = self.state.get(p, {})
+                if "m1" not in state:
+                    continue
+                m1_norm = float(state["m1"].norm().item())
+                m2_norm = float(state["m2"].norm().item())
+                group_m1_sq += m1_norm * m1_norm
+                group_m2_sq += m2_norm * m2_norm
+                gp_count += 1
+                t = state["step"]
+                alpha_t_observed = max(
+                    alpha_t_observed,
+                    _ademamix_linear_warmup(t, alpha_end=group["alpha"], warmup=group["alpha_warmup"]),
+                )
+                beta3_t_observed = max(
+                    beta3_t_observed,
+                    _ademamix_beta3_schedule(t, beta_end=group["beta3"], beta_start=group["beta1"],
+                                             warmup=group["beta3_warmup"]),
+                )
+            if gp_count > 0:
+                metrics[f"ademamix/{gname}/m1_norm"] = math.sqrt(group_m1_sq)
+                metrics[f"ademamix/{gname}/m2_norm"] = math.sqrt(group_m2_sq)
+                if group_m1_sq > 0:
+                    metrics[f"ademamix/{gname}/m2_m1_ratio"] = math.sqrt(group_m2_sq / group_m1_sq)
+                total_m1_sq += group_m1_sq
+                total_m2_sq += group_m2_sq
+                total_count += gp_count
+        if total_count > 0:
+            metrics["ademamix/m1_norm"] = math.sqrt(total_m1_sq)
+            metrics["ademamix/m2_norm"] = math.sqrt(total_m2_sq)
+            if total_m1_sq > 0:
+                metrics["ademamix/m2_m1_ratio"] = math.sqrt(total_m2_sq / total_m1_sq)
+            metrics["ademamix/alpha_t"] = alpha_t_observed
+            metrics["ademamix/beta3_t"] = beta3_t_observed
+        return metrics
+
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = 0.4
@@ -699,7 +876,15 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
+            "optimizer/ademamix_beta1": ADEMAMIX_BETA1,
+            "optimizer/ademamix_beta2": ADEMAMIX_BETA2,
+            "optimizer/ademamix_beta3": ADEMAMIX_BETA3,
+            "optimizer/ademamix_alpha": ADEMAMIX_ALPHA,
+            "optimizer/ademamix_eps": ADEMAMIX_EPS,
+            "optimizer/ademamix_alpha_warmup": ADEMAMIX_ALPHA_WARMUP,
+            "optimizer/ademamix_beta3_warmup": ADEMAMIX_BETA3_WARMUP,
+            "optimizer/ademamix_beta3_warmup_schedule": "half_life_linear",
+            "optimizer/recipe": "ademamix-aux + contra-muon + normuon-lite + soap-on-mlp",
         },
     )
 
@@ -730,11 +915,15 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
-    # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # create the optimizer(s) — aux groups use AdEMAMix (dual-EMA Adam variant)
+    optimizer1 = AdEMAMix(
+        [dict(params=[model.embed.weight], lr=0.3, name="ademamix_embed"),
+         dict(params=[model.proj.weight], lr=1/320, name="ademamix_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="ademamix_scalars")],
+        betas=(ADEMAMIX_BETA1, ADEMAMIX_BETA2, ADEMAMIX_BETA3),
+        alpha=ADEMAMIX_ALPHA, eps=ADEMAMIX_EPS, weight_decay=0,
+        alpha_warmup=ADEMAMIX_ALPHA_WARMUP, beta3_warmup=ADEMAMIX_BETA3_WARMUP,
+    )
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
