@@ -27,6 +27,9 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 
+# NS5 polynomial coefficients (overridden from CLI args at module load — see below)
+NS5_A, NS5_B, NS5_C = 2.0, -1.5, 0.5
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -54,6 +57,12 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--ns5_a", type=float, default=2.0,
+                        help="NS5 polynomial coefficient a in p(X) = aX + bX·X^T·X + c·X·X^T·X·X^T·X")
+    parser.add_argument("--ns5_b", type=float, default=-1.5,
+                        help="NS5 polynomial coefficient b")
+    parser.add_argument("--ns5_c", type=float, default=0.5,
+                        help="NS5 polynomial coefficient c")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -63,6 +72,9 @@ def parse_args():
 
 
 args = parse_args()
+
+# Propagate NS5 polynomial coefficients to module-level globals before any torch.compile call.
+NS5_A, NS5_B, NS5_C = float(args.ns5_a), float(args.ns5_b), float(args.ns5_c)
 
 
 def clean_metric_name(name: str) -> str:
@@ -459,7 +471,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS5_A, NS5_B, NS5_C
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -731,8 +743,17 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "ns5_a": float(args.ns5_a),
+            "ns5_b": float(args.ns5_b),
+            "ns5_c": float(args.ns5_c),
+            "ns5_iters": 12,
         },
     )
+    wandb.log({
+        "train/ns5/a": float(args.ns5_a),
+        "train/ns5/b": float(args.ns5_b),
+        "train/ns5/c": float(args.ns5_c),
+    }, step=0)
 
 for trial_idx in range(args.num_trials):
 
