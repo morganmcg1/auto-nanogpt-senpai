@@ -443,6 +443,8 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+LOOKAHEAD_K = int(os.environ.get("LOOKAHEAD_K", "0"))  # 0 = OFF (default)
+LOOKAHEAD_ALPHA = float(os.environ.get("LOOKAHEAD_ALPHA", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -554,6 +556,46 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class Lookahead:
+    """Polyak-averaged slow weights on top of a base optimizer (Zhang et al 2019).
+
+    Every K base steps, blends slow toward fast: slow += alpha * (fast - slow),
+    then resets fast := slow. With K=0, behaves as a pass-through wrapper.
+    """
+    def __init__(self, base_optimizer, k=5, alpha=0.5):
+        self.base = base_optimizer
+        self.k = k
+        self.alpha = alpha
+        self._step_count = 0
+        self._slow_state = {}
+        for group in self.base.param_groups:
+            for p in group["params"]:
+                self._slow_state[id(p)] = p.data.clone()
+
+    @torch.no_grad()
+    def step(self, *args, **kwargs):
+        result = self.base.step(*args, **kwargs)
+        self._step_count += 1
+        if self.k > 0 and self._step_count % self.k == 0:
+            for group in self.base.param_groups:
+                for p in group["params"]:
+                    slow = self._slow_state[id(p)]
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    p.data.copy_(slow)
+        return result
+
+    def zero_grad(self, *args, **kwargs):
+        return self.base.zero_grad(*args, **kwargs)
+
+    @property
+    def param_groups(self):
+        return self.base.param_groups
+
+    @property
+    def state(self):
+        return self.base.state
 
 
 class Muon(torch.optim.Optimizer):
@@ -699,6 +741,8 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/lookahead_k": LOOKAHEAD_K,
+            "optimizer/lookahead_alpha": LOOKAHEAD_ALPHA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
@@ -738,6 +782,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    if LOOKAHEAD_K > 0:
+        optimizer2 = Lookahead(optimizer2, k=LOOKAHEAD_K, alpha=LOOKAHEAD_ALPHA)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
