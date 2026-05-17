@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -43,6 +44,7 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -672,7 +674,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -718,6 +720,7 @@ if dist.get_rank() == 0:
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
+            "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -796,10 +799,14 @@ for trial_idx in range(args.num_trials):
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
+        group["cooldown_shape"] = "linear"
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
+        group["cooldown_shape"] = args.muonh_cooldown_shape
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
+    # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
+    # c is normalized cooldown progress in [0, 1].
     def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -809,7 +816,16 @@ for trial_idx in range(args.num_trials):
                 if progress < 1 - cooldown_frac:
                     eta = 1.0
                 else:
-                    eta = (1 - progress) / cooldown_frac
+                    c = (1 - progress) / cooldown_frac  # 1 → 0 over cooldown
+                    shape = group["cooldown_shape"]
+                    if shape == "linear":
+                        eta = c
+                    elif shape == "cosine":
+                        eta = 0.5 * (1.0 - math.cos(math.pi * c))
+                    elif shape == "sqrt":
+                        eta = math.sqrt(max(0.0, c))
+                    else:
+                        raise ValueError(f"unknown cooldown_shape: {shape}")
                 group["lr"] = group["initial_lr"] * eta
 
 
