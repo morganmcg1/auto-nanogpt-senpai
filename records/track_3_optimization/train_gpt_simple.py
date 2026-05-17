@@ -44,6 +44,16 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
+    # Schedule-Free MuonH-SI (Defazio et al. 2024, "The Road Less Scheduled").
+    # When --muonh_schedule_free 1, wraps MuonH-SI with primal-dual averaging:
+    # maintain primal z and running average x; evaluate gradient at
+    # y = (1 - sf_beta)*z + sf_beta*x; constant LR throughout (no cooldown on
+    # the MuonH groups). When 0, baseline MuonH-SI with linear cooldown.
+    parser.add_argument("--muonh_schedule_free", type=int, default=int(os.environ.get("MUONH_SCHEDULE_FREE", "0")))
+    parser.add_argument("--muonh_sf_beta", type=float, default=float(os.environ.get("MUONH_SF_BETA", "0.9")))
+    # Kill gate: break trial if val/loss at kill_gate_step exceeds kill_gate_threshold.
+    parser.add_argument("--kill_gate_step", type=int, default=int(os.environ.get("KILL_GATE_STEP", "-1")))
+    parser.add_argument("--kill_gate_threshold", type=float, default=float(os.environ.get("KILL_GATE_THRESHOLD", "inf")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
     # computes delta = anchor - p, integrates Nesterov velocity, and steps the
@@ -602,6 +612,179 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class ScheduleFreeMuonH(torch.optim.Optimizer):
+    """Schedule-Free wrapper around MuonH-SI (Defazio et al. 2024,
+    "The Road Less Scheduled"). Maintains primal iterate z (the base sequence
+    that takes Muon updates) and a Polyak running average x. Each forward pass
+    is evaluated at the interpolated point y = (1 - sf_beta)*z + sf_beta*x,
+    while the optimizer step updates z with the standard MuonH-SI rule
+    (Newton-Schulz orthogonalization + scale-invariant Frobenius-norm
+    projection) at a constant LR. After step(), p.data is left equal to x so
+    validation passes use the running average naturally.
+
+    Use:
+        opt.set_y_for_forward()  # before each forward pass during training
+        loss.backward()
+        opt.step()               # updates z, x, momentum; leaves p = x
+        # validation: model.eval() then forward — p == x already
+        # after any external param edit (e.g. MuLoCo outer step):
+        opt.resync_after_external_update()
+    """
+
+    def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
+                 hyperball=True, budget_mult=1.0, mode="scale_invariant",
+                 sf_beta=0.9):
+        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert mode in ("clip", "scale_invariant")
+        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        sf_beta=sf_beta)
+        super().__init__(params, defaults)
+        self._last_active_fraction = 0.0
+        self._last_radius_to_norm_max = 0.0
+        self._last_norm_to_radius_max = 0.0
+        self._last_t_max = 0
+        self._last_z_norm_global = 0.0
+        self._last_x_norm_global = 0.0
+        self._last_xz_drift_norm_global = 0.0
+
+    def _ensure_sf_state(self, p):
+        state = self.state[p]
+        if "z" not in state:
+            state["z"] = p.data.detach().clone()
+            state["x"] = p.data.detach().clone()
+            state["t"] = 0
+        return state
+
+    @torch.no_grad()
+    def set_y_for_forward(self):
+        """Set p.data = (1 - sf_beta) * z + sf_beta * x for every param.
+        Lazily initializes z, x, t from the current p.data on first call."""
+        for group in self.param_groups:
+            sf_beta = group["sf_beta"]
+            for p in group["params"]:
+                state = self._ensure_sf_state(p)
+                # y = (1-beta)*z + beta*x; lerp(a, b, w) = (1-w)*a + w*b
+                # so x.lerp(z, 1-beta) = beta*x + (1-beta)*z = y.
+                p.data.copy_(state["x"]).lerp_(state["z"], 1.0 - sf_beta)
+
+    @torch.no_grad()
+    def resync_after_external_update(self):
+        """Sync Schedule-Free state to the current p.data after an external
+        modification (e.g. MuLoCo outer step). Treats the new p.data as the
+        new x and z, and restarts the running average (t = 0)."""
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self._ensure_sf_state(p)
+                state["z"].copy_(p.data)
+                state["x"].copy_(p.data)
+                state["t"] = 0
+
+    @torch.no_grad()
+    def step(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        clip_count_local = 0
+        total_count_local = 0
+        max_r_over_n_local = 0.0
+        max_n_over_r_local = 0.0
+        t_max_local = 0
+        z_sq_local = 0.0
+        x_sq_local = 0.0
+        xz_sq_local = 0.0
+        for group in self.param_groups:
+            params = group["params"]
+            params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            hb = group["hyperball"]
+            budget_mult = group["budget_mult"]
+            mode = group["mode"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for base_i in range(0, len(params), world_size):
+                if base_i + rank < len(params):
+                    p = params[base_i + rank]
+                    state = self._ensure_sf_state(p)
+                    if "momentum" not in state:
+                        state["momentum"] = torch.zeros_like(p)
+                    if hb and "hyperball_radius" not in state:
+                        # Use z's initial norm (== p's initial norm since z = p.clone() on init)
+                        state["hyperball_radius"] = state["z"].norm().item() * budget_mult
+                    # Muon orthogonalized direction from gradient at y (current p)
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # Apply update to z (the base sequence), NOT to p (which is at y)
+                    if hb and mode == "scale_invariant":
+                        scale_invariant_update_(state["z"], update, lr)
+                        total_count_local += 1
+                        clip_count_local += 1
+                    else:
+                        state["z"].mul_(1 - lr * wd)
+                        state["z"].add_(update, alpha=-lr)
+                        if hb:
+                            R = state["hyperball_radius"]
+                            znorm = state["z"].norm().item()
+                            total_count_local += 1
+                            if R > 0:
+                                r_over_n = R / max(znorm, 1e-30)
+                                n_over_r = znorm / R
+                                if r_over_n > max_r_over_n_local:
+                                    max_r_over_n_local = r_over_n
+                                if n_over_r > max_n_over_r_local:
+                                    max_n_over_r_local = n_over_r
+                            if znorm > R:
+                                state["z"].mul_(R / znorm)
+                                clip_count_local += 1
+                    # Running average: x_t = (1 - 1/t)*x_{t-1} + (1/t)*z_t
+                    state["t"] += 1
+                    t = state["t"]
+                    state["x"].mul_(1.0 - 1.0/t).add_(state["z"], alpha=1.0/t)
+                    # Leave p at x for downstream (validation block uses p directly)
+                    p.data.copy_(state["x"])
+                    # Telemetry accumulators
+                    if t > t_max_local:
+                        t_max_local = t
+                    z_sq_local += float(state["z"].detach().float().square().sum().item())
+                    x_sq_local += float(state["x"].detach().float().square().sum().item())
+                    xz_sq_local += float((state["x"] - state["z"]).detach().float().square().sum().item())
+                dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if world_size > 1:
+            counts = torch.tensor([clip_count_local, total_count_local],
+                                  device="cuda", dtype=torch.float64)
+            dist.all_reduce(counts, op=dist.ReduceOp.SUM)
+            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
+                                  device="cuda", dtype=torch.float64)
+            dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            sums = torch.tensor([z_sq_local, x_sq_local, xz_sq_local],
+                                device="cuda", dtype=torch.float64)
+            dist.all_reduce(sums, op=dist.ReduceOp.SUM)
+            tmax_t = torch.tensor([t_max_local], device="cuda", dtype=torch.float64)
+            dist.all_reduce(tmax_t, op=dist.ReduceOp.MAX)
+            clip_count = float(counts[0].item())
+            total_count = float(counts[1].item())
+            max_r_over_n = float(ratios[0].item())
+            max_n_over_r = float(ratios[1].item())
+            z_sq = float(sums[0].item())
+            x_sq = float(sums[1].item())
+            xz_sq = float(sums[2].item())
+            t_max = int(tmax_t.item())
+        else:
+            clip_count = float(clip_count_local)
+            total_count = float(total_count_local)
+            max_r_over_n = max_r_over_n_local
+            max_n_over_r = max_n_over_r_local
+            z_sq = z_sq_local
+            x_sq = x_sq_local
+            xz_sq = xz_sq_local
+            t_max = t_max_local
+        self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
+        self._last_radius_to_norm_max = max_r_over_n
+        self._last_norm_to_radius_max = max_n_over_r
+        self._last_t_max = t_max
+        self._last_z_norm_global = z_sq ** 0.5
+        self._last_x_norm_global = x_sq ** 0.5
+        self._last_xz_drift_norm_global = xz_sq ** 0.5
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -638,6 +821,12 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
+if args.muonh_schedule_free:
+    print0(f"MuonH Schedule-Free ENABLED: sf_beta={args.muonh_sf_beta} (constant LR, no cooldown on MuonH groups)", console=True)
+else:
+    print0("MuonH Schedule-Free DISABLED (baseline linear cooldown on MuonH groups)", console=True)
+if args.kill_gate_step >= 0:
+    print0(f"Kill gate: step={args.kill_gate_step} threshold={args.kill_gate_threshold}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -684,6 +873,10 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muonh_schedule_free": bool(args.muonh_schedule_free),
+            "muonh_sf_beta": args.muonh_sf_beta,
+            "kill_gate_step": args.kill_gate_step,
+            "kill_gate_threshold": args.kill_gate_threshold,
         },
     )
 
@@ -734,10 +927,22 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+    # Schedule-Free wraps MuonH-SI with primal-dual averaging; constant LR
+    # throughout. When disabled, ScheduleFreeMuonH is not constructed and
+    # behavior matches the baseline MuonH bit-for-bit.
+    if args.muonh_schedule_free:
+        optimizer2 = ScheduleFreeMuonH(
+            [p for p in model.blocks.parameters() if p.ndim >= 2],
+            lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+            hyperball=True, budget_mult=args.muonh_budget_mult,
+            mode=args.muonh_mode,
+            sf_beta=args.muonh_sf_beta,
+        )
+    else:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -748,7 +953,9 @@ for trial_idx in range(args.num_trials):
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
-    h_cooldown_frac = 1.0
+    # Schedule-Free MuonH: bypass the LR cooldown on the MuonH group (constant
+    # LR throughout — the running-average update encodes the implicit decay).
+    h_cooldown_frac = 0.0 if args.muonh_schedule_free else 1.0
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
@@ -848,6 +1055,16 @@ for trial_idx in range(args.num_trials):
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # Kill gate: bail out of this trial if val/loss at the gated step exceeds threshold.
+            kill_now = False
+            if args.kill_gate_step >= 0 and step == args.kill_gate_step and val_loss_float > args.kill_gate_threshold:
+                kill_now = True
+            kill_signal = torch.tensor([1.0 if kill_now else 0.0], device=device)
+            dist.all_reduce(kill_signal, op=dist.ReduceOp.MAX)
+            if kill_signal.item() > 0.0:
+                print0(f"KILL GATE: val/loss={val_loss_float:.5f} > {args.kill_gate_threshold} at step {step} — ending trial",
+                       console=True)
+                break
             model.train()
             # start the clock again
             dist.barrier()
@@ -857,6 +1074,10 @@ for trial_idx in range(args.num_trials):
             break
 
         # --------------- TRAINING SECTION -----------------
+        # Schedule-Free: set p.data = y = (1 - sf_beta)*z + sf_beta*x before
+        # the forward pass. All microbatches in this step share the same y.
+        if args.muonh_schedule_free and isinstance(optimizer2, ScheduleFreeMuonH):
+            optimizer2.set_y_for_forward()
         inputs, targets = next(train_loader)
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
@@ -903,10 +1124,16 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and telemetry_due:
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             for opt in optimizers:
-                if isinstance(opt, MuonH):
+                if isinstance(opt, (MuonH, ScheduleFreeMuonH)):
                     muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                     muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                     muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                if isinstance(opt, ScheduleFreeMuonH):
+                    muonh_metrics["train/sf/t_max"] = opt._last_t_max
+                    muonh_metrics["train/sf/z_norm_global"] = opt._last_z_norm_global
+                    muonh_metrics["train/sf/x_norm_global"] = opt._last_x_norm_global
+                    muonh_metrics["train/sf/xz_drift_norm_global"] = opt._last_xz_drift_norm_global
+                    muonh_metrics["train/peak_memory_mb"] = torch.cuda.max_memory_allocated() / 1024**2
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
@@ -955,6 +1182,13 @@ for trial_idx in range(args.num_trials):
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
                         total_count += delta.numel()
             outer_applied_steps += 1
+            # Schedule-Free MuonH: MuLoCo just rewrote p.data for every param,
+            # including the MuonH-managed ones whose p had been set to x at the
+            # end of opt.step(). Push the new p into z and x and restart the
+            # running-average window so the next set_y_for_forward / step_pair
+            # is consistent with the MuLoCo'd values.
+            if args.muonh_schedule_free and isinstance(optimizer2, ScheduleFreeMuonH):
+                optimizer2.resync_after_external_update()
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
