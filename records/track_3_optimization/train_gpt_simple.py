@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument("--muonh_budget_mult", type=float, default=float(os.environ.get("MUONH_BUDGET_MULT", "1.0")))
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
+    parser.add_argument("--muonh_cooldown_frac", type=float, default=float(os.environ.get("MUONH_COOLDOWN_FRAC", "1.0")))
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -637,7 +638,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_frac={args.muonh_cooldown_frac}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -679,6 +680,7 @@ if dist.get_rank() == 0:
             "muonh_budget_mult": args.muonh_budget_mult,
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
+            "muonh_cooldown_frac": args.muonh_cooldown_frac,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -748,7 +750,7 @@ for trial_idx in range(args.num_trials):
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
-    h_cooldown_frac = 1.0
+    h_cooldown_frac = args.muonh_cooldown_frac
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
