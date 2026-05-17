@@ -447,6 +447,8 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+ATTN_SOAP_TRUST_THRESHOLD_QK = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD_QK", str(ATTN_SOAP_TRUST_THRESHOLD)))
+ATTN_SOAP_TRUST_THRESHOLD_VO = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD_VO", str(ATTN_SOAP_TRUST_THRESHOLD)))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -693,10 +695,14 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         soap_refresh(grad, state)
                     elif use_attn_soap:
+                        kind = self.attn_soap_kind.get(id(p))
+                        _t = (ATTN_SOAP_TRUST_THRESHOLD_QK if kind in ("q", "k")
+                              else ATTN_SOAP_TRUST_THRESHOLD_VO if kind in ("v", "proj")
+                              else ATTN_SOAP_TRUST_THRESHOLD)
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=_t)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -836,6 +842,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_trust_threshold_qk": ATTN_SOAP_TRUST_THRESHOLD_QK,
+            "optimizer/attn_soap_trust_threshold_vo": ATTN_SOAP_TRUST_THRESHOLD_VO,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
