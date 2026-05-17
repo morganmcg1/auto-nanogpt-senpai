@@ -35,7 +35,12 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+# Wave 7 compound stack on cubic-Newton + γ_power=0.4 base:
+# per-block deep-strong WD (slope=+0.5) + lm_head LR 1/160.
+PERBLOCK_WD_SLOPE = 0.5
+BASE_MUON_WD = 0.025
+LMHEAD_LR = 1.0 / 160.0
+MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-cubic-gamma-power-0p4-deepwd-lmhead160"
 
 
 def parse_args():
@@ -52,6 +57,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--seed", type=int, default=int(os.environ.get("NANOGPT_SEED", "0")),
+                        help="Torch RNG seed for run-to-run variance (used for n>1 confirmations).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -524,8 +531,13 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], dict):
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
@@ -632,6 +644,11 @@ dist.init_process_group(backend="nccl", device_id=device)
 dist.barrier()
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
+# Seed torch RNG for run-to-run variance in n>1 confirmations. Use per-rank seed so the
+# distributed data loader and model init both differ across runs; defaults to 0 (legacy behavior).
+if args.seed:
+    torch.manual_seed(args.seed + dist.get_rank())
+    torch.cuda.manual_seed_all(args.seed + dist.get_rank())
 
 # logging setup
 if dist.get_rank() == 0:
@@ -691,19 +708,27 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": 0.035,
-            "muon_weight_decay": 0.025,
+            "muon_weight_decay": BASE_MUON_WD,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
+            "gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
+            "ns_coefs": "cubic-newton-1.5-0.5-0",
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # Wave 7 compound stack identifiers (γ_power=0.4 already in baseline post-PR #202)
+            "perblock_wd": "deep-strong",
+            "perblock_wd_slope": PERBLOCK_WD_SLOPE,
+            "lmhead_lr": LMHEAD_LR,
+            "experiment": "wave7-deepwd-lmhead160-stack",
+            "seed": int(args.seed),
         },
     )
 
@@ -736,18 +761,47 @@ for trial_idx in range(args.num_trials):
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                        dict(params=[model.proj.weight], lr=LMHEAD_LR, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Per-block deep-strong WD (edward PR #198 arm A mechanism): block_l gets
+    # weight_decay = BASE_MUON_WD * (1 + PERBLOCK_WD_SLOPE * (l/(L-1) - 0.5)).
+    # Deeper blocks get heavier WD to counter-amplify their high gradient norm.
+    L = len(model.blocks)
+    muon_param_groups = []
+    for block_idx, block in enumerate(model.blocks):
+        block_params = [p for p in block.parameters() if p.ndim >= 2]
+        wd_mult = 1.0 + PERBLOCK_WD_SLOPE * (block_idx / (L - 1) - 0.5)
+        muon_param_groups.append(dict(
+            params=block_params,
+            weight_decay=BASE_MUON_WD * wd_mult,
+            block_idx=block_idx,
+            wd_mult=wd_mult,
+            name=f"muon_block_{block_idx:02d}",
+        ))
+    optimizer2 = Muon(muon_param_groups,
+                      lr=0.035, weight_decay=BASE_MUON_WD, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Per-block WD telemetry (logged once per trial). Block 0 (shallowest) and block 11
+    # (deepest) bracket the per-block WD range. Ratio of deepest to shallowest = 5/3.
+    if dist.get_rank() == 0:
+        block_wds = [g["weight_decay"] for g in optimizer2.param_groups]
+        wd_block0 = block_wds[0]
+        wd_block11 = block_wds[-1]
+        wandb.log({
+            "wd/block_00_wd_effective": wd_block0,
+            "wd/block_11_wd_effective": wd_block11,
+            "wd/per_block_wd_ratio": wd_block11 / wd_block0 if wd_block0 > 0 else 0.0,
+            "wd/perblock_wd_slope": PERBLOCK_WD_SLOPE,
+            "aux/lmhead_initial_lr": LMHEAD_LR,
+            "pmuon/gamma_power": PMUON_GAMMA,
+        }, step=trial_idx * (train_steps + 1))
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def set_hparams(step, cooldown_frac=0.7):
