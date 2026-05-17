@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import re
 import uuid
 import time
 from pathlib import Path
@@ -46,6 +47,10 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--llrd_gamma", type=float, default=1.0,
+                        help="Per-layer LR decay factor for Muon blocks. lr_block_k = base_lr * gamma^k for "
+                             "block k in [0, num_layers-1]. 1.0 = uniform (baseline). <1 = deeper smaller. "
+                             ">1 = deeper larger.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -183,6 +188,18 @@ def grouped_by_type(named_tensors: list[tuple[str, Tensor]], module_types: dict[
     return groups
 
 
+_BLOCK_PARAM_RE = re.compile(r"^blocks\.(\d+)\.")
+
+
+def grouped_by_block(named_tensors: list[tuple[str, Tensor]]):
+    groups: dict[int, list[tuple[str, Tensor]]] = {}
+    for name, tensor in named_tensors:
+        m = _BLOCK_PARAM_RE.match(name)
+        if m is not None:
+            groups.setdefault(int(m.group(1)), []).append((name, tensor))
+    return groups
+
+
 def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
     values = tensor.detach().float().flatten()
     if values.numel() > max_samples:
@@ -233,6 +250,10 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
+    for block_idx, tensors in grouped_by_block(grads).items():
+        block_stats = aggregate_stats(tensors)
+        metrics.update(prefixed(f"train/grad_block/muon_block_{block_idx}", block_stats))
+        metrics[f"train/grad_norm/muon_block_{block_idx}"] = block_stats.get("norm", 0.0)
     for name, grad in grads:
         metrics.update(prefixed(f"train/grad_param/{clean_metric_name(name)}", tensor_stats(grad)))
     wandb.log(metrics, step=wandb_step)
@@ -533,7 +554,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, param_groups=None):
         assert isinstance(named_params, list) and len(named_params) >= 1
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
@@ -545,9 +566,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
-        params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
-        super().__init__(params, defaults)
+        if param_groups is None:
+            params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
+            super().__init__(params, defaults)
+        else:
+            super().__init__(param_groups, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -669,6 +693,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "llrd_gamma": float(args.llrd_gamma),
         },
     )
 
@@ -704,10 +729,36 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    muon_named = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
+    muon_base_lr = 0.035
+    muon_weight_decay = 0.025
+    muon_mu = 0.95
+    by_block: dict[int, list[tuple[str, Tensor]]] = {}
+    for n, p in muon_named:
+        m = re.match(r"^(\d+)\.", n)
+        if m is None:
+            raise ValueError(f"Could not parse block index from param name: {n}")
+        by_block.setdefault(int(m.group(1)), []).append((n, p))
+    sorted_block_keys = sorted(by_block.keys())
+    muon_param_groups = []
+    for k in sorted_block_keys:
+        params_k = sorted([p for _, p in by_block[k]], key=lambda x: x.size(), reverse=True)
+        lr_k = muon_base_lr * (args.llrd_gamma ** k)
+        muon_param_groups.append(dict(
+            params=params_k,
+            lr=lr_k,
+            weight_decay=muon_weight_decay,
+            mu=muon_mu,
+            name=f"muon_block_{k}",
+        ))
+    if dist.get_rank() == 0:
+        print0(f"llrd_gamma={args.llrd_gamma} num_blocks={len(sorted_block_keys)}", console=True)
+        for g in muon_param_groups:
+            print0(f"  {g['name']}: lr={g['lr']:.6f} params={len(g['params'])}", console=True)
+    optimizer2 = Muon(muon_named,
+                      lr=muon_base_lr, weight_decay=muon_weight_decay, mu=muon_mu,
+                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+                      param_groups=muon_param_groups)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
