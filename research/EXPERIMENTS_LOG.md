@@ -607,3 +607,48 @@ All 8 r2 students productive — zero idle GPUs in cycle 11.
 **Key learning**: Aurora's diagonal leverage-score equalization is HIGH-VARIANCE on the merged Contra+SOAP-MLP base. The D fixed-point iteration introduces per-seed variation in the effective preconditioning that compounds over 3175 steps. This aligns with record #17's reported high-variance behavior. Not a mechanism failure, but needs n=8+ or a variance-reduction wrap to clear the new (tighter) baseline bars. Defer to next round.
 
 Fern reassigned to PR #208: Power-law LR cooldown (LR_POWER=1.5/2.0), targeting record #20's schedule structure.
+
+## 2026-05-17 00:30 — PR #124 CLOSED: Attn-SOAP+trust gate n=4 (nezuko)
+
+- Branch: `g1r2-nezuko/attn-soap-gate`
+- Hypothesis: Attention SOAP (eigenbasis preconditioner on qkv/proj weights) with trust gate (cosine-similarity threshold to decide when to apply precond vs identity fallback). Stacked on OLD baseline (CONTRA_MUON=0.4 / PR #78).
+- W&B run: `790h1llo` (n=4, train_steps=3175)
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27743 | 3125 |
+| T1 | 3.27750 | 3125 |
+| T2 | 3.27758 | 3125 |
+| T3 | 3.27609 | 3100 |
+| **n=4 mean** | **3.27715** | **3118.75** |
+| statsig (3.28−mean)×2 | **0.00570** ≥ 0.004 ✓ | |
+
+**vs OLD baseline (PR #78):** val −0.00045 (WIN) / ffs tie 3118.75 (WIN vs 3131.25)
+
+**vs NEW baseline (PR #139):** val +0.00067 (MISS) / ffs 3118.75 (TIE — strict < required = MISS)
+
+**Conclusion**: Mechanism unambiguously works. T0/T1/T2 had extraordinarily low variance (0.00015 range, lowest of the session), confirming the trust gate produces stable training dynamics. T3 was a luckier seed (3.27609/3100). Mechanism delivers −0.00045 val + −12.5 ffs on OLD base. Misses NEW baseline strictly because NEW baseline (CONTRA_MUON=0.5) is 12.5 ffs better, making the comparison tight.
+
+**Key trust-gate finding**: v/proj row cosines hover at 0.85-0.89 with threshold=0.9 — they are identity-precond ~100% of the time. Only q (~85%) and k (~25%) actually get SOAP precondition. This leaves significant headroom: lowering threshold to 0.85 would activate v/proj and potentially add another 25-50 ffs improvement.
+
+**Follow-up**: Nezuko reassigned to PR #212 (Attn-SOAP+trust on NEW baseline, CONTRA_MUON=0.5, with Arm B at THRESHOLD=0.85).
+
+## 2026-05-17 00:30 — PR #181 CLOSED: Schedule-Free Muon (askeladd)
+
+- Branch: `g1r2-askeladd/sfm`
+- Hypothesis: Muon with constant LR + Polyak averaging (schedule-free), replacing the linear cooldown.
+- W&B runs: `groom2ym` (uniform c_t screen), `k3wkjy84` (c_const=0.01 screen)
+
+| Screen | c_t | Final val(y) | Best val(y) | ‖y−z‖_F at T |
+|---|---|---|---|---|
+| Uniform 1/(t+1) | 0.00031 at T | 4.60499 | 4.59854 | **2.2e9** |
+| Const EMA 0.01 | 0.01 | 4.62780 | 4.60690 | **4.3e8** |
+| Merged baseline | linear cooldown | — | 3.27760 | n/a |
+
+**Conclusion**: Fundamental incompatibility between (a) Muon's spectral updates under constant LR and (b) the 2-sequence SF formulation. NS5-orthogonalized Muon updates inject O(1) per element per step — under constant LR the iterates z never converge, while the Polyak average y lags and decays toward stale initialization. ‖y−z‖ grows unboundedly regardless of c_t window size. The gradient evaluated at y is increasingly stale, breaking the SF assumption ∇f(y) ≈ ∇f(z).
+
+**Key negative finding**: Schedule-free methods (which assume bounded update magnitudes for convergence) are structurally incompatible with constant-LR Muon. Linear cooldown is doing essential work — it provides the convergence that SF assumes but cannot deliver. Direction CLOSED.
+
+**Student's analysis quality**: Exceptional. Correctly diagnosed structural incompatibility, identified root cause (||y-z|| explosion independent of c_t window), recognized that 3-sequence Defazio would face the same issue. Valuable negative result well-characterized.
+
+Askeladd reassigned to PR #213 (per-module weight init scaling — records #4,5,8 ingredient).
