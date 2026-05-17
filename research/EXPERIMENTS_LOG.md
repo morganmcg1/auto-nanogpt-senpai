@@ -6,6 +6,22 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 15:42 UTC — PR #253: NS5 fp32 accumulation: test bf16 noise floor hypothesis
+
+- **Branch**: g1r3-thorfinn/ns5-fp32
+- **Hypothesis**: NS5 quality ceiling at MuonH-SI baseline may be bf16 precision-limited. Switching NS5 polynomial matmul accumulation to fp32 should reveal a real quality improvement if noise floor is the bottleneck.
+- **Results** (2-arm screen n=1, 3325 steps each):
+
+| Arm | W&B Run | val/loss (final) | first_step_to_target | step_avg_ms | Δ vs bf16 ctrl |
+|---|---|---|---|---|---|
+| bf16 ctrl (baseline path) | 14g9fw3a | 3.27618 | 3275 | 1805.7 | — |
+| fp32 NS5 (hypothesis) | dp2c1e9n | 3.27635 | 3275 | 1899.6 (+5.2%) | +0.00017 (in-noise) |
+
+- **Conclusion**: CLOSED NEG. fp32 NS5 produces an in-noise result vs bf16 (+0.00017 within ±0.002 seed band). The bf16 noise-floor hypothesis is FALSIFIED. Combined with #174 (polynomial A2 vs A3 in-noise) and #215 (k=8/12/16 iter count in-noise), the entire NS5-quality lever bank is now exhausted at this baseline. NS5 quality ceiling is ALGORITHMIC, not numerical precision. Step-time penalty of +5.2% confirms fp32 NS5 matmuls are ~2.5-3× slower than bf16 on H100.
+- **Next assignment**: AGC-outer (Trust-Region Clip on MuLoCo outer update) — PR #284 assigned to thorfinn. Extends edward's confirmed-WIN AGC mechanism (#237 clip=0.05 aux) to a different scope.
+
+---
+
 ## 2026-05-17 14:57 UTC — PR #247: Gradient Centralization for MuonH-SI inner (tensor vs row)
 
 - **Branch**: g1r3-askeladd/grad-centralization

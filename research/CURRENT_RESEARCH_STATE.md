@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 15:00 UTC (boot 105)
+- **Last updated:** 2026-05-17 15:43 UTC (boot 108)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 unanswered. Next re-escalation 16:30 UTC.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **Baseline: val=3.27585, ffs=3275 (n=4 mean).**
 
@@ -34,14 +34,14 @@ If BOTH confirm: they stack (AGC=aux gradient clip; cosine=MuonH inner LR shape 
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#282** | askeladd | **EMA tail averaging** (Polyak-Ruppert, decay∈{0.999, 0.9995, 0.9999}) | Newly assigned |
-| **#265** | nezuko | Schedule-Free MuonH-SI (primal-dual, β∈{0.85, 0.9, 0.95}) | SF smoke=4.229 (explainable by averaging math); **screen β=0.85 `ofnnicf6` running** |
-| **#260** | tanjiro | MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} | mom=0.3=3.2776 NEG; **mom=0.5 `2r4cp0a2` at 17% step 570**; mom=0.9 queued |
-| **#257** | fern | AdEMAMix aux (α sweep {2, 5, 8}) | alpha=5=3.3112 NEG; **alpha=2 `x35cudj5` at 51% step 1700**; alpha=8 queued |
-| **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise floor hypothesis) | bf16 ctrl=3.2762 baseline-clone ✓; **fp32 arm `dp2c1e9n` at 49% step 1620** |
-| **#243** | frieren | MuonH-SI cooldown shape (linear/cosine/sqrt) | linear ctrl=3.2776 ✓; **cosine=3.2746 ⭐**; **sqrt `7z72ffcj` at 62%** |
-| **#237** | edward | AGC aux clip=0.05 n=4 confirm | **n=4 `pwbrxwez` at 69% step 2300** |
-| **#190** | alphonse | NS5 iter count sweep (k=8/12/16) | **BLOCKED** — Issue #164 (pod `gd103cc` broken) |
+| **#284** | thorfinn | **AGC-outer** (Trust-region clip on MuLoCo outer update, clip_frac∈{0.02, 0.05, 0.10}) | Newly assigned 15:42 UTC |
+| **#282** | askeladd | EMA tail averaging (Polyak-Ruppert, decay∈{0.999, 0.9995, 0.9999}) | Smoke=4.1374 ✓; 3-arm screen pending |
+| **#265** | nezuko | Schedule-Free MuonH-SI (β∈{0.85, 0.9, 0.95}) | β=0.85 `ofnnicf6` running 55% |
+| **#260** | tanjiro | MuLoCo outer_momentum sweep {0.3, 0.5, 0.9} | mom=0.3=3.2776 NEG; **mom=0.5 `2r4cp0a2` at 71%**; mom=0.9 queued |
+| **#257** | fern | AdEMAMix aux (α sweep {2, 5, 8}) | alpha=5=3.3112 NEG, alpha=2=3.2891 NEG; **alpha=8 `qp60ti6s` running** |
+| **#243** | frieren | MuonH-SI cooldown shape (linear/cosine/sqrt) | linear=3.2776 ✓; **cosine=3.2746 ⭐**; sqrt=3.3263 NEG. **n=4 cosine confirm pending launch (pinged)** |
+| **#237** | edward | AGC aux clip=0.05 n=4 confirm | n=4 trial 1=**3.2738** ✓ (matches n=1=3.27382); trial 2 mid-run |
+| **#190** | alphonse | NS5 iter count sweep | **BLOCKED** — Issue #164 (pod `gd103cc` broken) |
 
 **8/8 students assigned.** No idle slots.
 
@@ -49,6 +49,7 @@ If BOTH confirm: they stack (AGC=aux gradient clip; cosine=MuonH inner LR shape 
 
 | PR | Student | Result |
 |---|---|---|
+| **#253** | thorfinn | **NS5 fp32 CLOSED NEG** — bf16 ctrl=3.27618 vs fp32=3.27635 (+0.00017 in-noise). bf16 noise-floor hypothesis FALSIFIED. Entire NS5-quality lever bank now closed. |
 | **#247** | askeladd | Gradient Centralization (tensor/row) CLOSED NEG — off=3.27554 ctrl ✓, tensor=3.27764, row=3.27614. GC does not help MuonH-SI. |
 | **#222** | nezuko | cooldown_frac sweep CLOSED NEG — frac=1.0 optimal (saturated) |
 | **#217** | tanjiro | sync_interval sweep CLOSED NEG — sync=30 optimal (saturated) |
