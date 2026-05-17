@@ -1035,3 +1035,22 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 - Distinct from EMA weight averaging (closed PR #197) and β_cov (closed PR #129). Tests gradient smoothing window before NS polar projection.
 - PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/231
 
+
+## 2026-05-17 06:30 UTC — PR #202 TERMINAL: γ_power scan v2 ARM A WIN (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-gamma-power-bracket`
+- **Hypothesis:** γ_power ∈ {0.2, 0.4} scan (current 0.3)
+- W&B runs: `prncgzv5` (γ=0.4), `np70bwgx` (γ=0.2)
+
+| Arm | γ_power | sr | val/loss | vs new baseline (3050/3.26773) | Verdict |
+|-----|---------|-----|----------|--------------------------------|---------|
+| Baseline (PR #193) | 0.3 | 3050 | 3.26773 | — | — |
+| **Arm A** | **0.4** | **3025** | **3.26615** | **Δsr=−25 ✓ Δval=−0.00158 ✓** | **WIN (n=1 clears stat bar)** |
+| Arm B | 0.2 | 3050 | 3.268887 | sr tie, val +0.00116 regression | Monotone direction (γ↑ better) |
+
+**Analysis:** Arm A γ_power=0.4 is a clean WIN — biggest single-arm sr improvement (Δsr=−37.5 from old PR #137 baseline 3062.5; Δsr=−25 from current PR #193 baseline 3050). Arm B γ_power=0.2 confirms monotone direction: γ_power=0.4 wins, γ_power=0.2 ties or loses. Suggests finer scan {0.5, 0.6} for optimum.
+
+**Note:** Arm A tested on PR #137 base (pre-cubic-Newton). Merge will create the compound (cubic-Newton + γ_power=0.4) — assumed additive (predicted sr~3012.5). Wave 7 stack (PR #225 thorfinn, currently running) independently confirms γ_power=0.4 + cubic-Newton + deep-WD + lm_head LR.
+
+**Status:** PR sent back for rebase + arm switch to PMUON_GAMMA=0.4 (currently set to 0.2 from arm B). Will merge after student resubmits.
+

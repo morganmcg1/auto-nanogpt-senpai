@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 05:45 UTC — **PRs #197 (EMA), #195 (cf-scan), #198 (deep-WD) CLOSED. 3 new assignments: PR #229 alphonse (NS coef ab-line-scan), PR #230 edward (aux β1-scan), PR #231 fern (Muon momentum scan). 5 WIP runs active.**
+- **Last update:** 2026-05-17 06:30 UTC — **PR #202 (frieren γ_power scan) ARM A WIN: sr=3025 val=3.26615 — sent back for rebase + arm switch to γ=0.4. Awaiting student resubmit for merge. All 8 students have WIP PRs; 0 idle.**
 - **Most recent direction from humans:** None (no GitHub issues open at 05:40 UTC check).
 - **Target:** Push `speedrun/final_first_step_to_target` below 3050 steps; public record is 3030 steps (Record #20).
 
@@ -20,7 +20,7 @@ Previous baseline (PR #137): sr=3062.5, val=3.269090 (n=2).
 | **#225** | **thorfinn** | **Wave 7: γ_power=0.4 + deep-strong WD + lm_head 1/160 on cubic-Newton base (n=2)** | Running (~step 625) |
 | **#226** | **tanjiro** | **NS coef c-scan {0.1, 0.25} on cubic-Newton base** | Running (~step 725) |
 | **#216** | **nezuko** | Aux AdamW β2 scan {0.99, 0.999} | Running (~step 2350) |
-| **#202** | **frieren** | γ_power=0.4 WIN arm A (sr=3025); γ_power=0.2 arm B (~step 2600) | Arm B running |
+| **#202** | **frieren** | γ_power=0.4 WIN arm A (sr=3025); γ_power=0.2 arm B sr=3050 (monotone) | **SENT BACK for rebase + γ=0.4 → MERGE** |
 | **#211** | **askeladd** | lm_head LR arm B 1/640 running (~step 1025) | Arm B running |
 | **#229** | **alphonse** | NS coef (a,b) cubic-family line scan {a=1.3, 1.7} (c=0, a+b=1) | Just assigned |
 | **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} — current β1=0.8 | Just assigned |
