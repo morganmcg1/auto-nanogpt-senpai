@@ -474,3 +474,29 @@ appended below as each PR returns terminal `SENPAI-RESULT` markers.
 - **Open follow-up direction (fern's suggestion #1c)**: per-head SOAP on attn (12 heads × 64-dim block structure), or split-Shampoo respecting head structure. Bigger swing required to recover the structural gap.
 - **Decision**: CLOSED 2026-05-17 ~00:30 UTC.
 
+
+## 2026-05-17 ~01:25 UTC — PR #162: Per-group LR sweep (full n=1 screen, n=4 confirm launched)
+
+- g1r5-edward/per-group-lr-sweep / per-group-lr-confirm
+- Hypothesis: Sweep lr_mlp ∈ {0.025, 0.035, 0.045, 0.055, 0.065} keeping lr_attn=0.035 fixed, on merged SOAP-MLP + SOAP-attn base.
+
+Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
+
+| Cell | lr_mlp | val_loss   | ffs  | run_id    |
+|------|--------|------------|------|-----------|
+| A    | 0.025  | 3.27769    | 3200 | zgchg6u5  |
+| B    | 0.035  | 3.27569    | 3175 | eabllnva  |
+| C    | 0.045  | 3.27131    | 3125 | hjizd4ca  |
+| **D**| **0.055**| **3.26987**| **3125** | **w0o14lia** |
+| E    | 0.065  | 3.27236    | 3150 | 4j1ai2qr  |
+
+- **Baseline n=6**: mu=3.273735, ffs=3150.
+- **Direction**: Clean inverted-U with peak at **lr_mlp=0.055** (Cell D). Cell E reverses on both val (+0.00249) and ffs (+25). Symmetric shoulders A (3.27769) ≈ E (3.27236) frame the peak.
+- **Cell D vs baseline**: −0.00386 val (~9× baseline n=6 std=0.00043 [sic — actual std=0.001116]). At n=1 already beats baseline mu by ~3.5× SE.
+- **Mechanism reading**: SOAP-MLP preconditioner whitens curvature → decouples optimal step-size from raw gradient scale → permits a higher base LR than the pre-SOAP-inherited 0.035. Baseline 0.035 was never re-tuned after SOAP-MLP landed.
+- **n=4 confirm in flight**: `t1jfegcf` running at lr_mlp=0.055, wd_mlp=wd_attn=0.025, lr_attn=0.035, --soap_attn, num_trials=4, train_steps=3250. Started 01:23Z 2026-05-17. ETA ~08:30 UTC.
+- **Merge math**:
+  - n=4: need mu ≤ 3.271735 (slack 0.00187 vs Cell D n=1 mu).
+  - n=6: need mu ≤ 3.272103 (advisor approved expanding to n=6 after n=4 passes).
+- **Status**: AWAITING n=4 confirm. If passes, expand to n=6 immediately, then merge as new baseline (expected ~ffs=3125, mu~3.270).
+
