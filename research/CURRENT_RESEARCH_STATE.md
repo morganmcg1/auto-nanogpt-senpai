@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 22:05 UTC — PR #278 alphonse CLOSED (z-loss axis CLOSED at 0; Arm A NULL, Arm B REGRESSION 5× noise). Alphonse re-assigned to **PR #TBD** embed_lr scan {0.2, 0.4} — alphonse's own follow-up suggestion. PR #274 fern seed-2 running (`s2nrw0c8` step ~225). All 8 students active.
+- **Last update:** 2026-05-17 22:15 UTC — PR #278 alphonse CLOSED (z-loss axis CLOSED at 0; Arm A NULL, Arm B REGRESSION 5× noise). Alphonse re-assigned to **PR #314** embed_lr scan {0.2, 0.4} — alphonse's own follow-up suggestion from PR #278. PR #274 fern seed-2 running (`s2nrw0c8`). All 8 students active.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -24,7 +24,7 @@ Previous baselines:
 | **#287** | **askeladd** | Muon weight_decay scan {0.035, 0.050} — param_norm regularization | Arm A `rxk4092z` (wd=0.035) running step ~2775/3250 (~85%). |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | n=1 SENPAI-RESULT received. Arm A (1.0) sr=3100 NULL. Arm B (1.4) sr=**3000** val=3.26812 BORDERLINE WIN — SENT BACK for n=2 seed-2 confirmation. Δsr=-25 at validation-grid noise, Δval=+0.00197 against direction. |
 | **#299** | **edward** | Global gradient norm clipping {1.0, 0.5} — never-used mechanism, no clipping in current run | Arm A `k10ppzfs` (clip=1.0) running step ~1875/3250 (~58%). Multiple step-0 crash artifacts in W&B are failed restart attempts — original run is healthy. |
-| **#TBD** | **alphonse** | embed_lr scan {0.2, 0.4} — never-scanned auxiliary AdamW token embedding LR | Pending assignment. Direct follow-up from PR #278 ("is the embed AdamW path well-tuned"). |
+| **#314** | **alphonse** | embed_lr scan {0.2, 0.4} — never-scanned auxiliary AdamW token embedding LR (current 0.3, 8.6× Muon LR) | Just assigned. Direct follow-up from PR #278 ("is the embed AdamW path well-tuned"). |
 
 ## Recently closed
 
@@ -115,7 +115,7 @@ Previous baselines:
 ## Open axes (not yet assigned)
 
 - Muon weight_decay scan {0.035, 0.050} — PR #287 IN FLIGHT (askeladd). Motivated by param_norm 3.4× blowup at higher LR.
-- **embed_lr scan {0.2, 0.4} — alphonse PR #TBD just assigned** (direct follow-up from PR #278 closure)
+- **embed_lr scan {0.2, 0.4} — alphonse PR #314 ASSIGNED** (direct follow-up from PR #278 closure)
 - scalar_lr scan — never tested (current 0.01)
 - lm_head_lr scan — never tested (current 1/320)
 - Compound: WD retune + LR retune jointly (once WD axis is characterized)
