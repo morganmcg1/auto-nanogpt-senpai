@@ -6,6 +6,23 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 14:57 UTC — PR #247: Gradient Centralization for MuonH-SI inner (tensor vs row)
+
+- **Branch**: g1r3-askeladd/grad-centralization
+- **Hypothesis**: Gradient Centralization (Yong et al. 2020) applied before MuonH-SI NS5 orthogonalization — subtract gradient mean (tensor-wide or row-wise) to remove redundant information and act as implicit weight regularization.
+- **Results** (3-arm screen n=1, 3325 steps each):
+
+| Arm | W&B Run | val/loss | Δ vs baseline (3.27585) | Δ vs seed-ctrl (3.27554) |
+|---|---|---|---|---|
+| off (ctrl) | pr41c8ir | 3.27554 | -0.00031 | — |
+| tensor | 0zqenfv8 | 3.27764 | +0.00179 | +0.00210 |
+| row | o0yqx57f | 3.27614 | +0.00029 | +0.00060 |
+
+- **Conclusion**: CLOSED NEG. Off-ctrl reproduces baseline (single-seed noise, ±0.0003). Both GC arms miss baseline at n=1. Tensor mode is mildly harmful (+0.00210 vs ctrl); row mode is in-noise (+0.00060) but neither clears the bar. Key insight: NS5 orthogonalization already removes the directional component that GC would target — subtracting the gradient mean before orthogonalization is a no-op at best, small perturbation at worst. No n=4 confirm.
+- **Next assignment**: EMA tail averaging (Polyak-Ruppert) — PR #282 assigned to askeladd.
+
+---
+
 ## 2026-05-17 12:50 UTC — PR #222: MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0}
 
 - **Branch**: g1r3-nezuko/muonh-cooldown-wsd-sweep
