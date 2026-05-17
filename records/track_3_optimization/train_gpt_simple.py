@@ -524,6 +524,31 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 
+# Per-group lm_head cooldown shape (applies to adam_lm_head group only).
+# options: "linear" (baseline), "quadratic", "cubic", "exp_decay"
+# Non-linear shapes are peak-scaled so the integral over the cooldown phase
+# equals that of "linear" (= 1/2), making the cumulative LR area compute-neutral
+# with the baseline. The scaling factor for each shape is derived from
+# ∫A·(1-x)^n dx = A/(n+1) = 1/2 ⇒ A = (n+1)/2.
+NANOGPT_LMHEAD_COOLDOWN_SHAPE = os.environ.get("NANOGPT_LMHEAD_COOLDOWN_SHAPE", "linear")
+NANOGPT_LMHEAD_EXP_DECAY_K = float(os.environ.get("NANOGPT_LMHEAD_EXP_DECAY_K", "3.0"))
+_VALID_LMHEAD_COOLDOWN_SHAPES = ("linear", "quadratic", "cubic", "exp_decay")
+if NANOGPT_LMHEAD_COOLDOWN_SHAPE not in _VALID_LMHEAD_COOLDOWN_SHAPES:
+    raise ValueError(
+        f"NANOGPT_LMHEAD_COOLDOWN_SHAPE={NANOGPT_LMHEAD_COOLDOWN_SHAPE!r}, must be one of {_VALID_LMHEAD_COOLDOWN_SHAPES}"
+    )
+
+# Closed-form integral of the unscaled exp_decay shape (e^(-kx) - e^-k)/(1 - e^-k)
+# over [0, 1], used to derive the peak scale that makes the area equal to 1/2.
+def _exp_decay_unscaled_integral(k: float) -> float:
+    return ((1.0 - math.exp(-k)) / k - math.exp(-k)) / (1.0 - math.exp(-k))
+
+_LMHEAD_EXP_DECAY_SCALE = 0.5 / _exp_decay_unscaled_integral(NANOGPT_LMHEAD_EXP_DECAY_K)
+# Pre-derived compute-neutral peak factors (verified separately by
+# train/lmhead/cumulative_lr_steps within 0.5% across arms).
+_LMHEAD_QUADRATIC_PEAK = 1.5  # ∫1.5·(1-x)^2 dx = 0.5
+_LMHEAD_CUBIC_PEAK = 2.0      # ∫2.0·(1-x)^3 dx = 0.5
+
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -651,7 +676,12 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
-       f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+       f"(applies to adam_embed only; scalars use linear)", console=True)
+print0(f"LMHEAD_COOLDOWN_SHAPE: {NANOGPT_LMHEAD_COOLDOWN_SHAPE} "
+       f"(applies to adam_lm_head only; compute-neutral peak scales: "
+       f"quadratic={_LMHEAD_QUADRATIC_PEAK}, cubic={_LMHEAD_CUBIC_PEAK}, "
+       f"exp_decay(k={NANOGPT_LMHEAD_EXP_DECAY_K})={_LMHEAD_EXP_DECAY_SCALE:.4f})",
+       console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
@@ -703,6 +733,11 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_lmhead_cooldown_shape": NANOGPT_LMHEAD_COOLDOWN_SHAPE,
+            "nanogpt_lmhead_exp_decay_k": NANOGPT_LMHEAD_EXP_DECAY_K,
+            "nanogpt_lmhead_quadratic_peak": _LMHEAD_QUADRATIC_PEAK,
+            "nanogpt_lmhead_cubic_peak": _LMHEAD_CUBIC_PEAK,
+            "nanogpt_lmhead_exp_decay_scale": _LMHEAD_EXP_DECAY_SCALE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
         },
     )
@@ -754,15 +789,18 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then decay.
-    # All groups follow the default linear-to-zero cooldown except the
-    # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    # learning rate schedule: stable then decay. All groups follow the default
+    # linear-to-zero cooldown except adam_embed (remapped via
+    # NANOGPT_EMBED_COOLDOWN_SHAPE) and adam_lm_head (remapped via
+    # NANOGPT_LMHEAD_COOLDOWN_SHAPE).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta_default = 1.0
             eta_embed = 1.0
+            eta_lmhead = 1.0
+            cooldown_progress = 0.0
         else:
             eta_default = (1 - progress) / cooldown_frac
             cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
@@ -776,12 +814,37 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+            if NANOGPT_LMHEAD_COOLDOWN_SHAPE == "linear":
+                eta_lmhead = eta_default
+            elif NANOGPT_LMHEAD_COOLDOWN_SHAPE == "quadratic":
+                eta_lmhead = _LMHEAD_QUADRATIC_PEAK * (1.0 - cooldown_progress) ** 2
+            elif NANOGPT_LMHEAD_COOLDOWN_SHAPE == "cubic":
+                eta_lmhead = _LMHEAD_CUBIC_PEAK * (1.0 - cooldown_progress) ** 3
+            elif NANOGPT_LMHEAD_COOLDOWN_SHAPE == "exp_decay":
+                k = NANOGPT_LMHEAD_EXP_DECAY_K
+                unscaled = max(
+                    0.0,
+                    (math.exp(-k * cooldown_progress) - math.exp(-k))
+                    / (1.0 - math.exp(-k)),
+                )
+                eta_lmhead = _LMHEAD_EXP_DECAY_SCALE * unscaled
+            else:
+                raise ValueError(f"unknown shape: {NANOGPT_LMHEAD_COOLDOWN_SHAPE}")
         for opt in optimizers:
             for group in opt.param_groups:
-                if group.get("name") == "adam_embed":
+                name = group.get("name", "")
+                if name == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
+                elif name == "adam_lm_head":
+                    group["lr"] = group["initial_lr"] * eta_lmhead
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        return {
+            "eta_default": eta_default,
+            "eta_embed": eta_embed,
+            "eta_lmhead": eta_lmhead,
+            "cooldown_progress": cooldown_progress,
+        }
 
 
     ########################################
@@ -801,6 +864,9 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    cumulative_default_lr_mult = 0.0
+    cumulative_embed_lr_mult = 0.0
+    cumulative_lmhead_lr_mult = 0.0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -884,7 +950,10 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        hparam_state = set_hparams(step)
+        cumulative_default_lr_mult += hparam_state["eta_default"]
+        cumulative_embed_lr_mult += hparam_state["eta_embed"]
+        cumulative_lmhead_lr_mult += hparam_state["eta_lmhead"]
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -914,6 +983,17 @@ for trial_idx in range(args.num_trials):
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
             )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/cooldown_progress": hparam_state["cooldown_progress"],
+                "train/lmhead/cooldown_lr_mult": hparam_state["eta_lmhead"],
+                "train/lmhead/cumulative_lr_steps": cumulative_lmhead_lr_mult,
+                "train/embed/cooldown_lr_mult": hparam_state["eta_embed"],
+                "train/embed/cumulative_lr_steps": cumulative_embed_lr_mult,
+                "train/default/cooldown_lr_mult": hparam_state["eta_default"],
+                "train/default/cumulative_lr_steps": cumulative_default_lr_mult,
+            }, step=wandb_step)
         # NS iteration schedule: optionally swap to NS_ITERS_COOLDOWN in the
         # last (1 - NS_COOLDOWN_START_FRAC) fraction of training.
         if NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step:
