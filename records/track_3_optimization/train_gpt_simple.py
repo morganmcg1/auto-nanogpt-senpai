@@ -25,6 +25,7 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
+COOLDOWN_FRAC = 0.85
 
 
 def parse_args():
@@ -617,8 +618,9 @@ if dist.get_rank() == 0:
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
-            "cooldown_frac": 0.7,
-            "muon_method": "pmuon-uw-floor-power-cool-1p2",
+            "cooldown_frac": COOLDOWN_FRAC,
+            "cooldown_shape": "power_law",
+            "muon_method": f"pmuon-uw-floor-power-cool-1p2-cf{str(COOLDOWN_FRAC).replace('.', 'p')}",
         },
     )
 
@@ -665,7 +667,7 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=COOLDOWN_FRAC):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -821,7 +823,9 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
+                "train/cooldown/eta": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/cooldown/cooldown_frac": COOLDOWN_FRAC,
             }, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
