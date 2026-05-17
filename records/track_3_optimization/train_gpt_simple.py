@@ -223,6 +223,8 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                metrics[f"train/mu/{group_name}"] = group["mu"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -436,7 +438,8 @@ class GPT(nn.Module):
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
-MU = 0.95
+MU = float(os.environ.get("MU_START", "0.95"))
+MU_END = float(os.environ.get("MU_END", "0.95"))
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -827,6 +830,8 @@ if dist.get_rank() == 0:
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
             "optimizer/mu": MU,
+            "optimizer/mu_start": MU,
+            "optimizer/mu_end": MU_END,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -890,9 +895,12 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if group.get("name") == "muon_blocks":
+                    group["mu"] = cur_mu
 
 
     ########################################
