@@ -137,6 +137,13 @@ def prefixed(prefix: str, stats: dict[str, float]) -> dict[str, float]:
     return {f"{prefix}/{key}": value for key, value in stats.items()}
 
 
+def grad_global_norm(params: list[nn.Parameter]) -> float:
+    norms = [p.grad.detach().norm() for p in params if p.grad is not None]
+    if not norms:
+        return 0.0
+    return float(torch.norm(torch.stack(norms)).item())
+
+
 def loss_slope_stats(history: list[tuple[int, float]], window_steps: int) -> dict[str, float]:
     if len(history) < 2:
         return {}
@@ -200,6 +207,11 @@ def log_training_telemetry(
     pre_clip_grad_norm: Tensor | None = None,
     clip_norm: float = 0.0,
     per_group_pre_clip: dict[str, Tensor] | None = None,
+    clip_groups: str = "all",
+    aux_pre_clip_norm: float | None = None,
+    aux_post_clip_norm: float | None = None,
+    muon_pre_clip_norm: float | None = None,
+    muon_post_clip_norm: float | None = None,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -230,6 +242,25 @@ def log_training_telemetry(
             metrics[f"train/clip_ext/effective_aux_lr_ratio_{group_name}"] = (
                 min(1.0, clip_norm / (raw_val + 1e-12))
             )
+    if aux_pre_clip_norm is not None:
+        metrics["train/grad_norm/aux_pre_clip"] = aux_pre_clip_norm
+    if aux_post_clip_norm is not None:
+        metrics["train/grad_norm/aux_post_clip"] = aux_post_clip_norm
+    if muon_pre_clip_norm is not None:
+        metrics["train/grad_norm/muon_pre_clip"] = muon_pre_clip_norm
+    if muon_post_clip_norm is not None:
+        metrics["train/grad_norm/muon_post_clip"] = muon_post_clip_norm
+    aux_clip_fired = (
+        clip_norm > 0 and clip_groups in ("all", "aux")
+        and aux_pre_clip_norm is not None and aux_pre_clip_norm > clip_norm)
+    muon_clip_fired = (
+        clip_norm > 0 and clip_groups in ("all", "muon")
+        and muon_pre_clip_norm is not None and muon_pre_clip_norm > clip_norm)
+    metrics["train/grad_norm/aux_clip_active"] = int(aux_clip_fired)
+    metrics["train/grad_norm/muon_clip_active"] = int(muon_clip_fired)
+    metrics["train/grad_norm/clip_groups_code"] = {
+        "none": 0, "all": 1, "aux": 2, "muon": 3
+    }.get(clip_groups, -1)
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
@@ -454,6 +485,10 @@ NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
 NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+NANOGPT_CLIP_GROUPS = os.environ.get("NANOGPT_CLIP_GROUPS", "all")
+if NANOGPT_CLIP_GROUPS not in ("all", "aux", "muon", "none"):
+    raise ValueError(
+        f"NANOGPT_CLIP_GROUPS={NANOGPT_CLIP_GROUPS!r}; valid: all/aux/muon/none")
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -579,7 +614,9 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
-print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
+_clip_enabled = NANOGPT_GRAD_CLIP > 0 and NANOGPT_CLIP_GROUPS != "none"
+print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} groups={NANOGPT_CLIP_GROUPS}"
+       + f" ({'ENABLED' if _clip_enabled else 'DISABLED'})",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
@@ -626,6 +663,7 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
+            "nanogpt_clip_groups": NANOGPT_CLIP_GROUPS,
             "nanogpt_ns_iters": NS_ITERS,
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
@@ -678,6 +716,9 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    aux_params = [p for g in optimizer1.param_groups for p in g["params"]]
+    muon_params = [p for g in optimizer2.param_groups for p in g["params"]]
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -775,20 +816,26 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
-        if NANOGPT_GRAD_CLIP > 0:
-            # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
-            # rescales them in place. Mechanism: under global clip the scale factor is
-            # min(1, clip_norm / global_norm); these per-group norms tell us where each
-            # group sits relative to the threshold (effective_aux_lr_ratio).
+        aux_pre_clip_norm = grad_global_norm(aux_params)
+        muon_pre_clip_norm = grad_global_norm(muon_params)
+        if NANOGPT_GRAD_CLIP > 0 and NANOGPT_CLIP_GROUPS != "none":
             per_group_pre_clip = {
                 "embed": model.embed.weight.grad.detach().norm(),
                 "lmhead": model.proj.weight.grad.detach().norm(),
             }
+            if NANOGPT_CLIP_GROUPS == "all":
+                params_to_clip = aux_params + muon_params
+            elif NANOGPT_CLIP_GROUPS == "aux":
+                params_to_clip = aux_params
+            elif NANOGPT_CLIP_GROUPS == "muon":
+                params_to_clip = muon_params
             pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(), max_norm=NANOGPT_GRAD_CLIP)
+                params_to_clip, max_norm=NANOGPT_GRAD_CLIP)
         else:
             pre_clip_grad_norm = None
             per_group_pre_clip = None
+        aux_post_clip_norm = grad_global_norm(aux_params)
+        muon_post_clip_norm = grad_global_norm(muon_params)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
@@ -821,6 +868,11 @@ for trial_idx in range(args.num_trials):
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
+                clip_groups=NANOGPT_CLIP_GROUPS,
+                aux_pre_clip_norm=aux_pre_clip_norm,
+                aux_post_clip_norm=aux_post_clip_norm,
+                muon_pre_clip_norm=muon_pre_clip_norm,
+                muon_post_clip_norm=muon_post_clip_norm,
             )
         # NS iteration schedule: optionally swap to NS_ITERS_COOLDOWN in the
         # last (1 - NS_COOLDOWN_START_FRAC) fraction of training.
