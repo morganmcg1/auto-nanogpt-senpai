@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #69, ~04:00 UTC)
+- **Last updated:** 2026-05-17 (poll #70, ~04:30 UTC)
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **Current baseline**: `ffs=3150 (mean), best=3125, mu=3.273735, n=6` (PR #116 SOAP-attn + trust gate, merged 2026-05-16 16:30 UTC)
 - **Merge statsig rule**: `(3.273735 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ 3.271735 for n=4, ≤ 3.272103 for n=6, ≤ 3.27245 for n=8
@@ -9,14 +9,14 @@
 
 | PR # | Student         | Hypothesis                                                              | Type    | Status                                               |
 |------|-----------------|-------------------------------------------------------------------------|---------|------------------------------------------------------|
-| 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **STRONGEST SIGNAL — n=4 confirm RUNNING.** Full n=1 screen: A→3.27769, B→3.27569, C→3.27131, **D→3.26987**, E→3.27236. Inverted-U peak at lr_mlp=0.055. n=4 confirm `t1jfegcf` step 1890/3250 (trial 1, ~58%, ETA ~08:30 UTC). Advisor approved expanding to n=6 if n=4 passes mu≤3.271735. |
-| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | NEW (assigned 04:00Z). PR #148 closed clean negative (n=4 mu=3.277365, +0.00363 worse; paired Δ=-0.00015, not statsig). Smoke then n=4. |
-| 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)   | exploit | WIP — full run `2br8i9ql` crashed at step 591 (external SIGTERM); restart smoke `b17e93pn` finished at val=3.910 (~baseline). **Full run NOT yet launched 50 min after smoke**; advisor poking. |
-| 186  | g1r5-frieren    | z-loss auxiliary regularizer (α·log²Z on partition function, α∈{1e-4,3e-4,1e-3}) | explore | WIP — α=1e-4 run `2q5w7tek` step 2697/3250 healthy; α=3e-4 runs `vdo56w51` and `o2pwcagy` **both crashed at step ~107** (possibly GPU contention from parallel launch). Advisor sent diagnostic to consolidate sequential. |
-| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | WIP — Cell A (0.015,0.015) val=3.27791 (≈ baseline). Cell B `jq083ofi` step 3028/3250 (~93%, in cooldown, val=3.293 trending). Cells C, D pending. |
-| 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | WIP — **Phase 2 launched** (after advisor ping). Cell A `j5i05ctb` lr_attn=0.025 full run step 54/3250. Cells C/D pending sequential. |
-| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | WIP — γ=0.93 full run `u44q3kng` step 1327/3250 (~41%); γ=0.97 smoke `nj7tbecg` step 48/300 in parallel queue. γ=1.03/1.07 pending. |
-| 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | WIP — Cell C `vk1x1dno` step 2732/3250 (~84%, val=3.349 pacing behind baseline). 4 prior crashes; current run past all failure points. |
+| 162  | g1r5-edward     | Per-group LR sweep: lr_mlp ∈ {0.025,0.035,0.045,0.055,0.065}        | exploit | **STRONGEST SIGNAL — n=4 confirm RUNNING.** Trial 0 (`tysiwoqg`) val=**3.270245**, ffs=3125 (beats statsig at n=1). Combined n=4 job `t1jfegcf` step ~5415/13000 (~42% overall, trial 1 step ~2165/3250 ~67%). ETA ~08:40 UTC. Advisor approved expanding to n=6 if n=4 passes mu≤3.271735. |
+| 220  | g1r5-thorfinn   | Per-head SOAP on attn (12×64×64 block-diagonal Gram, addresses structural cos_sim gap) | explore | NEW. Pod picked up assignment iter-37 at 04:28Z. Smoke launch imminent then n=4. |
+| 175  | g1r5-askeladd   | SOAP β2 cooldown annealing (β2 0.90→0.75 over last 70% of training)   | exploit | WIP — full run `b5o53z6z` step ~4769/6500 (~73%). ETA ~05:15Z. SENPAI-RESULT pending. |
+| 186  | g1r5-frieren    | z-loss auxiliary regularizer (α·log²Z on partition function, α∈{1e-4,3e-4,1e-3}) | explore | WIP — α=1e-4 run `2q5w7tek` finished (val 3.27392 ≈ baseline). α=3e-4 run `agn4is0t` step ~2836/3250 (~87%). ETA ~05:30Z. α=1e-3 launches sequential after. |
+| 194  | g1r5-tanjiro    | Asymmetric per-group WD: wd_mlp vs wd_attn sweep ({0.015,0.035}² corners) | exploit | WIP — Cell A val=3.27791 (≈ baseline). Cell B `jq083ofi` finished recently. Cells C, D pending. |
+| 209  | g1r5-fern       | Per-group lr_attn sweep: lr_attn ∈ {0.025,0.035,0.045,0.055}        | exploit | WIP — Phase 2 Cell A `j5i05ctb` lr_attn=0.025 full run in progress (advisor confirmed running via `vqjmay37` query). Cells C/D pending sequential. |
+| 210  | g1r5-nezuko     | Per-layer LR decay schedule (γ^k across 12 transformer blocks, γ∈{0.93,0.97,1.03,1.07}) | explore | WIP — γ=0.93 full run `f3pabdl5` running. γ=0.97 next, then γ=1.03/1.07. |
+| 196  | g1r5-alphonse   | SOAP col-only preconditioning for lm_head (AdamW→Muon, col-only 768×768 Gram) | exploit | WIP — Cell C running (`tsskmflu`). 4 prior crashes; current run past all failure points. |
 
 ## Closed PRs Summary
 
