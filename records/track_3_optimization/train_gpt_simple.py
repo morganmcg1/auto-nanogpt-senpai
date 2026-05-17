@@ -296,6 +296,73 @@ def log_histograms(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_ns5_sv_telemetry(
+    optimizers: list,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Sample SV distribution pre/post NS5 on a Muon param gradient.
+
+    Tells us whether the polynomial's convergence basin matches the actual
+    gradient SV spread — the key diagnostic for the coefficient sweep.
+    """
+    muon_opt = next((o for o in optimizers if isinstance(o, Muon)), None)
+    if muon_opt is None:
+        return
+    target_p = None
+    target_numel = 0
+    for group in muon_opt.param_groups:
+        for p in group["params"]:
+            if p.grad is None or p.ndim < 2:
+                continue
+            if p.numel() > target_numel:
+                target_p = p
+                target_numel = p.numel()
+    if target_p is None:
+        return
+    metrics: dict = {"trial": trial_idx, "train/step": step}
+    try:
+        with torch.no_grad():
+            G = target_p.grad.detach()
+            # Mirror the spectral-norm normalization at the top of zeropower_via_newtonschulz5
+            X = G.bfloat16()
+            if G.size(-2) > G.size(-1):
+                X = X.mT
+            X_norm = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+            pre_svs = torch.linalg.svdvals(X_norm.float()).flatten().cpu()
+            ns5_out = zeropower_via_newtonschulz5(G)
+            if G.size(-2) > G.size(-1):
+                post = ns5_out.mT
+            else:
+                post = ns5_out
+            post_svs = torch.linalg.svdvals(post.float()).flatten().cpu()
+            # Orthogonality / convergence quality on the smaller side
+            A = post.float()
+            if A.size(-2) <= A.size(-1):
+                gram = A @ A.mT
+            else:
+                gram = A.mT @ A
+            I = torch.eye(gram.size(-1), device=gram.device, dtype=gram.dtype)
+            ortho_err = float((gram - I).norm().item())
+            metrics["train/ns5/pre_sv_hist"] = wandb.Histogram(pre_svs.numpy())
+            metrics["train/ns5/post_sv_hist"] = wandb.Histogram(post_svs.numpy())
+            metrics["train/ns5/pre_sv_min"] = float(pre_svs.min())
+            metrics["train/ns5/pre_sv_max"] = float(pre_svs.max())
+            metrics["train/ns5/pre_sv_mean"] = float(pre_svs.mean())
+            metrics["train/ns5/post_sv_min"] = float(post_svs.min())
+            metrics["train/ns5/post_sv_max"] = float(post_svs.max())
+            metrics["train/ns5/post_sv_mean"] = float(post_svs.mean())
+            # Ratio of post SVs that are within 0.01 of 1.0 (good polar-factor convergence)
+            metrics["train/ns5/post_sv_frac_near_one"] = float((post_svs - 1.0).abs().lt(0.01).float().mean())
+            metrics["train/ns5/ortho_err"] = ortho_err
+            metrics["train/ns5/sampled_param_size_m"] = int(target_p.size(-2))
+            metrics["train/ns5/sampled_param_size_n"] = int(target_p.size(-1))
+    except RuntimeError as e:
+        metrics["train/ns5/error"] = str(e)
+    wandb.log(metrics, step=wandb_step)
+
+
 ########################################
 #              Dataloader              #
 ########################################
@@ -450,6 +517,37 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+NS5_A = float(os.environ.get("NS5_A", "2.0"))
+NS5_B = float(os.environ.get("NS5_B", "-1.5"))
+NS5_C = float(os.environ.get("NS5_C", "0.5"))
+NS5_TELEMETRY_INTERVAL = int(os.environ.get("NS5_TELEMETRY_INTERVAL", "100"))
+NS5_USE_SCHEDULE = os.environ.get("NS5_USE_SCHEDULE", "0") == "1"
+# Extra divisor on the initial Frobenius-norm normalization. PE schedule t=1 amplifies
+# s=1 to ~1.76, so a factor of 1.01 keeps σ_max strictly below 1/1.01 ≈ 0.99 before
+# the first iteration. 1.0 preserves baseline behavior for the fixed-coefficient path.
+NS5_NORM_FACTOR = float(os.environ.get("NS5_NORM_FACTOR", "1.0"))
+
+# Polar Express adaptive schedule (Amsel, Bredies, Persson, Musco, Gower, arXiv:2505.16932).
+# Reference: github.com/NoahAmsel/PolarExpress, optimal_composition(l=1e-3, num_iters=10,
+# safety_factor_eps=0.01, cushion=0.02). Iters 1–9 use cushioned coefficients with the
+# 1/(1.01)^k safety scaling baked in; iter 10 is the raw Jordan triple (15/8, -10/8, 3/8).
+# For 12 iters we follow the reference convention of repeating the last (Jordan) triple.
+# Pair this with NS5_NORM_FACTOR=1.01 (one-time pre-scaling before iter 1).
+NS5_SCHEDULE = (
+    ( 8.237312490495555,  -23.157747414558198,  16.680568411445915),  # t=1
+    ( 4.082441999064836,   -2.893047735332589,   0.525284925697565),  # t=2
+    ( 3.926347992254656,   -2.854746803476529,   0.531802242289499),  # t=3
+    ( 3.298218713308514,   -2.424541981026706,   0.486320083588441),  # t=4
+    ( 2.297036943455258,   -1.636625581259032,   0.400262845595363),  # t=5
+    ( 1.876380535144040,   -1.234789657772225,   0.358918875016685),  # t=6
+    ( 1.856442348565999,   -1.213244988101787,   0.356800348786622),  # t=7
+    ( 1.856436438128394,   -1.213239242710075,   0.356800396397803),  # t=8
+    ( 1.856431166797659,   -1.213228907817307,   0.356795330788477),  # t=9
+    ( 1.874995477566207,   -1.249990955154229,   0.374995477588023),  # t=10 (Jordan)
+    ( 1.874995477566207,   -1.249990955154229,   0.374995477588023),  # t=11 (Jordan repeat)
+    ( 1.874995477566207,   -1.249990955154229,   0.374995477588023),  # t=12 (Jordan repeat)
+)
+assert len(NS5_SCHEDULE) == 12
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -458,11 +556,14 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     if G.size(-2) > G.size(-1):
         X = X.mT
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    # Ensure spectral norm is at most 1 (× safety factor when using PE schedule).
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) * NS5_NORM_FACTOR + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    if NS5_USE_SCHEDULE:
+        schedule = NS5_SCHEDULE
+    else:
+        schedule = ((NS5_A, NS5_B, NS5_C),) * 12
+    for a, b, c in schedule:
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -841,6 +942,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/ns5_a": NS5_A,
+            "optimizer/ns5_b": NS5_B,
+            "optimizer/ns5_c": NS5_C,
+            "optimizer/ns5_use_schedule": NS5_USE_SCHEDULE,
+            "optimizer/ns5_norm_factor": NS5_NORM_FACTOR,
+            "optimizer/ns5_schedule": list(NS5_SCHEDULE) if NS5_USE_SCHEDULE else None,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1040,6 +1147,14 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
                 histogram_samples=args.histogram_samples,
                 param_histogram_limit=args.param_histogram_limit,
+            )
+        ns5_telemetry_due = (step == 0 or train_step % NS5_TELEMETRY_INTERVAL == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and ns5_telemetry_due:
+            log_ns5_sv_telemetry(
+                optimizers=optimizers,
+                trial_idx=trial_idx,
+                step=train_step,
+                wandb_step=wandb_step,
             )
         model.zero_grad(set_to_none=True)
         approx_training_time = training_time + (time.perf_counter() - t0)
