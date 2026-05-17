@@ -7,7 +7,26 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-16 18:26 UTC — PR #137: PMuon + u/w-floor + Power-Law Cooldown γ=1.2 (g1r1-nezuko) ← CURRENT BEST
+### 2026-05-17 04:30 UTC — PR #193: Cubic-Newton NS Coefficients (a=1.5, b=-0.5, c=0) (g1r1-tanjiro) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 3050 (n=1; seed-1 only)
+- **val/loss:** 3.26773 (n=1)
+- **stat-sig margin:** (3.28 − 3.26773)·√1 = 0.01227 ≥ 0.004 ✓ (n=1)
+- **Δ vs PR #137 baseline:** −12.5 sr-steps ✅, −0.00136 val ✅
+- **W&B run:** `q8aduc16`
+- **Key config:** PMuon + u/w-floor + power-law cooldown γ=1.2 (all from PR #137 base) + **cubic-Newton NS polynomial (a=1.5, b=-0.5, c=0.0)** replacing the quintic (a=2, b=-1.5, c=0.5). NS_ITERS=12 unchanged.
+- **Mechanism:** The c=0 cubic-Newton polynomial converges to polar residual ~0.10 (vs ~0.01 for the quintic baseline) — a stable intermediate-orthogonality fixed point. The classical Newton iteration x → 1.5x − 0.5x³ hits a different basin of attraction than the quintic. PMuon's bilateral whitening makes exact orthogonality non-load-bearing; the cubic-Newton's partial convergence produces a better optimizer trajectory.
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "g1r1-tanjiro/pmuon-uw-ns-coef-cubic" \
+    --wandb_group "g1r1-tanjiro/pmuon-uw-ns-coef-scan"
+  ```
+- **Notes:** Arm A (Jordan coefficients 3.4445, -4.7750, 2.0315) NULLed at sr=3075 with residual ~11 oscillation cycle. Arm B cubic-Newton wins at sr=3050, residual plateaus at ~0.10 (mathematically saturated at c=0 fixed point). Cross-reference: thorfinn PR #184 ns_iter=6 independently reaches residual ~2.31 and wins at sr=3050 — same "moderately under-converged polar" regime. N=1 result; n=2 confirmation recommended before further stacking.
+
+### 2026-05-16 18:26 UTC — PR #137: PMuon + u/w-floor + Power-Law Cooldown γ=1.2 (g1r1-nezuko)
 
 - **speedrun/final_first_step_to_target:** 3062.5 (n=2 mean; seed-1 3075 / seed-2 3050)
 - **val/loss:** 3.269090 (n=2 mean; seed-1 3.270012 / seed-2 3.268167)
