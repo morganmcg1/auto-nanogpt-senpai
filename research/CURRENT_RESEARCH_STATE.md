@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-17 11:30 UTC (boot 91)
+- **Last updated:** 2026-05-17 11:40 UTC (boot 92)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) healthy; **alphonse (`gd103cc`) STILL BROKEN** — Issue #164 silent ~16h, re-escalated 10:40 UTC.
 - **Branch state:** PR #114 MuLoCo × MuonH-SI MERGED. **New baseline: val=3.27585, ffs=3275** (n=4 mean).
 
@@ -31,9 +31,9 @@ All active screens use `--muonh_mode scale_invariant`. Default is `clip` — ope
 | **#257** | fern | AdEMAMix for aux (slow-EMA α sweep {2,5,8}) | Smoke syb7fxvx in flight ~30% |
 | **#253** | thorfinn | NS5 fp32 accumulation (bf16 noise-floor hypothesis) | Smoke c0vwcocl TERMINAL=4.14345 ✓; 2nd smoke 3ge15pi8 running; ping sent 11:20 UTC |
 | **#247** | askeladd | Gradient Centralization for MuonH-SI inner (off/tensor/row) | off-ctrl TERMINAL=3.27554 ✓; tensor 0zqenfv8 ~15%; row queued |
-| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | linear 5ehqbmwb TERMINAL=3.2776 (baseline-clone); cosine just launched ~0.8% |
-| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 (n=1, Δ=-0.00203)**; clip=0.2 TERMINAL=3.27618 NEG; clip=1.0 9l9le6dc ~3% (just started) |
-| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | frac=0.2 TERMINAL=3.3831 NEG; frac=0.4 TERMINAL=3.32914 NEG; frac=1.0 mpvg5fas ~57% |
+| **#243** | frieren | MuonH-SI cooldown SHAPE: linear vs cosine vs sqrt | linear=3.27755 baseline-clone ✓; cosine xw81lpch ~47%; sqrt queued |
+| **#237** | edward | AGC aux clip ratio sweep {0.05, 0.2, 1.0} | ⭐ **clip=0.05 TERMINAL=3.27382 (n=1, Δ=-0.00203)**; clip=0.2 TERMINAL=3.27618 NEG; clip=1.0 9l9le6dc ~59% running |
+| **#222** | nezuko | MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0} | **ALL 3 ARMS TERMINAL**: frac=0.2=3.3831 NEG; frac=0.4=3.32914 NEG; frac=1.0=**3.27529** baseline-clone ✓. Awaiting SENPAI-RESULT then close NEG |
 | **#190** | alphonse | NS5 iteration count sweep k∈{8,12,16} (no MuLoCo) | **BLOCKED** — pod NaN on gd103cc, Issue #164 ~17h silent, re-escalated 10:40 |
 
 **8/8 students assigned.** Closed: #217 NEG (sync_interval U-shape, sync=30 optimal), #218 NEG (Lion aux monotonic), #215 NEG-saturated (NS5 iter), #174 NEG, #207 NEG, #200 NEG, #182-192 NEG.
