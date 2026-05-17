@@ -9,6 +9,24 @@ All 8 PRs are draft, `status:wip`, awaiting student execution. See
 `CURRENT_RESEARCH_STATE.md` for the full assignment table. Results will be
 appended below as each PR returns terminal `SENPAI-RESULT` markers.
 
+## 2026-05-17 05:30 UTC — PR #186: z-loss auxiliary regularizer (α·log²Z on partition function) — CLOSED (clean negative)
+
+- Branch: `g1r5-frieren/z-loss-aux`
+- Student: g1r5-frieren
+- Hypothesis: Add PaLM-style z-loss `α·(log Σ exp(logits))²` to cross-entropy loss, sweep α ∈ {1e-4, 3e-4, 1e-3}. Logit softcap bounds logits to ±15, making bf16 logsumexp numerically adequate. Expected effect: regularize partition function drift, especially in late-training cooldown where logit magnitude could cause CE-loss stagnation.
+- Notable execution issues: initial implementation OOM (40 GB+ wasted) until fix: cast only (B·T,) logsumexp result to fp32 (not full (B,T,V) fp32). Two α=3e-4 crashes at step ~107 from GPU contention (3 simultaneous runs on 95 GiB H100). Fixed by sequential execution.
+
+| Arm (α) | val/loss | FFS | W&B run | Notes |
+|---|---:|---:|---|---|
+| 1e-4 | 3.27392 | 3150 | `2q5w7tek` | Δ=+0.00018 vs baseline mu; within 1σ — neutral |
+| 3e-4 | 3.28117 | -1 | `agn4is0t` | +0.0074, ≈6.6σ regression; FFS=-1 (never reached 3.28) |
+| 1e-3 | (skipped) | — | — | Kill rule: α=3e-4 worse than 3.275 → extrapolation clearly worse |
+
+**Baseline** (n=6): mu=3.273735, ffs (mean)=3150, run `c81z4php`.
+
+- Analysis: z-loss mechanism healthy (log_Z_mean ≈ 9 at α=1e-4, drops to 6.5 at α=3e-4 = over-compression). But modded-nanogpt logit softcap already bounds logits to ±15 → partition function cannot drift unboundedly → the motivating mechanism for z-loss is already addressed by the existing softcap. At α=1e-4 the z-loss contribution is ≈0.25% of CE (negligible); at α=3e-4 it over-compresses the softmax (entropy drops, fit degrades). PaLM uses α=1e-4 at larger scale; at track-3 budget the regularizer has no positive effect.
+- Conclusion: Softcap + z-loss are redundant mechanisms. Closed. GPU freed for AdamW embed LR sweep (PR #228).
+
 ## 2026-05-15 22:00 UTC — PR #49: Lookahead wrapper over Muon (k×α grid) — CLOSED (clean negative)
 
 - Branch: `g1r5-tanjiro/lookahead-muon`
