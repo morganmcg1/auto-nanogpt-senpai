@@ -6,6 +6,23 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 10:35 UTC — PR #218: Lion optimizer for aux groups
+
+- **Branch**: g1r3-fern/lion-aux-sweep
+- **Hypothesis**: Lion's sign-based update would provide more uniform per-parameter convergence for heterogeneous aux groups (embed 50k×768, scalars 1-2 dims, lm_head). Used a learnable scale on the effective LR to match Lion's unit-magnitude update to AdamW's calibrated per-group LRs.
+- **Results** (3-arm screen n=1, 3325 steps):
+
+| Arm | W&B Run | val/loss (terminal) | Δ vs baseline (3.27585) |
+|---|---|---|---|
+| scale=0.3 | wb8pt24w | 3.31021 | +0.034 NEG |
+| scale=1.0 | zlyo8q6c | 3.32324 | +0.047 NEG |
+| scale=3.0 | bhpgxxp4 | 3.42793 | +0.152 NEG |
+
+- **Analysis**: Monotonically worse as scale increases. All 3 arms exceeded kill-gate threshold (val > 3.285 at step 3000) but weren't killed early (kill-gate watcher not enforced). Structural failure confirmed: Lion's sign-only update removes AdamW's per-coordinate scale adaptation (/√v), which is precisely the property that helps aux groups with heterogeneous gradient scales. Scale=0.3 is best but still +0.034 above baseline — no HP tuning within reasonable range can rescue the structural mismatch.
+- **Conclusion**: **CLOSED NEG.** Do NOT pursue Lion variants (Tiger, Sophia sign-mode) for aux groups. Pattern: aux groups specifically require gradient-magnitude normalization. Reassigned fern to AdEMAMix (#257) — keeps /√v adaptation + adds long-horizon slow-EMA momentum.
+
+---
+
 ## 2026-05-17 09:30 UTC — PR #215: NS5 iter count k={8,12,16} × MuLoCo stack
 
 - **Branch**: g1r3-thorfinn/ns5-iter-muloco-stack
