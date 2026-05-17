@@ -1,17 +1,24 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-16 23:30 UTC. Post-#105 wave-3. **🔥🔥🔥🔥 FOUR WINNER CANDIDATES on three independent mechanism axes** (all clustering at fs=3250):
-  - **thorfinn #165 arm-B clip=10**: val=3.2743/fs=3250 (clip-axis, AdamW aux groups)
-  - **thorfinn #165 arm-C clip=25**: val=3.2744/fs=3250 (clip-axis confirmation — clip=10/25 effectively tied; ⇒ aux LR is saturated past clip=10 since global_norm ~55000 ⇒ both clip values bind every step)
-  - **frieren #176 arm-B NS=12→16 cooldown boost**: val=3.2733/fs=3250 (NS-schedule-axis, Muon blocks, cooldown only)
-  - **tanjiro #185 arm-A constant NS=14**: val=3.2748/fs=3250 (NS-count axis, Muon blocks, uniform schedule)
-  - All at fs=3250 (−17 steps vs baseline). Both NS results (frieren cooldown + tanjiro constant) independently confirm **higher NS iterations help**. Clip-axis is mechanically distinct (AdamW aux vs Muon blocks). **If clip and NS confirm at n=3, additively stackable** — best next merge is likely a clip × NS-iter stack.
-  - **Awaiting**: thorfinn arm-D (clip=50), tanjiro arms B/C/D (anneal variants), frieren arms C (NS=12→20, running)/D (NS=8→12, queued), then confirmation seeds.
+- **Date:** 2026-05-17 01:40 UTC. Post-#105 wave-3. **🔥🔥🔥🔥🔥🔥 SIX WINNER CANDIDATES on three independent mechanism axes** (all clustering at fs=3250). **thorfinn confirm seeds launched** at clip=10:
+  - **thorfinn #165 arm-B clip=10**: val=3.27432/fs=3250 (clip-axis, AdamW aux groups). **Confirmation seeds running**.
+  - **thorfinn #165 arm-C clip=25**: val=3.27442/fs=3250 (clip-axis — TIED with arm-B; clip saturated past clip=10)
+  - **thorfinn #165 arm-D clip=50**: val=3.27590/fs=3275 (regresses; embed eff-LR 83% lets noise re-enter AdamW). **Full sweep complete; single-peak shape with plateau confirmed**.
+  - **frieren #176 arm-B NS=12→16 cooldown boost**: val=**3.27327**/fs=3250 (NS-schedule-axis, Muon blocks, cooldown only). **BEST single-seed val**.
+  - **frieren #176 arm-C NS=12→20 cooldown boost**: val=3.27492/fs=3250 (also beats baseline; diminishing returns past NS=16 in cooldown)
+  - **tanjiro #185 arm-A constant NS=14**: val=3.27476/fs=3250 (NS-count axis, uniform schedule)
+  - **tanjiro #185 arm-B NS=14→8 linear anneal**: val=**3.27385**/fs=3250 (NS-anneal-axis; high-early then decay; 2nd-best single-seed). **Strongly cross-validates the "higher NS budget helps" mechanism**.
+  - All single-seed beat merged baseline 3.27527. **Identical fs=3250** (−17 steps each). **Mechanism convergence**:
+    - Clip-axis (thorfinn): saturated past clip=10, peak ≈ clip=10–15 (single-peak with plateau)
+    - NS-iter-axis: cooldown boost (frieren arm-B), uniform increase (tanjiro arm-A), and high-early anneal (tanjiro arm-B) ALL beat baseline. **The TOTAL NS-iter budget matters, not the schedule shape** — multiple paths to fs=3250 along this axis.
+    - Clip and NS act on **DIFFERENT parameter groups** (AdamW aux vs Muon blocks) → if both confirm at n=3, **additively stackable**.
+  - **Awaiting**: thorfinn 2 confirm seeds at clip=10 (confirm-1 ETA 03:10 UTC, confirm-2 ETA 04:50 UTC); frieren arm-D (NS=8→12, running step 2800) + 2 confirm seeds at NS=12→16; tanjiro arms C (linear 12→8, running step 2345) and D (cosine 14→8, queued) + 2 confirm seeds; askeladd arm-B (eps=1e-7, running step 1850) → arms C/E; fern arm-B (c=0.4, running step 650) → arms C/D/E; nezuko arm-B (cosine, running step 1375) → arms C/D/E; edward arm-A (clip-all, ~98% done at val=3.2786) → arms B/C/D; alphonse arm-B clean (1.5× LR + clip=5, running step 1625) → arms C/D/E.
 - **Edward #115 BC stack — CLOSED clean negative** (n=3 BC mean=3.27808 vs control 3.27637 +0.0017; baseline 3.27527 +0.0028; fs+42 steps WORSE). **Mechanism: BC and clip=5.0 redundant** (both stabilize early-step preconditioner); on the new merged baseline, beta2=0.999 default is safe to keep.
 - **Fern #163 DMR — CLOSED clean negative** (arm-D K=800 decay best variant at 3.2783/fs=3325 still regresses +0.003; #154 staleness signal noise-dominated under Muon NS orthogonalization).
 - **Nezuko #145 per-layer NS — CLOSED clean negative** (per-layer policy saturated to uniform NS=18; NS≥16 monotonically worse; cross-references frieren #138 NS-saturation + tanjiro #75 NS=8 floor).
-- **Askeladd #189 arm-D eps=1e-10 CONFIRMED unsafe** (3rd smoke `z4gco0kb` NaN with clip=5.0); arm-A (eps=1e-8) `6j6xaer1` running step 1375.
-- **In-flight**: Tanjiro #185 arm-B `j2llmiit` step 1650; Alphonse #188 arm-B `t7chrr8p` step 1275; Thorfinn #165 arm-D queued; Frieren #176 arm-C `odmxk60i` step 2300; Fern #203 arm-A `qvutgp97` step 25 (just launched); Nezuko #204 arm-A `mcqv2g69` step 725.
+- **Askeladd #189 arm-D eps=1e-10 CONFIRMED unsafe** (3rd smoke `z4gco0kb` NaN with clip=5.0). Student also caught and fixed torch version mismatch (2.10.0 → 2.11.0 forced reinstall after multiple early-step NaN smokes); arm-A (eps=1e-8) `6j6xaer1` FINISHED val=3.27480 (baseline sanity confirmed), arm-B (eps=1e-7) `fxixf0uv` running step 1850.
+- **Alphonse #188 bug-catch (00:42 UTC)**: student caught chain runner had `NANOGPT_GRAD_CLIP=0` for arms B/C; killed/relaunched with corrected script. Clean arm-B (1.5× aux LR + clip=5.0) `jt70crdd` running step 1625. Contaminated arm-B (no clip) val=3.27837 documented as side observation (uniform 1.5× aux LR without clip regresses +0.003 — implies clip is NOT a simple uniform aux LR rescaler).
+- **In-flight**: thorfinn #165 confirm-1 `lxkp0jmx` step 250; frieren #176 arm-D `35tz06er` step 2800; tanjiro #185 arm-C `4hywznwe` step 2345; askeladd #189 arm-B `fxixf0uv` step 1850; alphonse #188 arm-B clean `jt70crdd` step 1625; fern #203 arm-B `gi91uvhd` step 650; nezuko #204 arm-B cosine `hczgtsue` step 1375; edward #206 arm-A `je7dvkf0` step 3300 (~98% done at val=3.27864).
 - **NEW assignment to edward (23:30 UTC)**:
   - **#206 edward**: Per-group gradient clipping (4 arms: all/aux/muon/none) — decisive mechanism test of #105's "clip = aux LR rescaler" claim. Complements alphonse #188 on the same aux-LR axis.
 - **Most recent research direction from human researcher team:** none on file
@@ -90,14 +97,14 @@
 
 | PR | Student | Hypothesis | Status |
 |----|---------|-----------|--------|
-| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost 🔥 | arm-A 3rd `sara3jjw` val=3.2766/fs=3275 ✓. **arm-B (NS=12→16) `2xp7ut5r` FINISHED val=3.2733/fs=3250 ✓✓ — BEATS BASELINE single-seed**. arm-C (NS=12→20) and arm-D (NS=8→12 balanced) queued. After all arms terminal: 2 confirmation seeds at best arm. Mechanism: #138 cooldown-precision prediction confirmed. |
-| **#185** | **tanjiro** | **NS Iteration Annealing** 🔥 | Smoke `ugzl4jqe` val=4.869 PASS. **arm-A (constant NS=14) `qit8x8ux` FINISHED val=3.2748/fs=3250 ✓✓ — BEATS BASELINE single-seed**. arm-B (14→8 linear) `j2llmiit` step 1650 running. Arms C/D queued. **Strongly cross-validates frieren #176 finding: higher NS iterations help (NS=14 constant vs NS=12→16 cooldown both at fs=3250).** |
-| **#165** | **thorfinn** | **Clip value extension sweep** 🔥🔥 | arm-A `f6ym89r7` FINISHED val=3.27756/fs=3300. **arm-B (clip=10) `84um64gj` FINISHED val=3.2743/fs=3250 ✓✓ — BEATS BASELINE single-seed**. **arm-C (clip=25) `2btntm04` FINISHED val=3.2744/fs=3250 ✓✓ — TIED with arm-B**. Clip=10 and clip=25 effectively tied → aux LR saturates past clip=10 (global_norm ≈55000 ⇒ both bind every step). arm-D (clip=50) queued. After all arms terminal: launch 2 confirmation seeds at best arm. **Strongest single-axis merge candidate.** |
-| **#188** | **alphonse** | **AdamW aux LR sweep** | Smoke `a3jblwez` PASS. **arm-A (1.0× baseline) `1yu9sfbb` FINISHED val=3.2757/fs=3275** (within noise of baseline). arm-B (1.5×) `t7chrr8p` step 1275 running. Arms C/D/E sequential. Direct test of clip=5.0 → aux LR rescaler mechanism. |
-| **#189** | **askeladd** | **Muon² preconditioner eps sweep** | First 2 smokes ran with NANOGPT_GRAD_CLIP=0 (PR-body bug). 3rd smoke `z4gco0kb` with clip=5.0 AND eps=1e-10 ALSO NaN; arm-D dropped. smoke-1e-9-clipped-v2 `mpxwictd` step 100 val=4.81 PASS. **arm-A (eps=1e-8 control) `6j6xaer1` step 1375 running**. Arms B/C/E sequential. |
-| **#206** | **edward** | **Per-group gradient clipping** 🆕 | NEW 23:30 UTC. 4 arms: all/aux/muon/none. Decisive mechanism test of #105's "clip = aux LR rescaler" claim. ~10-line code change; smoke gate then arms A-D sequential. |
-| **#203** | **fern** | **NS polynomial coefficient sweep** 🆕 | NEW 22:55 UTC. 5 arms over c∈{0.35,0.4,0.5,0.6,0.7} in Chebyshev quintic family (f(x) = (1.5+c)·x + (-0.5-2c)·x³ + c·x⁵). Tests if Muon² v-EMA-flattened spectrum favors different polynomial than current (a=2, b=-1.5, c=0.5). Env-var NANOGPT_NS_C single-line change. |
-| **#204** | **nezuko** | **Cooldown shape sweep** 🆕 | NEW 22:55 UTC. 5 arms over LR-decay curves (linear/cosine/sqrt/quadratic/exp). Orthogonal to her closed #106 (cooldown_frac timing). Env-var NANOGPT_COOLDOWN_SHAPE in `set_hparams`. |
+| **#176** | **frieren** | **NS Iteration Schedule** — cooldown boost 🔥 | arm-A `sara3jjw` val=3.2766/fs=3275 ✓. **arm-B (NS=12→16) `2xp7ut5r` FINISHED val=3.27327/fs=3250 ✓✓ — BEST single-seed val on board**. **arm-C (NS=12→20) `odmxk60i` FINISHED val=3.27492/fs=3250 ✓** (also beats baseline; diminishing returns past NS=16). arm-D (NS=8→12 balanced) `35tz06er` step 2800 (running, ETA terminal ~01:50 UTC). After arm-D: 2 confirmation seeds at arm-B's NS=12→16. Mechanism: #138 cooldown-precision prediction confirmed. |
+| **#185** | **tanjiro** | **NS Iteration Annealing** 🔥 | Smoke `ugzl4jqe` PASS. **arm-A (constant NS=14) `qit8x8ux` FINISHED val=3.27476/fs=3250 ✓✓**. **arm-B (14→8 linear high-early anneal) `j2llmiit` FINISHED val=3.27385/fs=3250 ✓✓ — 2ND BEST single-seed val** (after frieren arm-B). arm-C (12→8 linear) `4hywznwe` step 2345 running, ETA terminal ~02:00 UTC. arm-D (14→8 cosine) queued, ETA terminal ~03:40 UTC. After all arms terminal: 2 confirmation seeds at best arm. **Cross-validates "higher NS iters help" with three independent paths to fs=3250**. |
+| **#165** | **thorfinn** | **Clip value extension sweep** 🔥🔥 | **4-arm sweep COMPLETE**. arm-A clip=5 `f6ym89r7` val=3.27756/fs=3300. **arm-B clip=10 `84um64gj` val=3.27432/fs=3250 ✓ — BEST single-seed**. arm-C clip=25 `2btntm04` val=3.27442/fs=3250 ✓ (tied with B). arm-D clip=50 `7lpa9jmh` val=3.27590/fs=3275 (regresses; embed eff-LR 83% lets noise re-enter). **Single-peak with plateau confirmed; peak at clip≈10–15.** **Confirmation seeds running at clip=10**: confirm-1 `lxkp0jmx` step 250, confirm-2 launching after. ETA confirm-2 terminal ~04:50 UTC. **Strongest single-axis merge candidate.** |
+| **#188** | **alphonse** | **AdamW aux LR sweep** | Smoke PASS. **arm-A (1.0× baseline) `1yu9sfbb` FINISHED val=3.27568/fs=3275** (within noise). **BUG-CATCH 00:42 UTC**: chain runner had `NANOGPT_GRAD_CLIP=0` for arms B/C — student killed/relaunched. Clean arm-B (1.5× LR + clip=5) `jt70crdd` step 1625 running. Contaminated arm-B (no clip) `t7chrr8p` val=3.27837 documented as informative side observation. Arms C/D/E sequential. |
+| **#189** | **askeladd** | **Muon² preconditioner eps sweep** | Multiple smoke debugging: torch 2.10→2.11 fix + clip=5.0 enforcement after PR-body bug. arm-D (eps=1e-10) dropped (genuinely unsafe). **arm-A (eps=1e-8 baseline) `6j6xaer1` FINISHED val=3.27480 — baseline sanity confirmed**. arm-B (eps=1e-7) `fxixf0uv` step 1850 running (~55% through). Arms C/E sequential. Awaiting student terminal SENPAI-RESULT post for arm-A. |
+| **#206** | **edward** | **Per-group gradient clipping** 🆕 | Smoke `e2b9deio` val=4.837 PASS. **arm-A (clip ALL groups, baseline reproduction) `je7dvkf0` step 3300/3350 — val=3.27864 nearly terminal** (~+0.003 above baseline mean, plausible single-seed regression). Arms B (aux-only), C (muon-only), D (none) queued. Decisive mechanism test of #105's "clip = aux LR rescaler" claim. |
+| **#203** | **fern** | **NS polynomial coefficient sweep** 🆕 | Smoke @ c=0.7 `xp04nnav` val=4.81033 PASS. **arm-A (c=0.5 baseline NS) `qvutgp97` FINISHED val=3.27517 — baseline sanity within noise**. arm-B (c=0.4) `gi91uvhd` step 650 running. Arms C/D/E will sequence. Tests if Muon² v-EMA-flattened spectrum favors different Chebyshev quintic than baseline. |
+| **#204** | **nezuko** | **Cooldown shape sweep** 🆕 | **arm-A (linear, baseline reproduction) `mcqv2g69` FINISHED val=3.27581** (close to baseline 3.27527 within noise). arm-B (cosine) `hczgtsue` step 1375 running. Arms C (sqrt), D (quadratic), E (exp) queued. Tests if LR-decay curve shape during cooldown matters (orthogonal to her closed #106 which tested cooldown_frac timing). |
 
 ## Infra-blocked
 
@@ -107,22 +114,32 @@
 
 **#105 merged at 15:30 UTC as first wave-3 winner.** Branch baseline: val=3.27527/fs=3266.7 (n=3).
 
-**🔥🔥🔥🔥 FOUR WINNER CANDIDATES (23:30 UTC), all at fs=3250 from three independent mechanism axes**:
-- **thorfinn #165 arm-B clip=10**: val=3.2743/fs=3250 (clip-axis on AdamW aux groups)
-- **thorfinn #165 arm-C clip=25**: val=3.2744/fs=3250 (clip-axis — TIED with arm-B; clip is saturated past clip=10)
-- **frieren #176 arm-B NS=12→16 cooldown boost**: val=3.2733/fs=3250 (NS-iter-schedule on Muon blocks, cooldown only)
-- **tanjiro #185 arm-A constant NS=14**: val=3.2748/fs=3250 (NS-iter-count on Muon blocks, uniform schedule)
+**🔥🔥🔥🔥🔥🔥 SIX WINNER CANDIDATES (01:40 UTC), all at fs=3250 from three independent mechanism axes** (sorted by val/loss):
 
-All single-seed beat merged baseline 3.27527/3266.7. **Identical fs=3250** (−17 steps each). **Mechanism convergence**:
-- Clip-axis: arms B (clip=10) and C (clip=25) tied at val ≈ 3.2744 ⇒ the clip threshold is **saturated past clip=10**; both bind every step since global_norm ≈55000 (4 orders of magnitude above threshold).
-- NS-iter axis: constant NS=14 (tanjiro) and NS=12→16 cooldown (frieren) both land at fs=3250 ⇒ **higher NS iters help, especially during cooldown** (frieren's val=3.2733 is slightly better, suggesting cooldown-only is more efficient than uniform).
-- Clip and NS act on **DIFFERENT parameter groups** → if both confirm at n=3, may be **additively stackable** into next-merge candidate.
+| Rank | PR | Arm | Mechanism | val/loss | fs |
+|------|-----|-----|-----------|---------:|---:|
+| 1 | #176 | arm-B | NS=12→16 cooldown boost | **3.27327** | 3250 |
+| 2 | #185 | arm-B | NS=14→8 linear anneal (high-early) | **3.27385** | 3250 |
+| 3 | #165 | arm-B | clip=10 | **3.27432** | 3250 |
+| 4 | #165 | arm-C | clip=25 (tied with B) | 3.27442 | 3250 |
+| 5 | #185 | arm-A | NS=14 constant (uniform increase) | 3.27476 | 3250 |
+| 6 | #176 | arm-C | NS=12→20 cooldown boost | 3.27492 | 3250 |
 
-**Next priority sequencing (post-arms-complete)**:
-1. Once #176 arms C/D terminal, launch 2 confirm seeds at NS=12→16 cooldown.
-2. Once #165 arm-D terminal, launch 2 confirm seeds at clip=10 (since clip=10/25 tied, use cheaper threshold).
-3. Once #185 arm-B/C/D terminal, evaluate against tanjiro's arm-A; if no anneal variant beats constant NS=14, the NS-iter mechanism is fully described.
-4. If clip and NS both confirm, design **clip=10 × NS=12→16 cooldown stack** PR for the next merge.
+All single-seed beat merged baseline 3.27527. **Identical fs=3250** (−17 steps each). **Mechanism convergence on three orthogonal axes**:
+- **Clip-axis** (thorfinn #165): clip=10 and clip=25 tied; single-peak with plateau between embed eff-LR 17–42%; **peak at clip≈10–15**. Full sweep complete; confirm seeds launching.
+- **NS-iter-axis** (frieren #176 + tanjiro #185): TOTAL NS-iter budget matters more than the schedule shape. Multiple paths to fs=3250 work: constant NS=14, cooldown-only NS=12→16, cooldown-only NS=12→20, high-early NS=14→8 anneal — all beat baseline. The cooldown-precision prediction from frieren #138 is confirmed but the "high-early" alternative (tanjiro arm-B) is ALSO valid, suggesting it's the integrated budget that matters.
+- **Cross-axis stacking**: clip-axis (AdamW aux groups) and NS-iter-axis (Muon blocks) act on **DIFFERENT parameter groups** → if both confirm at n=3, **additively stackable** into next-merge candidate.
+
+**Next priority sequencing**:
+1. **thorfinn #165 confirm-1/2** (running/queued at clip=10). ETA confirm-1 03:10 UTC, confirm-2 04:50 UTC. **First merge candidate**.
+2. **frieren #176 arm-D terminal** (~01:50 UTC) → launch 2 confirm seeds at NS=12→16. **Second merge candidate**.
+3. **tanjiro #185 arms C/D terminal** (~02:00/03:40 UTC) → launch 2 confirm seeds at best arm (likely arm-B NS=14→8 anneal). **Third merge candidate**.
+4. **edward #206** arm-A almost done; arms B (aux-only clip), C (muon-only clip), D (no clip) sequential. **Decisive mechanism test of clip-as-aux-LR-rescaler.**
+5. **alphonse #188** clean restart in flight; full A/B/C/D/E sequence of uniform LR scaling. **Cross-test of clip-as-aux-LR-rescaler.**
+6. **askeladd #189** arm-A baseline sanity confirmed (3.27480); arm-B (eps=1e-7) and C (eps=1e-9) test preconditioner floor sensitivity.
+7. **fern #203** arm-A baseline sanity (3.27517); arm-B (c=0.4) probes Chebyshev quintic family shifted from default.
+8. **nezuko #204** arm-A linear baseline; arms B/C/D/E sweep cooldown LR-decay shape.
+9. **If clip and NS-iter both confirm at n=3, design clip=10 × NS=12→16 stack** PR for next merge.
 
 **Statistical target**: `(3.28 − mu(n=3)) × √3 ≥ 0.004` → mu ≤ 3.27769. New bar is to beat 3.27527.
 

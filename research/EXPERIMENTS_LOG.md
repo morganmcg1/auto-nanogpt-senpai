@@ -523,3 +523,36 @@ Trajectory dissection revealed the mechanism: Lookahead HELPS in the pre-cooldow
 - **Cross-result**: same mechanism, two baselines, opposite outcomes — pre-#105 BC won by 0.0013 (n=3 mu=3.27532 vs old 3.27649); post-#105 BC loses by 0.0017 (n=3 mu=3.27808 vs new 3.27637). Clean example of how a mechanism's value depends on the rest of the recipe.
 - **Important downstream implication**: On the merged baseline, **beta2=0.999 (default) is safe to keep** — no BC needed, no beta2=0.98 retune needed. Subsequent PRs in the wave-3 frontier do not need to consider BC variants.
 - **Follow-up action**: edward assigned #206 (Per-group gradient clipping — decisive test of the clip-as-aux-LR-rescaler mechanism story; complements alphonse #188 aux LR sweep on the same mechanism axis).
+
+## 2026-05-17 01:30 UTC — PR #165: Clip value extension sweep (thorfinn) — 4-arm sweep COMPLETE; CONFIRMATION SEEDS LAUNCHING
+
+- **Branch:** g1r4-thorfinn/clip-extension
+- **Hypothesis:** Extend the gradient-clip sweep above merged baseline clip=5.0 to find the true optimum. If clip acts as a uniform aux-LR rescaler (per #105 mechanism story), val should monotonically improve as clip loosens until embed-group eff-LR ratio crosses ~0.5 and gradient noise re-enters the AdamW update.
+- **Results (4 arms, single seed each, all at NS=12 + Muon² + clip-as-labelled + post-#105 baseline config):**
+
+| Arm | clip | val/loss | first_step_to_target | Δval vs baseline (3.27527) | Δfs vs baseline (3266.7) |
+|-----|------|----------|---------------------:|---------------------------:|-------------------------:|
+| A | 5.0 (baseline reproduction) | 3.27756 | 3300 | +0.00229 | +33.3 |
+| **B** | **10.0** | **3.27432** | **3250** | **−0.00095** | **−16.7** ✓ |
+| C | 25.0 | 3.27442 | 3250 | −0.00085 | −16.7 (tied with B) |
+| D | 50.0 | 3.27590 | 3275 | +0.00063 | +8.3 |
+
+- **W&B run IDs**: arm-A `f6ym89r7`, arm-B `84um64gj`, arm-C `2btntm04`, arm-D `7lpa9jmh`. All clean shutdowns, no NaN, train_time ~6020s each.
+- **Per-group telemetry (last-step summary)**:
+
+| Arm | clip | grad_norm_embed | embed eff-LR ratio | grad_norm_lmhead | lmhead eff-LR ratio | pre-clip global norm |
+|-----|------|-----------------|-------------------:|------------------|--------------------:|---------------------:|
+| A | 5.0  |  59.5 | 0.084 | 12,394 | 0.0004 | 34,953 |
+| B | 10.0 |  59.25 | 0.169 | 12,474 | 0.0008 | 36,218 |
+| C | 25.0 |  59.75 | 0.418 | 12,456 | 0.0020 | 35,789 |
+| D | 50.0 |  60.0 | 0.833 | 12,746 | 0.0039 | 34,992 |
+
+- **Mechanism — single-peak with plateau:**
+  - 5 → 10: −0.00324 (steep improvement; embed at 17% eff-LR is the sweet spot)
+  - 10 → 25: +0.00010 (local plateau; embed eff-LR 17%→42% is statistically flat)
+  - 25 → 50: +0.00148 (regression; embed crosses 50% eff-LR, gradient noise re-enters AdamW update)
+  - LM-head eff-LR stays microscopic (<0.4%) throughout — lm_head is clip-saturated, embed is the load-bearing component
+  - Peak location: clip ≈ 10–15
+- **Confirmation plan**: 2 seeds at clip=10 (best single-seed). Launched 01:25 UTC. ETA confirm-1 terminal ~03:10 UTC, confirm-2 ~04:50 UTC.
+- **Merge gate math**: need mu(n=3) ≤ 3.27769 for stat-sig. Existing seed 3.27432 leaves budget — remaining 2 seeds need mean ≤ 3.27937, within seed envelope from #105 (range 0.0027).
+- **Cross-PR co-discovery**: frieren #176 arm-B (NS=12→16 cooldown) val=3.27327/fs=3250 and tanjiro #185 arm-B (NS=14→8 anneal) val=3.27385/fs=3250 both ALSO at fs=3250 on completely orthogonal mechanism axes. If clip and NS-iter axes both confirm at n=3, the natural next merge is a clip=10 × NS-schedule stack.
