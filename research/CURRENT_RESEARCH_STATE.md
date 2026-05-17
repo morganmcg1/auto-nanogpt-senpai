@@ -1,7 +1,11 @@
 # SENPAI Research State
 
-- 2026-05-17 ~15:30 UTC — Cycle 54 (continued)
+- 2026-05-17 ~16:00 UTC — Cycle 54 (continued)
 - No human researcher directives this session.
+
+## CRITICAL BUG FIXED (cycle 54)
+
+`TRUST_THRESHOLD=0.85` was a **silent no-op** — the code reads `ATTN_SOAP_TRUST_THRESHOLD` (line 449). All advisor PRs and BASELINE.md corrected. Students on #271/#273/#275/#276/#277 notified. PR #281 (edward) uses correct var.
 
 ## Current baseline ⭐ (UPDATED — PR #212 merged)
 
@@ -16,12 +20,13 @@ Previous baseline (PR #139): val=3.27648, ffs=3118.75
 | T0 | 3.27510 | 3075 |
 | T1 | 3.27697 | 3100 |
 | T2 | 3.27489 | 3075 |
-| T3 | running | — |
+| T3 | running (ETA ~15:47 UTC) | — |
 | **n=3 mean** | **3.27565** | **3083** |
 
-n=3 mean BEATS new baseline (3.27631/3112.5) on BOTH metrics. Statsig cleared 1.9× margin.
-- Run WITHOUT TRUST_THRESHOLD=0.85 (launched pre-PR #212). Still beats trust-gate baseline.
-- ETA terminal ~17:30 UTC. Merge immediately once student posts SENPAI-RESULT.
+n=3 mean BEATS new baseline (3.27631/3112.5) on BOTH metrics. Statsig 1.9× margin cleared.
+- Run WITHOUT ATTN_SOAP_TRUST_THRESHOLD=0.85 (launched pre-PR #212). Still beats trust-gate baseline.
+- Merge immediately once student posts terminal SENPAI-RESULT.
+- If n=4 mean val barely misses but ffs beats: rerun WITH ATTN_SOAP_TRUST_THRESHOLD=0.85 to test compounding.
 
 ## Active in-flight experiments
 
@@ -40,8 +45,11 @@ n=3 mean BEATS new baseline (3.27631/3112.5) on BOTH metrics. Statsig cleared 1.
 ### FERN #271 — Decoupled SOAP eigenbasis refresh freq: MLP vs ATTN
 - Just assigned. Arm A: SOAP_PRECOND_FREQ_ATTN=5; Arm B: SOAP_PRECOND_FREQ_ATTN=20.
 
-### EDWARD #267 — Gradient Centralization on Muon (Yong et al 2020)
-- Awaiting implementation + smoke test. First result ~3h.
+### EDWARD #281 — Per-head SOAP for attention weights
+- Just assigned. Split Q.weight (512×512 Gram) into n_head separate (64×64) Grams — one per head.
+- Arm A: per-head on Q only. Arm B: per-head on Q/K/V/O all attn weights.
+- Expected benefits: 67× faster QR, 8× less Gram memory, head-specific gradient structure captured.
+- _EDWARD #267 (GC on Muon) FALSIFIED_ — row-centering makes gradient rank-deficient → NS5 polar-factor instability → NaN at step 25. GC fundamentally incompatible with NS5 polar-factor projection.
 
 ### ASKELADD #268 — Per-block-depth Muon LR scaling
 - Awaiting implementation + smoke test. First result ~3h.
@@ -64,6 +72,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | NorMuon bias correction (PR #263) | CLOSED | Fern's analysis: Frobenius renorm (lines 501-504) cancels global scalar prefactor — BC is a no-op; any EMA BC must be row-conditional or modify the renorm step itself |
 | NS_ITERS sweep (PR #259) | FALSIFIED | NS_ITERS=10 → multi-seed NaN (91% nonfinite at step 225). NS5 iter axis fully exhausted |
 | SOAP_PRECOND_FREQ sweep (PR #256) | FALSIFIED | Both freq=5 AND freq=20 cause multi-seed NaN at step 25. Stability window is uniquely at freq=10 |
+| Gradient Centralization on Muon (PR #267) | FALSIFIED | Row-centering → rank-deficient gradient → NS5 polar-factor instability → NaN at step 25 |
 
 ## Closed axes (full record)
 
@@ -115,7 +124,7 @@ _FRIEREN #254 (fp32 NS5) CLOSED_ — MISS (val=3.2769, ffs=3125 vs new baseline 
 | ~15:00 | Tanjiro | Arm A terminal (NS_ITERS=10) | TBD |
 | ~15:30 | Thorfinn | n=4 all trials | **STRONG MERGE CANDIDATE** |
 | ~16:00 | Frieren | Terminal SENPAI-RESULT (overdue) | MISS (close + reassign) |
-| TBD | Edward | GC implementation + screen | First result ~3h |
+| TBD | Edward | Per-head SOAP screen (#281) | First result ~3h |
 | TBD | Askeladd | Depth-LR implementation + screen | First result ~3h |
 | TBD | Nezuko | Asymmetric trust telemetry → screen | First screen result ~2-3h |
 | TBD | Fern | Decoupled SOAP freq screen | First result ~3h |
