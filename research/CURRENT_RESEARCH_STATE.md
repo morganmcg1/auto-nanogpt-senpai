@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 13:30 UTC — PR #231 CLOSED (mu axis: 0.90 NULL sr=3125; 0.99 diverged, fern early-killed step 1957). PR #274 assigned fern (COOLDOWN_POWER retune {1.0, 1.4} — never retuned on γ_power=0.4 base). PR #272 thorfinn AdamW eps scan just assigned. PR #225 CLOSED Wave 7 NULL on n=2. PR #250 tanjiro arm A FINISHED sr=3100 — student SENPAI-RESULT pending. 8 students WIP.
+- **Last update:** 2026-05-17 13:40 UTC — PR #274 fern PICKED UP (arm A `dnecfiuq` cooldown-power=1.0 step 25). PR #272 thorfinn arm A `edobz4wx` eps=1e-8 running step 250. PR #229 alphonse arm A FINISHED sr=3075 val=3.2692 NULL; arm B `xphiroo2` (a=1.7) step 2925/3250 (~90%) val=3.29 — finishing ~14:00 UTC. PR #250 tanjiro arm A FINISHED sr=3100 NULL; arm B `8tbjkmnc` (c=+0.25) step 575 — student terminal SENPAI-RESULT still pending both arms. 8 students productively WIP, zero idle.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -17,14 +17,14 @@ Previous baselines:
 
 | PR  | Student     | Mechanism                                                           | Status (13:15 UTC) |
 | --- | ----------- | ------------------------------------------------------------------- | ------------------ |
-| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Just assigned |
-| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup 50) step ~575 val=3.81 — running. 1 prior step-0 fail. |
-| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) step 1925 (~59%). Arm B pending. |
-| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `qkxe6okw` FAILED step 1. Awaiting terminal SENPAI-RESULT. |
-| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 550 val=3.82 — running. |
-| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Just assigned |
-| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 (NULL on stale pre-#202 base). Arm B `zu55900j` (β1=0.9) step 1375 (~42%) val=3.58 — running. |
-| **#229** | **alphonse** | NS coef (a,b) line scan {a=1.3, 1.7} | Arm A DONE sr=3075 NULL. Arm B `xphiroo2` (a=1.7) step 2375 (~73%) val=3.37 — running. |
+| **#272** | **thorfinn** | AdamW eps scan {1e-8, 1e-9} — never-scanned 100× deviation from default | Arm A `edobz4wx` (eps=1e-8) step 250 val=4.05 — running |
+| **#261** | **frieren** | PMuon LR warmup scan {50, 150 steps} — fresh mechanism | Arm A `2sjpvck2` (warmup 50) step 1000 val=3.66 — running. 1 prior step-0 fail. |
+| **#258** | **nezuko** | Skylight u/w-floor ablation: TARGET_UW ∈ {0.0, 0.7} | Arm A `yrvf83c0` (TARGET_UW=0.0) step 2425 (~75%) val=3.36. Arm B pending. |
+| **#250** | **tanjiro** | NS coef c-scan on f'(1)=0 family: c ∈ {-0.25, +0.25} | Arm A `ecwyk0ej` (c=-0.25) FINISHED sr=3100 val=3.273 NULL. Arm B `8tbjkmnc` (c=+0.25) step 575 val=3.81 — running. Awaiting terminal SENPAI-RESULT. |
+| **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 1100 val=3.68 — running. |
+| **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 25 — just picked up |
+| **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `zu55900j` (β1=0.9) step 1600 (~49%) val=3.55 — running. |
+| **#229** | **alphonse** | NS coef (a,b) line scan {a=1.3, 1.7} | Arm A `la9l6roq` FINISHED sr=3075 val=3.2692 NULL. Arm B `xphiroo2` (a=1.7) step 2925/3250 (~90%) val=3.29 — finishing ~14:00 UTC. |
 
 ## Recently closed
 
