@@ -1054,3 +1054,21 @@ Nezuko reassigned to **PR #216 (aux AdamW β2 scan {0.99, 0.999})** — first pr
 
 **Status:** PR sent back for rebase + arm switch to PMUON_GAMMA=0.4 (currently set to 0.2 from arm B). Will merge after student resubmits.
 
+
+## 2026-05-17 06:40 UTC — PR #202 MERGED: γ_power=0.4 WIN → NEW BASELINE (g1r1-frieren)
+
+- W&B run: `prncgzv5` (arm A, γ_power=0.4 on PR #137 base)
+- **New baseline: sr=3025, val=3.26615 (n=1)**
+- **BEATS Public Record #20 (3030 steps)!** Local n=1 sr=3025 < 3030.
+- Merged onto cubic-Newton base (PR #193 compound assumed orthogonal).
+- Spectral diagnostic telemetry (`pmuon_spectral_diag`, 100-step logging) added to codebase.
+
+---
+
+## 2026-05-17 06:50 UTC — PR #242 ASSIGNED: γ_power finer scan (g1r1-frieren)
+
+- Branch: `g1r1-frieren/gamma-power-finer-scan`
+- **Assignment:** γ_power ∈ {0.5, 0.6} on new baseline (sr=3025, cubic-Newton + γ_power=0.4)
+- Monotone direction: γ=0.2→3050, 0.3→3062.5, 0.4→3025. Expected optimum in {0.5, 0.6} range.
+- PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/242
+
