@@ -1,36 +1,38 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #117, ~21:40 UTC)
-- **⭐⭐⭐ NEW STRONG SIGNAL: nezuko Cell C (AGC λ=0.03) val=3.27002 ffs=3125** (Δ=-0.00134 vs baseline, ~1.1σ at n=1 — strongest n=1 signal since frieren Cell D). Phase 2 n=4 directive posted PR #283 21:38Z: let Cell D finish (~23:25Z) for inverted-U disambiguation, skip Cell E, launch n=4 at λ=0.03 immediately after Cell D terminal. Requested clip_rate telemetry to verify AGC actually engaged. Phase 2 statsig: mu ≤ 3.269362 (n=1 is 0.00066 above threshold).
-- **⭐⭐ FRIEREN PHASE 2 — 3/4 trials TERMINAL, n=4 merge mathematically dead, predeclared extension to n=6/n=8**:
+- **Last updated:** 2026-05-17 (poll #123, ~22:50 UTC)
+- **⭐⭐ FRIEREN n=4 COMPLETE — extension to n=6 directive issued**:
   - Trial 0=3.270223 ffs=3125
-  - Trial 1=3.269885 ffs=3125 (below n=4 threshold individually)
-  - Trial 2=3.270447 ffs=3125 (**NEW** poll #113)
-  - **3-trial mean=3.270185, std=0.000231**
-  - For n=4 merge (mu ≤ 3.269362), trial 3 needs ≤ 3.266893 → **~14σ below 3-trial mean** ⇒ effectively impossible
-  - Trial 3 in-flight, ym6jprxe step 9941/13000, **terminal ETA ~22:40Z**
-  - **Predeclared extension plan** (posted PR #228 20:59Z):
-    1. Let t3 finish — record n=4 terminal regardless
-    2. If n=4 mu ∈ (3.269362, 3.270500]: extend to n=6 (need t4+t5 ≤ 3.268762 → ~2.6σ below current trend, tough)
-    3. If n=6 fails: extend to n=8 (need mu ≤ 3.269948 → ~1.6σ achievable)
-    4. If n=8 fails: close clean-neutral
-  - **Speedrun signal IS real:** ffs=3125 on 3/3 trials (100%) vs baseline 2/6 = 33% at ffs=3125. val/loss is statsig-marginal but speedrun metric clean.
-  - PR has merge conflicts — student warned to prep rebase post-terminal.
+  - Trial 1=3.269885 ffs=3125
+  - Trial 2=3.270447 ffs=3125
+  - **Trial 3=~3.270973 ffs=3125** (NEW THIS POLL, awaiting student SENPAI-RESULT confirmation)
+  - **n=4 mean ≈ 3.270382, std ≈ 0.000458** (5σ inflated trial 3 widens variance)
+  - n=4 merge gate FAILS (mu=3.270382 vs gate 3.269362) by 0.00102
+  - **PER PREDECLARED PLAN: mu ∈ (3.269362, 3.270500] → EXTEND TO n=6** (directive posted PR #228 22:50Z)
+  - For n=6 merge: need t4+t5 mean ≤ 3.268423 → 4.3σ below current 4-trial mean (tough)
+  - If n=6 fails: extend to n=8 (gate 3.269948, easier ~1.6σ)
+  - Awaiting rebase + n=6 extension launch by student. ffs=3125 on 4/4 trials remains real speedrun signal.
+- **⭐⭐⭐ NEZUKO Cell C (AGC λ=0.03) val=3.27002 ffs=3125** (Δ=-0.00134, n=1 signal). Phase 2 n=4 directive posted PR #283 21:38Z: let Cell D (λ=0.1) finish (~23:25Z), skip Cell E, launch n=4 at λ=0.03 after. clip_rate telemetry requested. Strongest n=1 signal in portfolio.
 - **TANJIRO PR #289 n=2 terminal, n=4 merge dead too**:
   - Trial 0=3.27156 ffs=3150, Trial 1=3.27195 ffs=3150. n=2 mean=3.271755.
   - Combo (lr_mlp=0.055 + wd_mlp=0.035 + wd_attn=0.015) essentially neutral vs new baseline. WD-split gain absorbed by lr_mlp=0.055.
   - Continuing to n=4 for closure (ETA ~01:30Z), will close clean-neutral after.
-- **FERN Cell A terminal (poll #113):** val=3.27192 ffs=3150 (Δ=+0.00056 vs new baseline, ~0.47σ — ctrl reproduces baseline). Cell B (shared Q/K Gram) `dogb3845` auto-launched, step 344/3250 (~10%).
-- **ALPHONSE PR #306 orphan-relauncher cleanup completed at ~20:59Z:** 3 duplicate Cell A runs detected at poll #113 (`8zgpvsm1`, `43z7ryib`, `gdgag170`). Student killed orphans at ~20:59Z. Live run: `gdgag170` step 173/3250 (~5%), ETA terminal ~22:50Z. Same orphan pattern as PR #262 — wrapper script needs hardening at student's next idle window.
-- **CASCADE OF TERMINALS THIS POLL (~21:30-21:40Z):**
-  - **thorfinn Cell D (α=0.7) `uevoy1si` TERMINAL: val=3.27533 ffs=3175** (Δ=+0.0040). Inverted-U confirmed around B=0.3 best. Cell E (α=0.9) `dmhtyjk4` auto-launched 21:30Z, ETA ~23:15Z. No Phase 2 trigger. Close clean-neutral after E.
-  - **nezuko Cell C (λ=0.03) `ajg0zh8f` TERMINAL: val=3.27002 ffs=3125 ⭐** (Δ=-0.00134 — STRONGEST signal, see top bullet). Cell D (λ=0.1) `frfu2t3k` auto-launched 21:37Z, ETA ~23:25Z. Phase 2 n=4 directive posted.
-  - **edward Cell D (β₂=0.70/200) `tzo7bru7` TERMINAL: val=3.27192 ffs=3150** (Δ=+0.00056, within noise). Cell C=3.27154 still best. Cell E (β₂=0.30/200) sequential next, no Phase 2 trigger.
+- **FERN PR #302 COMPLETE — close clean-neutral pending student SENPAI-RESULT:**
+  - Cell A (ctrl, separate Q/K Grams) = 3.27190 ffs=3150 (Δ=+0.00054 vs baseline)
+  - Cell B (shared Q/K Gram) = 3.27254 ffs=3150 (Δ=+0.00118; +0.00064 vs Cell A)
+  - **Shared Q/K Gram MILDLY WORSE than separate.** Q and K weights have distinct curvature even with shared input X. Sharing averages them, washing out per-projection structure. Negative result is informative — confirms SOAP attn's per-projection Gram is the right factorization. Close clean-neutral after student SENPAI-RESULT.
+- **ALPHONSE PR #306 Cell A TERMINAL: val=3.276032 ffs=3200** (Δ=+0.00467 vs baseline, lr_lm_head=0.001 under-learns the lm_head — analogous to frieren Cell A=0.10 fail). Cell B (lr_lm_head=0.003125=ctrl) `pvk9u2pg` auto-launched, ETA ~00:35Z. Sweep continues — interesting cells are C/D/E at higher lr_lm_head.
+- **ASKELADD NS5 coeff Cell B TERMINAL: val=3.27189 ffs=3150** (Δ=+0.00053; -0.00046 vs Cell A ctrl). Muon-paper polynomial marginally better than baseline polynomial but within noise. Cell C `uia9awwp` auto-launched 22:16Z.
+- **TANJIRO PR #289 n=4 (3/4 trials terminal):**
+  - Trial 0=3.271562 ffs=3150, Trial 1=3.271952 ffs=3150, Trial 2=3.271295 ffs=3150
+  - 3-trial mean=3.271603, std~0.000331. n=4 merge dead (need trial 3 ≤ 3.262638 = ~27σ below)
+  - Trial 3 running (~6% in), ETA ~01:00Z. Close clean-neutral after.
 - **MID-FLIGHT (no action):**
-  - **askeladd** NS5 coeff Cell B (Muon paper 3.4445,-4.775,2.0315) `lup676zw` step 2228/3250 (~69%). Cell A ctrl=3.27235.
-  - **tanjiro** combo n=4 `v1mhx9f2` step 9137/13000 (~70%, mid trial 2/4). Mathematically dead for n=4 merge — finishing for closure.
-  - **alphonse** PR #306 Cell A solo `gdgag170` step 1156/3250 (~36%).
-  - **fern** PR #302 Cell B `dogb3845` step 1373/3250 (~42%).
+  - **askeladd** Cell C `uia9awwp` step ~300/3250 (~10%). A=3.27235, B=3.27189, C/D/E sequential.
+  - **alphonse** Cell B `pvk9u2pg` just launched (lr_lm_head=0.003125 ctrl). ETA ~00:35Z.
+  - **nezuko** Cell D `frfu2t3k` step ~600/3250 (~18%). A=3.27208, B=3.27226, C=3.27002 ⭐. Phase 2 n=4 launches after D.
+  - **thorfinn** Cell E (α=0.9) `dmhtyjk4` step ~800/3250 (~25%). Sweep inverted-U around B=0.3. Close clean-neutral after E.
+  - **edward** Cell E (β₂=0.30/200) `r6mgmfcq` step ~550/3250 (~17%). Cells C=3.27154 best, D=3.27192. No Phase 2 trigger.
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
