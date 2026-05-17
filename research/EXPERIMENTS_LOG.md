@@ -6,6 +6,24 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-17 12:50 UTC — PR #222: MuonH-SI cooldown_frac WSD sweep {0.2, 0.4, 1.0}
+
+- **Branch**: g1r3-nezuko/muonh-cooldown-wsd-sweep
+- **Hypothesis**: MuonH-SI cooldown_frac (fraction of training over which linear LR decay applies) may not be optimal at 1.0 (current baseline). A shorter cooldown (decay starting later) might preserve LR stability longer and improve final convergence.
+- **Results** (3-arm screen n=1, 3325 steps):
+
+| Arm | W&B Run | val/loss (terminal) | Δ vs baseline (3.27585) |
+|---|---|---|---|
+| frac=0.2 | mbvp947u | 3.38308 | +0.107 NEG |
+| frac=0.4 | zo06rxgl | 3.32914 | +0.053 NEG |
+| frac=1.0 (baseline-clone) | mpvg5fas | **3.27529** | −0.00056 (in-noise ✓) |
+
+- **Analysis**: Monotonic improvement as frac increases toward 1.0. frac=0.2 decays LR far too aggressively (from 80% through training), leaving the optimizer in a cramped low-LR regime for the last 80% of training — massive degrade. frac=0.4 slightly better but still greatly suboptimal. frac=1.0 (full linear decay from warmup-end) is the baseline cooldown schedule and reproduces within seed noise (Δ=-0.00056 < ±0.002 noise band). **frac=1.0 confirmed optimal.**
+- **Operational note**: Two concurrent sweep processes detected mid-run; student correctly killed the duplicate (bash SIGTERM @ 09:46 UTC), preserving the original sweep's intact results.
+- **Conclusion**: **CLOSED NEG.** Cooldown_frac is saturated at 1.0. Combined with closed PRs #192 (aux cooldown_frac=0.6 in-noise) and #243 (cooldown_shape linear ctrl=3.27755 baseline-clone), the WSD schedule parameter space is exhausted for MuonH-SI at this baseline. Nezuko reassigned to PR #265 Schedule-Free MuonH-SI — paradigm shift that eliminates cooldown via primal-dual averaging (Defazio 2024).
+
+---
+
 ## 2026-05-17 11:20 UTC — PR #217: MuLoCo sync_interval sweep {10, 30, 60}
 
 - **Branch**: g1r3-tanjiro/muloco-sync-sweep
