@@ -443,6 +443,7 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+EMBED_WARMUP_STEPS = int(os.environ.get("EMBED_WARMUP_STEPS", "0"))  # 0 = OFF (default)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -699,6 +700,7 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/embed_warmup_steps": EMBED_WARMUP_STEPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp (pre-NS5, matches record #14)",
         },
     )
@@ -845,6 +847,14 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # Decoupled embedding LR warmup: ramp embed group LR from 0 -> baseline over
+        # EMBED_WARMUP_STEPS to suppress the step-0 embedding spike (canonical seed-0
+        # NaN source). Cannot destabilize: subtractive multiplier in [0, 1].
+        if EMBED_WARMUP_STEPS > 0 and step < EMBED_WARMUP_STEPS:
+            embed_scale = (step + 1) / EMBED_WARMUP_STEPS
+            for group in optimizer1.param_groups:
+                if group.get("name") == "adam_embed":
+                    group["lr"] = group["lr"] * embed_scale
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
