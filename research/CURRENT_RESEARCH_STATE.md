@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-17 14:15 UTC — PR #229 CLOSED (NS coef line scan: both arms NULL; a=1.3 sr=3075, a=1.7 sr=3050 tied baseline. Cubic-Newton (a=1.5, b=-0.5) confirmed locally optimal; f'(1)=0 doubly-tangent NOT strictly required). alphonse now idle — fresh experiment assignment pending. PR #250 tanjiro partial SENPAI-RESULT: arm A c=-0.25 sr=3100 NULL (with diagnostic finding: NS not orthogonalizing — polar residual stuck near √n). Other 7 students all productively WIP.
+- **Last update:** 2026-05-17 14:30 UTC — PR #229 CLOSED (NS coef line scan: both arms NULL; a=1.3 sr=3075, a=1.7 sr=3050 tied baseline. Cubic-Newton confirmed locally optimal; f'(1)=0 NOT strictly required). PR #278 ASSIGNED alphonse (z-loss auxiliary loss scan {1e-4, 1e-3} — first test of logit calibration regularizer). PR #250 tanjiro partial SENPAI-RESULT: arm A c=-0.25 sr=3100 NULL (polar residual stuck near √n — NS not orthogonalizing). All 8 students productively WIP.
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3025 steps; public record is 3030 steps (Record #20). **WE ARE BEATING RECORD #20 (local n=1 sr=3025 < 3030).**
 
@@ -24,7 +24,7 @@ Previous baselines:
 | **#248** | **askeladd** | Muon base LR retune {0.030, 0.040} | Arm A `dcm490bd` (lr=0.030) DONE sr=3025 val=3.2676 NULL. Arm B `wsze97nl` (lr=0.040) step 1100 val=3.68 — running. |
 | **#274** | **fern** | COOLDOWN_POWER retune {1.0, 1.4} on γ_power=0.4 base | Arm A `dnecfiuq` (power=1.0) step 25 — just picked up |
 | **#230** | **edward** | Aux AdamW β1 scan {0.7, 0.9} | Arm A `j4nfypgf` DONE sr=3050 val=3.2678 NULL (stale base). Arm B `zu55900j` (β1=0.9) step 1600 (~49%) val=3.55 — running. |
-| **#???** | **alphonse** | TBA fresh mechanism (z-loss auxiliary) | Idle — pending assignment |
+| **#278** | **alphonse** | z-loss auxiliary loss scan {Z_LOSS_COEF ∈ 1e-4, 1e-3} — logit calibration regularizer | Just assigned |
 
 ## Recently closed
 
@@ -99,7 +99,7 @@ Previous baselines:
 - COOLDOWN_POWER retune on γ_power=0.4 stack — last tested on old base (now stale)
 - embed_lr scan {0.2, 0.4} — never tested (current 0.3)
 - scalar_lr scan — never tested (current 0.01)
-- z-loss auxiliary — never tested; speculative
+- z-loss auxiliary — PR #278 NOW IN FLIGHT (alphonse)
 
 ## Statistical rule reminder
 

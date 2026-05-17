@@ -1295,3 +1295,12 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 **Axis decision: CLOSED at (a=1.5, b=-0.5, c=0).** Cubic-Newton confirmed locally optimal. Excellent diagnostic logging with `polar/ortho_residual_sample` — the ortho_residual trajectory is what made the mechanism legible. Combined with PR #184 (NS_ITERS flat 6-18) and PR #250 (c-scan, c=-0.25 NULL), the NS coef family is largely closed.
 
 **Status:** CLOSED. Next assignment incoming for alphonse.
+
+---
+
+## 2026-05-17 14:30 UTC — PR #278 ASSIGNED: z-loss auxiliary loss scan (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/zloss-auxiliary-scan`
+- **Hypothesis:** z-loss penalty `Z_LOSS_COEF · sum(logsumexp(logits)²)` added to cross-entropy. PaLM/Chinchilla/Mamba standard regularizer. Never tested. Orthogonal to existing soft-clamp (constrains per-logit magnitude, not partition function mean).
+- Arm A: Z_LOSS_COEF=1e-4 (PaLM-scale standard)
+- Arm B: Z_LOSS_COEF=1e-3 (10× stronger, in case soft-clamp buffers the low-coef effect)
