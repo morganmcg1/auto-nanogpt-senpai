@@ -429,12 +429,19 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_flat = logits.view(targets.numel(), -1)
+        ce_loss = F.cross_entropy(logits_flat, targets.view(-1), reduction="sum")
+        # log_Z = log(sum(exp(logits))) per token; used for optional z-loss regularization.
+        log_Z = torch.logsumexp(logits_flat, dim=-1)
+        return ce_loss, log_Z
 
 
 ########################################
 #              Optimizer               #
 ########################################
+
+# Logit z-loss regularization (z_loss_coef * log_Z^2 added to per-token CE loss)
+Z_LOSS_COEF = float(os.environ.get("Z_LOSS_COEF", "0.0"))
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
@@ -828,6 +835,7 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             "train_steps_cli": args.train_steps,
+            "loss/z_loss_coef": Z_LOSS_COEF,
             "optimizer/contra_muon": CONTRA_MUON,
             "optimizer/mu": MU,
             "optimizer/mu_start": MU,
@@ -938,7 +946,8 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_ce, _ = model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_loss += val_ce
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
@@ -979,14 +988,28 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        step_z_loss = torch.zeros((), device=device)
+        step_log_Z_sum = torch.zeros((), device=device)
+        step_log_Z_max_abs = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
-            step_loss += loss.detach()
+            ce_loss, log_Z = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            z_loss = (log_Z ** 2).sum()
+            if Z_LOSS_COEF != 0.0:
+                loss = ce_loss + Z_LOSS_COEF * z_loss
+            else:
+                loss = ce_loss
+            step_loss += ce_loss.detach()
+            step_z_loss += z_loss.detach()
+            step_log_Z_sum += log_Z.detach().sum()
+            step_log_Z_max_abs = torch.maximum(step_log_Z_max_abs, log_Z.detach().abs().max())
             loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(step_z_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(step_log_Z_sum, op=dist.ReduceOp.SUM)
+        dist.all_reduce(step_log_Z_max_abs, op=dist.ReduceOp.MAX)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
@@ -1016,6 +1039,14 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/ce_loss": train_loss,
+                "train/z_loss": float((step_z_loss / batch_size).item()),
+                "train/log_Z_mean": float((step_log_Z_sum / batch_size).item()),
+                "train/log_Z_max_abs": float(step_log_Z_max_abs.item()),
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
