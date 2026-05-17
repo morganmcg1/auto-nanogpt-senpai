@@ -1,17 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #100, ~19:00 UTC)
+- **Last updated:** 2026-05-17 (poll #101, ~19:30 UTC)
 - **⭐⭐ FRIEREN PHASE 2 HEALTHY**: `ym6jprxe` **Trial 0 FINAL: val=3.27022 ffs=3125** (Δ=-0.00114 vs baseline). **Now in Trial 1/4 at step 1426/3250.** For n=4 merge (mu ≤ 3.269362), trials 1-3 mean must be ≤ 3.2688. ETA all-trials terminal ~22:30Z. **STRONGEST MERGE CANDIDATE.** PR has `needs_rebase` — rebase before merge.
 - **NEW TERMINALS THIS POLL (3 cells finished, sweeps advance):**
   - **nezuko Cell A** (AGC ctrl, λ=0) `1j9tl8k9` FINISHED **val=3.27208 ffs=3150** (Δ=+0.00072 vs baseline, ~0.6σ). Cell B (λ=0.01) `5l7vmnhf` auto-launched 17:41Z, step 566.
   - **thorfinn Cell B** (eigvec EMA α=0.3) `37w0mwla` FINISHED **val=3.27263 ffs=3125** (Δ=+0.00127, ~1.1σ; ffs matches baseline best). Cell C (α=0.5) `32n3p8a8` auto-launched 17:43Z, step 537.
   - **edward Cell B** (β2-warmup 0.50→0.90 over 200) `gf426fxo` FINISHED **val=3.27340 ffs=3150** (Δ=+0.00204, ~1.7σ). Cell C (warmup over 500) `oifl1px1` auto-launched, step 235. β2-warmup so far not helping at n=1 (Cell B worse than Cell A control).
-- **PR #232 CLOSED** (NS5 iter sweep, g1r5-askeladd): clean-neutral vs new baseline. Cell B (iters=10) n=2 mean=3.27295 (Δ=+0.00159). Default iters=12 stays. **Reassigned PR #301 (NS5 polynomial coefficient sweep).**
+- **TANJIRO TRIAL 0 LANDED**: `v1mhx9f2` Trial 0 final_best_val=**3.27160 ffs=3150** (Δ=+0.000238 vs baseline at n=1 — modest, NOT additive as hoped). Combo (lr_mlp=0.055 + wd_mlp=0.035 + wd_attn=0.015) ≈ baseline at n=1, not the expected -0.0026 from naive additivity. Trial 1/4 at 27%. ETA terminal ~01:30Z. For n=4 merge: trials 1-3 mean ≤ 3.2683 (extremely tight). stale_wip ack'd as false positive.
 - **AWAITING terminal SENPAI-RESULTs (mid-flight):**
-  - tanjiro #289 combo trial 0 `v1mhx9f2` step 3100/3250 (~95%) val=3.284. ETA terminal any moment.
-  - fern Cell E `9sjzd75z` step 2750/3250 (85%). ETA ~25min.
-  - alphonse Cell C `74bh7oal` step 2625/3250 (81%). ETA ~25min.
-  - askeladd PR #301 (NS5 coeff sweep): just assigned, student pod will pick up soon.
+  - alphonse Cell C `74bh7oal` step 3058/3250 (~94%). ETA ~5min.
+  - fern Cell E `9sjzd75z` step 3134/3250 (~96%). ETA ~5min.
+  - askeladd PR #301 (NS5 coeff sweep): assigned 19:00Z, no run yet (~30min normal pod startup lag).
 - **Most recent research direction from human researcher team:** none (no open GitHub issues for `auto-nanogpt-1gpu-r5`).
 - **⭐ NEW BASELINE (2026-05-17 12:42Z):** `ffs=3141.67 (mean), best=3125, mu=3.271362, std=0.001181, n=6` — PR #162 per-group-lr lr_mlp=0.055 **MERGED**
 - **NEW merge statsig rule**: `(3.271362 - mu) × sqrt(n) ≥ 0.004` → need mu ≤ **3.269362** for n=4, ≤ **3.269729** for n=6, ≤ **3.269948** for n=8
