@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-17 ~08:00 UTC — Cycle 46
+- 2026-05-17 ~08:30 UTC — Cycle 47
 - No human researcher directives this session.
 
 ## Current baseline ⭐
@@ -12,47 +12,45 @@ Merge bar (n=4): BOTH mean < 3.27648 AND ffs_mean < 3118.75
 
 ### NEZUKO #212 — Attn-SOAP+trust @ T=0.85 — n=4 IN PROGRESS 🔥🔥🔥
 - **Screen B (`5g7k1w3q`, T=0.85): val=3.27475 (−0.00173), ffs=3100 (−18.75)** — BOTH BARS CLEARED
-- **Trial 1 (`3xn3ox1c`) COMPLETE**: val=3.2764, ffs=3125. Needs trials 2-4 for mean assessment.
-  - Val bar: 3.2764 < 3.27648 ✓ (barely). ffs=3125 > 3118.75 ✗ → mean needs trials 2-4 ≤ 3116.7 ffs avg
-- Trials 2-4 expected to launch sequentially. ETA full n=4 ~12:50 UTC.
-- **MERGE CANDIDATE** but result is tighter than screen suggested.
+- **Trial 1 (`3xn3ox1c`) COMPLETE**: val=3.2764, ffs=3125
+  - 4-trial run sequential in same W&B run — currently mid-trial-2 (step 4401/12700 total)
+  - Val bar: trial 1 3.2764 < 3.27648 ✓ (borderline). ffs=3125 > 3118.75 → needs remaining trials ≤ 3116.7 avg
+- ETA full n=4 ~12:50 UTC
 
 ## Critical in-flight experiments
 
 ### FRIEREN #238 — Cosine LR cooldown shape
-- **Screen (`jlnc9w1y`)**: Running ~step 1325/3175, val=3.630. ETA terminal ~08:30 UTC.
-- Replace linear cooldown with cosine: `eta = 0.5*(1+cos(π*t_frac))`
+- **Screen (`jlnc9w1y`)**: Running ~step 1750/3175, val=3.523. ETA terminal ~09:30-10:00 UTC.
+- Normal descent trajectory — too early to call direction
 
 ### THORFINN #219 — Annealed Muon momentum μ schedule
-- **Arm A (`uh2vhuu9`, 0.90→0.97)**: MISSED — val=3.3759 (regression)
+- **Arm A (0.90→0.97)**: MISSED — val=3.3759 (regression)
 - **Arm B (`ink642mh`, 0.97→0.90)**: Running ~step 1600/3175, val=3.533. ETA ~09:30 UTC.
-  - Projected terminal ~3.28+ based on current slope → likely MISS. Will close axis if Arm B also misses.
+  - Projected ~3.284 at terminal based on current slope — likely MISS. Close axis if Arm B also misses.
 
 ### ASKELADD #239 — Lion optimizer on aux groups
-- **Both smokes failed** — LRs were 1000× too low (advisor calibration error)
-- **Re-smoke directed** at corrected LRs: embed=0.03, lm_head=1e-3, scalars=3e-3
-- PR sent back to wip with corrected LR schedule and re-smoke instructions
-- Smoke gate: val at step 200 in [3.9, 4.4] → proceed to 3175-step screen
+- **Re-smoke (corrected LRs) PASSED**: embed=0.03, lm_head=1e-3, scalars=3e-3
+  - `g5d1b4tk` val=4.549, `8o8mellp` val=4.533 at step 200. Learning (init 10.83), no NaN.
+- **Directed to proceed to 3175-step screen** (`g1r2-askeladd/lion-aux-screen-v2`)
 
 ### EDWARD #240 — Adaptive NS5 iteration schedule
-- Threading confirmed correct: `Muon.step → contra_normuon_update → zeropower_via_newtonschulz5`
-- NaN in prior runs was seed-0 baseline NaN (not an ADAPTIVE_NS bug)
-- **200-step diagnostic running** with `--num_trials 4` to verify 16-iter early window stability
-- If ≥3/4 trials pass step 200 cleanly → proceed to predeclared n=4 screen (3175 steps, num_trials=4)
+- Threading confirmed correct
+- **200-step diagnostic (`j3la5d4s`)** with `--num_trials 4` running, ~step 604/800
+- If ≥3/4 trials clean → proceed to predeclared n=4 screen (3175 steps, num_trials=4)
+
+### ALPHONSE #223 — SOAP_BETA2 retune
+- 0.85: KILLED — confirmed multi-seed destabilizer
+- 0.92: `klsnpomc` crashed step 225. **`hx3jldki` (n=4 run) running**, step ~450. Trial 0 NaN expected (seed-0). Waiting for trial 1 result to confirm it's not multi-seed.
 
 ### FERN #245 — Trust-region constraint on Muon updates (LARS-style)
 - LARS/LAMB-style clamp: `trust_scale = min(1.0, TRUST_RATIO × ||W||/||update||)`
-- Arms: 0.10 canonical, 0.05 aggressive (sequential)
-- Awaiting student pickup
+- Arms: 0.10 canonical, 0.05 aggressive (sequential). Awaiting student pickup.
 
-### ALPHONSE #223 — SOAP_BETA2 retune
-- SOAP_BETA2=0.85 KILLED — confirmed multi-seed destabilizer (NaN steps 75-1175)
-- SOAP_BETA2=0.92 NaN at step 125 was canonical seed-0 baseline NaN (147M nonfinite fingerprint)
-- **Directed: retry SOAP_BETA2=0.92 with --num_trials 4** to skip seed-0
-
-### TANJIRO #214 — TARGET_UW retune
-- TARGET_UW=0.30 KILLED — multi-seed NaN cascade (seeds 0 AND 1, NaN at steps 175-219)
-- **Directed: kill y3lccflx, launch TARGET_UW=0.40 single screen**
+### TANJIRO #246 — Annealed gradient noise injection 🆕
+- Inject decaying Gaussian noise to gradients: `sigma_t = NOISE_BASE/(1+step)^0.55`
+- Arms: GRAD_NOISE_BASE=0.01 (canonical), 0.05 (aggressive), with num_trials=4 each
+- Smoke with num_trials=4 required first (verify NaN suppression effect)
+- Awaiting student pickup.
 
 ## Closed axes (exhausted)
 
@@ -61,72 +59,58 @@ Merge bar (n=4): BOTH mean < 3.27648 AND ffs_mean < 3118.75
 | CONTRA_MUON | EXHAUSTED ⛔ | 0.5 = optimum |
 | Per-module init | EXHAUSTED ⛔ | all variants miss by 0.003-0.004 |
 | Power-law LR | EXHAUSTED ⛔ | 1.5+2.0 both MISS |
+| TARGET_UW retune | EXHAUSTED ⛔ | 0.35 stability bowl; 0.30 multi-seed NaN, 0.40 seed-0 NaN |
 | Bias-corr Muon (PR #221) | CLOSED | val=3.2790 MISS |
 | AdEMAMix aux (PR #199) | CLOSED | multi-seed NaN, no clean trial |
-
-## Closed this session (cycles 41-46)
-
-| PR | Description | Result |
-|---|---|---|
-| #178 | Thorfinn cooldown_frac sweep | 0.70 local optimum |
-| #177 | Frieren soft-muon-anneal | structural ffs miss |
-| #205 | Alphonse CONTRA_MUON sweep | 0.5 bowl optimum |
-| #213 | Askeladd per-module init zero-init | MISS by 0.004 |
-| #199 | Edward AdEMAMix aux groups | multi-seed NaN, no clean trial |
-| #221 | Frieren bias-corr Muon momentum | MISS val=3.279 |
-| #224 | Askeladd proj-init Variant B | MISS val=3.280 |
-| #208 | Fern power-law LR (1.5+2.0) | AXIS EXHAUSTED |
 
 ## Key patterns observed
 
 1. **CONTRA_MUON bowl**: 0.5 = optimum. EXHAUSTED.
-2. **Per-module init absorbed by SOAP+NS5**: all variants miss by 0.003-0.004. EXHAUSTED.
-3. **Attn-SOAP+trust T=0.85 strong WIN**: val=3.27475, ffs=3100. n=4 trial 1 val=3.2764/ffs=3125.
+2. **Per-module init absorbed by SOAP+NS5**: all variants miss. EXHAUSTED.
+3. **Attn-SOAP+trust T=0.85 strong WIN**: val=3.27475, ffs=3100. n=4 tight — trial 1 val=3.2764/ffs=3125.
 4. **Muon bias correction miss**: 1/(1-μ^t) doesn't compose with NS5+contra pipeline.
 5. **AdEMAMix amplifies early-training NaN cascade**: mechanism interaction with high-LR embed.
 6. **Step-2 NaN seed-deterministic**: trial_idx=0. Use `--num_trials 4` for uncertain mechanisms.
-7. **Multi-seed NaN cascade** (SOAP_BETA2=0.85, TARGET_UW=0.30): HP-induced instability steps 100-1200. Distinguishable from baseline NaN at step 25.
-8. **cooldown_frac=0.70**: confirmed local optimum.
-9. **Power-law LR**: BOTH 1.5 and 2.0 MISS. Axis EXHAUSTED.
-10. **Lion LR calibration**: 3-10× lower than AdamW (NOT 1000×). embed 0.03, lm_head 1e-3.
+7. **Multi-seed NaN cascade** (SOAP_BETA2=0.85, TARGET_UW=0.30): HP-induced instability steps 100-1200.
+8. **TARGET_UW stability bowl**: 0.35 = stable optimum. Both 0.30 and 0.40 destabilize. EXHAUSTED.
+9. **cooldown_frac=0.70**: confirmed local optimum.
+10. **Power-law LR**: BOTH 1.5 and 2.0 MISS. Axis EXHAUSTED.
+11. **Lion LR calibration**: 3-10× lower than AdamW (NOT 1000×). embed=0.03, lm_head=1e-3.
 
 ## Upcoming decisions / expected results
 
 | Time UTC | Student | Event | Expected outcome |
 |---|---|---|---|
-| ~08:30 | Frieren | Cosine cooldown terminal | FFS improvement? |
-| ~08:45 | Edward | 200-step diagnostic (4 trials) | Verify 16-iter stability |
+| ~08:45 | Edward | Diagnostic 4-trial complete | Verify 16-iter early-window stability |
+| ~09:00 | Askeladd | Lion 3175-step screen starts | Screen run underway |
+| ~09:30 | Frieren | Cosine cooldown terminal | FFS improvement? |
 | ~09:30 | Thorfinn | Arm B terminal | Likely MISS → close axis |
-| ~10:00 | Alphonse | SOAP_BETA2=0.92 n=4 | Skip seed-0 NaN with 4 trials |
-| ~10:00 | Tanjiro | TARGET_UW=0.40 screen | Less aggressive floor raise |
-| TBD | Askeladd | Lion re-smoke v2 (embed=0.03) | val in [3.9,4.4] → screen |
-| TBD | Fern | Trust-region Arm A pickup (#245) | NaN suppressor test |
-| ~12:50 | Nezuko | n=4 confirm full 4 trials | MERGE if mean < 3.27648 AND ffs_mean < 3118.75 |
+| ~10:00 | Alphonse | SOAP_BETA2=0.92 n=4 trial 1 | If clean → proceed with n=4 |
+| TBD | Fern | Trust-region pickup (#245) | NaN suppressor test |
+| TBD | Tanjiro | Grad-noise smoke (4 trials) | NaN suppression verification |
+| ~12:50 | Nezuko | n=4 all trials complete | MERGE if mean < 3.27648 AND ffs_mean < 3118.75 |
 
 ## Research programme direction
 
 Primary goal: beat record #20 (3030 steps). Current baseline = 3118.75 steps. Gap = ~89 steps / ~2.8%.
-
-**If nezuko n=4 merges** (~12:50 UTC): new ffs baseline ~3100±, gap to record shrinks to ~70 steps.
+**If nezuko merges**: ffs baseline → ~3100-3125 range, gap shrinks.
 
 Most promising paths (ranked):
-1. **Attn-SOAP+trust T=0.85 n=4** (nezuko #212) — Trial 1 done, trials 2-4 running.
-2. **Adaptive NS5 iters** (edward #240) — diagnostic running; low NaN risk, directly targets FFS.
-3. **Lion aux groups** (askeladd #239) — re-smoke at corrected LRs underway.
-4. **Cosine cooldown shape** (frieren #238) — terminal ~08:30, direct FFS mechanism.
-5. **Trust-region Muon** (fern #245) — NaN suppressor + portfolio multiplier, assigned.
-6. **SOAP_BETA2=0.92** (alphonse #223) — num_trials=4 retry underway.
-7. **TARGET_UW=0.40** (tanjiro #214) — redirected, launch imminent.
-8. **Annealed μ schedule** (thorfinn #219) — Arm B terminal ~09:30, likely MISS.
+1. **Attn-SOAP+trust T=0.85 n=4** (nezuko #212) — Trial 1 tight, 3 more needed.
+2. **Adaptive NS5 iters** (edward #240) — direct FFS mechanism, diagnostic running.
+3. **Lion aux groups** (askeladd #239) — re-smoke passed, screen next.
+4. **Cosine cooldown shape** (frieren #238) — terminal ~09:30.
+5. **Trust-region Muon** (fern #245) — NaN suppressor + unblocks aggressive HP sweeps.
+6. **Gradient noise injection** (tanjiro #246) — variance-reducing, NaN-escaping.
+7. **SOAP_BETA2=0.92** (alphonse #223) — n=4 running, trial 1 status key.
+8. **Annealed μ schedule** (thorfinn #219) — Arm B likely MISS, close axis soon.
 
 ## Operational notes
 
 - W&B entity: `wandb-applied-ai-team/modded-nanogpt-senpai`
 - Merge bar: BOTH mean val < 3.27648 AND ffs_mean < 3118.75
 - All n=4: `(3.28 − mean) × √4 ≥ 0.004` → mean ≤ 3.27800 (necessary but not sufficient)
-- **CONTRA_MUON axis: EXHAUSTED.** Do not assign further sweeps.
-- **Per-module init axis: EXHAUSTED.** Do not assign init variants.
-- **Power-law LR axis: EXHAUSTED.** Do not assign further arms.
+- **CONTRA_MUON, per-module init, power-law LR, TARGET_UW: all EXHAUSTED.**
 - **Step-2 NaN**: seed-0 deterministic. Use `--num_trials 4` for uncertain mechanisms.
-- **Multi-seed NaN** (SOAP_BETA2=0.85, TARGET_UW=0.30): HP-induced, NaN at steps 100-1200.
-- **Workflow note**: Never commit to a student branch and FF back to advisor. Always commit state docs on advisor branch directly.
+- **Multi-seed NaN**: HP-induced at steps 100-1200. Distinguishable from seed-0 NaN at step 25.
+- **Workflow**: Never commit state docs on student branch. Always commit on advisor branch directly.
