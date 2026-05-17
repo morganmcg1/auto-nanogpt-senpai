@@ -71,6 +71,10 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Residual-branch init rescale (GPT-3/Gopher style): one-shot multiply of every
+    # block's attn.proj and mlp.proj weights at INIT only. 1.0 disables (bit-identical
+    # baseline). Suggested values: 1/sqrt(2L)=0.2041 (canonical), 1/sqrt(L)=0.2887.
+    parser.add_argument("--res_init_scale", type=float, default=float(os.environ.get("RES_INIT_SCALE", "1.0")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +717,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.res_init_scale != 1.0:
+    print0(f"Residual-branch init rescale ENABLED: res_init_scale={args.res_init_scale}", console=True)
+else:
+    print0("Residual-branch init rescale DISABLED (res_init_scale=1.0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +774,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "res_init_scale": args.res_init_scale,
         },
     )
 
@@ -886,6 +895,28 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # Residual-branch init rescaling (GPT-3 / Gopher convention): one-shot in-place
+    # multiply of every block's attn.proj and mlp.proj weights at INIT only. Applied
+    # AFTER per-trial init + broadcast so all ranks agree, and BEFORE the MuLoCo
+    # outer anchor snapshot so the anchor captures the rescaled values. Gated on
+    # args.res_init_scale != 1.0 — no-op (bit-identical baseline) at default 1.0.
+    # NOTE: model.proj (LM head, line ~438) is INTENTIONALLY excluded — scaling that
+    # would zero the readout.
+    if args.res_init_scale != 1.0:
+        with torch.no_grad():
+            for block in model.blocks:
+                block.attn.proj.weight.data.mul_(args.res_init_scale)
+                block.mlp.proj.weight.data.mul_(args.res_init_scale)
+        print0(f"Trial {trial_idx}: residual-branch projections rescaled by {args.res_init_scale}", console=True)
+
+    # Step-0 init telemetry: log c_proj norms to confirm rescale was/wasn't applied.
+    if dist.get_rank() == 0:
+        init_metrics = {"train/init/res_init_scale": float(args.res_init_scale)}
+        for i, block in enumerate(model.blocks):
+            init_metrics[f"train/init/attn_proj_norm_layer_{i}"] = float(block.attn.proj.weight.detach().float().norm().item())
+            init_metrics[f"train/init/mlp_proj_norm_layer_{i}"] = float(block.mlp.proj.weight.detach().float().norm().item())
+        wandb.log(init_metrics, step=trial_idx * (args.train_steps + 1))
 
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
