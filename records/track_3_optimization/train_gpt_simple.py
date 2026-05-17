@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--ns5_iters", type=int, default=12,
+                        help="Number of Newton-Schulz iterations (default 12 = baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -442,7 +444,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, num_iters: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -452,7 +454,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(num_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -462,17 +464,17 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, num_iters=12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, num_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, num_iters=12):
+    update = zeropower_via_newtonschulz5(nesterov_update, num_iters)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -533,7 +535,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, ns5_iters=12,
+                 residual_log_interval=50, residual_param_name="0.mlp.fc.weight"):
         assert isinstance(named_params, list) and len(named_params) >= 1
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
         self.soap_params = {
@@ -545,6 +548,11 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.ns5_iters = int(ns5_iters)
+        self.residual_log_interval = int(residual_log_interval)
+        self.residual_param_name = residual_param_name
+        self.step_counter = 0
+        self.orth_residual: Tensor | None = None
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -552,6 +560,8 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.orth_residual = None
+        log_residual_now = (self.step_counter % self.residual_log_interval == 0)
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -562,6 +572,7 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    param_name = self.param_names[id(p)]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -575,22 +586,39 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, self.ns5_iters)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, self.ns5_iters)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
                             update = torch.where(cos_sim_t < self.trust_threshold, u_muon, u_soap)
-                            self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
+                            self.cos_sims_buffer[param_name] = cos_sim_t
                         else:
                             update = u_soap
+                        if log_residual_now and param_name == self.residual_param_name:
+                            scale_factor = max(1.0, precond_nesterov.size(-2) / precond_nesterov.size(-1))**0.5
+                            U = u_soap / scale_factor
+                            if U.size(-2) <= U.size(-1):
+                                residual = (U @ U.mT - torch.eye(U.size(-2), device=U.device, dtype=U.dtype)).norm()
+                            else:
+                                residual = (U.mT @ U - torch.eye(U.size(-1), device=U.device, dtype=U.dtype)).norm()
+                            self.orth_residual = residual.detach()
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], num_iters=self.ns5_iters)
+                        if log_residual_now and param_name == self.residual_param_name:
+                            scale_factor = max(1.0, p.size(-2) / p.size(-1))**0.5
+                            U = update / scale_factor
+                            if U.size(-2) <= U.size(-1):
+                                residual = (U @ U.mT - torch.eye(U.size(-2), device=U.device, dtype=U.dtype)).norm()
+                            else:
+                                residual = (U.mT @ U - torch.eye(U.size(-1), device=U.device, dtype=U.dtype)).norm()
+                            self.orth_residual = residual.detach()
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self.step_counter += 1
 
 
 ########################################
@@ -669,6 +697,7 @@ if dist.get_rank() == 0:
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "ns5_iters": int(args.ns5_iters),
         },
     )
 
@@ -706,7 +735,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025,
-                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold)
+                      soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+                      ns5_iters=args.ns5_iters)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -843,6 +873,12 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and optimizer2.orth_residual is not None:
+            wandb.log(
+                {"trial": trial_idx, "train/step": train_step,
+                 "ns5/post_orth_residual": float(optimizer2.orth_residual.item())},
+                step=wandb_step,
+            )
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
