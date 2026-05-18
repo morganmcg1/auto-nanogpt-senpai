@@ -69,6 +69,12 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # Logit softsign-form soft-cap value. The baseline has a hardcoded cap of 15
+    # at GPT.forward (logits = cap * x / sqrt(x^2 + cap^2)). This flag exposes
+    # that constant so the cap magnitude can be swept. Default 15.0 = baseline
+    # bit-identical. Set to 10.0 to tighten, 30.0 to loosen, etc.
+    parser.add_argument("--logit_soft_cap", type=float, default=float(os.environ.get("LOGIT_SOFT_CAP", "15.0")),
+                        help="Softsign-form logit cap magnitude. Default 15.0 = bit-identical baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -243,6 +249,9 @@ def log_training_telemetry(
         "train/grad/max_abs": grad_stats.get("max_abs", 0.0),
         "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
         "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
+        "train/logit_max_pre_cap": float(model._logit_max_pre_cap.item()),
+        "train/logit_max_post_cap": float(model._logit_max_post_cap.item()),
+        "train/logit_soft_cap": float(model.logit_soft_cap),
     }
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
@@ -443,20 +452,28 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, logit_soft_cap: float = 15.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.logit_soft_cap = float(logit_soft_cap)
+        # Telemetry buffers updated in forward via .copy_(). Read via .item()
+        # only at telemetry log time so torch.compile does not graph-break.
+        self.register_buffer("_logit_max_pre_cap", torch.zeros((), dtype=torch.float32), persistent=False)
+        self.register_buffer("_logit_max_post_cap", torch.zeros((), dtype=torch.float32), persistent=False)
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
-        logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        raw_logits = self.proj(self.norm2(x)).float()
+        self._logit_max_pre_cap.copy_(raw_logits.detach().abs().amax())
+        cap = self.logit_soft_cap
+        logits = cap * raw_logits * (raw_logits.square() + cap**2).rsqrt()
+        self._logit_max_post_cap.copy_(logits.detach().abs().amax())
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -711,6 +728,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"Logit softsign cap value: {args.logit_soft_cap} (baseline=15.0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -718,7 +736,7 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768, logit_soft_cap=args.logit_soft_cap).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -763,6 +781,7 @@ if dist.get_rank() == 0:
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
+            "logit_soft_cap": args.logit_soft_cap,
         },
     )
 
