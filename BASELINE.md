@@ -17,6 +17,45 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-18 ~18:26 UTC — PR #329 askeladd AGC on inner MuonH gradient.** Applies Adaptive Gradient Clipping (`clip_ratio=0.05`) to the MuonH inner gradient path (before NS5 Newton-Schulz orthogonalization), in addition to the existing aux AGC. AGC is active on every block every step from warmup onward; the inner MuonH gradient RMS dwarfs parameter RMS by 2–4 orders of magnitude, making this a heavy but well-targeted intervention. Stacks on top of MuLoCo × MuonH-SI + aux AGC + cosine cooldown + LR warmup. All 4 n=4 trials reached the 3.28 target.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| **MuonH inner AGC** | **`--muonh_agc_clip_ratio 0.05`** (clips inner gradient before NS5) |
+| MuonH LR warmup | `--muonh_warmup_steps 100` (linear ramp over first 100 steps) |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| Aux AdamW | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` + AGC `clip_ratio=0.05` |
+| LR schedule | **Cosine** cooldown for MuonH (`cooldown_frac=1.0`); linear cooldown for aux (`cooldown_frac=0.4`) |
+| `val/loss` | **3.27286** (n=4 mean; trials: 3.27209/3.27264/3.27365/3.27305) |
+| `speedrun/final_first_step_to_target` | **3125** (best across n=4 trials; mean 3137.5) |
+| stat margin | `(3.28 - 3.27286) * sqrt(4) = 0.01429` ≥ 0.004 ✓ |
+| Baseline W&B runs | `dpabql6o` (n=4 multi-trial run) |
+| Baseline PR | [#329](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/329) |
+
+### Reproduce AGC inner + MuonH warmup + cosine cooldown + AGC aux + MuLoCo × MuonH-SI baseline
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 4 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --muonh_cooldown_shape cosine \
+  --muonh_warmup_steps 100 \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05 \
+  --muonh_agc_clip_ratio 0.05
+```
+
+---
+
+## Previous baseline — PR #310 thorfinn MuonH inner LR warmup (2026-05-18 ~10:31 UTC)
+
 **Merged 2026-05-18 ~10:31 UTC — PR #310 thorfinn MuonH inner LR warmup.** 100-step linear warmup on MuonH-SI inner LR (only MuonH groups; aux AdamW unchanged). Stacks on top of MuLoCo × MuonH-SI + AGC + cosine cooldown. All 4 n=4 trials reached the 3.28 target. Passes stat rule with margin 0.01370 (3.4× margin).
 
 | Field | Value |
@@ -34,21 +73,6 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 | stat margin | `(3.28 - 3.27315) * sqrt(4) = 0.01370` ≥ 0.004 ✓ |
 | Baseline W&B runs | `w6xgiqzl` (n=4 multi-trial run) |
 | Baseline PR | [#310](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/310) |
-
-### Reproduce MuonH warmup + cosine cooldown + AGC + MuLoCo × MuonH-SI baseline
-
-```bash
-cd target/
-torchrun --standalone --nproc_per_node=1 \
-  records/track_3_optimization/train_gpt_simple.py \
-  --num_trials 4 --train_steps 3325 \
-  --muonh_mode scale_invariant \
-  --muonh_cooldown_shape cosine \
-  --muonh_warmup_steps 100 \
-  --use_outer_optimizer 1 \
-  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
-  --aux_agc_clip_ratio 0.05
-```
 
 ---
 
