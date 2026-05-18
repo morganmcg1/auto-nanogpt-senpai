@@ -1,5 +1,48 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 12:15 UTC — Cycle 55 (continued): #339 CLOSED (cooldown_frac axis FALSIFIED); #336 CLOSED (TARGET_UW axis FALSIFIED)
+
+### PR #339 — cooldown_frac sweep 0.6 and 0.8 — FALSIFIED
+
+Branch: `g1r2-nezuko/cooldown-frac-sweep`. Both arms on OLD stack (MU_START=0.97/MU_END=0.90).
+
+| Arm | COOLDOWN_FRAC | n=2 mean val | n=2 mean ffs | vs OLD baseline (3.275835/3087.5) | vs NEW baseline (3.275350/3087.5) | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.6 | 3.27583 | 3100 | val Δ−0.000005 (tie), ffs +12.5 | val +0.00048, ffs +12.5 | FAIL both |
+| B | 0.8 | 3.275640 | 3075 | val Δ−0.000195, ffs Δ−12.5 | val +0.000290, ffs Δ−12.5 | FAIL val on NEW |
+
+Per-trial:
+- **Arm A** (`2ysep6xs`): T0 val=3.27723/ffs=3125 (kill gate clear), T1 val=3.27443/ffs=3075. Trial-pair spread 0.0028 — dominates inter-arm signal.
+- **Arm B** (`jmikalnz`): T0 val=3.27535/ffs=3075, T1 val=3.27593/ffs=3075. Trial-pair spread 0.00058 — tighter.
+
+**Mechanism**: cooldown_frac axis on OLD stack is directionally signed ("more cooldown helps slightly") but magnitude is below n=2 noise floor. NEW baseline (PR #288) tightened val by −0.000485 — 2.5× the size of any cooldown_frac effect observed on OLD. The μ-schedule change is the larger lever in this neighborhood; cooldown_frac is dominated.
+
+**Critical observation**: On NEW stack (cooldown-only μ-anneal), cooldown_frac now controls both LR taper length AND μ-decay length — they are entangled in a way they weren't on OLD. Any future revisit should be a joint (cooldown_frac × μ-anneal endpoints) sweep, not univariate.
+
+**Excluded axes**: Univariate cooldown_frac sweeps at 0.6, 0.7, 0.8 ranges. cooldown_frac=0.7 stays. Open follow-ups: cooldown shape (linear vs cosine vs poly), per-optimizer cooldown_frac.
+
+---
+
+### PR #336 — TARGET_UW sweep 0.25 and 0.50 — FALSIFIED (both directions)
+
+Branch: `g1r2-tanjiro/target-uw-sweep`. Both arms on OLD stack (MU_START=0.97/MU_END=0.90).
+
+| Arm | TARGET_UW | val | ffs | vs OLD baseline | Verdict |
+|---|---|---|---|---|---|
+| A | 0.25 | 3.28570 (T0 only, T1 kill-gated) | -1 (never reached 3.28) | +0.010 worse | KILLED step 2500 val=3.34352 |
+| B | 0.50 | 3.276335 (n=2 mean) | 3112.5 (n=2 mean) | val +0.0005, ffs +25 | FAIL both |
+| Baseline | 0.35 | 3.275835 (n=4) | 3087.5 (n=4) | — | local optimum |
+
+Per-trial Arm B (`g0pkxwbr`): T0 val=3.27569/ffs=3100, T1 val=3.27698/ffs=3125.
+
+**Mechanism**: TARGET_UW=0.35 sits at a local optimum.
+- **Lower (0.25)**: Less implicit WD throughout training → weight magnitudes drift larger → cooldown phase can't recover convergence precision. Hypothesis that SOAP+Contra-Muon's directional conditioning makes the magnitude floor redundant is falsified — floor's implicit WD remains load-bearing.
+- **Higher (0.50)**: More aggressive regularization slows cooldown trajectory slightly (+0.0005 val). Cooldown over-regularization concern from hypothesis does NOT manifest at 0.35 — the floor is already well-matched to cooldown dynamics.
+
+**Excluded axes**: TARGET_UW outside ~[0.30, 0.45] range. Open follow-ups: fine-resolution bracket {0.30, 0.40} (unlikely worth GPU); cooldown-only TARGET_UW schedule; explicit weight_decay variant.
+
+---
+
 ## 2026-05-18 10:45 UTC — Cycle 55 (continued): #304 CLOSED (SOAP_PRECOND_FREQ anneal FALSIFIED)
 
 ### PR #304 — Annealed SOAP_PRECOND_FREQ FREQ_START=15→FREQ_END=7 — FALSIFIED
