@@ -457,6 +457,13 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Cooldown-only AdaMuon switch (PR #376): post-NS5 per-element variance scaling
+# active only during the cooldown phase (progress >= 1 - cooldown_frac), matching
+# PR #288's mu-anneal boundary. Off by default (zero-cost when ADAMUON_COOLDOWN_ONLY=0).
+ADAMUON_COOLDOWN_ONLY = int(os.environ.get("ADAMUON_COOLDOWN_ONLY", "0"))
+ADAMUON_BETA2 = float(os.environ.get("ADAMUON_BETA2", "0.95"))
+ADAMUON_COOLDOWN_INIT = os.environ.get("ADAMUON_COOLDOWN_INIT", "rms")  # "rms" or "ones"
+ADAMUON_EPS = float(os.environ.get("ADAMUON_EPS", "1e-8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -493,10 +500,52 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def adamuon_post_ns5(update, state, in_cooldown):
+    """Post-NS5 per-element variance scaling (AdaMuon, arxiv 2507.11005).
+
+    Cooldown-only behavior (PR #376):
+      - Pre-cooldown: track running mean(O_t^2) on device (no work on the update).
+      - In cooldown: EMA over O_t^2, divide by sqrt(V + eps), rescale to preserve RMS.
+
+    Returns (update, gamma_tensor or None). gamma is a 0-d tensor (no host sync)
+    used by Muon.adamuon_stats() for telemetry on telemetry_due steps.
+    """
+    update_f = update.float()
+    if not in_cooldown:
+        rms_sq = (update_f * update_f).mean()
+        if state["adamuon_v_pre_cooldown_rms"] is None:
+            state["adamuon_v_pre_cooldown_rms"] = rms_sq.detach().clone()
+        else:
+            state["adamuon_v_pre_cooldown_rms"].mul_(0.99).add_(rms_sq, alpha=0.01)
+        return update, None
+    # Cooldown: apply variance scaling.
+    if state["adamuon_v"] is None:
+        if ADAMUON_COOLDOWN_INIT == "rms":
+            # Warm start: broadcast pre-cooldown running mean(O^2) across the full buffer.
+            init_seed = state["adamuon_v_pre_cooldown_rms"]
+            if init_seed is None:
+                init_seed = (update_f * update_f).mean().detach()
+            state["adamuon_v"] = torch.ones_like(update_f) * init_seed
+        else:  # "ones"
+            state["adamuon_v"] = torch.ones_like(update_f)
+    state["adamuon_v"].mul_(ADAMUON_BETA2).add_(update_f * update_f, alpha=1 - ADAMUON_BETA2)
+    rms_pre = update_f.pow(2).mean().sqrt()
+    update_scaled = update_f / (state["adamuon_v"].sqrt() + ADAMUON_EPS)
+    rms_post = update_scaled.pow(2).mean().sqrt().clamp_min(1e-12)
+    gamma = (rms_pre / rms_post).clamp(max=10.0)
+    return (gamma * update_scaled).to(update.dtype), gamma.detach()
+
+
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2,
+                          adamuon_state=None, adamuon_in_cooldown=False):
+    """Contra-Muon + NorMuon-lite: NS5 -> [optional AdaMuon post-NS5] -> contra subtraction -> per-row variance normalize."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
+    # Post-NS5 AdaMuon variance scaling (cooldown only). Side-effects pre_cooldown_rms
+    # and adamuon_v in `adamuon_state`; stores last gamma for telemetry.
+    if adamuon_state is not None:
+        update, gamma = adamuon_post_ns5(update, adamuon_state, adamuon_in_cooldown)
+        adamuon_state["adamuon_last_gamma"] = gamma
     opower_fro = update.norm()
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
@@ -680,6 +729,10 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_gate"] = 1.0
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
+                        if ADAMUON_COOLDOWN_ONLY:
+                            state["adamuon_v"] = None  # lazy init at cooldown boundary
+                            state["adamuon_v_pre_cooldown_rms"] = None  # 0-d tensor, lazy
+                            state["adamuon_last_gamma"] = None  # 0-d tensor, telemetry only
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
@@ -689,8 +742,13 @@ class Muon(torch.optim.Optimizer):
                     # (matches public record #14/16 — pre-NS5 placement).
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
-                    # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # NS5 + [optional AdaMuon post-NS5] + contra + NorMuon row variance.
+                    adamuon_state = state if ADAMUON_COOLDOWN_ONLY else None
+                    update = contra_normuon_update(
+                        momentum_update, state["second_moment"],
+                        adamuon_state=adamuon_state,
+                        adamuon_in_cooldown=group.get("adamuon_in_cooldown", False),
+                    )
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -763,6 +821,51 @@ class Muon(torch.optim.Optimizer):
             out[f"{kind}/on_fraction"] = agg["on"] / kn
             out[f"{kind}/mean_cos_row"] = sum(crs) / kn
             out[f"{kind}/mean_cos_col"] = sum(ccs) / kn
+        return out
+
+    def adamuon_stats(self) -> dict[str, float]:
+        """Aggregate AdaMuon switch telemetry: cooldown flag, mean/max gamma, mean(v), max(v).
+
+        Returns empty dict when ADAMUON_COOLDOWN_ONLY is off or no AdaMuon state exists.
+        """
+        if not ADAMUON_COOLDOWN_ONLY:
+            return {}
+        in_cooldown = 0
+        for group in self.param_groups:
+            if group.get("adamuon_in_cooldown", False):
+                in_cooldown = 1
+                break
+        gammas: list[float] = []
+        v_means: list[float] = []
+        v_maxes: list[float] = []
+        pre_rms: list[float] = []
+        active = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None:
+                    continue
+                g = state.get("adamuon_last_gamma")
+                if g is not None:
+                    gammas.append(float(g.item()))
+                v = state.get("adamuon_v")
+                if v is not None:
+                    active += 1
+                    v_means.append(float(v.mean().item()))
+                    v_maxes.append(float(v.max().item()))
+                pre = state.get("adamuon_v_pre_cooldown_rms")
+                if pre is not None:
+                    pre_rms.append(float(pre.item()))
+        out: dict[str, float] = {"in_cooldown": in_cooldown, "active_params": active}
+        if gammas:
+            out["mean_gamma"] = sum(gammas) / len(gammas)
+            out["max_gamma"] = max(gammas)
+            out["min_gamma"] = min(gammas)
+        if v_means:
+            out["mean_v"] = sum(v_means) / len(v_means)
+            out["max_v"] = max(v_maxes)
+        if pre_rms:
+            out["mean_pre_cooldown_rms"] = sum(pre_rms) / len(pre_rms)
         return out
 
 
@@ -851,6 +954,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/adamuon_cooldown_only": ADAMUON_COOLDOWN_ONLY,
+            "optimizer/adamuon_beta2": ADAMUON_BETA2,
+            "optimizer/adamuon_cooldown_init": ADAMUON_COOLDOWN_INIT,
+            "optimizer/adamuon_eps": ADAMUON_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -913,11 +1020,14 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # Cooldown flag for AdaMuon switch — mirrors the mu-cooldown boundary exactly.
+        in_cooldown = progress >= 1 - cooldown_frac
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    group["adamuon_in_cooldown"] = in_cooldown
 
 
     ########################################
@@ -1041,6 +1151,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "adamuon_stats"):
+                    a_stats = opt.adamuon_stats()
+                    if a_stats:
+                        wandb.log(prefixed("train/adamuon", a_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
