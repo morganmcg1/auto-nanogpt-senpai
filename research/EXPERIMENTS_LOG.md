@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-18 09:19 UTC — PR #327 CLOSED + PR #364 ASSIGNED: Adan aux → Muon momentum reset at cooldown (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/adan-aux-scan`
+- **Hypothesis:** Adan 3-buffer adaptive Nesterov on aux groups (embed/lm_head/scalars) at lr_mult∈{1.0, 0.33}.
+- W&B runs: `7vyu1jo2` (Arm A mult=1.0), `nx5r55gg` (Arm B mult=0.33)
+
+| Arm | ADAN_LR_MULT | sr | val/loss | Δ vs baseline | verdict |
+|-----|---|-----|----------|---------------|---------|
+| **Baseline (PR #274)** | AdamW | **3000** | **3.2685** | — | — |
+| Arm A | 1.0 | -1 | 3.28804 | +0.0195 | NULL — missed target |
+| Arm B | 0.33 | -1 | 3.31190 | +0.0434 | NULL — more LR → worse |
+
+**Result:** Both NULL. Clear ordering: Arm B worse than A (lower LR → even worse — undershoots baseline convergence speed).
+
+**Key mechanism finding (askeladd):** Adan's β1=0.98 imposes heavy momentum on sparse vocab embeddings. On sparse-row embeds, β1=0.98 means gradient EMA averages over ~50 steps; rare-token rows get stale gradient mass from 50+ steps ago when a different token distribution was in the batch. Confirms converging pattern: aux groups want FAST-adapting EMA (β1=0.8), all heavy-momentum mechanisms (Lion #317, AdEMAMix #305, Adan #327) are uniformly NULL on this path. Aux-side optimizer-mechanism axis is now CLOSED.
+
+**Axis decision: Adan-on-aux CLOSED. Aux groups are well-served by fast-EMA AdamW (β1=0.8). Fresh assignment: Muon momentum reset at cooldown entry (PR #364) — body-side mechanism targeting the cooldown regime.**
+
+---
+
 ## 2026-05-18 09:09 UTC — PR #305 CLOSED + PR #363 ASSIGNED: AdEMAMix → Z-loss auxiliary (g1r1-frieren)
 
 - Branch: `g1r1-frieren/ademamix-alpha-scan`
