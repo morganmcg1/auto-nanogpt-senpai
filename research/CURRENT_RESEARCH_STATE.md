@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~12:25Z (poll #162)
+- **Last updated:** 2026-05-18 ~12:42Z (poll #163)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -16,11 +16,11 @@
    - **MERGE-ELIGIBLE if T3+T4 land ≤ 3.268917 mean**
    - ETA T4 terminal ~13:30Z
 
-2. **FRIEREN PR #346 Cell A (lr_attn=0.025) HIT P2 TRIGGER + DUPLICATE INCIDENT** ⭐:
+2. **FRIEREN PR #346 Cell A (lr_attn=0.025) HIT P2 TRIGGER** ⭐:
    - Cell A `orkpejsl` FINISHED: **val=3.269674 ffs=3125** (~−1.43σ below baseline)
    - Cell B ctrl `xovourxm` FINISHED: val=3.272 ffs=3150 (clean baseline reproduction)
-   - **CONCURRENT-RUNS INCIDENT**: `vqd4wcez` duplicate of Cell B (lr_attn=0.035), advisor directed kill at 12:25Z
-   - Cell C (lr_attn=0.045) pending after duplicate kill
+   - DUPLICATE INCIDENT 12:25Z: `vqd4wcez` killed; Cell C `fmycgozs` (lr_attn=0.045) launched cleanly, step 403/3250
+   - Sweep continuing through C/D/E before P2 promotion
 
 3. **ALPHONSE PR #306 Phase 2 n=4 effectively locked out**:
    - P2 run `7xl5rcjb` step 10438/13000 (T4 in progress, ~80%)
@@ -34,12 +34,12 @@
 |------|---------|-----------|--------|
 | #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl: val=3.269438 ffs=3125 (baseline). Cell B (wd_aux=0.01): val=3.2740 ffs=3250 (clean-neg, +2.23σ). Cell C `zx8h5ord` (wd_aux=0.05) step 710/3250 in flight. |
 | #306 | alphonse | lm_head LR Phase 2 n=4 | P2 `7xl5rcjb` step 10438/13000 (T4 in progress). T1=3.270250, T2=3.271309, T3=3.272229. **Effectively locked out** (T4 needs ≤3.263660 ~−6.5σ). Close clean-neutral at terminal. |
-| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl `q9sj0dcr` step 2580/3250 (~79%) in flight. |
-| #320 | edward | Adam β₂ Phase 2 n=4 | ⭐⭐⭐ P2 `mo3leb2y` step 8291/13000. **T1=3.270414, T2=3.269201** (both ffs=3125, T2 below gate). T3 in progress. Statsig: T3+T4 mean ≤ 3.268917 — PLAUSIBLE. |
-| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | ⚠️ **MULTI-CRASH INCIDENT**: Cell A crashed 5× (none reached terminal), Cell B crashed at step 6, Cell C `nj3fqbk8` (warmup=100) running step 2343/3250. Advisor directed: complete C, retry Cell A, fall back to D/E if A keeps crashing. |
+| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl FINISHED: val=3.2716 ffs=3150 (+0.20σ — baseline reproduction). Cell B `u01fl5oh` (ramp_up) launched. |
+| #320 | edward | Adam β₂ Phase 2 n=4 | ⭐⭐⭐ P2 `mo3leb2y` step 9125/13000 (T3 boundary ~625 steps away). **T1=3.270414, T2=3.269201** (both ffs=3125, T2 below gate). Statsig: T3+T4 mean ≤ 3.268917 — PLAUSIBLE. |
+| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell C `nj3fqbk8` (warmup=100) FINISHED clean-NEG: val=3.2803 ffs=-1 (target never reached, +7.5σ). Advisor directed: SKIP D/E (warmup=200/400 will miss target worse); retry Cell A; close with partial data if A crashes again. |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: val=3.2703 ffs=3125 (baseline, -0.9σ). Cell B `xj2z7pht` (ortho_unit gain=1.0) step 476/3250 in flight. |
 | #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A precond_freq=4 FINISHED: val=3.2757 ffs=3175 (clean-neg, +3.7σ). Cell B `aatoeuq2` (precond_freq=8) step 1919/3250 in flight. |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A: val=3.269674 ffs=3125 (P2 trigger). Cell B ctrl: val=3.272 ffs=3150 (baseline). **DUPLICATE INCIDENT 12:25Z**: `vqd4wcez` re-fired Cell B; advisor directed kill + Cell C launch. |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A: val=3.269674 ffs=3125 (P2 trigger). Cell B ctrl: val=3.272 ffs=3150 (baseline). DUPLICATE 12:25Z killed; Cell C `fmycgozs` (lr_attn=0.045) running step 403/3250. |
 
 ## Closed This Session (poll #126-137)
 
