@@ -539,8 +539,15 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        norm_buf = None
+        last_lr = 0.0
+        last_wd = 0.0
         for group in self.param_groups:
             params = group["params"]
+            last_lr = group["lr"]
+            last_wd = group["weight_decay"]
+            if norm_buf is None:
+                norm_buf = torch.zeros(2, device=params[0].device, dtype=torch.float64)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -565,16 +572,34 @@ class Muon(torch.optim.Optimizer):
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
+                    u_norm = update.norm()
                     if w_norm > 0:
-                        ratio = update.norm() / w_norm
+                        ratio = u_norm / w_norm
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
+                            u_norm = update.norm()
+                    norm_buf[0] += (w_norm * w_norm).double()
+                    norm_buf[1] += (u_norm * u_norm).double()
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if world_size > 1 and norm_buf is not None:
+            dist.all_reduce(norm_buf, op=dist.ReduceOp.SUM)
+        if norm_buf is not None:
+            param_norm_sq = float(norm_buf[0].item())
+            update_norm_sq = float(norm_buf[1].item())
+        else:
+            param_norm_sq = 0.0
+            update_norm_sq = 0.0
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._norm_diag = {
+            "param_norm": param_norm_sq ** 0.5,
+            "update_norm": update_norm_sq ** 0.5,
+            "lr": last_lr,
+            "weight_decay": last_wd,
+        }
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -691,7 +716,7 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": 0.035,
-            "muon_weight_decay": 0.025,
+            "muon_weight_decay": 0.050,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
@@ -740,7 +765,7 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.050, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -899,6 +924,23 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                }, step=wandb_step)
+            norm_diag = getattr(optimizer2, "_norm_diag", None)
+            if norm_diag is not None:
+                muon_param_norm = norm_diag.get("param_norm", 0.0)
+                muon_update_norm = norm_diag.get("update_norm", 0.0)
+                muon_lr = norm_diag.get("lr", 0.0)
+                muon_wd = norm_diag.get("weight_decay", 0.0)
+                u_to_p = (muon_update_norm / muon_param_norm) if muon_param_norm > 0 else 0.0
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/param_norm": muon_param_norm,
+                    "muon/update_norm": muon_update_norm,
+                    "muon/update_to_param_ratio": u_to_p,
+                    "muon/effective_lr": muon_lr,
+                    "muon/weight_decay": muon_wd,
+                    "muon/wd_decay_per_step": muon_lr * muon_wd,
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
