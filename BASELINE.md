@@ -8,6 +8,45 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-18 08:35 — PR #288: Cooldown-only μ anneal (MU_COOLDOWN_START=0.95→MU_COOLDOWN_END=0.90) (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | Muon momentum μ held at 0.95 through warmup+plateau, then annealed linearly from 0.95→0.90 during cooldown phase only (starts step ~952). Replaces full-training schedule from PR #219. Env vars: `MU_COOLDOWN_START=0.95`, `MU_COOLDOWN_END=0.90`. Full-run MU_START/MU_END deprecated. |
+| Contra-Muon HPs | `CONTRA_MUON=0.5`, `TARGET_UW=0.35`, `MUON_LR=0.0375` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; `ATTN_SOAP_TRUST_THRESHOLD=0.85` |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `qceklszn` (n=4 confirmation, all 4 trials) |
+| **n=4 mean val/loss** | **3.275350** |
+| **n=4 statsig margin** | **0.00930** ≥ 0.004 — PASSES (2.33×) |
+| **ffs mean** | **3087.5** (T0=3075, T1=3100, T2=3100, T3=3075) |
+| **speedup vs PR #219** | val Δ=−0.000485; ffs Δ=0 (tied — 25-step quantization artifact) |
+| **speedup vs starter** | ~262 steps / ~7.8% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27437 | 3075 |
+| T1 | 3.27600 | 3100 |
+| T2 | 3.27586 | 3100 |
+| T3 | 3.27517 | 3075 |
+
+**Mechanism insight**: μ-anneal benefit localizes to cooldown phase. Arm A (0.97→0.92 full-training) missed both bars; Arm B (cooldown-only 0.95→0.90) cleared val bar + tied ffs. This confirms NS5-orthogonalized Muon doesn't need warmup stabilization from high μ — the benefit is purely from reactive low μ during LR cooldown.
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5 \
+  torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'baseline-repro-pr288' \
+  --wandb_group 'baseline-verification'
+```
+
+---
+
 ### 2026-05-17 16:35 — PR #219: Annealed Muon momentum μ schedule (MU_START=0.97→MU_END=0.90) (squash-merged)
 
 | Field | Value |
