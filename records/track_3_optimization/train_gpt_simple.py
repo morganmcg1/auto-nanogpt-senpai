@@ -457,6 +457,10 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# AdaMuon: post-NS5 per-element EMA variance scaling (arxiv 2507.11005).
+ADAMUON = bool(int(os.environ.get("ADAMUON", "0")))
+ADAMUON_BETA2 = float(os.environ.get("ADAMUON_BETA2", "0.95"))
+ADAMUON_EPS = float(os.environ.get("ADAMUON_EPS", "1e-8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -493,11 +497,22 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, adamuon_v=None, beta2=NORMUON_BETA2):
+    """Contra-Muon + optional AdaMuon post-NS5 variance + NorMuon-lite."""
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
+
+    # AdaMuon: post-NS5 per-element EMA variance scaling (preserves RMS).
+    if ADAMUON and adamuon_v is not None:
+        rms_before = update.float().square().mean().sqrt()
+        adamuon_v.mul_(ADAMUON_BETA2).addcmul_(
+            update.float(), update.float(), value=1.0 - ADAMUON_BETA2
+        )
+        update = (update.float() / adamuon_v.clamp_min(ADAMUON_EPS).sqrt()).to(update.dtype)
+        rms_after = update.float().square().mean().sqrt().clamp_min(1e-10)
+        update = update * (rms_before / rms_after).to(update.dtype)
+
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
@@ -667,6 +682,8 @@ class Muon(torch.optim.Optimizer):
                             state["second_moment"] = torch.zeros(
                                 (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
                             )
+                        if ADAMUON:
+                            state["adamuon_v"] = torch.zeros_like(p, dtype=torch.float32)
                         if p in self.soap_params or p in self.attn_soap_params:
                             m, n = p.size(0), p.size(1)
                             state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
@@ -690,7 +707,11 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(
+                        momentum_update,
+                        state["second_moment"],
+                        adamuon_v=state.get("adamuon_v") if ADAMUON else None,
+                    )
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -851,6 +872,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/adamuon": ADAMUON,
+            "optimizer/adamuon_beta2": ADAMUON_BETA2,
+            "optimizer/adamuon_eps": ADAMUON_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
