@@ -1,9 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 13:15 UTC (boot 142x — first arm-1 harvest)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#13 posted 11:20 UTC. Operator silent ~66h+. **esc#14 due ~14:30 UTC.**
+- **Last updated:** 2026-05-18 15:08 UTC (boot 142x — wave-2 arm-2 harvest)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#14 posted 14:15 UTC. Operator silent ~67h35m+. **esc#15 due ~17:00 UTC.**
 - **Branch state:** Baseline post-PR #310 (MuonH inner LR warmup=100, merged boot 142w).
-- **Boot 142x cleanup complete:** All 4 baseline-shift students relaunched on NEW baseline (askeladd/fern/nezuko/frieren). Arm-1 harvest complete (13:11 UTC).
+- **Wave-2 harvest complete:** 5 sweep arms terminal in ~15 min window. Best: nezuko lr=1/200 at val=3.27234 (clears n=1 bar by 0.00001), fern frac=0.4 at 3.27253. NEG signals: edward cosine decay (3.27609 +0.00294), thorfinn cosine warmup (3.27348 +0.00033 vs linear), frieren step 30→60 (3.27388 +0.00073 vs control).
 
 ## ⭐ Current baseline (post-PR #310 merge)
 
@@ -23,28 +23,38 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100`.
 
-## Active experiments (boot 142x — 13:15 UTC 2026-05-18, post arm-1 harvest)
+## Active experiments (boot 142x — 15:08 UTC 2026-05-18, post wave-2 harvest)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#370** | thorfinn | **MuonH warmup shape sweep** (linear/cosine/sqrt) | Arm 1 (**linear control**) terminal: `vvqkuuen` val=**3.27314** ✓ bit-identity baseline. Arm 2 (cosine) launched 13:08 UTC. ETA ~15:00 UTC for arm 2, ~17:00 UTC for arm 3 |
-| **#369** | edward | **MuLoCo outer_lr schedule** (decay/grow) | Arm 1 (**fixed 0.7 control**) terminal: `87ou9bcg` val=**3.27195** (Δ=-0.00120 control bias). Arm 2 (cosine decay 0.7→0.35) `935del3x` running step ~188. ETA arm 2 ~14:35 UTC, arm 3 ~16:35 UTC |
-| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | `dpabql6o` trial 1 of 4 terminal val=**3.27209** (Δ=-0.00106, clears n=1 bar 3.27235). Trial 2 in progress. n=4 terminal ETA ~17:57 UTC. For merge bar 3.27275: trials 2-4 mean ≤ 3.27297 |
-| **#352** | fern | **Aux AdamW cooldown_frac sweep** (0.3/0.4/0.5) | Arm 1 (**frac=0.3** — corrected) terminal: `vmxi4dns` val=**3.2731** (Δ~0, no help from shorter cooldown). Arm 2 (frac=0.4) mid-run. Arm 3 (frac=0.5) pending. ETA ~17:15 UTC |
-| **#361** | nezuko | **Aux lm_head LR sweep** (1/500, 1/320, 1/200) | Relaunched at 12:30 UTC with `s3hdqm9z` on NEW baseline. ETA ~17:30 UTC |
-| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60) | Arm 1 (**fixed sync=30 control**) terminal: `wddw4tjm` val=**3.2735** (Δ=+0.00035). Arm 2 (step 30→60 @ 2/3) and arm 3 (linear 30→60) sequential. ETA ~17:00 UTC |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 66h+** — `gd125a8` bf16 NaN. Esc#13 posted 11:20 UTC. Esc#14 due ~14:30 UTC |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 66h+** — rebase complete. Esc#13 posted 11:20 UTC. Esc#14 due ~14:30 UTC |
+| **#370** | thorfinn | **MuonH warmup shape sweep** (linear/cosine/sqrt) | Arm 1 linear: **3.27314** ✓. Arm 2 cosine: **3.27348** (Δ=+0.00034 vs linear — slight NEG). Arm 3 sqrt `43dwt9vn` launched 15:03 UTC. ETA ~16:50 UTC. **Cosine likely closes NEG; sqrt is final arbiter** |
+| **#369** | edward | **MuLoCo outer_lr schedule** (decay/grow) | Arm 1 fixed 0.7: **3.27195**. Arm 2 cosine decay 0.7→0.35: **3.27609** (Δ=+0.00414 vs ctrl — strong NEG). Arm 3 cosine grow 0.7→1.05 pending. ETA arm 3 ~16:35 UTC. **Decay direction broken; grow may still help** |
+| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | `dpabql6o` trials 0+1 done — best val=3.27209 / 3.27264 → n=2 mean ≈ 3.27237. Trial 2 (W&B `trial:2`) running step ~690/3325. n=4 ETA ~17:57 UTC. **Conservative merge bar μ<3.27275 needs trials 2-3 mean ≤ 3.27314 — likely achievable** |
+| **#352** | fern | **Aux AdamW cooldown_frac sweep** (0.3/0.4/0.5) | Arm 1 frac=0.3: **3.2731**. Arm 2 frac=0.4 (=baseline): **3.27253**. Arm 3 frac=0.5 pending. ETA ~16:55 UTC. **No signal so far; both within n=1 noise** |
+| **#361** | nezuko | **Aux lm_head LR sweep** (1/200, 1/320, 1/500) | Arm 1 lr=1/200 (0.005): **3.27234** ✓ **clears n=1 bar 3.27235 by 0.00001!** Arms 2 (1/320) and 3 (1/500) pending. ETA arm 2 ~17:00 UTC, arm 3 ~18:50 UTC. **Strong signal: higher lm_head LR may help** |
+| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60) | Arm 1 fixed sync=30: **3.27352**. Arm 2 step 30→60 @ 2/3: **3.27388** (Δ=+0.00036 vs ctrl — slight NEG). Arm 3 linear 30→60 pending. ETA ~16:55 UTC. **Step schedule likely closes NEG; linear schedule final arbiter** |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 67h+** — `gd125a8` bf16 NaN. Esc#14 posted 14:15 UTC. Esc#15 due ~17:00 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 67h+** — rebase complete. Esc#14 posted 14:15 UTC. Esc#15 due ~17:00 UTC |
 
 **8/8 students assigned.** No idle slots.
 
-### Arm-1 harvest summary (13:11 UTC)
+### Wave-2 arm-2 harvest summary (15:02 UTC)
 
-5 of 5 in-flight arm-1 runs reached terminal val/loss within ~30 min window. All control arms cluster at val=3.272–3.274 (±0.0012 of baseline 3.27315 — pure n=1 noise). Key signals:
+5 of 5 in-flight arm-2 runs reached terminal val/loss within 15 min window:
 
-- **Askeladd trial 0 = 3.2721 (Δ=-0.00105)** — strongest result so far. Trial 1 in progress; n=4 terminal ~17:57 UTC. n=4 conservative bar μ < 3.27275 looks attainable if trial-trial noise low.
-- **Thorfinn LINEAR control = 3.27314 bit-identity baseline** — verifies warmup=100 reproduction. Cosine/sqrt arms can now produce interpretable signal.
-- **Edward control = 3.27195** — fixed outer_lr=0.7 (=baseline) ran slightly below baseline. n=1 variance. Useful internal noise floor estimate.
+| Run | PR | Arm | Terminal val | Δ vs baseline 3.27315 | n=1 bar 3.27235? |
+|---|---|---|---|---|---|
+| `df1mmug7` | #361 nezuko | lr=1/200 (0.005) | **3.27234** | -0.00081 | ✓ **cleared by 0.00001** |
+| `6fuqi76u` | #352 fern | frac=0.4 (=baseline) | **3.27253** | -0.00062 | ✗ (close) |
+| `lw6ork1v` | #370 thorfinn | cosine warmup | **3.27348** | +0.00033 | ✗ |
+| `snbbohvq` | #365 frieren | step 30→60 @ 2/3 | **3.27388** | +0.00073 | ✗ |
+| `935del3x` | #369 edward | cosine decay 0.7→0.35 | **3.27609** | +0.00294 | ✗ (strong NEG) |
+
+Key takeaways:
+- **Nezuko lr=1/200 is the strongest novel candidate** — JUST clears n=1 bar. Need n=4 to merge but worth pursuing.
+- **Edward outer_lr decay strongly NEG** (Δ=+0.00414 vs ctrl). MuLoCo wants outer_lr stable.
+- **Thorfinn cosine + frieren step-scheduling both mildly NEG** at n=1. Both PRs likely close NEG after final arm.
+- **Fern cooldown_frac shows no signal in this region** (0.3, 0.4 essentially tied).
 
 ### Baseline-shift correction in boot 142x
 
@@ -56,11 +66,9 @@ PR #310 merged at 10:31 UTC during a window when 4 students had already launched
 
 | Source | Best result | n=4 ETA | Status |
 |---|---|---|---|
-| **Askeladd AGC inner clip=0.05** `dpabql6o` (NEW baseline) | trial 0=3.2721 (Δ=-0.00105) | ~17:57 UTC | **ACTIVE n=4 confirm, trial 1 running** |
-| Edward outer_lr decay 0.7→0.35 `935del3x` | running step ~188 | ~14:35 UTC arm 2 | sweep arm 2 in-flight |
-| Thorfinn warmup shape cosine | just launched 13:08 UTC | ~15:00 UTC arm 2 | sweep arm 2 in-flight |
-| Fern aux cooldown frac=0.3/0.5 | sequential after arm 1 | ~17:15 UTC | sweep arms pending |
-| Frieren sync_interval step 30→60 | sequential after arm 1 | ~17:00 UTC | sweep arms pending |
+| **Askeladd AGC inner clip=0.05** `dpabql6o` | n=2 mean ≈ 3.27237 (trial 0=3.27209, trial 1=3.27264) | ~17:57 UTC | **ACTIVE n=4 confirm, trial 2 running** |
+| **Nezuko lm_head LR=1/200** `df1mmug7` | n=1=3.27234 (clears n=1 bar 3.27235 by 0.00001) | needs n=4 if pattern holds | sweep arms 2-3 pending |
+| Fern frac=0.4 | n=1=3.27253 (=baseline) | — | sweep arm 3 (frac=0.5) pending |
 
 ## MERGED this round (chronological)
 
