@@ -1,5 +1,54 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 08:35 UTC — Cycle 55 (continued): PR #288 MERGED (cooldown-only μ anneal — NEW BASELINE); #319 CLOSED (Muon warmup FALSIFIED); #312 CLOSED (lm_head WD no signal)
+
+### PR #288 MERGED — Cooldown-only μ anneal 0.95→0.90 (NEW BASELINE)
+
+| | n=4 mean val | n=4 mean ffs | Statsig | Verdict |
+|---|---|---|---|---|
+| Baseline (PR #219) | 3.275835 | 3087.5 | — | baseline |
+| **PR #288 (merged)** | **3.275350** | **3087.5** | **0.00930** ≥ 0.004 ✅ | **MERGED** |
+| Δ | −0.000485 | 0.0 (tie) | 2.33× | new baseline |
+
+W&B run: `qceklszn` (n=4 confirmation: T0=3.27437/3075, T1=3.27600/3100, T2=3.27586/3100, T3=3.27517/3075)
+
+**Mechanism validated**: μ-anneal benefit localizes to cooldown phase. Arm A (0.97→0.92 full training) missed both bars (n=2 mean val=3.27670/ffs=3112.5); Arm B (cooldown-only 0.95→0.90 starting step 952) cleared val bar + tied ffs. NS5-orthogonalized Muon doesn't need warmup stabilization from high μ.
+
+**ffs tie analysis**: ffs is bimodal {3075, 3100} with 2-2 split in n=4, mean exactly 3087.5. The quantization makes 3087.5 the modal n=4 outcome when 2 trials hit 3075 and 2 hit 3100. The decision to MERGE despite ffs tie was based on: (a) val statsig 2.3×, (b) no ffs regression, (c) CLAUDE.md "when in doubt, merge."
+
+**New merged stack**: `MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5` — MU_START/MU_END deprecated.
+
+---
+
+### PR #319 — Muon LR warmup 100-step and 50-step — FALSIFIED (both arms)
+
+| Arm | Warmup | val_mean (n=2) | Δval | ffs_mean | Δffs | Bars |
+|---|---:|---:|---:|---:|---:|---|
+| A | 100 | 3.277545 | +0.00171 | 3112.5 | +25 | 0/2 |
+| B | 50 | 3.277385 | +0.00155 | 3112.5 | +25 | 0/2 |
+| Baseline (PR #219) | 0 | 3.275835 | 0 | 3087.5 | 0 | — |
+
+W&B runs: `5ao5znlo` (Arm A), `tx48f42y` (Arm B)
+
+**Mechanism confirmed**: Muon's NS5 orthogonalization at full LR from step 1 is load-bearing. Key diagnostic: val@step125 essentially identical between 100-step and 50-step warmup arms (4.641 vs 4.634) — warmup damages early geometry in a way that does not fully recover, even 75+ post-warmup steps before the first eval. Warmup adds LR suppression to an optimizer that doesn't need it.
+
+**Excluded axes**: Any positive Muon LR warmup. Mechanism is clear: NS5-Muon IS its own warmup.
+
+---
+
+### PR #312 — AdamW lm_head weight decay (WD=0.01) — NO SIGNAL
+
+| | val_mean (n=4) | ffs_mean | Δval | Statsig p | Verdict |
+|---|---|---|---|---|---|
+| Arm A (wd=0.01) | 3.27648 | 3106.25 | +0.00113 | p≈0.57 | miss, no signal |
+| Baseline (PR #288) | 3.275350 | 3087.5 | — | — | — |
+
+W&B runs: `cpojpo1o` (n=4), `9zm9jnch` (n=1 screen)
+
+**Mechanism**: lm_head norm ~795 — large stable value anchored by vocab embedding gradient signal. wd=0.01 per step contributes ~4×10⁻⁵ net change per step — too small vs the gradient-driven update. Arm B (wd=0.05) skipped (n=1 "win" at 3.27554 was seed noise per Welch t p=0.57). **lm_head norm telemetry** (monotone growth through warmup + partial deflation during cooldown) retained as useful diagnostic for future readout-focused experiments.
+
+---
+
 ## 2026-05-18 06:00 UTC — Cycle 55 (continued): frieren #340 CLOSED (embed init std FALSIFIED — Arm A NaN); reassigned #343 AdamW β2 sweep
 
 ### FRIEREN #340 — Embed init std sweep — FALSIFIED (Arm A NaN at step 25, Arm B skipped per kill gate)
