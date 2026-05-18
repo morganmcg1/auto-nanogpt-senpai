@@ -35,8 +35,12 @@ drives the next-wave assignment.
 ## 2026-05-18 18:30 UTC — PR #396: QK-Norm sweep (off vs fixed vs learnable) — ASSIGNED
 
 - **Branch**: g1r3-askeladd/qk-norm
-- **Hypothesis**: Pre-attention RMSNorm on Q and K vectors (before RoPE). First architectural test of the run. Used in Llama 3.1, OLMo 2. 3 arms: off (control), fixed RMSNorm, learnable-scale RMSNorm. head_dim=64, applied before RoPE.
+- **Hypothesis**: Pre-attention RMSNorm on Q and K vectors (before RoPE). First architectural test of the run. Used in Llama 3.1, OLMo 2. 3 arms: off (control), fixed RMSNorm, learnable-scale RMSNorm. Applied before RoPE.
 - **Status**: Assigned to g1r3-askeladd (freshly idle after PR #329 merge).
+- **2026-05-18 19:00 UTC redirect**: askeladd caught two issues in original assignment:
+  1. Baseline already has F.rms_norm on Q/K (line 411) — functionally fixed QK-Norm already present
+  2. head_dim is 128 (768/6 heads), not 64 as my note said
+  - Revised arm semantics: **off** truly removes F.rms_norm (NEW); **fixed** keeps F.rms_norm (= baseline control); **learnable** adds nn.RMSNorm(elementwise_affine=True). Meaningful comparisons now: fixed↔off (does the existing F.rms_norm help?) and fixed↔learnable (does adding learnable scale help?). Smoke gate applies to **fixed** arm.
 
 ---
 

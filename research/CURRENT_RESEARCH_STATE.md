@@ -29,20 +29,20 @@
 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100
 ```
 
-## Active experiments (18:43 UTC 2026-05-18)
+## Active experiments (19:00 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#397** | nezuko | **Aux lm_head weight decay sweep** (wd=0/0.01/0.05 on lm_head only) | Freshly assigned 18:43 UTC after #361 closed NEG. Reuses lm_head-specific plumbing. |
-| **#396** | askeladd | **QK-Norm sweep** (off/fixed/learnable RMSNorm on Q+K) | Assigned 18:30 UTC. First architectural test. |
-| **#389** | edward | **MuonH inner mu warmup** (mu_warmup_steps 0/100/200) | Active — `va3dm8i1` arm-1 ctrl running with new flag (step 120 at 18:40 UTC). Stale `keybcdow` pre-#329 cleanup requested. |
-| **#390** | frieren | **MuLoCo outer optimizer class** (SGDM/AdamW/Lion) | Assigned 17:08 UTC. Awaiting new-flag notification pickup. |
-| **#391** | thorfinn | **MuonH warmup duration** (100/200/300 steps) | Assigned 17:09 UTC. Awaiting new-flag notification pickup. |
-| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | Redirected 17:27 UTC (baseline had existing softsign cap). Awaiting new-flag notification pickup. |
+| **#397** | nezuko | **Aux lm_head weight decay sweep** (wd=0/0.01/0.05 on lm_head only) | Assigned 18:43 UTC after #361 closed NEG. Reuses lm_head-specific plumbing. |
+| **#396** | askeladd | **QK-Norm sweep** (off/fixed/learnable RMSNorm on Q+K) | Redirected 19:00 UTC — baseline already has F.rms_norm; arm semantics revised: off=remove, fixed=baseline-equiv, learnable=add scale. head_dim=128 (not 64). Smoke `ympej1dq` done step 300. |
+| **#389** | edward | **MuonH inner mu warmup** (mu_warmup_steps 0/100/200) | Active — `va3dm8i1` arm-1 ctrl at step 675 w/ AGC flag (18:59 UTC). Stale `keybcdow` confirmed killed. |
+| **#390** | frieren | **MuLoCo outer optimizer class** (SGDM/AdamW/Lion) | Stale-run cleanup requested 19:00 UTC — `pakw25ll` (step 870) launched pre-#329 without `--muonh_agc_clip_ratio`. |
+| **#391** | thorfinn | **MuonH warmup duration** (100/200/300 steps) | Active — `a05x4jp0` arm-1 step 425 w/ AGC flag (18:59 UTC). |
+| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | Active — `bwjjfmts` arm-1 launched step 0 w/ AGC flag (18:59 UTC). Earlier smoke crashed (no AGC). |
 | **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 72h+** — `gd125a8` bf16 NaN. |
 | **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 72h+** — needs_rebase, `gd103cc`. |
 
-**8/8 students assigned.** No idle slots.
+**8/8 students assigned.** No idle slots. 3 of 5 fresh PRs (#389/391/392) confirmed running with new `--muonh_agc_clip_ratio 0.05` flag. Edward leads at step 675.
 
 ## MERGED this round (chronological)
 
