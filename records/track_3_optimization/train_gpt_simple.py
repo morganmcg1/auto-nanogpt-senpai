@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -52,6 +53,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--embed_clip_norm", type=float, default=float(os.environ.get("NANOGPT_EMBED_CLIP_NORM", "inf")),
+                        help="Per-tensor L2 clip threshold for model.embed.weight.grad (inf = disabled). PR #331.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +707,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "embed_clip_norm": args.embed_clip_norm,
         },
     )
 
@@ -879,6 +883,20 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # --- Per-tensor embed gradient clip (PR #331 spike-suppression test) ---
+        if math.isfinite(args.embed_clip_norm) and model.embed.weight.grad is not None:
+            embed_total_norm = torch.nn.utils.clip_grad_norm_(
+                [model.embed.weight], args.embed_clip_norm
+            )
+            if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
+                pre_clip = float(embed_total_norm.item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "embed/grad_norm_pre_clip": pre_clip,
+                    "embed/clip_norm_threshold": args.embed_clip_norm,
+                    "embed/clip_fired": float(pre_clip > args.embed_clip_norm),
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
