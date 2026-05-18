@@ -63,17 +63,19 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 **Variance signal**: arm-A retry came in at 3.27496 vs original 3.27095 — **seed-to-seed Δ=+0.00401, roughly equal to the original within-pod Δ=−0.00419 signal**. Strong evidence the original signal was substantially pod luck. Paired Δ analysis pending B2 + A3/B3.
 **ETA paired conf:** ~14:00–16:00 UTC.
 
-### 🔥 alphonse #351 — Per-group SCALAR AdamW ε sweep — MIXED SIGNAL [arm D running]
-**Branch:** `g1r4-alphonse/scalar-eps-sweep`
-**Three of four arms in:**
+### 🔥 alphonse #351 — Per-group SCALAR AdamW ε sweep — SENT BACK 15:34 UTC for paired confirmation
+**Branch:** `g1r4-alphonse/scalar-eps-sweep` (next: `g1r4-alphonse/scalar-eps-confirm`)
+**All four arms terminal — non-monotone "all-perturbations-help" pattern**:
 | Arm | scalar_eps | val_loss | fs | Δ vs A | Δ vs baseline |
 |---|---|---|---|---|---|
-| A (control) | 1e-10 | 3.27528 | 3275 | — | +0.00328 (drift gate ✗ by 0.00028) |
+| A (control) | 1e-10 | 3.27528 | 3275 | — | +0.00328 (drift gate ✗) |
 | B | 1e-12 | 3.27317 | 3250 | −0.00211 | +0.00117 |
 | C | 1e-8 | 3.27372 | 3250 | −0.00156 | +0.00172 |
-| D | 1e-6 | running step 2675, val=3.352 | - | - | - |
+| D | 1e-6 | **3.27250** | 3250 | **−0.00278** | +0.00050 |
 
-**Reading**: arm-A drifted +0.00328 vs merged baseline (just over drift gate), so within-pod Δs may be partly drift correction. Both B and C absolute vals (3.27317, 3.27372) sit ABOVE baseline (3.27200) — neither is currently better than baseline. If D shows U-shape with apex at B (1e-12), worth paired confirmation. If monotone-down (D<C<B), extend to 1e-14.
+**Reading**: Non-monotone (B and D both help, C in between, A worst). All non-A arms have fs=3250 — uniform 25-step gap suggests A pod-luck. Most parsimonious read: arm-A drifted; arms B/C/D would be within ±0.0015 if A were on baseline.
+**Path**: Paired-pod confirmation requested — 2 fresh pods × {A, D} back-to-back (with order flipped on pod 2). n=3 paired observations after combining with original A+D. Pre-staged: mean(D, n=3) ≤ baseline AND paired Δ ≤ −0.002 → real signal; otherwise → productive-null.
+**ETA paired conf:** ~7h.
 
 ### 🔄 askeladd #354 — Logit softcap value sweep [arm-D running]
 **Branch:** `g1r4-askeladd/logit-softcap-sweep`
@@ -166,7 +168,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 
 ### Active candidates with signal
 1. **NS late_peak frac=0.25** — frieren #344. Paired-confirm in flight; A2 retry (val=3.27496) showed +0.00401 vs original A1 (3.27095) → original signal likely substantially pod luck. Wait for B2 + A3/B3.
-2. **scalar AdamW ε=1e-12** — alphonse #351. Within-pod ΔB=−0.00211, ΔC=−0.00156, but arm-A drifted +0.00328 above baseline (just over drift gate). Absolute B (3.27317) and C (3.27372) both ABOVE baseline (3.27200). D pending — interpret cautiously, may need paired confirmation.
+2. **scalar AdamW ε** — alphonse #351. SENT BACK 15:34 UTC for paired confirmation. Original sweep non-monotone (arm-A drift makes within-pod Δs unreliable). Paired arm-D (1e-6) vs arm-A (1e-10) on 2 fresh pods with flipped order to disambiguate pod luck from real signal.
 
 ### Productive-null shaping up
 3. **Logit softcap value** — askeladd #354. softcap=15 (default) winning. B (10) and C (20) both regress materially. D (25) pending.
