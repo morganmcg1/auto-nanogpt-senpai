@@ -55,6 +55,16 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # sync_interval scheduling: optionally widen sync_interval late in training so
+    # each outer step accumulates more drift when inner Δ has decayed under the
+    # cosine LR cooldown. None / "none" keeps the original fixed interval.
+    parser.add_argument("--sync_interval_final", type=int, default=None,
+                        help="Target sync_interval at training end. None = no schedule.")
+    parser.add_argument("--sync_interval_schedule", type=str, default="none",
+                        choices=["none", "step", "linear"],
+                        help="Schedule shape for sync_interval.")
+    parser.add_argument("--sync_step_transition", type=float, default=2/3,
+                        help="Fraction of training at which step schedule switches intervals.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -728,10 +738,25 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_sync_interval_final": args.sync_interval_final,
+            "muloco_sync_interval_schedule": args.sync_interval_schedule,
+            "muloco_sync_step_transition": args.sync_step_transition,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
         },
     )
+
+
+def current_sync_interval(train_step, train_steps, args):
+    if args.sync_interval_final is None or args.sync_interval_schedule == "none":
+        return args.sync_interval
+    progress = train_step / train_steps
+    if args.sync_interval_schedule == "step":
+        return args.sync_interval if progress < args.sync_step_transition else args.sync_interval_final
+    if args.sync_interval_schedule == "linear":
+        return int(round(args.sync_interval + (args.sync_interval_final - args.sync_interval) * progress))
+    raise ValueError(f"unknown sync_interval_schedule: {args.sync_interval_schedule}")
+
 
 for trial_idx in range(args.num_trials):
 
@@ -862,6 +887,11 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+    # Counter-based outer-step firing. With schedule "none" this exactly
+    # reproduces train_step % args.sync_interval == 0 (first fire at sync_interval,
+    # subsequent fires at +sync_interval). With a schedule, the next fire spacing
+    # is recomputed from current_sync_interval at the firing train_step.
+    next_outer_step = args.sync_interval
 
     # start the clock
     training_time = 0
@@ -1029,7 +1059,7 @@ for trial_idx in range(args.num_trials):
         # initial-Frobenius sphere; the next MuonH-SI inner step reads
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
-        if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+        if use_outer and train_step == next_outer_step and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1047,6 +1077,8 @@ for trial_idx in range(args.num_trials):
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
                         total_count += delta.numel()
             outer_applied_steps += 1
+            cur_sync = current_sync_interval(train_step, train_steps, args)
+            next_outer_step = train_step + cur_sync
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
@@ -1056,6 +1088,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/current_sync_interval": cur_sync,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
