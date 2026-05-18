@@ -438,6 +438,12 @@ class GPT(nn.Module):
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
+# Muon-VS (PR #375): pre-NS5 gradient-deviation-variance scaling. Enabled when
+# MUON_VS=1; tracks an EMA of (M_{t-1} - G_t)^2 and divides the momentum
+# update by its sqrt before NS5.
+MUON_VS = int(os.environ.get("MUON_VS", "0"))
+MUON_VS_BETA = float(os.environ.get("MUON_VS_BETA", "0.95"))
+MUON_VS_EPS = float(os.environ.get("MUON_VS_EPS", "1e-8"))
 MU = float(os.environ.get("MU_START", "0.95"))
 MU_END = float(os.environ.get("MU_END", "0.95"))
 # Cooldown-only mu schedule (Arm B of PR #288): hold MU_COOLDOWN_START during
@@ -667,6 +673,9 @@ class Muon(torch.optim.Optimizer):
                             state["second_moment"] = torch.zeros(
                                 (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
                             )
+                        if MUON_VS:
+                            state["gdv"] = torch.zeros_like(p.data, dtype=torch.float32)
+                            state["step"] = 0
                         if p in self.soap_params or p in self.attn_soap_params:
                             m, n = p.size(0), p.size(1)
                             state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
@@ -683,6 +692,15 @@ class Muon(torch.optim.Optimizer):
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if MUON_VS:
+                        state["step"] += 1
+                        prev_m = state.get("prev_momentum", state["momentum"])
+                        g_dev = (prev_m.float() - grad.float()).square()
+                        state["gdv"].mul_(MUON_VS_BETA).add_(g_dev, alpha=MUON_VS_BETA * (1 - MUON_VS_BETA))
+                        bias_correction = 1.0 - MUON_VS_BETA ** state["step"]
+                        gdv_hat = state["gdv"] / max(bias_correction, 1e-8)
+                        momentum_update = (momentum_update.float() / (gdv_hat.sqrt() + MUON_VS_EPS)).to(momentum_update.dtype)
+                        state["prev_momentum"] = state["momentum"].clone()
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -851,6 +869,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/muon_vs": MUON_VS,
+            "optimizer/muon_vs_beta": MUON_VS_BETA,
+            "optimizer/muon_vs_eps": MUON_VS_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
