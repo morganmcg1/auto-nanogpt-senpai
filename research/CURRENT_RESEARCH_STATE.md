@@ -16,7 +16,7 @@
 
 All current WIP experiments ran on CONTRA_MUON=0.5 (old stack). They are now compared against the NEW bar (val<3.274383/ffs<3068.75) which they will almost certainly miss:
 - **THORFINN #357** n=4 on CONTRA_MUON=0.5: T0=3.2776/3100 — BOTH MISS vs new bar. Continue to terminal; data informs axis stacking on new base.
-- **FERN #372** n=4 on CONTRA_MUON=0.5: 2/4 mean 3.27597/3087.5 — BOTH MISS vs new bar. Continue to terminal.
+- **FERN #372** Arm A n=4 TERMINAL on OLD stack: val=3.275140/ffs=3081.25 — clean STRICT PASS vs old bar (would have merged). Misses new bar by val +0.00076/ffs +12.5. **Sent back 23:16 UTC** for re-test on NEW CONTRA_MUON=0.4 base; additivity math predicts the composite stack clears new bar at ~3.27417/3062.5 (same margins as old base).
 - **FRIEREN #373** Arm B β=0.99 on CONTRA_MUON=0.5: T0=3.2750/3075 — both miss vs new bar. Continue to terminal.
 - ✅ **TANJIRO #376 CLOSED** (22:20 UTC): Arm B n=2 terminal val=3.27542/ffs=3075 — both miss new bar (val +0.00104, ffs +6.25). **Axis falsified both arms** — no operating point makes cooldown-only AdaMuon's variance scaling both active and net-beneficial given NorMuon's existing per-row variance EMA (double-normalization). Cross-confirms frieren #373 conclusion. Student gave excellent mechanism analysis. Reassigned → #406 MU_COOLDOWN_START sweep on new base.
 - **EDWARD #379** Arm A n=2 mean 3.27530/3087.5 — misses new bar. Pivoted to Arm B (1.15) on CONTRA_MUON=0.5 base.
