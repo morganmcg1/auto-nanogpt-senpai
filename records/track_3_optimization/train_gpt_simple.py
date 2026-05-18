@@ -35,7 +35,11 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+# Layer-wise Learning Rate Decay (LLRD) for Muon body. Arm A: 0.95, Arm B: 0.85.
+# lr(layer i) = base_lr * decay^((N-1)-i). Top layer (i=N-1) keeps base_lr.
+LLRD_DECAY = 0.85
+LLRD_NUM_LAYERS = 12
+MUON_METHOD = "pmuon-uw-floor-power-cool-1p4-ns-coef-cubic-gamma-power-0p4-llrd-0p85"
 
 
 def parse_args():
@@ -524,8 +528,13 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Accept either a flat list of Parameters or a list of param-group dicts (for LLRD).
+        if isinstance(params, list) and len(params) >= 1 and isinstance(params[0], dict):
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
@@ -704,6 +713,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "llrd_decay": LLRD_DECAY,
+            "llrd_num_layers": LLRD_NUM_LAYERS,
+            "llrd_lr_ratio_bottom_to_top": LLRD_DECAY ** (LLRD_NUM_LAYERS - 1),
         },
     )
 
@@ -739,9 +751,22 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # LLRD: per-block Muon param groups with depth-dependent LR.
+    # lr(layer i) = base_muon_lr * decay^((N-1)-i). Top layer keeps base_muon_lr, bottom layer is scaled down.
+    base_muon_lr = 0.035
+    assert len(model.blocks) == LLRD_NUM_LAYERS, f"Expected {LLRD_NUM_LAYERS} blocks, got {len(model.blocks)}"
+    muon_param_groups = []
+    for layer_idx, block in enumerate(model.blocks):
+        lr_mult = LLRD_DECAY ** ((LLRD_NUM_LAYERS - 1) - layer_idx)
+        layer_params = [p for p in block.parameters() if p.ndim >= 2]
+        muon_param_groups.append(dict(
+            params=layer_params,
+            lr=base_muon_lr * lr_mult,
+            name=f"muon_layer_{layer_idx:02d}",
+            lr_mult=lr_mult,
+            layer_idx=layer_idx,
+        ))
+    optimizer2 = Muon(muon_param_groups, lr=base_muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -920,6 +945,22 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            # LLRD per-layer effective LR diagnostics (after cosine schedule applied).
+            llrd_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "llrd/decay": LLRD_DECAY,
+            }
+            for g in optimizer2.param_groups:
+                if "layer_idx" in g:
+                    llrd_metrics[f"llrd/layer_{g['layer_idx']:02d}_lr"] = g["lr"]
+                    llrd_metrics[f"llrd/layer_{g['layer_idx']:02d}_initial_lr"] = g["initial_lr"]
+            bottom_lr = optimizer2.param_groups[0]["lr"]
+            top_lr = optimizer2.param_groups[-1]["lr"]
+            llrd_metrics["llrd/bottom_lr"] = bottom_lr
+            llrd_metrics["llrd/top_lr"] = top_lr
+            llrd_metrics["llrd/lr_ratio_bottom_to_top"] = bottom_lr / max(top_lr, 1e-12)
+            wandb.log(llrd_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
