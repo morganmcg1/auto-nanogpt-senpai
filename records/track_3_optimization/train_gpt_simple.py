@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -26,6 +27,10 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+# PR #327: Adan optimizer on the aux groups. ADAN_LR_MULT scales the per-group
+# LRs vs the prior AdamW configuration. Arm A = 1.0 (match AdamW LRs);
+# Arm B = 0.33 (paper-prescribed ~3x smaller LR).
+ADAN_LR_MULT = 0.33
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -521,6 +526,72 @@ def pmuon_update(
     return update
 
 
+class Adan(torch.optim.Optimizer):
+    """Adan: Adaptive Nesterov Momentum Algorithm (Xie et al. 2022, arXiv:2208.06677).
+
+    Convention note: in this implementation `betas=(0.98, 0.92, 0.99)` are the
+    *retention* rates (matching the official sail-sg/Adan code), so the
+    per-step EMA mass on the new gradient is `(1 - beta)`. Equivalently this
+    matches the paper's Algorithm 1 with paper-convention betas `(0.02, 0.08, 0.01)`.
+
+    Buffers: m (gradient EMA), v (gradient-difference EMA),
+             n (look-ahead second-moment EMA), prev_g (g_{t-1}).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.98, 0.92, 0.99), eps=1e-8,
+                 weight_decay=0.0, no_prox=True):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        no_prox=no_prox, step=0)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            lr, eps, wd = group["lr"], group["eps"], group["weight_decay"]
+            no_prox = group.get("no_prox", True)
+            group["step"] += 1
+            t = group["step"]
+            bias_corr1 = 1.0 - beta1 ** t
+            bias_corr2 = 1.0 - beta2 ** t
+            bias_corr3_sqrt = math.sqrt(1.0 - beta3 ** t)
+            step_size_m = lr / bias_corr1
+            # Coefficient on v in the parameter update equals (1 - beta2_paper) = beta2_code.
+            step_size_v = lr * beta2 / bias_corr2
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                    state["n"] = torch.zeros_like(p)
+                    state["prev_g"] = torch.zeros_like(p)
+                m, v, n, prev_g = state["m"], state["v"], state["n"], state["prev_g"]
+                diff_g = g - prev_g
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                v.mul_(beta2).add_(diff_g, alpha=1 - beta2)
+                # Lookahead: paper writes g_k + (1-beta2_paper)*diff = g_k + beta2_code*diff.
+                lookahead_g = g + beta2 * diff_g
+                n.mul_(beta3).addcmul_(lookahead_g, lookahead_g, value=1 - beta3)
+                denom = (n.sqrt() / bias_corr3_sqrt).add_(eps)
+                if wd != 0 and not no_prox:
+                    p.data.addcdiv_(m, denom, value=-step_size_m)
+                    p.data.addcdiv_(v, denom, value=-step_size_v)
+                    p.data.div_(1 + lr * wd)
+                else:
+                    if wd != 0:
+                        p.data.mul_(1 - lr * wd)
+                    p.data.addcdiv_(m, denom, value=-step_size_m)
+                    p.data.addcdiv_(v, denom, value=-step_size_v)
+                prev_g.copy_(g)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -704,6 +775,18 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #327: Adan optimizer config for aux groups (replaces aux AdamW).
+            "aux_optimizer": "Adan",
+            "adan_beta1": 0.98,
+            "adan_beta2": 0.92,
+            "adan_beta3": 0.99,
+            "adan_eps": 1e-8,
+            "adan_weight_decay": 0.0,
+            "adan_no_prox": True,
+            "adan_lr_mult": ADAN_LR_MULT,
+            "adan_lr_embed": 0.3 * ADAN_LR_MULT,
+            "adan_lr_lm_head": (1.0 / 320.0) * ADAN_LR_MULT,
+            "adan_lr_scalars": 0.01 * ADAN_LR_MULT,
         },
     )
 
@@ -735,10 +818,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # PR #327: aux AdamW replaced by Adan (Xie et al. 2022) — three-buffer adaptive
+    # Nesterov-momentum optimizer with gradient-difference EMA and look-ahead second
+    # moment. Code-convention betas (retention rates) consistent with the official
+    # sail-sg implementation; bias correction included.
+    optimizer1 = Adan(
+        [dict(params=[model.embed.weight], lr=0.3 * ADAN_LR_MULT, name="adan_embed"),
+         dict(params=[model.proj.weight], lr=(1/320) * ADAN_LR_MULT, name="adan_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * ADAN_LR_MULT, name="adan_scalars")],
+        betas=(0.98, 0.92, 0.99), eps=1e-8, weight_decay=0.0,
+    )
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
