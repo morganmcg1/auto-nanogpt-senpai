@@ -1,13 +1,15 @@
 # SENPAI Research State
 
-- 2026-05-18 17:15 UTC — Cycle 55 (continued)
+- 2026-05-18 18:10 UTC — Cycle 55 (continued)
 
-## 🔥 THREE-WAY N=4 CONFIRM RACE IN PROGRESS (17:15 UTC)
+## 🔥 THREE-WAY N=4 CONFIRM RACE — REGRESSION-TO-MEAN WATCH (18:10 UTC)
 
-Three independent mechanism perturbations all hit `ffs=3050` floor (below bimodal {3075, 3100}) AND have n=2 STRONG with statsig pass. ALL THREE NOW IN n=4 CONFIRM:
-1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). Arm B (0.85) n=2 also narrowly clears (val=3.275205/ffs=3062.5) but DOMINATED by Arm A. **n=4 confirm on Arm A LAUNCHED 16:24 UTC** (ETA ~20:45 UTC).
-2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5). **n=4 confirm RUNNING** (trial 0 done val=3.2752/ffs=3075 borderline; ETA ~20:30 UTC).
-3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5). **n=4 confirm RUNNING** since 15:44 UTC (ETA ~22:50 UTC). Arm B (eps=1e-6) queued.
+Three independent mechanism perturbations all hit `ffs=3050` floor in n=2 AND have n=2 STRONG with statsig pass. **All three n=4 confirms running; both visible early trials regressing from optimistic n=2**:
+1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). **n=4 confirm LAUNCHED 16:24 UTC** (ETA ~20:45 UTC). No trial data visible yet.
+2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5). **n=4 confirm RUNNING** since 13:28 UTC. Trials 0+1 done: 2/4 mean val=**3.27475/ffs=3075** (slipped from n=2 3.27343/3062.5 but still both bars clear). ETA ~21:15 UTC.
+3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5). **n=4 confirm RUNNING** since 15:44 UTC. Trial 0 done: val=**3.27821/ffs=3125** (BOTH BARS MISS, worst result). Trial 1 at step 520 in flight. ETA ~22:50 UTC.
+
+**Regression-to-mean reading**: n=2 mean is high-variance; n=4 confirm trial 0 in both visible cases is *worse* than both n=2 trials. Askeladd still narrowly clearing on the running mean; fern is at risk of failing the strict bar (needs trials 1-3 mean < 3.27440 AND at least 2× ffs=3050). Thorfinn's n=4 is the wildcard — Arm A both n=2 trials hit ffs=3050, may carry through better than the other two.
 
 **Mechanism reading (INPUT-ROBUST, OUTPUT-FRAGILE)**: 
 - All three winners affect cooldown-phase update geometry on the INPUT-side or schedule-side of the optimizer pipeline:
