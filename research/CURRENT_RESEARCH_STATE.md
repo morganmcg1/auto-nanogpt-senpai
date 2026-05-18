@@ -54,12 +54,12 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 **ETA:** ~3 seeds × ~1h45m = 5h25m from confirmation start. Confirmation chain must include `NANOGPT_ADAMW_BETA2=0.99`.  
 **Gate:** n=3 mean val ≤ 3.27407 AND stat-sig ≥ 0.004.
 
-### ⚡ thorfinn #279 — AdamW aux weight decay sweep [WINNER, SENT BACK FOR REBASE + 1 PROBE]
-**Status:** Terminal n=3 mean **val=3.27346 / fs=3250.0** (seeds 523f65i3, grj9q69u, turhktxv). Δ=−0.00061 vs current baseline (3.27407). Stat-sig 0.01132 ≥ 0.004 ✓. Sent back 01:11 UTC for rebase + 1 compositional probe seed on post-#236 stack.  
-**Mechanism:** AdamW aux WD=0.005 (baseline=0.0) provides moderate regularization on embed, lm_head, scalar. Embed Frobenius norm drops to 31% of unregularized. U-curve apex confirmed at WD=0.005 (arm-C WD=0.01 regresses to Δ=+0.00389). Independent of #235/#236 — student's confirmation stack missed both ingredients and still beat baseline.  
-**Compositional prediction:** Full orthogonality → 3.27292. Partial → 3.27319. Subsumption → 3.27346 (still wins). Anti-correlation implausible (WD on weights vs β2 EMA vs embed LR shape — different math).  
-**Probe decision rule:** seed ≤ 3.27400 → merge (n=4 evidence). 3.27400–3.27600 → n=2 more (3 total). >3.27600 → close.  
-**ETA:** ~2h for probe seed after rebase.
+### ⚠️ thorfinn #279 — AdamW aux weight decay sweep [PROBE LANDED IN n=2-MORE BAND]
+**Probe seed result (run `788vm9hq`, post-#236 stack):** val=**3.27551**, fs=**3300**. Δ vs current baseline 3.27407 = **+0.00144**.  
+**Decision:** Per pre-staged rule, sent back 03:16 UTC for n=2 more seeds on post-#236 stack.  
+**Compositional reading:** Predicted ranges were 3.27292 (full orth) / 3.27319 (partial) / 3.27346 (subsumption). Probe at 3.27551 is worse than even subsumption by 0.00205 — either 1.4σ outlier or active mechanism suppression by β2=0.99.  
+**Bar for merge after n=3:** next 2 seeds need to average ≤ 3.27335 for n=3 mean ≤ 3.27407 → tight but possible.  
+**ETA:** ~3h30m for 2 sequential seeds → terminal ~06:45 UTC.
 
 ### ✅ edward #280 — Per-aux-group AdamW β2 ablation [CLOSED mechanism-study 02:05 UTC]
 **Verdict:** 4-arm chain complete. **SURPRISE: scalar (D) > embed (B) > lm_head (C)** — inverts pre-registration. Mechanism re-read: v-EMA collapse is driven by gradient SPARSITY, not magnitude. Scalar params (~10s total) are sparsest → most collapse-vulnerable at β2=0.95 → most gain from β2=0.99. Sub-additivity: sum Δs = −0.00781 vs global Δ = −0.00309 → 2.5× overlap. Closed as mechanism study; production recipe (#236 global β2=0.99) already incorporates the effect.  
