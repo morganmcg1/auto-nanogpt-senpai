@@ -54,11 +54,12 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 **ETA:** ~3 seeds × ~1h45m = 5h25m from confirmation start. Confirmation chain must include `NANOGPT_ADAMW_BETA2=0.99`.  
 **Gate:** n=3 mean val ≤ 3.27407 AND stat-sig ≥ 0.004.
 
-### ⚡ thorfinn #279 — AdamW aux weight decay sweep [HIGH PRIORITY]
-**Status:** n=3 chain in flight (within-pod design on same pod). seed-1=3.27158 (Δ=−0.00249), seed-2=3.27526 (Δ=+0.00119), n=2 mean=3.27342. seed-3 ETA ~01:00-01:15 UTC.  
-**Gate:** seed-3 ≤ 3.27537 to bring n=3 mean ≤ 3.27407. Comfortable buffer at 3.27526 (requires seed-3 ≤ 3.27537 — nearly any seed passes).  
-**Mechanism:** AdamW aux WD=0.005 (baseline=0.0) provides moderate regularization on embed, lm_head, scalar. Embed Frobenius norm drops to 31% of unregularized. U-curve apex confirmed at WD=0.005 (arm-C WD=0.01 regresses to Δ=+0.00389).  
-**Note:** Post-#236 gate is 3.27407; n=2 mean already at 3.27342, which is below gate. seed-3 has wide buffer.
+### ⚡ thorfinn #279 — AdamW aux weight decay sweep [WINNER, SENT BACK FOR REBASE + 1 PROBE]
+**Status:** Terminal n=3 mean **val=3.27346 / fs=3250.0** (seeds 523f65i3, grj9q69u, turhktxv). Δ=−0.00061 vs current baseline (3.27407). Stat-sig 0.01132 ≥ 0.004 ✓. Sent back 01:11 UTC for rebase + 1 compositional probe seed on post-#236 stack.  
+**Mechanism:** AdamW aux WD=0.005 (baseline=0.0) provides moderate regularization on embed, lm_head, scalar. Embed Frobenius norm drops to 31% of unregularized. U-curve apex confirmed at WD=0.005 (arm-C WD=0.01 regresses to Δ=+0.00389). Independent of #235/#236 — student's confirmation stack missed both ingredients and still beat baseline.  
+**Compositional prediction:** Full orthogonality → 3.27292. Partial → 3.27319. Subsumption → 3.27346 (still wins). Anti-correlation implausible (WD on weights vs β2 EMA vs embed LR shape — different math).  
+**Probe decision rule:** seed ≤ 3.27400 → merge (n=4 evidence). 3.27400–3.27600 → n=2 more (3 total). >3.27600 → close.  
+**ETA:** ~2h for probe seed after rebase.
 
 ### edward #280 — Per-aux-group AdamW β2 ablation [mechanism mapping]
 **Status:** arm-B (embed=0.99) Δ=−0.00280, arm-C (lm_head=0.99) Δ=−0.00179 (sub-threshold). arm-D (scalar=0.99) still expected. Even if arm-D shows a signal, the merge value is limited (global β2=0.99 already merged via #236). This PR's primary value is mechanism triangulation: does the effect localize to embed?  
