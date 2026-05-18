@@ -49,23 +49,28 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 ## Active experiments — 08:40 UTC
 
-### 🔄 fern #345 — NS coef ramp_down DEPTH sweep [arm-A terminal, arm-B running]
+### 🔄 fern #345 — NS coef ramp_down DEPTH sweep [arm-C running]
 **Branch:** `g1r4-fern/ns-coef-ramp-depth`
-**Hypothesis:** #290 established linear_ramp_down direction (c=0.70→0.28, depth=0.42). Is depth=0.42 optimal? Sweep 4 mean-neutral depths: arm-A=0.42 (control), arm-B=0.30 (shallower), arm-C=0.55 (steeper), arm-D=0.70 (much steeper). All arms anchored at c_mean=0.49 — pure shape sweep.
-**arm-A result:** val=3.27276, fs=3250, drift gate |Δ|=0.00076 ≤ 0.003 ✓. arm-B running.
-**Decision rule:** within-pod Δ ≤ −0.002 → signal candidate; all within ±0.0015 → productive-null.
-**ETA full chain:** ~13:30 UTC.
+**Hypothesis:** Is depth=0.42 optimal? Sweep 4 mean-neutral depths at c_mean=0.49.
+**arm-A** (depth=0.42, control): val=3.27276, fs=3250, drift gate ✓
+**arm-B** (depth=0.30, shallower): val=3.27666, Δ=**+0.00390** (worse — shallower hurts, confirms ramp_down real)
+**arm-C** (depth=0.55, steeper): running, ETA ~12:00 UTC. Will reveal if interior optimum at 0.42 or directional to steeper.
+**ETA full chain:** ~13:45 UTC.
 
-### 🔄 frieren #344 — NS late_peak transition point sweep [arm-A running, ~3025/3350]
+### 🔄 frieren #344 — NS late_peak transition point sweep [arm-C running — STRONG SIGNAL]
 **Branch:** `g1r4-frieren/ns-late-peak-frac-sweep`
-**Hypothesis:** Is 50% cooldown transition optimal? Sweep: arm-A=0.25, arm-B=0.50 (control/drift gate), arm-C=0.75. arm-B ALSO validates #285+#290 composition.
-**Status:** arm-A (frac=0.25) at step ~3025/3350. arm-B (drift gate) and arm-C queued.
-**ETA arm-A terminal:** ~08:30 UTC. Full chain ETA ~11:30 UTC.
+**Hypothesis:** Is 50% cooldown transition optimal? Sweep: arm-A=0.25, arm-B=0.50 (control/drift gate), arm-C=0.75.
+**KEY RESULT:** arm-A (frac=0.25) vs arm-B (frac=0.50) within-pod Δ = **−0.00419** — strongest signal this cycle!
+- arm-A val=3.27095, arm-B val=3.27514 (drift gate marginally over by 0.00014, pod runs ~0.003 high)
+- arm-C (frac=0.75) running, ETA ~12:08 UTC. Then SENPAI-RESULT + confirmation request.
+**Pre-staged path:** If arm-A remains winner → request paired n=3 confirmation (frac=0.25 vs frac=0.50 back-to-back on fresh pods) to avoid pod-luck confound.
 
-### ⚠️ tanjiro #300 — Embed floor value sweep [CONFIRMATION MID-CHAIN]
-**Status:** seed-3 in flight (step ~3000/3350, ETA ~08:35 UTC). Seeds were run on pre-#285+#290 stack.
-- n=2 mean=3.27151 (seed-1=3.26995, seed-2=3.27310) — strong signal candidate. If n=3 mean ≤ 3.27200 → request 1-2 re-confirmation seeds on post-#290 full stack.
-**Decision after seed-3:** n=3 mean determines path (merge if ≤ baseline, re-confirm on post-#290 stack, or close).
+### ⚠️ tanjiro #300 — Embed floor value sweep [RE-CONF ON POST-#290 STACK]
+**Status:** Pre-stack n=3 mean=3.27184 (seeds 1-3, Δ=−0.00016 vs baseline). Marginal — launched 2 re-conf seeds on full post-#290 stack.
+- S4 launched 10:41 UTC on full post-#290 stack (mr6za83o), ETA ~12:25 UTC.
+- S5 will follow immediately after S4.
+**Decision after S4+S5:** n_reconf=2 mean ≤ 3.27300 → request n=3 for stat-sig; else productive-null.
+**Key question:** Is embed floor=0.20 orthogonal to late_peak + linear_ramp_down, or was its mechanism absorbed by those merges?
 
 ### 🔄 thorfinn #348 — Per-group AdamW WD sweep [arm-A running, early]
 **Branch:** `g1r4-thorfinn/per-group-adamw-wd`
@@ -73,16 +78,19 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 **Status:** arm-A running, step ~1150/3350.
 **ETA full chain:** ~15:00 UTC.
 
-### 🔄 edward #335 — Muon LR cooldown FLOOR sweep [arm-B terminal, arm-C running]
-**Status:** arm-A val=3.27482 (drift gate ✓), arm-B (floor=0.05) val=3.27631 (+0.00149 vs A). Arm-C (floor=0.10) running at step ~1825/3350. Trending worse (floor helps Muon-side? still unclear).
-**Note:** All arms use post-#236 stack (no #285+#290). Re-confirmation on post-#290 needed if signal found.
-**ETA full chain:** ~10:50 UTC.
+### ✅ edward #335 — Muon LR cooldown FLOOR sweep — CLOSED productive-null 11:05 UTC
+All 4 arms: A=3.27482, B=+0.00149, C=+0.00636, D=+0.01659. Monotonic worsening. Mechanism confirmed: embed-floor is embed-specific; Muon NS orthogonalization already controls update magnitude, floor over-pushes. Closed. New assignment: #374 embed init scale.
 
 ### 🔄 alphonse #351 — Per-group SCALAR AdamW ε sweep [arm-A running, early]
 **Branch:** `g1r4-alphonse/per-group-scalar-eps`
 **Hypothesis:** Global ε null (closed #322). Test scalar-specific ε ∈ {1e-12, 1e-10, 1e-8, 1e-6} while embed/lm_head stay at 1e-10.
 **Status:** arm-A running, early.
 **ETA full chain:** ~15:00 UTC.
+
+### 🆕 edward #374 — Embed init scale sweep [JUST ASSIGNED]
+**Branch:** `g1r4-edward/embed-init-scale`
+**Hypothesis:** Embed uses N(0,1) default init (never tuned). Sweep multipliers {0.5, 1.0, 1.5, 2.0}. Mechanism: RMSNorm normalizes forward, but gradient back through RMSNorm's reciprocal-RMS factor IS scale-dependent. Interacts with clip=10 mechanism.
+**ETA:** ~7h sequential.
 
 ### 🆕 askeladd #354 — Logit softcap value sweep [JUST ASSIGNED]
 **Branch:** `g1r4-askeladd/logit-softcap-value`
@@ -100,6 +108,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 ## Recently closed
 
+- **edward #335 (Muon LR cooldown floor)** — CLOSED 11:05 UTC productive-null. Monotonic worsening: A=3.27482 (+0), B=+0.001, C=+0.006, D=+0.017. Embed-floor mechanism doesn't generalize to Muon. New axis: embed init scale (#374).
 - **askeladd #324 (AdamW β1 sweep)** — CLOSED 08:35 UTC productive-null. Monotone-worse direction: β1=0.80 optimal, arm-D (β1=0.95) +0.00599 worse. Asymmetric with β2 finding: direction non-stationary across batches, magnitude stationary. Wave-7 axis: logit softcap (#354).
 - **nezuko #315 (lm_head steeper-decay cooldown)** — CLOSED 08:35 UTC productive-null. Hypothesis FALSIFIED — all steeper shapes regress +0.0031–0.0035. Linear is the lm_head sweet spot: neither floor nor steep decay help. Unified mechanism: lm_head is time-of-update-concentration sensitive. Wave-7 axis: Muon μ schedule (#356).
 - **frieren #285 (NS cooldown SHAPE)** — MERGED ✅ 06:02 UTC. val=3.27352 (n=2). late_peak concentrates NS=20 into lowest-LR half of cooldown.

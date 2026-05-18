@@ -1037,3 +1037,32 @@ Compute-neutral: cum LR spread 0.023% across arms.
 Productive-null with negative stacking signal. lm_head=linear default is correct and axis is closed for steeper-than-linear direction. Shallower-than-linear (sqrt, tiny floor) remains unprobed but is lower-priority.
 
 **Follow-up assigned (PR #356)**: Muon μ schedule sweep — ramp_up (0.90→0.99) as the 4th late-training precision lever, paralleling β2=0.99, late_peak NS shape, and linear_ramp_down NS coef schedule.
+
+## 2026-05-18 11:05 UTC — PR #335: Muon LR cooldown FLOOR sweep (edward) — CLOSED productive-null ❌
+
+- Branch: `g1r4-edward/muon-lr-floor-sweep`
+- Hypothesis: Embed-floor mechanism (#235 merged) generalizes to Muon side — floor=15% on Muon LR cooldown helps like it did for embed.
+
+### Results — n=1 within-pod (post-#236 stack, pre-#285+#290)
+
+| Arm | Muon floor | W&B | val_loss | fs | Δ vs A |
+|---|---|---|---|---|---|
+| A (control) | 0.00 | `a7wkuj8d` | **3.27482** | 3275 | — |
+| B | 0.05 | `c1fho1zl` | 3.27631 | 3325 | +0.00149 |
+| C | 0.10 | `7ex73d65` | 3.28118 | -1 | +0.00636 |
+| D | 0.15 | `aehzf96c` | 3.29141 | -1 | **+0.01659** |
+
+Drift gate (arm-A vs post-#236 baseline 3.27407): |Δ|=0.00075 ≤ 0.003 ✓.
+
+### Key findings
+
+1. **Monotonic worsening** — each additional floor increment degrades val by increasing amounts (~linear initially then accelerating).
+2. **Arms C and D don't even reach target 3.28** — the degradation is not noise.
+3. **Mechanism confirmed**: Embed-floor works because embed depends on AdamW LR for late-cooldown updates. Muon's update magnitude is already controlled by NS orthogonalization — forcing a non-zero LR floor over-pushes along directions whose gradient magnitude is genuinely small in cooldown (NS has already done the spectrum-shaping work).
+4. **Complementary to #315 and #266**: Three independent experiments (lm_head/scalar floor, lm_head steeper decay, Muon floor) all confirm: cooldown shape modifications help ONLY the embed group. All other groups want LR motion to reach zero in cooldown.
+
+### Verdict
+
+Strong productive-null. Muon-floor axis is closed. The embed-floor mechanism map is now complete: it is embed-specific and non-transferable.
+
+**Follow-up assigned (PR #374)**: edward embed init scale sweep — N(0,1) default init, sweep {0.5, 1.0, 1.5, 2.0} multipliers. Fresh initialization axis, completely unexplored.
