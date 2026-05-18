@@ -5,11 +5,13 @@
 ## 🔥 THREE-WAY N=4 CONFIRM RACE — REGRESSION-TO-MEAN WATCH (18:10 UTC)
 
 Three independent mechanism perturbations all hit `ffs=3050` floor in n=2 AND have n=2 STRONG with statsig pass. **All three n=4 confirms running; both visible early trials regressing from optimistic n=2**:
-1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). **n=4 confirm LAUNCHED 16:24 UTC** (ETA ~20:45 UTC). No trial data visible yet.
+1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). **n=4 confirm RUNNING** since 16:24 UTC. Trial 0 at step 3100/3175 with val=3.2800 (just hit target), ffs=3100 (above baseline 3087.5) — **trial 0 likely both-miss**. ETA full n=4 ~22:45 UTC.
 2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5). **n=4 confirm RUNNING** since 13:28 UTC. Trials 0+1 done: 2/4 mean val=**3.27475/ffs=3075** (slipped from n=2 3.27343/3062.5 but still both bars clear). ETA ~21:15 UTC.
 3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5). **n=4 confirm RUNNING** since 15:44 UTC. Trial 0 done: val=**3.27821/ffs=3125** (BOTH BARS MISS, worst result). Trial 1 at step 520 in flight. ETA ~22:50 UTC.
 
 **Regression-to-mean reading**: n=2 mean is high-variance; n=4 confirm trial 0 in both visible cases is *worse* than both n=2 trials. Askeladd still narrowly clearing on the running mean; fern is at risk of failing the strict bar (needs trials 1-3 mean < 3.27440 AND at least 2× ffs=3050). Thorfinn's n=4 is the wildcard — Arm A both n=2 trials hit ffs=3050, may carry through better than the other two.
+
+**EDWARD #379 — FOURTH STRONG CANDIDATE** (19:00 UTC): EMBED_INIT_STD=0.85 trial 0 val=3.27429/ffs=3075 (clears both bars by −0.00106/−12.5). Trial 1 in flight (step ~318/3175); if n=2 mean clears, predeclared n=4 confirm fires immediately. Initialization-side mechanism — *unprecedented in this cycle*, distinct from cooldown-phase update geometry hits. If both EDWARD n=4 AND at least one of the other three n=4 confirms pass, **stacked combo experiment (init + cooldown + contra/MuonEq-R)** becomes the next-cycle headline test.
 
 **Mechanism reading (INPUT-ROBUST, OUTPUT-FRAGILE)**: 
 - All three winners affect cooldown-phase update geometry on the INPUT-side or schedule-side of the optimizer pipeline:
