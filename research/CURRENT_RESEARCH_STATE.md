@@ -8,7 +8,7 @@
 - 🔻 **TANJIRO #309 Arm A FALSIFIED**: val=3.28251, reached_target=NO. Aggressive AdamW β1 anneal 0.90→0.70 hurts aux momentum stability. Arm B (0.85→0.75) `45raqb1u` now running.
 - 🔻 **EDWARD #281 Arm A n=2 MISS**: mean val=3.27727 (Δ+0.00144), ffs=3112.5 (Δ+25). Per-head SOAP Q-only loses cross-head info. Arm B (all-matrix per-head) requested but NOT yet launched.
 - ✅ **FRIEREN #313 CLOSED**: 4 consecutive NaN smokes on z-loss — code never pushed to branch, could not diagnose. Hypothesis not falsified; closed for unresolvable implementation bug.
-- 🆕 **FRIEREN #330 ASSIGNED**: AdamW eps sweep (eps=1e-8 vs eps=1e-12 vs current 1e-10). Clean, env-var-only axis. Awaiting smoke.
+- 🆕 **FRIEREN #333 ASSIGNED** (replaces #330): AdamW eps sweep (eps=1e-8 vs eps=1e-12 vs current 1e-10). Clean, env-var-only axis. PR #330 was accidentally auto-merged by advisor branch-ops error; #333 is identical hypothesis on fresh branch.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -69,11 +69,11 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm A: MUON_WARMUP_STEPS=100 (100 steps linear warmup for Muon group only). Run `5ao5znlo` ~step 1525.
 - Arm B: MUON_WARMUP_STEPS=50 (shorter, faster warmup).
 
-### FRIEREN #330 — AdamW eps sweep (cycle 55, just assigned)
+### FRIEREN #333 — AdamW eps sweep (cycle 55, just assigned; replaces #330)
 - Current eps=1e-10 (AdamW aux groups: embed, lm_head/proj, scalars) — has never been swept.
 - Arm A: ADAMW_EPS=1e-8 (PyTorch default — 100× larger denominator).
 - Arm B: ADAMW_EPS=1e-12 (10× more extreme than current).
-- Awaiting smoke and implementation push.
+- Awaiting smoke and implementation push. PR #330 was accidentally auto-merged by advisor side branch-ops error (research state commit on experiment branch → ff-merge → GitHub auto-merge); #333 is a clean replacement.
 
 ## Recently closed axes
 
@@ -125,7 +125,7 @@ Gap to public record #20 (~3030 ffs steps): ~57.5 ffs steps.
 5. **Nezuko #316** (NorMuon β2 cooldown anneal) — Arm A trial 0 miss, trial 1 in progress.
 6. **Tanjiro #309** Arm B (β1 0.85→0.75) — narrower anneal in progress.
 7. **Edward #281** Arm B (all-matrix per-head SOAP) — not yet launched; student pinged.
-8. **Frieren #330** (AdamW eps sweep) — just assigned.
+8. **Frieren #333** (AdamW eps sweep, replaces #330 auto-merged) — just assigned.
 
 **Next research themes to explore after in-flight settles**:
 - If thorfinn and fern both win: stack both (cooldown-only μ anneal + FREQ 15→7 anneal)
