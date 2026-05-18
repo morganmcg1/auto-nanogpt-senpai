@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~10:15Z (poll #160)
+- **Last updated:** 2026-05-18 ~10:50Z (poll #160b)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -31,7 +31,7 @@
 |------|---------|-----------|--------|
 | #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl `alp238rf` FINISHED: val=3.269438 ffs=3125 (clean baseline reproduction, -1.63σ). Cell B `mnbz5ep0` step 1114/3250 in flight. |
 | #306 | alphonse | lm_head LR Phase 2 n=4 | Phase 2 run `7xl5rcjb` step 1243/13000, ETA terminal ~13:30Z |
-| #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 12947/13000 (~99%). T1=3.270602, T2=3.272171, T3=3.272746 logged. T4 imminent. **Gate effectively locked out** (T4 needs ≤3.261929 ~8σ). Close clean-neutral at terminal. |
+| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | JUST ASSIGNED 10:50Z. PR #318 (β₁=0.70 Phase 2) closed clean-neutral: n=4 mean=3.271540 (Δ=+0.000178, ~0.15σ), Phase 1 n=1 was favorable seed outlier. |
 | #320 | edward | Adam β₂ Phase 2 n=4 | Cell D β₂=0.98 single=3.268718 ffs=3125 (winner); P2 n=4 `mo3leb2y` step 5130/13000 (T2 in progress). **T1=3.270414 ffs=3125 logged**. Statsig: needs T2-T4 mean ≤ 3.268678. |
 | #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell A `4t70bt57` warmup=0 ctrl step 3036/3250 (~93%, terminal imminent). Cell B `wwbkl5ja` launched in parallel — concurrent-run advisory may apply. |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | JUST ASSIGNED 09:58Z. PR #323 (Muon mu) closed clean-neg: bowl-shape, default mu=0.95 confirmed optimal. mu=0.99 failed to reach target (+31.18σ). |
@@ -61,7 +61,7 @@
 **Primary goal:** Stack orthogonal mechanisms onto lr_mlp=0.055 base to push below ffs=3125. Target: ffs=3100 → 3075 → beyond.
 
 **Active mechanism threads:**
-- **AdamW aux β₁ (fern):** β₁=0.70 single = 1.8σ signal; Phase 2 confirm in flight ⭐ highest priority
+- **AdamW aux β₁ (fern, CLOSED #318):** β₁=0.70 n=4 mean=3.271540 (Δ=+0.000178, Phase 1 signal was seed noise). Now testing **Muon WD schedule** (PR #371).
 - **AdamW aux β₂ (edward):** β₂=0.85 neg, β₂=0.95 ctrl, **β₂=0.98 best (3.268718 ffs=3125) Phase 2 n=4 in flight**, β₂=0.99 mild improvement (3.270318)
 - **LR cooldown_frac (thorfinn, closed):** bowl-shaped, default cd=0.70 optimal. Now testing LR **warmup_steps** sweep (PR #353).
 - **lm_head LR (alphonse):** monotone improvement to lr=0.030 (near-trigger); lr=0.100 in flight ⭐
@@ -80,12 +80,13 @@
 - NS5 iteration count (askeladd, clean-neutral)
 - SOAP attn Gram damping (fern, clean-neutral)
 - AGC λ=0.03 (nezuko, P2 confirmed dead, mean=3.272890 fails n=4 gate by ~3σ, closed PR #283)
-- Muon mu sweep (tanjiro, closed PR #323 clean-neg: bowl-shape, default mu=0.95 optimal)
+- Muon WD static sweep (askeladd, closed PR #334 clean-neg: bowl, default wd=0.025 optimal)
+- Muon mu sweep (tanjiro, closed PR #323 clean-neg: bowl, default mu=0.95 optimal)
+- AdamW aux β₁=0.70 (fern, closed PR #318 clean-neutral: n=4 mean=3.271540, Phase 1 n=1 was seed noise)
 - Cautious-Muon, Lookahead, SWA, z-loss, gradient centralization, label smoothing, depth-init, per-head SOAP, schedule-free Muon, polynomial schedule-free Muon, SOAP β₂ cooldown annealing — all closed
 
 **Candidate next hypotheses (queue for next idle student):**
 - Adam β₂ schedule ramp over training (low→high β₂ warmup)
 - Per-group lr_embed × lr_lm_head 2D joint confirm (after alphonse sweep completes)
-- NS5 + β₁=0.70 compound (if fern P2 confirms)
-- Muon mu × nesterov 2D joint sweep (if frieren Cell B winner)
-- AdamW aux WD (nezuko PR #349 now testing)
+- Muon mu × nesterov 2D joint sweep (if frieren lr_attn sweep reveals a winner)
+- Per-group Muon mu (mu_mlp vs mu_attn) — student suggestion from #323 close
