@@ -1,8 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 10:40 UTC (boot 142w)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#12 posted 08:55 UTC. Operator silent ~67h. **Next esc#13 at ~12:00 UTC** (still needed).
+- **Last updated:** 2026-05-18 10:58 UTC (boot 142x — baseline-shift cleanup)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#12 posted 08:44 UTC. Operator silent ~67h+. **esc#13 due ~12:00 UTC.**
 - **Branch state:** Baseline post-PR #310 (MuonH inner LR warmup=100, merged boot 142w).
+- **Boot 142x action:** Discovered 4 of 5 active runs launched against OLD baseline (3.27415) — missing `--muonh_warmup_steps 100`. Killed/sent-back to: askeladd (n=4 confirm `ow5c05o8`), nezuko (smokes `pctjurhh`/`vls4sxmd`), fern (in-flight `tyr9awjr`/`fie44ern`), frieren (7 smokes, no sweep launched yet). Only edward #369 and thorfinn #370 are clean on NEW baseline.
 
 ## ⭐ Current baseline (post-PR #310 merge)
 
@@ -22,20 +23,26 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100`.
 
-## Active experiments (boot 142w — 10:40 UTC 2026-05-18)
+## Active experiments (boot 142x — 10:58 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#370** | thorfinn | **MuonH warmup shape sweep** (cosine vs linear vs sqrt) | **newly assigned boot 142w** (after #310 MERGED). 3-arm. ETA ~5h30m |
-| **#369** | edward | **MuLoCo outer_lr schedule** (decay 0.7→0.35 vs grow 0.7→1.05) | **newly assigned boot 142w** (after #338 CLOSED NEG). 3-arm. ETA ~5h30m |
-| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | Screen CLOSED: clip=0.10 NEG, **clip=0.05=3.27288 WIN**, clip=0.01=3.27505 NEG. **n=4 confirm `ow5c05o8`** trial 1 mid-run. ETA terminal **~15:12 UTC** |
-| **#352** | fern | **Aux AdamW cooldown_frac sweep** (frac∈{0.3, 0.4, 0.5}) | assigned boot 142r, student picking up |
-| **#361** | nezuko | **Aux lm_head LR sweep** (1/500 vs 1/320 vs 1/200) | assigned boot 142s/t, student picking up |
-| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60 late training) | assigned boot 142u. 3-arm: control/step-at-2/3/linear. ETA ~5h from 09:10 UTC |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 67h+** — `gd125a8` bf16 NaN, esc#12 posted 08:55 UTC |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 67h+** — rebase complete, clarification answered. Esc#12 posted 08:55 UTC |
+| **#370** | thorfinn | **MuonH warmup shape sweep** (cosine vs linear vs sqrt) | **ACTIVE on NEW baseline** ✓ — `vvqkuuen` running at step 375, warmup=100 confirmed in config. ETA ~5h |
+| **#369** | edward | **MuLoCo outer_lr schedule** (decay 0.7→0.35 vs grow 0.7→1.05) | **ACTIVE on NEW baseline** ✓ — `mlvij4zs` smoke finished, warmup=100 confirmed. Sweep arms expected next. ETA ~5h |
+| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | **SENT BACK** at 10:53 UTC — `ow5c05o8` was OLD baseline, trial 1=3.27479 NEG. Student to kill + relaunch on NEW baseline with `--muonh_warmup_steps 100` + `--muonh_agc_clip_ratio 0.05`. New ETA ~17:30 UTC |
+| **#352** | fern | **Aux AdamW cooldown_frac sweep** (frac∈{0.3, 0.4, 0.5}) | **SENT BACK** at 10:48 UTC — 2 in-flight runs (`tyr9awjr`, `fie44ern`) on OLD baseline, no warmup. Student to kill + rebase + relaunch. ETA ~16:30 UTC |
+| **#361** | nezuko | **Aux lm_head LR sweep** (1/500 vs 1/320 vs 1/200) | **SENT BACK** at 10:53 UTC — `pctjurhh`/`vls4sxmd` on OLD baseline, no warmup. Student to kill + rebase + relaunch all 3 arms. ETA ~16:30 UTC |
+| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60 late training) | **NUDGED** at 10:55 UTC — 7 smokes run, 0 sweep arms launched, GPU idle. Told to rebase + launch arms with warmup=100. ETA ~16:30 UTC |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 67h+** — `gd125a8` bf16 NaN, esc#12 posted 08:44 UTC, esc#13 due ~12:00 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 67h+** — rebase complete, touch-base posted 10:51 UTC with NEW baseline update. Esc#13 due ~12:00 UTC |
 
 **8/8 students assigned.** No idle slots.
+
+### Baseline-shift correction in boot 142x
+
+PR #310 merged at 10:31 UTC during a window when 4 students had already launched runs on OLD baseline (3.27415 without `--muonh_warmup_steps 100`). Cleanup actions:
+- All 4 students sent rebase + kill + relaunch directives (askeladd, fern, nezuko, frieren).
+- Critical lesson: **baseline shifts mid-flight invalidate every concurrent screen**. Future merges should consider pre-emptively pinging in-flight students or pausing assignments during merge windows.
 
 ### Current win pipeline
 
