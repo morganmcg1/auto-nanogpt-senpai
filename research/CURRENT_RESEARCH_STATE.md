@@ -1,18 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~19:55Z (poll #175)
+- **Last updated:** 2026-05-18 ~21:35Z (poll #176)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **🔥 FERN PR #371 P2 ramp_down — TRIAL 0 STRONG** 🔥:
+1. **🔥🔥 FERN PR #371 P2 ramp_down — TRIALS 0 AND 1 BOTH BELOW GATE** 🔥🔥:
    - P1 Cell C `yh4fzyoe`: val=3.2689 ffs=3100 (P2 trigger)
-   - **P2 `okae8f06` n=4 running. Trial 0 TERMINAL: val=3.267584, ffs=3100, single-run margin=+0.008416** (BETTER than P1 Cell C 3.2689)
-   - Trial 1 mid-flight (relative step ~340/3250)
-   - For n=4 gate (mean ≤ 3.269362): T1+T2+T3 average must be ≤ 3.269955 — generous headroom
-   - If all 4 trials hold: MERGES as new baseline. **Watch closely.**
+   - **P2 `okae8f06` n=4 running.**
+     - **Trial 0 TERMINAL: val=3.267584, ffs=3100** ✅ (below gate by 0.001778)
+     - **Trial 1 TERMINAL: val=3.269173, ffs=3100** ✅ (below gate by 0.000189)
+     - Trial 2 in progress (step ~376/3250 after boundary)
+   - **Running mean (T0+T1)/2 = 3.268379** — well below n=4 gate 3.269362
+   - For n=4 gate: T2+T3 average ≤ 3.270345 (very generous; baseline mu+~σ would suffice)
+   - **If trials 2 and 3 hold near baseline: MERGES as new baseline** — first below-baseline merge since baseline merge.
 
 2. **FRIEREN PR #346 lr_attn=0.025 P2 RUNNING — Trial 0 UNFAVORABLE** ⚠️:
    - Full sweep terminal — clean monotone-asymmetric bowl: A(0.025)=3.2697 ffs=3125, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741, E(0.075)=3.2789
@@ -32,10 +35,10 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #385 | edward | AdamW aux β₁ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl `lqwsc8lj` terminal pending. Cell B (ramp_up) `w8wbnhfp` RUNNING step 54/3250. |
-| #383 | nezuko | Muon gradient noise injection sweep std ∈ {0, 1e-4, 1e-3} × {constant, decay, cooldown_only} | Cell A ctrl `2bojk9g6` terminal pending. Cell B (std=1e-4 constant) `isqlrt28` RUNNING step 92/3250 (duplicate run incident: 2 Cell B launches). |
+| #385 | edward | AdamW aux β₁ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | A=3.27144 ffs=3150 (+0.07σ), B ramp_up=3.27436 ffs=3175 (+2.54σ neg), C ramp_down=3.27291 ffs=3150 (+1.31σ neg). **D triangle RUNNING step 503/3250.** Clean-neg trend; mechanism likely closes after D, E. |
+| #383 | nezuko | Muon gradient noise injection sweep std ∈ {0, 1e-4, 1e-3} × {constant, decay, cooldown_only} | A=3.27218 (+0.69σ), B std=1e-4=3.27108 (-0.24σ), **C std=1e-3=3.27081 ffs=3125** (-0.47σ, close-miss val gate by 0.0008). Monotone improving. **D std=1e-3 decay directive sent (poll #176).** |
 | #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | Cell A ctrl `uw0gy7qy` FINISHED: val=**3.2696 ffs=3125** (-1.41σ favorable seed for default 0.95/0.95). Cell B not launched yet; ANOTHER Cell A `15g2boa9` started instead (idle confusion). Advisor sent directive (poll #170 comment) to launch Cell B. |
-| #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant: val=3.2708 ffs=3125. **Cell B ramp_up (0.91→0.99): val=3.27002 ffs=3125 (-1.13σ, val=3.2700155 just misses P2 gate 3.270 by 1.5e-5)**. Cell C ramp_down `running step 968/3250. |
+| #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | A=3.2708 ffs=3125, **B ramp_up=3.27002 ffs=3125** (-1.13σ, just misses P2 gate by 1.5e-5), C ramp_down=3.27124 ffs=3150 (+0.66σ). **D triangle RUNNING step 1662/3250 (~51%).** |
 | #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A=3.2716, B=3.2805, **C ramp_down=3.2689 ffs=3100 → P2 TRIGGER**. **P2 `okae8f06` n=4 running: Trial 0 val=3.267584 ffs=3100 (+0.008416 margin). Trial 1 mid-flight.** |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | A=3.2703 ffs=3125, B=3.2727, C=3.2726, D=3.2735, **E ortho_qk_only=3.26932 ffs=3125 → P2 TRIGGER**. **P2 `899b4f5m` n=4 running: Trial 0 step ~1477/3250.** Mechanism: Q,K orthogonal; V default. |
 | #398 | askeladd | AdamW aux ε schedule sweep ∈ {constant, ramp_up, ramp_down, spike_cooldown, log_cosine} | NEW ASSIGNMENT (PR #398 created). Cell A constant ctrl pending launch. |
