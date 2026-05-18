@@ -225,6 +225,9 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+    metrics["optimizer/muon_warmup_frac"] = (
+        min(step / MUON_WARMUP_STEPS, 1.0) if MUON_WARMUP_STEPS > 0 else 1.0
+    )
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -440,7 +443,8 @@ class GPT(nn.Module):
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
 MU = float(os.environ.get("MU_START", "0.95"))
 MU_END = float(os.environ.get("MU_END", "0.95"))
-MUON_LR = 0.0375
+MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+MUON_WARMUP_STEPS = int(os.environ.get("MUON_WARMUP_STEPS", "0"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -833,6 +837,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_start": MU,
             "optimizer/mu_end": MU_END,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_warmup_steps": MUON_WARMUP_STEPS,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -898,7 +903,12 @@ for trial_idx in range(args.num_trials):
         cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                if (group.get("name") == "muon_blocks"
+                        and MUON_WARMUP_STEPS > 0
+                        and step < MUON_WARMUP_STEPS):
+                    group["lr"] = group["initial_lr"] * eta * (step / MUON_WARMUP_STEPS)
+                else:
+                    group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
 
