@@ -17,6 +17,41 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-18 ~01:20 UTC — PR #243 frieren MuonH-SI cosine cooldown.** Replaces linear LR cooldown with cosine shape on the MuonH-SI optimizer path (`cooldown_frac=1.0`). Stacks on top of MuLoCo × MuonH-SI + AGC. All 4 n=4 trials reached the 3.28 target. Rebase-confirm n=1=3.27436 ✓. Passes stat rule with margin 0.01170.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| Aux AdamW | `betas=(0.8, 0.95), eps=1e-10, weight_decay=0` + AGC `clip_ratio=0.05` |
+| LR schedule | **Cosine** cooldown for MuonH (`cooldown_frac=1.0`); linear cooldown for aux (`cooldown_frac=0.4`) |
+| `val/loss` | **3.27415** (n=4 mean; trials: 3.27459/3.27306/3.27436/3.27460) |
+| `speedrun/final_first_step_to_target` | **3150** (n=4 primary metric) |
+| stat margin | `(3.28 - 3.27415) * sqrt(4) = 0.01170` ≥ 0.004 ✓ |
+| Baseline W&B runs | `5ehqbmwb`, `xw81lpch`, `7z72ffcj`, `qupprvwc` (n=4), `47cp8wal` (rebase-confirm) |
+| Baseline PR | [#243](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/243) |
+
+### Reproduce cosine cooldown + AGC + MuLoCo × MuonH-SI baseline
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 4 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --muonh_cooldown_shape cosine \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05
+```
+
+---
+
+## Previous baseline — PR #237 edward AGC aux clip=0.05 (2026-05-17 ~20:32 UTC)
+
 **Merged 2026-05-17 ~20:32 UTC — PR #237 edward AGC aux clip=0.05.** Adaptive Gradient Clipping on aux AdamW parameter groups (`clip_ratio=0.05`). Stacks on top of MuLoCo × MuonH-SI. All 4 trials reached the 3.28 target. Passes stat rule with margin 0.01062.
 
 | Field | Value |
