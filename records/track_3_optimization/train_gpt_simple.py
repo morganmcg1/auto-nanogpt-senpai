@@ -530,6 +530,7 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_LMHEAD_INIT_STD = float(os.environ.get("NANOGPT_LMHEAD_INIT_STD", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -799,6 +800,7 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_lmhead_init_std": NANOGPT_LMHEAD_INIT_STD,
         },
     )
 
@@ -816,8 +818,13 @@ for trial_idx in range(args.num_trials):
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
-                w.zero_()
+            if name == "proj.weight":  # lm_head output projection (no module prefix)
+                if NANOGPT_LMHEAD_INIT_STD > 0:
+                    w.normal_(std=NANOGPT_LMHEAD_INIT_STD)
+                else:
+                    w.zero_()  # preserve default behavior
+            elif "proj" in name:  # block projs (blocks.X.attn.proj.weight, blocks.X.mlp.proj.weight)
+                w.zero_()         # keep zero-init for residual identity
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
@@ -828,6 +835,7 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+    print0(f"LMHEAD_INIT: proj.weight init_std={NANOGPT_LMHEAD_INIT_STD}, norm-after-init={model.proj.weight.norm().item():.4f}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
