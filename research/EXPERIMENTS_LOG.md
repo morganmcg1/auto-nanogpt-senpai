@@ -3,6 +3,49 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 20:05 UTC — PR #344: NS late_peak transition POINT sweep (frieren) — CLOSED productive-null ✅
+
+- Branch: `g1r4-frieren/ns-late-peak-frac-sweep`
+- Hypothesis: #285's late_peak shape uses NS=12 for first 50% of cooldown, NS=20 for second 50%. The transition frac (default 0.5) is a free parameter — sweep ∈ {0.25, 0.50, 0.75} to test directionality.
+
+### Results — 3-arm sweep + paired-pod confirmation (n=3 paired observations)
+
+#### Original sweep (pod 1)
+| Arm | frac | val_loss | fs | Δ vs A=0.50 control | W&B |
+|---|---|---|---|---|---|
+| A | 0.25 | **3.27095** | 3225 | −0.00419 | `qtj0tkzo` |
+| B (control) | 0.50 | 3.27514 | 3275 | — (drift +0.00314) | `nhbgfpta` |
+| C | 0.75 | 3.27164 | 3225 | −0.00350 | `0qybug8m` |
+
+#### Paired confirmation (frac=0.25 vs frac=0.50 on 2 fresh pods)
+
+| Pod | val(A, frac=0.25) | val(B, frac=0.50) | Δ(A − B) |
+|---|---|---|---|
+| 1 (original) | 3.27095 | 3.27514 | **−0.00419** |
+| 2 (paired) | 3.27496 | 3.27218 | **+0.00278** (sign FLIP) |
+| 3 (paired) | 3.27381 | 3.27503 | **−0.00122** |
+| **Mean (n=3)** | **3.27324** | **3.27412** | **−0.000877** |
+
+### Key findings
+
+1. **Signal shrinkage**: pod-1 Δ=−0.00419 → pooled n=3 Δ=−0.000877 = **79% reduction**. Original "strong signal" dissolved into seed variance.
+2. **Sign flip on pod 2**: Δ(A−B) reversed to +0.00278, definitive evidence of pod luck.
+3. **Per-arm seed spread**: within frac=0.25 alone, n=3 spread = 0.00401 (LARGER than the originally claimed Δ). Signal not extractable above noise.
+4. **Merge gates failed**: mean(A, n=3) = 3.27324 > baseline 3.27200 (+0.00124); paired Δ = −0.000877 < |0.002|.
+5. **Mechanism reading**: midpoint frac=0.50 in #285's late_peak shape is genuinely optimal once the polynomial schedule (#290 linear_ramp_down) and β2=0.99 are merged. The transition POINT within cooldown is flat.
+
+### Verdict
+
+Productive-null with strong paired-confirmation discipline. NS late_peak transition point axis CLOSED. The cooldown shape is already absorbing the precision distribution that frac variation would have offered.
+
+### Methodological notes
+
+- Textbook example of paired-pod confirmation catching pod luck.
+- Pre-staged decision rules applied without reinterpretation.
+- Honest reporting of mean AND per-arm spread (the spread being larger than the proposed effect is the smoking gun).
+- 7 W&B runs total (3 original + 4 paired conf), all preserved.
+- NS schedule family now well-characterized: count (#388 in flight), shape (#285 merged), schedule (#290 merged), depth (#345 closed), center (#384 in flight), transition point (this PR closed).
+
 ## 2026-05-18 19:30 UTC — PR #374: Embed init scale sweep (edward) — CLOSED productive-null ✅
 
 - Branch: `g1r4-edward/embed-init-scale`

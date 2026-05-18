@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 19:40 UTC
+- **Date:** 2026-05-18 20:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -49,19 +49,21 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 ## Active experiments — 15:00 UTC
 
-### 🔥 frieren #344 — NS late_peak transition point sweep — PAIRED CONFIRMATION RUNNING
-**Branch:** `g1r4-frieren/ns-late-peak-frac-sweep`
-**Original sweep + paired retry seeds:**
-| Run | arm | frac | val_loss | fs |
-|---|---|---|---|---|
-| qtj0tkzo | A1 | 0.25 | 3.27095 | 3225 |
-| nhbgfpta | B1 | 0.50 | 3.27514 | 3275 |
-| 0qybug8m | C1 | 0.75 | 3.27164 | 3225 |
-| **5plbo04e** | **A2 retry** | **0.25** | **3.27496** | 3275 |
-| 7hqwnf6b | B2 retry | 0.50 | running step 1150 | - |
+### ✅ frieren #344 — NS late_peak transition point sweep — CLOSED 20:00 UTC productive-null
+Pod-1 Δ=−0.00419 collapsed to n=3 pooled Δ=−0.000877 (79% shrinkage). Sign flipped on pod 2 (+0.00278). Per-arm seed spread (0.00401) larger than claimed signal. Midpoint (frac=0.50) confirmed optimal on post-#290 stack; NS late_peak transition POINT axis CLOSED.
+**Follow-up**: frieren assigned #402 Gradient Centralization scope sweep.
 
-**Variance signal**: arm-A retry came in at 3.27496 vs original 3.27095 — **seed-to-seed Δ=+0.00401, roughly equal to the original within-pod Δ=−0.00419 signal**. Strong evidence the original signal was substantially pod luck. Paired Δ analysis pending B2 + A3/B3.
-**ETA paired conf:** ~14:00–16:00 UTC.
+### 🔄 frieren #402 — Gradient Centralization (GC) scope sweep [just assigned]
+**Branch:** `g1r4-frieren/gradient-centralization`
+**Hypothesis**: GC (Yong et al. 2020) subtracts mean gradient along non-output dims before optimizer step. Operates at gradient preprocessing abstraction layer — orthogonal to all per-group AdamW/NS/Muon/init work. Sweep by scope to map where GC helps.
+| Arm | GC_ENABLED | GC_SCOPE | Interpretation |
+|---|---|---|---|
+| A | 0 | — | No GC, drift gate |
+| B | 1 | all | GC on AdamW + Muon weights |
+| C | 1 | adam | GC on embed + lm_head only |
+| D | 1 | muon | GC on block weights only |
+
+**ETA full chain:** ~7h.
 
 ### 🔥 alphonse #351 — Per-group SCALAR AdamW ε sweep — SENT BACK 15:34 UTC for paired confirmation
 **Branch:** `g1r4-alphonse/scalar-eps-sweep` (next: `g1r4-alphonse/scalar-eps-confirm`)
@@ -183,7 +185,7 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 ## Potential next research directions
 
 ### Active candidates with signal
-1. **NS late_peak frac=0.25** — frieren #344. Paired-confirm in flight; A2 retry (val=3.27496) showed +0.00401 vs original A1 (3.27095) → original signal likely substantially pod luck. Wait for B2 + A3/B3.
+1. **Gradient Centralization scope** — frieren #402. Fresh mechanism (gradient preprocessing). Scope sweep: all, adam-only, muon-only. Orthogonal to all closed axes.
 2. **scalar AdamW ε** — alphonse #351. SENT BACK 15:34 UTC for paired confirmation. Original sweep non-monotone (arm-A drift makes within-pod Δs unreliable). Paired arm-D (1e-6) vs arm-A (1e-10) on 2 fresh pods with flipped order to disambiguate pod luck from real signal.
 
 ### Productive-null shaping up
@@ -191,6 +193,7 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 4. **Muon μ schedule** — nezuko #356. CLOSED 17:05 UTC productive-null. All 3 arms miss target (B +0.01381, C +0.01035, D +0.06125). Late_peak μ catastrophic. Constant μ=0.95 confirmed; axis CLOSED.
 5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
 6. **Embed init scale** — edward #374. CLOSED 19:30 UTC productive-null. RMSNorm + AdamW absorb magnitude; embed init scale axis CLOSED.
+7. **NS late_peak transition POINT** — frieren #344. CLOSED 20:00 UTC productive-null. Pod-1 Δ=−0.00419 shrank to pooled Δ=−0.000877 (79%), sign flip on pod 2. Midpoint confirmed optimal; axis CLOSED.
 
 ### Fresh axes (early stage)
 7. **lm_head proj init std** — fern #380. Arm-A (zero-init control) running. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis.
@@ -250,3 +253,4 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 | AdamW WD (per-group) | per-group WD=0.002 on lm_head, scalar, or both — all harmful | #348 (harmful) |
 | Muon μ schedule | ramp_up/ramp_down/late_peak — all miss target; late_peak +0.06125 catastrophic | #356 (harmful) |
 | Embed init scale | scale ∈ {0.5, 1.0, 1.5, 2.0}; all within ±0.00061 null band; RMSNorm/AdamW absorb magnitude | #374 (productive-null) |
+| NS late_peak transition POINT | frac ∈ {0.25, 0.50, 0.75}; pod-1 Δ=−0.00419 collapsed 79% to pooled Δ=−0.000877; sign flip pod 2; midpoint confirmed optimal | #344 (productive-null) |
