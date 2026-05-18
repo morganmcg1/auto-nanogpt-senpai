@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~19:30Z (poll #174)
+- **Last updated:** 2026-05-18 ~19:55Z (poll #175)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -14,11 +14,18 @@
    - For n=4 gate (mean ≤ 3.269362): T1+T2+T3 average must be ≤ 3.269955 — generous headroom
    - If all 4 trials hold: MERGES as new baseline. **Watch closely.**
 
-2. **FRIEREN PR #346 lr_attn=0.025 P2 LAUNCHED** ⭐:
-   - Full sweep terminal — clean monotone-asymmetric bowl: A(0.025)=3.2697 ffs=3125, B(0.035)=3.2721 ffs=3150, C(0.045)=3.2720 ffs=3150, D(0.055)=3.2741 ffs=3175, E(0.075)=3.2789 ffs=3225
-   - Asymmetric: 0.025 is the edge of a meaningful regime, +0.6σ flat across [0.035, 0.045], then steeply degrading
-   - **Phase 2 n=4 directive sent (poll #172 comment)**. PR sent back to status:wip.
-   - If P2 confirms statsig, MERGE — orthogonal to fern P2 (attn-only LR vs global Muon WD schedule)
+2. **FRIEREN PR #346 lr_attn=0.025 P2 RUNNING — Trial 0 UNFAVORABLE** ⚠️:
+   - Full sweep terminal — clean monotone-asymmetric bowl: A(0.025)=3.2697 ffs=3125, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741, E(0.075)=3.2789
+   - **P2 `85x1y4if` Trial 0 TERMINAL: val=3.275463 ffs=3175** (+3.47σ — much worse than P1 Cell A 3.269674)
+   - Required to pass n=4 gate: T1+T2+T3 average ≤ 3.267328 — implausible
+   - Classic n=1→n=4 endpoint pattern (matches PR #228, #306, #320). Run to terminal, expect clean-neutral close.
+
+3. **🆕 TANJIRO PR #368 QKV ortho_qk_only P2 LAUNCHED** ⭐:
+   - Cell E `05xeeiv8` val=3.26932 ffs=3125 (-1.43σ) — meets P2 trigger gate
+   - Mechanism: Q,K orthogonal_(gain=√0.33); V default normal_
+   - **P2 `899b4f5m` n=4 auto-launched. Trial 0 step ~1477/3250 mid-flight.**
+   - Edge-of-gate at n=1 (3.26932 vs gate 3.26936). Outcome uncertain.
+   - Orthogonal to fern (Muon WD) and frieren (lr_attn) — architectural-init axis
 
 
 ## Active WIP Portfolio
@@ -30,9 +37,9 @@
 | #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | Cell A ctrl `uw0gy7qy` FINISHED: val=**3.2696 ffs=3125** (-1.41σ favorable seed for default 0.95/0.95). Cell B not launched yet; ANOTHER Cell A `15g2boa9` started instead (idle confusion). Advisor sent directive (poll #170 comment) to launch Cell B. |
 | #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant: val=3.2708 ffs=3125. **Cell B ramp_up (0.91→0.99): val=3.27002 ffs=3125 (-1.13σ, val=3.2700155 just misses P2 gate 3.270 by 1.5e-5)**. Cell C ramp_down `running step 968/3250. |
 | #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A=3.2716, B=3.2805, **C ramp_down=3.2689 ffs=3100 → P2 TRIGGER**. **P2 `okae8f06` n=4 running: Trial 0 val=3.267584 ffs=3100 (+0.008416 margin). Trial 1 mid-flight.** |
-| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: 3.2703 ffs=3125. Cell B ortho_unit: 3.2727 ffs=3150. Cell C ortho_scaled: 3.2726 ffs=3150. Cell D v_only: **val=3.2735 ffs=3150** (clean-neg +1.0σ). Cell E (qk_only) RUNNING step 1196/3250. All cells monotone-neg → default init wins. |
+| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | A=3.2703 ffs=3125, B=3.2727, C=3.2726, D=3.2735, **E ortho_qk_only=3.26932 ffs=3125 → P2 TRIGGER**. **P2 `899b4f5m` n=4 running: Trial 0 step ~1477/3250.** Mechanism: Q,K orthogonal; V default. |
 | #398 | askeladd | AdamW aux ε schedule sweep ∈ {constant, ramp_up, ramp_down, spike_cooldown, log_cosine} | NEW ASSIGNMENT (PR #398 created). Cell A constant ctrl pending launch. |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Full sweep terminal. A(0.025)=3.2697 ffs=3125 -1.43σ, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741 ffs=3175, E(0.075)=3.2789 ffs=3225. **P2 n=4 directive sent (poll #172) — orthogonal to fern P2.** |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Full sweep terminal. A(0.025)=3.2697 ffs=3125 -1.43σ, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741, E(0.075)=3.2789. **P2 `85x1y4if` n=4 running: ⚠️ Trial 0=3.275463 ffs=3175 (+3.47σ, unfavorable). Likely close clean-neutral at terminal.** |
 
 
 ## Research Themes
