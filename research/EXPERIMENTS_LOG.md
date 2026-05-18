@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-18 00:55 — PR #287: Muon weight_decay scan {0.035, 0.050} — param_norm regularization (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-weight-decay-scan`
+- Hypothesis: PR #248 telemetry showed `muon/param_norm` growing 3.4× for 1.33× LR — current WD=0.025 may be too weak to constrain param_norm growth. Test WD ∈ {0.035, 0.050}.
+
+| Arm | wd | W&B run | sr | val/loss | Δsr | Δval | Status |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #202) | 0.025 | `prncgzv5` | 3025 | 3.26615 | — | — | Current best |
+| Arm A | 0.035 | `rxk4092z` | 3050 | 3.267759 | +25 | +0.00161 | NULL (1× sr noise floor) |
+| Arm B | 0.050 | `q61lold2` | 3125 | 3.272109 | +100 | +0.00596 | NULL/REGRESSION |
+
+**Mechanism telemetry (param_norm at step 3250):**
+- Arm A (wd=0.035): 1273.2; u/p ratio 0.355
+- Arm B (wd=0.050): 615.0 (half of Arm A!); u/p ratio 0.458
+
+**Analysis:** The PR's mechanism prediction was confirmed at the telemetry level — higher WD tightly constrains param_norm and lifts the u/p ratio late in training (as the PR hypothesized). However, the predicted **downstream** val/loss improvement did not materialize. The relationship is monotone in the wrong direction: higher WD → strictly worse sr (3025 → 3050 → 3125) and val/loss (3.26615 → 3.26776 → 3.27211). The optimizer is near its sweet spot at wd=0.025, and constraining param_norm further removes useful capacity faster than it improves conditioning.
+
+**Conclusion:** CLOSED. Muon WD axis CLOSED at 0.025 from the upper side. Per the predeclared falsification table, do NOT scan {0.060, 0.080} (Arm B already showed monotone regression). A downward complement {0.015, 0.020} is low-priority — the small Arm A gap suggests the optimum is at wd=0.025 and not movable by WD alone. The confirmed mechanism (tighter param_norm → higher u/p late) suggests the *yield-limiting* lever may be elsewhere in the cooldown phase (TARGET_UW floor, late-phase LR shape).
+
+**Askeladd re-assigned to fresh mechanism: TBD (next round).**
+
+---
+
 ## 2026-05-17 23:00 — PR #293: Polyak-Ruppert weight averaging {25%, 50%} (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/polyak-weight-averaging`
