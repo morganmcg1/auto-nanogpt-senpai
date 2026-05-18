@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-18 21:00 UTC — Cycle 55 — **NEW BASELINE AFTER PR #358 MERGE**
+- 2026-05-18 22:20 UTC — Cycle 56 — **tanjiro #376 CLOSED, reassigned to #406 MU_COOLDOWN_START sweep on new base**
 
 ## ⭐ NEW BASELINE — PR #358 MERGED (20:55 UTC)
 
@@ -9,7 +9,8 @@
 - **NEW MERGE BAR: val < 3.274383 AND ffs_mean < 3068.75** (STRICT — both required)
 - ffs bar now requires ≥2 of 4 trials at ffs=3050 to clear mean. This is a major tightening — {3075,3075,3075,3075} mean=3075 MISSES the new ffs bar.
 - **ALL new experiments MUST use**: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85`
-- **askeladd reassigned → #395 CONTRA_MUON=0.3 continuation sweep**
+- **askeladd reassigned → #405 CONTRA_MUON=0.3 continuation sweep**
+- **tanjiro reassigned → #406 MU_COOLDOWN_START sweep (0.93/0.97)** — first axis to be reassigned to new base after the baseline shift
 
 ## 🔄 BASELINE SHIFT IMPACT ON IN-FLIGHT EXPERIMENTS
 
@@ -17,7 +18,7 @@ All current WIP experiments ran on CONTRA_MUON=0.5 (old stack). They are now com
 - **THORFINN #357** n=4 on CONTRA_MUON=0.5: T0=3.2776/3100 — BOTH MISS vs new bar. Continue to terminal; data informs axis stacking on new base.
 - **FERN #372** n=4 on CONTRA_MUON=0.5: 2/4 mean 3.27597/3087.5 — BOTH MISS vs new bar. Continue to terminal.
 - **FRIEREN #373** Arm B β=0.99 on CONTRA_MUON=0.5: T0=3.2750/3075 — both miss vs new bar. Continue to terminal.
-- **TANJIRO #376** Arm B β=0.99 on CONTRA_MUON=0.5: T0=3.2756/3075 — both miss vs new bar. Continue to terminal.
+- ✅ **TANJIRO #376 CLOSED** (22:20 UTC): Arm B n=2 terminal val=3.27542/ffs=3075 — both miss new bar (val +0.00104, ffs +6.25). **Axis falsified both arms** — no operating point makes cooldown-only AdaMuon's variance scaling both active and net-beneficial given NorMuon's existing per-row variance EMA (double-normalization). Cross-confirms frieren #373 conclusion. Student gave excellent mechanism analysis. Reassigned → #406 MU_COOLDOWN_START sweep on new base.
 - **EDWARD #379** Arm A n=2 mean 3.27530/3087.5 — misses new bar. Pivoted to Arm B (1.15) on CONTRA_MUON=0.5 base.
 - **ALPHONSE #378** β2=0.99 re-run on CONTRA_MUON=0.5: TBD — will likely miss ffs bar.
 - **NEZUKO #394** ATTN_SOAP_BETA2 sweep: running on CONTRA_MUON=0.5 base — will likely miss new bar.
@@ -26,7 +27,8 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 
 ## 🔬 ACTIVE RESEARCH — CONTRA_MUON=0.4 BASE
 
-- **ASKELADD #405** (NEW) — CONTRA_MUON=0.3 and 0.35 sweep: does the contra-gradient axis continue below 0.4? Direct follow-up to merged PR #358. Arm A=0.3, Arm B=0.35.
+- **ASKELADD #405** — CONTRA_MUON=0.3 and 0.35 sweep: does the contra-gradient axis continue below 0.4? Direct follow-up to merged PR #358. Arm A=0.3, Arm B=0.35.
+- **TANJIRO #406** (NEW 22:20 UTC) — MU_COOLDOWN_START sweep 0.93/0.97 on new base. START=0.95 has been fixed since PR #288 merge but never swept directly. Schedule-side axis (input-robust win pattern). Pure env-var change.
 
 ## Previous cycle racing context (now superseded by new bar)
 

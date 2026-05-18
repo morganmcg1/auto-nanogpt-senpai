@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 22:20 UTC — Cycle 56: #376 CLOSED (cooldown-only AdaMuon axis FALSIFIED); tanjiro → #406 MU_COOLDOWN_START sweep on new base
+
+### PR #376 — Cooldown-only AdaMuon switch (post-NS5 variance scaling, cooldown phase only) — FALSIFIED
+
+Branch: `g1r2-tanjiro/cooldown-adamuon-switch`. Both arms on OLD stack (CONTRA_MUON=0.5).
+
+| Arm | β | init | W&B run | val n=2 | ffs n=2 | vs new bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 0.95 | rms-warmstart | `oqivcko2` | 3.27678 | 3100 | val +0.00240, ffs +31.25 | FAIL |
+| B | 0.99 | ones | `hkq95uz4` | 3.27542 | 3075 | val +0.00104, ffs +6.25 | MISS — best arm is "near-no-op" |
+
+**Mechanism diagnosis** (student's analysis was excellent and is reproduced):
+- NorMuon's per-row variance EMA already adapts during cooldown. Layering AdaMuon's element-wise variance scaling on top is **double-normalization**.
+- Arm A (β=0.95, RMS warmstart): mechanism is active per-step → regression (+0.00143 val).
+- Arm B (β=0.99, ones init): mechanism is effectively near-identity in cooldown (V_t ≈ 1.0 with slow updates and O_t RMS ≈ 1 by NS5 construction) → ties baseline rather than regressing. But no operating point makes it both active and net-positive.
+
+Cross-confirms frieren #373 conclusion at full-training scope: AdaMuon's element-wise variance scaling is **redundant** with NorMuon's row variance scaling on this stack.
+
+**Falsification class**: post-NS5 element-wise variance scaling (cooldown-restricted or full) on a stack that already has NorMuon — joins Muon-VS (pre-NS5) and the original AdaMuon arms on the FALSIFIED list. Strengthens the **INPUT-ROBUST/OUTPUT-FRAGILE pattern**: element-wise post-NS5 scaling fights NS5's spectral-orthogonalization invariant or is redundant with row-level scaling already present.
+
+**Tanjiro reassigned → PR #406: MU_COOLDOWN_START sweep (0.93/0.97) on new CONTRA_MUON=0.4 base** — schedule-side axis (input-robust win pattern); START=0.95 has been fixed since PR #288 merge but never swept directly.
+
+---
+
 ## 2026-05-18 17:20 UTC — Cycle 55 (continued): #375 CLOSED (Muon-VS FALSIFIED); nezuko → #394 ATTN_SOAP_BETA2 sweep
 
 ### PR #375 — Muon-VS pre-NS5 gradient deviation variance scaling — FALSIFIED
