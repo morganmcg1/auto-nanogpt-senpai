@@ -6,6 +6,29 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 08:40 UTC — PR #326: NS5-outer muon_update_style + outer_lr retune ❌ CLOSED NEG
+
+- **Branch**: g1r3-nezuko/ns5-outer-muon-style-sweep
+- **Hypothesis**: After PR #294 (NS5-outer blocks-only, magnitude_preserving) closed at +0.00189 mild NEG, try the alternative `muon_update_style` variant (max(1,m/n)^0.5 aspect correction, no magnitude rescale) paired with outer_lr retune to compensate for the unit-spectral-norm step magnitude. 3-arm sweep: outer_lr ∈ {0.35, 0.50, 0.70} × `muon_update_style` × blocks-only.
+- **Results**:
+
+| Arm | W&B Run | val_best (step 2875) | val_terminal (3325) | Δ_best vs baseline 3.27415 | Verdict |
+|---|---|---|---|---|---|
+| lr=0.35 muon_update_style | `0pjej454` | 3.41610 | 3.52299 | +0.142 | STRONG NEG |
+| lr=0.50 muon_update_style | `l2v9uzcd` | 3.40298 | 3.52465 | +0.129 | STRONG NEG |
+| lr=0.70 muon_update_style | `83wkljwq` | 3.39220 | 3.53489 | +0.118 | STRONG NEG |
+
+- **Pathology characterization (student's val/loss progression)**: ALL 3 arms hit val_best at step 2875 (exactly cooldown entry point), then rise by +0.11 through the cosine cooldown phase. The cooldown phase **pulls val UP** instead of DOWN. Independent of outer_lr value.
+- **Mechanism**: `muon_update_style` discards per-param magnitude info from the accumulated outer velocity. Every sync (every 30 inner steps) outputs a unit-spectral-norm step regardless of how much drift the inner loop accumulated. Once cooldown reduces inner LR, inner steps shrink — but outer keeps producing fixed unit-norm "kicks" that no longer match the inner-loop scale, pulling the model away from the cooldown-converging minimum.
+- **Conclusion**: **CLOSED NEG.** The entire `outer_orthogonalize_velocity_mode` family is closed:
+  - `magnitude_preserving` blocks-only (#294): +0.00189 mild NEG (preserves scale-match)
+  - `muon_update_style` blocks-only × 3 outer_lr (#326): +0.118 to +0.142 STRONG NEG (breaks scale-match)
+- **Key learning**: Muon-style NS5 mechanism is only suitable for **inner gradient-flavored updates** (per-step), NOT accumulated multi-step outer updates. The same scope-mismatch lesson as PR #284 (AGC-outer) — per-step regularizers don't generalize to multi-step aggregates.
+- **Saturated lever**: NS5-outer entirely closed (both variants × outer_lr).
+- **Next assignment**: nezuko → adam_lm_head LR sweep (unexplored under full stack; the 1/320 starter value has never been swept).
+
+---
+
 ## 2026-05-18 08:08 UTC — PR #325: Aux AdamW cooldown shape sweep (linear vs cosine vs sqrt) ❌ CLOSED NEG
 
 - **Branch**: g1r3-fern/aux-cooldown-shape-sweep
