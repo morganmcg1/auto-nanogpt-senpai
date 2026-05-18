@@ -27,6 +27,11 @@ SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
 
+# End-of-cooldown SWA tail (PR #342). Maintain a FP32 running uniform mean of model
+# parameters starting at int(SWA_START_FRAC * train_steps), and report val_loss using
+# the SWA-averaged params at every val checkpoint thereafter.
+SWA_START_FRAC = 0.85
+
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
 # Arm A (Jordan-optimized): (3.4445, -4.7750, 2.0315) — aggressive contraction from Muon paper.
@@ -704,6 +709,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "swa_start_frac": SWA_START_FRAC,
         },
     )
 
@@ -783,6 +789,13 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # SWA tail state. swa_params holds FP32 running uniform mean of model params after
+    # step `swa_start`; swa_n is the snapshot count; swa_val_count counts SWA-active
+    # val checkpoints so we can log a raw-val diff at the first 2 only.
+    swa_start = int(SWA_START_FRAC * train_steps)
+    swa_params: list[Tensor] | None = None
+    swa_n = 0
+    swa_val_count = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -797,6 +810,14 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # If SWA tail is active, temporarily swap live params for the SWA running mean.
+            swa_active = step >= swa_start and swa_params is not None
+            saved_params: list[Tensor] | None = None
+            if swa_active:
+                saved_params = [p.detach().clone() for p in model.parameters()]
+                with torch.no_grad():
+                    for p, swa_p in zip(model.parameters(), swa_params):
+                        p.copy_(swa_p)  # copy_ handles fp32 -> param dtype
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -805,6 +826,23 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            raw_val_loss_float: float | None = None
+            if swa_active:
+                # Restore live params before any further forward passes.
+                with torch.no_grad():
+                    for p, s in zip(model.parameters(), saved_params):
+                        p.copy_(s)
+                # Diagnostic: for the first 2 SWA val checkpoints also run val on raw
+                # (live) params so we can log swa - raw delta.
+                if swa_val_count < 2:
+                    raw_val_loss = torch.zeros((), device=device)
+                    with torch.no_grad():
+                        for i in range(len(val_inputs) // mbs):
+                            raw_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(raw_val_loss, op=dist.ReduceOp.SUM)
+                    raw_val_loss /= val_tokens
+                    raw_val_loss_float = float(raw_val_loss.item())
+                swa_val_count += 1
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -824,11 +862,20 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "swa/active": 1.0 if swa_active else 0.0,
+                    "swa/swa_n": swa_n if swa_active else 0,
+                    "swa/start_step": swa_start,
+                    "swa/start_frac": SWA_START_FRAC,
                 }
+                if swa_active and raw_val_loss_float is not None:
+                    metrics["swa/val_loss_raw"] = raw_val_loss_float
+                    metrics["swa/val_loss_diff"] = val_loss_float - raw_val_loss_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            swa_tag = f" [swa n={swa_n}]" if swa_active else ""
+            raw_tag = f" raw_val_loss:{raw_val_loss_float:.5f}" if raw_val_loss_float is not None else ""
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f}{swa_tag}{raw_tag}"
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -881,6 +928,19 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # SWA tail: after each optimizer step at or after swa_start, update a FP32
+        # uniform running mean of model parameters. Initialize on the first qualifying
+        # step. Mixed-dtype add (BF16 params, FP32 buffer) is fine; the swa_p tensor
+        # remains FP32 across iterations so beta=swa_n/(swa_n+1) does not round to 1.
+        if step >= swa_start:
+            with torch.no_grad():
+                if swa_params is None:
+                    swa_params = [p.detach().to(torch.float32).clone() for p in model.parameters()]
+                    swa_n = 1
+                else:
+                    for swa_p, p in zip(swa_params, model.parameters()):
+                        swa_p.mul_(swa_n / (swa_n + 1)).add_(p.detach(), alpha=1.0 / (swa_n + 1))
+                    swa_n += 1
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
