@@ -29,8 +29,8 @@
 |---|---|---|---|
 | **#370** | thorfinn | **MuonH warmup shape sweep** (linear/cosine/sqrt) | Arm 1 (**linear control**) terminal: `vvqkuuen` val=**3.27314** ✓ bit-identity baseline. Arm 2 (cosine) launched 13:08 UTC. ETA ~15:00 UTC for arm 2, ~17:00 UTC for arm 3 |
 | **#369** | edward | **MuLoCo outer_lr schedule** (decay/grow) | Arm 1 (**fixed 0.7 control**) terminal: `87ou9bcg` val=**3.27195** (Δ=-0.00120 control bias). Arm 2 (cosine decay 0.7→0.35) `935del3x` running step ~188. ETA arm 2 ~14:35 UTC, arm 3 ~16:35 UTC |
-| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | `dpabql6o` trial 0 terminal val=**3.2721** (Δ=-0.00105). Trial 1 in progress at step ~376. n=4 terminal ETA ~17:57 UTC. Promising for n=4 merge if trials average < 3.27275 |
-| **#352** | fern | **Aux AdamW cooldown_frac sweep** (0.3/0.4/0.5) | Arm 1 (frac=0.4) terminal: `vmxi4dns` val=**3.2731** (Δ~0, matches baseline). Arm 2 (frac=0.3) and arm 3 (frac=0.5) sequential. ETA ~17:15 UTC |
+| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | `dpabql6o` trial 1 of 4 terminal val=**3.27209** (Δ=-0.00106, clears n=1 bar 3.27235). Trial 2 in progress. n=4 terminal ETA ~17:57 UTC. For merge bar 3.27275: trials 2-4 mean ≤ 3.27297 |
+| **#352** | fern | **Aux AdamW cooldown_frac sweep** (0.3/0.4/0.5) | Arm 1 (**frac=0.3** — corrected) terminal: `vmxi4dns` val=**3.2731** (Δ~0, no help from shorter cooldown). Arm 2 (frac=0.4) mid-run. Arm 3 (frac=0.5) pending. ETA ~17:15 UTC |
 | **#361** | nezuko | **Aux lm_head LR sweep** (1/500, 1/320, 1/200) | Relaunched at 12:30 UTC with `s3hdqm9z` on NEW baseline. ETA ~17:30 UTC |
 | **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60) | Arm 1 (**fixed sync=30 control**) terminal: `wddw4tjm` val=**3.2735** (Δ=+0.00035). Arm 2 (step 30→60 @ 2/3) and arm 3 (linear 30→60) sequential. ETA ~17:00 UTC |
 | **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 66h+** — `gd125a8` bf16 NaN. Esc#13 posted 11:20 UTC. Esc#14 due ~14:30 UTC |
