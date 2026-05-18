@@ -47,7 +47,13 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 ---
 
-## Active experiments — 06:15 UTC
+## Active experiments — 06:30 UTC
+
+### 🔄 fern #345 — NS coef ramp_down DEPTH sweep [JUST ASSIGNED]
+**Branch:** `g1r4-fern/ns-coef-ramp-depth`
+**Hypothesis:** #290 established linear_ramp_down direction (c=0.70→0.28, depth=0.42). Is depth=0.42 optimal? Sweep 4 mean-neutral depths: arm-A=0.42 (control), arm-B=0.30 (shallower), arm-C=0.55 (steeper), arm-D=0.70 (much steeper). All arms anchored at c_mean=0.49 — pure shape sweep.
+**Decision rule:** within-pod Δ ≤ −0.002 → signal candidate; all within ±0.0015 → productive-null; monotone direction → extend sweep.
+**ETA:** ~6.9h sequential chain (~13:30 UTC if launched promptly).
 
 ### 🔄 frieren #344 — NS late_peak transition point sweep [JUST ASSIGNED]
 **Branch:** `frieren/ns-late-peak-frac-sweep`
@@ -99,8 +105,8 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 1. **Embed floor value optimization** — tanjiro #300 in-flight. If floor=0.20 confirms on post-#290 stack, that's the next merge.
 2. **NS late_peak transition point optimization** — frieren #344 in-flight. Finding optimal 25%/50%/75% split.
 3. **Muon LR cooldown floor** — edward #335 in-flight. Mechanism generalization from embed-floor to Muon blocks.
-4. **Per-group scalar ε tuning** — edward #280 showed scalar group most sparsity-vulnerable. alphonse #322 probes global ε; per-group scalar ε is the mechanism-validated follow-up.
-5. **NS linear_ramp_down depth** — the winning linear_ramp_down went from c=0.70 → c=0.24 over 12 NS iters. Does a steeper ramp (0.70→0.10) or starting higher (0.90→0.24) improve further?
+4. **NS linear_ramp_down depth** — fern #345 in-flight. Sweep depth=0.30/0.42/0.55/0.70 around #290 winner.
+5. **Per-group scalar ε tuning** — edward #280 showed scalar group most sparsity-vulnerable. alphonse #322 probes global ε; per-group scalar ε is the mechanism-validated follow-up (after #322 closes).
 
 ### Medium-priority axes
 6. **Joint β1 × β2 surface** — pending askeladd #324 β1 sweep result
