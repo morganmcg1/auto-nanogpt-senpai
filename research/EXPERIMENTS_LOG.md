@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-18 07:02 UTC — PR #317 CLOSED: Lion optimizer on embed {lr=0.03, 0.10} (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/lion-embed-wrapper`
+- **Hypothesis:** Sign-momentum (Lion) replaces AdamW for the embed group; tests whether sign-quantized updates compete with adaptive AdamW on heavy-tailed embed gradients.
+- W&B runs: `d30w4a1a` (Arm A, lr=0.03), `pon9sawn` (Arm B, lr=0.10)
+
+| Arm | lion_embed_lr | sr | val/loss | verdict |
+|-----|---------------|-----|----------|---------|
+| **Baseline (PR #274 AdamW lr=0.3)** | — | **3000** | **3.2685** | — |
+| Arm A | 0.03 | -1 | 3.28119 | NULL — never crossed 3.28 |
+| Arm B | 0.10 | 3175 | 3.27738 | NULL — sr +175 vs baseline |
+
+**Result:** Both NULL. Lion at the tested LR range is fundamentally slower than AdamW on this distribution. The 10× LR Arm B closes most of the val gap (3.281→3.277) but still doesn't beat baseline sr — sign quantization throws away the per-coord variance scaling that AdamW provides on heavy-tailed embed gradients (rare tokens cause large spikes that AdamW dampens via squared-gradient denominator).
+
+**Axis decision: Lion-on-embed CLOSED.** Sign-momentum variants for embed/lm_head should be considered low-priority follow-ups absent a separate hypothesis specifically addressing heavy-tail handling.
+
+**Next assignment:** PR #347 — Layer-wise LR Decay (LLRD) for Muon body (fresh depth-dependent schedule mechanism).
+
+---
+
 ## 2026-05-18 05:50 UTC — PR #314 CLOSED: embed_lr scan {0.2, 0.4} (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/embed-lr-scan`
