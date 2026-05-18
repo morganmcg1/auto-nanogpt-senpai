@@ -519,6 +519,8 @@ NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", 
 #   linear_ramp-> linear ramp from NS_ITERS to peak = NS_ITERS + 2*(COOLDOWN-NS_ITERS) across cooldown
 #   late_peak  -> NS_ITERS first half of cooldown, peak second half
 NS_COOLDOWN_SHAPE = os.environ.get("NANOGPT_NS_COOLDOWN_SHAPE", "step")
+NANOGPT_NS_LATE_PEAK_FRAC = float(os.environ.get("NANOGPT_NS_LATE_PEAK_FRAC", "0.5"))
+assert 0.0 < NANOGPT_NS_LATE_PEAK_FRAC < 1.0, "NS late_peak fraction must be in (0.0, 1.0)"
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
 # Per-group embed cooldown shape (applies to adam_embed group only; lm_head/scalars keep linear).
 # options: "linear" (baseline), "cosine", "linear_floor", "quadratic"
@@ -604,7 +606,7 @@ def get_ns_iters(step: int, total_steps: int, ns_base: int, ns_cooldown: int,
         val = ns_base + cd_progress * (peak - ns_base)
         return max(ns_base, int(val + 0.5))
     elif shape == "late_peak":
-        return ns_base if cd_progress < 0.5 else peak
+        return ns_base if cd_progress < NANOGPT_NS_LATE_PEAK_FRAC else peak
     return ns_cooldown
 
 
@@ -740,9 +742,10 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
 if NS_ITERS_COOLDOWN > 0:
+    _shape_extra = f" late_peak_frac={NANOGPT_NS_LATE_PEAK_FRAC}" if NS_COOLDOWN_SHAPE == "late_peak" else ""
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
-           f"(shape={NS_COOLDOWN_SHAPE})", console=True)
+           f"(shape={NS_COOLDOWN_SHAPE}{_shape_extra})", console=True)
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
@@ -796,6 +799,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
+            "nanogpt_ns_late_peak_frac": NANOGPT_NS_LATE_PEAK_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
