@@ -1,7 +1,8 @@
 # SENPAI Research State
 
-- 2026-05-18 05:15 UTC — Cycle 55 (continued)
+- 2026-05-18 06:00 UTC — Cycle 55 (continued)
 - No human researcher directives this session.
+- ✅ **FRIEREN #340 CLOSED**: Embed init std=0.5 FALSIFIED — NaN at step 25 (Arm B skipped per kill gate). Mechanism: embed init scale is load-bearing under adam_embed lr=0.30; joint sweep would be required. Reassigned → PR #343 AdamW β2 sweep.
 - 🎯🎯 **THORFINN #288 Arm B n=2 MEAN CLEARS BOTH BARS**: val=3.27477 (Δ−0.001065), ffs=3062.5 (Δ−25.0). N=4 confirmation `qceklszn` at ~65% (~step 8302/12700 at 04:50 UTC), ETA ~07:25 UTC. **Mechanism: cooldown-only μ anneal (MU_COOLDOWN_START=0.95→END=0.90 from step 952) — cooldown reactivity is the driver, NOT warmup stabilization.**
 - 🎯 **FERN #304 Arm A n=4 confirmation `xzwpijuo` running** (n=2 near-miss val=3.275851/ffs=3087.5 — off by 0.000016 on val, tied on ffs). At ~20% (step 2500/12700 at 04:50 UTC), ETA ~10:30 UTC.
 - ✅ **ALPHONSE #312 Arm A n=4 confirmation `cpojpo1o` running** (n=2 mean weak: val=3.27713/ffs=3112.5 — misses both bars). Trial 2 of 4 at step 7777/12700 at 04:30 UTC. Predeclared: weak n=4 mean → close axis.
@@ -79,12 +80,12 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm A: MUON_WARMUP_STEPS=100 — **FALSIFIED** (n=2 mean val=3.277545/ffs=3112.5; Δ+0.00171/+25).
 - Arm B: MUON_WARMUP_STEPS=50 — launching (Arm A-like miss expected; final close if Arm B also misses).
 
-### FRIEREN #340 — Embed init std sweep (cycle 55, just assigned)
-- Current embed.weight init: N(0,1) std=1.0 — 50× larger than Karpathy GPT-2 style, never swept.
-- Arm A: EMBED_INIT_STD=0.5 (half current, conservative arm).
-- Arm B: EMBED_INIT_STD=0.1 (10× smaller, tests hypothesis more aggressively).
-- 2-line implementation: env var + `w.normal_(std=EMBED_INIT_STD)`.
-- Conservative arms (not 0.02) given eps brittleness from #333. Awaiting smoke and code push.
+### FRIEREN #343 — AdamW β2 sweep (cycle 55, just assigned)
+- Current AdamW betas=(0.8, 0.95) — β2=0.95 is unusually fast vs Adam-default 0.999. Never swept.
+- Arm A: ADAMW_BETA2=0.99 (Adam default — slower variance EMA, ~100-step window).
+- Arm B: ADAMW_BETA2=0.90 (faster — ~10-step window; higher NaN risk).
+- 2-line implementation: env var + `betas=(0.8, ADAMW_BETA2)` in AdamW init.
+- Last untested AdamW axis (β1-anneal #309 FALSIFIED, eps #333 FALSIFIED, lm_head wd #312 in flight).
 
 ## Recently closed axes
 
@@ -101,6 +102,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | #277 | alphonse | CLOSED (untested) | Pod-specific instability; freeze mechanism NOT falsified. Resurrected as PR #341 for edward. |
 | #281 | edward | FALSIFIED | Per-head SOAP both arms miss (Arm A val=3.27727/ffs=3112.5, Arm B val=3.276245/ffs=3100). Cross-head gradient covariance lost in block-diagonal preconditioning. Trust gate fully open at terminal = mechanism issue, not gating. |
 | #319(A) | askeladd | FALSIFIED | Muon LR warmup 100-step; n=2 mean val=3.277545/ffs=3112.5. Muon's NS5 at full LR is load-bearing; warmup delays early progress without better basin. Arm B (50-step) still pending. |
+| #340 | frieren | FALSIFIED | Embed init std=0.5 NaN at step 25 (Arm B skipped per kill gate). Embed init scale load-bearing under adam_embed lr=0.30; joint init×LR sweep would be required. |
 | #268 | askeladd | FALSIFIED | Depth-LR scaling; SOAP already absorbs per-layer gradient structure. |
 | #273 | nezuko | FALSIFIED | Asymmetric QK/VO trust; V's low cos_row is TRUE signal. |
 | #271 | fern | FALSIFIED | Decoupled SOAP freq MLP vs ATTN; refresh-freq optimum ≈ EMA horizon = 1/(1-β2). |
@@ -139,7 +141,7 @@ Gap to public record #20 (~3030 ffs steps): ~57.5 ffs steps.
 3. ⭐ **Alphonse #312 Arm A** (lm_head wd=0.01) — n=2 weak (val=3.27713/ffs=3112.5 misses bars); n=4 confirm `cpojpo1o` at ~61%, ETA ~07:45 UTC. Predeclared: weak mean → close.
 4. **Tanjiro #336** (TARGET_UW sweep 0.25/0.50) — just assigned (~2.5h silent, GPU idle — heartbeat sent).
 5. **Nezuko #339** (cooldown_frac sweep 0.6/0.8) — actively running smoke.
-6. **Frieren #340** (embed init std sweep 0.5/0.1) — just assigned, implementing.
+6. **Frieren #343** (AdamW β2 sweep 0.90/0.99) — just assigned, implementing.
 7. **Edward #341** (SOAP eigenbasis freeze 1000/2000) — just assigned.
 8. **Askeladd #319** Arm B (MUON_WARMUP_STEPS=50) — pending launch after Arm A close.
 

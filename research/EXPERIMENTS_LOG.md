@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 06:00 UTC — Cycle 55 (continued): frieren #340 CLOSED (embed init std FALSIFIED — Arm A NaN); reassigned #343 AdamW β2 sweep
+
+### FRIEREN #340 — Embed init std sweep — FALSIFIED (Arm A NaN at step 25, Arm B skipped per kill gate)
+
+| Arm | EMBED_INIT_STD | step 25 train_loss | step 25 grad nonfinite | Verdict |
+|---|---|---|---|---|
+| Baseline | 1.0 | 5.958 | 0 | OK |
+| **A** | **0.5** | **NaN** | **147,758,208** | **NaN at step 25** |
+| B | 0.1 | not run | not run | skipped per kill gate |
+
+W&B run: `innm9w83`. step 0 val=10.82583 (bit-identical to baseline), step 1 grad/global_norm=233,017 (within 0.02% of baseline 233,068). Code is correct; divergence at step 25 is genuine.
+
+**Mechanism**: embed init scale is **load-bearing under current stack with adam_embed lr=0.30**. Halving embed init halves residual stream activations at layer 0 → AdamW updates mismatched to the new scale → gradients NaN within 25 steps. The 50× larger embed init vs Karpathy GPT-2 style is NOT a tuning oversight; it's required given the high adam_embed LR.
+
+**Future direction (out of scope)**: joint embed-init × embed-LR sweep (e.g., LR ∝ std). Single-axis sweep on either knob alone breaks the coupling.
+
+Frieren reassigned → PR #343: AdamW β2 sweep {0.90, 0.99} (last untested AdamW axis; β1-anneal and eps already FALSIFIED).
+
+---
+
 ## 2026-05-18 05:15 UTC — Cycle 55 (continued): edward #281 CLOSED (per-head SOAP FALSIFIED — both arms miss); askeladd #319 Arm A FALSIFIED; reassigned #341 SOAP eigenbasis freeze
 
 ### EDWARD #281 — Per-head SOAP for attention weights — FALSIFIED (both arms miss both bars)
