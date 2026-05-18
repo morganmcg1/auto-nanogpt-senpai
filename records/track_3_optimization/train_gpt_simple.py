@@ -523,6 +523,51 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+
+
+def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
+    """Return (a, b, c) for NS iter iter_idx of total_iters.
+
+    One-parameter polynomial family with f(1)=1, f'(1)=0:
+        a = 1.5 + c,   b = -0.5 - 2c.
+    All non-control arms average c ≈ 0.5 across the iters.
+    """
+    if schedule == "constant":
+        c = 0.5
+    elif schedule == "aggressive_to_gentle":
+        c_vals = [0.7, 0.7, 0.7, 0.6, 0.6, 0.5, 0.5, 0.4, 0.4, 0.3, 0.3, 0.3]
+        idx = round(iter_idx * (len(c_vals) - 1) / max(total_iters - 1, 1))
+        c = c_vals[idx]
+    elif schedule == "gentle_to_aggressive":
+        c_vals = [0.3, 0.3, 0.3, 0.4, 0.4, 0.5, 0.5, 0.6, 0.6, 0.7, 0.7, 0.7]
+        idx = round(iter_idx * (len(c_vals) - 1) / max(total_iters - 1, 1))
+        c = c_vals[idx]
+    elif schedule == "linear_ramp_down":
+        # c=0.7 at iter 0 -> c=0.28 at iter total_iters-1, avg ~= 0.49
+        c = 0.7 - (0.7 - 0.28) * iter_idx / max(total_iters - 1, 1)
+    else:
+        c = 0.5  # fallback
+    a = 1.5 + c
+    b = -0.5 - 2.0 * c
+    return a, b, c
+
+
+_NS_COEF_TABLE_CACHE: dict[tuple[int, str], tuple[tuple[float, float, float], ...]] = {}
+
+
+def get_ns_coef_table(num_iters: int) -> tuple[tuple[float, float, float], ...]:
+    """Pure-Python lookup; cached so torch.compile traces inline the constants."""
+    key = (num_iters, NS_COEF_SCHEDULE)
+    table = _NS_COEF_TABLE_CACHE.get(key)
+    if table is None:
+        table = tuple(
+            get_ns_coef_at_iter(k, num_iters, NS_COEF_SCHEDULE) for k in range(num_iters)
+        )
+        _NS_COEF_TABLE_CACHE[key] = table
+    return table
+
+
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -533,8 +578,9 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(ns_iters):
+    coef_table = get_ns_coef_table(ns_iters)
+    for k in range(ns_iters):
+        a, b, c = coef_table[k]
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -660,6 +706,13 @@ if NS_ITERS_COOLDOWN > 0:
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
+print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
+    _table = get_ns_coef_table(_probe_iters)
+    _c_vals = [round(t[2], 3) for t in _table]
+    _avg_c = sum(t[2] for t in _table) / len(_table)
+    print0(f"  ns_iters={_probe_iters}: c=[{','.join(map(str, _c_vals))}] avg_c={_avg_c:.4f}",
+           console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -704,6 +757,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
 
@@ -982,6 +1036,35 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Per-iter NS coefficient telemetry (probes 3 representative iters).
+            current_ns_iters = ns_iters_this_step
+            a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
+            a_mid, b_mid, c_mid = get_ns_coef_at_iter(
+                current_ns_iters // 2, current_ns_iters, NS_COEF_SCHEDULE
+            )
+            a_last, b_last, c_last = get_ns_coef_at_iter(
+                current_ns_iters - 1, current_ns_iters, NS_COEF_SCHEDULE
+            )
+            full_c = [
+                get_ns_coef_at_iter(i, current_ns_iters, NS_COEF_SCHEDULE)[2]
+                for i in range(current_ns_iters)
+            ]
+            ns_metrics.update({
+                "train/ns/c_at_iter_0": c0,
+                "train/ns/c_at_iter_mid": c_mid,
+                "train/ns/c_at_iter_last": c_last,
+                "train/ns/avg_c": sum(full_c) / len(full_c),
+                "train/ns/a_at_iter_0": a0,
+                "train/ns/b_at_iter_0": b0,
+                "train/ns/a_at_iter_last": a_last,
+                "train/ns/b_at_iter_last": b_last,
+                "train/ns/schedule_id": {
+                    "constant": 0,
+                    "aggressive_to_gentle": 1,
+                    "gentle_to_aggressive": 2,
+                    "linear_ramp_down": 3,
+                }.get(NS_COEF_SCHEDULE, -1),
+            })
             wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
