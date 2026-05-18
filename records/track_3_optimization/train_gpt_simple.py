@@ -446,6 +446,7 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+SOAP_FREEZE_STEP = int(os.environ.get("SOAP_FREEZE_STEP", "0"))  # 0 = never freeze (baseline)
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -554,7 +555,9 @@ def soap_refresh(grad, state, beta2=SOAP_BETA2, refresh_freq=SOAP_PRECOND_FREQ,
             state["trust_gate"] = 1.0
             state["trust_cos_row"] = 1.0
             state["trust_cos_col"] = 1.0
-    elif state["soap_step"] > 0 and state["soap_step"] % refresh_freq == 0:
+    elif (state["soap_step"] > 0
+          and state["soap_step"] % refresh_freq == 0
+          and (SOAP_FREEZE_STEP == 0 or state["soap_step"] < SOAP_FREEZE_STEP)):
         if use_trust_gate:
             row_gg = state["row_gg"]
             col_gg = state["col_gg"]
@@ -838,6 +841,7 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/soap_freeze_step": SOAP_FREEZE_STEP,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
