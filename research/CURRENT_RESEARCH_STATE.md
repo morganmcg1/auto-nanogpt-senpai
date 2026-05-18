@@ -1,9 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 10:58 UTC (boot 142x — baseline-shift cleanup)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#12 posted 08:44 UTC. Operator silent ~67h+. **esc#13 due ~12:00 UTC.**
+- **Last updated:** 2026-05-18 13:15 UTC (boot 142x — first arm-1 harvest)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#13 posted 11:20 UTC. Operator silent ~66h+. **esc#14 due ~14:30 UTC.**
 - **Branch state:** Baseline post-PR #310 (MuonH inner LR warmup=100, merged boot 142w).
-- **Boot 142x action:** Discovered 4 of 5 active runs launched against OLD baseline (3.27415) — missing `--muonh_warmup_steps 100`. Killed/sent-back to: askeladd (n=4 confirm `ow5c05o8`), nezuko (smokes `pctjurhh`/`vls4sxmd`), fern (in-flight `tyr9awjr`/`fie44ern`), frieren (7 smokes, no sweep launched yet). Only edward #369 and thorfinn #370 are clean on NEW baseline.
+- **Boot 142x cleanup complete:** All 4 baseline-shift students relaunched on NEW baseline (askeladd/fern/nezuko/frieren). Arm-1 harvest complete (13:11 UTC).
 
 ## ⭐ Current baseline (post-PR #310 merge)
 
@@ -23,20 +23,28 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100`.
 
-## Active experiments (boot 142x — 10:58 UTC 2026-05-18)
+## Active experiments (boot 142x — 13:15 UTC 2026-05-18, post arm-1 harvest)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#370** | thorfinn | **MuonH warmup shape sweep** (cosine vs linear vs sqrt) | **ACTIVE on NEW baseline** ✓ — `vvqkuuen` running at step 375, warmup=100 confirmed in config. ETA ~5h |
-| **#369** | edward | **MuLoCo outer_lr schedule** (decay 0.7→0.35 vs grow 0.7→1.05) | **ACTIVE on NEW baseline** ✓ — `mlvij4zs` smoke finished, warmup=100 confirmed. Sweep arms expected next. ETA ~5h |
-| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | **SENT BACK** at 10:53 UTC — `ow5c05o8` was OLD baseline, trial 1=3.27479 NEG. Student to kill + relaunch on NEW baseline with `--muonh_warmup_steps 100` + `--muonh_agc_clip_ratio 0.05`. New ETA ~17:30 UTC |
-| **#352** | fern | **Aux AdamW cooldown_frac sweep** (frac∈{0.3, 0.4, 0.5}) | **SENT BACK** at 10:48 UTC — 2 in-flight runs (`tyr9awjr`, `fie44ern`) on OLD baseline, no warmup. Student to kill + rebase + relaunch. ETA ~16:30 UTC |
-| **#361** | nezuko | **Aux lm_head LR sweep** (1/500 vs 1/320 vs 1/200) | **SENT BACK** at 10:53 UTC — `pctjurhh`/`vls4sxmd` on OLD baseline, no warmup. Student to kill + rebase + relaunch all 3 arms. ETA ~16:30 UTC |
-| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60 late training) | **NUDGED** at 10:55 UTC — 7 smokes run, 0 sweep arms launched, GPU idle. Told to rebase + launch arms with warmup=100. ETA ~16:30 UTC |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 67h+** — `gd125a8` bf16 NaN, esc#12 posted 08:44 UTC, esc#13 due ~12:00 UTC |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 67h+** — rebase complete, touch-base posted 10:51 UTC with NEW baseline update. Esc#13 due ~12:00 UTC |
+| **#370** | thorfinn | **MuonH warmup shape sweep** (linear/cosine/sqrt) | Arm 1 (**linear control**) terminal: `vvqkuuen` val=**3.27314** ✓ bit-identity baseline. Arm 2 (cosine) launched 13:08 UTC. ETA ~15:00 UTC for arm 2, ~17:00 UTC for arm 3 |
+| **#369** | edward | **MuLoCo outer_lr schedule** (decay/grow) | Arm 1 (**fixed 0.7 control**) terminal: `87ou9bcg` val=**3.27195** (Δ=-0.00120 control bias). Arm 2 (cosine decay 0.7→0.35) `935del3x` running step ~188. ETA arm 2 ~14:35 UTC, arm 3 ~16:35 UTC |
+| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | `dpabql6o` trial 0 terminal val=**3.2721** (Δ=-0.00105). Trial 1 in progress at step ~376. n=4 terminal ETA ~17:57 UTC. Promising for n=4 merge if trials average < 3.27275 |
+| **#352** | fern | **Aux AdamW cooldown_frac sweep** (0.3/0.4/0.5) | Arm 1 (frac=0.4) terminal: `vmxi4dns` val=**3.2731** (Δ~0, matches baseline). Arm 2 (frac=0.3) and arm 3 (frac=0.5) sequential. ETA ~17:15 UTC |
+| **#361** | nezuko | **Aux lm_head LR sweep** (1/500, 1/320, 1/200) | Relaunched at 12:30 UTC with `s3hdqm9z` on NEW baseline. ETA ~17:30 UTC |
+| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60) | Arm 1 (**fixed sync=30 control**) terminal: `wddw4tjm` val=**3.2735** (Δ=+0.00035). Arm 2 (step 30→60 @ 2/3) and arm 3 (linear 30→60) sequential. ETA ~17:00 UTC |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 66h+** — `gd125a8` bf16 NaN. Esc#13 posted 11:20 UTC. Esc#14 due ~14:30 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 66h+** — rebase complete. Esc#13 posted 11:20 UTC. Esc#14 due ~14:30 UTC |
 
 **8/8 students assigned.** No idle slots.
+
+### Arm-1 harvest summary (13:11 UTC)
+
+5 of 5 in-flight arm-1 runs reached terminal val/loss within ~30 min window. All control arms cluster at val=3.272–3.274 (±0.0012 of baseline 3.27315 — pure n=1 noise). Key signals:
+
+- **Askeladd trial 0 = 3.2721 (Δ=-0.00105)** — strongest result so far. Trial 1 in progress; n=4 terminal ~17:57 UTC. n=4 conservative bar μ < 3.27275 looks attainable if trial-trial noise low.
+- **Thorfinn LINEAR control = 3.27314 bit-identity baseline** — verifies warmup=100 reproduction. Cosine/sqrt arms can now produce interpretable signal.
+- **Edward control = 3.27195** — fixed outer_lr=0.7 (=baseline) ran slightly below baseline. n=1 variance. Useful internal noise floor estimate.
 
 ### Baseline-shift correction in boot 142x
 
@@ -48,9 +56,11 @@ PR #310 merged at 10:31 UTC during a window when 4 students had already launched
 
 | Source | Best result | n=4 ETA | Status |
 |---|---|---|---|
-| **Askeladd AGC inner clip=0.05** `ow5c05o8` | n=1=3.27288 (Δ=-0.00127 vs OLD baseline) | ~15:12 UTC | **ACTIVE n=4 confirm** |
-
-Note: Δ vs NEW baseline (3.27315): askeladd n=1=3.27288 is Δ=-0.00027 — barely beats new bar. n=4 ETA will confirm.
+| **Askeladd AGC inner clip=0.05** `dpabql6o` (NEW baseline) | trial 0=3.2721 (Δ=-0.00105) | ~17:57 UTC | **ACTIVE n=4 confirm, trial 1 running** |
+| Edward outer_lr decay 0.7→0.35 `935del3x` | running step ~188 | ~14:35 UTC arm 2 | sweep arm 2 in-flight |
+| Thorfinn warmup shape cosine | just launched 13:08 UTC | ~15:00 UTC arm 2 | sweep arm 2 in-flight |
+| Fern aux cooldown frac=0.3/0.5 | sequential after arm 1 | ~17:15 UTC | sweep arms pending |
+| Frieren sync_interval step 30→60 | sequential after arm 1 | ~17:00 UTC | sweep arms pending |
 
 ## MERGED this round (chronological)
 
