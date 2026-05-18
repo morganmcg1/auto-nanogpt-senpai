@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 02:55 UTC (boot 142c)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7/#8/#9/#10 posted. Operator silent ~54h since 19:34 UTC 2026-05-16.
+- **Last updated:** 2026-05-18 06:58 UTC (boot 142n)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7–#11 posted. Operator silent ~59h since 19:34 UTC 2026-05-16. Next esc#12 due ~09:00 UTC.
 - **Branch state:** Baseline post-PR #243 (MuonH-SI cosine cooldown, merged boot 142).
 
 ## ⭐ Current baseline (post-PR #243 merge)
@@ -21,20 +21,29 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine`.
 
-## Active experiments (boot 142c — 02:55 UTC 2026-05-18)
+## Active experiments (boot 142n — 06:58 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | arm 2 (warmup=100) `qwl44doy` terminal=**3.27340** WIN candidate (Δ=-0.00075); arm 3 crashed NEG; smoke `zslelsf7` done (val=4.17 ✓) — **n=4 confirm pending (not yet launched)** |
-| **#338** | edward | **Aux AdamW LR warmup** (aux_warmup_steps ∈{0, 100, 200}) | **newly assigned boot 142c** (after #308 closed NEG) |
-| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | cosine-rebase screen `ij7osycz` step 1770, early (val_best 3.54); v2 `ajk7avas` crashed step 180 |
-| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | smoke phase (4 smokes, no code push yet); nudge posted |
-| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | arm 1 (final=0.50 control) `u1dk4lxx` step 825 (early); restart `hch0psw6` step 210 |
-| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** | arm 1 `9oqdj9fp` step 840 (early); restart `cfe9qh3k` step 275 |
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED** — bf16 NaN pathology `gd125a8`, Issue #164 esc #10 posted 02:55 UTC |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 54h+** — CONFLICTING (needs rebase), Issue #164 esc #10 posted 02:55 UTC |
+| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | **n=4 confirm `w6xgiqzl` IN FLIGHT**: trial 0=3.27377 ✅ trial 1=3.27323 ✅ (n=2 mean=3.27350, Δ=-0.00065); trial 2 step 627; ETA all 4 trials ~11:50 UTC — **STRONG WIN brewing** |
+| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | arm 1 clip=0.10=3.2744 NEG; **arm 2 clip=0.05 `2ohsv6t9` TERMINAL=3.27288** ✅ (Δ=-0.00127 WIN n=1); arm 3 clip=0.01 `4nx27ikf` step 500 ETA ~09:15 UTC |
+| **#338** | edward | **Aux AdamW LR warmup** (aux_warmup_steps ∈{0, 100, 200}) | arm 1 (warmup=0 control)=3.275593 (matches baseline ✓); arm 2 (warmup=100) `1uenqxb0` step 1850/3325 val 3.55 ETA terminal ~08:14 UTC; arm 3 pending |
+| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** (lr∈{0.35, 0.50, 0.70}) | arm 1 lr=0.35 `0pjej454`=3.52299 strong NEG (was 9oqdj9fp + cfe9qh3k crashes from GPU contention); arm 2 lr=0.50 `l2v9uzcd`=**3.5247 NEG**; arm 3 lr=0.70 `83wkljwq` step 375 |
+| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | linear control `ij7osycz`=3.27295 (noise re-confirm of baseline); cosine `r9zvas0i`=**3.27702 NEG** (+0.00287); sqrt `4ovuu6yi` step 1875 ETA ~08:00 UTC |
+| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | arm 1 final=0.50 (control) both OOM-killed by concurrent torchrun; arm 2 final=0.25 `17dtmqsh`=3.27569 NEG slight; arm 3 final=0.00 `dbbvjy9f` step 2988/3325 ETA ~07:15 UTC |
+| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED 59h+** — bf16 NaN pathology `gd125a8`, Issue #164 esc #11 posted 05:53 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 59h+** — rebase complete (`d2138a7`), advisor clarification posted 06:58 UTC, Issue #164 esc #11 posted 05:53 UTC |
 
 **8/8 students assigned.** No idle slots.
+
+### Current win pipeline (n=1 candidates → n=4 confirm queue)
+
+| Source | Δ vs baseline 3.27415 | Status |
+|---|---|---|
+| **askeladd clip=0.05** = 3.27288 | -0.00127 | n=1 terminal. Awaits screen close + rebase + n=4 confirm |
+| **thorfinn warmup=100** = 3.27350 (n=2) | -0.00065 | trials 2+3 in flight, terminal ~11:50 UTC |
+
+Two stackable wins brewing simultaneously — if both confirm at n=4, MuonH warmup + AGC inner could compound. **Stack candidate** for boot 143+.
 
 ## MERGED this round (chronological)
 
@@ -89,15 +98,18 @@
 5. **NS5-outer-velocity ~parity**: blocks-only variation +0.00189 (within noise)
 6. **LR warmup promising**: thorfinn arm 2 (warmup=100) n=1 = 3.27340 (Δ=-0.00075) — awaiting n=4 confirm
 
-## Potential next research directions (boot 142c+)
+## Potential next research directions (boot 142n+)
 
-1. **Thorfinn n=4 confirm** (warmup=100 on cosine baseline) — highest priority pending
-2. **Aux warmup** → edward #338 in-flight — if both warmups (MuonH + aux) confirm, compound them
-3. **Stack: cosine cooldown + warmup** — compound two LR-shape wins after thorfinn n=4 confirms
-4. **Aux cosine shape** → fern #325 actively screening — compound with MuonH cosine if wins
-5. **MuLoCo outer_momentum decay** → frieren #328 actively screening
-6. **AGC on inner MuonH gradient** → askeladd #329 (smoke phase)
-7. **NS5 outer muon_update_style** → nezuko #326 (screen phase)
-8. **MuonH warmup shape sweep** — cosine vs linear warmup at fixed 100 steps (after #310 merges)
-9. **Cooldown-only mu decay** (PR #308.5) — β decay gated to LR cooldown window only
-10. **Compound run** — after 2-3 more wins, n=4 confirm full stack
+1. **Thorfinn n=4 confirm (warmup=100)** — IN FLIGHT, trials 0+1 done, terminal ~11:50 UTC. If n=4 mean ≤ 3.27375 (Δ≤-0.0004 with √4 margin), MERGE.
+2. **Askeladd clip=0.05 n=4 confirm** — after clip=0.01 screen closes ~09:15 UTC; if clip=0.05 is best of 3 arms, instruct askeladd to launch n=4 confirm. Strong WIN at n=1 (3.27288).
+3. **Stack: MuonH warmup + AGC inner clip=0.05** — orthogonal levers. If both confirm at n=4, run compound experiment (warmup=100 × inner-AGC). Schedule for boot 143+.
+4. **Aux warmup compound** → edward #338 in-flight; if aux_warmup also wins at n=1, run triple-stack screen (MuonH warmup × aux warmup × AGC inner).
+5. **MuonH warmup shape sweep** — cosine vs linear warmup at fixed 100 steps (after #310 n=4 confirms).
+6. **Cooldown-only mu decay** (PR #308.5) — β decay gated to LR cooldown window only (mu_final full-training decay closed NEG in #308).
+7. **Compound run** — after 2 confirmed n=4 wins, run combined n=4 stack to verify additive gain.
+
+### NEG arms / dead ends discovered this slice
+
+- fern aux cosine shape: cosine HURTS aux (+0.00287); linear control reproduces baseline. PR #325 likely close after sqrt terminal.
+- frieren outer_momentum cosine decay: final=0.25 = +0.00154 NEG; final=0.00 trending NEG. PR #328 likely close after arm 3 terminal.
+- nezuko muon_update_style + outer_lr retune: lr=0.35 NEG (+0.249), lr=0.50 NEG (+0.250). lr=0.70 in flight — if also NEG, close PR #326.
