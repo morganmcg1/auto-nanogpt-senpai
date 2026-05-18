@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 01:27 UTC (boot 142)
+- **Last updated:** 2026-05-18 01:35 UTC (boot 142b)
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7/#8/#9 posted. Operator silent ~30h since 19:34 UTC 2026-05-16.
 - **Branch state:** Baseline post-PR #243 (MuonH-SI cosine cooldown, merged boot 142).
 
@@ -21,16 +21,16 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine`.
 
-## Active experiments (boot 142 — 01:27 UTC 2026-05-18)
+## Active experiments (boot 142b — 01:35 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
 | **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | arm 1 (warmup=0 control)=3.27636; arm 2 (warmup=100) `qwl44doy` terminal=**3.27340** WIN candidate (Δ=-0.00075); arm 3 (warmup=300) `vnqtages` step 780/3325 (~23%) |
 | **#308** | edward | **MuonH mu_final cooldown sweep** (∈{0.0, 0.5, 0.95}) | arm 1 (mu_final=0.0)=3.3333 catastrophic NEG; arm 2 (mu_final=0.5) `8zf9t97s` terminal=**3.2940** strong NEG; arm 3 (mu_final=0.95 control) queued |
 | **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED** — bf16 NaN pathology `gd125a8`, Issue #164 esc #9 posted 00:59 UTC |
-| **#296** | askeladd | **Outer Lookahead** (k=10, α=0.9) | `3sip5vnl` step 3060/3325 (~92%), val 3.77 (catastrophic NEG — kill gate should fire at step 3000) |
+| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | newly assigned boot 142b (after #296 closed NEG) |
 | **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** | awaiting student pickup |
-| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | smoke PASSED (ndcefvml val=4.1205); launching 3-arm screen now |
+| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | smoke PASSED (ndcefvml val=4.1205); 3-arm screen launching with cosine baseline |
 | **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | newly assigned boot 142 |
 | **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 30h+** — Issue #164 silent since 19:34 UTC 2026-05-16 |
 
@@ -48,6 +48,7 @@
 
 | PR | Student | Result |
 |---|---|---|
+| **#296** | askeladd | Outer Lookahead CLOSED NEG — k=5 both CRASH; k10/α0.5=3.3236 NEG; k10/α0.9=3.7106 DIVERGED (grad_norm 2.3M) |
 | **#292** | fern | depth-LR scaling CLOSED NEG — sqrt=3.2825, linear=3.3041, inv_sqrt=3.2915 |
 | **#294** | nezuko | NS5-outer blocks-only CLOSED NEG — blocks-only=3.27658 (+0.00189) |
 | **#284** | thorfinn | AGC-outer CLOSED NEG — scope mismatch |
@@ -94,7 +95,7 @@ After thorfinn warmup confirms (if n=4 passes):
 2. **Aux cosine shape** → fern #325 actively screening; if cosine wins, compound with MuonH cosine
 3. **MuLoCo outer_momentum decay** → frieren #328 newly assigned
 4. **True cooldown-only mu decay** — PR #308.5: mu_final decay gated by LR cooldown start (not full training)
-5. **AGC on inner MuonH gradient** — different scope from aux AGC (PR #237)
+5. **AGC on inner MuonH gradient** → askeladd #329 newly assigned
 6. **NS5 outer muon_update_style** → nezuko #326 in-flight
 7. **MuonH warmup shape sweep** — cosine vs linear at fixed 100 steps (complement to thorfinn)
 8. **Compound run** — after 2-3 more wins, n=4 confirm compound stack
