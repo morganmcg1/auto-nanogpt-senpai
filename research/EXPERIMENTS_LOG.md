@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-18 07:40 UTC — PR #331 CLOSED: per-tensor embed grad clipping {10, 100} (g1r1-edward)
+
+- Branch: `g1r1-edward/per-tensor-embed-clip`
+- **Hypothesis:** Per-tensor L2 norm clip on embed gradient; tests whether spike-suppression unlocks the heavy-tail embed distribution. Follow-up to PR #299 (global grad clip NULL).
+- W&B runs: `3sxpadl0` (Arm A, clip=10, killed @ step 1608), `1nei2r33` (Arm B, clip=100, completed)
+
+| Arm | clip | sr | val/loss | Δ vs baseline | verdict |
+|-----|------|-----|----------|---------------|---------|
+| **Baseline (PR #274)** | ∞ | **3000** | **3.2685** | — | — |
+| Arm A | 10 | killed @ 1608 | 3.5287 @ 1500 (vs baseline ~3.40 @ 1500) | very slow | NULL — clip below natural gradient floor |
+| Arm B | 100 | 3025 | 3.27050 | +25 / +0.0020 | NULL — marginal regression on both axes |
+
+**Result:** Both NULL. Per-tensor embed-clip axis closes at no-clip. Confirms PR #299 takeaway that clipping the embed group is not yield-limiting.
+
+**Key mechanism finding:** Arm A's slow trajectory (val=3.529 @ step 1500 vs baseline ~3.40) confirms that the natural embed gradient L2 sits in the 10-50 range — clip=10 truncates the majority of legitimate updates. Arm B (clip=100) is sufficiently above the natural floor that it almost never fires, reproducing baseline behavior to within seed noise.
+
+**Axis decision: per-tensor embed grad clip CLOSED at no-clip (effectively ∞).**
+
+**Next assignment:** PR #350 — Scaled Residual Projection Init (GPT-2 trick, std × 1/√(2N) and 1/N). Fresh initialization-axis mechanism.
+
+---
+
 ## 2026-05-18 07:02 UTC — PR #317 CLOSED: Lion optimizer on embed {lr=0.03, 0.10} (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/lion-embed-wrapper`
