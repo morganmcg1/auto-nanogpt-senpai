@@ -35,6 +35,11 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
+
+# Gradient Centralization (Yong et al. ECCV 2020) on Muon body grads before EMA/polar.
+# "column": g -= g.mean(dim=0); "both": column then row; "off": disabled.
+GC_MODE = "column"
+
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
@@ -488,7 +493,23 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    gc_mode: str = GC_MODE,
+    gc_diag: dict | None = None,
 ) -> Tensor:
+    # Gradient Centralization (Yong et al. ECCV 2020): subtract per-column mean
+    # (and optionally per-row mean) BEFORE EMA/momentum/polar so covariance
+    # statistics and the NS polar see the centralized direction. Allocates a
+    # new tensor so p.grad is not modified in place.
+    if gc_mode in ("column", "both") and grad.ndim >= 2:
+        if gc_diag is not None and "col_mean_abs_max_pre" not in gc_diag:
+            gc_diag["col_mean_abs_max_pre"] = float(grad.detach().float().mean(dim=0).abs().max().item())
+        grad = grad - grad.mean(dim=0, keepdim=True)
+        if gc_mode == "both":
+            grad = grad - grad.mean(dim=1, keepdim=True)
+        if gc_diag is not None and "col_mean_abs_max_post" not in gc_diag:
+            gc_diag["col_mean_abs_max_post"] = float(grad.detach().float().mean(dim=0).abs().max().item())
+            gc_diag["row_mean_abs_max_post"] = float(grad.detach().float().mean(dim=1).abs().max().item())
+
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -539,6 +560,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        gc_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -562,6 +584,7 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        gc_diag=gc_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -575,6 +598,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._gc_diag = gc_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,6 +728,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "gc_mode": GC_MODE,
         },
     )
 
@@ -912,6 +937,21 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            gc_diag = getattr(optimizer2, "_gc_diag", None)
+            if gc_diag is not None:
+                gc_mode_code = {"off": 0.0, "column": 1.0, "both": 2.0}.get(GC_MODE, -1.0)
+                gc_log = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "gc/mode": gc_mode_code,
+                }
+                if "col_mean_abs_max_pre" in gc_diag:
+                    gc_log["gc/col_mean_abs_max_pre"] = gc_diag["col_mean_abs_max_pre"]
+                if "col_mean_abs_max_post" in gc_diag:
+                    gc_log["gc/col_mean_abs_max_post"] = gc_diag["col_mean_abs_max_post"]
+                if "row_mean_abs_max_post" in gc_diag:
+                    gc_log["gc/row_mean_abs_max_post"] = gc_diag["row_mean_abs_max_post"]
+                wandb.log(gc_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
