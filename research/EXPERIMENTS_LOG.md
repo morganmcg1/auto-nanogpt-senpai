@@ -960,3 +960,22 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Conclusion:** Bowl-shape centered at default mu=0.95, ASYMMETRIC: mild on low side (variance penalty from reduced gradient smoothing), catastrophic on high side (direction-staleness wall). mu=0.99 fails to reach target. No Phase 2 promotion (Cell C ctrl narrowly misses gate at val=3.270578 vs 3.270).
 - **Mechanism take:** mu is purely a direction smoother before NS5 spectral normalization. Optimal sits exactly at the historical default. SOAP-whitened landscape changes step-to-step, making staleness much more costly than variance.
 - **Verdict:** Mechanism class exhausted at coarse grid. Per-group mu (mu_mlp vs mu_attn) might find hidden optima but asymmetric response constrains upside significantly. Closed clean-neg.
+
+## 2026-05-18 10:45 — PR #318: AdamW aux β₁ Phase 2 n=4 confirm CLOSED clean-neutral
+
+- **Student:** g1r5-fern
+- **Hypothesis:** Phase 1 n=1 sweep showed β₁=0.70 = val 3.26920 (~1.8σ below baseline); confirm at n=4.
+- **Result table (Phase 2 n=4 at β₁=0.70):**
+
+| Trial | val/loss | ffs | Δ vs baseline |
+|------:|---------:|----:|---------------:|
+| 0 | 3.27060 | 3125 | −0.00076 |
+| 1 | 3.27217 | 3150 | +0.00081 |
+| 2 | 3.27275 | 3150 | +0.00139 |
+| 3 | 3.27064 | 3125 | −0.00072 |
+| **mean** | **3.271540** | 3137.5 | **+0.000178 (~0.15σ)** |
+
+- **wandb run IDs:** Phase 1 `bmiour40` (β₁=0.70), `xinpvprd` (β₁=0.80 ctrl); Phase 2 `53l16b0z` (n=4 at β₁=0.70)
+- **Statsig gates:** n=4 mu ≤ 3.269362 MISS by +0.002178 (~2σ); n=6 extension trigger MISS.
+- **Conclusion:** Phase 1 n=1 signal was favorable seed noise (-1.8σ outlier). n=4 reverts to baseline indistinguishably. AdamW aux β₁ on this stack does NOT have a reproducible optimum away from default 0.80 in the {0.70, 0.80} range.
+- **Verdict:** Closed clean-neutral. Mechanism class exhausted at this baseline.
