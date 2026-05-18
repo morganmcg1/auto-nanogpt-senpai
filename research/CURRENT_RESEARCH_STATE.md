@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 01:35 UTC (boot 142b)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7/#8/#9 posted. Operator silent ~30h since 19:34 UTC 2026-05-16.
+- **Last updated:** 2026-05-18 02:55 UTC (boot 142c)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7/#8/#9/#10 posted. Operator silent ~54h since 19:34 UTC 2026-05-16.
 - **Branch state:** Baseline post-PR #243 (MuonH-SI cosine cooldown, merged boot 142).
 
 ## ⭐ Current baseline (post-PR #243 merge)
@@ -21,18 +21,18 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine`.
 
-## Active experiments (boot 142b — 01:35 UTC 2026-05-18)
+## Active experiments (boot 142c — 02:55 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | arm 1 (warmup=0 control)=3.27636; arm 2 (warmup=100) `qwl44doy` terminal=**3.27340** WIN candidate (Δ=-0.00075); arm 3 (warmup=300) `vnqtages` step 780/3325 (~23%) |
-| **#308** | edward | **MuonH mu_final cooldown sweep** (∈{0.0, 0.5, 0.95}) | arm 1 (mu_final=0.0)=3.3333 catastrophic NEG; arm 2 (mu_final=0.5) `8zf9t97s` terminal=**3.2940** strong NEG; arm 3 (mu_final=0.95 control) queued |
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED** — bf16 NaN pathology `gd125a8`, Issue #164 esc #9 posted 00:59 UTC |
-| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | newly assigned boot 142b (after #296 closed NEG) |
-| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** | awaiting student pickup |
-| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | smoke PASSED (ndcefvml val=4.1205); 3-arm screen launching with cosine baseline |
-| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | newly assigned boot 142 |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 30h+** — Issue #164 silent since 19:34 UTC 2026-05-16 |
+| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | arm 2 (warmup=100) `qwl44doy` terminal=**3.27340** WIN candidate (Δ=-0.00075); arm 3 crashed NEG; smoke `zslelsf7` done (val=4.17 ✓) — **n=4 confirm pending (not yet launched)** |
+| **#338** | edward | **Aux AdamW LR warmup** (aux_warmup_steps ∈{0, 100, 200}) | **newly assigned boot 142c** (after #308 closed NEG) |
+| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | cosine-rebase screen `ij7osycz` step 1770, early (val_best 3.54); v2 `ajk7avas` crashed step 180 |
+| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | smoke phase (4 smokes, no code push yet); nudge posted |
+| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | arm 1 (final=0.50 control) `u1dk4lxx` step 825 (early); restart `hch0psw6` step 210 |
+| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** | arm 1 `9oqdj9fp` step 840 (early); restart `cfe9qh3k` step 275 |
+| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED** — bf16 NaN pathology `gd125a8`, Issue #164 esc #10 posted 02:55 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 54h+** — CONFLICTING (needs rebase), Issue #164 esc #10 posted 02:55 UTC |
 
 **8/8 students assigned.** No idle slots.
 
@@ -48,7 +48,8 @@
 
 | PR | Student | Result |
 |---|---|---|
-| **#296** | askeladd | Outer Lookahead CLOSED NEG — k=5 both CRASH; k10/α0.5=3.3236 NEG; k10/α0.9=3.7106 DIVERGED (grad_norm 2.3M) |
+| **#308** | edward | MuonH mu_final decay CLOSED NEG — full-training mu decay destroys variance reduction (0.0→3.3333, 0.5→3.2940, 0.95 control→3.276 OK) |
+| **#296** | askeladd | Outer Lookahead CLOSED NEG — k=5 both CRASH; k10/α0.5=3.3236 NEG; k10/α0.9=3.7106 DIVERGED |
 | **#292** | fern | depth-LR scaling CLOSED NEG — sqrt=3.2825, linear=3.3041, inv_sqrt=3.2915 |
 | **#294** | nezuko | NS5-outer blocks-only CLOSED NEG — blocks-only=3.27658 (+0.00189) |
 | **#284** | thorfinn | AGC-outer CLOSED NEG — scope mismatch |
@@ -65,6 +66,7 @@
 
 - **MuonH-SI HPs**: lr=0.018, mu=0.95, wd=0 — confirmed optimal
 - **MuonH cooldown**: cosine frac=1.0 now BASELINE (linear closed)
+- **MuonH mu_final decay**: mu_final=0.0/0.5 catastrophic NEG — full-training decay closed; cooldown-window-only variant (PR #308.5) not yet assigned
 - **Direction-modifiers**: Contra, Soft-Muon, Cautious, Lookahead k=5/10/20 — all NEG/NaN
 - **NS5 polynomial**: A2=(2,-1.5,0.5) — closed; fp32 also closed
 - **NS5 iter count**: k=12 optimal in bf16
@@ -76,26 +78,26 @@
 - **Gradient Centralization**: tensor + row both NEG
 - **Schedule-Free MuonH**: incompatible with WSD
 - **Per-layer depth-scaled LR**: sqrt + linear + inv_sqrt all NEG
-- **MuonH mu_final decay**: mu_final=0.0/0.5 catastrophic NEG (full-training decay destroys variance reduction)
 - **NS5-outer-velocity**: blocks-only parity; muon_update_style variant untested (nezuko #326 in-flight)
 
 ## Patterns discovered (running)
 
 1. **Outer-loop wrappers work**: MuLoCo × MuonH-SI MERGED (−0.00152), AGC aux MERGED (−0.00116), cosine cooldown MERGED (-0.00054)
 2. **Cooldown SHAPE matters; momentum decay doesn't**: cosine LR cooldown beats linear; but β momentum decay (mu_final<0.95) catastrophically hurts
-3. **MuLoCo-outer slow-snap saturates**: layering another lookahead on outer-θ NEG (askeladd #296); outer_momentum scheduled decay untested
+3. **MuLoCo-outer slow-snap saturates**: layering another lookahead on outer-θ NEG (askeladd #296); outer_momentum scheduled decay in-flight (frieren #328)
 4. **Per-layer depth-LR all NEG**: Architecture's per-layer LR allocation already near-optimal under SI mode
 5. **NS5-outer-velocity ~parity**: blocks-only variation +0.00189 (within noise)
-6. **LR warmup promising**: thorfinn arm 2 (warmup=100) n=1 = 3.27340 (Δ=-0.00075) — awaiting arm 3 + n=4 confirm
+6. **LR warmup promising**: thorfinn arm 2 (warmup=100) n=1 = 3.27340 (Δ=-0.00075) — awaiting n=4 confirm
 
-## Potential next research directions (boot 142+)
+## Potential next research directions (boot 142c+)
 
-After thorfinn warmup confirms (if n=4 passes):
-1. **Stack: cosine cooldown + warmup** — compound the two LR-shape wins (frieren #243 + thorfinn #310)
-2. **Aux cosine shape** → fern #325 actively screening; if cosine wins, compound with MuonH cosine
-3. **MuLoCo outer_momentum decay** → frieren #328 newly assigned
-4. **True cooldown-only mu decay** — PR #308.5: mu_final decay gated by LR cooldown start (not full training)
-5. **AGC on inner MuonH gradient** → askeladd #329 newly assigned
-6. **NS5 outer muon_update_style** → nezuko #326 in-flight
-7. **MuonH warmup shape sweep** — cosine vs linear at fixed 100 steps (complement to thorfinn)
-8. **Compound run** — after 2-3 more wins, n=4 confirm compound stack
+1. **Thorfinn n=4 confirm** (warmup=100 on cosine baseline) — highest priority pending
+2. **Aux warmup** → edward #338 in-flight — if both warmups (MuonH + aux) confirm, compound them
+3. **Stack: cosine cooldown + warmup** — compound two LR-shape wins after thorfinn n=4 confirms
+4. **Aux cosine shape** → fern #325 actively screening — compound with MuonH cosine if wins
+5. **MuLoCo outer_momentum decay** → frieren #328 actively screening
+6. **AGC on inner MuonH gradient** → askeladd #329 (smoke phase)
+7. **NS5 outer muon_update_style** → nezuko #326 (screen phase)
+8. **MuonH warmup shape sweep** — cosine vs linear warmup at fixed 100 steps (after #310 merges)
+9. **Cooldown-only mu decay** (PR #308.5) — β decay gated to LR cooldown window only
+10. **Compound run** — after 2-3 more wins, n=4 confirm full stack

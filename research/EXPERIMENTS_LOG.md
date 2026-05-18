@@ -6,6 +6,25 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 02:55 UTC — PR #308: MuonH momentum β decay during cooldown (mu_final sweep) ❌ CLOSED NEG
+
+- **Branch**: g1r3-edward/muonh-mu-final-sweep
+- **Hypothesis**: Decay MuonH's β (momentum) during training, ending at mu_final ∈ {0.0, 0.5, 0.95}. Motivation: reduced late-training momentum may give sharper final convergence (analogous to LR cooldown). Three-arm screen.
+- **Results**:
+
+| Arm | W&B Run | Terminal val/loss | Δ vs baseline 3.27415 | reached_target | Verdict |
+|---|---|---|---|---|---|
+| mu_final=0.0 | `3qi78qc8` | 3.3333 | +0.059 | ✗ | CATASTROPHIC NEG |
+| mu_final=0.5 | `8zf9t97s` | 3.2940 | +0.020 | ✗ | STRONG NEG |
+| mu_final=0.95 (control) | `ozf7hic1` | 3.27592 | +0.00177 | ✓ step 3275 | within noise — matches baseline |
+
+- **Bug note**: Arm 1 (mu_final=0.0) had a schedule bug — `h_cooldown_frac_local=1.0` when mu_final≠0.95 caused mu to decay over ALL 3325 steps (not just the cooldown tail). This amplified the NEG signal for arms 1/2 but the trend is unambiguous.
+- **Conclusion**: **CLOSED NEG.** Monotonic trend mu_final=0.0 → 0.5 → 0.95 producing val 3.3333 → 3.2940 → 3.276 is unambiguous: ANY full-training μ decay degrades MuonH-SI. MuonH-SI's variance reduction mechanism depends on accumulated momentum across ALL training steps; monotonically reducing μ destroys it. **Saturated lever: MuonH inner mu_final decay is closed.**
+- **Follow-up direction**: Cooldown-window-only μ decay (PR #308.5, not yet assigned) — gate decay to start only at LR cooldown trigger, not from step 0. But requires care about implementation.
+- **Next assignment**: edward → Aux AdamW LR warmup sweep (PR #338).
+
+---
+
 ## 2026-05-17 20:55 UTC — PR #284: AGC-outer (Trust-Region Clip on MuLoCo outer update) ❌ CLOSED NEG
 
 - **Branch**: g1r3-thorfinn/agc-outer-sweep
