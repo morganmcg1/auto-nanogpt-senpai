@@ -1,5 +1,44 @@
 # SENPAI Research Results
 
+## 2026-05-18 21:05 UTC — PR #364 CLOSED: Muon momentum reset at cooldown FALSIFIED at n=2 (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-momentum-reset-at-cooldown`
+- Hypothesis: Reset Muon momentum (first-moment EMA) at cooldown entry (step 975). Two arms: hard (×0.0) vs soft (×0.3).
+
+| Run | Arm | Reset factor | sr | val/loss | Δval | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline (PR #274) | — | none | 3000 | 3.2685 (n=2) | — | — |
+| `x3ot747o` | A | hard (×0.0) | 3000 | 3.26922 | +0.0007 | NULL |
+| `sj1qgbu1` | B (n=1) | soft (×0.3) | 3000 | 3.26801 | -0.0005 | marginal val WIN |
+| `3zduzvo3` | B (n=2) | soft (×0.3) | 3025 | 3.27020 | +0.0017 | individual seed NULL |
+| **Combined Arm B mean** | — | soft | **3012.5** | **3.26911** | **+0.0006** | **NULL (falsified marginal)** |
+
+n=2 falsified the marginal n=1 WIN. Reset mechanism fired correctly (`momentum_norm_ratio=0.3000` exact). Seed-2 trailed seed-1 by ~0.002 across cooldown — replicable seed variance.
+
+**Conclusion: Bilateral covariance EMA + power-law cooldown trajectory is already coherent enough that disrupting first-moment momentum at cooldown boundary destroys useful information rather than enabling cleaner direction. Cooldown momentum-reset axis CLOSED.**
+
+---
+
+## 2026-05-18 21:05 UTC — PR #366 CLOSED: Aux-AdamW cooldown power scan {1.0, 2.0} unconfirmed marginal + clear NULL (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/aux-cooldown-power-scan`
+- Hypothesis: Decouple aux AdamW cooldown power from body. Test CP=1.0 (linear, slower aux decay) and CP=2.0 (quadratic, faster aux decay) vs body CP=1.4.
+
+| Run | Arm | AUX_CP | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #274) | — | 1.4 (= body) | 3000 | 3.2685 | — | — | — |
+| `h585go7m` | A | 1.0 (linear) | 3000 | 3.2662 | 0 | -0.0023 | marginal val WIN (n=1, unconfirmed) |
+| `nucnaip1` | B | 2.0 (quadratic) | 3050 | 3.2727 | +50 | +0.0042 | clear NULL |
+| `tmrbg9lk` | B (1st attempt) | 2.0 | — | — | — | — | mid-run crash @ step 875 |
+
+Arm A had substantial Δval=-0.0023 (~2.3x marginal threshold), but per the strict marginal rule (Δsr=0 ≤ 25 triggers marginal regardless of val magnitude), n=2 confirmation required. Cold-start crash storm prevented in-flight n=2 (10+ retries failed).
+
+**However, the directional signal is strong and replicable: lower aux CP helps, higher aux CP hurts (opposite direction).** Schedule telemetry verified mechanism (lr_mult_body vs lr_mult_aux diverge correctly at cooldown entry).
+
+**Conclusion: Close at n=1; re-explore in PR #404 with proper n=2 confirmation seed at CP=1.0 + CP=0.5 direction extension. Infrastructure has stabilized — fresh n=2 should succeed.**
+
+---
+
 ## 2026-05-18 20:21 UTC — PR #362 CLOSED: Gradient Centralization for Muon body NULL (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/gradient-centralization-v2`

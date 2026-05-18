@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 20:21 UTC
+- **Last update:** 2026-05-18 21:05 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
 
@@ -14,31 +14,31 @@ W&B runs: `vw0595an` (seed-1), `s2nrw0c8` (seed-2).
 
 Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
 
-## Pending confirmation (unmerged n=1 wins — need terminal SENPAI-RESULTs)
+## Pending confirmation (unmerged n=1 wins)
 
-- **askeladd #364 Arm B muon-reset-SOFT**: W&B sj1qgbu1 sr=3000 val=3.2680 (marginal val WIN, Δval=-0.0005, Δsr=0). Arm A hard-reset broken-config NULL (6+ cold-start crashes). Advisor comment posted requesting student stop hard-reset retries and launch n=2 soft.
-- **frieren #367 Arm A lm_head_lr=1/160**: W&B sr=2975 val=3.2677 (marginal WIN, Δsr=-25, Δval=-0.0008). n=2 crashed twice (cold-start). Arm B (1/640) lzitteno step 1925 mid-flight.
-- **thorfinn #366 AUX_CP=1.0**: W&B sr=3000 val=3.2662 (val WIN only, Δval=-0.0023, Δsr=0). n=2 retries crash storm 10+ attempts. Arm B (CP=2.0) crashed mid-run at step 875. Advisor comment posted requesting student stop n=2 retries and post terminal.
+- **frieren #367 Arm A lm_head_lr=1/160**: n=1 sr=2975 val=3.2677 (marginal WIN). n=2 retry `f9nyqjxn` in flight — at step 1375 val=3.6298 (mid-flight).
 
-**Cold-start crash storm:** Appears to be largely abating since ~18:00 UTC. Recent launches (fern Arm A, askeladd n=2, frieren n=2 retry) all started cleanly. Infrastructure instability may be resolving.
+**Infrastructure:** Cold-start crash storm has stabilized. All recent launches succeed on first attempt. Closed PRs #364, #366 had infra problems that prevented in-flight n=2; thorfinn #404 will get a clean n=2 confirmation seed for CP=1.0.
 
 ## Active experiments (8 students)
 
-| PR | Student | Mechanism | Status (20:10 UTC) |
+| PR | Student | Mechanism | Status (21:05 UTC) |
 |---|---|---|---|
-| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4×} | Arm A 0.7× g8hqguwn step 3050/3250 val=3.2762, sr=3000, ~15 min from terminal. Arm B 0.4× not started. |
-| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} vs baseline 0.025 | Just assigned (20:21 UTC). Arm A WD=0.020 to launch shortly. |
-| **#364** | **askeladd** | Muon momentum reset (hard vs soft) | n=2 soft 3zduzvo3 step 2350/3250 val=3.3803 mid-flight. ETA terminal ~20:15 UTC. |
-| **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | Arm B CP=2.0 nucnaip1 step 2325/3250 val=3.3746 mid-flight. Arm A CP=1.0 n=1 val=3.2662 WIN awaiting n=2 outcome. ETA terminal ~20:15 UTC. |
-| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | n=2 1/160 f9nyqjxn step 550/3250 val=3.8055 mid-flight. Arm B 1/640 lzitteno DONE val=3.3048 sr=-1 (NULL per projection). ETA n=2 terminal ~22:00 UTC. |
-| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | γ=0.5 DONE val=3.2800 sr=3250 (NULL). γ=0.6 yhfo48gj step 275/3250 mid-flight. ETA terminal ~22:30 UTC. |
-| **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm A ns-iters-cooldown-14 2vz1ge7p step 975/3250 (at cooldown boundary!). polar_residual=6.972. ETA terminal ~21:00 UTC. |
-| **#400** | **edward** | Adaptive Gradient Clipping (AGC) on aux AdamW: per-row λ ∈ {0.04, 0.02} | Just assigned (20:10 UTC). Arm A λ=0.04 to launch shortly. |
+| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4×} | Arm A 0.7× DONE sr=3000 val=3.2704 (Δval=+0.0019 NULL projected). Arm B 0.4× `0aay0p7y` step 675/3250 val=3.7235 mid-flight. ETA Arm B terminal ~23:30 UTC. |
+| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} | Arm A WD=0.020 `o5z8a5n3` step 500/3250 mid-flight. ETA ~22:50 UTC. |
+| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | n=2 1/160 `f9nyqjxn` step 1375/3250 mid-flight. ETA terminal ~22:00 UTC. |
+| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | γ=0.5 DONE val=3.2800 NULL. γ=0.6 `yhfo48gj` step 1075/3250 mid-flight. ETA terminal ~22:30 UTC. |
+| **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm A ns-iters-cooldown-14 `2vz1ge7p` step 1750/3250 past cooldown boundary. ETA terminal ~22:30 UTC. |
+| **#400** | **edward** | AGC on aux AdamW per-row λ ∈ {0.04, 0.02} | Arm A λ=0.04 `2y0ewtlb` step 400/3250 mid-flight. ETA ~23:00 UTC. |
+| **#403** | **askeladd** | Curriculum COOLDOWN_POWER: linear ramp p_start → p_end | Just assigned (21:05 UTC). Arm A 1.2→1.6 to launch. |
+| **#404** | **thorfinn** | Aux CP extend: CP=1.0 n=2 confirm + CP=0.5 extend | Just assigned (21:05 UTC). Arm A CP=1.0 (fresh seed) to launch. |
 
 ## Recently closed (current round)
 
 | PR | Student | Key result | Decision |
 |---|---|---|---|
+| **#364** | askeladd | Muon momentum reset at cooldown {hard, soft}: Arm A hard ×0.0 val=3.26922 (Δval=+0.0007 NULL), Arm B soft ×0.3 n=2 mean val=3.26911 sr=3012.5 (Δval=+0.0006 NULL) — n=1 marginal WIN (val=3.2680 Δval=-0.0005) FALSIFIED at n=2 | CLOSED — n=2 falsified marginal. Reset fired correctly (`momentum_norm_ratio=0.3000`). Seed variance ~0.002 dwarfs effect. **Cooldown momentum-reset axis CLOSED.** |
+| **#366** | thorfinn | Aux-AdamW cooldown power {1.0, 2.0}: Arm A val=3.2662 sr=3000 (Δval=-0.0023, marginal n=1 unconfirmed); Arm B val=3.2727 sr=3050 (clear NULL, opposite direction) | CLOSED at n=1 — cold-start crash storm prevented 10+ n=2 retries. Strong monotone directional signal (lower aux CP helps). **Direction preserved in PR #404 with clean n=2 confirm + extension to CP=0.5.** |
 | **#350** | edward | Residual-proj init {1/√(2N), 1/N}: Arm A val=3.26966 sr=3000 (Δval=+0.00116 NULL), Arm B val=3.26866 sr=3000 (Δval=+0.00016 NULL-tied) | CLOSED — both arms NULL. Zero-init confirmed optimal. GPT-2 residual-proj scaling trick doesn't transfer to Muon stack (orthogonalization resets gradient direction). **Residual-init axis CLOSED at zero.** |
 | **#362** | tanjiro | GC column-only val@3250=3.27043 sr=3025 (NULL), GC both val@3250=3.29637 sr=-1 (NULL) | CLOSED — PMuon's cov-EMA whitening already absorbs drift GC removes; row-centering over-constrains transformer linear weights. **GC axis CLOSED on Muon body.** |
 | **#332** | fern | COOLDOWN_POWER continuation {1.5, 1.8}: Arm A n=3 mean sr=2991.67 val=3.27021 (Δsr=-8.3, Δval=+0.0017 — noise floor); Arm B n=1 sr=2975 val=3.27464 (Δsr=-25, Δval=+0.0061 — val regression) | CLOSED — both arms NULL. Per-seed Arm A sr={3000,3000,2975}; 2/3 tied at baseline. **Body-side COOLDOWN_POWER axis CLOSED at 1.4.** Aux-side variant (#366 thorfinn) still open. |
@@ -63,7 +63,7 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 4. **PMuon EMA dynamics axis CLOSED**: LR warmup (PR #261), bias-correction (PR #307) both NULL. Cold-start un-corrected EMA IS the implicit whitening warmup — load-bearing, do not modify.
 
-5. **Schedule axis**: Body-side COOLDOWN_POWER=1.4 merged (PR #274), continuation {1.5, 1.8} CLOSED (PR #332) — local optimum at 1.4. Aux-group cooldown power open (PR #366 thorfinn). NS_ITERS cooldown schedule in flight (PR #395 fern).
+5. **Schedule axis**: Body-side COOLDOWN_POWER=1.4 merged (PR #274), continuation {1.5, 1.8} CLOSED (PR #332) — local optimum at 1.4. Aux-group cooldown power CLOSED at n=1 (PR #366, Arm A marginal val WIN unconfirmed due to crash storm, but direction preserved in PR #404). NS_ITERS cooldown schedule in flight (PR #395 fern). Curriculum cooldown power in flight (PR #403 askeladd).
 
 6. **WD, clip, z-loss**: Muon WD closed at 0.025; z-loss closed at 0 (existing logit soft-clamp sufficient); global grad-clip closed; per-tensor embed-clip NULL (PR #331).
 
@@ -73,19 +73,20 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 Three themes active simultaneously:
 
-1. **Cooldown-phase precision** (askeladd #364 momentum reset, fern #395 NS_ITERS schedule): Do cooldown-phase parameter updates benefit from higher-quality direction? Both target the ~2275 cooldown steps where LR is tiny and direction quality matters most.
-2. **Aux AdamW optimization** (thorfinn #366 cooldown power, frieren #367 lm_head_lr, edward #400 AGC): Aux side has multiple marginal-WIN signals in flight — at least one may stack.
-3. **Closing remaining body-side dimensions** (nezuko #387 role-based LR, tanjiro #362 GC, alphonse #386 γ_power): Likely NULL but needed to confirm axes are exhausted.
+1. **Cooldown-phase precision** (fern #395 NS_ITERS schedule, askeladd #403 curriculum cooldown power): Do cooldown-phase updates benefit from higher-quality direction or time-varying power-law concavity? Both target the ~2275 cooldown steps where LR is tiny and direction quality matters most.
+2. **Aux AdamW optimization** (frieren #367 lm_head_lr, edward #400 AGC, thorfinn #404 aux CP extend): Aux side has multiple marginal-WIN signals — at least one may stack. Thorfinn #404 confirms direction from #366 + extends to CP=0.5.
+3. **Closing remaining body-side dimensions** (nezuko #387 role-based LR, tanjiro #401 Muon WD downward, alphonse #386 γ_power): Likely NULL but needed to confirm axes are exhausted.
 
 ## Open unexplored axes (for future assignment)
 
-- Muon WD downward scan {0.015, 0.020} — IN FLIGHT #401 tanjiro
 - NS adaptive threshold: stop NS iterations when ||X²-I||_F < ε (convergence criterion vs fixed count)
 - Inverse LLRD: bottom layers get HIGHER LR (contradicts ULMFiT prior but may hold for pretraining-from-scratch)
-- Curriculum warmup for COOLDOWN_POWER: ramp p from 1.0 → 1.4 over training
 - Spectral normalization of weight matrices (complement to polar decomp)
 - lm_head_lr continuation {1/120, 1/80} — once frieren #367 n=2 confirms 1/160 WIN
 - NS_ITERS fine-scan continuation — after fern #395 indicates direction
+- Aux β1 continuation {0.7, 0.85} — once aux AGC/lm_head signals clarify
+- Per-layer NS_ITERS schedule (more iterations for deeper layers)
+- Body warmup duration scan {fast, slow} — currently using single warmup schedule
 
 ## Statistical rule reminder
 
