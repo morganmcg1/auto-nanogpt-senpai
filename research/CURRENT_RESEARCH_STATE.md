@@ -1,16 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 00:05 UTC. **WAVE-5 FIRST MERGE**: alphonse #236 (β2=0.99) merged. New baseline: **val=3.27407/fs=3258.3** (n=3 mean). Current best (cumulative): **val=3.27407 / fs=3258.3**.
-  - **MERGED** ✓ alphonse #236 β2=0.99: val=3.27407/fs=3258.3, Δ=−0.00027 val / −8.4 fs. `NANOGPT_ADAMW_BETA2=0.99` now part of baseline recipe.
-  - **alphonse #322 (AdamW ε sweep) 🆕 ASSIGNED**: re-tune ε after β2=0.99 changes v̂ distribution. Arms: 1e-10 (control), 1e-9, 1e-8, 1e-7.
-  - **askeladd #241 (mu=0.97) — LIKELY DOA**: n=2 mean=3.27543, new seed-3 gate=3.27136 (was 3.27217). Extremely tight. Let seed-3 land but expect close. Notified 00:02 UTC.
-  - **edward #280 (per-group β2) — mechanism**: arm-B embed=0.99 Δ=−0.00280 (strong). arm-C (lm_head) ETA ~23:53 UTC (past), arm-D (scalar) ETA ~01:37 UTC.
-  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=2 mean=3.27342, seed-3 gate ≤3.27537**: comfortable margin. ETA ~01:00-01:15 UTC. Still strongest wave-5 non-merged candidate.
-  - **fern #290 (NS per-iter c) — arm-D decisive**: arm-B (agg→gentle) val=3.27382, arm-C null. arm-D ETA ~23:58 UTC (past or imminent).
-  - **frieren #285 (NS late_peak) — n=3 confirmation in flight**: arm-D near-miss Δ=−0.00143. Sent back for rebase + confirmation chain on NEW baseline (gate: n=3 mean ≤ 3.27407).
-  - **nezuko #315 (lmhead-decay-shape) 🆕 ASSIGNED**: test lm_head=quadratic/cubic/exp_decay vs linear.
-  - **tanjiro #300 (embed floor)** — arm-B (0.10) HURTS. arm-C (0.20) running ETA ~01:00 UTC.
-All 8 students WIP. Wave-5 recipe stack so far: clip=10 + NS=12/16 + embed_linear_floor + β2=0.99. Next merge candidate: thorfinn aux WD=0.005.
+- **Date:** 2026-05-18 00:15 UTC. **Cumulative best:** val=3.27407/fs=3258.3 (PR #236 β2=0.99 merged 00:00 UTC).
+  - **MERGED** ✓ alphonse #236 β2=0.99 (00:00 UTC).
+  - **alphonse #322 (AdamW ε sweep) 🆕 ASSIGNED 00:05 UTC**: re-tune ε after β2 shift. Arms ε ∈ {1e-10, 1e-9, 1e-8, 1e-7}.
+  - **fern #290 (NS c-schedule) — ⚡ STRONGEST SIGNAL THIS WAVE, sent back 00:12 UTC**: arm-D (linear_ramp_down, c=0.70→0.24) val=**3.27325**, Δ_val=**−0.00342** within-pod (well past −0.0015). Already BELOW new baseline by Δ=−0.00082 even with arm-A drift. n=3 confirmation chain on post-#236 baseline requested. Mechanism: Muon-side (NS quintic coefs), orthogonal to AdamW-side merges; expected to stack.
+  - **edward #280 (per-group β2) — mechanism mapping**: arm-B (embed=0.99) Δ=−0.00280, arm-C (lm_head=0.99) Δ=−0.00179 (sub-threshold). arm-D (scalar=0.99) ETA ~01:45 UTC. Sub-additivity: B+C=−0.00459 > global alphonse Δ=−0.00309 → effects overlap. Production: alphonse-global already merged; PR's value is in the mechanism map.
+  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=2 mean=3.27342**: seed-3 gate ≤3.27537 (comfortable). ETA ~01:00-01:15 UTC.
+  - **askeladd #241 (mu=0.97) — DOA**: seed-3 val=3.27855 (W&B near-terminal). n=3 mean ~3.27647 > new baseline by +0.00240. Will close after SENPAI-RESULT.
+  - **frieren #285 (NS late_peak) — confirmation in flight, env var fix needed**: rebase to da1bea3 missed β2=0.99 update. Asked frieren to add `NANOGPT_ADAMW_BETA2=0.99` to env vars and restart if needed.
+  - **nezuko #315 (lmhead-decay-shape) 🆕**: lm_head=quadratic/cubic/exp_decay sweep. Pre-poll.
+  - **tanjiro #300 (embed floor value)**: arm-B (0.10) HURTS. arm-C (0.20) running ETA ~01:00 UTC. arm-D (0.30) ETA ~02:50 UTC.
+All 8 students WIP. **Two wave-5 confirmation chains active**: thorfinn aux WD=0.005, fern c-schedule arm-D. Both potentially compound with #236.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27434** — tanjiro embed linear_floor=15% cooldown, PR #235 merged 2026-05-17
