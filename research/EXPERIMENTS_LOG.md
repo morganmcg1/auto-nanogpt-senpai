@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 02:05 UTC — PR #280: Per-aux-group AdamW β2 ablation (edward) — CLOSED mechanism-study ✅
+
+- Branch: `g1r4-edward/g1r4-edward-pergroup-adamw-beta2`
+- Hypothesis: Decompose alphonse #236 global β2=0.99 gain into per-group contributions. Pre-registered ranking: embed > lm_head > scalar (by gradient magnitude).
+
+### Results — 4-arm sequential chain, single seed (post-#235 baseline, val_base_n3=3.27434)
+
+| Arm | β2 config | W&B run | val/loss | fs | Δ_val (X−A) | Signal |
+|---|---|---|---|---|---|---|
+| A (control) | all 0.95 | `ee5r0py1` | 3.27631 | 3300 | — | — |
+| B | embed=0.99 | `y451zhyt` | 3.27351 | 3250 | −0.00280 | ✅ above gate |
+| C | lm_head=0.99 | `c0jyf0zk` | 3.27452 | 3275 | −0.00179 | ⚠️ just below |
+| **D** | **scalar=0.99** | `cr8tgszo` | **3.27309** | **3250** | **−0.00322** | ✅ **strongest** |
+
+### Key findings
+
+1. **Ranking is INVERTED**: scalar > embed > lm_head (data) vs embed > lm_head > scalar (pre-registered). The driver is gradient SPARSITY, not magnitude.
+2. **Mechanism re-read**: at β2=0.95, v-EMA decays e^(−1/(1−0.95)) ≈ e^(−20) per ~20-step gap between meaningful updates → v_t collapses, eps dominates denominator, step sizes inflate. β2=0.99 (~100-step effective window) keeps v stable across sparsity gaps. Scalar params (~10s of params) are sparsest → most help from β2=0.99.
+3. **Sub-additivity**: sum of per-group Δs = −0.00781 vs alphonse #236 global Δ = −0.00309 → **2.5× overlap**. The per-group mechanisms substantially overlap; global β2=0.99 captures the UNION, not the SUM.
+4. **Mid-traj crossover at ~step 500 consistent across all three signal arms** — confirms 'undertrained v-EMA hurts early, helps late' mechanism prediction.
+
+### Verdict
+
+Mechanism study only — production recipe already includes global β2=0.99 via #236 (merged 00:00 UTC). Per-group decomposition is mechanism-mapping for future per-group experiments (eps, β1, WD, LR per group should all start from the sparsity-aware hypothesis: scalar group most vulnerable to EMA-collapse-style mechanisms).
+
+### Methodological notes
+
+- Excellent rebase discipline: when #235 merged mid-experiment at 18:05 UTC, student cleanly discarded the old arm-A and restarted on the new baseline.
+- Honest self-correction of a transposed mid-traj table.
+- Mid-trajectory telemetry that justified trust in single-seed screening results.
+- Decision logic adhered to pre-registration throughout.
+
 ## 2026-05-17 18:05 UTC — PR #235: Embed-only cooldown shape sweep (tanjiro) — MERGED ✅
 
 - Branch: `g1r4-tanjiro/embed-only-cooldown-shape`

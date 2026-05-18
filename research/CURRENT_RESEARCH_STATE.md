@@ -46,7 +46,7 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 
 ---
 
-## Active experiments (wave 5–6) — 00:22 UTC status
+## Active experiments (wave 5–6) — 02:10 UTC status
 
 ### ⚡ fern #290 — NS per-iter coefficient schedule [TOP PRIORITY]
 **Status:** Sent back for n=3 confirmation 00:12 UTC on post-#236 baseline. arm-D (linear_ramp_down, c=0.70→0.24) val=**3.27325**, which is Δ=−0.00082 BELOW the new baseline (3.27407) already from a single seed. Within-pod Δ=−0.00342 vs arm-A (strongest wave-5 signal observed).  
@@ -61,10 +61,16 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 **Probe decision rule:** seed ≤ 3.27400 → merge (n=4 evidence). 3.27400–3.27600 → n=2 more (3 total). >3.27600 → close.  
 **ETA:** ~2h for probe seed after rebase.
 
-### edward #280 — Per-aux-group AdamW β2 ablation [mechanism mapping]
-**Status:** arm-B (embed=0.99) Δ=−0.00280, arm-C (lm_head=0.99) Δ=−0.00179 (sub-threshold). arm-D (scalar=0.99) still expected. Even if arm-D shows a signal, the merge value is limited (global β2=0.99 already merged via #236). This PR's primary value is mechanism triangulation: does the effect localize to embed?  
-**Rebase needed:** Must be on post-#236 baseline for arm-D results to be comparable.  
-**Decision:** Close after arm-D results land. Do not block on it.
+### ✅ edward #280 — Per-aux-group AdamW β2 ablation [CLOSED mechanism-study 02:05 UTC]
+**Verdict:** 4-arm chain complete. **SURPRISE: scalar (D) > embed (B) > lm_head (C)** — inverts pre-registration. Mechanism re-read: v-EMA collapse is driven by gradient SPARSITY, not magnitude. Scalar params (~10s total) are sparsest → most collapse-vulnerable at β2=0.95 → most gain from β2=0.99. Sub-additivity: sum Δs = −0.00781 vs global Δ = −0.00309 → 2.5× overlap. Closed as mechanism study; production recipe (#236 global β2=0.99) already incorporates the effect.  
+**New insight propagates to:** per-group eps (#322 alphonse global; a per-group scalar eps follow-up may be valuable), per-group β1, per-group WD, per-group LR.  
+
+### ⚡ edward [ASSIGNED 02:10 UTC] — Muon LR cooldown FLOOR sweep
+**Branch:** `g1r4-edward/muon-lr-cooldown-floor`  
+**Hypothesis:** PR #235 (embed linear_floor=15%) showed that maintaining LR at floor through the cooldown precision-critical window helps the embed group. Does the same mechanism apply to Muon blocks (currently linear-to-zero)? Add `NANOGPT_MUON_COOLDOWN_FLOOR` env var; sweep floor∈{0.00, 0.05, 0.10, 0.15}.  
+**Mechanism basis:** NS=12→16 cooldown schedule (#176) already signals Muon updates want more precision at end-of-training; a LR floor could extend the effective window where NS=16 polishing has sufficient gradient pressure to converge.  
+**Arms:** A=0.00 (control), B=0.05, C=0.10, D=0.15 (mirrors embed winner). Single-seed within-pod chain.  
+**ETA:** ~7.5h total chain. Decision: within-pod Δ ≤ −0.002 → signal. −0.003 or better → n=3 confirmation.
 
 ### frieren #285 — NS cooldown SHAPE sweep [medium priority]
 **Status:** Restarted at 00:14 UTC on post-#236 baseline with `NANOGPT_ADAMW_BETA2=0.99` after student aborted the stale chain. arm-D (late_peak shape) within-pod Δ=−0.00143 was 0.00007 short of −0.0015 threshold on the old recipe. Confirmation n=3 chain for arm-D now running fresh.  
@@ -96,8 +102,9 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 
 ---
 
-## Just closed (00:22 UTC)
+## Recently closed
 
+- **edward #280 (per-aux-group β2 ablation)** — mechanism study complete 02:05 UTC. Sparsity-driven mechanism identified (scalar > embed > lm_head, inverts pre-registration). No merge candidate (global β2=0.99 already merged via #236). Sub-additivity 2.5× confirms global β2=0.99 captures UNION of per-group effects.
 - **askeladd #241 (Muon mu=0.97)** — productive-null close. Within-pod sweep showed clean inverted-U apex at mu=0.97 (Δ=−0.00289 on pre-#235 recipe). n=3 cross-pod confirmation on post-#236 baseline: mean=3.27525, Δ=+0.00118 above gate. Mechanism may partially substitute with β2=0.99. **Key lesson**: cross-pod n=3 chains have noise floor ~0.0015 stdev — within-pod signals <0.003 may not survive. Future confirmations for marginal signals should use within-pod paired design.
 
 ---
@@ -105,10 +112,11 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 ## Potential next research directions (after wave-5 confirmations)
 
 ### High-priority fresh axes
-1. **Muon LR cooldown shape** — parallel to embed-floor (#235) but for Muon blocks. Currently Muon uses linear-to-zero; a floor (e.g., 15% of peak) could preserve block plasticity during precision-critical cooldown. Tests `NANOGPT_MUON_COOLDOWN_FLOOR`. High EV given embed-floor and β2 wins both target cooldown precision.
-2. **AdEMAMix on aux groups** — triple-EMA: fast β1, slow β3~0.9999, mixing α. Published transformer-LM gains. Adds long-memory momentum leg that is complementary to β2 (variance smoothing). Compute overhead: one extra EMA buffer per aux param.
-3. **Joint β1 × β2 surface** (2×2 matrix: β1∈{0.8,0.9} × β2∈{0.95,0.99}) — pending askeladd β1 sweep result.
-4. **Per-group Muon mu** — edward-style (cf. #280) ablation on Muon mu: does the mu=0.97 apex localize to specific block types?
+1. **Muon LR cooldown floor** — ✅ ASSIGNED to edward (branch: `g1r4-edward/muon-lr-cooldown-floor`). Mirror of embed-floor but for Muon blocks.
+2. **Per-group AdamW eps (scalar-focused)** — edward #280 sparsity finding points here. alphonse #322 probes global eps; per-group scalar eps is the mechanism-validated follow-up. Assign after #322 terminals.
+3. **AdEMAMix on aux groups** — triple-EMA: fast β1, slow β3~0.9999, mixing α. Published transformer-LM gains. Adds long-memory momentum leg complementary to β2 (variance smoothing). Compute overhead: one extra EMA buffer per aux param. (g1r1-frieren #305 is testing this on r1 branch.)
+4. **Joint β1 × β2 surface** (2×2: β1∈{0.8,0.9} × β2∈{0.95,0.99}) — pending askeladd #324 β1 sweep result.
+5. **Per-group Muon mu** — edward-style ablation on Muon mu per block type. (After Muon-floor experiment closes.)
 
 ### Medium-priority axes
 5. **mu cooldown schedule** — late-training mu↑ during cooldown (complement to constant mu=#241 null). Student-suggested in #241 close.
