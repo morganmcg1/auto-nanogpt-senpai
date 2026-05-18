@@ -6,6 +6,29 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 10:31 UTC — PR #310: MuonH inner LR warmup (warmup_steps=100) ✅ MERGED
+
+- **Branch**: g1r3-thorfinn/muonh-lr-warmup
+- **Hypothesis**: Linear warmup on MuonH-SI inner LR over first 100 steps (factor = `step/warmup_steps`). Rationale: MuonH's NS5-orthogonalized momentum buffer needs ~20 steps to populate reliable direction estimates; starting at full lr=0.018 from step 0 wastes those steps on noisy directions. Applied ONLY to MuonH groups (optimizer2); aux AdamW unchanged.
+- **Results** (n=4 confirm, all at step 3325):
+
+| Trial | W&B Run | val/loss | Δ vs baseline 3.27415 | ffs | Verdict |
+|---|---|---|---|---|---|
+| 0 | `w6xgiqzl` (trial 0) | 3.27361 | -0.00054 | 3150 | ✅ |
+| 1 | `w6xgiqzl` (trial 1) | 3.27308 | -0.00107 | 3150 | ✅ |
+| 2 | `w6xgiqzl` (trial 2) | 3.27256 | -0.00159 | **3125** | ✅ |
+| 3 | `w6xgiqzl` (trial 3) | 3.27333 | -0.00082 | 3150 | ✅ |
+| **n=4 mean** | | **3.27315** | **-0.00100** | **3143.75 (best=3125)** | **MERGED** |
+
+- **Stat margin**: (3.28 − 3.27315) × √4 = 0.01370 ≥ 0.004 ✓ (3.4× margin)
+- **All 4 trials individually beat baseline**; all reached 3.28 target.
+- **Mechanism (student's analysis)**: MuonH needs momentum buffer time; aux AdamW does NOT (β₁=0.8 already dampens early variance). Confirmed MuonH/aux asymmetry: thorfinn warmup wins, edward warmup hurts (PR #338 STRONG NEG).
+- **Screen history**: warmup=0 (control) ≈ baseline; warmup=100 = n=1 WIN; warmup=300 = DIVERGED (crashed, val_best=3.4679 at step 2350).
+- **New baseline**: val=3.27315, ffs=3125. New required flag: `--muonh_warmup_steps 100`.
+- **Next assignment**: thorfinn → warmup shape sweep (PR #370) — cosine vs linear vs sqrt ramp at fixed 100 steps.
+
+---
+
 ## 2026-05-18 10:00 UTC — PR #338: Aux AdamW LR warmup sweep ❌ CLOSED NEG
 
 - **Branch**: g1r3-edward/aux-warmup-screen
