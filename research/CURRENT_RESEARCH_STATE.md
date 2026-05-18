@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 15:00 UTC
+- **Date:** 2026-05-18 17:10 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -93,17 +93,21 @@ Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau ab
 
 **ETA full chain:** ~7–8h (arm D wall-time slightly longer due to more NS iters/step).
 
-### 🔄 nezuko #356 — Muon μ schedule sweep [arm-D running]
-**Branch:** `g1r4-nezuko/muon-mu-schedule`
-**Three of four arms in:**
-| Arm | schedule | μ | val_loss | fs | Δ vs A |
-|---|---|---|---|---|---|
-| A (control) | constant | 0.95 | 3.27048 | 3225 | — (drift gate ✓ −0.00152) |
-| B | ramp_up 0.90→0.99 | 3.28429 | -1 | +0.01381 (much worse) |
-| C | ramp_down 0.99→0.90 | 3.28083 | -1 | +0.01035 (much worse) |
-| D | late_peak 0.90→0.99 | running step 100 | - | - |
+### ✅ nezuko #356 — Muon μ schedule sweep — CLOSED 17:05 UTC productive-null
+All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.
+**Follow-up**: nezuko assigned #393 per-group AdamW LR multiplier sweep.
 
-**Reading**: μ scheduling broadly hurts. Both B (ramp_up) and C (ramp_down) failed to hit target. Pre-staged: if D also regresses → productive-null. Constant μ=0.95 looks like a genuine optimum.
+### 🔄 nezuko #393 — Per-group AdamW LR multiplier sweep [just assigned]
+**Branch:** `g1r4-nezuko/pergroup-adamw-lr`
+**Hypothesis**: Per-group base LRs (embed=0.3, lm_head=1/320, scalar=0.01) have never been independently swept on r4. Mechanism from #280 (per-group β2): scalar group is gradient-sparsest → most likely undertrained. Testing 1.5× LR multiplier on each group independently.
+| Arm | Perturbed group | Effective LR | Interpretation |
+|---|---|---|---|
+| A | control | all 1.0× | Drift gate |
+| B | embed | 0.45 | Embed group headroom |
+| C | lm_head | 0.004688 | lm_head group headroom |
+| D | scalar | 0.015 | Scalar headroom (analog to #280 β2 winner) |
+
+**ETA full chain:** ~7h.
 
 ### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
 All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).
@@ -156,6 +160,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 
 ## Recently closed
 
+- **nezuko #356 (Muon μ schedule)** — CLOSED 17:05 UTC productive-null. All 3 schedule arms miss target by 7–41× null band. Late_peak μ catastrophic (+0.06125). Constant μ=0.95 confirmed optimal; μ scheduling axis closed.
 - **edward #335 (Muon LR cooldown floor)** — CLOSED 11:05 UTC productive-null. Monotonic worsening: A=3.27482 (+0), B=+0.001, C=+0.006, D=+0.017. Mechanism: embed-floor is embed-specific; Muon NS already controls update magnitude.
 - **askeladd #324 (AdamW β1 sweep)** — CLOSED 08:35 UTC productive-null. β1=0.80 optimal, monotone-worse. Asymmetric with β2 finding.
 - **nezuko #315 (lm_head steeper-decay cooldown)** — CLOSED 08:35 UTC productive-null. All steeper shapes regress +0.0031–0.0035. lm_head sweet spot is linear.
@@ -176,7 +181,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 
 ### Productive-null shaping up
 3. **Logit softcap value** — askeladd #354. CLOSED 16:35 UTC. softcap=15 confirmed optimal (valley shape). Axis closed.
-4. **Muon μ schedule** — nezuko #356. μ scheduling broadly hurts. Both ramp_up and ramp_down arms didn't hit target. D (late_peak μ schedule) pending.
+4. **Muon μ schedule** — nezuko #356. CLOSED 17:05 UTC productive-null. All 3 arms miss target (B +0.01381, C +0.01035, D +0.06125). Late_peak μ catastrophic. Constant μ=0.95 confirmed; axis CLOSED.
 5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
 6. **Embed init scale** — edward #374. Arm-A drift gate ✓. Arm-B running.
 
@@ -185,13 +190,14 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 8. **Pruning ablation** — tanjiro #377. Arm-A retry #5 after 4 control crashes. Once stable, drop one of {late_peak, linear_ramp_down, β2=0.99}.
 9. **NS coef center** — thorfinn #384. Sweep center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42 (apex from fern #345). Polynomial aggressiveness axis never tested.
 10. **NS_ITERS_COOLDOWN count** — askeladd #388. Sweep cooldown count ∈ {14, 16, 18, 20} at fixed NS_ITERS=12. ns_cooldown=16 was set on pre-#290 stack; testing whether higher precision in latter 15% of training improves on post-#290.
+11. **Per-group AdamW LR multiplier** — nezuko #393. Sweep 1.5× LR on each group independently (embed, lm_head, scalar). Mechanism: per-group β2 #280 showed scalar is sparsest; LR axis is the direct analog.
 
 ### Medium-priority unassigned axes (for next idle)
-9. **NS coef mean sweep** — once fern #345 closes, sweep c_mean {0.45/0.49/0.53/0.57} at depth=0.42
-10. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99
-11. **Per-group μ ablation** — after nezuko #356 lands; per-group μ (parallels per-group β2 from #280)
-12. **NS cooldown 3-phase** — extend late_peak to 3-phase (12→15→20 within cooldown window)
-13. **Output proj init scale** — pairs with edward #374; proj has no RMSNorm so direct logit influence
+1. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99
+2. **NS cooldown 3-phase** — extend late_peak to 3-phase (12→15→20 within cooldown window)
+3. **Output proj init scale** — pairs with edward #374; proj has no RMSNorm so direct logit influence
+4. **Per-group μ ablation** — with μ scheduling closed (#356), per-group constant μ remains worth testing (distinct from scheduling)
+5. **Scalar LR finer sweep** — if nezuko #393 arm-D wins, follow-up {1.25, 1.5, 2.0, 2.5}×
 
 ### What we know about stacking
 - 7 merges across orthogonal axes; gap to 3030 steps ~200 steps in fs
@@ -234,3 +240,4 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 | Logit softcap value | softcap=15 confirmed optimal, valley shape | #354 (productive-null) |
 | AdamW WD (global) | global WD=0.005 absorbed by β2=0.99 | #279 (null) |
 | AdamW WD (per-group) | per-group WD=0.002 on lm_head, scalar, or both — all harmful | #348 (harmful) |
+| Muon μ schedule | ramp_up/ramp_down/late_peak — all miss target; late_peak +0.06125 catastrophic | #356 (harmful) |

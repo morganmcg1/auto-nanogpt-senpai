@@ -3,6 +3,39 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 17:05 UTC — PR #356: Muon μ schedule sweep (nezuko) — CLOSED productive-null ✅
+
+- Branch: `g1r4-nezuko/muon-mu-schedule`
+- Hypothesis: Muon momentum coefficient μ has been held constant at 0.95 throughout; scheduling μ (ramp_up, ramp_down, late_peak) may better track the changing curvature of the loss landscape over the training run. Mechanism analog to NS coef schedule (#290).
+
+### Results — 4-arm single-pod sequential on post-#290 stack
+
+| Arm | μ schedule | val_loss | Δ vs A | fs | W&B |
+|---|---|---|---|---|---|
+| A (control) | constant 0.95 | **3.27048** | — (drift gate ✓ −0.00152) | 3225 | terminal |
+| B | ramp_up 0.90→0.99 | 3.28429 | +0.01381 | -1 (missed target) | terminal |
+| C | ramp_down 0.99→0.90 | 3.28083 | +0.01035 | -1 (missed target) | terminal |
+| D | late_peak 0.90→0.99 | 3.33173 | +0.06125 | -1 (missed target) | terminal |
+
+### Key findings
+
+1. **Drift gate ✓ for arm-A**: 3.27048 vs baseline 3.27200 = −0.00152, well within ±0.003 tolerance. Strong control reproduction.
+2. **All three μ-schedule arms regress disastrously**: B at +0.01381 (9×), C at +0.01035 (7×), D at +0.06125 (41×) — all miss the 3.28 target entirely (fs=-1).
+3. **Late_peak μ schedule = catastrophic** (+0.06125): the mechanism that wins for NS iter count (#285) inverts for Muon μ. NS iters are *within-step* polynomial precision; μ is *cross-step* gradient memory. Pushing μ to 0.99 in the cooldown window dominates the optimizer with stale gradient direction at the moment we need fast adaptation to converge.
+4. **Both ramp directions hurt by similar magnitudes** (B +0.01381, C +0.01035): μ scheduling is symmetric-bad — *any* variation from 0.95 hurts. This points to a sharp optimum at μ=0.95, not a U-shaped optimum that schedules might exploit.
+5. **Mechanism reading**: μ governs effective gradient memory window (1/(1−μ)). Constant μ=0.95 gives 20-step memory throughout, which matches the temporal resolution of gradient direction changes during nanoGPT training. Larger μ amplifies stale-direction errors during cooldown when LR is small and step-direction precision becomes critical.
+
+### Verdict
+
+Productive-null with very strong negative result on late_peak variant. Constant μ=0.95 is confirmed optimal. μ scheduling axis CLOSED.
+
+### Methodological notes
+
+- Clean arm-A control with drift gate ✓.
+- Pre-staged decision tree applied: 3 of 3 arms failed → axis closed unambiguously.
+- Strong mechanism asymmetry vs NS iter count: same "late_peak" shape that works for *within-step* NS iters fails catastrophically for *cross-step* μ memory.
+- Mechanism map confirms μ scheduling family (per-group μ, μ cosine, μ early ramp) all unlikely to help — cross-step gradient memory wants stable 20-step window.
+
 ## 2026-05-18 16:35 UTC — PR #354: Logit softcap value sweep (askeladd) — CLOSED productive-null ✅
 
 - Branch: `g1r4-askeladd/logit-softcap-sweep`
