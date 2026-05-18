@@ -530,6 +530,7 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_EMBED_INIT_SCALE = float(os.environ.get("NANOGPT_EMBED_INIT_SCALE", "1.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -739,6 +740,7 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+print0(f"NANOGPT_EMBED_INIT_SCALE={NANOGPT_EMBED_INIT_SCALE}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -799,6 +801,7 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_embed_init_scale": NANOGPT_EMBED_INIT_SCALE,
         },
     )
 
@@ -820,6 +823,8 @@ for trial_idx in range(args.num_trials):
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+                if NANOGPT_EMBED_INIT_SCALE != 1.0:
+                    w.mul_(NANOGPT_EMBED_INIT_SCALE)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
@@ -828,6 +833,9 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    print0(f"trial {trial_idx}: embed.weight.norm()={model.embed.weight.norm().item():.4f} "
+           f"(scale={NANOGPT_EMBED_INIT_SCALE})", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
