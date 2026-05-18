@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 10:15 UTC
+- **Last update:** 2026-05-18 15:35 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
 
@@ -12,20 +12,25 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: `vw0595an` (seed-1), `s2nrw0c8` (seed-2).
 
-Win conditions for new experiments: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
+Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
+
+## Pending confirmation (unmerged n=1 wins — need terminal SENPAI-RESULTs)
+
+- **frieren #367 Arm A lm_head_lr=1/160**: W&B sr=2975 val=3.2677 (marginal WIN, Δsr=-25, Δval=-0.0008). n=2 crashed twice. Arm B (1/640) lzitteno mid-flight.
+- **thorfinn #366 AUX_CP=1.0**: W&B sr=3000 val=3.2662 (val WIN only, Δval=-0.0023, Δsr=0). n=2 xsrjwj8d crashed at step 275. Awaiting terminal and n=2 retry.
 
 ## Active experiments (8 students)
 
-| PR | Student | Mechanism | W&B Status (10:15 UTC) |
+| PR | Student | Mechanism | Status (15:35 UTC) |
 |---|---|---|---|
-| **#332** | **fern** | COOLDOWN_POWER continuation {1.5, 1.8} | Arm A CP=1.5 ya9h60qw **DONE sr=2975 val=3.2698** (marginal WIN); n=2 run lm9zpb30 step 2850 val=3.3007 (unlikely to confirm); CP=1.8 arm not yet run |
-| **#342** | **alphonse** | SWA tail rolling average over last 15%/30% | Original run y434oi2b crashed step 1725 (cause unknown, before SWA activation). Recovery runs 37dxm5wh (step 925) and xzy0owr6 (step ~0) active |
-| **#347** | **nezuko** | Layer-wise LR Decay (LLRD) per-depth multiplier {0.95, 0.85} | ffsvma03 step 1700 val=3.486 — mid-run, descending but slow |
-| **#350** | **edward** | Scaled Residual Projection Init (std × 1/√(2N) vs std × 1/N) | First run 18w4s04y crashed step 175 (init instability). Recovery albt7zd5 step 1000 val=3.6673 (sqrt_2N mode) |
-| **#362** | **tanjiro** | Gradient Centralization for Muon body (column-mean subtraction) | nql48ezv step 225 val=4.499 — very early |
-| **#363** | **frieren** | Z-loss auxiliary penalty {1e-4, 1e-3} | No runs started yet |
-| **#364** | **askeladd** | Muon momentum reset at cooldown entry (hard vs soft zero) | No runs started yet |
-| **#366** | **thorfinn** | Aux-AdamW cooldown power decoupling {1.0, 2.0} vs body 1.4 | Just assigned |
+| **#332** | **fern** | COOLDOWN_POWER continuation {1.5, 1.8} | CP=1.5 n=3 DONE (mean sr=2991.67 val=3.27021, marginal). Arm B CP=1.8 iq8u5b0h running step ~1000 |
+| **#347** | **nezuko** | LLRD per-depth {0.95, 0.85} | Both arms done: 0.95 NULL, 0.85 (ud32rjej) done val=3.3173 → NULL. Awaiting terminal |
+| **#350** | **edward** | Residual Init {1/√2N, 1/N} | Arm A NULL (sr=3025). Arm B (1/N) t7607ha7 step 2875 val=3.2901 — likely NULL |
+| **#362** | **tanjiro** | Gradient Centralization for Muon | Arm A NULL (sr=3050). Arm B gc-both 5p8b7aro mid-flight |
+| **#364** | **askeladd** | Muon momentum reset (hard vs soft) | Arm A MARGINAL TIE. Arm B soft sj1qgbu1 mid-flight |
+| **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | AUX_CP=1.0 DONE sr=3000 val=3.2662 (val WIN). n=2 crashed. Awaiting terminal |
+| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | Arm A 1/160 DONE sr=2975 val=3.2677 (marginal WIN). Arm B 1/640 lzitteno mid-flight |
+| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | **Just assigned** |
 
 ## Recently closed (current round)
 

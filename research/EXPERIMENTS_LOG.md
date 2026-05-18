@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-18 15:32 UTC — PR #342 CLOSED: SWA tail rolling average NULL (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/swa-tail`
+- Hypothesis: Rolling param average over last 15% or 30% of training (SWA tail) would reduce val_loss by smoothing late-cooldown noise, allowing model to cross 3.28 earlier.
+
+| Arm | SWA_START_FRAC | W&B | sr | val/loss | Δsr | Δval |
+|---|---|---|---|---|---|---|
+| Baseline | — | `vw0595an`, `s2nrw0c8` | 3000 | 3.2685 | — | — |
+| Arm A | 0.85 | `37dxm5wh` | 3000 | 3.27306 | 0 | **+0.00456** |
+| Arm B | 0.70 | `rzdrn912` | **3200** | 3.27848 | **+200** | **+0.00998** |
+
+**Results commentary:** BOTH ARMS NULL. SWA mechanism works correctly (within-run swa-vs-raw Δ = −0.003 to −0.025 confirmed). But COOLDOWN_POWER=1.4 makes the val curve so steep that SWA val crosses 3.28 at identical step as raw. Arm B worse: wider window averages earlier higher-loss steps, biasing upward.
+
+**Conclusion:** SWA tail axis CLOSED on cooldown_power=1.4 + cubic-Newton stack. Reassigned alphonse to PR #386 (γ_power continuation).
+
+---
+
+## 2026-05-18 15:32 UTC — PR #386 ASSIGNED: PMuon γ_power continuation {0.5, 0.6} (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/gamma-power-continuation`
+- Hypothesis: PR #202 (γ_power=0.4 winner) found monotone signal (0.2→3050, 0.3→3062.5, 0.4→3025) and flagged {0.5, 0.6} as likely follow-up. Tests continuation on post-#274 baseline.
+
+---
+
 ## 2026-05-18 10:10 UTC — PR #311 CLOSED + PR #366 ASSIGNED: Lookahead wrapper → Aux cooldown power decoupling (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/lookahead-wrapper`
