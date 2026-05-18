@@ -1,31 +1,37 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~16:30Z (poll #168)
+- **Last updated:** 2026-05-18 ~17:30Z (poll #170)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FRIEREN PR #346 Cell A (lr_attn=0.025) HIT P2 TRIGGER** ⭐:
-   - Cell A `orkpejsl` FINISHED: **val=3.269674 ffs=3125** (~−1.43σ below baseline)
-   - Cell B ctrl `xovourxm` FINISHED: val=3.272 ffs=3150 (clean baseline reproduction)
-   - DUPLICATE INCIDENT 12:25Z: `vqd4wcez` killed; Cell C `fmycgozs` (lr_attn=0.045) launched cleanly, step 403/3250
-   - Sweep continuing through C/D/E before P2 promotion
+1. **🔥 FERN PR #371 Cell C (WD ramp_down) STRONG P2 TRIGGER** 🔥:
+   - Cell C `yh4fzyoe` FINISHED: **val=3.2689 ffs=3100** (~−2.05σ below baseline, FIRST below baseline ffs=3125 since baseline merge)
+   - Mechanism: WD ramps DOWN linearly from 0.05 (2× default) to 0 over 3250 steps
+   - **Direct to Phase 2 NOW (poll #170 comment)** — skip Cells D, E. P2 launched at ramp_down schedule, n=4.
+   - If P2 confirms statsig (mean ≤ 3.269362), **this MERGES as new baseline.**
+
+2. **FRIEREN PR #346 Cell A (lr_attn=0.025) HIT P2 TRIGGER** ⭐:
+   - Cell A `orkpejsl` FINISHED: val=3.269674 ffs=3125 (-1.43σ)
+   - Cells B (ctrl 0.035): 3.272 ffs=3150 ✓, C (0.045): 3.272 ffs=3150 ✓, D (0.055): 3.2741 ffs=3175
+   - Cell E (0.075) `j6a3amtw` RUNNING step 1784/3250
+   - After Cell E terminal: directive to launch P2 at lr_attn=0.025 (or trim sweep based on full curve)
 
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #385 | edward | AdamW aux β₁ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | NEW ASSIGNMENT (PR #385 created). Cell A constant ctrl pending launch. |
-| #383 | nezuko | Muon gradient noise injection sweep std ∈ {0, 1e-4, 1e-3} × {constant, decay, cooldown_only} | NEW ASSIGNMENT (PR #383). Cell A ctrl pending. |
-| #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | NEW ASSIGNMENT (PR #382 created). Cell A ctrl pending launch. |
-| #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | NEW ASSIGNMENT (PR #381 created). Cell A constant ctrl pending launch. |
-| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl val=3.2716 ffs=3150. Cell B `u01fl5oh` (ramp_up) FINISHED: val=3.28053 ffs=-1 (target NEVER reached, +7.6σ). Over-regularization confirmed: 2×WD at terminal prevents convergence. Cell C (ramp_down) pending. |
-| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: val=3.2703 ffs=3125 (-0.9σ). Cell B (ortho_unit gain=1.0): val=3.27268 ffs=3150 (+1.1σ, clean-neg). Cell C ortho_scaled pending launch. |
-| #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A freq=4 FINISHED: val=3.2757 ffs=3175 (+3.6σ clean-neg). Cell B freq=8 FINISHED: val=3.2776 ffs=3200 (+5.3σ clean-neg). Cell C freq=16 ctrl launching. Monotone WORSE with more frequent refresh — default freq=16 is local optimum. |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A (0.025): val=3.26967 ffs=3125 (P2 trigger -1.43σ). Cell B ctrl (0.035): val=3.27206 ffs=3150. Cell C (0.045): val=3.27203 ffs=3150 (~baseline). Cell D (0.055), E (0.075) pending. Trend: 0.025 best so far. |
+| #385 | edward | AdamW aux β₁ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl `lqwsc8lj` terminal pending. Cell B (ramp_up) `w8wbnhfp` RUNNING step 54/3250. |
+| #383 | nezuko | Muon gradient noise injection sweep std ∈ {0, 1e-4, 1e-3} × {constant, decay, cooldown_only} | Cell A ctrl `2bojk9g6` terminal pending. Cell B (std=1e-4 constant) `isqlrt28` RUNNING step 92/3250 (duplicate run incident: 2 Cell B launches). |
+| #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | Cell A ctrl `uw0gy7qy` FINISHED: val=**3.2696 ffs=3125** (-1.41σ favorable seed for default 0.95/0.95). Cell B not launched yet; ANOTHER Cell A `15g2boa9` started instead (idle confusion). Advisor sent directive (poll #170 comment) to launch Cell B. |
+| #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant `fj8dvgh7` FINISHED: val=**3.2708 ffs=3125** (clean baseline match). Cell B (ramp_up) `uz19au0x` RUNNING step 1338/3250. PR stale_wip flag from no commits yet. |
+| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl: val=3.2716. Cell B ramp_up: val=3.2805 ffs=miss (over-reg). **Cell C ramp_down `yh4fzyoe` FINISHED: val=3.2689 ffs=3100 — 🔥 P2 TRIGGER**. Cell D (triangle) `iflcps3d` RUNNING step 1576/3250 — advisor sent directive (poll #170) to **PIVOT TO P2** instead. |
+| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: val=3.2703 ffs=3125. Cell B ortho_unit: val=3.2727 ffs=3150 (clean-neg). Cell C ortho_scaled: val=3.2726 ffs=3150 (clean-neg). Cell D (v_only) `qekpnlby` RUNNING step 2801/3250. Cell E (qk_only) pending. |
+| #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A freq=4: val=3.2757 ffs=3175 (+3.6σ neg). Cell B freq=8: val=3.2776 ffs=3200 (+5.3σ neg). Cell C freq=16 ctrl: val=3.2708 ffs=3125 (-0.5σ within noise). Cell D freq=32: val=3.2722 ffs=3150. Cell E (freq=64) `zr0qvwrs` RUNNING step 618/3250. Trend: freq=16 default is local optimum, monotone-ish bowl. |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A (0.025): val=3.26967 ffs=3125 (P2 trigger -1.43σ). Cell B ctrl (0.035): 3.27206. Cell C (0.045): 3.27203. Cell D (0.055): 3.2741 ffs=3175. Cell E (0.075) `j6a3amtw` RUNNING step 1784/3250. Trend: 0.025 monotone best, P2 directive incoming after Cell E terminal. |
 
 
 ## Research Themes
