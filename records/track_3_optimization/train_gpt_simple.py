@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -52,6 +53,11 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    # Scaled residual-projection init (GPT-2 trick, PR #350). Selects scaling
+    # factor applied to std=0.02 for block residual-projection weights
+    # (`blocks.X.attn.proj.weight`, `blocks.X.mlp.proj.weight`). "zero" matches
+    # the prior baseline behavior (zero-init for all proj weights).
+    parser.add_argument("--residual_proj_init", default="zero", choices=["zero", "sqrt_2N", "N"])
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -61,6 +67,21 @@ def parse_args():
 
 
 args = parse_args()
+
+
+# Scaled residual-projection init (GPT-2, Radford et al. 2019, §2.2 convention).
+# N_LAYERS=12 matches the model config below; check stays in sync via assert later.
+RESIDUAL_INIT_STD_BASE = 0.02
+N_LAYERS_FOR_INIT = 12
+if args.residual_proj_init == "zero":
+    RESIDUAL_PROJ_SCALE = 0.0
+elif args.residual_proj_init == "sqrt_2N":
+    RESIDUAL_PROJ_SCALE = 1.0 / math.sqrt(2 * N_LAYERS_FOR_INIT)
+elif args.residual_proj_init == "N":
+    RESIDUAL_PROJ_SCALE = 1.0 / N_LAYERS_FOR_INIT
+else:
+    raise ValueError(f"unknown residual_proj_init mode: {args.residual_proj_init}")
+RESIDUAL_PROJ_STD = RESIDUAL_INIT_STD_BASE * RESIDUAL_PROJ_SCALE
 
 
 def clean_metric_name(name: str) -> str:
@@ -659,6 +680,9 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+assert len(model.blocks) == N_LAYERS_FOR_INIT, (
+    f"N_LAYERS_FOR_INIT={N_LAYERS_FOR_INIT} but model has {len(model.blocks)} blocks"
+)
 model.compile(dynamic=True)
 
 module_types = param_module_types(model)
@@ -704,6 +728,10 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "residual_proj_init_mode": args.residual_proj_init,
+            "residual_proj_scale": RESIDUAL_PROJ_SCALE,
+            "residual_proj_std": RESIDUAL_PROJ_STD,
+            "residual_init_std_base": RESIDUAL_INIT_STD_BASE,
         },
     )
 
@@ -721,7 +749,15 @@ for trial_idx in range(args.num_trials):
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name.startswith("blocks.") and (".attn.proj.weight" in name or ".mlp.proj.weight" in name):
+                # Block residual-projection weights: scaled init per PR #350.
+                # RESIDUAL_PROJ_STD == 0 reproduces prior baseline (zero init).
+                if RESIDUAL_PROJ_STD > 0:
+                    w.normal_(mean=0.0, std=RESIDUAL_PROJ_STD)
+                else:
+                    w.zero_()
+            elif "proj" in name:
+                # lm_head proj (and any other non-block proj): keep zero init.
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
@@ -733,6 +769,22 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Init telemetry (PR #350): confirm realized stds for residual-proj vs
+    # standard-proj weights match expected targets after init.
+    if dist.get_rank() == 0:
+        # Compiled wrapper: access underlying model via .blocks (compile preserves attrs).
+        attn_proj_w = model.blocks[0].attn.proj.weight.data
+        mlp_proj_w = model.blocks[0].mlp.proj.weight.data
+        attn_qkv_w = model.blocks[0].attn.q.weight.data
+        wandb.log({
+            "trial": trial_idx,
+            "init/residual_proj_scale": RESIDUAL_PROJ_SCALE,
+            "init/residual_proj_std_target": RESIDUAL_PROJ_STD,
+            "init/residual_proj_attn_std_actual": float(attn_proj_w.std().item()),
+            "init/residual_proj_mlp_std_actual": float(mlp_proj_w.std().item()),
+            "init/standard_proj_qkv_std_actual": float(attn_qkv_w.std().item()),
+        }, step=trial_idx * (train_steps + 1))
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
