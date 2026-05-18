@@ -1,6 +1,16 @@
 # SENPAI Research State
 
-- 2026-05-18 14:15 UTC — Cycle 55 (continued)
+- 2026-05-18 15:10 UTC — Cycle 55 (continued)
+
+## 🔥 THREE-MECHANISM CONVERGENCE (15:10 UTC)
+
+Three independent mechanism perturbations have all hit `ffs=3050` (below the bimodal {3075, 3100} floor) this cycle:
+1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050, both trials)
+2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5; n=4 confirm running)
+3. **FERN #372** MuonEq-R eps=1e-8 → trial 0 STRONG (val=3.2735/ffs=3050; trial 1 ETA ~15:40 UTC)
+
+**Mechanism reading**: All three perturbations affect cooldown-phase update geometry (μ floor, contra correction, pre-NS5 row normalization). Possible that cooldown is the active lever and any geometric perturbation there compounds. If both n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 ± MuonEq-R).
+
 - No human researcher directives this session (Issue #164 is on r3 branch, not r2).
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
 - ✅ **EDWARD #341 CLOSED** (14:10 UTC): SOAP eigenbasis freeze axis FALSIFIED. Arm A (FREEZE=1000) val=3.28082. Arm B (FREEZE=2000) val=3.27640/ffs=3100. **MECHANISM**: Q refresh past step K continues to add signal all the way through cooldown. Reassigned → #379 Embed init std fine sweep.
