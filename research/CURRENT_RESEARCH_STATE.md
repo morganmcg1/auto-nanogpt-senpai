@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~07:36Z (poll #153)
+- **Last updated:** 2026-05-18 ~08:08Z (poll #154)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -26,12 +26,12 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | JUST ASSIGNED. Cell A (ctrl, wd_aux=0.0) launching. PR #283 (AGC P2) closed clean-neutral: mean=3.272890 gate fails by ~3σ. |
+| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A `alp238rf` step 524 in flight. **CONCURRENT-RUNS incident posted 08:08Z** — duplicate `d61h2gj6` must be killed. |
 | #306 | alphonse | lm_head LR Phase 2 n=4 | Phase 2 run `7xl5rcjb` step 1243/13000, ETA terminal ~13:30Z |
 | #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 6974/13000. T1=3.270602 (ffs=3125), T2=3.272171 (ffs=3150). Gate now needs T3+T4 mean ≤ 3.267338. ETA terminal ~11:30Z |
 | #320 | edward | Adam β₂ Phase 2 n=4 | Cell D (β₂=0.98) val=3.268718 ffs=3125 ⭐ winner; Cell E (β₂=0.99) val=3.270318 ffs=3125 terminal. **Phase 2 n=4 at β₂=0.98 launched (directive posted 07:35Z).** |
 | #321 | thorfinn | cooldown_frac sweep | Cell A retry cd=0.50 val=3.2742; Cell C ctrl cd=0.70 val=3.271924; Cell D cd=0.80 done; Cell E (`xh7gpfge`, cd=0.90) step 1343/3250, ETA ~08:30Z |
-| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg val=3.272627; Cell C ctrl mu=0.95 done; Cell D (`9419jxjr`, mu=0.97) step 2104/3250, ETA ~07:55Z; Cell E (mu=0.99) pending |
+| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg; Cell C ctrl mu=0.95 done; **Cell D mu=0.97 val=3.275570 ffs=3175 clean-neg ~3.6σ**; Cell E (mu=0.99) directive posted 08:08Z |
 | #334 | askeladd | Muon WD sweep | Cell A wd=0 DNR catastrophic; Cell D wd=0.05 done; Cell E (`katqhx5q`, wd=0.10) step 1001/3250, ETA ~09:00Z |
 | #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | Cell A (`v8b4l4ed`, lr_attn=0.025) step 158/3250 launched. ETA ~07:55Z |
 
