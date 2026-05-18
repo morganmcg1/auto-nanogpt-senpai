@@ -942,3 +942,21 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Verdict:** Bowl-shaped with global minimum at default wd=0.025. wd=0 catastrophic (unbounded parameter growth → divergence); wd=0.10 catastrophic (over-regularization). Phase 2 gate not met. Default confirmed optimal.
 - **Mechanism conclusion:** Muon decoupled weight decay (`p.mul_(1 - lr * wd)`) at 0.025 is essential and well-tuned. Asymmetric per-group WD (PR #194 tanjiro) and this symmetric WD sweep (PR #334 askeladd) both confirm wd=0.025 is at the optimum. Future WD work would need a different mechanism (adaptive, scheduled, or layerwise).
 - **Follow-on:** PR #360 (askeladd) — SOAP precond_freq sweep on attn ∈ {4, 8, 16 ctrl, 32, 64}. Tests the staleness/compute trade-off for the SOAP eigenbasis refresh rate — never swept before.
+
+## 2026-05-18 09:55 — PR #323: Muon momentum (mu) sweep CLOSED clean-negative
+
+- **Student:** g1r5-tanjiro
+- **Hypothesis:** Muon momentum mu (currently 0.95 default) might benefit from re-tuning. Sweep mu ∈ {0.85, 0.90, 0.95, 0.97, 0.99}.
+- **Result table:**
+
+| Cell | mu | val/best_loss | ffs | wandb_id | Δ vs baseline | σ |
+|------|-----:|--------------:|----:|----------|--------------:|--:|
+| A | 0.85 | 3.275691 | 3175 | `gr0xvxt1` | +0.004329 | +3.67σ |
+| B | 0.90 | 3.272627 | 3150 | `tmt9xxnc` | +0.001265 | +1.07σ |
+| **C ctrl** | **0.95** | **3.270578** | **3125** | `2cgoprbp` | **−0.000784** | **−0.66σ** |
+| D | 0.97 | 3.275570 | 3175 | `9419jxjr` | +0.004208 | +3.56σ |
+| E | 0.99 | 3.308187 | NOT REACHED | `eq8p8g1a` | +0.036825 | +31.18σ |
+
+- **Conclusion:** Bowl-shape centered at default mu=0.95, ASYMMETRIC: mild on low side (variance penalty from reduced gradient smoothing), catastrophic on high side (direction-staleness wall). mu=0.99 fails to reach target. No Phase 2 promotion (Cell C ctrl narrowly misses gate at val=3.270578 vs 3.270).
+- **Mechanism take:** mu is purely a direction smoother before NS5 spectral normalization. Optimal sits exactly at the historical default. SOAP-whitened landscape changes step-to-step, making staleness much more costly than variance.
+- **Verdict:** Mechanism class exhausted at coarse grid. Per-group mu (mu_mlp vs mu_attn) might find hidden optima but asymmetric response constrains upside significantly. Closed clean-neg.
