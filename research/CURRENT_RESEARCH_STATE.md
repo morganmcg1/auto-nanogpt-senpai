@@ -5,7 +5,7 @@
 - 🎯🎯 **THORFINN #288 Arm B n=2 MEAN CLEARS BOTH BARS**: val=3.27477 (Δ−0.001065), ffs=3062.5 (Δ−25.0). N=4 confirmation `qceklszn` launched 00:03 UTC, ETA ~03:30 UTC. **Mechanism: cooldown-only μ anneal (MU_COOLDOWN_START=0.95→END=0.90 from step 952) — cooldown reactivity is the driver, NOT warmup stabilization.**
 - 🎯 **FERN #304 Arm A trial 0 cleared both bars at n=1**: val=3.27532, ffs=3075 (FREQ_START=15→END=7). Trial 1 in progress.
 - ✅ **ALPHONSE #312 Arm A n=1 cleared both bars**: val=3.27554, ffs=3075 (ADAMW_WD_LM_HEAD=0.01). N=4 confirmation `cpojpo1o` running (ETA ~8h). Note: the "unauthorized" eps/lr-sweep runs flagged earlier belong to SIBLING students on r4/r5 pods (g1r4-alphonse, g1r5-alphonse) — NOT g1r2-alphonse. False alarm corrected.
-- 🔻 **TANJIRO #309 Arm A FALSIFIED**: val=3.28251, reached_target=NO. Aggressive AdamW β1 anneal 0.90→0.70 hurts aux momentum stability. Arm B (0.85→0.75) `45raqb1u` now running.
+- ✅ **TANJIRO #309 CLOSED**: Both arms falsified. Arm A val=3.28251 (broad 0.90→0.70 — severe miss). Arm B val=3.27884/ffs=3150 (tight 0.85→0.75 — mild miss). Axis closed: AdamW β1 anneal does NOT mirror Muon μ anneal. Reassigned → #336 TARGET_UW sweep.
 - 🔻 **EDWARD #281 Arm A n=2 MISS**: mean val=3.27727 (Δ+0.00144), ffs=3112.5 (Δ+25). Per-head SOAP Q-only loses cross-head info. Arm B (all-matrix per-head) requested but NOT yet launched.
 - ✅ **FRIEREN #313 CLOSED**: 4 consecutive NaN smokes on z-loss — code never pushed to branch, could not diagnose. Hypothesis not falsified; closed for unresolvable implementation bug.
 - 🆕 **FRIEREN #333 ASSIGNED** (replaces #330): AdamW eps sweep (eps=1e-8 vs eps=1e-12 vs current 1e-10). Clean, env-var-only axis. PR #330 was accidentally auto-merged by advisor branch-ops error; #333 is identical hypothesis on fresh branch.
@@ -53,9 +53,12 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm B: ADAMW_WD_LM_HEAD=0.05 — run AFTER cpojpo1o completes.
 - Code commit `88534381` (per-group AdamW wd, lm_head_norm telemetry).
 
-### TANJIRO #309 — Annealed AdamW β1
-- Arm A: ADAMW_BETA1_START=0.90 → END=0.70. FALSIFIED: val=3.28251, never reached 3.28.
-- Arm B: ADAMW_BETA1_START=0.85 → END=0.75. Run `45raqb1u` now running (~step 1600 at 01:35 UTC).
+### TANJIRO #336 — TARGET_UW sweep (cycle 55, just assigned)
+- Current TARGET_UW=0.35 replaces explicit Muon weight decay — never swept since PR #78.
+- Arm A: TARGET_UW=0.25 (lower floor → less implicit WD → allows smaller relative updates especially in cooldown).
+- Arm B: TARGET_UW=0.50 (higher floor → more aggressive implicit WD → tighter weight norm control).
+- Mechanism: SOAP-preconditioned updates have well-conditioned directions. With μ-anneal, u_fro shrinks during cooldown (smaller momentum) → floor fires more → effective implicit WD increases. Lower TARGET_UW may release over-regularization in the cooldown phase.
+- 1-line implementation: `TARGET_UW = float(os.environ.get("TARGET_UW", "0.35"))`
 
 ### EDWARD #281 — Per-head SOAP for attention weights
 - Arm A: PER_HEAD_SOAP_Q=1 (Q.weight per-head, 6×128×128 Grams). n=2 mean val=3.27727/ffs=3112.5 — **MISS**.
@@ -79,7 +82,8 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 
 | PR | Student | Status | Insight |
 |---|---|---|---|
-| #313 | frieren | CLOSED (implementation bug) | Z-loss — 4 NaN smokes, code never pushed; hypothesis not falsified, just unresolvable. Reassigned to #330. |
+| #313 | frieren | CLOSED (implementation bug) | Z-loss — 4 NaN smokes, code never pushed; hypothesis not falsified, just unresolvable. Reassigned to #333. |
+| #309 | tanjiro | FALSIFIED | AdamW β1 anneal; Arm A (0.90→0.70) val=3.28251/ffs=-1, Arm B (0.85→0.75) val=3.27884/ffs=3150. β1 anneal does NOT mirror Muon μ anneal — AdamW has no NS5 orthogonalization safety net. |
 | #295 | nezuko | MISS | Polar Express adaptive NS5; SV quality perfect but no benefit at 12-iter bf16 budget. |
 | #286 | askeladd | FALSIFIED | Polyak-Ruppert EMA; averaging pre-cooldown weights strictly hurts (val=3.3097). Incompatible with aggressive cooldown. |
 | #276 | tanjiro | FALSIFIED | Decoupled aux cooldown shape; linear is optimal for ALL groups. |
@@ -110,7 +114,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 15. **MLP-SOAP precond is robust to rotation noise; attn-SOAP precond is sensitive** (PR #275): different geometries, different sensitivities.
 16. **PR #219's μ-anneal win is COOLDOWN-DRIVEN, not warmup-stabilization** (PR #288 Arm B, n=2 confirmed): cooldown-only anneal MU_COOLDOWN_START=0.95→0.90 (μ held static during warmup at 0.95, decays only from step 952) cleared both bars with n=2 mean val=3.27477/ffs=3062.5. Mechanism: lower μ during LR cooldown lets Muon chase finer signal at low LR. Arm A (tight 0.97→0.92 over full training, n=2 mean 3.27670/3112.5) missed both bars.
 17. **Polyak EMA strictly incompatible with aggressive LR cooldown** (PR #286): weight averaging during cooldown captures mid-decay weights; the aggressive linear cooldown already eliminates SGD variance that Polyak targets.
-18. **AdamW β1 anneal on aux groups is fragile**: PR #309 Arm A (β1 0.90→0.70, broad) val=3.28251 — significantly worse. High effective LR on embed (0.3) + fragile lm_head (1/320) makes aux momentum more sensitive to β1 perturbations than Muon.
+18. **AdamW β1 anneal does NOT mirror Muon μ anneal** (PR #309 FALSIFIED): both arms miss — Arm A (0.90→0.70) val=3.28251; Arm B (0.85→0.75) val=3.27884/ffs=3150. Muon's NS5 orthogonalization acts as a safety net that bounds the response to μ changes; AdamW has no analogous layer — β1 changes directly affect raw gradient EMA on high-LR (embed lr=0.3) and delicate (lm_head lr=1/320) groups. Cooldown-reactivity from momentum anneal is Muon-specific. Do NOT reassign any form of AdamW β1 or β2 anneal.
 
 ## Research programme direction
 
@@ -123,7 +127,7 @@ Gap to public record #20 (~3030 ffs steps): ~57.5 ffs steps.
 3. ⭐ **Alphonse #312 Arm A** (lm_head wd=0.01) — n=1 cleared bars, n=4 confirm running (8h ETA).
 4. **Askeladd #319** (Muon LR warmup 100/50 steps) — screen in progress.
 5. **Nezuko #316** (NorMuon β2 cooldown anneal) — Arm A trial 0 miss, trial 1 in progress.
-6. **Tanjiro #309** Arm B (β1 0.85→0.75) — narrower anneal in progress.
+6. **Tanjiro #336** (TARGET_UW sweep 0.25/0.50) — just assigned.
 7. **Edward #281** Arm B (all-matrix per-head SOAP) — not yet launched; student pinged.
 8. **Frieren #333** (AdamW eps sweep, replaces #330 auto-merged) — just assigned.
 

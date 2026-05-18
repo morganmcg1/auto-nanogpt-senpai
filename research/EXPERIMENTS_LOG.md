@@ -1,6 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
-## 2026-05-18 01:30 UTC — Cycle 55: frieren #313 CLOSED (z-loss NaN unresolvable — 4 smokes, code never pushed); reassigned #330 AdamW eps sweep
+## 2026-05-18 02:30 UTC — Cycle 55 (continued): tanjiro #309 CLOSED (AdamW β1 anneal FALSIFIED — both arms miss); reassigned #336 TARGET_UW sweep
+
+### TANJIRO #309 — Annealed AdamW β1 — FALSIFIED
+
+Both arms miss both merge bars at n=1. Student posted `SENPAI-RESULT` terminal marker with `pending_arms=false`.
+
+| Arm | β1 schedule | val/loss | ffs | Verdict |
+|---|---|---|---|---|
+| Baseline | static 0.8 | 3.275835 | 3087.5 | reference |
+| **A — broad** | 0.90 → 0.70 | **3.28251** | **-1 (never)** | **MISS** ❌ |
+| **B — tight** | 0.85 → 0.75 | **3.27884** | **3150** | **MISS** ❌ |
+
+W&B runs: `06dfy8gr` (Arm A), `45raqb1u` (Arm B)
+
+**Mechanism**: AdamW β1 anneal does NOT mirror Muon μ anneal despite similar schedule shapes. Muon's NS5 orthogonalization is a nonlinear projection that bounds the response to μ changes — small changes in momentum direction have bounded downstream effects. AdamW has no analogous safety net: β1 changes directly affect raw gradient EMA on groups with very high (embed lr=0.3) and very sensitive (lm_head lr=1/320) effective LRs. Even Arm B's tight 0.10 span (0.85→0.75) delivered a mild but clear miss.
+
+**Conclusion**: Cooldown-reactivity from momentum anneal is a Muon-specific phenomenon. Do not reassign AdamW β1 anneal in any form. AdamW β2 anneal is also ruled out by the same argument (plus the SOAP eigenbasis coupling concern from PR #291).
+
+Tanjiro reassigned → PR #336: TARGET_UW sweep (0.25 and 0.50 vs current 0.35).
+
+---
+
+## 2026-05-18 01:30 UTC — Cycle 55: frieren #313 CLOSED (z-loss NaN unresolvable — 4 smokes, code never pushed); reassigned #333 AdamW eps sweep
 
 ### FRIEREN #313 — Logit z-loss regularization — CLOSED (implementation bug, hypothesis NOT falsified)
 
