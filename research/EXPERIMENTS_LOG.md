@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 03:15 UTC — Cycle 55 (continued): nezuko #316 CLOSED (NorMuon β2 cooldown anneal FALSIFIED); reassigned #339 cooldown-frac sweep
+
+### NEZUKO #316 — NorMuon β2 cooldown anneal — FALSIFIED
+
+| Trial | val/loss | ffs | Verdict |
+|---|---|---|---|
+| 0 | 3.27838 | 3125 | MISS |
+| 1 | 3.27843 | 3125 | MISS |
+| **n=2 mean** | **3.278405** | **3125.0** | **MISS** |
+
+Baseline: val=3.275835, ffs=3087.5. Δval=+0.00257, Δffs=+37.5.
+
+W&B run: `hq3lzdm8`. Trial-to-trial swing tiny (Δval=0.00005, Δffs=0) — reproducible negative effect.
+
+**Mechanism**: β2 controls per-row Adafactor variance EMA. Faster β2 adaptation during cooldown means the variance estimator has fewer effective samples at the critical convergence tail, producing noisier per-row normalization. The μ buffer (PR #288 WIN) has NS5 orthogonalization downstream that bounds the response to μ changes; the β2 variance buffer lacks this safety net and reacts directly to noisier estimates.
+
+**Conclusion**: Cooldown-reactivity from momentum/variance buffer annealing is ONLY productive for Muon's scalar μ parameter, which has NS5 as a bounded nonlinear projection downstream. Do not reassign NorMuon β2 anneal in any form.
+
+Nezuko reassigned → PR #339: cooldown_frac sweep (0.6 and 0.8 vs current 0.7).
+
+---
+
 ## 2026-05-18 02:30 UTC — Cycle 55 (continued): tanjiro #309 CLOSED (AdamW β1 anneal FALSIFIED — both arms miss); reassigned #336 TARGET_UW sweep
 
 ### TANJIRO #309 — Annealed AdamW β1 — FALSIFIED

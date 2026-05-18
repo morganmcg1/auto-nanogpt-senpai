@@ -1,14 +1,15 @@
 # SENPAI Research State
 
-- 2026-05-18 01:35 UTC — Cycle 55 (continued)
+- 2026-05-18 03:15 UTC — Cycle 55 (continued)
 - No human researcher directives this session.
 - 🎯🎯 **THORFINN #288 Arm B n=2 MEAN CLEARS BOTH BARS**: val=3.27477 (Δ−0.001065), ffs=3062.5 (Δ−25.0). N=4 confirmation `qceklszn` launched 00:03 UTC, ETA ~03:30 UTC. **Mechanism: cooldown-only μ anneal (MU_COOLDOWN_START=0.95→END=0.90 from step 952) — cooldown reactivity is the driver, NOT warmup stabilization.**
 - 🎯 **FERN #304 Arm A trial 0 cleared both bars at n=1**: val=3.27532, ffs=3075 (FREQ_START=15→END=7). Trial 1 in progress.
 - ✅ **ALPHONSE #312 Arm A n=1 cleared both bars**: val=3.27554, ffs=3075 (ADAMW_WD_LM_HEAD=0.01). N=4 confirmation `cpojpo1o` running (ETA ~8h). Note: the "unauthorized" eps/lr-sweep runs flagged earlier belong to SIBLING students on r4/r5 pods (g1r4-alphonse, g1r5-alphonse) — NOT g1r2-alphonse. False alarm corrected.
-- ✅ **TANJIRO #309 CLOSED**: Both arms falsified. Arm A val=3.28251 (broad 0.90→0.70 — severe miss). Arm B val=3.27884/ffs=3150 (tight 0.85→0.75 — mild miss). Axis closed: AdamW β1 anneal does NOT mirror Muon μ anneal. Reassigned → #336 TARGET_UW sweep.
-- 🔻 **EDWARD #281 Arm A n=2 MISS**: mean val=3.27727 (Δ+0.00144), ffs=3112.5 (Δ+25). Per-head SOAP Q-only loses cross-head info. Arm B (all-matrix per-head) requested but NOT yet launched.
-- ✅ **FRIEREN #313 CLOSED**: 4 consecutive NaN smokes on z-loss — code never pushed to branch, could not diagnose. Hypothesis not falsified; closed for unresolvable implementation bug.
-- 🆕 **FRIEREN #333 ASSIGNED** (replaces #330): AdamW eps sweep (eps=1e-8 vs eps=1e-12 vs current 1e-10). Clean, env-var-only axis. PR #330 was accidentally auto-merged by advisor branch-ops error; #333 is identical hypothesis on fresh branch.
+- ✅ **TANJIRO #309 CLOSED** → reassigned #336 TARGET_UW sweep.
+- ✅ **NEZUKO #316 CLOSED**: NorMuon β2 cooldown anneal FALSIFIED (n=2 mean val=3.278405/ffs=3125 — Δ+0.00257/+37.5). β2 variance buffer does not share μ's cooldown-reactivity mechanism. Reassigned → #339 cooldown-frac-sweep.
+- 🎯 **FERN #304 Arm A near-miss**: n=2 mean val=3.275851/ffs=3087.5 — misses bar by 0.000016 on val and exactly tied on ffs. N=4 confirmation requested (predeclared: merge if clears, close if not).
+- 🔻 **EDWARD #281 Arm B trial 0**: val=3.27613/ffs=3100 — barely missed both bars (Δ+0.000295 val, +12.5 ffs). Trial 1 running (~04:37 UTC ETA).
+- ✅ **FRIEREN #313 CLOSED** → reassigned #333 AdamW eps sweep.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -42,10 +43,12 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - **Statsig pre-check**: required mean ≤ 3.27800; n=2 mean 3.27477 passes by 3.23× — n=4 confirmation expected to clear easily.
 - **Mechanism insight**: μ-anneal benefit localizes to cooldown phase. Warmup stabilization NOT the driver. Lower μ during LR cooldown lets Muon chase finer signal at low LR.
 
-### FERN #304 — Annealed SOAP_PRECOND_FREQ ⭐ (Arm A trial 1 running)
-- Arm A: FREQ_START=15 → FREQ_END=7. Trial 0 val=3.27532/ffs=3075 (n=1 clear). Trial 1 in progress.
-- Arm B: FREQ_START=7 → FREQ_END=15 (reversed schedule, queued after Arm A completes).
-- W&B run (Arm A): `42xkphld`
+### FERN #304 — Annealed SOAP_PRECOND_FREQ ⭐ (Arm A n=4 confirm running)
+- Arm A: FREQ_START=15 → FREQ_END=7. n=2 mean **val=3.275851, ffs=3087.5** — misses bar by 0.000016 on val; ffs exactly tied.
+  - T0 val=3.275316/ffs=3075 (clear), T1 val=3.276385/ffs=3100 (miss).
+  - n=4 confirmation requested: if n=4 mean < 3.275835 AND ffs < 3087.5 → merge; else close.
+- Arm B: FREQ_START=7 → FREQ_END=15 — queued after n=4 completes.
+- W&B run (Arm A): `42xkphld` (n=2 terminal)
 
 ### ALPHONSE #312 — AdamW lm_head weight decay sweep ⭐ (n=4 confirm running)
 - Arm A: ADAMW_WD_LM_HEAD=0.01. n=1 cleared both bars (val=3.27554, ffs=3075).
@@ -61,12 +64,14 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - 1-line implementation: `TARGET_UW = float(os.environ.get("TARGET_UW", "0.35"))`
 
 ### EDWARD #281 — Per-head SOAP for attention weights
-- Arm A: PER_HEAD_SOAP_Q=1 (Q.weight per-head, 6×128×128 Grams). n=2 mean val=3.27727/ffs=3112.5 — **MISS**.
-- Arm B: PER_HEAD_SOAP_ALL=1 (Q/K/V/proj all per-head). **NOT YET LAUNCHED** — student pinged at 01:32 UTC.
+- Arm A: PER_HEAD_SOAP_Q=1 (Q.weight per-head). n=2 mean val=3.27727/ffs=3112.5 — **MISS**.
+- Arm B: PER_HEAD_SOAP_ALL=1 (all attn matrices per-head). Trial 0: val=3.27613/ffs=3100 (Δ+0.000295/+12.5 — barely missed). Trial 1 running (~04:37 UTC ETA).
 
-### NEZUKO #316 — NorMuon β2 cooldown anneal (cycle 55)
-- Arm A: NORMUON_COOLDOWN_BETA2_START=0.95 → END=0.90 (mirrors μ-anneal scale). Smoke `lpe2xbwe` clean; Arm A screen `hq3lzdm8` trial 0 MISSED (val=3.27838, ffs=3125). Trial 1 in progress.
-- Arm B: NORMUON_COOLDOWN_BETA2_START=0.95 → END=0.85 (more aggressive).
+### NEZUKO #339 — cooldown_frac sweep (cycle 55, just assigned)
+- Current cooldown_frac=0.7 — static since PR #71, never swept.
+- Arm A: COOLDOWN_FRAC=0.6 (40% stable / 60% cooldown — 318 more steps at full LR).
+- Arm B: COOLDOWN_FRAC=0.8 (20% stable / 80% cooldown — 317 fewer steps at full LR).
+- 3-line implementation: env var + set_hparams default + W&B config.
 
 ### ASKELADD #319 — Muon LR linear warmup (cycle 55)
 - Arm A: MUON_WARMUP_STEPS=100 (100 steps linear warmup for Muon group only). Run `5ao5znlo` ~step 1525.
@@ -82,7 +87,8 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 
 | PR | Student | Status | Insight |
 |---|---|---|---|
-| #313 | frieren | CLOSED (implementation bug) | Z-loss — 4 NaN smokes, code never pushed; hypothesis not falsified, just unresolvable. Reassigned to #333. |
+| #316 | nezuko | FALSIFIED | NorMuon β2 cooldown anneal; n=2 mean val=3.278405/ffs=3125 (Δ+0.00257/+37.5). β2 variance buffer ≠ μ: faster variance adaptation at cooldown tail degrades re-normalization quality; NS5 safety net absent. |
+| #313 | frieren | CLOSED (implementation bug) | Z-loss — 4 NaN smokes, code never pushed; hypothesis not falsified. Reassigned to #333. |
 | #309 | tanjiro | FALSIFIED | AdamW β1 anneal; Arm A (0.90→0.70) val=3.28251/ffs=-1, Arm B (0.85→0.75) val=3.27884/ffs=3150. β1 anneal does NOT mirror Muon μ anneal — AdamW has no NS5 orthogonalization safety net. |
 | #295 | nezuko | MISS | Polar Express adaptive NS5; SV quality perfect but no benefit at 12-iter bf16 budget. |
 | #286 | askeladd | FALSIFIED | Polyak-Ruppert EMA; averaging pre-cooldown weights strictly hurts (val=3.3097). Incompatible with aggressive cooldown. |
@@ -127,9 +133,10 @@ Gap to public record #20 (~3030 ffs steps): ~57.5 ffs steps.
 3. ⭐ **Alphonse #312 Arm A** (lm_head wd=0.01) — n=1 cleared bars, n=4 confirm running (8h ETA).
 4. **Askeladd #319** (Muon LR warmup 100/50 steps) — screen in progress.
 5. **Nezuko #316** (NorMuon β2 cooldown anneal) — Arm A trial 0 miss, trial 1 in progress.
-6. **Tanjiro #336** (TARGET_UW sweep 0.25/0.50) — just assigned.
-7. **Edward #281** Arm B (all-matrix per-head SOAP) — not yet launched; student pinged.
-8. **Frieren #333** (AdamW eps sweep, replaces #330 auto-merged) — just assigned.
+6. **Tanjiro #336** (TARGET_UW sweep 0.25/0.50) — just assigned, awaiting smoke.
+7. **Edward #281** Arm B trial 1 (`z21iphfx`) running (~04:37 UTC ETA). Trial 0 val=3.27613/ffs=3100 (marginal miss).
+8. **Frieren #333** (AdamW eps sweep) — awaiting smoke.
+9. **Nezuko #339** (cooldown_frac sweep 0.6/0.8) — just assigned, awaiting smoke.
 
 **Next research themes to explore after in-flight settles**:
 - If thorfinn and fern both win: stack both (cooldown-only μ anneal + FREQ 15→7 anneal)
