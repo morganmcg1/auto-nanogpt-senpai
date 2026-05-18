@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 16:05 UTC
+- **Last update:** 2026-05-18 17:08 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
 
@@ -16,21 +16,24 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 ## Pending confirmation (unmerged n=1 wins — need terminal SENPAI-RESULTs)
 
-- **frieren #367 Arm A lm_head_lr=1/160**: W&B sr=2975 val=3.2677 (marginal WIN, Δsr=-25, Δval=-0.0008). n=2 crashed twice. Arm B (1/640) lzitteno mid-flight.
-- **thorfinn #366 AUX_CP=1.0**: W&B sr=3000 val=3.2662 (val WIN only, Δval=-0.0023, Δsr=0). n=2 xsrjwj8d crashed at step 275. Awaiting terminal and n=2 retry.
+- **askeladd #364 Arm B muon-reset-SOFT**: W&B sj1qgbu1 sr=3000 val=3.2680 (marginal val WIN, Δval=-0.0005, Δsr=0). Arm A hard-reset broken-config NULL (6+ cold-start crashes). Advisor comment posted requesting student stop hard-reset retries and launch n=2 soft.
+- **frieren #367 Arm A lm_head_lr=1/160**: W&B sr=2975 val=3.2677 (marginal WIN, Δsr=-25, Δval=-0.0008). n=2 crashed twice (cold-start). Arm B (1/640) lzitteno step 1925 mid-flight.
+- **thorfinn #366 AUX_CP=1.0**: W&B sr=3000 val=3.2662 (val WIN only, Δval=-0.0023, Δsr=0). n=2 retries crash storm 10+ attempts. Arm B (CP=2.0) crashed mid-run at step 875. Advisor comment posted requesting student stop n=2 retries and post terminal.
+
+**Cross-cutting infrastructure issue:** 4 students hit identical cold-start crash signature (step ≤25, val/loss=10.8258=init_loss, ~7m runtime) on multiple configs. Suggests shared pod/launcher instability, not per-experiment bug. Affected: thorfinn aux-CP=1.0 (10+), askeladd muon-reset-hard (5+), frieren lm-head-lr=1/160 (6), edward residual-init-1/√2N (5, now finally training on 6th attempt).
 
 ## Active experiments (8 students)
 
-| PR | Student | Mechanism | Status (15:35 UTC) |
+| PR | Student | Mechanism | Status (17:08 UTC) |
 |---|---|---|---|
-| **#332** | **fern** | COOLDOWN_POWER continuation {1.5, 1.8} | CP=1.5 n=3 DONE (mean sr=2991.67 val=3.27021, marginal). Arm B CP=1.8 iq8u5b0h running step ~1000 |
-| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4× on attn} | **Just assigned** |
-| **#350** | **edward** | Residual Init {1/√2N, 1/N} | Arm A NULL (sr=3025). Arm B (1/N) t7607ha7 step 2875 val=3.2901 — likely NULL |
-| **#362** | **tanjiro** | Gradient Centralization for Muon | Arm A NULL (sr=3050). Arm B gc-both 5p8b7aro mid-flight |
-| **#364** | **askeladd** | Muon momentum reset (hard vs soft) | Arm A MARGINAL TIE. Arm B soft sj1qgbu1 mid-flight |
-| **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | AUX_CP=1.0 DONE sr=3000 val=3.2662 (val WIN). n=2 crashed. Awaiting terminal |
-| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | Arm A 1/160 DONE sr=2975 val=3.2677 (marginal WIN). Arm B 1/640 lzitteno mid-flight |
-| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | **Just assigned** |
+| **#332** | **fern** | COOLDOWN_POWER continuation {1.5, 1.8} | CP=1.5 n=3 DONE (mean sr=2991.67 val=3.27021, marginal). Arm B CP=1.8 iq8u5b0h step 2475/3250 val=3.337 (likely NULL) |
+| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4× on attn} | Arm A 0.7× g8hqguwn step 625, early-stage val=3.74. Arm B not started |
+| **#350** | **edward** | Residual Init {1/√2N, 1/N} | Arm B 1/N DONE val=3.2687 sr=3000 (TIED not won). Arm A 1/√2N ugf2tm22 step 825 (6th attempt — earlier 5 cold-start crashes) |
+| **#362** | **tanjiro** | Gradient Centralization for Muon | gc-both DONE val=3.2964 sr=-1 (NULL). gc-column rcl10r96 step 350 starting |
+| **#364** | **askeladd** | Muon momentum reset (hard vs soft) | **Soft sj1qgbu1 DONE val=3.2680 sr=3000 (marginal val WIN, Δ=-0.0005, n=2 needed).** Hard 6+ cold-start crashes (broken config). Advisor comment posted. |
+| **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | Arm A CP=1.0 n=1 val=3.2662 WIN, n=2 stuck in 10+ crash retries. Arm B CP=2.0 crashed mid-run step 875. Advisor comment posted requesting terminal post. |
+| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | Arm A 1/160 n=1 sr=2975 val=3.2677 (marginal WIN). n=2 of 1/160 crashed 6× (cold-start). Arm B 1/640 lzitteno step 1925, val=3.45 mid-flight |
+| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | Arm A 0.5 516wmw6t step 1050 val=3.66 mid-flight. 0.6 not started |
 
 ## Recently closed (current round)
 
