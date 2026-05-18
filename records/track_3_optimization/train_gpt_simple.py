@@ -54,6 +54,8 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--muon_mu", type=float, default=0.95,
+                        help="Muon momentum coefficient (mu). Default 0.95 matches baseline. Applies to all Muon param groups (MLP and attn).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +733,7 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "muon_mu": float(args.muon_mu),
         },
     )
 
@@ -778,6 +781,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        mu=args.muon_mu,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
