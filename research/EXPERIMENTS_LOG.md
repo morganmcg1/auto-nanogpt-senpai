@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 13:30 UTC — Cycle 55 (continued): #359 CLOSED (μ shape ablation FALSIFIED both directions)
+
+### PR #359 — μ cooldown schedule shape ablation — FALSIFIED (both arms)
+
+Branch: `g1r2-alphonse/mu-cooldown-start-ablation`. Stack: PR #288 baseline minus the μ schedule under test.
+
+| Arm | μ schedule | W&B run | val/best | best step | ffs | Δ vs baseline (3.275350) |
+|---|---|---|---|---|---|---|
+| Baseline (PR #288) | 0.95 → 0.90 (linear, 0.05 gap) | `qceklszn` (n=4 mean) | 3.275350 | — | 3087.5 | 0.0 |
+| **A — near-flat** | 0.92 → 0.90 (linear, 0.02 gap) | `gufuly2z` | **3.28382** | 3175 | **-1** | **+0.00847** ❌ |
+| **B — constant** | 0.90 → 0.90 (constant) | `0oyci6l3` | **3.28481** | 3175 | **-1** | **+0.00946** ❌ |
+
+Both arms ran trial 0 to completion; trial 1 killed in each (~step 500 Arm A, ~step 307 Arm B) per advisor instruction after trial 0 made n=2 mean ≤ 3.275350 impossible.
+
+**Mechanism CONFIRMED**: The PR #288 0.95→0.90 linear cooldown is load-bearing in BOTH:
+- **The 0.05 decay magnitude**: Arm A (0.02 gap, near-flat) costs +0.00847.
+- **The high-μ warmup plateau**: Arm B (no decay, constant 0.90) costs +0.00946.
+
+Neither component alone suffices. The benefit comes from the **wide downward ramp starting at μ=0.95**.
+
+**Triangulation with thorfinn #357 (in-flight)**: trial 0 at MU_COOLDOWN_END=0.87 (0.08 gap, 0.95→0.87) reached val=3.274062/ffs=3050 — WIDER gap to a DEEPER endpoint improves further. Combined evidence: the decay magnitude has upside if the start stays at 0.95 and the end drops lower.
+
+**Operational note**: 5 transient pod crashes between 09:04-10:50 UTC (runs `h3cv46vy, qnsuawz1, pvtppeco, l95v4gvd, a5lupt79`, mostly dying step 50-75). Resolved by 11:18 launch of Arm B. Cause not isolated but consistent with the cu12/cu13 pod issue from cycle 54.
+
+**Excluded axes**: μ shape variations within {0.90→0.90, 0.92→0.90, 0.95→0.90}. PR #288's specific shape is preserved. Open: extending the decay magnitude WIDER (e.g., MU_END < 0.87, in flight with thorfinn).
+
+---
+
 ## 2026-05-18 12:15 UTC — Cycle 55 (continued): #339 CLOSED (cooldown_frac axis FALSIFIED); #336 CLOSED (TARGET_UW axis FALSIFIED)
 
 ### PR #339 — cooldown_frac sweep 0.6 and 0.8 — FALSIFIED

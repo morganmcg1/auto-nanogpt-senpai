@@ -1,17 +1,16 @@
 # SENPAI Research State
 
-- 2026-05-18 12:15 UTC — Cycle 55 (continued)
+- 2026-05-18 13:30 UTC — Cycle 55 (continued)
 - No human researcher directives this session (Issue #164 is on r3 branch, not r2).
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
-- ✅ **FRIEREN #343 CLOSED** (11:15 UTC): AdamW β2 axis FALSIFIED in BOTH directions. β2=0.99 NaN at step 125; β2=0.90 grad explosion. β2=0.95 is a stability window. Reassigned → #373 AdaMuon.
-- ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FREQ_START=15→FREQ_END=7 FALSIFIED. n=4 mean val=3.27766/ffs=3125. FREQ=10 stays as stability window. Reassigned → #372 MuonEq-R.
-- ✅ **NEZUKO #339 CLOSED** (12:10 UTC): cooldown_frac axis FALSIFIED. Arm A (0.6) val=3.27583/ffs=3100 fails both bars. Arm B (0.8) val=3.275640/ffs=3075 beats OLD val marginally, FAILS NEW val (+0.000290). cooldown_frac=0.7 stays. Reassigned → #375 Muon-VS.
-- ✅ **TANJIRO #336 CLOSED** (12:10 UTC): TARGET_UW axis FALSIFIED in BOTH directions. Arm A (0.25) val=3.28570/ffs=-1 (kill-gated, +0.010 regression). Arm B (0.50) n=2 val=3.276335/ffs=3112.5 fails both bars. TARGET_UW=0.35 is local optimum. Reassigned → #376 Cooldown AdaMuon Switch.
-- 🔥 **THORFINN #357 trial 0 STRONG**: MU_COOLDOWN_END=0.87 trial 0 val=**3.274062**, ffs=**3050** — beats baseline by −0.0013 val AND −37.5 ffs. ffs=3050 is below bimodal {3075,3100} norm. Trial 1 in progress.
-- ⚠️ **ALPHONSE #359 Arm A FAIL**: MU_COOLDOWN_START=0.92→0.90 trial 0 val=**3.283822**, ffs=-1 — +0.0085 regression. Killing trial 1; Arm B (constant μ=0.90) queued.
-- ⚠️ **EDWARD #341 Arm A MISS** (10:00 UTC): SOAP_FREEZE_STEP=1000 mean val=3.28082. Arm B (FREEZE=2000) running.
-- ✅ **ASKELADD #319 CLOSED**: Muon LR warmup FALSIFIED. Reassigned → #358 CONTRA_MUON sweep.
-- ✅ **ALPHONSE #312 CLOSED**: lm_head WD no signal. Reassigned → #359 μ cooldown ablation.
+- ✅ **ALPHONSE #359 CLOSED** (13:25 UTC): μ shape ablation FALSIFIED both directions. Arm A (near-flat 0.92→0.90) val=3.28382. Arm B (constant 0.90→0.90) val=3.28481. Both fail by +0.008-0.010. **MECHANISM**: 0.05 decay gap AND high-μ warmup plateau are BOTH load-bearing. Reassigned → #378 NorMuon β2 sweep.
+- 🔥 **ASKELADD #358 Arm A trial 0 STRONG**: CONTRA_MUON=0.4 trial 0 val=**3.2728**, ffs=**3050** — beats baseline by −0.00255 val AND −37.5 ffs. SECOND ffs=3050 hit this cycle. Trial 1 nearly done.
+- ✅ **FRIEREN #343 CLOSED** (11:15 UTC): AdamW β2 axis FALSIFIED in BOTH directions. β2=0.95 is a stability window. Reassigned → #373 AdaMuon.
+- ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FALSIFIED. FREQ=10 stays. Reassigned → #372 MuonEq-R.
+- ✅ **NEZUKO #339 CLOSED** (12:10 UTC): cooldown_frac axis FALSIFIED. cooldown_frac=0.7 stays. Reassigned → #375 Muon-VS.
+- ✅ **TANJIRO #336 CLOSED** (12:10 UTC): TARGET_UW axis FALSIFIED in BOTH directions. TARGET_UW=0.35 is local optimum. Reassigned → #376 Cooldown AdaMuon Switch.
+- 🔥 **THORFINN #357 trial 0 STRONG**: MU_COOLDOWN_END=0.87 trial 0 val=**3.274062**, ffs=**3050** — FIRST ffs=3050 hit this cycle. Trial 1 in progress.
+- ⚠️ **EDWARD #341 Arm B trial 1 done** (12:50 UTC): SOAP_FREEZE_STEP=2000 trial 1 val=3.2773/ffs=3125 — already fails NEW baseline. Trial 2 in progress, axis on track to close.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -52,11 +51,13 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm B: CONTRA_MUON=0.6 (increase correction 20%)
 - If one arm wins clearly, extend to 0.3 or 0.7 in same PR
 
-### ALPHONSE #359 — μ cooldown schedule shape ablation (NEW, just assigned 08:45 UTC)
-- Tests whether linear DECAY from 0.95→0.90 is necessary, or whether a flat low μ suffices.
-- Arm A: MU_COOLDOWN_START=0.92 MU_COOLDOWN_END=0.90 (nearly flat, small drop)
-- Arm B: MU_COOLDOWN_START=0.90 MU_COOLDOWN_END=0.90 (constant μ=0.90, no decay)
-- If constant μ=0.90 works: confirms benefit is from LOW ENDPOINT, not decay trajectory; next step: try μ=0.87 constant
+### ALPHONSE #378 — NorMuon per-row variance β2 univariate sweep (NEW, assigned 13:30 UTC)
+- NORMUON_BETA2 hardcoded at 0.95 since NorMuon's original merge (PR #71). Static value never swept.
+- Arm A: NORMUON_BETA2=0.99 (slower EMA, smoother row variance)
+- Arm B: NORMUON_BETA2=0.90 (faster EMA, more reactive row variance)
+- Reference: arxiv 2509.20762 (NorMuon original — β2=0.95 tuned for non-SOAP non-Contra-Muon stack).
+- Categorically distinct from closed PR #316 (cooldown-phase ANNEAL of NorMuon β2 — falsified).
+- Code change: 1 line — make NORMUON_BETA2 read from env var (everything else already wired).
 
 ### FERN #372 — MuonEq-R: pre-NS5 row normalization (NEW, assigned 10:55 UTC)
 - Fresh mechanism from arxiv 2603.28254 (MuonEq, 2026-03). Validated on FineWeb GPT2-small (PPL 25.23→24.88).
@@ -103,6 +104,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | PR | Student | Status | Insight |
 |---|---|---|---|
 | **#288** | **thorfinn** | **MERGED ⭐** | **Cooldown-only μ anneal 0.95→0.90. val Δ−0.000485 (statsig 2.3×), ffs tied at 3087.5. Mechanism: μ-anneal localizes to cooldown phase.** |
+| #359 | alphonse | FALSIFIED | μ shape ablation: Arm A (near-flat 0.92→0.90) +0.0085, Arm B (constant 0.90) +0.0095. **MECHANISM: 0.05 decay gap AND high-μ warmup plateau BOTH load-bearing**. Neither component alone suffices. |
 | #339 | nezuko | FALSIFIED | cooldown_frac sweep 0.6/0.8 both miss NEW baseline. Arm B beats OLD val by −0.000195/−12.5 ffs (within noise); cooldown_frac=0.7 stays. PR #288 raised the bar past Arm B's reach. |
 | #336 | tanjiro | FALSIFIED | TARGET_UW=0.35 is local optimum. Arm A (0.25) kill-gated at +0.010 regression; Arm B (0.50) fails both bars by +0.0005/+25. Floor's implicit WD remains load-bearing. |
 | #319 | askeladd | FALSIFIED | Muon LR warmup both arms miss. NS5 at full LR from step 1 is load-bearing. |
@@ -141,9 +143,9 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 ## Open axes with potential
 
 - **μ cooldown endpoint** (thorfinn #357): more aggressive decay to 0.87/0.85 — direct follow-up to merged PR #288. Trial 0 STRONG (val=3.274062/ffs=3050).
-- **CONTRA_MUON rate** (askeladd #358): never swept since merge at 0.5
-- **μ schedule shape** (alphonse #359): constant low μ vs linear decay ablation. Arm A (near-flat) FAILED; Arm B (constant μ=0.90) queued.
-- **SOAP eigenbasis freeze** (edward #341): resurrects inconclusive #277. Arm A (FREEZE=1000) MISS; Arm B (FREEZE=2000) running.
+- **CONTRA_MUON rate** (askeladd #358): trial 0 STRONG (val=3.2728/ffs=3050). n=4 predeclared if n=2 clears.
+- **NorMuon β2** (alphonse #378): static value sweep (0.99 vs 0.90) — unswept since PR #71 merge.
+- **SOAP eigenbasis freeze** (edward #341): resurrects inconclusive #277. Arm A MISS; Arm B trial 1 val=3.2773/ffs=3125 — fails NEW baseline. On track to close.
 - **MuonEq-R pre-NS5 row norm** (fern #372): arxiv 2603.28254; stateless, zero HPs; orthogonal to NorMuon
 - **AdaMuon post-NS5 variance** (frieren #373): per-element EMA scaling of NS5 output; arxiv 2507.11005
 - **Muon-VS pre-NS5 gradient deviation** (nezuko #375): arxiv 2601.14603; complementary to AdaMuon (scales NS5 input vs output)
