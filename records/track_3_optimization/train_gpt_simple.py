@@ -24,7 +24,7 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
-COOLDOWN_POWER = 1.4
+COOLDOWN_POWER = 1.8   # Arm B (Arm A was 1.5; this PR runs Arm A then Arm B sequentially).
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
