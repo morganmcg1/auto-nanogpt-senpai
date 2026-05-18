@@ -53,6 +53,11 @@ def parse_args():
     # model toward anchor - lr*(mu*v + delta). Inner optimizer state is NOT reset.
     parser.add_argument("--use_outer_optimizer", type=int, default=int(os.environ.get("USE_OUTER_OPTIMIZER", "1")))
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
+    parser.add_argument("--outer_lr_final", type=float, default=None,
+                        help="Target outer_lr at end of training. None = no schedule.")
+    parser.add_argument("--outer_lr_schedule", type=str, default="none",
+                        choices=["none", "linear", "cosine"],
+                        help="Schedule shape from outer_lr to outer_lr_final.")
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
@@ -538,6 +543,18 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+def current_outer_lr(train_step, train_steps, args):
+    if args.outer_lr_final is None or args.outer_lr_schedule == "none":
+        return args.outer_lr
+    progress = train_step / train_steps
+    if args.outer_lr_schedule == "cosine":
+        eta = 0.5 * (1.0 - math.cos(math.pi * progress))
+        return args.outer_lr + (args.outer_lr_final - args.outer_lr) * eta
+    elif args.outer_lr_schedule == "linear":
+        return args.outer_lr + (args.outer_lr_final - args.outer_lr) * progress
+    raise ValueError(f"unknown outer_lr_schedule: {args.outer_lr_schedule}")
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -726,6 +743,8 @@ if dist.get_rank() == 0:
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
+            "muloco_outer_lr_final": args.outer_lr_final,
+            "muloco_outer_lr_schedule": args.outer_lr_schedule,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
@@ -1031,6 +1050,7 @@ for trial_idx in range(args.num_trials):
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
+            current_lr = current_outer_lr(train_step, train_steps, args)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
@@ -1039,7 +1059,7 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                    p.data.copy_(outer_anchor[n] - current_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
@@ -1056,6 +1076,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/current_outer_lr": current_lr,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
