@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-18 05:50 UTC — PR #314 CLOSED: embed_lr scan {0.2, 0.4} (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/embed-lr-scan`
+- **Hypothesis:** embed_lr (AdamW embed group LR) axis untested. ±33% scan around inherited 0.3 (→ 0.2, 0.4).
+- W&B runs: `tn1qni73` (Arm A, embed_lr=0.2), `yzzqq64v` (Arm B, embed_lr=0.4)
+
+| Arm | embed_lr | sr | val/loss | Δsr vs baseline | Δval |
+|-----|----------|----|----------|-----------------|------|
+| **Baseline (PR #274)** | 0.3 | **3000** | **3.2685** | — | — |
+| Arm A | 0.2 | 3050 | 3.26723 | +50 | −0.00127 |
+| Arm B | 0.4 | 3050 | 3.26666 | +50 | −0.00184 |
+
+**Result:** Both arms NULL (sr=3050, +50 steps vs baseline). The embed_lr axis is locally flat around 0.3 — ±33% perturbations yield symmetric +50 sr-step regression. Arm B (higher LR) has mild persistent val advantage over A throughout training (Δ=−0.023 at step 125 → −0.0006 at step 3250) but neither crosses baseline.
+
+**Key finding:** Embedding RMS scales linearly with LR (7.34→14.52, ~2× for 2× LR ratio) but this doesn't translate to sr gain. The AdamW cosine cooldown kills the early advantage. embed_lr=0.3 is a well-tuned local optimum.
+
+**Axis decision: CLOSED at embed_lr=0.3.** With β1, β2, eps, embed_lr now all confirmed flat, the AdamW aux path is fully tuning-converged on the current stack.
+
+**Next assignment:** PR #342 — End-of-cooldown SWA tail (fresh schedule mechanism).
+
+---
+
 ## 2026-05-18 01:42 — PR #274: COOLDOWN_POWER retune {1.0, 1.4} — γ_power=0.4 stack (g1r1-fern) ← **MERGED WIN**
 
 - Branch: `g1r1-fern/cooldown-power-retune`
