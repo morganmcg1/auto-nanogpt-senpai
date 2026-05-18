@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 19:30 UTC — PR #374: Embed init scale sweep (edward) — CLOSED productive-null ✅
+
+- Branch: `g1r4-edward/embed-init-scale`
+- Hypothesis: embed init scale (default std=0.5/sqrt(dim) ≈ baseline 1.0×) may not be optimal. Sweep {0.5, 1.0, 1.5, 2.0}× to test directionality.
+
+### Results — 4-arm single-pod sequential on post-#290 stack
+
+| Arm | scale | val_loss | Δ vs A | fs | init_embed_norm | final_embed_norm | W&B |
+|---|---|---|---|---|---|---|---|
+| B | 0.5 | **3.27360** | −0.00061 | 3250 | 3104 | 76400 | `d6j9u1ez` |
+| A (control) | 1.0 | 3.27421 | — (drift gate +0.00221 ✓) | 3250 | 6208 | 77102 | `2d90oywk` |
+| C | 1.5 | 3.27419 | −0.00002 | 3250 | 9344 | 77964 | `ahjvbka0` |
+| D | 2.0 | 3.27448 | +0.00027 | 3275 | 12416 | 78504 | `751fit6b` |
+
+### Key findings
+
+1. **Drift gate ✓**: arm-A at +0.00221 vs baseline, well inside ±0.003 tolerance.
+2. **Flat axis**: all 4 arms within ±0.00027 of A except B at −0.00061 (still inside ±0.0015 null band). Best arm B at val=3.27360 does NOT beat baseline (3.27200, n=3 mean).
+3. **Final-norm convergence is the smoking gun**: all 4 arms converge to ~77k embed norm by step 3350, within ~1.8% of each other despite a 4× init range. The init magnitude is **completely forgotten** by the optimizer.
+4. **Mechanism story confirmed**: RMSNorm in the forward pass (line 501) strips embed magnitude before the model uses it. AdamW (β2=0.99, ~100-step v-EMA) + grad clip=10 then absorb any residual magnitude variance in the backward pass.
+
+### Verdict
+
+Productive-null with strong mechanism reading. Embed init scale axis CLOSED.
+
+### Methodological notes
+
+- Clean drift gate pass and reproducible control.
+- Excellent mid-trajectory telemetry (init norms + final norms) directly observed and quantified the mechanism.
+- Honest analysis: weak directional bias (smaller init → marginally better) noted but correctly identified as sub-threshold.
+- Mechanism reading on RMSNorm + AdamW + grad clip absorption is a useful prior for future init-axis experiments.
+
 ## 2026-05-18 17:05 UTC — PR #356: Muon μ schedule sweep (nezuko) — CLOSED productive-null ✅
 
 - Branch: `g1r4-nezuko/muon-mu-schedule`

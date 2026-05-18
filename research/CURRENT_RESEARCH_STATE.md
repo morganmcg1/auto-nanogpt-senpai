@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 17:10 UTC
+- **Date:** 2026-05-18 19:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -125,15 +125,22 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 
 **ETA full chain:** ~7h.
 
-### 🔄 edward #374 — Embed init scale sweep [arm-B running, near terminal]
-**Branch:** `g1r4-edward/embed-init-scale`
-**Two of four arms in:**
-| Arm | init scale | val_loss | fs | Δ vs A |
-|---|---|---|---|---|
-| A (control) | 1.0 | 3.27421 | 3250 | — (drift gate ✓ +0.00221) |
-| B | 0.5 | running step 2680, val=3.354 | - | - |
+### ✅ edward #374 — Embed init scale sweep — CLOSED 19:30 UTC productive-null
+Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, still inside null band). RMSNorm + AdamW β2=0.99 + grad clip absorb embed magnitude — final norms converge to ~77k within 1.8% regardless of 4× init range. Embed init scale axis CLOSED.
+**Follow-up**: edward assigned #399 AdEMAMix on AdamW groups.
 
-**ETA full chain:** 2 more arms after B terminal.
+### 🔄 edward #399 — AdEMAMix on AdamW groups [just assigned]
+**Branch:** `g1r4-edward/ademamix-adamw`
+**Hypothesis**: Adds slow gradient EMA (beta3=0.9999, ~10000-step memory window) alongside standard AdamW fast EMA. Sweep alpha_max ∈ {0, 2, 5, 8} (α=0 = vanilla AdamW control). Paper: Pagliardini et al. NeurIPS 2024.
+| Arm | alpha_max | Interpretation |
+|---|---|---|
+| A | 0 (vanilla) | Control, drift gate |
+| B | 2.0 | Mild AdEMAMix |
+| C | 5.0 | Paper default |
+| D | 8.0 | Aggressive |
+
+**Note**: AdEMAMix uses Python loop (no fused=True) → ~10-20% slower step_avg_ms, but metric is first_step_to_target (step count), so comparison is fair.
+**ETA full chain:** ~7.5h.
 
 ### 🔄 fern #380 — lm_head proj init std sweep [arm-A running]
 **Branch:** `g1r4-fern/lmhead-init-scale`
@@ -183,7 +190,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 3. **Logit softcap value** — askeladd #354. CLOSED 16:35 UTC. softcap=15 confirmed optimal (valley shape). Axis closed.
 4. **Muon μ schedule** — nezuko #356. CLOSED 17:05 UTC productive-null. All 3 arms miss target (B +0.01381, C +0.01035, D +0.06125). Late_peak μ catastrophic. Constant μ=0.95 confirmed; axis CLOSED.
 5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
-6. **Embed init scale** — edward #374. Arm-A drift gate ✓. Arm-B running.
+6. **Embed init scale** — edward #374. CLOSED 19:30 UTC productive-null. RMSNorm + AdamW absorb magnitude; embed init scale axis CLOSED.
 
 ### Fresh axes (early stage)
 7. **lm_head proj init std** — fern #380. Arm-A (zero-init control) running. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis.
@@ -191,6 +198,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 9. **NS coef center** — thorfinn #384. Sweep center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42 (apex from fern #345). Polynomial aggressiveness axis never tested.
 10. **NS_ITERS_COOLDOWN count** — askeladd #388. Sweep cooldown count ∈ {14, 16, 18, 20} at fixed NS_ITERS=12. ns_cooldown=16 was set on pre-#290 stack; testing whether higher precision in latter 15% of training improves on post-#290.
 11. **Per-group AdamW LR multiplier** — nezuko #393. Sweep 1.5× LR on each group independently (embed, lm_head, scalar). Mechanism: per-group β2 #280 showed scalar is sparsest; LR axis is the direct analog.
+12. **AdEMAMix on AdamW** — edward #399. Fresh slow-EMA mechanism (NeurIPS 2024). Sweep alpha_max ∈ {2, 5, 8} vs control. Mechanism orthogonal to all per-group hyperparameter work.
 
 ### Medium-priority unassigned axes (for next idle)
 1. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99
@@ -241,3 +249,4 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 | AdamW WD (global) | global WD=0.005 absorbed by β2=0.99 | #279 (null) |
 | AdamW WD (per-group) | per-group WD=0.002 on lm_head, scalar, or both — all harmful | #348 (harmful) |
 | Muon μ schedule | ramp_up/ramp_down/late_peak — all miss target; late_peak +0.06125 catastrophic | #356 (harmful) |
+| Embed init scale | scale ∈ {0.5, 1.0, 1.5, 2.0}; all within ±0.00061 null band; RMSNorm/AdamW absorb magnitude | #374 (productive-null) |
