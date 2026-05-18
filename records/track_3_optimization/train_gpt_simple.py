@@ -523,6 +523,11 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+# Muon LR cooldown floor: holds muon_blocks LR at floor*peak through the final cooldown
+# segment instead of decaying linearly to zero. 0.0 = baseline (linear-to-zero).
+NANOGPT_MUON_COOLDOWN_FLOOR = float(os.environ.get("NANOGPT_MUON_COOLDOWN_FLOOR", "0.0"))
+assert 0.0 <= NANOGPT_MUON_COOLDOWN_FLOOR <= 0.5, \
+    f"NANOGPT_MUON_COOLDOWN_FLOOR={NANOGPT_MUON_COOLDOWN_FLOOR} must be in [0.0, 0.5]"
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -654,6 +659,9 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+print0(f"MUON_COOLDOWN_FLOOR: {NANOGPT_MUON_COOLDOWN_FLOOR} "
+       f"({'ENABLED — muon_blocks LR floors at ' + str(NANOGPT_MUON_COOLDOWN_FLOOR) + '*peak' if NANOGPT_MUON_COOLDOWN_FLOOR > 0 else 'DISABLED (linear-to-zero)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
@@ -704,6 +712,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_muon_cooldown_floor": NANOGPT_MUON_COOLDOWN_FLOOR,
         },
     )
 
@@ -756,13 +765,15 @@ for trial_idx in range(args.num_trials):
 
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
-    # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    # adam_embed group (NANOGPT_EMBED_COOLDOWN_SHAPE) and the muon_blocks
+    # group (NANOGPT_MUON_COOLDOWN_FLOOR: floors LR at floor*peak through cooldown).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta_default = 1.0
             eta_embed = 1.0
+            eta_muon = 1.0
         else:
             eta_default = (1 - progress) / cooldown_frac
             cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
@@ -776,10 +787,14 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+            # muon floor: linear_floor shape mirroring embed (floor + (1-floor)*eta_default)
+            eta_muon = NANOGPT_MUON_COOLDOWN_FLOOR + (1.0 - NANOGPT_MUON_COOLDOWN_FLOOR) * eta_default
         for opt in optimizers:
             for group in opt.param_groups:
                 if group.get("name") == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
+                elif group.get("name") == "muon_blocks":
+                    group["lr"] = group["initial_lr"] * eta_muon
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
 
