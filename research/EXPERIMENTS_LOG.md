@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-18 20:06 UTC — PR #350 CLOSED: Residual-proj init scaling {1/√(2N), 1/N} NULL (g1r1-edward)
+
+- Branch: `g1r1-edward/residual-init`
+- Hypothesis: The baseline zero-inits all residual-stream projection weights (`proj` in attn and MLP). Test whether small non-zero init — GPT-2-style 1/√(2N) and 1/N — helps by providing a better-conditioned start for the residual stream.
+
+| Run | Arm | std init target | sr | val/loss | Δval | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline (PR #274) | zero | 0 | 3000 | 3.2685 (n=2) | — | — |
+| `ugf2tm22` | A: 1/√(2N) | 0.00408 | 3000 | 3.26966 | +0.00116 | NULL |
+| `t7607ha7` | B: 1/N | 0.00167 | 3000 | 3.26866 | +0.00016 | NULL (tied) |
+
+Student's pre-flight catch: baseline zero-inits ALL proj weights (most aggressive form), so this was truly testing "any non-zero vs zero." Both arms regressed slightly on val; sr tied at 3000 for both. The GPT-2 1/√(2N) trick doesn't transfer — Muon's per-step orthogonalization resets gradient direction anyway, making init less consequential for convergence trajectory.
+
+**Residual-init scaling axis CLOSED at zero-init.**
+
+---
+
 ## 2026-05-18 18:07 UTC — PR #332 CLOSED: COOLDOWN_POWER continuation {1.5, 1.8} NULL (g1r1-fern)
 
 - Branch: `g1r1-fern/cooldown-power-continuation`
