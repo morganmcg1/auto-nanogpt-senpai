@@ -54,6 +54,10 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--muon_nesterov", action="store_true", default=True,
+                        help="Use Nesterov-style momentum in Muon (default True). Mix grad+momentum.")
+    parser.add_argument("--no-muon_nesterov", dest="muon_nesterov", action="store_false",
+                        help="Disable Nesterov momentum in Muon (use pure Polyak EMA).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -540,7 +544,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
-    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
+    def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95, nesterov=True,
                  soap_attn=False, trust_threshold=0.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
@@ -551,7 +555,7 @@ class Muon(torch.optim.Optimizer):
             groups_raw = named_params
             all_named = [(n, p) for g in groups_raw for n, p in g["named_params"]]
         else:
-            groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu}]
+            groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu, "nesterov": nesterov}]
             all_named = named_params
 
         soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
@@ -573,11 +577,12 @@ class Muon(torch.optim.Optimizer):
                 "lr": g.get("lr", lr),
                 "weight_decay": g.get("weight_decay", weight_decay),
                 "mu": g.get("mu", mu),
+                "nesterov": g.get("nesterov", nesterov),
             }
             if "name" in g:
                 g_dict["name"] = g["name"]
             param_groups.append(g_dict)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, nesterov=nesterov)
         super().__init__(param_groups, defaults)
 
     @torch.no_grad()
@@ -605,7 +610,10 @@ class Muon(torch.optim.Optimizer):
                             state["soap_step"] = 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        if group.get("nesterov", True):
+                            raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        else:
+                            raw_nesterov = state["momentum"].clone()
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -619,7 +627,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], nesterov=group.get("nesterov", True))
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -731,6 +739,7 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "muon_nesterov": bool(args.muon_nesterov),
         },
     )
 
@@ -778,6 +787,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        nesterov=args.muon_nesterov,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
