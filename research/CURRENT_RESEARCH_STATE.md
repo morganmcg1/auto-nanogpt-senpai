@@ -1,18 +1,31 @@
 # SENPAI Research State
 
-- 2026-05-18 16:15 UTC — Cycle 55 (continued)
+- 2026-05-18 17:15 UTC — Cycle 55 (continued)
 
-## 🔥 THREE-MECHANISM CONVERGENCE — ALL n=2 CONFIRMED (16:15 UTC)
+## 🔥 THREE-WAY N=4 CONFIRM RACE IN PROGRESS (17:15 UTC)
 
-Three independent mechanism perturbations all hit `ffs=3050` (below bimodal {3075, 3100} floor) AND have n=2 STRONG with statsig pass:
-1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050, statsig PASS). Arm B (MU_END=0.85) trial 1 at step 2975/3175 AT RISK of missing target.
-2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5, statsig PASS). **n=4 confirm RUNNING** (trial 0 done val=3.2752/ffs=3075 borderline; trial 1+ in progress; ETA ~20:30 UTC).
-3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5, statsig PASS, T0=3.27352/3050 + T1=3.27433/3075). **n=4 confirm LAUNCHED 15:44 UTC** (ETA ~22:50 UTC). Arm B (eps=1e-6) queued via background launcher.
+Three independent mechanism perturbations all hit `ffs=3050` floor (below bimodal {3075, 3100}) AND have n=2 STRONG with statsig pass. ALL THREE NOW IN n=4 CONFIRM:
+1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). Arm B (0.85) n=2 also narrowly clears (val=3.275205/ffs=3062.5) but DOMINATED by Arm A. **n=4 confirm on Arm A LAUNCHED 16:24 UTC** (ETA ~20:45 UTC).
+2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5). **n=4 confirm RUNNING** (trial 0 done val=3.2752/ffs=3075 borderline; ETA ~20:30 UTC).
+3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5). **n=4 confirm RUNNING** since 15:44 UTC (ETA ~22:50 UTC). Arm B (eps=1e-6) queued.
 
-**Mechanism reading**: All three perturbations affect cooldown-phase update geometry (μ floor, contra correction, pre-NS5 row normalization). The active lever is likely cooldown-stage update geometry — any perturbation there compounds. If multiple n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 + MuonEq-R) to test additivity vs substitutability.
+**Mechanism reading (INPUT-ROBUST, OUTPUT-FRAGILE)**: 
+- All three winners affect cooldown-phase update geometry on the INPUT-side or schedule-side of the optimizer pipeline:
+  - μ-floor: schedule-side perturbation
+  - contra strength: pre-NS5 mixing of normalized gradient
+  - MuonEq-R: pre-NS5 row normalization of momentum input
+- The TWO LOSERS (AdaMuon variants) perturb the OUTPUT-side post-NS5:
+  - frieren #373: full AdaMuon — Arm A n=2 MISS (val=3.27786/+0.00251, ffs=3112.5/+25)
+  - tanjiro #376: cooldown-only AdaMuon — trial 0 MISS (val=3.2764/+0.00105, ffs=3100/+12.5)
+- Mechanism: NS5 produces near-orthogonal output; post-NS5 element-wise variance scaling redistributes the orthogonality across elements, which NorMuon's row-scaling can't fully restore.
+- **Lesson for future hypothesis design**: bias toward input-side or schedule-side perturbations. The cooldown pipeline is OUTPUT-FRAGILE.
 
-## ⏳ At-Risk Watch
-- **thorfinn #357 Arm B trial 1**: val=3.2871 at step 2975/3175, needs to drop 0.007 in ~200 steps to reach target=3.28. If misses → ffs=NaN for trial 1 → n=2 mean uncomputable. Arm A n=2 already STRONG so trial-B miss doesn't affect baseline win, just upper-direction sweep.
+If multiple n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 + MuonEq-R) to test additivity vs substitutability.
+
+## 🚫 Falsified Output-Side Mechanisms
+- **NEZUKO #375 Muon-VS β=0.95** trial 0 CATASTROPHIC MISS: val=3.32486 (+0.050), ffs=-1 (never reached target). Trial 1 KILLED early (mathematically foreclosed). Arm B β=0.90 running.
+- **FRIEREN #373 AdaMuon β=0.95** Arm A n=2 MISS: val=3.27786/+0.00251, ffs=3112.5/+25. Arm B β=0.99 launched ~17:00 UTC.
+- **TANJIRO #376 Cooldown-AdaMuon β=0.95** trial 0 MISS: val=3.2764/+0.00105, ffs=3100/+12.5. Trial 1 in progress ETA ~18:05 UTC.
 
 
 - No human researcher directives this session (Issue #164 is on r3 branch, not r2).
