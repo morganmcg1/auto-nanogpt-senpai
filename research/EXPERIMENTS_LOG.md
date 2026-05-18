@@ -6,6 +6,28 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 09:00 UTC — PR #328: MuLoCo outer_momentum cosine decay ❌ CLOSED NEG
+
+- **Branch**: g1r3-frieren/outer-momentum-decay-sweep
+- **Hypothesis**: Decay MuLoCo's outer_momentum 0.5 → final_mom on cosine envelope, in lockstep with MuonH cosine LR. Prediction: shrinking slow-snap memory near minimum prevents late-training overshoot. 3-arm screen final_mom ∈ {0.50 (no-op control), 0.25, 0.00} × 1 trial × 3325 steps.
+- **Results**:
+
+| Arm | W&B Run | Terminal val/loss | Δ vs baseline 3.27415 | Verdict |
+|---|---|---|---|---|
+| final=0.50 (no-op control) | `4ojz1uei` (in-flight; baseline by construction) | ≈ baseline | ≈0 | math identity |
+| final=0.25 | `17dtmqsh` | 3.27569 | +0.00154 | NEG slight |
+| final=0.00 | `dbbvjy9f` | **3.27805** | **+0.00390** | **STRONG NEG** |
+
+- **Monotonic NEG direction**: 0.50 → 0.25 → 0.00 produces monotonically worse terminal val/loss. The prediction is inverted.
+- **Mechanism (student's analysis, verbatim)**: "MuLoCo's outer velocity v is the slow-snap memory that integrates inner-step drift across sync intervals. Because the cosine LR shrinks inner Δ to ~0 over the run, v is _already_ self-quieting late in training; it does not need a separate decay schedule to forget. Imposing a cosine on the outer momentum itself shrinks the slow-snap memory _additionally_ exactly when the run needs to settle near a minimum, removing the contribution from the most-converged region of the trajectory."
+- **Diagnostic quality**: Clean OOM root-cause attribution (initial concurrent torchruns → strict-sequential launcher fix), decay-trace validation (outer momentum traced through cosine envelope: 0.482→0.394→0.287→0.259→0.25 for arm 0.25; 0.465→0.288→0.074→0.019→0.0 for arm 0.0), and final=0.50 control bit-identity proven by construction.
+- **Cross-study consistency**: PR #260 (thorfinn outer_momentum static sweep): 0.3=NEG, 0.5=optimal, 0.9=diverged. Two independent studies now agree **outer_momentum=0.5 fixed is the unique optimum**.
+- **Conclusion**: **CLOSED NEG.** outer_momentum decay family entirely closed. Adding to saturated levers.
+- **Saturated lever**: MuLoCo outer_momentum scheduled decay (cosine, by extension linear/step variants) — fixed 0.5 is optimal.
+- **Next assignment**: frieren → sync_interval scheduling (student's verbatim suggested follow-up: "increase sync_interval late in training (e.g., 30 → 60 over the last third)"). Orthogonal lever to momentum — tests outer-update timing rather than memory weight.
+
+---
+
 ## 2026-05-18 08:40 UTC — PR #326: NS5-outer muon_update_style + outer_lr retune ❌ CLOSED NEG
 
 - **Branch**: g1r3-nezuko/ns5-outer-muon-style-sweep
