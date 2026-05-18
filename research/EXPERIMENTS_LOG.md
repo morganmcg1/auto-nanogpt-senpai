@@ -6,6 +6,29 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 08:08 UTC — PR #325: Aux AdamW cooldown shape sweep (linear vs cosine vs sqrt) ❌ CLOSED NEG
+
+- **Branch**: g1r3-fern/aux-cooldown-shape-sweep
+- **Hypothesis**: Cosine cooldown beat linear for MuonH inner LR (PR #243 MERGED). Maybe cosine also beats linear for aux AdamW (embed/head/scalar) LR? Three-arm screen: aux_cooldown_shape ∈ {linear (control), cosine, sqrt} × 1 trial × 3325 steps on full stack (MuLoCo + cosine MuonH + AGC clip=0.05).
+- **Results**:
+
+| Arm | W&B Run | Terminal val/loss | Δ vs baseline 3.27415 | Δ vs linear control | Verdict |
+|---|---|---|---|---|---|
+| linear (control) | `ij7osycz` | 3.27295 | -0.00120 | — | n=1 noise of baseline |
+| cosine | `r9zvas0i` | 3.27702 | +0.00287 | +0.00407 | **NEG — cosine HURTS aux** |
+| sqrt | `4ovuu6yi` | 3.27443 | +0.00028 | +0.00148 | NEG slight |
+
+- **Mechanism (student's η-curve + trailing-slope decomposition)**:
+  - Cosine zeros aux η mid-cooldown → embedding/head/scalar params stop fine-tuning early → terminal slope ≈ -0.00086/100 (flatlined, model has stopped learning)
+  - Sqrt keeps aux η at ~2.7% of base at terminal → embedding/head still moving too much, adds noise → terminal slope -0.00388/100 (steepest but can't catch linear)
+  - Linear settles at the Goldilocks → terminal slope -0.00199/100
+- **Conclusion**: **CLOSED NEG.** Aux AdamW cooldown shape is **saturated at linear** (current baseline). The MuonH/aux **regime asymmetry** is now confirmed: MuonH wants cosine shape (NS5-orthogonalized momentum has headroom for deep tail decay), aux AdamW wants linear shape (embedding/head/scalar updates retain raw direction and need conservative late-training decay).
+- **Earlier crash diagnostic** (4 prior failures `ajk7avas`/`zdtyyz6o`/`lxfezv10`/`3dwkwz5f`): all CLI parsing errors from `--use_outer_optimizer true` (string) vs `type=int` argparse. Fixed in driver. Not a code-path issue.
+- **Saturated lever**: aux_cooldown_shape — no further shape variants worth testing (polyak/sigmoid would land between linear and cosine).
+- **Next assignment**: fern → aux_cooldown_frac sweep (the unexplored interaction — frac=0.4 may not be globally optimal under full stack).
+
+---
+
 ## 2026-05-18 02:55 UTC — PR #308: MuonH momentum β decay during cooldown (mu_final sweep) ❌ CLOSED NEG
 
 - **Branch**: g1r3-edward/muonh-mu-final-sweep
