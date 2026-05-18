@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~21:55Z (poll #177)
+- **Last updated:** 2026-05-18 ~22:35Z (poll #178)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -17,11 +17,11 @@
    - For n=4 gate: T2+T3 average ≤ 3.270345 (very generous; baseline mu+~σ would suffice)
    - **If trials 2 and 3 hold near baseline: MERGES as new baseline** — first below-baseline merge since baseline merge.
 
-2. **FRIEREN PR #346 lr_attn=0.025 P2 RUNNING — Trial 0 UNFAVORABLE** ⚠️:
-   - Full sweep terminal — clean monotone-asymmetric bowl: A(0.025)=3.2697 ffs=3125, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741, E(0.075)=3.2789
-   - **P2 `85x1y4if` Trial 0 TERMINAL: val=3.275463 ffs=3175** (+3.47σ — much worse than P1 Cell A 3.269674)
-   - Required to pass n=4 gate: T1+T2+T3 average ≤ 3.267328 — implausible
-   - Classic n=1→n=4 endpoint pattern (matches PR #228, #306, #320). Run to terminal, expect clean-neutral close.
+2. **FRIEREN PR #346 lr_attn=0.025 P2 — Likely Clean-Neutral Close** ⚠️:
+   - Full sweep: A(0.025)=3.2697 ffs=3125 -1.43σ, B/C flat, D/E degrading
+   - **P2 `85x1y4if`: T0=3.275463 ffs=3175, T1=3.270923 ffs=3125** (running mean 3.273193)
+   - For n=4 gate: T2+T3 average must be ≤ 3.265531 (~−5σ; implausible)
+   - **Likely closes clean-neutral.** Trial 2 in flight (boundary reset).
 
 3. **TANJIRO PR #368 QKV ortho_qk_only P2 Trial 0 CLOSE-MISS** ⚠️:
    - Cell E `05xeeiv8` val=3.26932 ffs=3125 (-1.43σ) — P2 trigger gate
@@ -41,7 +41,7 @@
 | #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | A=3.2708 ffs=3125, **B ramp_up=3.27002 ffs=3125** (-1.13σ, just misses P2 gate by 1.5e-5), C ramp_down=3.27124 ffs=3150 (+0.66σ). **D triangle RUNNING step 1662/3250 (~51%).** |
 | #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A=3.2716, B=3.2805, **C ramp_down=3.2689 ffs=3100 → P2 TRIGGER**. **P2 `okae8f06` n=4 running: Trial 0 val=3.267584 ffs=3100 (+0.008416 margin). Trial 1 mid-flight.** |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | A=3.2703 ffs=3125, B=3.2727, C=3.2726, D=3.2735, **E ortho_qk_only=3.26932 ffs=3125 → P2 TRIGGER**. **P2 `899b4f5m`: ⚠️ Trial 0=3.270026 ffs=3125 (misses gate by 0.0007). Trial 1 mid-flight.** |
-| #398 | askeladd | AdamW aux ε schedule sweep ∈ {constant, ramp_up, ramp_down, spike_cooldown, log_cosine} | NEW ASSIGNMENT (PR #398 created). Cell A constant ctrl pending launch. |
+| #398 | askeladd | AdamW aux ε schedule sweep ∈ {constant, ramp_up, ramp_down, spike_cooldown, log_cosine} | Cell A constant RUNNING step 2371/3250 (~73%) after 6 prior crashes. Latest run healthy. Terminal in ~25 min. |
 | #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Full sweep terminal. A(0.025)=3.2697 ffs=3125 -1.43σ, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741, E(0.075)=3.2789. **P2 `85x1y4if` n=4 running: ⚠️ Trial 0=3.275463 ffs=3175 (+3.47σ, unfavorable). Likely close clean-neutral at terminal.** |
 
 
