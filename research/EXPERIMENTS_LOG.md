@@ -3,6 +3,51 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-18 15:30 UTC — PR #320: Adam β₂ sweep for AdamW aux groups — **CLOSED clean-neutral**
+
+- Branch: `g1r5-edward/adam-beta2-aux-sweep`
+- Student: g1r5-edward
+- Hypothesis: AdamW aux β₂ static sweep ∈ {0.85, 0.90, 0.95-ctrl, 0.98, 0.99} on aux groups (embed/lm_head/scalars). β₂=0.98 Phase 1 (mo3leb2y) hit val=3.268718 ffs=3125 (-2.24σ Phase 1 trigger).
+
+### Phase 2 — n=4 confirm at β₂=0.98
+
+| Trial | val/best_loss | ffs | W&B note |
+|-------|---------------|-----|----------|
+| T1 | 3.27041 | 3125 | Phase 2 launch |
+| T2 | 3.26920 | 3125 | |
+| T3 | 3.27287 | 3150 | Regression — gate became unreachable on running mean |
+| T4 | 3.27044 | 3125 | |
+| **n=4 mean** | **3.27073** | **3131.25** | sum 13.08292 |
+| sample std | 0.00154 | 12.5 | higher than baseline σ=0.001181 |
+| SE | 0.00077 | — | |
+
+W&B P2 run: `mo3leb2y` (group `g1r5-edward/beta2-aux-098-confirm-n4`)
+
+### Statsig analysis
+
+- Δ mu vs baseline = -0.00063 (~1.07σ below baseline using σ=0.001181)
+- Gate FAIL by +0.00137 (need ≤ 3.269362 for n=4)
+- n=6 extension would need ≤ 3.269729 — projected continuation also fails
+- ffs mean 3131.25 vs baseline 3141.67 (+10.4 steps gain, ~0.83σ on ffs)
+
+### Conclusion
+
+Real but small mechanism (~1.07σ below baseline). Phase 1 n=1 read at -2.24σ
+was favorable seed; per-trial σ=0.00154 confirms the true effect is much
+smaller than the n=1 read suggested.
+
+Third instance of the **endpoint-LR / aux-hparam pattern** — Phase 1 n=1
+below -1.5σ that fails to survive n=4 confirmation:
+- PR #228 (frieren lr_embed=0.80 n=6, mean=3.270251, gate fail by 0.45σ)
+- PR #306 (alphonse lr_lm_head=0.030 n=4, mean=3.2711925, gate fail by 12×)
+- **PR #320 (edward β₂=0.98 n=4, mean=3.27073, gate fail by 1.07σ short)**
+
+Closing clean-neutral. β₂=0.98 (static) added to exhausted slots. Dynamic
+β₂ schedule sweep (PR #381, alphonse) is the natural productive follow-up
+— testing whether time-varying β₂ can amplify the effect beyond static.
+
+
+
 ## 2026-05-15 — Wave 1 dispatched (PRs #43–#50)
 
 All 8 PRs are draft, `status:wip`, awaiting student execution. See
