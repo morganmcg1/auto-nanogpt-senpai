@@ -54,6 +54,10 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--mu_mlp", type=float, default=0.95,
+                        help="Muon momentum coefficient for MLP param group. Default 0.95.")
+    parser.add_argument("--mu_attn", type=float, default=0.95,
+                        help="Muon momentum coefficient for attention param group. Default 0.95.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +735,8 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "mu_mlp": args.mu_mlp,
+            "mu_attn": args.mu_attn,
         },
     )
 
@@ -774,11 +780,13 @@ for trial_idx in range(args.num_trials):
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  mu=args.mu_mlp,  name="muon_mlp"),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, mu=args.mu_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
+    print0(f"muon per-group mu: muon_mlp={optimizer2.param_groups[0]['mu']} "
+           f"muon_attn={optimizer2.param_groups[1]['mu']}", console=True)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
