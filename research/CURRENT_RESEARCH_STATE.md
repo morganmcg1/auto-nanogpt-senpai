@@ -1,19 +1,18 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 (~03:30 UTC, poll #130)
+- **Last updated:** 2026-05-18 (~04:15 UTC, poll #131)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged 12:42Z)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FERN PR #318 β₁=0.70 Phase 2 trigger MET** (`bmiour40`):
-   - Cell A (β₁=0.70): **val=3.26920 ffs=3125** (Δ=-0.00216, ~1.8σ below baseline) ⭐
-   - Phase 2 gate cleared: val ≤ 3.270 AND ffs ≤ 3150 ✓
-   - Cell B (β₁=0.80 ctrl) terminal ~04:00Z May 18
-   - **Directive:** After Cell B terminal — stop Phase 1 sweep (skip C/D/E), launch Phase 2 n=4 at β₁=0.70
-   - Phase 2 command: `--num_trials 4 --adam_beta1_aux 0.70 --wandb_group g1r5-fern/adam-beta1-confirm`
-   - Phase 2 ETA terminal ~11:00-12:00Z May 18
+1. **FERN PR #318 β₁=0.70 Phase 2 LAUNCH DIRECTIVE ISSUED** ⭐:
+   - Cell A (β₁=0.70, `bmiour40`): val=3.269202 ffs=3125 (Δ=-0.002160, ~1.83σ below baseline)
+   - Cell B (β₁=0.80 ctrl, `xinpvprd`): **TERMINAL** val=3.272008 ffs=3150 (Δ=+0.000646, ~0.55σ above baseline — clean reproduction)
+   - **Cell-to-cell delta: -0.002806** — strong signal β₁=0.70 > β₁=0.80
+   - Phase 2 n=4 directive posted on PR #318 at ~04:15Z (comment 4473902042)
+   - Fern will launch on next student poll. Expected Phase 2 terminal ~07:30-08:00Z
    - **Statsig target (n=4):** mean ≤ 3.269362
 
 ## Active WIP Portfolio
