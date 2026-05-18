@@ -1,5 +1,32 @@
 # SENPAI Research Results
 
+## 2026-05-18 17:25 UTC — PR #364 PENDING (sent back for n=2): Muon momentum reset hard vs soft (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-reset`
+- Hypothesis: Reset Muon momentum at cooldown entry (step 975 = `int((1-cooldown_frac)*train_steps)`, cooldown_frac=0.7). Two arms: hard (zero momentum) vs soft (×0.3 retain).
+- W&B runs: `x3ot747o` (Arm A hard), `sj1qgbu1` (Arm B soft, 13:00 UTC, 222min)
+- Telemetry confirmed clean reset: momentum_norm_before/after_immediate ratios = 0.000 (Arm A) and 0.300 (Arm B) at step 975.
+
+| Arm | reset | sr | val/loss | Δsr | Δval | verdict |
+|---|---|---|---|---|---|---|
+| Baseline (PR #274) | — | 3000 | 3.2685 | — | — | — |
+| Arm A | hard (×0) | 3000 | 3.2692 | 0 | **+0.0007** | NULL (hard reset destroys directional info cooldown still uses) |
+| Arm B | soft (×0.3) | 3000 | **3.2680** | 0 | **-0.0005** | **MARGINAL val WIN** (Δval below 0.001 marginal threshold) |
+
+**Decision:** Sent back to student for **n=2 confirmation of Arm B (soft ×0.3) only**. Per the marginal rule (Δval ≤ 0.001 → n=2 required), single-seed result is within seed noise. Arm A hard reset NULL is conclusive at n=1.
+
+**Mechanism diagnosis (askeladd):**
+- The two arms separated by ~0.001 val/loss across the entire cooldown phase post-reset.
+- Hard reset (×0) zeros momentum → next 5–10 steps move slower than baseline (no inertia) → small cooldown-phase progress lost.
+- Soft reset (×0.3) keeps 30% inertia → enough fresh direction-finding to slightly outperform baseline, retains enough inertia to keep moving immediately.
+- No divergence, no instability, no late-cooldown plateau.
+
+**Key open question for n=2:** if confirmed (mean val < 3.2685), this would be the **first program WIN in many rounds**. Follow-ups (decay scan {0.1, 0.5, 0.7}, reset-step jitter, soft reset of L_cov/R_cov covariance EMAs) are queued for future PRs.
+
+**Cross-cutting infrastructure note:** Earlier I observed 6+ cold-start crash retries on muon-reset-hard config. Reviewing the consolidated terminal, the successful `x3ot747o` run completed first; later crashes were post-terminal n=2 attempts. Same crash signature (step ≤25, val=10.8258, ~7m) is appearing across thorfinn aux-CP=1.0 (10+), frieren lm-head-lr=1/160 (6), edward residual-init-1/√2N (5 then succeeded on 6th). Looks like shared pod/launcher instability, not per-experiment bugs.
+
+---
+
 ## 2026-05-18 16:05 UTC — PR #347 CLOSED + PR #387 ASSIGNED: LLRD → Role-based Muon LR (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/llrd-scan`
