@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 05:15 UTC — Cycle 55 (continued): edward #281 CLOSED (per-head SOAP FALSIFIED — both arms miss); askeladd #319 Arm A FALSIFIED; reassigned #341 SOAP eigenbasis freeze
+
+### EDWARD #281 — Per-head SOAP for attention weights — FALSIFIED (both arms miss both bars)
+
+| Arm | Mechanism | val mean (n=2) | ffs mean | Δ val | Δ ffs | Verdict |
+|---|---|---|---|---|---|---|
+| A | PER_HEAD_SOAP_Q=1 (Q only) | 3.27727 | 3112.5 | +0.00144 | +25.0 | miss both |
+| **B** | **PER_HEAD_SOAP_ALL=1 (Q/K/V/proj)** | **3.276245** | **3100** | **+0.000410** | **+12.5** | **miss both (closer)** |
+| Baseline (PR #219 n=4) | full-matrix Gram + trust gate | 3.275835 | 3087.5 | — | — | — |
+
+W&B runs: `lb4vsuxk` (Arm A), `z21iphfx` (Arm B). Implementation correct, trust-gate fully open at terminal (q/on_fraction=1.0, mean_cos_row=0.93) — NOT a gating issue; per-head eigenbases are stable.
+
+**Mechanism insight**: Cross-head gradient covariance carries signal that block-diagonal preconditioning loses. The full-matrix Gram (768×768) captures off-block covariance between heads (head-redundancy, induction-circuit formation); splitting into n_head=6 independent (128×128) blocks zeros these off-block elements. Arm B recovers some via K/V/proj coordination but still loses gradient-level off-block covariance.
+
+**Future direction (not pursued now)**: per-head as low-rank correction *on top of* full-matrix Gram (additive, not replacement), or gated fallback (per-head only when full-matrix gate trips off).
+
+Edward reassigned → PR #341: **SOAP eigenbasis freeze after step K** (Arm A=1000 pre-cooldown, Arm B=2000 mid-cooldown). PR #277 axis was previously closed INCONCLUSIVE due to pod NaN; pod has been upgraded to torch 2.11.0 (PR #303 fix) — deserves clean re-test. Hypothesis: late-training Q refreshes are rotation noise that survives the trust gate.
+
+### ASKELADD #319 — Muon LR linear warmup Arm A (100-step) — FALSIFIED
+
+| Metric | n=2 mean | Baseline | Δ | Result |
+|---|---|---|---|---|
+| val/loss | 3.277545 | 3.275835 | +0.00171 | miss |
+| ffs | 3112.5 | 3087.5 | +25.0 | miss |
+
+W&B run: `5ao5znlo`. val_loss@step125 was 4.64 (vs ~4.17 baseline-pace) — warmup *delayed* early progress without yielding better basin. Mechanism: Muon's NS5 orthogonalization at full LR from step 1 is load-bearing — forces productive parameter geometry that warmup denies.
+
+Arm B (MUON_WARMUP_STEPS=50) launching next. If Arm A-like margin → close axis cleanly.
+
+---
+
 ## 2026-05-18 04:20 UTC — Cycle 55 (continued): frieren #333 CLOSED (AdamW eps FALSIFIED — both arms NaN); reassigned #340 embed init std sweep
 
 ### FRIEREN #333 — AdamW eps sweep — FALSIFIED (both arms NaN)
