@@ -1,30 +1,38 @@
 # SENPAI Research State
 
-- 2026-05-18 18:10 UTC — Cycle 55 (continued)
+- 2026-05-18 21:00 UTC — Cycle 55 — **NEW BASELINE AFTER PR #358 MERGE**
 
-## 🔥 THREE-WAY N=4 CONFIRM RACE — REGRESSION-TO-MEAN WATCH (18:10 UTC)
+## ⭐ NEW BASELINE — PR #358 MERGED (20:55 UTC)
 
-Three independent mechanism perturbations all hit `ffs=3050` floor in n=2 AND have n=2 STRONG with statsig pass. **All three n=4 confirms running; both visible early trials regressing from optimistic n=2**:
-1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). **n=4 confirm RUNNING** since 16:24 UTC. Trial 0 terminal val=**3.2776**/ffs=**3100** — BOTH MISS. For n=4 mean to clear, trials 1-3 need ≥ 2× ffs=3050 (low probability given n=2 was 2/2 at 3050). Trial 1 in flight (step 1700/3175). ETA full n=4 ~22:45 UTC.
-2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5). **n=4 confirm 3/4 DONE — STRONGEST TRAJECTORY**: T0=3.27523/3075, T1=3.27432/3075, T2=3.27455/3075, 3/4 mean **val=3.27470/ffs=3075** (CLEARS both bars by −0.00065/−12.5, statsig PASS). Trial 3 in flight (step ~1778/3175). ETA terminal ~21:25 UTC. **FRONT-RUNNER FOR MERGE.**
-3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5). **n=4 confirm RUNNING** since 15:44 UTC. Trial 0 done: val=**3.27821/ffs=3125** (BOTH BARS MISS, worst result). Trial 1 at step 520 in flight. ETA ~22:50 UTC.
+**CONTRA_MUON=0.4** merged: val=**3.274383**, ffs=**3068.75**
+- Improvement over PR #288: val Δ=−0.000967, ffs Δ=−18.75
+- **NEW MERGE BAR: val < 3.274383 AND ffs_mean < 3068.75** (STRICT — both required)
+- ffs bar now requires ≥2 of 4 trials at ffs=3050 to clear mean. This is a major tightening — {3075,3075,3075,3075} mean=3075 MISSES the new ffs bar.
+- **ALL new experiments MUST use**: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85`
+- **askeladd reassigned → #395 CONTRA_MUON=0.3 continuation sweep**
 
-**Regression-to-mean reading**: n=2 mean is high-variance; n=4 confirm trial 0 in both visible cases is *worse* than both n=2 trials. Askeladd still narrowly clearing on the running mean; fern is at risk of failing the strict bar (needs trials 1-3 mean < 3.27440 AND at least 2× ffs=3050). Thorfinn's n=4 is the wildcard — Arm A both n=2 trials hit ffs=3050, may carry through better than the other two.
+## 🔄 BASELINE SHIFT IMPACT ON IN-FLIGHT EXPERIMENTS
 
-**EDWARD #379 — FOURTH STRONG CANDIDATE** (19:00 UTC): EMBED_INIT_STD=0.85 trial 0 val=3.27429/ffs=3075 (clears both bars by −0.00106/−12.5). Trial 1 in flight (step ~318/3175); if n=2 mean clears, predeclared n=4 confirm fires immediately. Initialization-side mechanism — *unprecedented in this cycle*, distinct from cooldown-phase update geometry hits. If both EDWARD n=4 AND at least one of the other three n=4 confirms pass, **stacked combo experiment (init + cooldown + contra/MuonEq-R)** becomes the next-cycle headline test.
+All current WIP experiments ran on CONTRA_MUON=0.5 (old stack). They are now compared against the NEW bar (val<3.274383/ffs<3068.75) which they will almost certainly miss:
+- **THORFINN #357** n=4 on CONTRA_MUON=0.5: T0=3.2776/3100 — BOTH MISS vs new bar. Continue to terminal; data informs axis stacking on new base.
+- **FERN #372** n=4 on CONTRA_MUON=0.5: 2/4 mean 3.27597/3087.5 — BOTH MISS vs new bar. Continue to terminal.
+- **FRIEREN #373** Arm B β=0.99 on CONTRA_MUON=0.5: T0=3.2750/3075 — both miss vs new bar. Continue to terminal.
+- **TANJIRO #376** Arm B β=0.99 on CONTRA_MUON=0.5: T0=3.2756/3075 — both miss vs new bar. Continue to terminal.
+- **EDWARD #379** Arm A n=2 mean 3.27530/3087.5 — misses new bar. Pivoted to Arm B (1.15) on CONTRA_MUON=0.5 base.
+- **ALPHONSE #378** β2=0.99 re-run on CONTRA_MUON=0.5: TBD — will likely miss ffs bar.
+- **NEZUKO #394** ATTN_SOAP_BETA2 sweep: running on CONTRA_MUON=0.5 base — will likely miss new bar.
 
-**Mechanism reading (INPUT-ROBUST, OUTPUT-FRAGILE)**: 
-- All three winners affect cooldown-phase update geometry on the INPUT-side or schedule-side of the optimizer pipeline:
-  - μ-floor: schedule-side perturbation
-  - contra strength: pre-NS5 mixing of normalized gradient
-  - MuonEq-R: pre-NS5 row normalization of momentum input
-- The TWO LOSERS (AdaMuon variants) perturb the OUTPUT-side post-NS5:
-  - frieren #373: full AdaMuon — Arm A n=2 MISS (val=3.27786/+0.00251, ffs=3112.5/+25)
-  - tanjiro #376: cooldown-only AdaMuon — trial 0 MISS (val=3.2764/+0.00105, ffs=3100/+12.5)
-- Mechanism: NS5 produces near-orthogonal output; post-NS5 element-wise variance scaling redistributes the orthogonality across elements, which NorMuon's row-scaling can't fully restore.
-- **Lesson for future hypothesis design**: bias toward input-side or schedule-side perturbations. The cooldown pipeline is OUTPUT-FRAGILE.
+Strategy shift: accept that all current in-flight runs will miss the new bar. Let them run to terminal (data informs axis characterization), then reassign to new stacked experiments on CONTRA_MUON=0.4 base. Meanwhile askeladd explores CONTRA_MUON=0.3 as direct continuation.
 
-If multiple n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 + MuonEq-R) to test additivity vs substitutability.
+## 🔬 ACTIVE RESEARCH — CONTRA_MUON=0.4 BASE
+
+- **ASKELADD #405** (NEW) — CONTRA_MUON=0.3 and 0.35 sweep: does the contra-gradient axis continue below 0.4? Direct follow-up to merged PR #358. Arm A=0.3, Arm B=0.35.
+
+## Previous cycle racing context (now superseded by new bar)
+
+**CONTRA_MUON axis**: 0.5→0.4 merged. Mechanism: smaller contra-correction lets Muon retain more natural momentum signal. Pure env-var change, no code required.
+- **FRIEREN #373 AdaMuon β=0.99** T0 STRONG on OLD bar (3.2750/3075 vs old 3.275350/3087.5). Misses new bar. Continue to terminal for axis characterization.
+- 🔥 **FRIEREN #373 AdaMuon β=0.99** Arm B trial 0 STRONG: val=**3.2750**/ffs=**3075** (clears both bars by −0.00035/−12.5). Arm B is the **fifth strong candidate** this cycle. Trial 1 in flight. AdaMuon axis is **NOT fully falsified** — β=0.99 is the right side of the variance-scaling parameter.
 
 ## 🚫 Falsified Output-Side Mechanisms
 - ✅ **NEZUKO #375 CLOSED** (17:20 UTC): Muon-VS FALSIFIED both arms (β=0.95: val+0.050/ffs=-1, β=0.90: val+0.038/ffs=-1). Reassigned → #394 ATTN_SOAP_BETA2 sweep.

@@ -1652,3 +1652,28 @@ Fern reassigned to PR #208: Power-law LR cooldown (LR_POWER=1.5/2.0), targeting 
 **Student's analysis quality**: Exceptional. Correctly diagnosed structural incompatibility, identified root cause (||y-z|| explosion independent of c_t window), recognized that 3-sequence Defazio would face the same issue. Valuable negative result well-characterized.
 
 Askeladd reassigned to PR #213 (per-module weight init scaling — records #4,5,8 ingredient).
+
+## 2026-05-18 20:55 UTC — PR #358: CONTRA_MUON=0.4 — MERGED (new baseline)
+
+- `g1r2-askeladd/contra-muon-sweep`
+- Hypothesis: CONTRA_MUON=0.5 was set at PR #139 and never swept. Reducing to 0.4 (20% less counter-correction) tests whether baseline was over-correcting.
+- W&B runs: `oeeswx8a` (n=2 screen), `ivvf500c` (n=4 confirm)
+
+| Trial | val/loss | ffs | Stack |
+|---|---|---|---|
+| n=2 T0 | 3.272824 | 3050 | CONTRA_MUON=0.4 + PR#288 stack |
+| n=2 T1 | 3.274036 | 3075 | CONTRA_MUON=0.4 + PR#288 stack |
+| n=2 mean | **3.273430** | **3062.5** | |
+| n=4 T0 | 3.27523 | 3075 | |
+| n=4 T1 | 3.27432 | 3075 | |
+| n=4 T2 | 3.27455 | 3075 | |
+| n=4 T3 | 3.27343 | 3050 | |
+| **n=4 mean** | **3.274383** | **3068.75** | |
+
+vs. old baseline (PR #288): val Δ=−0.000967, ffs Δ=−18.75. statsig: (3.28−3.274383)×√4=0.01123 ≥ 0.004 PASS.
+
+**Analysis**: Clean, consistent improvement. ffs {3075,3075,3075,3050} — 3/4 trials improved from baseline pattern. n=4 regressed slightly from optimistic n=2 mean (3.27343→3.27438) but cleared the bar with comfortable margin. Baseline over-correction at 0.5 was real; 0.4 reduces contra-gradient interference without losing the stability it provides.
+
+**NEW BASELINE**: val=3.274383 / ffs=3068.75. ALL subsequent experiments must compare against this harder bar. ffs<3068.75 requires ≥2 of 4 trials at ffs=3050 (or equivalent mean). This is a significant tightening — most current in-flight experiments on CONTRA_MUON=0.5 will miss.
+
+**Conclusions**: CONTRA_MUON axis has headroom below 0.5. 0.4 is confirmed better; 0.3 is the next test. Pipeline stack: CONTRA_MUON=0.4 is now the required base for all new experiments.
