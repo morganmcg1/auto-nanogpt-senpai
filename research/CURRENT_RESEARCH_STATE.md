@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 06:58 UTC (boot 142n)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7–#11 posted. Operator silent ~59h since 19:34 UTC 2026-05-16. Next esc#12 due ~09:00 UTC.
+- **Last updated:** 2026-05-18 08:14 UTC (boot 142r)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7–#11 posted. Operator silent ~60.5h since 19:34 UTC 2026-05-16. Esc#12 posting at ~09:00 UTC.
 - **Branch state:** Baseline post-PR #243 (MuonH-SI cosine cooldown, merged boot 142).
 
 ## ⭐ Current baseline (post-PR #243 merge)
@@ -21,18 +21,18 @@
 
 **⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine`.
 
-## Active experiments (boot 142n — 06:58 UTC 2026-05-18)
+## Active experiments (boot 142r — 08:14 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | **n=4 confirm `w6xgiqzl` IN FLIGHT**: trial 0=3.27377 ✅ trial 1=3.27323 ✅ (n=2 mean=3.27350, Δ=-0.00065); trial 2 step 627; ETA all 4 trials ~11:50 UTC — **STRONG WIN brewing** |
-| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | arm 1 clip=0.10=3.2744 NEG; **arm 2 clip=0.05 `2ohsv6t9` TERMINAL=3.27288** ✅ (Δ=-0.00127 WIN n=1); arm 3 clip=0.01 `4nx27ikf` step 500 ETA ~09:15 UTC |
-| **#338** | edward | **Aux AdamW LR warmup** (aux_warmup_steps ∈{0, 100, 200}) | arm 1 (warmup=0 control)=3.275593 (matches baseline ✓); arm 2 (warmup=100) `1uenqxb0` step 1850/3325 val 3.55 ETA terminal ~08:14 UTC; arm 3 pending |
-| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** (lr∈{0.35, 0.50, 0.70}) | arm 1 lr=0.35 `0pjej454`=3.52299 strong NEG (was 9oqdj9fp + cfe9qh3k crashes from GPU contention); arm 2 lr=0.50 `l2v9uzcd`=**3.5247 NEG**; arm 3 lr=0.70 `83wkljwq` step 375 |
-| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | linear control `ij7osycz`=3.27295 (noise re-confirm of baseline); cosine `r9zvas0i`=**3.27702 NEG** (+0.00287); sqrt `4ovuu6yi` step 1875 ETA ~08:00 UTC |
-| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | arm 1 final=0.50 (control) both OOM-killed by concurrent torchrun; arm 2 final=0.25 `17dtmqsh`=3.27569 NEG slight; arm 3 final=0.00 `dbbvjy9f` step 2988/3325 ETA ~07:15 UTC |
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED 59h+** — bf16 NaN pathology `gd125a8`, Issue #164 esc #11 posted 05:53 UTC |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 59h+** — rebase complete (`d2138a7`), advisor clarification posted 06:58 UTC, Issue #164 esc #11 posted 05:53 UTC |
+| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | **n=4 confirm `w6xgiqzl` IN FLIGHT**: trial 0=3.27377 ✅ trial 1=3.27323 ✅ (n=2 mean=3.27350, Δ=-0.00065); trial 2 at ~73%; ETA all 4 trials ~10:09 UTC — **STRONG WIN brewing** |
+| **#329** | askeladd | **AGC on inner MuonH gradient** (clip_ratio∈{0.10, 0.05, 0.01}) | arm 1 clip=0.10=3.2744 NEG; **arm 2 clip=0.05 `2ohsv6t9` TERMINAL=3.27288** ✅ (Δ=-0.00127 WIN n=1); arm 3 clip=0.01 `4nx27ikf` step 2225 ETA terminal ~08:29 UTC; **auto n=4 confirm of clip=0.05 queued by student launcher** |
+| **#338** | edward | **Aux AdamW LR warmup** (aux_warmup_steps ∈{0, 100, 200}) | arm 1 (warmup=0)=3.275593 ✓ control; arm 2 (warmup=100) `1uenqxb0`=**3.27861 STRONG NEG** (+0.00446); arm 3 (warmup=200) `j78eu1e7` just started ~07:46 UTC — lever heading NEG |
+| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** (lr∈{0.35, 0.50, 0.70}) | lr=0.35=3.52299 NEG; lr=0.50=3.5247 NEG; lr=0.70 `83wkljwq` step 2125/3325 ETA terminal ~08:31 UTC — trajectory heading NEG |
+| **#352** | fern | **Aux AdamW cooldown_frac sweep** (frac∈{0.3, 0.4, 0.5}) | **newly assigned boot 142r** (after #325 CLOSED NEG — aux cooldown SHAPE saturated at linear) |
+| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | arm 1 final=0.50 OOM × 2; arm 2 final=0.25=3.27569 NEG; arm 3 final=0.00 `dbbvjy9f` TERMINAL=**3.27805 NEG** — awaiting student SENPAI-RESULT to close |
+| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED 60.5h+** — bf16 NaN pathology `gd125a8`, esc#11 at 05:53 UTC, esc#12 due ~09:00 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 60.5h+** — rebase complete, sweep-base clarification answered, waiting for pod rotation. Esc#12 due ~09:00 UTC |
 
 **8/8 students assigned.** No idle slots.
 
