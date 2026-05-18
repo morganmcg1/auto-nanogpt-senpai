@@ -1,11 +1,13 @@
 # SENPAI Research State
 
-- 2026-05-18 08:45 UTC — Cycle 55 (continued)
+- 2026-05-18 10:35 UTC — Cycle 55 (continued)
 - No human researcher directives this session.
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
+- ⚠️ **EDWARD #341 Arm A MISS** (10:00 UTC, run `jt46ri0n`): SOAP_FREEZE_STEP=1000 mean val=**3.28082** (T0=3.27970, T1=3.28194). +0.0055 over baseline. Eigenbasis update post-step-1000 is load-bearing. Arm B (FREEZE=2000) launched as `604ypwx2`.
+- ⚠️ **FRIEREN #343 Arm B (β2=0.90) GRAD EXPLOSION**: First screen `x73agd63` blew up at step 275 (grad_norm=115698). Smoke tests survived (val=4.165 at step 200). Student relaunched as `0o4gobqx` at 10:27 UTC — if it also explodes, β2 axis closed in both directions.
+- ⚠️ **NEZUKO #339 Arm A FAIL** (08:21 UTC, run `2ysep6xs`): COOLDOWN_FRAC=0.6 on OLD stack — val=3.27583/ffs=3100. Ties OLD baseline val, worse ffs. Arm B (COOLDOWN_FRAC=0.8) running, ETA ~10:30 UTC.
 - ✅ **ASKELADD #319 CLOSED**: Muon LR warmup FALSIFIED (both arms, 100-step and 50-step). NS5 at full LR from step 1 is load-bearing. Reassigned → #358 CONTRA_MUON sweep.
 - ✅ **ALPHONSE #312 CLOSED**: AdamW lm_head WD no signal — n=4 p=0.57 (indistinguishable from baseline). Arm B skipped. Reassigned → #359 μ cooldown schedule ablation.
-- ⚠️ **FRIEREN #343 Arm A NaN**: ADAMW_BETA2=0.99 shows NaN at step 125 in screen run. β2=0.99 incompatible with eps=1e-10 + current LR (slow EMA + tiny eps → denominator blowup early). Pivoting to Arm B (β2=0.90) with updated stack.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -58,24 +60,27 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - W&B run (n=4 confirm): `xzwpijuo` at step ~8877/12700 at 08:30 UTC
 - After n=4: run Arm B (FREQ_START=7 END=15) on NEW stack if Arm A closes
 
-### EDWARD #341 — SOAP eigenbasis freeze after step K (screen at ~23%, ETA ~5h from 05:20 UTC)
+### EDWARD #341 — SOAP eigenbasis freeze after step K (Arm A MISS, Arm B running)
 - Resurrects PR #277 axis (closed INCONCLUSIVE due to pod NaN — pod now healthy on torch 2.11.0).
-- Arm A: SOAP_FREEZE_STEP=1000 (freeze pre-cooldown). Running: `jt46ri0n` at step 1475 (08:30 UTC).
-- Arm B: SOAP_FREEZE_STEP=2000 — queued after Arm A.
-- Mechanism: Q eigenbasis rotation refreshes in stable/cooldown phase may add noise without improving preconditioner; freeze may free compute and stabilize SOAP updates.
+- Arm A: SOAP_FREEZE_STEP=1000 — `jt46ri0n` FINISHED 10:00 UTC, mean val=**3.28082** (+0.0055 over baseline) — MISS. Eigenbasis refresh past step 1000 IS load-bearing.
+- Arm B: SOAP_FREEZE_STEP=2000 — `604ypwx2` started 10:09 UTC, step ~575/3175. Tests less aggressive freeze (allows refresh through early cooldown). ETA ~5h.
+- Mechanism: Q eigenbasis rotation continues to update meaningfully through cooldown; freezing at step 1000 dropped 0.0055 val/loss.
 
 ### TANJIRO #336 — TARGET_UW sweep (Arm A: 0.25, Arm B: 0.50)
 - First axis sweep of TARGET_UW (Muon u/w-floor implicit WD) since PR #78.
 - With new cooldown-only μ schedule, u_fro dynamics may have changed.
 
-### NEZUKO #339 — cooldown_frac sweep 0.6 and 0.8
-- Static since PR #71. Arm A: 0.6 (shorter stable phase), Arm B: 0.8 (longer stable phase).
-- Directly affects ffs bimodal boundary: shorter cooldown → earlier ffs candidates.
+### NEZUKO #339 — cooldown_frac sweep 0.6 and 0.8 (on OLD stack)
+- Static since PR #71. Arm A: 0.6, Arm B: 0.8. Running on OLD stack (MU_START/MU_END set).
+- Arm A FINISHED (08:21 UTC, `2ysep6xs`): val=3.27583 (T0=3.27723/3125, T1=3.27443/3075), ffs=3100. Ties OLD baseline val, worse ffs → MISS.
+- Arm B (COOLDOWN_FRAC=0.8, `jmikalnz`) running, trial 1 in progress. ETA ~10:30 UTC.
+- Comparison bar UPDATED: must clear NEW baseline val<3.275350 AND ffs<3087.5 to predeclare n=4 on NEW stack.
 
-### FRIEREN #343 — AdamW β2 sweep (Arm A KILLED — NaN, pivoting to Arm B)
-- Arm A: ADAMW_BETA2=0.99 → NaN at step 125 (denominator blowup: slow EMA + eps=1e-10). KILLED.
-- Arm B: ADAMW_BETA2=0.90 → launching now on NEW stack (MU_COOLDOWN_START/END).
-- Note: baseline AdamW β2=0.95 (betas=(0.8, 0.95)). Arm B tests FASTER variance EMA (β2=0.90) vs baseline.
+### FRIEREN #343 — AdamW β2 sweep (Arm A KILLED, Arm B grad-exploded, retrying)
+- Arm A: ADAMW_BETA2=0.99 → NaN at step 125. KILLED.
+- Arm B first attempt (`x73agd63`, β2=0.90 NEW stack): catastrophic grad explosion at step 275 (grad_norm=115698).
+- Arm B retry (`0o4gobqx`, β2=0.90 NEW stack): launched 10:27 UTC. β2=0.90 smoke (`xyuezjfz` val=4.165 at step 200) matched baseline β2=0.95 smoke (val=4.177) — not deterministically broken, may be seed-sensitive.
+- Decision: if retry survives past step 500, continue n=2. If it explodes too, axis closed in both directions (β2 stability requires exact 0.95).
 
 ## Recently closed axes (since session start)
 
