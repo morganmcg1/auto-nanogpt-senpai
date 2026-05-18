@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.2
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+GRAD_CLIP_NORM = 0.5  # Global L2 grad clip (Arm A: 1.0; Arm B: 0.5; baseline (no clip): float("inf"))
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -783,6 +784,8 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    clip_fired_count = 0
+    clip_total_count = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -851,6 +854,13 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # Global gradient norm clipping — log pre-clip norm even when not clipped
+        grad_global_norm_pre_clip = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_norm=GRAD_CLIP_NORM, norm_type=2.0
+        ).item()
+        clip_total_count += 1
+        if grad_global_norm_pre_clip > GRAD_CLIP_NORM:
+            clip_fired_count += 1
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
         train_step = step + 1
@@ -919,6 +929,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/grad/global_norm_pre_clip": grad_global_norm_pre_clip,
+                "train/grad/clip_threshold": GRAD_CLIP_NORM,
+                "train/grad/clipped": int(grad_global_norm_pre_clip > GRAD_CLIP_NORM),
+                "train/grad/clip_ratio": GRAD_CLIP_NORM / max(grad_global_norm_pre_clip, 1e-12),
+                "train/grad/clip_fraction_so_far": clip_fired_count / max(clip_total_count, 1),
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
