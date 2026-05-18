@@ -530,6 +530,11 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_USE_ADEMAMIX = os.environ.get("NANOGPT_USE_ADEMAMIX", "0") == "1"
+NANOGPT_ADEMAMIX_BETA3 = float(os.environ.get("NANOGPT_ADEMAMIX_BETA3", "0.9999"))
+NANOGPT_ADEMAMIX_ALPHA_MAX = float(os.environ.get("NANOGPT_ADEMAMIX_ALPHA_MAX", "5.0"))
+# -1 = use full train_steps as warmup
+NANOGPT_ADEMAMIX_ALPHA_WARMUP = int(os.environ.get("NANOGPT_ADEMAMIX_ALPHA_WARMUP", "-1"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -703,6 +708,53 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix: AdamW + slow gradient EMA (Pagliardini et al. NeurIPS 2024).
+    Update: theta_t -= lr * (m_fast_hat + alpha * m_slow) / (sqrt(v_hat) + eps) + lr * wd * theta_t
+    m_fast uses beta1, m_slow uses beta3. alpha has linear warmup from 0 to alpha_max.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), beta3=0.9999,
+                 alpha_max=5.0, alpha_warmup_steps=3350, eps=1e-10, weight_decay=0):
+        defaults = dict(lr=lr, betas=betas, beta3=beta3, alpha_max=alpha_max,
+                        alpha_warmup_steps=alpha_warmup_steps, eps=eps,
+                        weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            lr, (beta1, beta2), beta3 = group["lr"], group["betas"], group["beta3"]
+            alpha_max, alpha_warmup = group["alpha_max"], group["alpha_warmup_steps"]
+            eps, wd = group["eps"], group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m_fast"] = torch.zeros_like(p)
+                    state["m_slow"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                state["step"] += 1
+                step = state["step"]
+                alpha = min(1.0, step / alpha_warmup) * alpha_max
+                state["m_fast"].mul_(beta1).add_(g, alpha=1 - beta1)
+                state["m_slow"].mul_(beta3).add_(g, alpha=1 - beta3)
+                state["v"].mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                bc1 = 1 - beta1 ** step
+                bc2 = 1 - beta2 ** step
+                m_fast_hat = state["m_fast"] / bc1
+                v_hat = state["v"] / bc2
+                denom = v_hat.sqrt().add_(eps)
+                update = (m_fast_hat + alpha * state["m_slow"]) / denom
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update, alpha=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -747,6 +799,11 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_USE_ADEMAMIX:
+    aws_label = "full_train" if NANOGPT_ADEMAMIX_ALPHA_WARMUP < 0 else str(NANOGPT_ADEMAMIX_ALPHA_WARMUP)
+    print0(f"ADEMAMIX: beta3={NANOGPT_ADEMAMIX_BETA3} alpha_max={NANOGPT_ADEMAMIX_ALPHA_MAX} alpha_warmup={aws_label}", console=True)
+else:
+    print0("ADEMAMIX: disabled (vanilla AdamW)", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +856,10 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_use_ademamix": NANOGPT_USE_ADEMAMIX,
+            "nanogpt_ademamix_beta3": NANOGPT_ADEMAMIX_BETA3,
+            "nanogpt_ademamix_alpha_max": NANOGPT_ADEMAMIX_ALPHA_MAX,
+            "nanogpt_ademamix_alpha_warmup": NANOGPT_ADEMAMIX_ALPHA_WARMUP,
         },
     )
 
@@ -830,10 +891,20 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    if NANOGPT_USE_ADEMAMIX:
+        alpha_ws = train_steps if NANOGPT_ADEMAMIX_ALPHA_WARMUP < 0 else NANOGPT_ADEMAMIX_ALPHA_WARMUP
+        optimizer1 = AdEMAMix(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+            betas=(0.8, NANOGPT_ADAMW_BETA2), beta3=NANOGPT_ADEMAMIX_BETA3,
+            alpha_max=NANOGPT_ADEMAMIX_ALPHA_MAX, alpha_warmup_steps=alpha_ws,
+            eps=1e-10, weight_decay=0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1056,6 +1127,29 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/lr_embed": embed_group["lr"],
                             "train/embed_schedule/adam_steps_taken": step_count,
                         }, step=wandb_step)
+        ademamix_telemetry_due = (
+            NANOGPT_USE_ADEMAMIX and (train_step % 100 == 0 or train_step == train_steps)
+        )
+        if dist.get_rank() == 0 and ademamix_telemetry_due:
+            with torch.no_grad():
+                alpha_ws_eff = train_steps if NANOGPT_ADEMAMIX_ALPHA_WARMUP < 0 else NANOGPT_ADEMAMIX_ALPHA_WARMUP
+                alpha_current = min(1.0, train_step / alpha_ws_eff) * NANOGPT_ADEMAMIX_ALPHA_MAX
+                ademamix_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/ademamix/alpha_current": alpha_current,
+                    "train/ademamix/alpha_warmup_progress": min(1.0, train_step / alpha_ws_eff),
+                }
+                group_label = {"adam_embed": "embed", "adam_lm_head": "proj", "adam_scalars": "scalars"}
+                for group in optimizer1.param_groups:
+                    label = group_label.get(group.get("name", ""), group.get("name", "unknown"))
+                    sq = 0.0
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "m_slow" in st:
+                            sq += float((st["m_slow"].to(torch.float32) ** 2).sum().item())
+                    ademamix_metrics[f"train/ademamix/m_slow_norm/{label}"] = sq ** 0.5
+                wandb.log(ademamix_metrics, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
             log_adamw_step_direction(
