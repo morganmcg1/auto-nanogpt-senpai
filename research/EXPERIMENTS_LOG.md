@@ -6,6 +6,31 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 10:00 UTC — PR #338: Aux AdamW LR warmup sweep ❌ CLOSED NEG
+
+- **Branch**: g1r3-edward/aux-warmup-screen
+- **Hypothesis**: Mirror thorfinn's MuonH warmup success on aux AdamW groups (embed/lm_head/scalars). Delay full LR via linear ramp during first N steps to let Adam's second-moment estimates accumulate before being divided into the update. 3-arm: warmup_steps ∈ {0 (control), 100, 200} × 1 trial × 3325 steps.
+- **Results**:
+
+| Arm | W&B Run | warmup_steps | val/loss | Δ vs baseline 3.27415 | reached target | Verdict |
+|---|---|---|---|---|---|---|
+| 1 (control) | `m37tqsaz` | 0 | 3.27559 | +0.00144 | yes (step 3175) | within n=1 noise |
+| 2 | `1uenqxb0` | 100 | 3.27861 | +0.00446 | yes (step 3250) | NEG |
+| 3 | `j78eu1e7` | 200 | **3.28378** | **+0.00963** | **no** (failed target) | **STRONG NEG** |
+
+- **Monotonic-with-warmup NEG**: longer aux warmup → worse val/loss. Arm 3 (warmup=200) failed to reach the 3.28 speedrun target at all.
+- **MuonH/aux warmup asymmetry**: Same-named lever, opposite sign:
+  - MuonH warmup (PR #310): wins (n=3=3.27308 trending, Δ=-0.00107)
+  - aux AdamW warmup (this PR): hurts monotonically
+- **Mechanism (student's analysis)**: MuonH needs warmup because its momentum buffer requires time to populate before NS5 orthogonalization produces useful direction. aux AdamW already has β₁=0.8, β₂=0.95 dampening early variance, so the second-moment denominator isn't the bottleneck; what matters is getting useful gradient signal into the embedding table during the first 100-200 steps. Warmup withholds that signal during peak representational plasticity.
+- **Diagnostic quality**: Excellent. Standalone schedule replay confirmed bit-clean per-group LR ramp before launch. Control arm (warmup=0) reproduces baseline within n=1 noise — no implementation drift.
+- **Conclusion**: **CLOSED NEG.** aux LR warmup family closed.
+- **Saturated lever**: aux AdamW LR warmup (all groups uniformly). Per-group ramp (embed-only) not directly tested but n=1 control is already at +0.00144, so headroom for a finer split is small.
+- **Student's suggested follow-ups (good)**: (1) aux embed LR sweep (direct lever vs heuristic 0.3); (2) NOT a MuonH × aux warmup compound (opposite signs).
+- **Next assignment**: edward → TBD (will assign after thorfinn merge to use updated baseline).
+
+---
+
 ## 2026-05-18 09:00 UTC — PR #328: MuLoCo outer_momentum cosine decay ❌ CLOSED NEG
 
 - **Branch**: g1r3-frieren/outer-momentum-decay-sweep
