@@ -55,6 +55,16 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # MuLoCo outer optimizer class. "sgd_momentum" (default) keeps the manual
+    # Nesterov SGD loop bit-identical to the baseline. "adamw"/"lion" treat the
+    # anchor as an optimizable parameter and update it with the named torch
+    # optimizer at each sync boundary, with gradient = anchor - p (the slow drift).
+    parser.add_argument("--outer_optimizer_type", type=str,
+                        default=os.environ.get("OUTER_OPTIMIZER_TYPE", "sgd_momentum"),
+                        choices=["sgd_momentum", "adamw", "lion"])
+    parser.add_argument("--outer_beta2", type=float,
+                        default=float(os.environ.get("OUTER_BETA2", "0.95")),
+                        help="β2 for outer AdamW (0.95) / outer Lion (0.99 recommended)")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -667,6 +677,49 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion (Chen et al. 2023, "Symbolic Discovery of Optimization Algorithms").
+
+    update = sign(beta1 * exp_avg + (1 - beta1) * g)
+    param  <- param - lr * update         (with decoupled weight decay)
+    exp_avg <- beta2 * exp_avg + (1 - beta2) * g
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        if lr <= 0:
+            raise ValueError(f"Invalid lr: {lr}")
+        beta1, beta2 = betas
+        if not 0.0 <= beta1 < 1.0:
+            raise ValueError(f"Invalid beta1: {beta1}")
+        if not 0.0 <= beta2 < 1.0:
+            raise ValueError(f"Invalid beta2: {beta2}")
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "exp_avg" not in state:
+                    state["exp_avg"] = torch.zeros_like(p)
+                exp_avg = state["exp_avg"]
+                # Compute sign(β1 * exp_avg + (1 - β1) * g) without mutating exp_avg yet.
+                update = exp_avg.mul(beta1).add_(g, alpha=1 - beta1).sign_()
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update, alpha=-lr)
+                # Now update the EMA.
+                exp_avg.mul_(beta2).add_(g, alpha=1 - beta2)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -698,8 +751,9 @@ print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
-    print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    print0(f"MuLoCo outer optimizer ENABLED: type={args.outer_optimizer_type} "
+           f"outer_lr={args.outer_lr} outer_momentum={args.outer_momentum} "
+           f"outer_beta2={args.outer_beta2} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -758,6 +812,8 @@ if dist.get_rank() == 0:
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
+            "muloco_outer_beta2": args.outer_beta2,
+            "muloco_outer_optimizer_type": args.outer_optimizer_type,
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
@@ -884,19 +940,45 @@ for trial_idx in range(args.num_trials):
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
 
-    # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
-    # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
-    # trainable params so the outer pull is applied uniformly across MuonH-SI
-    # (block 2D weights), AdamW (embed / lm_head / scalars), and any biases or
-    # gains. Inner optimizer state (MuonH momentum, AdamW exp_avg) is NOT reset
-    # at outer-step boundaries — matches public ref #13 and closed PR #55.
+    # MuLoCo outer optimizer state (Algorithm 1, K=1). Snapshot after broadcast
+    # so all ranks agree on the anchor. Wraps ALL trainable params so the outer
+    # pull is applied uniformly across MuonH-SI (block 2D weights), AdamW
+    # (embed / lm_head / scalars), and any biases or gains. Inner optimizer
+    # state (MuonH momentum, AdamW exp_avg) is NOT reset at outer-step
+    # boundaries — matches public ref #13 and closed PR #55.
+    #
+    # outer_optimizer_type:
+    #   - "sgd_momentum": manual Nesterov SGD loop (bit-identical to baseline)
+    #   - "adamw"/"lion": anchor is an nn.Parameter, slow drift (anchor - p) is
+    #     fed in as its .grad, and a torch optimizer updates the anchor; the
+    #     fresh anchor is copied back into the live model params.
     use_outer = bool(args.use_outer_optimizer)
+    outer_optim = None
+    outer_anchor = None
+    outer_velocity = None
+    outer_param_dict = None
     if use_outer:
-        outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
-        outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
-    else:
-        outer_anchor = None
-        outer_velocity = None
+        if args.outer_optimizer_type == "sgd_momentum":
+            outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
+            outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        else:
+            outer_param_dict = {
+                n: nn.Parameter(p.detach().clone())
+                for n, p in model.named_parameters()
+            }
+            outer_params_list = list(outer_param_dict.values())
+            if args.outer_optimizer_type == "adamw":
+                outer_optim = torch.optim.AdamW(
+                    outer_params_list, lr=args.outer_lr,
+                    betas=(args.outer_momentum, args.outer_beta2),
+                    eps=1e-8, weight_decay=0.0)
+            elif args.outer_optimizer_type == "lion":
+                outer_optim = Lion(
+                    outer_params_list, lr=args.outer_lr,
+                    betas=(args.outer_momentum, args.outer_beta2),
+                    weight_decay=0.0)
+            else:
+                raise ValueError(f"unknown outer_optimizer_type: {args.outer_optimizer_type}")
     outer_applied_steps = 0
 
     # start the clock
@@ -1072,8 +1154,8 @@ for trial_idx in range(args.num_trials):
             )
         model.zero_grad(set_to_none=True)
 
-        # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
-        # inner steps, never on the final step (we want the last inner update to
+        # MuLoCo outer step (Algorithm 1, K=1). Fires every sync_interval inner
+        # steps, never on the final step (we want the last inner update to
         # remain the live state). All ranks hold identical p.data after MuonH's
         # all_gather and AdamW's identical-on-all-ranks update, so the outer step
         # computes the same result on every rank without explicit syncing.
@@ -1085,30 +1167,75 @@ for trial_idx in range(args.num_trials):
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
-                velocity_sq = torch.zeros((), device=device)
+                state_sq = torch.zeros((), device=device)
+                update_sq = torch.zeros((), device=device)
                 total_count = 0
-            with torch.no_grad():
-                for n, p in model.named_parameters():
-                    delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
-                    if log_outer:
-                        delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
-                        total_count += delta.numel()
+            if args.outer_optimizer_type == "sgd_momentum":
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        delta = outer_anchor[n] - p.data
+                        outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            state_sq = state_sq + outer_velocity[n].float().square().sum()
+                            total_count += delta.numel()
+            else:
+                # Adaptive outer: anchor is an optimizable Parameter; slow drift
+                # (anchor - p) is fed as its gradient; torch optimizer updates
+                # anchor in place; fresh anchor is copied back to the live model.
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        outer_p = outer_param_dict[n]
+                        delta = outer_p.data - p.data
+                        outer_p.grad = delta
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            total_count += delta.numel()
+                # Snapshot pre-step anchor so we can report the optimizer's
+                # effective update magnitude (mainly for debugging adaptive arms).
+                if log_outer:
+                    pre_step_anchor = {
+                        n: outer_param_dict[n].data.clone()
+                        for n in outer_param_dict
+                    }
+                outer_optim.step()
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        outer_p = outer_param_dict[n]
+                        if log_outer:
+                            upd = outer_p.data - pre_step_anchor[n]
+                            update_sq = update_sq + upd.float().square().sum()
+                        p.data.copy_(outer_p.data)
+                        outer_p.grad = None
+                if log_outer:
+                    # Report 2nd-moment RMS for AdamW, EMA RMS for Lion.
+                    for outer_p in outer_param_dict.values():
+                        st = outer_optim.state.get(outer_p, {})
+                        if "exp_avg_sq" in st:
+                            state_sq = state_sq + st["exp_avg_sq"].float().sum()
+                        elif "exp_avg" in st:
+                            state_sq = state_sq + st["exp_avg"].float().square().sum()
             outer_applied_steps += 1
             if log_outer:
-                delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
-                velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                denom = max(1, total_count)
+                delta_rms = (delta_sq.item() / denom) ** 0.5
+                metrics = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
-                    "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                }
+                if args.outer_optimizer_type == "sgd_momentum":
+                    metrics["train/muloco/velocity_rms"] = (state_sq.item() / denom) ** 0.5
+                else:
+                    metrics["train/muloco/update_rms"] = (update_sq.item() / denom) ** 0.5
+                    state_val = state_sq.item()
+                    if state_val > 0:
+                        metrics["train/muloco/state_rms"] = (state_val / denom) ** 0.5
+                wandb.log(metrics, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
