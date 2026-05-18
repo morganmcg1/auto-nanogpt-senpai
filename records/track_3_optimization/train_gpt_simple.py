@@ -240,6 +240,7 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            metrics[f"train/eps/{group_name}"] = group.get("eps", 0.0)
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -529,6 +530,9 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+NANOGPT_ADAMW_EMBED_EPS = float(os.environ.get("NANOGPT_ADAMW_EMBED_EPS", "1e-10"))
+NANOGPT_ADAMW_LM_HEAD_EPS = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_EPS", "1e-10"))
+NANOGPT_ADAMW_SCALAR_EPS = float(os.environ.get("NANOGPT_ADAMW_SCALAR_EPS", "1e-10"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -739,6 +743,8 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+print0(f"ADAMW_EPS_PER_GROUP: embed={NANOGPT_ADAMW_EMBED_EPS}, lm_head={NANOGPT_ADAMW_LM_HEAD_EPS}, scalars={NANOGPT_ADAMW_SCALAR_EPS}",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -798,6 +804,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_adamw_embed_eps": NANOGPT_ADAMW_EMBED_EPS,
+            "nanogpt_adamw_lm_head_eps": NANOGPT_ADAMW_LM_HEAD_EPS,
+            "nanogpt_adamw_scalar_eps": NANOGPT_ADAMW_SCALAR_EPS,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -830,9 +839,9 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, eps=NANOGPT_ADAMW_EMBED_EPS, name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=1/320, eps=NANOGPT_ADAMW_LM_HEAD_EPS, name="adam_lm_head"),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, eps=NANOGPT_ADAMW_SCALAR_EPS, name="adam_scalars")],
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
