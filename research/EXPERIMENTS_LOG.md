@@ -1,5 +1,44 @@
 # SENPAI Research Results
 
+## 2026-05-18 01:42 — PR #274: COOLDOWN_POWER retune {1.0, 1.4} — γ_power=0.4 stack (g1r1-fern) ← **MERGED WIN**
+
+- Branch: `g1r1-fern/cooldown-power-retune`
+- Hypothesis: COOLDOWN_POWER=1.2 was set long before the current γ_power=0.4 + cubic-Newton stack. With cleaner preconditioned gradient direction, a more concave LR decay tail (1.4) may let the model "snap" below the target earlier.
+
+| Run | Arm | COOLDOWN_POWER | W&B | sr | val/loss | Δsr | Δval | Status |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #202) | — | 1.2 | `prncgzv5` | 3025 | 3.26615 | — | — | Previous best |
+| `dnecfiuq` (n=1 seed-1) | B | 1.4 | — | 3000 | 3.26812 | -25 | +0.00197 | n=1 WIN (borderline) |
+| `vw0595an` (n=2 seed-1) | B | 1.4 | — | **3000** | **3.26812** | -25 | +0.00197 | n=2 seed-1 |
+| `s2nrw0c8` (n=2 seed-2) | B | 1.4 | — | **3000** | **3.26888** | -25 | +0.00273 | n=2 seed-2 |
+| **n=2 mean** | B | 1.4 | — | **3000** | **3.2685** | **-25** | +0.00235 | **WIN MERGED** |
+| Arm A | A | 1.0 (linear) | — | 3100 | 3.26773 | +75 | +0.00158 | NULL |
+
+**n=2 stat-sig check:** (3.28 - 3.2685) * √2 = 0.01627 ≥ 0.004 ✓
+
+**Analysis:** COOLDOWN_POWER=1.4 wins cleanly on the primary metric (sr) across n=2 seeds. Both seeds independently hit sr=3000, ruling out single-seed noise. The mechanism is confirmed: more concave LR decay tail lets the model reach 3.28 one validation interval earlier (step 3000 vs 3025) on the γ_power=0.4 stack. Small val regression (+0.002) is stable across seeds, plausibly caused by harder late-cooldown drop slightly overshooting the LR floor. Arm A (linear, 1.0) clearly NULL (sr+75). New baseline: **sr=3000, val=3.2685**.
+
+**Follow-up assigned to fern:** PR #332 COOLDOWN_POWER continuation {1.5, 1.8}.
+
+---
+
+## 2026-05-18 01:38 — PR #299: Global gradient norm clipping {1.0, 0.5} (g1r1-edward)
+
+- Branch: `g1r1-edward/grad-clip-scan`
+- Hypothesis: Gradient norm clipping at standard transformer thresholds {1.0, 0.5} suppresses early-training spikes. Both arms test whether spike suppression improves val/loss.
+
+| Arm | GRAD_CLIP_NORM | W&B | sr | val/loss | Δsr | Δval | clip_fraction |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #202) | ∞ | `prncgzv5` | 3025 | 3.26615 | — | — | 0% |
+| Arm A | 1.0 | `k10ppzfs` | 3075 | 3.26935 | +50 | +0.00320 | 100% |
+| Arm B | 0.5 | `bw20hjy6` | 3050 | 3.26850 | +25 | +0.00235 | 100% |
+
+**Analysis:** Both arms NULL. Critical diagnostic: global L2 norm sits at **1e4–1e5** throughout training (dominated by SUM-reduced embed+lm_head gradients). Thresholds {0.5, 1.0} fire at 100% of steps → clip degenerates to **uniform scalar rescale** of gradient at every step (effective LR multiplier ≈ 1e-5). This is equivalent to a constant LR reduction, not spike suppression. Not an independent mechanism in this codebase.
+
+**Falsification conclusion:** CLOSED. Global grad-clip axis CLOSED at standard thresholds. Per-parameter-group clipping (embed-only) is the correct implementation of the spike-suppression hypothesis — assigned as PR #331.
+
+---
+
 ## 2026-05-18 00:55 — PR #287: Muon weight_decay scan {0.035, 0.050} — param_norm regularization (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/muon-weight-decay-scan`

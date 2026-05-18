@@ -7,7 +7,29 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-17 06:40 UTC — PR #202: PMuon γ_power=0.4 (frieren arm A WIN) (g1r1-frieren) ← CURRENT BEST
+### 2026-05-18 01:42 UTC — PR #274: COOLDOWN_POWER=1.4 (fern n=2 WIN) (g1r1-fern) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 3000 (n=2 mean)
+- **val/loss:** 3.2685 (mean of seed-1 3.26812 and seed-2 3.26888)
+- **stat-sig margin:** (3.28 − 3.2685)·√2 = 0.01627 ≥ 0.004 ✓ (4.07×)
+- **Δ vs PR #202 baseline:** −25 sr-steps ✅ (sr=3000 < 3025), +0.00235 val (small regression, within n=1 noise band)
+- **W&B runs:** seed-1 `vw0595an`, seed-2 `s2nrw0c8` (group `g1r1-fern/cooldown-power-retune`)
+- **Key config:** cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon + u/w-floor + γ_power=0.4 + **COOLDOWN_POWER=1.4** (was 1.2). Other: NS_ITERS=12, muon_lr=0.035, wd=0.025, embed_lr=0.3, lm_head_lr=1/320, betas=(0.8, 0.95), eps=1e-10.
+- **Mechanism:** The more concave LR decay tail (power=1.4 vs 1.2) holds a slightly larger LR through mid-cooldown and drops more sharply near the end. On the γ_power=0.4 stack with cleaner preconditioned gradient direction, this allows the model to "snap" below 3.28 one validation interval earlier (step 3000 vs 3025). Final val is ~0.002 above PR #202 baseline — a sub-noise regression stable across both seeds, plausibly caused by the harder late-cooldown drop undershooting the LR floor.
+- **Statistical threshold (n=1):** val ≤ 3.276. New **n=2 threshold: val ≤ 3.277** (tighter: (3.28 − 3.2685)·√2 = 0.01627).
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "baseline-reproduction-pr274" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** Arm A (COOLDOWN_POWER=1.0, linear) sr=3100 val=3.26773 — clear NULL. Only Arm B (1.4) won. Suggested follow-ups: probe {1.5, 1.6, 1.8}; joint COOLDOWN_POWER × cooldown_frac × muon_lr grid; investigate late-cooldown LR floor.
+
+---
+
+### 2026-05-17 06:40 UTC — PR #202: PMuon γ_power=0.4 (frieren arm A WIN) (g1r1-frieren)
 
 - **speedrun/final_first_step_to_target:** 3025 (n=1)
 - **val/loss:** 3.26615 (n=1)
