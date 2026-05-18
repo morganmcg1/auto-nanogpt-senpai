@@ -440,6 +440,13 @@ class GPT(nn.Module):
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
 MU = float(os.environ.get("MU_START", "0.95"))
 MU_END = float(os.environ.get("MU_END", "0.95"))
+# Cooldown-only mu schedule (Arm B of PR #288): hold MU_COOLDOWN_START during
+# warmup/plateau, then linearly anneal to MU_COOLDOWN_END only during cooldown.
+# Enabled when either env var is explicitly set; otherwise the MU/MU_END
+# full-run linear schedule above is used.
+MU_COOLDOWN_ENABLED = ("MU_COOLDOWN_START" in os.environ) or ("MU_COOLDOWN_END" in os.environ)
+MU_COOLDOWN_START = float(os.environ.get("MU_COOLDOWN_START", "0.95"))
+MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -832,6 +839,9 @@ if dist.get_rank() == 0:
             "optimizer/mu": MU,
             "optimizer/mu_start": MU,
             "optimizer/mu_end": MU_END,
+            "optimizer/mu_cooldown_enabled": MU_COOLDOWN_ENABLED,
+            "optimizer/mu_cooldown_start": MU_COOLDOWN_START,
+            "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -895,7 +905,14 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
-        cur_mu = MU + (MU_END - MU) * progress
+        if MU_COOLDOWN_ENABLED:
+            if progress < 1 - cooldown_frac:
+                cur_mu = MU_COOLDOWN_START
+            else:
+                t = (progress - (1 - cooldown_frac)) / cooldown_frac
+                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+        else:
+            cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
