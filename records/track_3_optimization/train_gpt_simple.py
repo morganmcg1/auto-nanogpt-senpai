@@ -54,6 +54,14 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--qkv_init", type=str, default="default",
+                        choices=["default", "ortho_unit", "ortho_scaled", "ortho_v_only", "ortho_qk_only"],
+                        help="Initialization scheme for attention Q/K/V weights. "
+                             "default=normal_(std=sqrt(0.33/d_in)); "
+                             "ortho_unit=orthogonal_(gain=1.0); "
+                             "ortho_scaled=orthogonal_(gain=sqrt(0.33)) (operator-norm matched to default); "
+                             "ortho_v_only=orthogonal V only at gain=sqrt(0.33); "
+                             "ortho_qk_only=orthogonal Q and K at gain=sqrt(0.33).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +739,7 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "qkv_init": args.qkv_init,
         },
     )
 
@@ -745,6 +754,11 @@ for trial_idx in range(args.num_trials):
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
 
     # initialize model parameters
+    def _is_qkv(qname: str, kind: str) -> bool:
+        return qname.endswith(f"attn.{kind}.weight")
+
+    ortho_scaled_gain = 0.33 ** 0.5
+
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
@@ -752,6 +766,28 @@ for trial_idx in range(args.num_trials):
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+            elif _is_qkv(name, "q") or _is_qkv(name, "k") or _is_qkv(name, "v"):
+                mode = args.qkv_init
+                apply_ortho = False
+                gain = ortho_scaled_gain
+                if mode == "default":
+                    pass
+                elif mode == "ortho_unit":
+                    apply_ortho = True
+                    gain = 1.0
+                elif mode == "ortho_scaled":
+                    apply_ortho = True
+                    gain = ortho_scaled_gain
+                elif mode == "ortho_v_only":
+                    if _is_qkv(name, "v"):
+                        apply_ortho = True
+                elif mode == "ortho_qk_only":
+                    if _is_qkv(name, "q") or _is_qkv(name, "k"):
+                        apply_ortho = True
+                if apply_ortho:
+                    torch.nn.init.orthogonal_(w, gain=gain)
+                else:
+                    w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
