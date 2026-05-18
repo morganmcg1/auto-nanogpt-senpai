@@ -21,6 +21,59 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix optimizer (Pagliardini et al., NeurIPS 2024).
+    Dual-EMA first moment: fast (β1) + slow (β3) combined as (m_fast_hat + α·m_slow).
+    Slow EMA is intentionally NOT bias-corrected (per paper).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999, 0.9999), alpha=5.0,
+                 eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, alpha=alpha, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            alpha = group["alpha"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m_fast"] = torch.zeros_like(p)
+                    # m_slow kept in FP32: β3=0.9999 rounds to 1.0 in BF16, which
+                    # would make mul_(β3) a no-op and break the slow EMA. Embed
+                    # is the only BF16 param in this group and is the primary
+                    # mechanism target, so this matters.
+                    state["m_slow"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"] = torch.zeros_like(p)
+                state["step"] += 1
+                step = state["step"]
+                m_fast, m_slow, v = state["m_fast"], state["m_slow"], state["v"]
+                m_fast.mul_(beta1).add_(g, alpha=1.0 - beta1)
+                m_slow.mul_(beta3).add_(g, alpha=1.0 - beta3)
+                v.mul_(beta2).addcmul_(g, g, value=1.0 - beta2)
+                bc1 = 1.0 - beta1 ** step
+                bc2 = 1.0 - beta2 ** step
+                m_fast_hat = m_fast / bc1
+                v_hat_sqrt = (v / bc2).sqrt().add_(eps)
+                update = (m_fast_hat + alpha * m_slow) / v_hat_sqrt
+                if wd != 0.0:
+                    p.add_(p, alpha=-lr * wd)
+                p.add_(update, alpha=-lr)
+        return loss
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
@@ -36,6 +89,10 @@ NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+
+# AdEMAMix aux optimizer hyperparameters (PR #305)
+ADEMAMIX_ALPHA = 4.0    # Arm A: 4.0; Arm B: 8.0
+ADEMAMIX_BETA3 = 0.9999
 
 
 def parse_args():
@@ -704,6 +761,14 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # AdEMAMix aux optimizer (PR #305) hyperparameters.
+            "aux_optimizer": "AdEMAMix",
+            "ademamix_alpha": ADEMAMIX_ALPHA,
+            "ademamix_beta1": 0.8,
+            "ademamix_beta2": 0.95,
+            "ademamix_beta3": ADEMAMIX_BETA3,
+            "ademamix_eps": 1e-10,
+            "ademamix_weight_decay": 0.0,
         },
     )
 
@@ -735,10 +800,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AdEMAMix(
+        [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+        betas=(0.8, 0.95, ADEMAMIX_BETA3), alpha=ADEMAMIX_ALPHA, eps=1e-10, weight_decay=0,
+    )
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -920,6 +987,21 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            # AdEMAMix diagnostic: slow-EMA contribution ratio on embed param
+            embed_p = model.embed.weight
+            embed_state = optimizer1.state.get(embed_p, {})
+            if "m_fast" in embed_state and "m_slow" in embed_state:
+                m_fast_norm = embed_state["m_fast"].norm().item()
+                m_slow_norm = embed_state["m_slow"].norm().item()
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "adem/embed_m_fast_norm": m_fast_norm,
+                    "adem/embed_m_slow_norm": m_slow_norm,
+                    "adem/embed_slow_over_fast": (ADEMAMIX_ALPHA * m_slow_norm) / max(m_fast_norm, 1e-12),
+                    "adem/alpha": ADEMAMIX_ALPHA,
+                    "adem/beta3": ADEMAMIX_BETA3,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
