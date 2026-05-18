@@ -981,3 +981,59 @@ All 3 treatment arms regress >+0.0015 vs control. ε=1e-10 (current default) is 
 **Verdict**: productive-null on GLOBAL ε axis.
 
 **Follow-up assigned (PR #351)**: alphonse per-group SCALAR ε — edward #280 showed scalar group is most sparsity-vulnerable. Test scalar ε ∈ {1e-12, 1e-10, 1e-8, 1e-6} while embed/lm_head stay at 1e-10. Scalar-specific apex may exist where global apex didn't.
+
+## 2026-05-18 08:35 UTC — PR #324: AdamW β1 sweep (askeladd) — CLOSED productive-null ❌
+
+- Branch: `g1r4-askeladd/adamw-beta1-sweep`
+- Hypothesis: Symmetry with β2=0.99 gain (#236) — if longer second-moment memory helps aux groups, longer first-moment memory (higher β1) should too.
+
+### Results — n=1 within-pod (post-#236 stack, arm-A = post-#290 control)
+
+| Arm | β1 | W&B | val_loss | fs | Δ vs A |
+|---|---|---|---|---|---|
+| A (control) | 0.80 | `lhjyu0od` | **3.27113** | 3225 | — |
+| B | 0.85 | `46287hih` | 3.27251 | 3250 | +0.00138 |
+| C | 0.90 | `0jb6p8lt` | 3.27238 | 3225 | +0.00125 |
+| D | 0.95 | `7bkajk96` | 3.27712 | 3300 | **+0.00599** |
+
+Drift gate (arm-A): |3.27113 − 3.27200| = 0.00087 ≤ 0.003 ✓ (lucky-low pod).
+
+### Key findings
+
+1. **Monotone-worse direction**: β1=0.80 (current default) is optimal in tested range. Arm-D (β1=0.95) shows large regression (+0.00599), widening monotonically through the cooldown.
+2. **Asymmetric with β2**: variance estimator (v-EMA) benefits from long memory because gradient *magnitudes* are stationary across batches; direction estimator (m-EMA) does NOT benefit because gradient *directions* are non-stationary for embedding tables (active token IDs shift batch-to-batch).
+3. **Late-cooldown gap widens**: Δ(D−A) monotonically increases from +0.00552 at step 3150 to +0.00599 at terminal — arm-D never catches up.
+
+### Verdict
+
+Productive-null. β1 axis closed — β1=0.80 is the confirmed optimum in {0.80, 0.85, 0.90, 0.95}. Sub-0.80 probe (β1={0.5, 0.7}) is a potential follow-up but lower-priority than fresh mechanism exploration.
+
+**Follow-up assigned (PR #354)**: logit softcap value sweep — hardcoded 15 in `GPT.forward` has never been tuned. Fresh axis orthogonal to all in-flight work.
+
+## 2026-05-18 08:35 UTC — PR #315: lm_head steeper-decay cooldown (nezuko) — CLOSED productive-null ❌
+
+- Branch: `g1r4-nezuko/lmhead-decay-shape`
+- Hypothesis: lm_head dislikes a non-zero cooldown floor (PR #266 showed floor=15% HURTS for non-embed groups), so it should *like* steeper-than-linear decay (mirror hypothesis).
+
+### Results — n=1 within-pod (arm-A = linear control)
+
+| Arm | shape | W&B | val_loss | fs | Δ vs A | cum_lmhead_lr |
+|---|---|---|---|---|---|---|
+| A (control) | linear | `t4eyje4t` | **3.27300** | 3250 | — | 2178.00 |
+| B | quadratic | `fh7plnkg` | 3.27632 | 3275 | +0.00332 | 2177.75 |
+| C | cubic | `le0falgq` | 3.27651 | 3275 | +0.00351 | 2177.50 |
+| D | exp_decay (k=3) | `ti50qm4a` | 3.27613 | 3275 | +0.00313 | 2177.61 |
+
+Compute-neutral: cum LR spread 0.023% across arms.
+
+### Key findings
+
+1. **Hypothesis FALSIFIED**: all steeper shapes regress +0.00313 to +0.00351. Mirror of #266 floor finding does NOT hold.
+2. **Unified lm_head mechanism**: both findings (dislikes floor AND dislikes steep early decay) point to the same conclusion — **linear is the lm_head cooldown sweet spot**. lm_head is sensitive to *time-of-update concentration*, not just total LR budget. Redistributing LR away from the late-cooldown window (either upward via floor or earlier via steep decay) regresses ~+0.003.
+3. **Late-cooldown work is real**: the small late-cooldown updates do meaningful work for lm_head; cannot be front-loaded or lifted.
+
+### Verdict
+
+Productive-null with negative stacking signal. lm_head=linear default is correct and axis is closed for steeper-than-linear direction. Shallower-than-linear (sqrt, tiny floor) remains unprobed but is lower-priority.
+
+**Follow-up assigned (PR #356)**: Muon μ schedule sweep — ramp_up (0.90→0.99) as the 4th late-training precision lever, paralleling β2=0.99, late_peak NS shape, and linear_ramp_down NS coef schedule.

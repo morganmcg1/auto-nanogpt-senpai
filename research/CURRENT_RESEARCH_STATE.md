@@ -47,85 +47,96 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 ---
 
-## Active experiments — 06:30 UTC
+## Active experiments — 08:40 UTC
 
-### 🔄 fern #345 — NS coef ramp_down DEPTH sweep [JUST ASSIGNED]
+### 🔄 fern #345 — NS coef ramp_down DEPTH sweep [arm-A terminal, arm-B running]
 **Branch:** `g1r4-fern/ns-coef-ramp-depth`
 **Hypothesis:** #290 established linear_ramp_down direction (c=0.70→0.28, depth=0.42). Is depth=0.42 optimal? Sweep 4 mean-neutral depths: arm-A=0.42 (control), arm-B=0.30 (shallower), arm-C=0.55 (steeper), arm-D=0.70 (much steeper). All arms anchored at c_mean=0.49 — pure shape sweep.
-**Decision rule:** within-pod Δ ≤ −0.002 → signal candidate; all within ±0.0015 → productive-null; monotone direction → extend sweep.
-**ETA:** ~6.9h sequential chain (~13:30 UTC if launched promptly).
+**arm-A result:** val=3.27276, fs=3250, drift gate |Δ|=0.00076 ≤ 0.003 ✓. arm-B running.
+**Decision rule:** within-pod Δ ≤ −0.002 → signal candidate; all within ±0.0015 → productive-null.
+**ETA full chain:** ~13:30 UTC.
 
-### 🔄 frieren #344 — NS late_peak transition point sweep [JUST ASSIGNED]
-**Branch:** `frieren/ns-late-peak-frac-sweep`
-**Hypothesis:** The #285 late_peak winner used 50% of cooldown as NS=12, 50% as NS=20. Is 50% optimal? Sweep transition point: arm A=0.25, arm B=0.50 (control), arm C=0.75. Arm B ALSO validates composition of #285+#290 since it's the first run with both active simultaneously.
-**Drift gate:** |val_B − 3.27200| ≤ 0.003. Composition check: val_B ≈ 3.272 → clean stack; val_B ≈ 3.274+ → partial overlap.
-**ETA:** ~5.5h chain.
+### 🔄 frieren #344 — NS late_peak transition point sweep [arm-A running, ~3025/3350]
+**Branch:** `g1r4-frieren/ns-late-peak-frac-sweep`
+**Hypothesis:** Is 50% cooldown transition optimal? Sweep: arm-A=0.25, arm-B=0.50 (control/drift gate), arm-C=0.75. arm-B ALSO validates #285+#290 composition.
+**Status:** arm-A (frac=0.25) at step ~3025/3350. arm-B (drift gate) and arm-C queued.
+**ETA arm-A terminal:** ~08:30 UTC. Full chain ETA ~11:30 UTC.
 
-### ⚠️ tanjiro #300 — Embed floor value sweep [CONFIRMATION MID-CHAIN, STALE BASELINE]
-**Status:** Conf seed-1 (floor=0.20, post-#236 stack) val=**3.26995** (Δ vs new baseline = −0.00205). Strong signal that SURVIVES baseline update. Conf seed-2 in flight, ETA ~06:30 UTC. Seed-3 queued.
-**IMPORTANT:** Seeds were run on pre-#285+#290 stack. After seed-3 terminal:
-- n=3 mean ≤ 3.27200 → request 1-2 re-confirmation seeds on post-#290 full stack
-- n=3 mean ∈ (3.27200, 3.27350] → borderline; request 2 seeds on post-#290 stack
-- n=3 mean > 3.27350 → productive-null (absorbed by late_peak/ns_coef)
-**ETA for n=3 terminal:** ~08:30 UTC. Student notified of baseline change.
+### ⚠️ tanjiro #300 — Embed floor value sweep [CONFIRMATION MID-CHAIN]
+**Status:** seed-3 in flight (step ~3000/3350, ETA ~08:35 UTC). Seeds were run on pre-#285+#290 stack.
+- n=2 mean=3.27151 (seed-1=3.26995, seed-2=3.27310) — strong signal candidate. If n=3 mean ≤ 3.27200 → request 1-2 re-confirmation seeds on post-#290 full stack.
+**Decision after seed-3:** n=3 mean determines path (merge if ≤ baseline, re-confirm on post-#290 stack, or close).
 
-### 🔄 thorfinn #348 — Per-group AdamW WD sweep [JUST ASSIGNED]
+### 🔄 thorfinn #348 — Per-group AdamW WD sweep [arm-A running, early]
 **Branch:** `g1r4-thorfinn/per-group-adamw-wd`
-**Hypothesis:** Global WD=0.005 (closed #279) absorbed by β2=0.99. Per-group dissection: lm_head-only WD=0.002 and scalar-only WD=0.002 (per #280 sparsity finding) may yield isolated signal where embed is excluded (over-regularized by floor+β2).
-**4 arms:** A=control, B=lm_head WD, C=scalar WD, D=both. WD=0.002 (smaller than original 0.005 since stack is tighter).
-**Decision rule:** within-pod Δ ≤ −0.002 → confirmation; sub-/super-additive logic for arm-D.
-**ETA:** ~7h sequential.
+**Hypothesis:** Per-group WD dispatch: lm_head-only WD=0.002 and scalar-only WD=0.002 may yield isolated signal where global WD failed (over-regularized embed).
+**Status:** arm-A running, step ~1150/3350.
+**ETA full chain:** ~15:00 UTC.
 
-### edward #335 — Muon LR cooldown FLOOR sweep [mid-chain]
-**Status:** arm-A val=3.27482 (drift gate pass: |Δ|=0.00075 ≤ 0.003). Arm-B (floor=0.05) running, ETA ~07:09 UTC. Arms C/D follow. Full chain ETA ~10:50 UTC.
-**Note:** All arms use post-#236 stack (no #285+#290 yet). Will need re-confirmation on post-#290 stack if any arm shows signal.
-**Decision:** within-pod Δ ≤ −0.002 → real signal candidate.
+### 🔄 edward #335 — Muon LR cooldown FLOOR sweep [arm-B terminal, arm-C running]
+**Status:** arm-A val=3.27482 (drift gate ✓), arm-B (floor=0.05) val=3.27631 (+0.00149 vs A). Arm-C (floor=0.10) running at step ~1825/3350. Trending worse (floor helps Muon-side? still unclear).
+**Note:** All arms use post-#236 stack (no #285+#290). Re-confirmation on post-#290 needed if signal found.
+**ETA full chain:** ~10:50 UTC.
 
-### 🔄 alphonse #351 — Per-group SCALAR AdamW ε sweep [JUST ASSIGNED]
+### 🔄 alphonse #351 — Per-group SCALAR AdamW ε sweep [arm-A running, early]
 **Branch:** `g1r4-alphonse/per-group-scalar-eps`
-**Hypothesis:** Global ε null (closed #322). Edward #280: scalar group most sparsity-vulnerable. Test scalar-specific ε ∈ {1e-12, 1e-10, 1e-8, 1e-6} while embed/lm_head stay at 1e-10.
-**Decision rule:** within-pod Δ ≤ −0.002 → real signal; all within ±0.0015 → null.
+**Hypothesis:** Global ε null (closed #322). Test scalar-specific ε ∈ {1e-12, 1e-10, 1e-8, 1e-6} while embed/lm_head stay at 1e-10.
+**Status:** arm-A running, early.
+**ETA full chain:** ~15:00 UTC.
+
+### 🆕 askeladd #354 — Logit softcap value sweep [JUST ASSIGNED]
+**Branch:** `g1r4-askeladd/logit-softcap-value`
+**Hypothesis:** Hardcoded `15` in `GPT.forward` softcap (`logits = 15 * logits * (logits.square() + 15**2).rsqrt()`) has never been tuned. Fresh axis. 4 arms: A=15 (control), B=10 (softer), C=20 (harder), D=25 (much harder).
+**Decision rule:** within-pod Δ ≤ −0.002 → signal; all within ±0.0015 → null; monotone direction → extend.
 **ETA:** ~7h sequential.
 
-### askeladd #324 — AdamW β1 sweep [mid-chain, likely null direction]
-**Status:** Arm-A (β1=0.8) = 3.27113, arm-B (β1=0.85) = 3.27251 (+0.00138 worse). Arm-C (β1=0.9) running. Monotone worsening direction likely.
-
-### nezuko #315 — lm_head steeper-decay cooldown shape [mid-chain, likely null]
-**Status:** Arm-A (linear) = 3.27300, arm-B (quadratic) = 3.27632 (+0.00332 worse). Arm-C (cubic) running, ETA ~06:20 UTC. Monotone worsening direction → hypothesis (steeper = better) falsified. Close after arm-D as productive-null; informs that lm_head wants LESS steep decay (consistent with the original floor=15% HURTS finding from #266).
+### 🆕 nezuko #356 — Muon μ schedule sweep [JUST ASSIGNED]
+**Branch:** `g1r4-nezuko/muon-mu-schedule`
+**Hypothesis:** Muon momentum μ=0.95 constant; schedule it like NS coef linear_ramp_down won (#290). Mechanism: early training → low μ (responsive), late cooldown → high μ (stable). 4 arms: A=constant 0.95, B=ramp_up 0.90→0.99, C=ramp_down 0.99→0.90, D=late_peak 0.90→0.99.
+**Decision rule:** within-pod Δ ≤ −0.002 → real signal; B wins + C loses → clean mechanism confirmation.
+**ETA:** ~7h sequential.
 
 ---
 
 ## Recently closed
 
+- **askeladd #324 (AdamW β1 sweep)** — CLOSED 08:35 UTC productive-null. Monotone-worse direction: β1=0.80 optimal, arm-D (β1=0.95) +0.00599 worse. Asymmetric with β2 finding: direction non-stationary across batches, magnitude stationary. Wave-7 axis: logit softcap (#354).
+- **nezuko #315 (lm_head steeper-decay cooldown)** — CLOSED 08:35 UTC productive-null. Hypothesis FALSIFIED — all steeper shapes regress +0.0031–0.0035. Linear is the lm_head sweet spot: neither floor nor steep decay help. Unified mechanism: lm_head is time-of-update-concentration sensitive. Wave-7 axis: Muon μ schedule (#356).
 - **frieren #285 (NS cooldown SHAPE)** — MERGED ✅ 06:02 UTC. val=3.27352 (n=2). late_peak concentrates NS=20 into lowest-LR half of cooldown.
 - **fern #290 (NS coef schedule)** — MERGED ✅ 06:07 UTC. val=3.27200 (n=3). linear_ramp_down starts NS at high-precision coefficients, ramps toward standard.
-- **thorfinn #279 (AdamW WD=0.005)** — CLOSED 07:12 UTC productive-null. n=3 mean=3.27530 vs new baseline 3.27200 (+0.00330 above gate). β2=0.99 absorbed standalone gain; inter-seed variance collapsed ×7 on new stack. Wave-6 axis assigned as per-group WD #348.
-- **alphonse #322 (AdamW global ε)** — CLOSED 07:48 UTC productive-null. All 3 treatment arms +0.0016-0.0031 worse than control ε=1e-10. β2=0.99 smoothing already stabilizes denominator. Wave-6 axis assigned as per-group scalar ε #351.
-- **edward #280 (per-aux-group β2 ablation)** — CLOSED mechanism-study. Sparsity-driven mechanism: scalar > embed > lm_head (inverts pre-registration). Sub-additivity 2.5× confirms global β2=0.99 captures UNION.
-- **askeladd #241 (Muon mu=0.97)** — productive-null. Confirmed within-pod inverted-U but cross-pod fail (+0.00118 above gate).
+- **thorfinn #279 (AdamW WD=0.005)** — CLOSED 07:12 UTC productive-null. n=3 mean=3.27530 vs new baseline 3.27200 (+0.00330 above gate). β2=0.99 absorbed standalone gain.
+- **alphonse #322 (AdamW global ε)** — CLOSED 07:48 UTC productive-null. All 3 treatment arms +0.0016-0.0031 worse than control ε=1e-10. β2=0.99 smoothing already stabilizes denominator.
+- **edward #280 (per-aux-group β2 ablation)** — CLOSED mechanism-study. Sparsity-driven mechanism: scalar > embed > lm_head. Global β2=0.99 captures UNION.
+- **askeladd #241 (Muon mu=0.97)** — productive-null. Within-pod inverted-U at mu=0.97 but cross-pod fail (+0.00118 above gate).
 
 ---
 
 ## Potential next research directions
 
-### Highest-priority fresh axes
-1. **Embed floor value optimization** — tanjiro #300 in-flight. If floor=0.20 confirms on post-#290 stack, that's the next merge.
-2. **NS late_peak transition point optimization** — frieren #344 in-flight. Finding optimal 25%/50%/75% split.
-3. **Muon LR cooldown floor** — edward #335 in-flight. Mechanism generalization from embed-floor to Muon blocks.
-4. **NS linear_ramp_down depth** — fern #345 in-flight. Sweep depth=0.30/0.42/0.55/0.70 around #290 winner.
-5. **Per-group scalar ε tuning** — edward #280 showed scalar group most sparsity-vulnerable. alphonse #322 probes global ε; per-group scalar ε is the mechanism-validated follow-up (after #322 closes).
+### Highest-priority in-flight candidates
+1. **Embed floor value optimization** — tanjiro #300 in-flight. Seed-3 ETA ~08:40 UTC. n=2 mean=3.27151 → strong candidate if n=3 mean ≤ baseline.
+2. **NS late_peak transition point** — frieren #344. arm-A running (ETA ~08:30 UTC). arm-B is drift gate for composition validation.
+3. **NS linear_ramp_down depth** — fern #345. arm-A=3.27276 (drift gate ✓), arm-B (depth=0.30) running.
+4. **Muon LR cooldown floor** — edward #335. arm-B worse (+0.00149), arm-C running. Heading null-ish.
+5. **Per-group scalar ε** — alphonse #351. arm-A early in training.
+6. **Per-group WD** — thorfinn #348. arm-A early in training.
 
-### Medium-priority axes
-6. **Joint β1 × β2 surface** — pending askeladd #324 β1 sweep result
-7. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism
-8. **NS cooldown shape beyond late_peak** — 3-phase (e.g., NS=12→15→20) within cooldown window
-9. **Compositional pile** — once #344 confirms composition, start exploring 3-way interactions (embed floor × NS shape × NS coef)
+### Fresh axes just assigned
+7. **Logit softcap value** — askeladd #354. First-ever tuning of output softcap (15.0). Full-stack sweep on post-#290.
+8. **Muon μ schedule** — nezuko #356. Parallels NS coef linear_ramp_down mechanism. ramp_up(0.90→0.99) is the mechanism prediction.
+
+### Medium-priority unassigned axes
+9. **NS coef mean sweep** — once fern #345 fixes depth (0.30/0.42/0.55/0.70), sweep c_mean {0.45/0.49/0.53/0.57} at winning depth
+10. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99 stack
+11. **NS cooldown 3-phase** — extend late_peak to 3-phase (12→15→20 within cooldown window)
+12. **Embed init scale** — N(0,1) default may be suboptimal; but RMSNorm normalizes immediately, lower priority
+13. **Per-group μ ablation** — after nezuko #356 lands; per-group μ (parallels per-group β2 from #280)
 
 ### What we know about stacking
 - 7 merges across orthogonal axes: clip, NS timing, NS shape, NS coef schedule, embed floor, β2, Muon² baseline
-- Remaining gap to public SOTA: val=3.27200 vs public best ~3.279 (our branch leads; gap to 3030 steps is ~200 steps in fs)
-- If tanjiro #300 floor=0.20 confirms → potential val ~3.269 → potentially close to new local optimum on current mechanism set
-- Fresh mechanism exploration (new optimizer families, initialization, architecture within contract) should be kept in the pipeline
+- Our branch leads public best: val=3.27200 vs public ~3.279; gap to 3030 steps ~200 steps in fs
+- Closed β1 (monotone worse), lm_head steeper decay (all worse), global WD, global ε — post-#290 stack appears saturated on naive hparam sweeps
+- Fresh mechanism exploration (schedule axes, init, output layer) remains the priority
 
 ---
 
