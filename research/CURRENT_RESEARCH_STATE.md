@@ -78,10 +78,16 @@ These are largely orthogonal axes. Remaining stacking potential is high.
 **ETA:** seed-1 ETA ~02:00 UTC, full chain ~02:00–08:00 UTC.  
 **Gate:** n=3 mean val ≤ 3.27407. Previously within-pod Δ was marginal; fresh confirmation will clarify.
 
-### tanjiro #300 — Embed floor value sweep [medium priority]
-**Status:** arm-A=3.15 (floor=0.15, control), arm-B (floor=0.10) HURTS, arm-C (floor=0.20) running, arm-D (floor=0.30) queued.  
-**Hypothesis:** PR #235 won with floor=15%. Is 15% optimal? Expected monotone or U-shape around 15%. If D(30%) wins, extend; if B(10%) wins, floor barely matters; if A wins, 15% is at optimum.  
-**Note:** arm-B result (floor=0.10 hurts) suggests the floor has a minimum threshold to be effective; 15% is at or near optimum. arm-C/D will confirm whether increasing the floor helps further.
+### ⚡ tanjiro #300 — Embed floor value sweep [SCREENING COMPLETE, n=3 CONFIRMATION RUNNING]
+**Status:** 4-arm chain complete 02:50 UTC. Inverted-U with apex at floor=0.20 (arm-C). Within-pod Δ vs A = **−0.00159** (above signal threshold, marginal regime).  
+**Screening table (pre-#236 stack, single seed)**:
+- arm-B (floor=0.10): 3.27630 (Δ=+0.00189)
+- arm-A (floor=0.15, control): 3.27441
+- arm-C (floor=0.20): **3.27282** ✓ best
+- arm-D (floor=0.30): 3.27549 (Δ=+0.00108)
+
+**n=3 confirmation chain (post-#236 stack)**: launched ~02:50 UTC, ETA ~08:00 UTC. Tests whether the 0.20 floor signal holds when stacked with β2=0.99.  
+**Merge gate**: n=3 mean ≤ 3.27407 AND stat-sig ≥ 0.004.
 
 ### alphonse #322 — AdamW ε sweep [medium priority]
 **Status:** Newly assigned 00:05 UTC. Re-tunes ε after β2=0.99 shift: longer variance EMA may change optimal noise floor. Arms: {1e-10 (control), 1e-9, 1e-8, 1e-7}.  
