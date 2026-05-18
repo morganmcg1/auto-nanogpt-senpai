@@ -1,32 +1,31 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 (~04:15 UTC, poll #131)
+- **Last updated:** 2026-05-18 (~07:30 UTC, poll #137)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged 12:42Z)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FERN PR #318 β₁=0.70 Phase 2 LAUNCH DIRECTIVE ISSUED** ⭐:
-   - Cell A (β₁=0.70, `bmiour40`): val=3.269202 ffs=3125 (Δ=-0.002160, ~1.83σ below baseline)
-   - Cell B (β₁=0.80 ctrl, `xinpvprd`): **TERMINAL** val=3.272008 ffs=3150 (Δ=+0.000646, ~0.55σ above baseline — clean reproduction)
-   - **Cell-to-cell delta: -0.002806** — strong signal β₁=0.70 > β₁=0.80
-   - Phase 2 n=4 directive posted on PR #318 at ~04:15Z (comment 4473902042)
-   - Fern will launch on next student poll. Expected Phase 2 terminal ~07:30-08:00Z
+1. **FERN PR #318 Phase 2 n=4 IN FLIGHT** ⭐ (highest-priority experiment):
+   - Cell A (β₁=0.70 n=1): val=3.269202 ffs=3125 (Δ=-0.002160, ~1.83σ below baseline)
+   - Cell B ctrl (β₁=0.80): val=3.272008 ffs=3150 (clean baseline reproduction)
+   - Phase 2 run `53l16b0z` (group `g1r5-fern/adam-beta1-confirm`): step ~1640/13000 at 07:30Z (~13% complete)
+   - ETA Phase 2 n=4 terminal: ~11:00-12:00Z May 18
    - **Statsig target (n=4):** mean ≤ 3.269362
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | **Effectively dead**: trial 0=3.27193, trial 1=3.271929, mean=3.271929; n=4 gate needs remaining 2 at mean ≤3.267365 (implausible) |
-| #306 | alphonse | lm_head LR sweep | Cell C val=3.271231 ~0.11σ favorable; Cell D (lr=0.030) pending |
-| #318 | fern | Adam β₁ sweep → Phase 2 pivot | Cell B ctrl terminal ~04:00Z → Phase 2 n=4 at β₁=0.70 launches after |
-| #320 | edward | Adam β₂ aux sweep | Cell A retry (`9zjcpd9q`, β₂=0.85) running; sequential B→D→E pending |
-| #321 | thorfinn | cooldown_frac sweep | Cell A retry (`4r1l7rhv`) in flight; Cell B→D→E pending |
-| #323 | tanjiro | Muon mu sweep | Cell A val=3.27569 (mu=0.85 clean-negative); Cell B (mu=0.90) in flight |
-| #334 | askeladd | Muon WD sweep (wd ∈ {0,0.01,0.025,0.05,0.10}) | Cell A (wd=0) in flight |
-| #337 | frieren | **NEW: Muon nesterov ablation** (True ctrl vs False/Polyak) | Just assigned; Cell A (ctrl) launching |
+| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | **Mathematically locked out**: trial 0=3.27193, trial 1=3.27313, 2-mean=3.272530. Even if remaining 2 hit ever-best (3.269534), n=4 mean=3.271032 > gate 3.269362. Trial 2 in flight; close at terminal ~08:30Z |
+| #306 | alphonse | lm_head LR sweep | Cell D (`29s9g1k2`, lr=0.030) step 2536/3250 ~07:30Z; Cell E pending |
+| #318 | fern | Adam β₁ Phase 2 n=4 confirm | Run `53l16b0z` β₁=0.70 step 1640/~13000; ETA ~11-12Z |
+| #320 | edward | Adam β₂ aux sweep | Cell A retry (β₂=0.85) **clean-neg val=3.27993 ffs=3250**; Cell C ctrl val=3.27101; Cell D (`378`, β₂=0.98) just launched |
+| #321 | thorfinn | cooldown_frac sweep | Cell A retry (`4r1l7rhv`, cd=0.50) step 2906/3250 ~07:30Z; Cell C ctrl val=3.271924; Cell B→D→E pending |
+| #323 | tanjiro | Muon mu sweep | Cell A val=3.27569 (mu=0.85 clean-negative); Cell B (`tmt9xxnc`, mu=0.90) step 3242/3250 val=3.2732 ffs=3150 (essentially terminal); Cell D→E pending |
+| #334 | askeladd | Muon WD sweep (wd ∈ {0,0.01,0.025,0.05,0.10}) | Cell A (`pf30m69f`, wd=0) step 2545/3250 ~07:30Z |
+| #337 | frieren | Muon nesterov ablation (True ctrl vs False/Polyak) | Cell A (`09d0v5j2`, nesterov=True) step 1793/3250 — recovered from concurrent-runs incident at 05:35Z |
 
 ## Closed This Session (poll #127-130)
 
@@ -42,12 +41,14 @@
 
 ## Upcoming Decisions (~next 4-8h)
 
-- ~04:00Z: fern Cell B ctrl terminal → Phase 2 n=4 at β₁=0.70 launches
-- ~04:00Z: edward Cell A retry terminal
-- ~04:30Z: thorfinn Cell A retry terminal → if good, sequential B→D→E
-- ~04:30-05:00Z: tanjiro Cell B (mu=0.90) terminal; Cell C→E pending
-- ~05:00-06:00Z: askeladd Cell A (wd=0) terminal → sequential B→E
-- ~06:30Z: nezuko Phase 2 n=4 terminal → close (effectively dead unless miracle)
+- ~07:35Z: tanjiro Cell B (mu=0.90) terminal → val=3.2732 ffs=3150 modest clean-neutral (mu=0.85 was neg, mu=0.90 is similar — sweep is curve-flat); direct tanjiro to remaining cells D,E
+- ~07:45Z: thorfinn Cell A retry (cd=0.50) terminal → if good, sequential B→D→E
+- ~08:00-08:30Z: askeladd Cell A (wd=0) terminal → sequential B→E
+- ~08:00-08:30Z: alphonse Cell D (lr=0.030) terminal → trend A=3.276→B=3.272→C=3.271 monotone; D will reveal turning point
+- ~08:30Z: frieren Cell A nesterov=True (ctrl) terminal → launch Cell B nesterov=False
+- ~08:30Z: nezuko Phase 2 n=4 terminal → close clean-neutral (gate mathematically locked out)
+- ~09:30Z: edward Cell D (β₂=0.98) terminal → Cell E (β₂=0.99) sequential
+- ~11:00-12:00Z: fern Phase 2 n=4 terminal → MERGE DECISION on β₁=0.70 mechanism
 - ~11:00-12:00Z: fern Phase 2 n=4 terminal → merge if statsig passes
 
 ## Research Themes
