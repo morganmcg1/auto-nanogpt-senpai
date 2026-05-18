@@ -1,20 +1,18 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~08:50Z (poll #156)
+- **Last updated:** 2026-05-18 ~09:00Z (poll #157)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FERN PR #318 Phase 2 n=4 IN FLIGHT** (highest-priority experiment, but **gate now ~lockout**):
+1. **FERN PR #318 Phase 2 n=4 IN FLIGHT** (**effectively locked out**):
    - Cell A single (β₁=0.70): val=3.269202 ffs=3125
-   - Phase 2 run `53l16b0z` (group `g1r5-fern/adam-beta1-confirm`): step 6974/13000 at 07:10Z (~54%)
-   - **Trial 1 done: val=3.270602 ffs=3125**
-   - **Trial 2 done: val=3.272171 ffs=3150** (regression continues; mean T1+T2 = 3.271387, above baseline)
-   - Trial 3 in flight (~470 steps in)
-   - **Remaining T3+T4 need mean ≤ 3.267338** to hit n=4 gate — that's ~3.4σ below baseline, very challenging
-   - ETA Phase 2 n=4 terminal: ~11:30-12:30Z May 18
+   - Phase 2 run `53l16b0z`: step 10100/13000 at 09:00Z (~78%, trial 4 in flight)
+   - **T1=3.270602 / T2=3.272171 / T3=3.272746** (mean=3.271840 — all above baseline mu=3.271362)
+   - **T4 must be ≤ 3.261929** to hit n=4 gate — that's ~8σ below baseline, effectively impossible
+   - ETA Phase 2 n=4 terminal: ~10:30-11:00Z May 18 → close clean-neutral at terminal
 
 2. **EDWARD PR #320 Phase 2 n=4 IN FLIGHT** ⭐:
    - Cell D (β₂=0.98) `hfn1clh2`: **val=3.268718 ffs=3125** (~2.24σ below baseline) — WINNER
