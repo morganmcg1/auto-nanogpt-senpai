@@ -59,6 +59,10 @@ def parse_args():
     # Default 0.0 disables (no-op for bit-identical baseline).
     parser.add_argument("--aux_agc_clip_ratio", type=float, default=float(os.environ.get("AUX_AGC_CLIP_RATIO", "0.0")))
     parser.add_argument("--aux_agc_eps", type=float, default=float(os.environ.get("AUX_AGC_EPS", "1e-3")))
+    # Linear warmup for AdamW aux groups (embed, lm_head, scalars). 0 = disabled
+    # (bit-identical to baseline). Ramps lr from initial_lr/N to initial_lr over N steps.
+    parser.add_argument("--aux_warmup_steps", type=int, default=int(os.environ.get("AUX_WARMUP_STEPS", "0")),
+                        help="Linear warmup steps for aux AdamW groups (embed, lm_head, scalars). 0=disabled.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -679,6 +683,10 @@ if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on aux AdamW groups (clip_ratio=0)", console=True)
+if args.aux_warmup_steps > 0:
+    print0(f"Aux AdamW LR warmup ENABLED: linear ramp over {args.aux_warmup_steps} steps", console=True)
+else:
+    print0("Aux AdamW LR warmup DISABLED (aux_warmup_steps=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -728,6 +736,7 @@ if dist.get_rank() == 0:
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
+            "aux_warmup_steps": args.aux_warmup_steps,
         },
     )
 
@@ -812,6 +821,15 @@ for trial_idx in range(args.num_trials):
         assert 0 <= progress < 1
         for opt in optimizers:
             for group in opt.param_groups:
+                group_name = group.get("name", "")
+                # Aux warmup applies only to AdamW aux groups (adam_embed, adam_lm_head,
+                # adam_scalars). Overrides the cooldown logic until warmup completes.
+                # Warmup factor is (step + 1) / N to match thorfinn's muonh-warmup convention
+                # — small but non-zero LR at the first step, full LR at step = N - 1.
+                if args.aux_warmup_steps > 0 and group_name.startswith("adam_") and step < args.aux_warmup_steps:
+                    eta = (step + 1) / args.aux_warmup_steps
+                    group["lr"] = group["initial_lr"] * eta
+                    continue
                 cooldown_frac = group["cooldown_frac"]
                 if progress < 1 - cooldown_frac:
                     eta = 1.0
