@@ -45,6 +45,7 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -721,6 +722,7 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "muonh_warmup_steps": args.muonh_warmup_steps,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -810,6 +812,12 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
+        # MuonH-only linear warmup: scales LR by (step+1)/K for the first K steps.
+        # AdamW aux groups are unaffected. warmup_steps=0 is a no-op (factor=1.0).
+        if args.muonh_warmup_steps > 0:
+            muonh_warmup = min(1.0, (step + 1) / args.muonh_warmup_steps)
+        else:
+            muonh_warmup = 1.0
         for opt in optimizers:
             for group in opt.param_groups:
                 cooldown_frac = group["cooldown_frac"]
@@ -826,7 +834,10 @@ for trial_idx in range(args.num_trials):
                         eta = math.sqrt(max(0.0, c))
                     else:
                         raise ValueError(f"unknown cooldown_shape: {shape}")
+                if opt is optimizer2:
+                    eta = eta * muonh_warmup
                 group["lr"] = group["initial_lr"] * eta
+        return muonh_warmup
 
 
     ########################################
@@ -931,7 +942,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        muonh_warmup_factor = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -965,14 +976,25 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
-        if dist.get_rank() == 0 and telemetry_due:
+        # Log warmup telemetry every 10 steps during warmup (and at telemetry events
+        # afterwards) so we capture the warmup curve at high resolution. Cheap since
+        # it's just two floats.
+        warmup_due = (
+            args.muonh_warmup_steps > 0
+            and step < args.muonh_warmup_steps + 50
+            and (step == 0 or (step + 1) % 10 == 0)
+        )
+        if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             for opt in optimizers:
                 if isinstance(opt, MuonH):
-                    muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
-                    muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
-                    muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
-            if args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
+                    if telemetry_due:
+                        muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
+                        muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
+                        muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                    muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
+                    muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+            if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
                 muonh_metrics["train/agc/total_count"] = agc_stats["agc_total"]
