@@ -450,6 +450,7 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+COOLDOWN_FRAC = float(os.environ.get("COOLDOWN_FRAC", "0.7"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -841,6 +842,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "schedule/cooldown_frac": COOLDOWN_FRAC,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -888,7 +890,7 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=COOLDOWN_FRAC):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
