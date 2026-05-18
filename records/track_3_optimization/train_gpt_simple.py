@@ -35,6 +35,7 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
+PMUON_BIAS_CORRECT = "FULL"  # PR #307 Arm A: "FULL"; Arm B: "SQRT"; baseline: "OFF"
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
@@ -479,6 +480,7 @@ def pmuon_update(
     momentum: Tensor,
     L_cov: Tensor,
     R_cov: Tensor,
+    step: int,
     mu: float = 0.95,
     beta_cov: float = 0.95,
     gamma: float = PMUON_GAMMA,
@@ -487,6 +489,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    bias_correct: str = "OFF",
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -497,8 +500,18 @@ def pmuon_update(
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
 
-    L_neg = matrix_neg_power(L_cov, gamma, eps)
-    R_neg = matrix_neg_power(R_cov, gamma, eps)
+    if bias_correct != "OFF":
+        bias_factor = 1.0 - beta_cov ** step
+        if bias_correct == "SQRT":
+            bias_factor = bias_factor ** 0.5
+        L_cov_eff = L_cov / max(bias_factor, 1e-12)
+        R_cov_eff = R_cov / max(bias_factor, 1e-12)
+    else:
+        L_cov_eff = L_cov
+        R_cov_eff = R_cov
+
+    L_neg = matrix_neg_power(L_cov_eff, gamma, eps)
+    R_neg = matrix_neg_power(R_cov_eff, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
@@ -547,20 +560,24 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     if len(state) == 0:
+                        state["step"] = 0
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    state["step"] += 1
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
                         state["L"],
                         state["R"],
+                        step=state["step"],
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        bias_correct=PMUON_BIAS_CORRECT,
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -912,6 +929,22 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            if PMUON_BIAS_CORRECT != "OFF":
+                for group in optimizer2.param_groups:
+                    for p in group["params"]:
+                        state = optimizer2.state.get(p, {})
+                        if "step" in state:
+                            step_local = state["step"]
+                            bc = 1.0 - 0.95 ** step_local
+                            if PMUON_BIAS_CORRECT == "SQRT":
+                                bc = bc ** 0.5
+                            wandb.log({
+                                "pmuon/bias_correct_step": step_local,
+                                "pmuon/bias_correct_factor": bc,
+                                "pmuon/bias_correct_inv_gamma_multiplier": (1.0 / max(bc, 1e-12)) ** group["gamma"],
+                            }, step=wandb_step)
+                            break
+                    break
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
