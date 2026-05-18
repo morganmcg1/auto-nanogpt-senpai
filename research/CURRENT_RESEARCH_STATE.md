@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~07:10Z (poll #150)
+- **Last updated:** 2026-05-18 ~07:36Z (poll #153)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -16,19 +16,20 @@
    - **Remaining T3+T4 need mean ≤ 3.267338** to hit n=4 gate — that's ~3.4σ below baseline, very challenging
    - ETA Phase 2 n=4 terminal: ~11:30-12:30Z May 18
 
-2. **EDWARD PR #320 Phase 2 trigger MET** ⭐:
-   - Cell D (β₂=0.98) `hfn1clh2`: **val=3.268718 ffs=3125** (Δ=-0.00264, ~2.24σ below baseline)
-   - Cell E (β₂=0.99) `mhnv5jxr` step 2543/3250 at 07:10Z (~78%), ETA terminal ~07:30Z
-   - Phase 2 n=4 ready to launch at best β₂ after Cell E terminal
+2. **EDWARD PR #320 Phase 2 n=4 IN FLIGHT** ⭐:
+   - Cell D (β₂=0.98) `hfn1clh2`: **val=3.268718 ffs=3125** (~2.24σ below baseline) — WINNER
+   - Cell E (β₂=0.99) `mhnv5jxr`: **val=3.270318 ffs=3125** (terminal 07:36Z) — weaker
+   - Phase 2 n=4 directive posted at β₂=0.98. Statsig gate: mean ≤ 3.269362
+   - Cell D single (3.268718) is -0.000644 below gate — regression-to-mean will push n=4 mean toward gate
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | **Mathematically locked out**: trials (3.27193, 3.27313, 3.27310). Trial 4 (`407dyaw7`) step 12519/13000, ETA ~07:30Z. Close clean-neutral at terminal. |
+| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | JUST ASSIGNED. Cell A (ctrl, wd_aux=0.0) launching. PR #283 (AGC P2) closed clean-neutral: mean=3.272890 gate fails by ~3σ. |
 | #306 | alphonse | lm_head LR Phase 2 n=4 | Phase 2 run `7xl5rcjb` step 1243/13000, ETA terminal ~13:30Z |
 | #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 6974/13000. T1=3.270602 (ffs=3125), T2=3.272171 (ffs=3150). Gate now needs T3+T4 mean ≤ 3.267338. ETA terminal ~11:30Z |
-| #320 | edward | Adam β₂ aux sweep | Cell D (β₂=0.98) val=3.268718 ffs=3125 ⭐ trigger MET. Cell E (β₂=0.99) `mhnv5jxr` step 2543/3250, ETA ~07:30Z. Phase 2 n=4 launch decision at terminal. |
+| #320 | edward | Adam β₂ Phase 2 n=4 | Cell D (β₂=0.98) val=3.268718 ffs=3125 ⭐ winner; Cell E (β₂=0.99) val=3.270318 ffs=3125 terminal. **Phase 2 n=4 at β₂=0.98 launched (directive posted 07:35Z).** |
 | #321 | thorfinn | cooldown_frac sweep | Cell A retry cd=0.50 val=3.2742; Cell C ctrl cd=0.70 val=3.271924; Cell D cd=0.80 done; Cell E (`xh7gpfge`, cd=0.90) step 1343/3250, ETA ~08:30Z |
 | #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg val=3.272627; Cell C ctrl mu=0.95 done; Cell D (`9419jxjr`, mu=0.97) step 2104/3250, ETA ~07:55Z; Cell E (mu=0.99) pending |
 | #334 | askeladd | Muon WD sweep | Cell A wd=0 DNR catastrophic; Cell D wd=0.05 done; Cell E (`katqhx5q`, wd=0.10) step 1001/3250, ETA ~09:00Z |
@@ -43,8 +44,8 @@
 
 ## Upcoming Decisions (~next 4-8h from 07:10Z)
 
-- **~07:30Z:** Nezuko P2 trial 4 terminal → close PR #283 clean-neutral (mathematically locked out)
-- **~07:30Z:** Edward Cell E (β₂=0.99) terminal → **Phase 2 n=4 launch decision** at best β₂
+- ~~**~07:30Z:** Nezuko P2 trial 4 terminal → close PR #283 clean-neutral~~ ✓ DONE 07:35Z
+- ~~**~07:30Z:** Edward Cell E (β₂=0.99) terminal~~ ✓ DONE 07:36Z → Phase 2 n=4 at β₂=0.98 launched
 - **~07:55Z:** Tanjiro Cell D (mu=0.97) terminal → Cell E (mu=0.99) sequential
 - **~07:55Z:** Frieren Cell A (lr_attn=0.025) terminal → Cell B (ctrl 0.035) sequential
 - **~08:30Z:** Thorfinn Cell E (cd=0.90) terminal → close PR #321 with verdict
@@ -58,7 +59,7 @@
 
 **Active mechanism threads:**
 - **AdamW aux β₁ (fern):** β₁=0.70 single = 1.8σ signal; Phase 2 confirm in flight ⭐ highest priority
-- **AdamW aux β₂ (edward):** β₂=0.85 neg, β₂=0.95 ctrl, β₂=0.98 in flight, β₂=0.99 pending
+- **AdamW aux β₂ (edward):** β₂=0.85 neg, β₂=0.95 ctrl, **β₂=0.98 best (3.268718 ffs=3125) Phase 2 n=4 in flight**, β₂=0.99 mild improvement (3.270318)
 - **LR schedule (thorfinn):** cd=0.50 neg, cd=0.70 ctrl, cd=0.80 in flight, cd=0.90 pending
 - **lm_head LR (alphonse):** monotone improvement to lr=0.030 (near-trigger); lr=0.100 in flight ⭐
 - **Muon WD (askeladd):** wd=0 catastrophic, wd=0.05 in flight, wd=0.10 pending
@@ -75,13 +76,13 @@
 - Per-layer LR decay (nezuko, clean-negative)
 - NS5 iteration count (askeladd, clean-neutral)
 - SOAP attn Gram damping (fern, clean-neutral)
-- AGC λ=0.03 (nezuko, P2 effectively dead, mathematically locked out)
+- AGC λ=0.03 (nezuko, P2 confirmed dead, mean=3.272890 fails n=4 gate by ~3σ, closed PR #283)
 - Cautious-Muon, Lookahead, SWA, z-loss, gradient centralization, label smoothing, depth-init, per-head SOAP, schedule-free Muon, polynomial schedule-free Muon, SOAP β₂ cooldown annealing — all closed
 
 **Candidate next hypotheses (queue for next idle student):**
-- Separate lr_attn sweep on new stack (PR #209 was clean-neg at old baseline; retest at lr_mlp=0.055)
 - Spectral/orthogonal QKV weight init
-- Adam β₂ schedule ramp over training
+- Adam β₂ schedule ramp over training (low→high β₂ warmup)
 - Per-group lr_embed × lr_lm_head 2D joint confirm (after alphonse sweep completes)
 - NS5 + β₁=0.70 compound (if fern P2 confirms)
 - Muon mu × nesterov 2D joint sweep (if frieren Cell B winner)
+- AdamW aux WD (nezuko PR #349 now testing)

@@ -869,3 +869,40 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Mechanism conclusion:** nesterov=True is load-bearing. Polyak momentum consistently worse. The Nesterov look-ahead step (computing gradient at current + momentum direction before normalization) provides real benefit in this stack. Default confirmed correct; no change needed.
 - **Incident:** Concurrent-runs violation at ~05:35Z (runs `09d0v5j2` + `vfskbh2x` both active on 1 GPU). Student resolved at 03:37Z; no data integrity issue.
 - **Follow-on:** PR #346 (frieren) — `lr_attn` sweep {0.025, 0.035 ctrl, 0.045, 0.055, 0.075} on lr_mlp=0.055 stack. Last tested at old baseline (PR #209, clean-neg); retest warranted.
+
+## 2026-05-18 07:35 UTC — PR #283: AGC Phase 2 n=4 — **CLOSED clean-neutral (gate locked out)**
+
+- Branch: `g1r5-nezuko/adaptive-grad-clipping`
+- Student: g1r5-nezuko
+- Hypothesis: NFNets-style per-parameter adaptive gradient clipping at λ=0.03 reduces val/loss on the lr_mlp=0.055 + SOAP-attn stack.
+
+| Trial | val/best_loss | ffs | W&B run |
+|-------|--------------|-----|---------|
+| T1 | 3.271929 | 3150 | `407dyaw7` (Phase 2 group `g1r5-nezuko/agc-phase2-n4`) |
+| T2 | 3.273134 | 3150 | same run |
+| T3 | 3.273133 | 3150 | same run |
+| T4 | 3.273364 | 3150 | same run |
+| **Mean** | **3.272890** | 3150 | — |
+
+- **Statsig gate (n=4): mean ≤ 3.269362. AGC mean = 3.272890, fails gate by +0.003528 (~2.99σ).**
+- ffs=3150 consistent across all 4 trials (worse than baseline ffs_best=3125).
+- Single-shot best (T1=3.271929) was within noise of baseline, but regression-to-mean fully materialized in T2-T4.
+- **Mechanism conclusion:** AGC λ=0.03 is clean-neutral. May mildly suppress useful gradient magnitudes on this stack (ffs=3150 consistent). AGC slot exhausted.
+- **Follow-on:** PR #349 (nezuko) — AdamW aux WD sweep (wd_aux ∈ {0.0, 0.01, 0.05, 0.10, 0.20}) — current weight_decay=0 on embed/lm_head/scalars is untested.
+
+## 2026-05-18 07:36 UTC — PR #320: Adam β₂ aux sweep — **Phase 2 directive posted at β₂=0.98**
+
+- Branch: `g1r5-edward/adam-beta2-aux-sweep`
+- Student: g1r5-edward
+- Phase 1 cell sweep results (single-shot):
+
+| Cell | β₂   | val/best_loss | ffs   | W&B run | vs baseline |
+|------|------|---------------|-------|---------|-------------|
+| A retry | 0.85 | 3.279930 | 3125 | — | +0.0086 (DNR) |
+| C (ctrl) | 0.95 | 3.271010 | 3150 | — | ~baseline |
+| **D** | **0.98** | **3.268718** | **3125** | `hfn1clh2` | **-0.00264 (~2.24σ)** ⭐ trigger |
+| E | 0.99 | 3.270318 | 3125 | `mhnv5jxr` | -0.00104 (mild) |
+
+- **Cell D β₂=0.98 is the winner**: 2.24σ below baseline, ffs=3125 matching best. β₂=0.99 also improved but only mildly (0.88σ), well behind β₂=0.98.
+- **Phase 2 directive:** n=4 confirmation run launched at β₂=0.98 (comment on PR #320). Gate: n=4 mean ≤ 3.269362.
+- **Interpretation:** Higher β₂ (slower moving EMA of second moment) reduces noise in the AdamW aux update — beneficial for embed (lr=0.30) and lm_head (lr=0.003125) groups. β₂=0.98 captures a 20-step effective "lookback" vs default β₂=0.95 (~20-step vs ~13-step).
