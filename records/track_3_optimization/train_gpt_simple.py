@@ -217,6 +217,7 @@ def log_training_telemetry(
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
+    metrics["param/lm_head_norm"] = model.proj.weight.detach().float().norm().item()
     metrics.update(prefixed("train/grad/all", grad_stats))
     for opt_idx, opt in enumerate(optimizers):
         for group_idx, group in enumerate(opt.param_groups):
@@ -442,6 +443,7 @@ MU = float(os.environ.get("MU_START", "0.95"))
 MU_END = float(os.environ.get("MU_END", "0.95"))
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
+ADAMW_WD_LM_HEAD = float(os.environ.get("ADAMW_WD_LM_HEAD", "0.0"))
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
@@ -834,6 +836,9 @@ if dist.get_rank() == 0:
             "optimizer/mu_end": MU_END,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
+            "optimizer/adamw_wd_lm_head": ADAMW_WD_LM_HEAD,
+            "optimizer/adamw_wd_embed": 0.0,
+            "optimizer/adamw_wd_scalars": 0.0,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
@@ -873,10 +878,10 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=0.0),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=ADAMW_WD_LM_HEAD),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars", weight_decay=0.0)],
+                       betas=(0.8, 0.95), eps=1e-10, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
