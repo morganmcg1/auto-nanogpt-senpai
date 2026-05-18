@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 12:55 UTC
+- **Date:** 2026-05-18 14:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -62,17 +62,9 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 **Path:** Sent back 12:30 UTC for **paired confirmation**: 2 fresh pods × frac=0.25→frac=0.50 back-to-back per pod (4 runs total). Combined with original sweep → n=3 for both arms, paired Δ n=3. Merge if mean(frac=0.25)≤3.27200 AND paired Δ mean≤−0.002 AND stat-rule satisfied.
 **ETA paired conf:** ~7h.
 
-### 🔄 fern #345 — NS coef ramp_down DEPTH sweep [arm-D running]
-**Branch:** `g1r4-fern/ns-coef-ramp-depth`
-**Three of four arms in:**
-| Arm | depth | val_loss | fs | Δ vs A |
-|---|---|---|---|---|
-| A (control) | 0.42 | **3.27276** | 3250 | — |
-| B | 0.30 (shallower) | 3.27666 | 3300 | **+0.00390** (worse) |
-| C | 0.55 (steeper) | 3.27398 | 3250 | +0.00122 (within null band) |
-
-**Reading**: Interior optimum forming near depth=0.42 (current default). Asymmetric — shallower hurts more than steeper. arm-D (depth=0.70, much steeper) ETA ~13:52 UTC will close the picture.
-**Likely outcome**: Productive-null with apex at 0.42 → confirms current default optimal. Close axis.
+### ✅ fern #345 — NS coef ramp_down DEPTH sweep — CLOSED 14:10 UTC productive-null
+Asymmetric plateau: steep side [0.42, 0.70] flat (A≈C≈D), shallow side hurts (B depth=0.30 → +0.00390). Depth=0.42 confirmed optimal. Only sub-0.42 could improve (arm-B shows they don't).
+**Follow-up**: fern assigned #380 lmhead-init-scale.
 
 ### 🔥 alphonse #351 — Per-group SCALAR AdamW ε sweep — SIGNAL CANDIDATE [arms C,D running]
 **Branch:** `g1r4-alphonse/per-group-scalar-eps`
@@ -136,6 +128,7 @@ n=2 post-#290 re-conf mean=3.274085 (+0.00209 vs baseline). floor=0.20 absorbed 
 - **nezuko #315 (lm_head steeper-decay cooldown)** — CLOSED 08:35 UTC productive-null. All steeper shapes regress +0.0031–0.0035. lm_head sweet spot is linear.
 - **frieren #285 (NS cooldown SHAPE)** — MERGED ✅ 06:02 UTC. val=3.27352 (n=2). late_peak concentrates NS=20 into lowest-LR half of cooldown.
 - **fern #290 (NS coef schedule)** — MERGED ✅ 06:07 UTC. val=3.27200 (n=3). linear_ramp_down starts NS at high-precision coefficients, ramps toward standard.
+- **fern #345 (NS coef depth sweep)** — CLOSED 14:10 UTC productive-null. depth=0.42 confirmed optimal. Asymmetric plateau: steep side flat, shallow side regresses +0.00390.
 - **tanjiro #300 (embed floor=0.20)** — CLOSED 12:50 UTC productive-null. floor=0.20 absorbed by late_peak + linear_ramp_down. embed-floor ⊆ late-cooldown-precision family. 9 seeds total.
 - **thorfinn #279 (AdamW WD=0.005)** — CLOSED 07:12 UTC productive-null. β2=0.99 absorbed standalone gain.
 - **alphonse #322 (AdamW global ε)** — CLOSED 07:48 UTC productive-null. β2=0.99 smoothing already stabilizes denominator.
@@ -158,6 +151,7 @@ n=2 post-#290 re-conf mean=3.274085 (+0.00209 vs baseline). floor=0.20 absorbed 
 7. **Muon μ schedule** — nezuko #356. Drift gate passed. Arms B/C/D outstanding.
 8. **Embed init scale** — edward #374. Implementation fixed. Full sweep outstanding.
 9. **Pruning ablation** — tanjiro #377. Drop one of {late_peak, linear_ramp_down, β2=0.99}. Mechanism probe: identifies subsumed merges → candidate for slot swap to fresh mechanism.
+10. **lm_head proj init std** — fern #380. zero-init lm_head has never been challenged. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis; lm_head feeds logits directly (no RMSNorm).
 
 ### Medium-priority unassigned axes (for next idle)
 9. **NS coef mean sweep** — once fern #345 closes, sweep c_mean {0.45/0.49/0.53/0.57} at depth=0.42

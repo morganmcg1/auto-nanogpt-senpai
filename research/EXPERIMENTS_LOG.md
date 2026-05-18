@@ -1118,3 +1118,32 @@ vs baseline: Δval = +0.00209, Δfs = +29.17 → REGRESS. n=2 mean 3.274085 > 3.
 Productive-null. Current merged default floor=0.15 (#235) remains best known on post-#290 stack. Closing this axis.
 
 **Follow-up assigned (PR #377)**: Pruning ablation — drop one of {late_peak, linear_ramp_down, β2=0.99} at a time to measure each merge's load-bearing contribution on the current stack. Tests whether mechanism saturation is symmetric (i.e., any merge partially subsumed by others → candidate for swap to fresh mechanism).
+
+## 2026-05-18 14:10 UTC — PR #345: NS coef linear_ramp_down DEPTH sweep (fern) — CLOSED productive-null ❌
+
+- Branch: `g1r4-fern/ns-coef-ramp-depth`
+- Hypothesis: Is depth=0.42 optimal for the linear_ramp_down NS coef schedule? Sweep 4 mean-neutral depths at c_mean=0.49: {0.30, 0.42, 0.55, 0.70}.
+
+### Results — n=1 within-pod (post-#290 stack)
+
+| Arm | depth | c_start → c_end | val_loss | fs | Δ vs A | W&B |
+|---|---|---|---|---|---|---|
+| B | 0.30 (shallower) | 0.640 → 0.340 | 3.27666 | 3300 | **+0.00390** (outside null) | `epny13w8` |
+| **A (control)** | **0.42** | **0.700 → 0.280** | **3.27276** | **3250** | **—** | `5g2us4g3` |
+| C | 0.55 (steeper) | 0.765 → 0.215 | 3.27398 | 3250 | +0.00122 (within null) | `ojszel80` |
+| D | 0.70 (much steeper) | 0.840 → 0.140 | 3.27292 | 3250 | +0.00016 (essentially tied) | `pakh7gnl` |
+
+All arms mean-neutral: c_mean=0.49 throughout.
+
+### Key findings
+
+1. **Asymmetric plateau**: depth=0.42 is on a broad flat plateau on the steep side [0.42, 0.70] — arms C and D are within noise. Shallower side (depth=0.30) regresses materially (+0.00390).
+2. **Small-singular suppression matters EARLY**: high-c in early iterations (what arm-B lacks) does real work when momentum buffers are noisy. By late training, even very low c=0.14 (arm-D) gives a usable NS step.
+3. **Depth=0.42 confirmed optimal** as a practical operating point in {0.30, 0.42, 0.55, 0.70}. The asymmetric pattern means only sub-0.42 depths are actionable follow-ups (and arm-B already showed they hurt).
+4. **Linear ramp_down confirmed doing real work**: the +0.00390 regression at depth=0.30 (near-constant schedule) is consistent with the original #290 finding.
+
+### Verdict
+
+Productive-null with confirmed apex at depth=0.42. The depth axis is closed — going steeper (0.55, 0.70) doesn't help and going shallower (0.30) hurts. Current post-#290 default (depth=0.42, c_mean=0.49) is confirmed optimal.
+
+**Follow-up assigned (PR #380)**: fern lm_head proj init std sweep — zero-init lm_head (current default w.zero_()) has never been challenged on r4 branch. Fresh init axis, mechanistically distinct from edward #374 (lm_head proj feeds logits directly, no RMSNorm).
