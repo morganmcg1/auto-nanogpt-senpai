@@ -5,7 +5,7 @@
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
 - ✅ **EDWARD #341 CLOSED** (14:10 UTC): SOAP eigenbasis freeze axis FALSIFIED. Arm A (FREEZE=1000) val=3.28082. Arm B (FREEZE=2000) val=3.27640/ffs=3100. **MECHANISM**: Q refresh past step K continues to add signal all the way through cooldown. Reassigned → #379 Embed init std fine sweep.
 - ✅ **ALPHONSE #359 CLOSED** (13:25 UTC): μ shape ablation FALSIFIED both directions. **MECHANISM**: 0.05 decay gap AND high-μ warmup plateau are BOTH load-bearing. Reassigned → #378 NorMuon β2 sweep.
-- 🔥 **ASKELADD #358 Arm A trial 0 STRONG**: CONTRA_MUON=0.4 trial 0 val=**3.2728**, ffs=**3050** — beats baseline by −0.00255 val AND −37.5 ffs. SECOND ffs=3050 hit this cycle. Trial 1 nearly done.
+- 🔥 **ASKELADD #358 Arm A n=2 CONFIRMED STRONG** (13:28 UTC): CONTRA_MUON=0.4 n=2 mean val=**3.27343**, ffs=**3062.5** (T0=3.272824/3050, T1=3.274036/3075). Statsig at n=2: (3.28−3.27343)×√2 = 0.00929 ≥ 0.004 ✅ PASSES 2× over. **n=4 confirm RUNNING** (launched 13:28 UTC per predeclared tree, ETA ~20:30 UTC). After n=4 → Arm B (CONTRA_MUON=0.6).
 - ✅ **FRIEREN #343 CLOSED** (11:15 UTC): AdamW β2 axis FALSIFIED in BOTH directions. β2=0.95 is a stability window. Reassigned → #373 AdaMuon.
 - ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FALSIFIED. FREQ=10 stays. Reassigned → #372 MuonEq-R.
 - ✅ **NEZUKO #339 CLOSED** (12:10 UTC): cooldown_frac axis FALSIFIED. cooldown_frac=0.7 stays. Reassigned → #375 Muon-VS.
