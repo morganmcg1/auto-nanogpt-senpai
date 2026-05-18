@@ -417,7 +417,11 @@ class Block(nn.Module):
 class GPT(nn.Module):
     def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
         super().__init__()
-        self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
+        self.embed = nn.Embedding(vocab_size, model_dim)
+        if EMBED_INIT_STD != 1.0:
+            with torch.no_grad():
+                self.embed.weight.mul_(EMBED_INIT_STD)
+        self.embed = self.embed.bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
@@ -435,6 +439,9 @@ class GPT(nn.Module):
 ########################################
 #              Optimizer               #
 ########################################
+
+# Embedding init scale (PR #379 fine-resolution sweep around default 1.0)
+EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
@@ -846,6 +853,7 @@ if dist.get_rank() == 0:
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
+            "optimizer/embed_init_std": EMBED_INIT_STD,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
@@ -872,7 +880,10 @@ for trial_idx in range(args.num_trials):
             if "proj" in name:
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # default torch init
+                if EMBED_INIT_STD == 1.0:
+                    w.normal_()  # default torch init (bit-identical to baseline)
+                else:
+                    w.normal_(std=EMBED_INIT_STD)  # PR #379: scale in fp32 then convert to bf16
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
