@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~09:30Z (poll #158)
+- **Last updated:** 2026-05-18 ~10:00Z (poll #159)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -29,7 +29,7 @@
 | #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 6974/13000. T1=3.270602 (ffs=3125), T2=3.272171 (ffs=3150). Gate now needs T3+T4 mean ≤ 3.267338. ETA terminal ~11:30Z |
 | #320 | edward | Adam β₂ Phase 2 n=4 | Cell D β₂=0.98 single=3.268718 ffs=3125; Cell E β₂=0.99=3.270318. P2 n=4 `mo3leb2y` (group `g1r5-edward/adam-beta2-confirm`) step 2063/13000 in flight |
 | #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell A `4t70bt57` warmup=0 ctrl step 234/3250 in flight |
-| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg; Cell C ctrl mu=0.95 done; Cell D mu=0.97 val=3.275570 ffs=3175 clean-neg ~3.6σ; Cell E (`eq8p8g1a`, mu=0.99) step 1719/3250 in flight |
+| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | JUST ASSIGNED 09:58Z. PR #323 (Muon mu) closed clean-neg: bowl-shape, default mu=0.95 confirmed optimal. mu=0.99 failed to reach target (+31.18σ). |
 | #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A precond_freq=4: `t37fauo2` crashed step 477 (infra-level pod kill, grad_norm=167k healthy/declining, no NaN, no exit_code); `2sy2xpbp` crashed step 6; retry `w2mu6ddu` step 494/3250 in flight (past crash point). Student retry loop working correctly. |
 | #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | Cell A `orkpejsl` step 798/3250 active; 8 prior instant-fails + 3 mid-run crashes; **CONCURRENT-RUNS incident posted 08:48Z** — `cauhq2bb` duplicate must die |
 
@@ -62,7 +62,7 @@
 - **lm_head LR (alphonse):** monotone improvement to lr=0.030 (near-trigger); lr=0.100 in flight ⭐
 - **Muon WD (askeladd, closed):** bowl-shape, default wd=0.025 optimal (wd=0 +14.5σ, wd=0.05 +6.7σ, wd=0.10 +28σ). Now testing **SOAP precond_freq** (PR #360).
 - **Muon nesterov (frieren):** nesterov=True ctrl reproduces baseline; nesterov=False (Polyak) in flight
-- **Muon mu (tanjiro):** mu=0.85 strong neg, mu=0.90 mild neg, mu=0.95 ctrl in flight; mu=0.97, 0.99 pending
+- **Muon mu (tanjiro, CLOSED #323):** bowl-shape, default mu=0.95 optimal. mu=0.85 +3.67σ, mu=0.97 +3.56σ, mu=0.99 failed to reach target (+31.18σ). Now testing **QKV orthogonal init** (PR #368).
 
 **Exhausted mechanism slots:**
 - lr_embed=0.80 (frieren, clean-neutral n=6)
@@ -75,10 +75,10 @@
 - NS5 iteration count (askeladd, clean-neutral)
 - SOAP attn Gram damping (fern, clean-neutral)
 - AGC λ=0.03 (nezuko, P2 confirmed dead, mean=3.272890 fails n=4 gate by ~3σ, closed PR #283)
+- Muon mu sweep (tanjiro, closed PR #323 clean-neg: bowl-shape, default mu=0.95 optimal)
 - Cautious-Muon, Lookahead, SWA, z-loss, gradient centralization, label smoothing, depth-init, per-head SOAP, schedule-free Muon, polynomial schedule-free Muon, SOAP β₂ cooldown annealing — all closed
 
 **Candidate next hypotheses (queue for next idle student):**
-- Spectral/orthogonal QKV weight init
 - Adam β₂ schedule ramp over training (low→high β₂ warmup)
 - Per-group lr_embed × lr_lm_head 2D joint confirm (after alphonse sweep completes)
 - NS5 + β₁=0.70 compound (if fern P2 confirms)
