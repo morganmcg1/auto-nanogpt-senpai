@@ -25,7 +25,7 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
-PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+PMUON_GAMMA = 0.5  # PMuon bilateral whitening exponent (PR #386 Arm A; was 0.4 baseline)
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -35,7 +35,7 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p5"
 
 
 def parse_args():
