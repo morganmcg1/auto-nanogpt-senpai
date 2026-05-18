@@ -55,11 +55,13 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm B: MU_COOLDOWN_START=0.90 MU_COOLDOWN_END=0.90 (constant μ=0.90, no decay)
 - If constant μ=0.90 works: confirms benefit is from LOW ENDPOINT, not decay trajectory; next step: try μ=0.87 constant
 
-### FERN #304 — Annealed SOAP_PRECOND_FREQ ⭐ (Arm A n=4 confirm at ~70%, ETA ~10:30 UTC)
-- Arm A: FREQ_START=15 → FREQ_END=7. n=2 near-miss val=3.275851/ffs=3087.5 (Δ+0.000016 on val, tied on ffs).
-- **⚠️ STACK NOTE**: fern's n=4 is on OLD stack (MU_START=0.97 MU_END=0.90 at launch time). Now comparing vs NEW baseline val=3.275350. Very unlikely to clear new tighter bar; predeclared close if n=4 mean ≥ 3.275350.
-- W&B run (n=4 confirm): `xzwpijuo` at step ~8877/12700 at 08:30 UTC
-- After n=4: run Arm B (FREQ_START=7 END=15) on NEW stack if Arm A closes
+### FERN #372 — MuonEq-R: pre-NS5 row normalization (NEW, assigned 10:55 UTC)
+- Fresh mechanism from arxiv 2603.28254 (MuonEq, 2026-03). Validated on FineWeb GPT2-small (PPL 25.23→24.88).
+- Pre-NS5: normalize rows of momentum matrix by L2 norms before NS5, ensuring isotropic input.
+- Orthogonal to NorMuon (post-NS5) and Contra-Muon (pre-momentum). Stateless, no new EMA buffers.
+- Arm A: MUONEQ_R=1 MUONEQ_EPS=1e-8 (safe default)
+- Arm B: MUONEQ_R=1 MUONEQ_EPS=1e-6 (coarser normalization)
+- ~10 lines code change to `zeropower_via_newtonschulz5` function
 
 ### EDWARD #341 — SOAP eigenbasis freeze after step K (Arm A MISS, Arm B running)
 - Resurrects PR #277 axis (closed INCONCLUSIVE due to pod NaN — pod now healthy on torch 2.11.0).
@@ -128,5 +130,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - **SOAP eigenbasis freeze** (edward #341): resurrects inconclusive #277 with healthy pod
 - **cooldown_frac** (nezuko #339): unchanged since PR #71
 - **TARGET_UW** (tanjiro #336): unchanged since PR #78
-- **SOAP annealed FREQ** (fern #304): near-miss on old baseline; may close on new tighter baseline
+- **MuonEq-R pre-NS5 row norm** (fern #372): fresh mechanism from arxiv 2603.28254; stateless, zero HPs; orthogonal to NorMuon
+- **AdaMuon cooldown-only** (next fern follow-up if #372 closes): post-NS5 variance scaling during cooldown; combined with PR #288 μ-anneal
+- **AdaFactor for aux groups** (already closed); **AdaMuon full** (arxiv 2507.11005): post-NS5 variance if fern #372 fails
 - **AdamW β2=0.90** (frieren #343 Arm B): fast variance EMA vs baseline 0.95
