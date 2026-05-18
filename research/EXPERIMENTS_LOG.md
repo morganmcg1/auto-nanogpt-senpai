@@ -816,6 +816,27 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Follow-on:** PR #318 (fern) — Adam β₁ sweep for AdamW aux groups (embed/lm_head/scalars). β₁=0.90 inherited default, never swept on this stack.
 
 
+## 2026-05-18 03:20 UTC — PR #228: lr_embed=0.80 n=6 extension — **CLOSED clean-neutral**
+
+- Branch: `g1r5-frieren/lr-embed-scale`
+- Student: g1r5-frieren
+- Hypothesis: lr_embed=0.80 (vs default 0.30) gives faster embedding gradient updates. Phase 1 n=1 showed val=3.270000, clearing the 3.270 gate. Extended to n=6 for statsig confirmation.
+
+| Trial | val/loss | ffs | W&B run |
+|-------|----------|-----|---------|
+| t0 | 3.270223 | 3125 | (batch `3704tjm5`) |
+| t1 | 3.269885 | 3125 | (batch `3704tjm5`) |
+| t2 | 3.270447 | 3150 | (batch `3704tjm5`) |
+| t3 | 3.270973 | 3125 | (batch `3704tjm5`) |
+| t4 | 3.269534 | 3125 | (batch `3704tjm5`) ⭐ single-trial best |
+| t5 | 3.271443 | 3150 | (batch `3704tjm5`) |
+| **Mean n=6** | **3.270251** | — | — |
+
+- **Statsig gate:** n=6 requires mu ≤ 3.269729. Actual mean=3.270251. Gate fails by 0.000522 (~0.45σ).
+- **p(n=8 pass):** ≈2%. EV(n=8 extension) ≈ 0.0000283, far below EV(fresh hypothesis) ≈ 0.0002. Not worth extending.
+- **Mechanism conclusion:** lr_embed=0.80 is not statsig-better than baseline. The 1.8× embedding LR boost provides marginal direction benefit already captured by SOAP preconditioning; does not compound meaningfully. lr_embed=0.80 mechanism exhausted.
+- **Follow-on:** PR #337 (frieren) — Muon nesterov flag ablation (nesterov=True ctrl vs nesterov=False/Polyak EMA). The nesterov flag has never been ablated on any stack.
+
 ## 2026-05-18 02:50 UTC — PR #301: NS5 polynomial coeff sweep — **CLOSED clean-neutral**
 
 - Branch: `g1r5-askeladd/ns5-poly-coeff-sweep`
