@@ -77,17 +77,21 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 **Path**: Paired-pod confirmation requested — 2 fresh pods × {A, D} back-to-back (with order flipped on pod 2). n=3 paired observations after combining with original A+D. Pre-staged: mean(D, n=3) ≤ baseline AND paired Δ ≤ −0.002 → real signal; otherwise → productive-null.
 **ETA paired conf:** ~7h.
 
-### 🔄 askeladd #354 — Logit softcap value sweep [arm-D running]
-**Branch:** `g1r4-askeladd/logit-softcap-sweep`
-**Three of four arms in:**
-| Arm | softcap | val_loss | fs | Δ vs A |
-|---|---|---|---|---|
-| A (control) | 15.0 | 3.27194 | 3225 | — (drift gate ✓ by 0.00006) |
-| B | 10.0 | 3.27708 | 3300 | +0.00514 (worse) |
-| C | 20.0 | 3.27561 | 3275 | +0.00367 (worse) |
-| D | 25.0 | running step 925 | - | - |
+### ✅ askeladd #354 — Logit softcap value sweep — CLOSED 16:35 UTC productive-null
+Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau above softcap=20 (softcap linear in that regime). softcap=15 confirmed optimal on post-#290 stack.
+**Follow-up**: askeladd assigned #388 NS iter count cooldown sweep.
 
-**Reading**: softcap=15.0 (default) winning so far. Both adjacent values regress materially. Pre-staged: if D also regresses → productive-null close axis (softcap=15 optimal).
+### 🔄 askeladd #388 — NS_ITERS_COOLDOWN sweep at fixed NS_ITERS=12 [just assigned]
+**Branch:** `g1r4-askeladd/ns-iters-cooldown`
+**Hypothesis**: ns_cooldown=16 was set by #176 on pre-#290 stack; never retested with the new late_peak shape + linear_ramp_down coef schedule. Higher count → more precise orthogonalization in latter 15% of training.
+| Arm | NS_ITERS_COOLDOWN | Peak iters (latter half of cooldown) |
+|---|---|---|
+| A | 16 | 20 (current, control) |
+| B | 14 | 16 |
+| C | 18 | 24 |
+| D | 20 | 28 |
+
+**ETA full chain:** ~7–8h (arm D wall-time slightly longer due to more NS iters/step).
 
 ### 🔄 nezuko #356 — Muon μ schedule sweep [arm-D running]
 **Branch:** `g1r4-nezuko/muon-mu-schedule`
@@ -171,7 +175,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 2. **scalar AdamW ε** — alphonse #351. SENT BACK 15:34 UTC for paired confirmation. Original sweep non-monotone (arm-A drift makes within-pod Δs unreliable). Paired arm-D (1e-6) vs arm-A (1e-10) on 2 fresh pods with flipped order to disambiguate pod luck from real signal.
 
 ### Productive-null shaping up
-3. **Logit softcap value** — askeladd #354. softcap=15 (default) winning. B (10) and C (20) both regress materially. D (25) pending.
+3. **Logit softcap value** — askeladd #354. CLOSED 16:35 UTC. softcap=15 confirmed optimal (valley shape). Axis closed.
 4. **Muon μ schedule** — nezuko #356. μ scheduling broadly hurts. Both ramp_up and ramp_down arms didn't hit target. D (late_peak μ schedule) pending.
 5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
 6. **Embed init scale** — edward #374. Arm-A drift gate ✓. Arm-B running.
@@ -180,6 +184,7 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 7. **lm_head proj init std** — fern #380. Arm-A (zero-init control) running. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis.
 8. **Pruning ablation** — tanjiro #377. Arm-A retry #5 after 4 control crashes. Once stable, drop one of {late_peak, linear_ramp_down, β2=0.99}.
 9. **NS coef center** — thorfinn #384. Sweep center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42 (apex from fern #345). Polynomial aggressiveness axis never tested.
+10. **NS_ITERS_COOLDOWN count** — askeladd #388. Sweep cooldown count ∈ {14, 16, 18, 20} at fixed NS_ITERS=12. ns_cooldown=16 was set on pre-#290 stack; testing whether higher precision in latter 15% of training improves on post-#290.
 
 ### Medium-priority unassigned axes (for next idle)
 9. **NS coef mean sweep** — once fern #345 closes, sweep c_mean {0.45/0.49/0.53/0.57} at depth=0.42
@@ -226,5 +231,6 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 | NS cooldown SHAPE (frieren) | late_peak wins — MERGED #285 | — |
 | NS coef schedule (fern) | linear_ramp_down wins — MERGED #290 | — |
 | NS coef depth (fern) | depth=0.42 confirmed apex, asymmetric plateau | #345 (productive-null) |
+| Logit softcap value | softcap=15 confirmed optimal, valley shape | #354 (productive-null) |
 | AdamW WD (global) | global WD=0.005 absorbed by β2=0.99 | #279 (null) |
 | AdamW WD (per-group) | per-group WD=0.002 on lm_head, scalar, or both — all harmful | #348 (harmful) |

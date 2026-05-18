@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 16:35 UTC — PR #354: Logit softcap value sweep (askeladd) — CLOSED productive-null ✅
+
+- Branch: `g1r4-askeladd/logit-softcap-sweep`
+- Hypothesis: logit softcap=15 is a one-off historical choice; sweeping ∈ {10, 15, 20, 25} may reveal a better squash threshold on the post-#290 stack.
+
+### Results — 4-arm single-pod sequential
+
+| Arm | softcap | val_loss | Δ vs A | fs | W&B |
+|---|---|---|---|---|---|
+| A control | 15.0 | **3.27194** | — | 3225 | `0ba57ha5` |
+| B | 10.0 | 3.27708 | +0.00514 | 3300 | `tkwgj0zs` |
+| C | 20.0 | 3.27561 | +0.00367 | 3275 | `tnglf16v` |
+| D | 25.0 | 3.27567 | +0.00373 | 3275 | `37ik10ef` |
+
+### Key findings
+
+1. **Drift gate ✓** — arm-A Δ vs baseline = −0.00006, near-perfect baseline reproduction.
+2. **Valley shape around softcap=15**: all 3 off-center arms regress by 2.5–3.5× the productive-null threshold (±0.0015).
+3. **C ≈ D plateau** (separation +0.00006): softcap effect is already nearly linear at softcap=20 — once large enough not to bind on most tokens, its absolute value is irrelevant.
+4. **B (tight squash) worst** by 0.5× more than C/D — squashing the logits harder is the more directly harmful direction.
+
+### Verdict
+
+Productive-null: softcap=15 is confirmed optimal on the post-#290 stack. The upstream-default value is the right setting. Close axis.
+
+### Methodological notes
+
+- Clean control reproduction with drift gate near zero.
+- Single-pod sequential design with auto-chain for B/C/D.
+- Honest valley-shape interpretation, no over-claiming.
+- Mechanism reading on the C≈D plateau (linear regime above softcap=20) is useful for future logit-related hypotheses.
+
 ## 2026-05-18 15:15 UTC — PR #348: Per-group AdamW WD sweep (thorfinn) — CLOSED productive-null ✅
 
 - Branch: `g1r4-thorfinn/per-group-wd`
