@@ -54,6 +54,12 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--adam_eps_aux_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up", "ramp_down", "spike_cooldown", "log_cosine"],
+                        help="Time-varying schedule for AdamW aux groups eps. "
+                             "constant=fixed 1e-10; ramp_up=1e-12->1e-8; ramp_down=1e-8->1e-12; "
+                             "spike_cooldown=1e-10 normal then 1e-7 in cooldown_frac phase; "
+                             "log_cosine=log-space cosine with amplitude 100x around 1e-10.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -239,6 +245,8 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "eps" in group:
+                metrics[f"train/eps/{group_name}"] = group["eps"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -787,6 +795,21 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay
+    def _eps_aux_schedule(step, total_steps, schedule, cooldown_frac=0.7):
+        if schedule == "constant":
+            return 1e-10
+        p = step / max(1, total_steps - 1)
+        if schedule == "ramp_up":
+            return 10 ** (-12 + 4 * p)
+        if schedule == "ramp_down":
+            return 10 ** (-8 - 4 * p)
+        if schedule == "spike_cooldown":
+            return 1e-7 if p >= (1 - cooldown_frac) else 1e-10
+        if schedule == "log_cosine":
+            import math
+            return 10 ** (-10 + 2 * math.cos(2 * math.pi * p))
+        raise ValueError(f"Unknown adam_eps_aux_schedule: {schedule}")
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -797,6 +820,10 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+        eps_aux = _eps_aux_schedule(step, train_steps, args.adam_eps_aux_schedule, cooldown_frac=cooldown_frac)
+        for group in optimizer1.param_groups:
+            if group.get("name") in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                group["eps"] = eps_aux
 
 
     ########################################
