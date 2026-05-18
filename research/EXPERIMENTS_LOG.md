@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 04:20 UTC — Cycle 55 (continued): frieren #333 CLOSED (AdamW eps FALSIFIED — both arms NaN); reassigned #340 embed init std sweep
+
+### FRIEREN #333 — AdamW eps sweep — FALSIFIED (both arms NaN)
+
+| Arm | eps | step:125 val | step:250 val | Verdict |
+|---|---|---|---|---|
+| Baseline | 1e-10 | 4.597 | 4.095 | OK |
+| **A** | **1e-8** | **NaN** | **NaN** | **NaN** |
+| **B** | **1e-12** | **NaN** | **NaN** | **NaN** |
+
+W&B runs: `8j3txub2` (Arm A, killed ~step 380), `rbolag9z` (Arm B, killed ~step 388). Sanity check at eps=1e-10 was bit-identical to baseline → code is correct; NaNs are genuine property of the swept eps values.
+
+**Mechanism**: Embed group runs at lr=0.30. The denominator `sqrt(v̂) + eps` at very early steps has sqrt(v̂) ~ 1e-4 (few gradient samples). 
+- eps=1e-8: eps-dominated denominator → effective update scaled too large for embed → blow-up
+- eps=1e-12: denominator too small for rare-token embeds with near-zero v̂ → division instability
+
+**Pattern**: eps=1e-10 is a fourth unique stability window:
+1. SOAP_PRECOND_FREQ=10 (5 and 20 both NaN)
+2. NS5 iter=12 (8, 10, 14, 16 all NaN)
+3. SOAP_β2≥0.90 required (0.85, 0.92 NaN/instability)
+4. AdamW eps=1e-10 (1e-8 and 1e-12 both NaN)
+
+**Conclusion**: Single-value eps change is not productive. Per-group eps (different eps per aux group) is theoretically interesting but high-effort, not a priority.
+
+Frieren reassigned → PR #340: embed init std sweep (EMBED_INIT_STD=0.5 and 0.1 vs current N(0,1)).
+
+---
+
 ## 2026-05-18 03:15 UTC — Cycle 55 (continued): nezuko #316 CLOSED (NorMuon β2 cooldown anneal FALSIFIED); reassigned #339 cooldown-frac sweep
 
 ### NEZUKO #316 — NorMuon β2 cooldown anneal — FALSIFIED

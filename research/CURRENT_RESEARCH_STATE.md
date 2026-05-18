@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-18 03:15 UTC — Cycle 55 (continued)
+- 2026-05-18 04:20 UTC — Cycle 55 (continued)
 - No human researcher directives this session.
 - 🎯🎯 **THORFINN #288 Arm B n=2 MEAN CLEARS BOTH BARS**: val=3.27477 (Δ−0.001065), ffs=3062.5 (Δ−25.0). N=4 confirmation `qceklszn` launched 00:03 UTC, ETA ~03:30 UTC. **Mechanism: cooldown-only μ anneal (MU_COOLDOWN_START=0.95→END=0.90 from step 952) — cooldown reactivity is the driver, NOT warmup stabilization.**
 - 🎯 **FERN #304 Arm A trial 0 cleared both bars at n=1**: val=3.27532, ffs=3075 (FREQ_START=15→END=7). Trial 1 in progress.
@@ -9,7 +9,7 @@
 - ✅ **NEZUKO #316 CLOSED**: NorMuon β2 cooldown anneal FALSIFIED (n=2 mean val=3.278405/ffs=3125 — Δ+0.00257/+37.5). β2 variance buffer does not share μ's cooldown-reactivity mechanism. Reassigned → #339 cooldown-frac-sweep.
 - 🎯 **FERN #304 Arm A near-miss**: n=2 mean val=3.275851/ffs=3087.5 — misses bar by 0.000016 on val and exactly tied on ffs. N=4 confirmation requested (predeclared: merge if clears, close if not).
 - 🔻 **EDWARD #281 Arm B trial 0**: val=3.27613/ffs=3100 — barely missed both bars (Δ+0.000295 val, +12.5 ffs). Trial 1 running (~04:37 UTC ETA).
-- ✅ **FRIEREN #313 CLOSED** → reassigned #333 AdamW eps sweep.
+- ✅ **FRIEREN #333 CLOSED**: AdamW eps sweep FALSIFIED — both eps=1e-8 AND eps=1e-12 NaN before step 125. Symmetric failure = finely balanced operating point. AdamW eps=1e-10 is a fourth unique stability window (alongside FREQ=10, NS_ITERS=12, SOAP_β2≥0.90). Reassigned → #340 embed init std sweep.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -77,18 +77,20 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm A: MUON_WARMUP_STEPS=100 (100 steps linear warmup for Muon group only). Run `5ao5znlo` ~step 1525.
 - Arm B: MUON_WARMUP_STEPS=50 (shorter, faster warmup).
 
-### FRIEREN #333 — AdamW eps sweep (cycle 55, just assigned; replaces #330)
-- Current eps=1e-10 (AdamW aux groups: embed, lm_head/proj, scalars) — has never been swept.
-- Arm A: ADAMW_EPS=1e-8 (PyTorch default — 100× larger denominator).
-- Arm B: ADAMW_EPS=1e-12 (10× more extreme than current).
-- Awaiting smoke and implementation push. PR #330 was accidentally auto-merged by advisor side branch-ops error (research state commit on experiment branch → ff-merge → GitHub auto-merge); #333 is a clean replacement.
+### FRIEREN #340 — Embed init std sweep (cycle 55, just assigned)
+- Current embed.weight init: N(0,1) std=1.0 — 50× larger than Karpathy GPT-2 style, never swept.
+- Arm A: EMBED_INIT_STD=0.5 (half current, conservative arm).
+- Arm B: EMBED_INIT_STD=0.1 (10× smaller, tests hypothesis more aggressively).
+- 2-line implementation: env var + `w.normal_(std=EMBED_INIT_STD)`.
+- Conservative arms (not 0.02) given eps brittleness from #333. Awaiting smoke and code push.
 
 ## Recently closed axes
 
 | PR | Student | Status | Insight |
 |---|---|---|---|
 | #316 | nezuko | FALSIFIED | NorMuon β2 cooldown anneal; n=2 mean val=3.278405/ffs=3125 (Δ+0.00257/+37.5). β2 variance buffer ≠ μ: faster variance adaptation at cooldown tail degrades re-normalization quality; NS5 safety net absent. |
-| #313 | frieren | CLOSED (implementation bug) | Z-loss — 4 NaN smokes, code never pushed; hypothesis not falsified. Reassigned to #333. |
+| #333 | frieren | FALSIFIED | AdamW eps sweep — both eps=1e-8 AND eps=1e-12 NaN before step 125. Symmetric failure = finely balanced operating point. eps=1e-10 is a fourth unique stability window. |
+| #313 | frieren | CLOSED (bug) | Z-loss — 4 NaN smokes, code never pushed; hypothesis not falsified. Reassigned to #333→#340. |
 | #309 | tanjiro | FALSIFIED | AdamW β1 anneal; Arm A (0.90→0.70) val=3.28251/ffs=-1, Arm B (0.85→0.75) val=3.27884/ffs=3150. β1 anneal does NOT mirror Muon μ anneal — AdamW has no NS5 orthogonalization safety net. |
 | #295 | nezuko | MISS | Polar Express adaptive NS5; SV quality perfect but no benefit at 12-iter bf16 budget. |
 | #286 | askeladd | FALSIFIED | Polyak-Ruppert EMA; averaging pre-cooldown weights strictly hurts (val=3.3097). Incompatible with aggressive cooldown. |
@@ -135,7 +137,7 @@ Gap to public record #20 (~3030 ffs steps): ~57.5 ffs steps.
 5. **Nezuko #316** (NorMuon β2 cooldown anneal) — Arm A trial 0 miss, trial 1 in progress.
 6. **Tanjiro #336** (TARGET_UW sweep 0.25/0.50) — just assigned, awaiting smoke.
 7. **Edward #281** Arm B trial 1 (`z21iphfx`) running (~04:37 UTC ETA). Trial 0 val=3.27613/ffs=3100 (marginal miss).
-8. **Frieren #333** (AdamW eps sweep) — awaiting smoke.
+8. **Frieren #340** (embed init std sweep 0.5/0.1) — just assigned.
 9. **Nezuko #339** (cooldown_frac sweep 0.6/0.8) — just assigned, awaiting smoke.
 
 **Next research themes to explore after in-flight settles**:
