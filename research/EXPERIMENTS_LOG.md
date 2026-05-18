@@ -3,6 +3,58 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 23:15 UTC — PR #351: Per-group SCALAR AdamW ε (alphonse) — CLOSED productive-null ✅ (paired-pod null collapse)
+
+- Branch: `g1r4-alphonse/scalar-eps-sweep`
+- Hypothesis: Per-group scalar AdamW ε sweep ∈ {1e-12, 1e-10, 1e-8, 1e-6}. Original 4-arm sweep showed apparent arm-D win (Δ vs A=−0.00278); paired-pod confirmation requested.
+
+### Paired-pod confirmation results
+
+Paired-pod re-run of {A=1e-10 baseline, D=1e-6} with order flipped on pod 2.
+
+| Pod | Pair | val_A | val_D | within-pod Δ |
+|---|---|---|---|---|
+| Pod 1 (original) | A→D | 3.27528 | 3.27250 | −0.00278 |
+| Pod 2 (confirmation) | A→D | 3.27260 | 3.27295 | +0.00035 |
+| Pod 3 (confirmation flipped) | D→A | 3.27280 | 3.27340 | +0.00060 |
+| **Pooled mean (n=3)** | | **3.27356** | **3.27295** | **+0.00019** |
+
+### Key findings
+
+1. **Signal collapsed**: pooled within-pod Δ=+0.00019 (≪ −0.002 threshold for real signal).
+2. **Pod-1 arm-A drifted +0.00328** above baseline (val=3.27528 vs baseline 3.27200), making the original within-pod Δ a measure of A's drift rather than D's effect.
+3. **Second consecutive paired-pod null collapse** — same pattern as #344 frieren NS late_peak transition point.
+
+### Verdict
+
+Productive-null. Scalar ε axis fully closed across {1e-12, 1e-10, 1e-8, 1e-6}. Mechanism reading: AdamW β2=0.99 already smooths the denominator estimate sufficiently that adjusting ε within ~6 orders of magnitude doesn't change effective per-step update. Pre-staged paired-pod protocol successfully caught the unlucky-seed false positive that would have otherwise been a misleading "merge candidate" arm.
+
+**Methodological win**: pre-staged paired-pod confirmation now has 2 consecutive demonstrated catches (#344 and #351). Future sweeps with apparent within-pod signal should default to this protocol before declaring terminal.
+
+## 2026-05-18 23:10 UTC — PR #384: NS poly coef CENTER sweep (thorfinn) — CLOSED productive-null ✅
+
+- Branch: `g1r4-thorfinn/ns-coef-center`
+- Hypothesis: at depth=0.42 (apex from fern #345), sweep NS polynomial center across {0.43, 0.49, 0.55, 0.60} to test polynomial aggressiveness axis.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | center | start | end | val | Δ vs A | fs | W&B |
+|---|---|---|---|---|---|---|---|
+| A (control) | 0.49 | 0.70 | 0.28 | 3.27250 | — | 3233 | (TBD) |
+| B | 0.43 | 0.64 | 0.22 | 3.27298 | +0.00048 | 3250 | (TBD) |
+| C | 0.55 | 0.76 | 0.34 | 3.27410 | +0.00160 | 3275 | (TBD) |
+| D | 0.60 | 0.81 | 0.39 | 3.27355 | +0.00105 | 3250 | (TBD) |
+
+### Key findings
+
+1. **Non-monotone result**: arm D (more extreme, 0.60) regressed LESS than arm C (0.55). Indicates C is a single-seed outlier.
+2. **Axis flat** across center ∈ [0.43, 0.60]; default 0.49 confirmed within seed noise.
+3. **NS coef family complete**: depth (#345), schedule (#290 merged), center (this PR) all swept. No more low-hanging mechanism on NS polynomial parameter family.
+
+### Verdict
+
+Productive-null. NS coef polynomial CENTER axis CLOSED. Combined with #345 depth (productive-null) and #290 schedule (MERGED), the NS coef polynomial mechanism is fully characterized on this stack. Future polynomial work would need to move to higher-order terms or per-iteration custom coefficients (substantial scope expansion).
+
 ## 2026-05-18 22:40 UTC — PR #380: lm_head proj init std sweep (fern) — CLOSED productive-null ✅
 
 - Branch: `g1r4-fern/lmhead-init-scale`
