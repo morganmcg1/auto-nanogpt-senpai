@@ -530,6 +530,24 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_MUON_MU_SCHEDULE = os.environ.get("NANOGPT_MUON_MU_SCHEDULE", "constant")
+NANOGPT_MUON_MU_START = float(os.environ.get("NANOGPT_MUON_MU_START", "0.95"))
+NANOGPT_MUON_MU_END = float(os.environ.get("NANOGPT_MUON_MU_END", "0.95"))
+_VALID_MU_SCHEDULES = {"constant", "linear_ramp_up", "linear_ramp_down", "late_peak"}
+assert NANOGPT_MUON_MU_SCHEDULE in _VALID_MU_SCHEDULES, (
+    f"NANOGPT_MUON_MU_SCHEDULE={NANOGPT_MUON_MU_SCHEDULE!r}, must be one of {sorted(_VALID_MU_SCHEDULES)}"
+)
+
+
+def compute_muon_mu(step: int, total_steps: int) -> float:
+    if NANOGPT_MUON_MU_SCHEDULE == "constant":
+        return NANOGPT_MUON_MU_START
+    frac = step / max(total_steps - 1, 1)
+    if NANOGPT_MUON_MU_SCHEDULE in ("linear_ramp_up", "linear_ramp_down"):
+        return NANOGPT_MUON_MU_START + (NANOGPT_MUON_MU_END - NANOGPT_MUON_MU_START) * frac
+    if NANOGPT_MUON_MU_SCHEDULE == "late_peak":
+        return NANOGPT_MUON_MU_START if frac < 0.7 else NANOGPT_MUON_MU_END
+    raise ValueError(f"Unknown schedule {NANOGPT_MUON_MU_SCHEDULE!r}")
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -747,6 +765,11 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(
+    f"Muon μ schedule={NANOGPT_MUON_MU_SCHEDULE}, "
+    f"start={NANOGPT_MUON_MU_START}, end={NANOGPT_MUON_MU_END}",
+    console=True,
+)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +822,9 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_mu_schedule": NANOGPT_MUON_MU_SCHEDULE,
+            "nanogpt_muon_mu_start": NANOGPT_MUON_MU_START,
+            "nanogpt_muon_mu_end": NANOGPT_MUON_MU_END,
         },
     )
 
@@ -1018,6 +1044,10 @@ for trial_idx in range(args.num_trials):
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
         )
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        # Muon μ schedule: update Muon param-groups' momentum coefficient before the step.
+        current_mu = compute_muon_mu(step, train_steps)
+        for group in optimizer2.param_groups:
+            group["mu"] = current_mu
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
@@ -1109,6 +1139,7 @@ for trial_idx in range(args.num_trials):
                     "gentle_to_aggressive": 2,
                     "linear_ramp_down": 3,
                 }.get(NS_COEF_SCHEDULE, -1),
+                "train/muon/mu": current_mu,
             })
             wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
