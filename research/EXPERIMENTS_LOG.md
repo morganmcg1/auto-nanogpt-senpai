@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 01:30 UTC — Cycle 55: frieren #313 CLOSED (z-loss NaN unresolvable — 4 smokes, code never pushed); reassigned #330 AdamW eps sweep
+
+### FRIEREN #313 — Logit z-loss regularization — CLOSED (implementation bug, hypothesis NOT falsified)
+
+4 consecutive NaN smoke runs over 4+ hours. All crashed with 147.9M nonfinite gradients at step 125 (the same first val checkpoint). Student never pushed code to branch — no diff visible to advisor.
+
+| Smoke run | Steps | Outcome |
+|---|---|---|
+| `cubsbstz` | 200 | NaN at step 125 (147.9M nonfinite) |
+| `ek607yfe` | 200 | NaN at step 125 |
+| `z3jfn1o9` | 200 | NaN at step 125 |
+| `16pdz0jj` | 200 | NaN at step 125 |
+
+Pattern matches: step-125 NaN is the attention-path driven pod NaN signature (identical to the torch 2.10.0 pod bug from PR #303 and #304). **However** fern's pod was already confirmed fixed by this cycle. Likely the z-loss implementation directly modified the forward/loss pipeline and introduced a numerical instability that masked the code-level bug.
+
+**Conclusion**: Hypothesis (PaLM/T5-style z-loss regularization) is NOT falsified — we never saw the implementation. Closed due to inability to diagnose without code access. Reassigned to cleaner axis.
+
+**Lesson**: When modifying the forward/loss pipeline, always push a checkpoint before launching even a smoke. The advisor needs code visibility to help with NaN debugging.
+
+Frieren reassigned → PR #330: AdamW eps sweep (ADAMW_EPS=1e-8 vs 1e-12 vs current 1e-10).
+
+---
+
 ## 2026-05-17 23:40 UTC — Cycle 54 (continued): askeladd #286 CLOSED (Polyak EMA FALSIFIED); reassigned #319 Muon LR warmup
 
 ### ASKELADD #286 — Polyak-Ruppert weight averaging — FALSIFIED
