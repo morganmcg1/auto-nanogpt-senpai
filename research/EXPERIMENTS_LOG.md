@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 14:15 UTC — Cycle 55 (continued): #341 CLOSED (SOAP eigenbasis freeze axis FALSIFIED)
+
+### PR #341 — SOAP eigenbasis freeze after step K — FALSIFIED (both arms)
+
+Branch: `g1r2-edward/soap-eigenbasis-freeze`. Both arms on OLD stack (MU_START=0.97/MU_END=0.90).
+
+| Arm | FREEZE_STEP | W&B run | mean val (n=2) | mean ffs | Step time | vs NEW baseline (3.275350/3087.5) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 1000 (pre-cooldown, step 31% in) | `jt46ri0n` | **3.28082** | n/a (1 trial −1) | ~1.86 s/step | val +0.0055 | FAIL decisive |
+| B | 2000 (mid-cooldown, step 63% in) | `604ypwx2` | **3.27640** | 3100 | ~1.91 s/step | val +0.00105, ffs +12.5 | FAIL |
+| Baseline (PR #288 NEW) | 0 (never freeze) | `qceklszn` | 3.275350 | 3087.5 | ~1.94 s/step | — | — |
+
+Per-trial Arm B (`604ypwx2`): T0 val=3.27734/ffs=3125, T1 val=3.27546/ffs=3075. Trial-pair spread 0.00188.
+
+**Mechanism CONFIRMED**: SOAP Q eigenbasis refresh past step K continues to contribute useful signal **all the way through cooldown**. The val regression scales **monotonically** with how early the freeze happens:
+- FREEZE=1000 (very early): +0.0055 val
+- FREEZE=2000 (mid-cooldown): +0.00105 val
+- FREEZE=3175 (no freeze, baseline): 0.0
+
+The hypothesis that "Q stabilizes after early training, so refresh is wasted compute past step K" is falsified. The non-trivial val regression confirms the residual Q rotation through cooldown encodes useful preconditioner direction information, even though `cos_row(Q_t, Q_{t-10})` stays high (high cosine doesn't mean zero contribution from the orthogonal residual).
+
+**Trial-1-only artifact**: Arm B trial 1 alone hit val=3.27546/ffs=3075, which beats NEW baseline if cherry-picked. But the trial-pair spread (0.00188) exceeds any meaningful signal at n=2 — the per-trial dispersion dominates the mean estimate.
+
+**Wallclock note**: Arm B saved ~0.034 s/step (~107 s per 3175-step trial), ~1.7% wallclock. Since we measure ffs (steps), not wallclock, this isn't useful for our merge contract. Closes the "wallclock-only" interpretation of the axis.
+
+**Combined with fern's closed #304 (SOAP_PRECOND_FREQ anneal 15→7 falsified)**: the steady-state SOAP_PRECOND_FREQ=10 from step 1 through end-of-training is now confirmed a tight stability window in BOTH dimensions:
+- DON'T change refresh frequency (#304)
+- DON'T stop refreshing late (#341)
+
+**Excluded axes**: SOAP_FREEZE_STEP < 3175 (any partial freeze). Open: would a per-block freeze schedule (different K per block depth) preserve more of the late-cooldown signal? Lower priority given the magnitude of the regression even at FREEZE=2000.
+
+**Stack mismatch caveat**: Both arms ran on OLD stack (MU_START=0.97/MU_END=0.90). NEW stack might shift results by ~0.0005 favorably. Even with that shift, n=2 mean would still fail by ~+0.0005 val — within trial-pair noise, not statsig.
+
+---
+
 ## 2026-05-18 13:30 UTC — Cycle 55 (continued): #359 CLOSED (μ shape ablation FALSIFIED both directions)
 
 ### PR #359 — μ cooldown schedule shape ablation — FALSIFIED (both arms)

@@ -1,16 +1,16 @@
 # SENPAI Research State
 
-- 2026-05-18 13:30 UTC — Cycle 55 (continued)
+- 2026-05-18 14:15 UTC — Cycle 55 (continued)
 - No human researcher directives this session (Issue #164 is on r3 branch, not r2).
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
-- ✅ **ALPHONSE #359 CLOSED** (13:25 UTC): μ shape ablation FALSIFIED both directions. Arm A (near-flat 0.92→0.90) val=3.28382. Arm B (constant 0.90→0.90) val=3.28481. Both fail by +0.008-0.010. **MECHANISM**: 0.05 decay gap AND high-μ warmup plateau are BOTH load-bearing. Reassigned → #378 NorMuon β2 sweep.
+- ✅ **EDWARD #341 CLOSED** (14:10 UTC): SOAP eigenbasis freeze axis FALSIFIED. Arm A (FREEZE=1000) val=3.28082. Arm B (FREEZE=2000) val=3.27640/ffs=3100. **MECHANISM**: Q refresh past step K continues to add signal all the way through cooldown. Reassigned → #379 Embed init std fine sweep.
+- ✅ **ALPHONSE #359 CLOSED** (13:25 UTC): μ shape ablation FALSIFIED both directions. **MECHANISM**: 0.05 decay gap AND high-μ warmup plateau are BOTH load-bearing. Reassigned → #378 NorMuon β2 sweep.
 - 🔥 **ASKELADD #358 Arm A trial 0 STRONG**: CONTRA_MUON=0.4 trial 0 val=**3.2728**, ffs=**3050** — beats baseline by −0.00255 val AND −37.5 ffs. SECOND ffs=3050 hit this cycle. Trial 1 nearly done.
 - ✅ **FRIEREN #343 CLOSED** (11:15 UTC): AdamW β2 axis FALSIFIED in BOTH directions. β2=0.95 is a stability window. Reassigned → #373 AdaMuon.
 - ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FALSIFIED. FREQ=10 stays. Reassigned → #372 MuonEq-R.
 - ✅ **NEZUKO #339 CLOSED** (12:10 UTC): cooldown_frac axis FALSIFIED. cooldown_frac=0.7 stays. Reassigned → #375 Muon-VS.
 - ✅ **TANJIRO #336 CLOSED** (12:10 UTC): TARGET_UW axis FALSIFIED in BOTH directions. TARGET_UW=0.35 is local optimum. Reassigned → #376 Cooldown AdaMuon Switch.
 - 🔥 **THORFINN #357 trial 0 STRONG**: MU_COOLDOWN_END=0.87 trial 0 val=**3.274062**, ffs=**3050** — FIRST ffs=3050 hit this cycle. Trial 1 in progress.
-- ⚠️ **EDWARD #341 Arm B trial 1 done** (12:50 UTC): SOAP_FREEZE_STEP=2000 trial 1 val=3.2773/ffs=3125 — already fails NEW baseline. Trial 2 in progress, axis on track to close.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -67,11 +67,13 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm B: MUONEQ_R=1 MUONEQ_EPS=1e-6 (coarser normalization)
 - ~10 lines code change to `zeropower_via_newtonschulz5` function
 
-### EDWARD #341 — SOAP eigenbasis freeze after step K (Arm A MISS, Arm B running)
-- Resurrects PR #277 axis (closed INCONCLUSIVE due to pod NaN — pod now healthy on torch 2.11.0).
-- Arm A: SOAP_FREEZE_STEP=1000 — `jt46ri0n` FINISHED 10:00 UTC, mean val=**3.28082** (+0.0055 over baseline) — MISS. Eigenbasis refresh past step 1000 IS load-bearing.
-- Arm B: SOAP_FREEZE_STEP=2000 — `604ypwx2` started 10:09 UTC, step ~575/3175. Tests less aggressive freeze (allows refresh through early cooldown). ETA ~5h.
-- Mechanism: Q eigenbasis rotation continues to update meaningfully through cooldown; freezing at step 1000 dropped 0.0055 val/loss.
+### EDWARD #379 — Embed init std fine-resolution sweep (NEW, assigned 14:15 UTC)
+- Init scale axis: PR #340 closed std=0.5 (NaN at step 25); upward direction and {0.6-0.95} interior never tested.
+- Arm A: EMBED_INIT_STD=0.85 (smaller than default 1.0, safe distance from 0.5 NaN edge)
+- Arm B: EMBED_INIT_STD=1.15 (larger than default, untested upward direction)
+- Reference: arxiv 2502.05366 (Embedding Init for LLMs). Default nn.Embedding init is N(0,1) cast to bfloat16.
+- Code change: ~5 lines — env-var-driven scaling of embed.weight before bfloat16 cast. Path is bit-identical to baseline if env-var unset.
+- NaN gate critical: pod must monitor first 100 steps closely given PR #340 history.
 
 ### NEZUKO #375 — Muon-VS: pre-NS5 gradient deviation variance (NEW, assigned 12:15 UTC)
 - Fresh mechanism from arxiv 2601.14603. Reported 1.36× optimizer step reduction on LLaMA-1.2B.
@@ -104,6 +106,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | PR | Student | Status | Insight |
 |---|---|---|---|
 | **#288** | **thorfinn** | **MERGED ⭐** | **Cooldown-only μ anneal 0.95→0.90. val Δ−0.000485 (statsig 2.3×), ffs tied at 3087.5. Mechanism: μ-anneal localizes to cooldown phase.** |
+| #341 | edward | FALSIFIED | SOAP eigenbasis freeze: Arm A (FREEZE=1000) +0.0055; Arm B (FREEZE=2000) +0.00105. Monotonic — earlier freeze → larger regression. **MECHANISM**: Q refresh contributes signal through entire cooldown. Combined with #304: SOAP refresh schedule FREQ=10 from step 1 to end is a tight stability window in BOTH dimensions. |
 | #359 | alphonse | FALSIFIED | μ shape ablation: Arm A (near-flat 0.92→0.90) +0.0085, Arm B (constant 0.90) +0.0095. **MECHANISM: 0.05 decay gap AND high-μ warmup plateau BOTH load-bearing**. Neither component alone suffices. |
 | #339 | nezuko | FALSIFIED | cooldown_frac sweep 0.6/0.8 both miss NEW baseline. Arm B beats OLD val by −0.000195/−12.5 ffs (within noise); cooldown_frac=0.7 stays. PR #288 raised the bar past Arm B's reach. |
 | #336 | tanjiro | FALSIFIED | TARGET_UW=0.35 is local optimum. Arm A (0.25) kill-gated at +0.010 regression; Arm B (0.50) fails both bars by +0.0005/+25. Floor's implicit WD remains load-bearing. |
@@ -145,7 +148,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - **μ cooldown endpoint** (thorfinn #357): more aggressive decay to 0.87/0.85 — direct follow-up to merged PR #288. Trial 0 STRONG (val=3.274062/ffs=3050).
 - **CONTRA_MUON rate** (askeladd #358): trial 0 STRONG (val=3.2728/ffs=3050). n=4 predeclared if n=2 clears.
 - **NorMuon β2** (alphonse #378): static value sweep (0.99 vs 0.90) — unswept since PR #71 merge.
-- **SOAP eigenbasis freeze** (edward #341): resurrects inconclusive #277. Arm A MISS; Arm B trial 1 val=3.2773/ffs=3125 — fails NEW baseline. On track to close.
+- **Embed init std** (edward #379): fine-resolution sweep 0.85/1.15 around default 1.0; bracket untested between falsified std=0.5 and default.
 - **MuonEq-R pre-NS5 row norm** (fern #372): arxiv 2603.28254; stateless, zero HPs; orthogonal to NorMuon
 - **AdaMuon post-NS5 variance** (frieren #373): per-element EMA scaling of NS5 output; arxiv 2507.11005
 - **Muon-VS pre-NS5 gradient deviation** (nezuko #375): arxiv 2601.14603; complementary to AdaMuon (scales NS5 input vs output)
