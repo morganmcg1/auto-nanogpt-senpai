@@ -53,6 +53,10 @@ def parse_args():
     parser.add_argument("--use_outer_optimizer", type=int, default=int(os.environ.get("USE_OUTER_OPTIMIZER", "1")))
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--outer_momentum_final", type=float, default=None,
+                        help="If set, decay outer_momentum from --outer_momentum to this value "
+                             "using a cosine schedule over the full training run. "
+                             "None (default) = fixed outer_momentum (baseline behavior).")
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
@@ -725,6 +729,7 @@ if dist.get_rank() == 0:
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
+            "muloco_outer_momentum_final": args.outer_momentum_final,
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
@@ -1008,6 +1013,14 @@ for trial_idx in range(args.num_trials):
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            if args.outer_momentum_final is not None:
+                # cosine decay outer_momentum: args.outer_momentum at step 0 → args.outer_momentum_final at step train_steps
+                progress = train_step / train_steps
+                eta = 0.5 * (1.0 + math.cos(math.pi * progress))  # 1 at progress=0, 0 at progress=1
+                current_outer_momentum = args.outer_momentum_final + \
+                    (args.outer_momentum - args.outer_momentum_final) * eta
+            else:
+                current_outer_momentum = args.outer_momentum
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
@@ -1016,9 +1029,9 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    outer_velocity[n].mul_(current_outer_momentum).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                                 (current_outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1034,6 +1047,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/current_outer_momentum": current_outer_momentum,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
