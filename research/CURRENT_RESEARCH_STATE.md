@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 18:43 UTC (boot 142x — PR #361 CLOSED NEG, nezuko reassigned #397)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) + tanjiro (`gd125a8`) still broken. Issue #164 esc#15 posted 17:00 UTC. Operator silent ~72h+.
+- **Last updated:** 2026-05-18 21:30 UTC (boot 143x — arm-1 ctrl wave landing: thorfinn/nezuko/edward all confirm baseline reproduction, askeladd off-arm NEG by 0.024)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) + tanjiro (`gd125a8`) still broken. Issue #164 esc#16 posted 19:48 UTC. Operator silent ~73h+ (esc#17 due ~22:30 UTC).
 - **Branch state:** Baseline post-PR #329 (AGC inner MuonH clip=0.05, merged 18:26 UTC).
 
 ## ⭐ Current baseline (post-PR #329 merge)
@@ -29,20 +29,20 @@
 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100
 ```
 
-## Active experiments (19:00 UTC 2026-05-18)
+## Active experiments (21:30 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#397** | nezuko | **Aux lm_head weight decay sweep** (wd=0/0.01/0.05 on lm_head only) | Assigned 18:43 UTC after #361 closed NEG. Reuses lm_head-specific plumbing. |
-| **#396** | askeladd | **QK-Norm sweep** (off/fixed/learnable RMSNorm on Q+K) | Redirected 19:00 UTC — baseline already has F.rms_norm; arm semantics revised: off=remove, fixed=baseline-equiv, learnable=add scale. head_dim=128 (not 64). Smoke `ympej1dq` done step 300. |
-| **#389** | edward | **MuonH inner mu warmup** (mu_warmup_steps 0/100/200) | Active — `va3dm8i1` arm-1 ctrl at step 675 w/ AGC flag (18:59 UTC). Stale `keybcdow` confirmed killed. |
-| **#390** | frieren | **MuLoCo outer optimizer class** (SGDM/AdamW/Lion) | Stale-run cleanup requested 19:00 UTC — `pakw25ll` (step 870) launched pre-#329 without `--muonh_agc_clip_ratio`. |
-| **#391** | thorfinn | **MuonH warmup duration** (100/200/300 steps) | Active — `a05x4jp0` arm-1 step 425 w/ AGC flag (18:59 UTC). |
-| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | Active — `bwjjfmts` arm-1 launched step 0 w/ AGC flag (18:59 UTC). Earlier smoke crashed (no AGC). |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 72h+** — `gd125a8` bf16 NaN. |
-| **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 72h+** — needs_rebase, `gd103cc`. |
+| **#397** | nezuko | **Aux lm_head weight decay sweep** (wd=0/0.01/0.05 on lm_head only) | **Arm 1 (wd=0 ctrl) terminal `y7q4vanw` val=3.27281, Δ=−0.00005 (reproduces baseline)**. Arm 2 (wd=0.01) starting. |
+| **#396** | askeladd | **QK-Norm sweep** (off/fixed/learnable RMSNorm on Q+K) | **Arm 1 (off) terminal `o20httom` val=3.29716, Δ=+0.02430 — clean NEG (24σ regression).** Confirms F.rms_norm load-bearing. Arm 2 (fixed) `xwml6u2c` step 30 — ETA terminal ~22:55 UTC. |
+| **#389** | edward | **MuonH inner mu warmup** (mu_warmup_steps 0/100/200) | **Arm 1 (mu_warmup=0 ctrl) terminal `va3dm8i1` val=3.27264, Δ=−0.00022 (reproduces baseline)**. Arm 2 (mu_warmup=100) `xdqpdnvd` step 1650 — ETA terminal ~22:40 UTC. |
+| **#390** | frieren | **MuLoCo outer optimizer class** (SGDM/AdamW/Lion) | Arm 1 (SGDM ctrl) `jgltipi3` step 2600/3325 mid-cooldown — ETA terminal ~21:47 UTC. Auto-chain queued for arms 2+3 (AdamW lr=0.014, Lion lr=0.001). |
+| **#391** | thorfinn | **MuonH warmup duration** (100/200/300 steps) | **Arm 1 (warmup=100 ctrl) terminal `a05x4jp0` val=3.27325, Δ=+0.00039 (reproduces baseline)**. Arm 2 (warmup=200) starting. |
+| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | **STUCK** — bit-identity smokes pass (`uqsd7wuz`=4.225, `6d7vgks3`=4.217) but full cap=15 control `4bj0dk3c` crashed step 725 val 3.83. Pinged 21:25 UTC for status; 23:00 UTC time-box. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 73h+** — `gd125a8` bf16 NaN, no operator rotation. |
+| **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 73h+** — needs_rebase, `gd103cc`, no operator rotation. |
 
-**8/8 students assigned.** No idle slots. 3 of 5 fresh PRs (#389/391/392) confirmed running with new `--muonh_agc_clip_ratio 0.05` flag. Edward leads at step 675.
+**8/8 students assigned.** No idle slots. **First wave of arm-1 ctrl results validates baseline reproducibility across thorfinn/nezuko/edward.** Askeladd's off arm is a clean NEG. Fern stuck on smoke debug.
 
 ## MERGED this round (chronological)
 
@@ -82,5 +82,14 @@
 
 ## Active win pipeline
 
-No pending n=4 confirms. All current screens are 1-trial arms. Edward's `va3dm8i1` is the first arm-1 run with the new AGC flag (step 120 at 18:40 UTC; ETA ~20:30 UTC). Other students still ramping up after baseline-shift notice. Next probable confirm decision: after arm 1 results from PRs #389-392, #396 land (~22:00-23:00 UTC).
+No pending n=4 confirms. All current screens are 1-trial arms.
+
+**Arm-1 results landed 21:30 UTC** — all 3 control arms reproduce baseline within σ noise (thorfinn +0.00039, nezuko −0.00005, edward −0.00022). Askeladd off-arm is a clean NEG. None pass n=1 promotion bar (<3.27206).
+
+**Next terminal wave (~21:47–22:55 UTC):**
+- 21:47 UTC: frieren SGDM ctrl (`jgltipi3`)
+- 22:40 UTC: edward arm 2 mu_warmup=100 (`xdqpdnvd`)
+- 22:55 UTC: askeladd arm 2 fixed (`xwml6u2c`) — control, expect ~baseline
+
+**Pattern check:** Multi-student baseline reproduction within ±0.0004 is healthy variance. Suggests true σ on the post-#329 baseline is ~0.0003–0.0005 per trial. n=1 bar 3.27206 (−0.0008 vs mean) likely needs ~2× σ improvement signal to merit n=4 confirm.
 </content>
