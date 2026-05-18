@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~08:35Z (poll #155)
+- **Last updated:** 2026-05-18 ~08:50Z (poll #156)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -29,11 +29,11 @@
 | #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A `alp238rf` step 1081/3250 in flight. **Concurrent-runs incident resolved**: duplicate `d61h2gj6` crashed/killed. |
 | #306 | alphonse | lm_head LR Phase 2 n=4 | Phase 2 run `7xl5rcjb` step 1243/13000, ETA terminal ~13:30Z |
 | #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 6974/13000. T1=3.270602 (ffs=3125), T2=3.272171 (ffs=3150). Gate now needs T3+T4 mean ≤ 3.267338. ETA terminal ~11:30Z |
-| #320 | edward | Adam β₂ Phase 2 n=4 | Cell D (β₂=0.98) val=3.268718 ffs=3125 ⭐ winner; Cell E (β₂=0.99) val=3.270318 ffs=3125 terminal. **Phase 2 n=4 at β₂=0.98 launched (directive posted 07:35Z).** |
-| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | JUST ASSIGNED 08:32Z. PR #321 closed clean-neutral: bowl-shaped curve, default cd=0.70 optimal (Cell A=0.50 +2.4σ, C=ctrl, D=0.80 +1.4σ, E=0.90 +2.5σ). |
-| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg; Cell C ctrl mu=0.95 done; **Cell D mu=0.97 val=3.275570 ffs=3175 clean-neg ~3.6σ**; Cell E (mu=0.99) directive posted 08:08Z |
-| #334 | askeladd | Muon WD sweep | Cell A wd=0 DNR catastrophic; Cell D wd=0.05 done; Cell E (`katqhx5q`, wd=0.10) step 1001/3250, ETA ~09:00Z |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | Cell A (`v8b4l4ed`, lr_attn=0.025) step 158/3250 launched. ETA ~07:55Z |
+| #320 | edward | Adam β₂ Phase 2 n=4 | Cell D β₂=0.98 single=3.268718 ffs=3125; Cell E β₂=0.99=3.270318. P2 n=4 `mo3leb2y` (group `g1r5-edward/adam-beta2-confirm`) step 2063/13000 in flight |
+| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell A `4t70bt57` warmup=0 ctrl step 234/3250 in flight |
+| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg; Cell C ctrl mu=0.95 done; Cell D mu=0.97 val=3.275570 ffs=3175 clean-neg ~3.6σ; Cell E (`eq8p8g1a`, mu=0.99) step 1719/3250 in flight |
+| #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | JUST ASSIGNED 08:48Z. PR #334 (Muon WD) closed clean-neg: bowl-shape, default wd=0.025 confirmed optimal (Cell A wd=0 +14.5σ, D wd=0.05 +6.7σ, E wd=0.10 +28σ). |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | Cell A `orkpejsl` step 798/3250 active; 8 prior instant-fails + 3 mid-run crashes; **CONCURRENT-RUNS incident posted 08:48Z** — `cauhq2bb` duplicate must die |
 
 ## Closed This Session (poll #126-137)
 
@@ -62,7 +62,7 @@
 - **AdamW aux β₂ (edward):** β₂=0.85 neg, β₂=0.95 ctrl, **β₂=0.98 best (3.268718 ffs=3125) Phase 2 n=4 in flight**, β₂=0.99 mild improvement (3.270318)
 - **LR cooldown_frac (thorfinn, closed):** bowl-shaped, default cd=0.70 optimal. Now testing LR **warmup_steps** sweep (PR #353).
 - **lm_head LR (alphonse):** monotone improvement to lr=0.030 (near-trigger); lr=0.100 in flight ⭐
-- **Muon WD (askeladd):** wd=0 catastrophic, wd=0.05 in flight, wd=0.10 pending
+- **Muon WD (askeladd, closed):** bowl-shape, default wd=0.025 optimal (wd=0 +14.5σ, wd=0.05 +6.7σ, wd=0.10 +28σ). Now testing **SOAP precond_freq** (PR #360).
 - **Muon nesterov (frieren):** nesterov=True ctrl reproduces baseline; nesterov=False (Polyak) in flight
 - **Muon mu (tanjiro):** mu=0.85 strong neg, mu=0.90 mild neg, mu=0.95 ctrl in flight; mu=0.97, 0.99 pending
 

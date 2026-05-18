@@ -924,3 +924,21 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Verdict:** Bowl-shaped curve centered at default cd=0.70. Both extremes regress 2-3σ. Phase 2 gate not met. ctrl reproduces baseline tightly (+0.48σ).
 - **Mechanism conclusion:** The stable-decay split is already at optimum. The 30% stable / 70% decay default cannot be improved by sliding along this axis. Further schedule progress requires a different axis (e.g., warmup, cycling, different decay shape).
 - **Follow-on:** PR #353 (thorfinn) — LR warmup sweep (warmup_steps ∈ {0, 50, 100, 200, 400}); current schedule has NO warmup, untested.
+
+## 2026-05-18 08:48 UTC — PR #334: Muon WD sweep — **CLOSED clean-negative (default wd=0.025 optimal)**
+
+- Branch: `g1r5-askeladd/muon-wd-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: Vary `wd_mlp = wd_attn` across {0, 0.01, 0.025, 0.05, 0.10} on the Muon (mlp + attn) optimizer.
+
+| Cell | wd | val/best_loss | ffs | W&B run | vs baseline mu=3.271362 |
+|------|---|---|---|---|---|
+| A | 0.000 | 3.288528 | -1 (DNR) | `pf30m69f` | +0.017166 (~14.5σ catastrophic) |
+| B | 0.010 | SKIPPED | — | — | — |
+| **C (ctrl)** | **0.025** | (inherited PR #162, n=6) | 3141.67 mean | — | — |
+| D | 0.050 | 3.279285 | 3250 | `r7v9ouwg` | +0.007923 (~6.7σ worse) |
+| E | 0.100 | 3.304699 | -1 (DNR) | `katqhx5q` | +0.033337 (~28σ worse) |
+
+- **Verdict:** Bowl-shaped with global minimum at default wd=0.025. wd=0 catastrophic (unbounded parameter growth → divergence); wd=0.10 catastrophic (over-regularization). Phase 2 gate not met. Default confirmed optimal.
+- **Mechanism conclusion:** Muon decoupled weight decay (`p.mul_(1 - lr * wd)`) at 0.025 is essential and well-tuned. Asymmetric per-group WD (PR #194 tanjiro) and this symmetric WD sweep (PR #334 askeladd) both confirm wd=0.025 is at the optimum. Future WD work would need a different mechanism (adaptive, scheduled, or layerwise).
+- **Follow-on:** PR #360 (askeladd) — SOAP precond_freq sweep on attn ∈ {4, 8, 16 ctrl, 32, 64}. Tests the staleness/compute trade-off for the SOAP eigenbasis refresh rate — never swept before.
