@@ -23,7 +23,7 @@ Three independent mechanism perturbations all hit `ffs=3050` floor (below bimoda
 If multiple n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 + MuonEq-R) to test additivity vs substitutability.
 
 ## 🚫 Falsified Output-Side Mechanisms
-- **NEZUKO #375 Muon-VS β=0.95** trial 0 CATASTROPHIC MISS: val=3.32486 (+0.050), ffs=-1 (never reached target). Trial 1 KILLED early (mathematically foreclosed). Arm B β=0.90 running.
+- ✅ **NEZUKO #375 CLOSED** (17:20 UTC): Muon-VS FALSIFIED both arms (β=0.95: val+0.050/ffs=-1, β=0.90: val+0.038/ffs=-1). Reassigned → #394 ATTN_SOAP_BETA2 sweep.
 - **FRIEREN #373 AdaMuon β=0.95** Arm A n=2 MISS: val=3.27786/+0.00251, ffs=3112.5/+25. Arm B β=0.99 launched ~17:00 UTC.
 - **TANJIRO #376 Cooldown-AdaMuon β=0.95** trial 0 MISS: val=3.2764/+0.00105, ffs=3100/+12.5. Trial 1 in progress ETA ~18:05 UTC.
 

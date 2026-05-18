@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 17:20 UTC — Cycle 55 (continued): #375 CLOSED (Muon-VS FALSIFIED); nezuko → #394 ATTN_SOAP_BETA2 sweep
+
+### PR #375 — Muon-VS pre-NS5 gradient deviation variance scaling — FALSIFIED
+
+Branch: `g1r2-nezuko/muon-vs`. Both arms (β=0.95 and β=0.90) catastrophically missed.
+
+| Arm | MUON_VS_BETA | W&B run | trial 0 val | ffs | vs baseline | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.95 | `4y6zfnrs` | **3.32486** | -1 (never reached 3.28) | val +0.04951 | FAIL — catastrophic |
+| B | 0.90 | `e0yodaew` | **3.31294** | -1 (never reached 3.28) | val +0.03759 | FAIL — catastrophic |
+
+Trial 1 of both arms killed early (mathematically foreclosed — for n=2 mean to clear baseline, trial 1 would need val < 2.225, impossible). Kill gates triggered at step ~863 (Arm A) and 159 (Arm B).
+
+**Mechanism diagnosis**: pre-NS5 element-wise deviation-variance scaling fights NS5's spectral-orthogonalization invariant. Published 1.36× speedup on LLaMA-1.2B (arxiv 2601.14603) used vanilla SGD-momentum without orthogonalization — geometric mismatch with our SOAP→NS5→Contra→NorMuon pipeline.
+
+Also: Contra-Muon (0.5) already removes the G_t component aligned with previous updates, which is precisely the "deviation" signal Muon-VS keys on. The GDV EMA is biased toward orthogonal-to-momentum noise.
+
+**Confirms INPUT-ROBUST/OUTPUT-FRAGILE pattern**: element-wise pre-NS5 scaling (fights NS5 premise) joins post-NS5 element-wise scaling (AdaMuon) as falsified. Row-level and schedule-level perturbations (MU_COOLDOWN_END, CONTRA_MUON, MuonEq-R) all win.
+
+**Nezuko reassigned → PR #394: ATTN_SOAP_BETA2 fine sweep (0.85 vs 0.95)**
+
+---
+
 ## 2026-05-18 14:15 UTC — Cycle 55 (continued): #341 CLOSED (SOAP eigenbasis freeze axis FALSIFIED)
 
 ### PR #341 — SOAP eigenbasis freeze after step K — FALSIFIED (both arms)
