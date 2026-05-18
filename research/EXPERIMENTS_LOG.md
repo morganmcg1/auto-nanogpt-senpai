@@ -6,6 +6,32 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 18:43 UTC — PR #397: Aux lm_head weight decay sweep — ASSIGNED
+
+- **Branch**: g1r3-nezuko/aux-lm-head-wd-sweep
+- **Hypothesis**: Targeted weight decay on the lm_head parameter only (~38M params, 50304×768) may stabilize lm_head norm growth during the long flat-LR phase and improve cooldown effectiveness. Orthogonal to AGC (gradient-norm clip) and softsign cap (logit scaling). Standard recipe in PaLM/T5/Chinchilla — param-group wd>0 on linear projections, wd=0 on embeddings. Reuses nezuko's existing lm_head-specific plumbing from prior `--adam_lm_head_lr` work. 3 arms: wd=0 (control bit-identical), 0.01 (mild), 0.05 (strong).
+- **Status**: Assigned to g1r3-nezuko (idle after #361 closed NEG).
+
+---
+
+## 2026-05-18 18:42 UTC — PR #361: Aux lm_head LR sweep (1/500, 1/320, 1/200) ❌ CLOSED NEG
+
+- **Branch**: g1r3-nezuko/aux-lm-head-lr-sweep
+- **Hypothesis**: Aux AdamW LR on lm_head only is sub-optimal at baseline ~1/320. Sweep 1/500 (slow), 1/320 (control), 1/200 (fast).
+- **Screen results** (vs current baseline 3.27286, n=1 bar < 3.27206):
+
+| arm | LR | wandb_id | terminal val/loss | Δ vs 3.27286 | n=1 bar (<3.27206)? |
+|---|---|---|---|---|---|
+| 1 | 0.005 (1/200) | df1mmug7 | 3.27234 | -0.00052 | **NEG** |
+| 2 | 0.003125 (1/320, ctrl) | tkwo0a9f | 3.27226 | -0.00060 | **NEG** |
+| 3 | 0.002 (1/500) | qlkifdse | **3.27415** | +0.00129 | **NEG** |
+
+- **Mechanism**: aux lm_head LR is **flat in [1/320, 1/200]** (arms 1+2 Δ=0.00008 ≪ n=1 σ≈0.001) and **degrades below** at 1/500. On the older baseline (3.27315) arms 1+2 looked borderline-pass, but PR #329 (AGC inner MuonH, baseline 3.27286) tightened it by 0.00029 — absorbing what was n=1 noise. The aux LR axis was capturing baseline noise rather than producing real improvement.
+- **Branch became CONFLICTING** after #329 merged → confirmed closure path.
+- **Operational note**: nezuko caught and recovered from a double-launcher race condition at 15:03 UTC (two scripts spawning duplicate arm 2 torchruns on same GPU) — clean execution under pressure.
+
+---
+
 ## 2026-05-18 18:30 UTC — PR #396: QK-Norm sweep (off vs fixed vs learnable) — ASSIGNED
 
 - **Branch**: g1r3-askeladd/qk-norm
