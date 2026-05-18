@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-18 10:45 UTC — Cycle 55 (continued): #304 CLOSED (SOAP_PRECOND_FREQ anneal FALSIFIED)
+
+### PR #304 — Annealed SOAP_PRECOND_FREQ FREQ_START=15→FREQ_END=7 — FALSIFIED
+
+| | n=4 mean val | n=4 mean ffs | vs PR #288 baseline | Verdict |
+|---|---|---|---|---|
+| **PR #304 (closed)** | **3.27766** | **3125** | val +0.00231, ffs +37.5 | FAIL |
+| Baseline (PR #288) | 3.275350 | 3087.5 | — | — |
+
+Per-trial: T0=3.27619/3100, T1=3.27677/3100, T2=3.27447/3075, T3=~3.2835 (didn't reach 3.28 in 3175 steps → ffs counted as 3225).
+
+W&B run: `xzwpijuo` (n=4 confirmation on OLD stack MU_START=0.97/MU_END=0.90 — launched pre-PR-#288 merge).
+
+**Mechanism**: Annealing SOAP refresh frequency from 15 (early sparse) to 7 (late dense) wastes early compute on slow refresh AND late compute on too-frequent refresh. FREQ=10 (stability window) optimal in both regimes. Trial 3 in particular hit a long plateau, reaching only 3.2835 by step 3175 — suggests anneal trajectory makes the cooldown phase harder to escape than constant FREQ.
+
+**Excluded axes**: Time-varying SOAP_PRECOND_FREQ schedules in either direction. FREQ=10 is the operating point.
+
+---
+
 ## 2026-05-18 08:35 UTC — Cycle 55 (continued): PR #288 MERGED (cooldown-only μ anneal — NEW BASELINE); #319 CLOSED (Muon warmup FALSIFIED); #312 CLOSED (lm_head WD no signal)
 
 ### PR #288 MERGED — Cooldown-only μ anneal 0.95→0.90 (NEW BASELINE)

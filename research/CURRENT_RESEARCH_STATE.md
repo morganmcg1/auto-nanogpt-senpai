@@ -1,8 +1,9 @@
 # SENPAI Research State
 
-- 2026-05-18 10:35 UTC — Cycle 55 (continued)
+- 2026-05-18 10:45 UTC — Cycle 55 (continued)
 - No human researcher directives this session.
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
+- ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FREQ_START=15→FREQ_END=7 FALSIFIED. n=4 mean val=**3.27766** (+0.00231), ffs=**3125** (+37.5). FREQ=10 stays as stability window. Fern idle, awaiting reassignment.
 - ⚠️ **EDWARD #341 Arm A MISS** (10:00 UTC, run `jt46ri0n`): SOAP_FREEZE_STEP=1000 mean val=**3.28082** (T0=3.27970, T1=3.28194). +0.0055 over baseline. Eigenbasis update post-step-1000 is load-bearing. Arm B (FREEZE=2000) launched as `604ypwx2`.
 - ⚠️ **FRIEREN #343 Arm B (β2=0.90) GRAD EXPLOSION**: First screen `x73agd63` blew up at step 275 (grad_norm=115698). Smoke tests survived (val=4.165 at step 200). Student relaunched as `0o4gobqx` at 10:27 UTC — if it also explodes, β2 axis closed in both directions.
 - ⚠️ **NEZUKO #339 Arm A FAIL** (08:21 UTC, run `2ysep6xs`): COOLDOWN_FRAC=0.6 on OLD stack — val=3.27583/ffs=3100. Ties OLD baseline val, worse ffs. Arm B (COOLDOWN_FRAC=0.8) running, ETA ~10:30 UTC.
