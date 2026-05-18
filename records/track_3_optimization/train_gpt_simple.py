@@ -54,6 +54,19 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # Outer-velocity orthogonalization mode for MuLoCo (ndim>=2 params).
+    # "off"                  : bit-identical to baseline (no NS5).
+    # "magnitude_preserving" : NS5(v) rescaled to v's input Frobenius norm.
+    # "muon_update_style"    : NS5(v) * max(1, m/n)**0.5 (same math as inner muon_update).
+    #                          Output is unit-spectral-norm scaled by aspect; no per-param rescale.
+    parser.add_argument("--outer_orthogonalize_velocity_mode", type=str,
+                        default=os.environ.get("OUTER_ORTHOGONALIZE_VELOCITY_MODE", "off"),
+                        choices=["off", "magnitude_preserving", "muon_update_style"])
+    # When 1, restrict NS5-outer orthogonalization to MuonH-tracked 2D block params
+    # (excluding embed, lm_head, scalars). Only meaningful when mode != "off".
+    parser.add_argument("--ns5_outer_blocks_only", type=int,
+                        default=int(os.environ.get("NS5_OUTER_BLOCKS_ONLY", "0")),
+                        choices=[0, 1])
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -726,6 +739,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_outer_orthogonalize_velocity_mode": args.outer_orthogonalize_velocity_mode,
+            "muloco_ns5_outer_blocks_only": bool(args.ns5_outer_blocks_only),
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
         },
@@ -783,6 +798,8 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # Identify MuonH-tracked block params by id; used by NS5-outer blocks-only gate.
+    muonh_block_param_ids = set(id(p) for p in optimizer2.param_groups[0]["params"])
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1009,14 +1026,70 @@ for trial_idx in range(args.num_trials):
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
+            ns5_mode = args.outer_orthogonalize_velocity_mode
+            ns5_outer_on = ns5_mode != "off"
+            ns5_blocks_only = bool(args.ns5_outer_blocks_only)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+                if ns5_outer_on:
+                    ns5_param_count = 0
+                    ns5_skipped_nonblock_count = 0
+                    output_frob_sum = 0.0
+                    effective_step_norm_sum = 0.0
+                    aspect_scale_min = float("inf")
+                    aspect_scale_max = 0.0
+                    v_norm_before_sum = 0.0
+                    v_norm_after_ns5_sum = 0.0
+                    rescale_min = float("inf")
+                    rescale_max = 0.0
+            ns5_t0 = time.perf_counter() if ns5_outer_on else None
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    apply_ns5 = (
+                        ns5_outer_on and p.ndim >= 2
+                        and (not ns5_blocks_only or id(p) in muonh_block_param_ids)
+                    )
+                    if apply_ns5:
+                        v = outer_velocity[n]
+                        v_dtype = v.dtype
+                        v_fp32 = v.float()
+                        if v.ndim == 2:
+                            v_2d = v_fp32
+                        else:
+                            v_2d = v_fp32.view(v_fp32.shape[0], -1)
+                        m_dim, n_dim = v_2d.shape
+                        v_ortho_2d = zeropower_via_newtonschulz5(v_2d).float()
+                        if ns5_mode == "magnitude_preserving":
+                            v_norm_before = float(v_fp32.norm().item())
+                            v_norm_after_ns5 = float(v_ortho_2d.norm().item())
+                            if v_norm_before > 1e-9 and v_norm_after_ns5 > 1e-9:
+                                rescale = v_norm_before / v_norm_after_ns5
+                                v_ortho_2d.mul_(rescale)
+                                if log_outer:
+                                    rescale_min = min(rescale_min, rescale)
+                                    rescale_max = max(rescale_max, rescale)
+                                    v_norm_before_sum += v_norm_before
+                                    v_norm_after_ns5_sum += v_norm_after_ns5
+                            aspect_scale = 1.0
+                        else:  # "muon_update_style"
+                            aspect_scale = max(1.0, m_dim / n_dim) ** 0.5
+                            v_ortho_2d.mul_(aspect_scale)
+                        outer_velocity[n].copy_(v_ortho_2d.view(v_fp32.shape).to(v_dtype))
+                        if log_outer:
+                            output_frob = float(v_ortho_2d.norm().item())
+                            output_frob_sum += output_frob
+                            effective_step_norm_sum += args.outer_lr * output_frob
+                            if aspect_scale < aspect_scale_min:
+                                aspect_scale_min = aspect_scale
+                            if aspect_scale > aspect_scale_max:
+                                aspect_scale_max = aspect_scale
+                            ns5_param_count += 1
+                    elif log_outer and ns5_outer_on and ns5_blocks_only and p.ndim >= 2:
+                        ns5_skipped_nonblock_count += 1
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
@@ -1024,17 +1097,37 @@ for trial_idx in range(args.num_trials):
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
                         total_count += delta.numel()
+            ns5_step_ms = ((time.perf_counter() - ns5_t0) * 1000.0) if ns5_outer_on else 0.0
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                outer_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                }
+                if ns5_outer_on:
+                    mode_idx = {"off": 0, "magnitude_preserving": 1, "muon_update_style": 2}[ns5_mode]
+                    outer_log["train/ns5_outer/mode"] = mode_idx
+                    outer_log["train/ns5_outer/step_ms_overhead"] = ns5_step_ms
+                    outer_log["train/ns5_outer/blocks_only"] = int(ns5_blocks_only)
+                    outer_log["train/ns5_outer/applied_param_count"] = ns5_param_count
+                    if ns5_blocks_only:
+                        outer_log["train/ns5_outer/skipped_nonblock_count"] = ns5_skipped_nonblock_count
+                    if ns5_param_count > 0:
+                        outer_log["train/ns5_outer/aspect_scale_min"] = aspect_scale_min
+                        outer_log["train/ns5_outer/aspect_scale_max"] = aspect_scale_max
+                        outer_log["train/ns5_outer/output_frobenius_norm"] = output_frob_sum / ns5_param_count
+                        outer_log["train/ns5_outer/effective_step_norm"] = effective_step_norm_sum / ns5_param_count
+                        if ns5_mode == "magnitude_preserving" and rescale_min != float("inf"):
+                            outer_log["train/ns5_outer/rescale_min"] = rescale_min
+                            outer_log["train/ns5_outer/rescale_max"] = rescale_max
+                            outer_log["train/ns5_outer/velocity_norm_before"] = v_norm_before_sum / ns5_param_count
+                            outer_log["train/ns5_outer/velocity_norm_after_ns5"] = v_norm_after_ns5_sum / ns5_param_count
+                wandb.log(outer_log, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
