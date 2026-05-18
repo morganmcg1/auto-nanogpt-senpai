@@ -52,6 +52,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--attn_lr_mult", type=float, default=1.0,
+                        help="PR #387 role-based Muon LR: multiplier on the Muon attention-matrix group LR")
+    parser.add_argument("--mlp_lr_mult", type=float, default=1.0,
+                        help="PR #387 role-based Muon LR: multiplier on the Muon MLP-matrix group LR")
+    parser.add_argument("--train_steps_override", type=int, default=None,
+                        help="Override the in-script train_steps (for debug runs only)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -524,8 +530,15 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], dict):
+            # PR #387: list of param-group dicts (role-based split).
+            for group in params:
+                assert "params" in group and isinstance(group["params"], list)
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
@@ -539,9 +552,13 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
-        for group in self.param_groups:
+        role_diag: dict = {}
+        for group_idx, group in enumerate(self.param_groups):
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            group_name = group.get("name", f"group_{group_idx}")
+            update_norm_sum = 0.0
+            update_count = 0
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -565,16 +582,26 @@ class Muon(torch.optim.Optimizer):
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
+                    u_norm_val = float(update.norm().item())
+                    update_norm_sum += u_norm_val
+                    update_count += 1
                     if w_norm > 0:
-                        ratio = update.norm() / w_norm
+                        ratio = u_norm_val / float(w_norm.item())
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+            role_diag[group_name] = {
+                "update_norm_sum": update_norm_sum,
+                "update_count": update_count,
+                "lr": float(group["lr"]),
+                "tensor_count": len(params),
+            }
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._role_diag = role_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,6 +731,12 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #387 role-based Muon LR
+            "role_lr/attn_lr_mult": args.attn_lr_mult,
+            "role_lr/mlp_lr_mult": args.mlp_lr_mult,
+            "role_lr/base_muon_lr": 0.035,
+            "role_lr/effective_attn_lr": 0.035 * args.attn_lr_mult,
+            "role_lr/effective_mlp_lr": 0.035 * args.mlp_lr_mult,
         },
     )
 
@@ -716,6 +749,8 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+    if args.train_steps_override is not None:
+        train_steps = args.train_steps_override
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -739,9 +774,34 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # PR #387 role-based Muon LR: split block 2D matrices by mechanistic role.
+    # attn group: q.weight, k.weight, v.weight, proj.weight in CausalSelfAttention (4/block x 12 = 48)
+    # mlp group:  fc.weight, proj.weight in MLP (2/block x 12 = 24)
+    # Both `proj` names co-exist but parent module (.attn vs .mlp) disambiguates them.
+    base_muon_lr = 0.035
+    attn_params, mlp_params = [], []
+    for block in model.blocks:
+        attn_params.extend([p for p in block.attn.parameters() if p.ndim >= 2])
+        mlp_params.extend([p for p in block.mlp.parameters() if p.ndim >= 2])
+    muon_all_2d = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    assert len(attn_params) + len(mlp_params) == len(muon_all_2d), \
+        f"role split mismatch: attn={len(attn_params)} mlp={len(mlp_params)} total={len(muon_all_2d)}"
+    assert set(id(p) for p in attn_params).isdisjoint(set(id(p) for p in mlp_params)), \
+        "attn/mlp param sets overlap"
+    assert (set(id(p) for p in attn_params) | set(id(p) for p in mlp_params)) == set(id(p) for p in muon_all_2d), \
+        "attn+mlp param union does not match original muon_blocks group"
+    muon_param_groups = [
+        dict(params=attn_params,
+             lr=base_muon_lr * args.attn_lr_mult,
+             name="muon_attn",
+             lr_mult=args.attn_lr_mult),
+        dict(params=mlp_params,
+             lr=base_muon_lr * args.mlp_lr_mult,
+             name="muon_mlp",
+             lr_mult=args.mlp_lr_mult),
+    ]
+    optimizer2 = Muon(muon_param_groups,
+                      lr=base_muon_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -900,6 +960,24 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
                 }, step=wandb_step)
+            # PR #387 role-based Muon LR: per-group update norms + LRs
+            role_diag = getattr(optimizer2, "_role_diag", None)
+            if role_diag is not None:
+                role_metrics = {"trial": trial_idx, "train/step": train_step}
+                for gname, gdiag in role_diag.items():
+                    short = gname.replace("muon_", "")  # "attn" or "mlp"
+                    role_metrics[f"role_lr/{short}_lr"] = gdiag["lr"]
+                    role_metrics[f"role_lr/{short}_tensor_count"] = gdiag["tensor_count"]
+                    if gdiag["update_count"] > 0:
+                        role_metrics[f"update_norm/{short}_mean"] = (
+                            gdiag["update_norm_sum"] / gdiag["update_count"]
+                        )
+                # ratio metric: how much does role mult amplify/dampen relative step size
+                attn_mean = role_metrics.get("update_norm/attn_mean")
+                mlp_mean = role_metrics.get("update_norm/mlp_mean")
+                if attn_mean is not None and mlp_mean is not None and mlp_mean > 0:
+                    role_metrics["update_norm/attn_to_mlp_ratio"] = attn_mean / mlp_mean
+                wandb.log(role_metrics, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
                 wandb.log({
