@@ -1,20 +1,19 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~14:20Z (poll #164)
+- **Last updated:** 2026-05-18 ~14:40Z (poll #165)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **🔥 EDWARD PR #320 Phase 2 n=4 — T2 BELOW STATSIG GATE** ⭐⭐⭐:
-   - P2 run `mo3leb2y` step 8291/13000 (T3 in progress at ~85%)
-   - **T1=3.270414 ffs=3125 (~−0.8σ below baseline)**
-   - **T2=3.269201 ffs=3125 (~−1.83σ below baseline — below statsig gate 3.269362!)**
-   - n=4 math: T3+T4 must sum ≤ 6.537833 (mean ≤ 3.268917, −2.07σ)
-   - Trial-mean DESCENDING (T1=3.270 > T2=3.269); if T3 < T2, gate is reachable
-   - **MERGE-ELIGIBLE if T3+T4 land ≤ 3.268917 mean**
-   - ETA T4 terminal ~13:30Z
+1. **EDWARD PR #320 Phase 2 n=4 — T3 REGRESSED, gate now unreachable** ⬇️:
+   - P2 run `mo3leb2y` step 12011/13000 (T4 in progress, ~70%)
+   - T1=3.270414 (~-0.8σ); T2=3.269201 (~-1.83σ); **T3=3.272870 (~+1.28σ regression)**
+   - Sum T1+T2+T3 = 9.812485; for n=4 gate T4 needs ≤ 3.264963 (~-5.4σ — **impossible**)
+   - n=3 running mean = 3.27083 (-0.6σ, sub-statsig)
+   - **Will close clean-NEUTRAL at T4 terminal**. β₂=0.98 has real trial-to-trial variance σ≈0.0014, Phase 1 was favorable seed.
+   - ETA T4 terminal ~15:10Z
 
 2. **FRIEREN PR #346 Cell A (lr_attn=0.025) HIT P2 TRIGGER** ⭐:
    - Cell A `orkpejsl` FINISHED: **val=3.269674 ffs=3125** (~−1.43σ below baseline)
@@ -27,14 +26,14 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl: val=3.269438 ffs=3125 (baseline). Cell B (wd_aux=0.01): val=3.2740 ffs=3250 (clean-neg, +2.23σ). Cell C `zx8h5ord` (wd_aux=0.05) step 710/3250 in flight. |
+| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl: val=3.26944 ffs=3125. Cell B (wd_aux=0.01): val=3.27403 ffs=3175 (+2.3σ). Cell C (wd_aux=0.05): val=**3.29135 ffs=-1 (target NEVER reached)**. MONOTONE worse. **Advisor directed SKIP D/E, submit for review** (clean-NEG close pending). |
 | #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | NEW ASSIGNMENT (PR #381 created). Cell A constant ctrl pending launch. |
-| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl FINISHED: val=3.2716 ffs=3150 (+0.20σ — baseline reproduction). Cell B `u01fl5oh` (ramp_up) running step 1745/3250 (~54%). |
-| #320 | edward | Adam β₂ Phase 2 n=4 | ⭐⭐⭐ P2 `mo3leb2y` step 8291/13000+ (T3 ~85%). **T1=3.270414, T2=3.269201** (both ffs=3125, T2 below gate). Statsig: T3+T4 mean ≤ 3.268917 — PLAUSIBLE. ETA T4 terminal ~14:40Z. |
+| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl FINISHED: val=3.2716 ffs=3150 (+0.20σ). Cell B `u01fl5oh` (ramp_up) step 3024/3250 (~93%) val/best=3.3084 — HIGH, terminal ~8min, possible over-regularization at 2×WD endpoint. |
+| #320 | edward | Adam β₂ Phase 2 n=4 | P2 `mo3leb2y` step 12011/13000 (T4 ~70%). T1=3.270414, T2=3.269201, **T3=3.272870 REGRESSED**. n=3 mean=3.27083 (-0.6σ, sub-statsig). Statsig gate unreachable. Close clean-neutral at T4 terminal ~15:10Z. |
 | #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell C `nj3fqbk8` (warmup=100) FINISHED clean-NEG: val=3.2803 ffs=-1 (target never reached, +7.5σ). Advisor directed: SKIP D/E (warmup=200/400 will miss target worse); retry Cell A; close with partial data if A crashes again. |
-| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: val=3.2703 ffs=3125 (baseline, -0.9σ). Cell B `xj2z7pht` (ortho_unit gain=1.0) step 476/3250 in flight. |
+| #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: val=3.2703 ffs=3125 (-0.9σ). Cell B (ortho_unit gain=1.0): val=3.27268 ffs=3150 (+1.1σ, clean-neg). Cell C ortho_scaled pending launch. |
 | #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A freq=4 FINISHED: val=3.2757 ffs=3175 (+3.6σ clean-neg). Cell B freq=8 FINISHED: val=3.2776 ffs=3200 (+5.3σ clean-neg). Cell C freq=16 ctrl launching. Monotone WORSE with more frequent refresh — default freq=16 is local optimum. |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A: val=3.269674 ffs=3125 (P2 trigger). Cell B ctrl: val=3.272 ffs=3150 (baseline). DUPLICATE 12:25Z killed; Cell C `fmycgozs` (lr_attn=0.045) running step 403/3250. |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A (0.025): val=3.26967 ffs=3125 (P2 trigger -1.43σ). Cell B ctrl (0.035): val=3.27206 ffs=3150. Cell C (0.045): val=3.27203 ffs=3150 (~baseline). Cell D (0.055), E (0.075) pending. Trend: 0.025 best so far. |
 
 ## Closed This Session (poll #126-137)
 
