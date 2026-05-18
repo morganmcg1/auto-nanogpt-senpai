@@ -54,6 +54,10 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--agc_lambda", type=float, default=0.0,
+                        help="Adaptive Gradient Clipping threshold (Brock et al. 2021, arxiv 2102.06171). 0.0 = disabled. Typical: 0.01-0.1 (NFNets default 0.01)")
+    parser.add_argument("--agc_eps", type=float, default=1e-3,
+                        help="Floor on parameter norm to prevent div-by-zero on zero-init params")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -203,6 +207,34 @@ def sample_tensor(tensor: Tensor, max_samples: int) -> Tensor:
         values = values[idx]
     values = values[torch.isfinite(values)]
     return values.cpu()
+
+
+def adaptive_gradient_clip(parameters, lambda_val: float, eps: float = 1e-3) -> dict[str, float]:
+    """NFNets-style adaptive gradient clipping. Brock et al. 2021 (arxiv 2102.06171).
+
+    Clips per-parameter so that ||g||_F <= lambda_val * max(||p||_F, eps).
+    Returns telemetry: clipped count, total count, and pre-clip max(||g||/||p||).
+    When lambda_val <= 0, this is a no-op and returns zeros.
+    """
+    clipped = 0
+    total = 0
+    max_grad_ratio = 0.0
+    if lambda_val <= 0:
+        return {"clipped": 0, "total": 0, "max_grad_ratio": 0.0}
+    for p in parameters:
+        if p.grad is None:
+            continue
+        total += 1
+        param_norm = max(float(p.detach().norm().item()), eps)
+        grad_norm = float(p.grad.detach().norm().item())
+        ratio = grad_norm / param_norm
+        if ratio > max_grad_ratio:
+            max_grad_ratio = ratio
+        max_grad_norm = lambda_val * param_norm
+        if grad_norm > max_grad_norm:
+            p.grad.mul_(max_grad_norm / (grad_norm + 1e-12))
+            clipped += 1
+    return {"clipped": clipped, "total": total, "max_grad_ratio": max_grad_ratio}
 
 
 def log_training_telemetry(
@@ -731,6 +763,9 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "agc_lambda": args.agc_lambda,
+            "agc_eps": args.agc_eps,
+            "agc_enabled": bool(args.agc_lambda > 0),
         },
     )
 
@@ -884,6 +919,15 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # adaptive gradient clipping (Brock et al. 2021) — applied AFTER all-reduce, BEFORE optimizer step
+        agc_stats_adamw = adaptive_gradient_clip(
+            [p for grp in optimizer1.param_groups for p in grp["params"]],
+            args.agc_lambda, args.agc_eps,
+        )
+        agc_stats_muon = adaptive_gradient_clip(
+            [p for grp in optimizer2.param_groups for p in grp["params"]],
+            args.agc_lambda, args.agc_eps,
+        )
         # set optimization hyperparameters and take a step
         set_hparams(step)
         train_step = step + 1
@@ -912,6 +956,32 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and telemetry_due and args.agc_lambda > 0:
+            total_count = agc_stats_muon["total"] + agc_stats_adamw["total"]
+            total_clipped = agc_stats_muon["clipped"] + agc_stats_adamw["clipped"]
+            max_grad_ratio_all = max(
+                agc_stats_muon["max_grad_ratio"], agc_stats_adamw["max_grad_ratio"]
+            )
+            agc_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "agc/lambda": args.agc_lambda,
+                "agc/clip_rate": (total_clipped / total_count) if total_count > 0 else 0.0,
+                "agc/clip_rate_muon": (
+                    agc_stats_muon["clipped"] / agc_stats_muon["total"]
+                    if agc_stats_muon["total"] > 0 else 0.0
+                ),
+                "agc/clip_rate_adamw": (
+                    agc_stats_adamw["clipped"] / agc_stats_adamw["total"]
+                    if agc_stats_adamw["total"] > 0 else 0.0
+                ),
+                "agc/max_grad_ratio": max_grad_ratio_all,
+                "agc/max_grad_ratio_muon": agc_stats_muon["max_grad_ratio"],
+                "agc/max_grad_ratio_adamw": agc_stats_adamw["max_grad_ratio"],
+                "agc/clipped_count": total_clipped,
+                "agc/total_count": total_count,
+            }
+            wandb.log(agc_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
