@@ -8,6 +8,50 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-18 20:55 — PR #358: CONTRA_MUON=0.4 (reduced from 0.5) (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | `CONTRA_MUON` reduced from 0.5 → 0.4 (first axis sweep since PR #139 which set it to 0.5). Smaller contra-gradient correction lets Muon's geometry-corrected update retain more natural momentum signal. Env var: `CONTRA_MUON=0.4`. |
+| Contra-Muon HPs | `CONTRA_MUON=0.4`, `TARGET_UW=0.35`, `MUON_LR=0.0375` |
+| Cooldown μ HPs | `MU_COOLDOWN_START=0.95`, `MU_COOLDOWN_END=0.90` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; `ATTN_SOAP_TRUST_THRESHOLD=0.85` |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `ivvf500c` (n=4 confirmation, all 4 trials); `oeeswx8a` (n=2 screen) |
+| **n=4 mean val/loss** | **3.274383** |
+| **n=4 statsig margin** | **0.01123** ≥ 0.004 — PASSES (2.81×) |
+| **ffs mean** | **3068.75** (T0=3075, T1=3075, T2=3075, T3=3050) |
+| **speedup vs PR #288** | val Δ=−0.000967; ffs Δ=−18.75 |
+| **speedup vs starter** | ~281 steps / ~8.4% |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27523 | 3075 |
+| T1 | 3.27432 | 3075 |
+| T2 | 3.27455 | 3075 |
+| T3 | 3.27343 | 3050 |
+
+**Mechanism insight**: CONTRA_MUON=0.5 was first set at PR #139 and never swept. Reducing to 0.4 (20% less counter-correction) gives consistent −0.001 val improvement. ffs concentrated at 3075 (3/4 trials) with one T3 at 3050. The gain likely reflects that baseline CONTRA_MUON was slightly over-correcting, eating into the natural momentum direction.
+
+**New merge bar**: mean val < **3.274383** AND ffs_mean < **3068.75** (STRICT — both required)
+
+**All new experiments must include**: `MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.4`
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 \
+  torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'baseline-repro-pr358' \
+  --wandb_group 'baseline-verification'
+```
+
+---
+
 ### 2026-05-18 08:35 — PR #288: Cooldown-only μ anneal (MU_COOLDOWN_START=0.95→MU_COOLDOWN_END=0.90) (squash-merged)
 
 | Field | Value |
