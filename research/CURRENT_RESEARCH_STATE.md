@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~18:35Z (poll #172)
+- **Last updated:** 2026-05-18 ~19:00Z (poll #173)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -27,10 +27,10 @@
 | #385 | edward | AdamW aux β₁ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl `lqwsc8lj` terminal pending. Cell B (ramp_up) `w8wbnhfp` RUNNING step 54/3250. |
 | #383 | nezuko | Muon gradient noise injection sweep std ∈ {0, 1e-4, 1e-3} × {constant, decay, cooldown_only} | Cell A ctrl `2bojk9g6` terminal pending. Cell B (std=1e-4 constant) `isqlrt28` RUNNING step 92/3250 (duplicate run incident: 2 Cell B launches). |
 | #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | Cell A ctrl `uw0gy7qy` FINISHED: val=**3.2696 ffs=3125** (-1.41σ favorable seed for default 0.95/0.95). Cell B not launched yet; ANOTHER Cell A `15g2boa9` started instead (idle confusion). Advisor sent directive (poll #170 comment) to launch Cell B. |
-| #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant `fj8dvgh7` FINISHED: val=**3.2708 ffs=3125** (clean baseline match). Cell B (ramp_up) `uz19au0x` RUNNING step 1338/3250. PR stale_wip flag from no commits yet. |
+| #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant: val=3.2708 ffs=3125. **Cell B ramp_up (0.91→0.99): val=3.27002 ffs=3125 (-1.13σ, val=3.2700155 just misses P2 gate 3.270 by 1.5e-5)**. Cell C ramp_down `running step 968/3250. |
 | #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl: val=3.2716. Cell B ramp_up: val=3.2805 ffs=miss (over-reg). **Cell C ramp_down `yh4fzyoe` FINISHED: val=3.2689 ffs=3100 — 🔥 P2 TRIGGER**. Cell D (triangle) `iflcps3d` RUNNING step 1576/3250 — advisor sent directive (poll #170) to **PIVOT TO P2** instead. |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: 3.2703 ffs=3125. Cell B ortho_unit: 3.2727 ffs=3150. Cell C ortho_scaled: 3.2726 ffs=3150. Cell D v_only: **val=3.2735 ffs=3150** (clean-neg +1.0σ). Cell E (qk_only) RUNNING step 1196/3250. All cells monotone-neg → default init wins. |
-| #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A freq=4: val=3.2757 ffs=3175 (+3.6σ neg). Cell B freq=8: val=3.2776 ffs=3200 (+5.3σ neg). Cell C freq=16 ctrl: val=3.2708 ffs=3125 (-0.5σ within noise). Cell D freq=32: val=3.2722 ffs=3150. Cell E (freq=64) `zr0qvwrs` RUNNING step 618/3250. Trend: freq=16 default is local optimum, monotone-ish bowl. |
+| #398 | askeladd | AdamW aux ε schedule sweep ∈ {constant, ramp_up, ramp_down, spike_cooldown, log_cosine} | NEW ASSIGNMENT (PR #398 created). Cell A constant ctrl pending launch. |
 | #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Full sweep terminal. A(0.025)=3.2697 ffs=3125 -1.43σ, B(0.035)=3.2721, C(0.045)=3.2720, D(0.055)=3.2741 ffs=3175, E(0.075)=3.2789 ffs=3225. **P2 n=4 directive sent (poll #172) — orthogonal to fern P2.** |
 
 
@@ -48,9 +48,10 @@
 - **Muon mu (tanjiro, CLOSED #323):** bowl-shape, default mu=0.95 optimal. mu=0.85 +3.67σ, mu=0.97 +3.56σ, mu=0.99 failed to reach target (+31.18σ). Now testing **QKV orthogonal init** (PR #368).
 
 **Exhausted mechanism slots (recent additions):**
-- **AdamW aux β₂=0.98 static (edward, closed PR #320 clean-neutral):** n=4 mean=3.27073, ~1.07σ below baseline, sub-statsig. Third endpoint-LR/aux-hparam pattern (with PR #228, #306). Per-trial σ=0.00154 floor limits aux-hparam improvements at n=4.
+- **SOAP precond_freq static (askeladd, closed PR #360 clean-neutral):** U-bowl, apex at default freq=16. freq=4 (+3.7σ), freq=8 (+5.3σ), freq=32/64 (+0.7σ each). Default is local optimum.
+- **AdamW aux β₂=0.98 static (edward, closed PR #320 clean-neutral):** n=4 mean=3.27073, ~1.07σ below baseline, sub-statsig.
 - LR warmup_steps (thorfinn, closed PR #353 clean-neg: warmup=0 optimal; any warmup eats peak-LR budget on 3250-step run)
-- AdamW aux wd_aux uniform (nezuko, closed PR #349 clean-neg: A=3.26944→B=3.27403→C=3.29135/FAIL, monotone worse; embed at lr=0.30 is crushed by shrinkage; mixed-LR-scale groups cannot share wd)
+- AdamW aux wd_aux uniform (nezuko, closed PR #349 clean-neg: monotone worse; embed at lr=0.30 crushed by shrinkage)
 
 **Exhausted mechanism slots:**
 - lr_embed=0.80 (frieren, clean-neutral n=6)

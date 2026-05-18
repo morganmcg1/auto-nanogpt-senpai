@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-18 19:00 UTC — PR #360: SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} — **CLOSED clean-neutral**
+
+- Branch: `g1r5-askeladd/soap-precond-freq-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: SOAP attn eigvec refresh frequency sweep — lower freq (more frequent refresh) vs higher freq (less frequent). Default is freq=16.
+
+### Results
+
+| Cell | precond_freq | val | ffs | Δ vs baseline | σ | W&B id |
+|------|---:|------|------|---:|---:|--------|
+| A | 4 | 3.2757 | 3175 | +0.0044 | +3.66σ | w2mu6ddu |
+| B | 8 | 3.2776 | 3200 | +0.0063 | +5.27σ | aatoeuq2 |
+| **C** | **16 (default)** | **3.2708** | **3125** | **-0.0006** | **-0.5σ** | 93pqz5am |
+| D | 32 | 3.2722 | 3150 | +0.0009 | +0.71σ | b0y2ezv5 |
+| E | 64 | 3.2722 | 3150 | +0.0009 | +0.71σ | zr0qvwrs |
+
+### Conclusion
+
+Clean U-shape, apex at default freq=16. Too frequent refresh (4, 8): preconditioner noise dominates, strong regression. Less frequent (32, 64): mild degradation (+0.71σ), preconditioner drifts from gradient distribution. Default freq=16 is a well-calibrated local optimum.
+
+Mechanism closed for static SOAP precond_freq sweeps. Follow-up (time-varying freq schedule) theoretically possible but Cell C ctrl reproduction at noise-floor argues current default is sufficiently robust.
+
 ## 2026-05-18 15:30 UTC — PR #320: Adam β₂ sweep for AdamW aux groups — **CLOSED clean-neutral**
 
 - Branch: `g1r5-edward/adam-beta2-aux-sweep`
