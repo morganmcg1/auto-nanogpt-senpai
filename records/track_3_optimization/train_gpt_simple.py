@@ -225,6 +225,8 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+        if hasattr(opt, "cur_soap_precond_freq"):
+            metrics["optimizer/cur_soap_precond_freq"] = opt.cur_soap_precond_freq
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -446,6 +448,8 @@ TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
+SOAP_PRECOND_FREQ_START = int(os.environ.get("SOAP_PRECOND_FREQ_START", str(SOAP_PRECOND_FREQ)))
+SOAP_PRECOND_FREQ_END = int(os.environ.get("SOAP_PRECOND_FREQ_END", str(SOAP_PRECOND_FREQ)))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
@@ -637,6 +641,8 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # Per-step annealed MLP-SOAP refresh frequency; set by training loop (set_hparams).
+        self.cur_soap_precond_freq = SOAP_PRECOND_FREQ_START
 
     @torch.no_grad()
     def step(self):
@@ -694,7 +700,7 @@ class Muon(torch.optim.Optimizer):
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
-                        soap_refresh(grad, state)
+                        soap_refresh(grad, state, refresh_freq=self.cur_soap_precond_freq)
                     elif use_attn_soap:
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
@@ -838,6 +844,8 @@ if dist.get_rank() == 0:
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
+            "optimizer/soap_precond_freq_start": SOAP_PRECOND_FREQ_START,
+            "optimizer/soap_precond_freq_end": SOAP_PRECOND_FREQ_END,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
@@ -896,6 +904,10 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         cur_mu = MU + (MU_END - MU) * progress
+        cur_soap_precond_freq = max(1, round(
+            SOAP_PRECOND_FREQ_START + (SOAP_PRECOND_FREQ_END - SOAP_PRECOND_FREQ_START) * progress
+        ))
+        optimizer2.cur_soap_precond_freq = cur_soap_precond_freq
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
