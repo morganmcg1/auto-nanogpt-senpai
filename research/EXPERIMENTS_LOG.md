@@ -775,6 +775,31 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Follow-on:** PR #320 (edward) — Adam β₂ sweep for AdamW aux groups.
 
 
+## 2026-05-18 00:03 UTC — PR #289: Combo-confirm lr_mlp=0.055 + wd_mlp=0.035/wd_attn=0.015 n=4 — **CLOSED clean-neutral**
+
+- Branch: `g1r5-tanjiro/combo-lrmlp055-wdmlp035-wdattn015-n4`
+- Student: g1r5-tanjiro
+- Hypothesis: lr_mlp=0.055 (merged) and asymmetric wd (wd_mlp=0.035, wd_attn=0.015, optimal from PR #194) combine additively to push below ffs=3125.
+
+| Trial | val/loss | ffs | W&B run |
+|-------|---------:|---:|---|
+| 0 | 3.271562 | 3150 | v1mhx9f2 t0 |
+| 1 | 3.271952 | 3150 | v1mhx9f2 t1 |
+| 2 | 3.271295 | 3150 | v1mhx9f2 t2 |
+| 3 | 3.271132 | 3150 | v1mhx9f2 t3 |
+| **mean** | **3.271485** | 3150 | — |
+
+- n=4 mean = 3.271485, std = 0.000310
+- vs new baseline mu=3.271362, **Δ = +0.000123** (~0.4σ — clean neutral)
+- n=4 merge gate ≤ 3.269362 — FAILS by 0.00212
+
+**Mechanism conclusion:** The combo (lr_mlp=0.055 + asymm WD) provides zero additive gain over lr_mlp=0.055 + uniform WD. The asymmetric WD win from PR #194 (vs old baseline, ~2.2σ) was fully absorbed by the lr_mlp=0.055 merge. Both interventions shape MLP gradient flow through similar channels (SOAP preconditioner whitening vs WD-tuned drift) — they are coupled, not orthogonal. Per-trial std=0.000310 is the lowest of any n=4 in this branch — very precise characterization.
+
+**Key insight:** Two seemingly independent interventions (LR and WD) can share mechanism overlap through optimizer dynamics. Future combo-confirms should audit for shared gradient-flow channels before predicting additivity.
+
+**Follow-on:** PR #323 (tanjiro) — Muon momentum (mu) sweep.
+
+
 ## 2026-05-17 23:03 UTC — PR #302: SOAP attn Q/K shared Gram preconditioner — **CLOSED clean-neutral**
 
 - Branch: `g1r5-fern/soap-attn-qk-shared-gram`

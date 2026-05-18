@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-17 (poll #125, ~23:45 UTC)
+- **Last updated:** 2026-05-18 (poll #126, ~00:05 UTC)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged 12:42Z)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -34,19 +34,22 @@
 |------|---------|-----------|--------|
 | #228 | frieren | lr_embed=0.80 n=6 extension (`3704tjm5`) | Running step 1272 (~02:30Z) |
 | #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | Running ~07:00Z May 18 |
-| #289 | tanjiro | lr_mlp+wd combo n=4 (dead mathematically) | Trial 3 step 12566, ETA ~00:45Z; close after |
-| #301 | askeladd | NS5 polynomial coeff sweep | Cell C step 2427, ETA ~00:15Z |
-| #306 | alphonse | lm_head LR sweep | Cell B `pvk9u2pg` step 1338, ETA ~01:00Z |
-| #318 | fern | Adam β₁ sweep (β₁=0.80 ctrl, actual baseline) | Cell A `bmiour40` step 499, ETA ~02:00Z |
-| #320 | edward | Adam β₂ sweep for AdamW aux groups | **JUST ASSIGNED** ~23:44Z |
-| #321 | thorfinn | LR cooldown fraction sweep (cooldown_frac) | **JUST ASSIGNED** ~23:44Z |
+| #301 | askeladd | NS5 polynomial coeff sweep | Cell C step 2949 (~00:15Z) |
+| #306 | alphonse | lm_head LR sweep | Cell B `pvk9u2pg` step 1866, ETA ~01:00Z |
+| #318 | fern | Adam β₁ sweep (β₁=0.80 ctrl) | Cell A `bmiour40` step 1019, ETA ~02:00Z |
+| #320 | edward | Adam β₂ sweep for AdamW aux groups | Cells A+C both in flight (~23:50Z launch; parallel issue flagged) |
+| #321 | thorfinn | LR cooldown fraction sweep (cooldown_frac) | Cell C ctrl just started ~23:55Z |
+| #323 | tanjiro | Muon momentum (mu) sweep | **JUST ASSIGNED** ~00:05Z |
 
-## Closed This Polling Window (poll #124-125)
+## Closed This Polling Window (poll #125-126)
 
-- **PR #270 (edward SOAP β₂ warmup): CLOSED clean-neutral 23:40Z**
+- **PR #289 (tanjiro combo n=4): CLOSED clean-neutral 00:03Z May 18**
+  - n=4 mean=3.271485 (Δ=+0.000123, ~0.4σ within noise). Combo gain fully absorbed by lr_mlp=0.055.
+  - → Tanjiro reassigned PR #323 (Muon mu sweep)
+- **PR #270 (edward SOAP β₂ warmup): CLOSED clean-neutral 23:40Z May 17**
   - Best: Cell C (0.50/500) val=3.27154 ffs=3150 (Δ=+0.00018). No Phase 2 trigger.
   - → Edward reassigned PR #320 (Adam β₂ aux sweep)
-- **PR #264 (thorfinn SOAP eigvec EMA): CLOSED clean-neutral 23:38Z**
+- **PR #264 (thorfinn SOAP eigvec EMA): CLOSED clean-neutral 23:38Z May 17**
   - Best: Cell B (α=0.3) val=3.27263 ffs=3125 (Δ=+0.00127, within 1σ). No Phase 2 trigger.
   - Inverted-U around α=0.3 confirmed. Mechanism exhausted.
   - → Thorfinn reassigned PR #321 (cooldown_frac sweep)
