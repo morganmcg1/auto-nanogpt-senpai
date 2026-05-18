@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-18 20:21 UTC — PR #362 CLOSED: Gradient Centralization for Muon body NULL (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/gradient-centralization-v2`
+- Hypothesis: Subtract column (and optionally row) mean of gradient before passing to PMuon EMA, to remove uniform drift component.
+
+| Run | Arm | GC mode | sr | val@3000 | val@3250 | Δsr | Δval@3000 | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #274) | — | none | 3000 | 3.2685 | — | — | — | — |
+| `rcl10r96` | A | column-only | 3025 | 3.28117 | 3.27043 | +25 | +0.0127 | NULL |
+| `5p8b7aro` | B | both (col+row) | -1 | 3.30526 | 3.29637 | n/a | +0.0368 | NULL |
+
+GC was verified active (pre-values ~0.24–0.27, post=0.0). Arm B strictly worse than Arm A. Root cause: PMuon's bilateral cov-EMA whitening already absorbs the drift GC was supposed to remove. Subtracting the column mean is redundant against an optimizer that conditions via second-moment statistics, and removes a *signal* component. Row-centering (Arm B) additionally removes per-output mean which over-constrains the update on transformer linear weights (unlike CNNs where original GC paper was developed).
+
+**GC axis CLOSED on Muon body.**
+
+---
+
 ## 2026-05-18 20:06 UTC — PR #350 CLOSED: Residual-proj init scaling {1/√(2N), 1/N} NULL (g1r1-edward)
 
 - Branch: `g1r1-edward/residual-init`

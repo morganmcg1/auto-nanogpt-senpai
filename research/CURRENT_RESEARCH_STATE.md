@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 20:10 UTC
+- **Last update:** 2026-05-18 20:21 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
 
@@ -27,7 +27,7 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 | PR | Student | Mechanism | Status (20:10 UTC) |
 |---|---|---|---|
 | **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4×} | Arm A 0.7× g8hqguwn step 3050/3250 val=3.2762, sr=3000, ~15 min from terminal. Arm B 0.4× not started. |
-| **#362** | **tanjiro** | Gradient Centralization for Muon | gc-both DONE val=3.2964 sr=-1 (NULL). gc-column rcl10r96 step 3000/3250 val=3.2812 sr=-1, ~20 min from terminal (projected NULL). |
+| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} vs baseline 0.025 | Just assigned (20:21 UTC). Arm A WD=0.020 to launch shortly. |
 | **#364** | **askeladd** | Muon momentum reset (hard vs soft) | n=2 soft 3zduzvo3 step 2350/3250 val=3.3803 mid-flight. ETA terminal ~20:15 UTC. |
 | **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | Arm B CP=2.0 nucnaip1 step 2325/3250 val=3.3746 mid-flight. Arm A CP=1.0 n=1 val=3.2662 WIN awaiting n=2 outcome. ETA terminal ~20:15 UTC. |
 | **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | n=2 1/160 f9nyqjxn step 550/3250 val=3.8055 mid-flight. Arm B 1/640 lzitteno DONE val=3.3048 sr=-1 (NULL per projection). ETA n=2 terminal ~22:00 UTC. |
@@ -40,6 +40,7 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 | PR | Student | Key result | Decision |
 |---|---|---|---|
 | **#350** | edward | Residual-proj init {1/√(2N), 1/N}: Arm A val=3.26966 sr=3000 (Δval=+0.00116 NULL), Arm B val=3.26866 sr=3000 (Δval=+0.00016 NULL-tied) | CLOSED — both arms NULL. Zero-init confirmed optimal. GPT-2 residual-proj scaling trick doesn't transfer to Muon stack (orthogonalization resets gradient direction). **Residual-init axis CLOSED at zero.** |
+| **#362** | tanjiro | GC column-only val@3250=3.27043 sr=3025 (NULL), GC both val@3250=3.29637 sr=-1 (NULL) | CLOSED — PMuon's cov-EMA whitening already absorbs drift GC removes; row-centering over-constrains transformer linear weights. **GC axis CLOSED on Muon body.** |
 | **#332** | fern | COOLDOWN_POWER continuation {1.5, 1.8}: Arm A n=3 mean sr=2991.67 val=3.27021 (Δsr=-8.3, Δval=+0.0017 — noise floor); Arm B n=1 sr=2975 val=3.27464 (Δsr=-25, Δval=+0.0061 — val regression) | CLOSED — both arms NULL. Per-seed Arm A sr={3000,3000,2975}; 2/3 tied at baseline. **Body-side COOLDOWN_POWER axis CLOSED at 1.4.** Aux-side variant (#366 thorfinn) still open. |
 | **#347** | nezuko | LLRD per-depth {0.95, 0.85}: Arm A val=3.2804 sr=-1, Arm B val=3.3136 sr=-1 | CLOSED — monotone signal (more aggressive decay → worse). ULMFiT prior inverted for pretraining-from-scratch; NS orthogonalization already normalizes per-tensor. **Depth-based LR decomposition CLOSED.** |
 | **#311** | thorfinn | Lookahead α ∈ {0.5, 0.8}, k=5: Arm A val=3.299 sr=never; Arm B val=3.271 sr=3050 | CLOSED — mechanism active (slow-fast ratio 0.005–0.05) but unhelpful. PMuon's own whitening already produces clean updates; averaging via pullback discards genuine progress. Third closure confirming "PMuon warm-up dynamics axis CLOSED." |
@@ -78,7 +79,7 @@ Three themes active simultaneously:
 
 ## Open unexplored axes (for future assignment)
 
-- Muon WD downward scan {0.015, 0.020} (upward closed at 0.025; downward unexplored)
+- Muon WD downward scan {0.015, 0.020} — IN FLIGHT #401 tanjiro
 - NS adaptive threshold: stop NS iterations when ||X²-I||_F < ε (convergence criterion vs fixed count)
 - Inverse LLRD: bottom layers get HIGHER LR (contradicts ULMFiT prior but may hold for pretraining-from-scratch)
 - Curriculum warmup for COOLDOWN_POWER: ramp p from 1.0 → 1.4 over training
