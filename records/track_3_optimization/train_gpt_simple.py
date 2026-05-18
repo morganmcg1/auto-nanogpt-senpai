@@ -59,6 +59,15 @@ def parse_args():
     # Default 0.0 disables (no-op for bit-identical baseline).
     parser.add_argument("--aux_agc_clip_ratio", type=float, default=float(os.environ.get("AUX_AGC_CLIP_RATIO", "0.0")))
     parser.add_argument("--aux_agc_eps", type=float, default=float(os.environ.get("AUX_AGC_EPS", "1e-3")))
+    # Inner-MuonH AGC: clip the reduced gradient on MuonH block params BEFORE the
+    # momentum buffer integrates it. Same per-param formula as aux AGC (the L2
+    # norm and RMS formulations are equivalent because the sqrt(n) cancels in
+    # the ratio). Default 0.0 keeps the MuonH inner path bit-identical.
+    parser.add_argument("--muonh_agc_clip_ratio", type=float, default=float(os.environ.get("MUONH_AGC_CLIP_RATIO", "0.0")),
+                        help="If > 0, apply AGC to inner MuonH gradient BEFORE momentum buffer. "
+                             "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
+                             "0.0 = disabled (default).")
+    parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -512,13 +521,22 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     """Per-tensor AGC (Brock et al. 2021).
 
     For each param p, scale its grad in-place if ||g|| exceeds clip_ratio * max(||p||, eps).
-    Returns telemetry: total params seen, count clipped, max pre-clip g_to_clip_threshold ratio.
+    Returns telemetry: total params seen, count clipped, max pre-clip g_to_clip_threshold ratio,
+    plus the applied-scale min and mean across all tracked params (1.0 when no clip fires).
     No-op (and bit-identical) when clip_ratio <= 0.
     """
-    stats = {"agc_total": 0, "agc_clipped": 0, "agc_max_ratio": 0.0}
+    stats = {
+        "agc_total": 0,
+        "agc_clipped": 0,
+        "agc_max_ratio": 0.0,
+        "agc_scale_min": 1.0,
+        "agc_scale_mean": 1.0,
+    }
     if clip_ratio <= 0:
         return stats
     max_ratio = 0.0
+    scale_min = 1.0
+    scale_sum = 0.0
     for p in parameters:
         if p.grad is None:
             continue
@@ -531,9 +549,18 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
         if ratio > max_ratio:
             max_ratio = ratio
         if ratio > 1.0:
+            scale = float((max_g / g_norm.clamp_min(1e-30)).item())
             p.grad.mul_(max_g / g_norm.clamp_min(1e-30))
             stats["agc_clipped"] += 1
+        else:
+            scale = 1.0
+        if scale < scale_min:
+            scale_min = scale
+        scale_sum += scale
     stats["agc_max_ratio"] = max_ratio
+    if stats["agc_total"] > 0:
+        stats["agc_scale_min"] = scale_min
+        stats["agc_scale_mean"] = scale_sum / stats["agc_total"]
     return stats
 
 
@@ -679,6 +706,10 @@ if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on aux AdamW groups (clip_ratio=0)", console=True)
+if args.muonh_agc_clip_ratio > 0:
+    print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
+else:
+    print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -728,6 +759,8 @@ if dist.get_rank() == 0:
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
+            "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
+            "muonh_agc_eps": args.muonh_agc_eps,
         },
     )
 
@@ -787,6 +820,9 @@ for trial_idx in range(args.num_trials):
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
+    # the MuonH momentum buffer integrates the gradient.
+    muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -963,6 +999,11 @@ for trial_idx in range(args.num_trials):
         agc_stats = adaptive_gradient_clip(
             aux_params_for_agc, args.aux_agc_clip_ratio, eps=args.aux_agc_eps,
         )
+        # AGC on inner MuonH gradient: clip BEFORE the momentum buffer integrates
+        # the reduced gradient. No-op (bit-identical) when clip_ratio <= 0.
+        muonh_agc_stats = adaptive_gradient_clip(
+            muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
+        )
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -977,6 +1018,17 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
                 muonh_metrics["train/agc/total_count"] = agc_stats["agc_total"]
                 muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
+                muonh_metrics["train/agc/scale_min"] = agc_stats["agc_scale_min"]
+                muonh_metrics["train/agc/scale_mean"] = agc_stats["agc_scale_mean"]
+            if args.muonh_agc_clip_ratio > 0 and muonh_agc_stats["agc_total"] > 0:
+                muonh_metrics["train/muonh/agc/fraction_active"] = (
+                    muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
+                )
+                muonh_metrics["train/muonh/agc/clipped_count"] = muonh_agc_stats["agc_clipped"]
+                muonh_metrics["train/muonh/agc/total_count"] = muonh_agc_stats["agc_total"]
+                muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
+                muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
+                muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
