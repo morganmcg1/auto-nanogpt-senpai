@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 17:08 UTC
+- **Last update:** 2026-05-18 18:08 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
 
@@ -22,23 +22,23 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 **Cross-cutting infrastructure issue:** 4 students hit identical cold-start crash signature (step ≤25, val/loss=10.8258=init_loss, ~7m runtime) on multiple configs. Suggests shared pod/launcher instability, not per-experiment bug. Affected: thorfinn aux-CP=1.0 (10+), askeladd muon-reset-hard (5+), frieren lm-head-lr=1/160 (6), edward residual-init-1/√2N (5, now finally training on 6th attempt).
 
-## Active experiments (8 students)
+## Active experiments (7 students)
 
-| PR | Student | Mechanism | Status (17:08 UTC) |
+| PR | Student | Mechanism | Status (18:08 UTC) |
 |---|---|---|---|
-| **#332** | **fern** | COOLDOWN_POWER continuation {1.5, 1.8} | CP=1.5 n=3 DONE (mean sr=2991.67 val=3.27021, marginal). Arm B CP=1.8 iq8u5b0h step 2475/3250 val=3.337 (likely NULL) |
-| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4× on attn} | Arm A 0.7× g8hqguwn step 625, early-stage val=3.74. Arm B not started |
-| **#350** | **edward** | Residual Init {1/√2N, 1/N} | Arm B 1/N DONE val=3.2687 sr=3000 (TIED not won). Arm A 1/√2N ugf2tm22 step 825 (6th attempt — earlier 5 cold-start crashes) |
-| **#362** | **tanjiro** | Gradient Centralization for Muon | gc-both DONE val=3.2964 sr=-1 (NULL). gc-column rcl10r96 step 350 starting |
-| **#364** | **askeladd** | Muon momentum reset (hard vs soft) | **Soft sj1qgbu1 DONE val=3.2680 sr=3000 (marginal val WIN, Δ=-0.0005, n=2 needed).** Hard 6+ cold-start crashes (broken config). Advisor comment posted. |
-| **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | Arm A CP=1.0 n=1 val=3.2662 WIN, n=2 stuck in 10+ crash retries. Arm B CP=2.0 crashed mid-run step 875. Advisor comment posted requesting terminal post. |
-| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | Arm A 1/160 n=1 sr=2975 val=3.2677 (marginal WIN). n=2 of 1/160 crashed 6× (cold-start). Arm B 1/640 lzitteno step 1925, val=3.45 mid-flight |
-| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | Arm A 0.5 516wmw6t step 1050 val=3.66 mid-flight. 0.6 not started |
+| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4× on attn} | Arm A 0.7× g8hqguwn step 1300/3250 val=3.5772 mid-flight. iuim4qzk duplicate killed after advisor heads-up. Arm B not started. |
+| **#350** | **edward** | Residual Init {1/√2N, 1/N} | Arm B 1/N DONE val=3.2687 sr=3000 (TIED). Arm A 1/√2N ugf2tm22 step 1775/3250 val=3.4770 mid-flight (6th attempt — earlier 5 cold-start crashes) |
+| **#362** | **tanjiro** | Gradient Centralization for Muon | gc-both DONE val=3.2964 sr=-1 (NULL). gc-column rcl10r96 step 1125/3250 val=3.6241 mid-flight |
+| **#364** | **askeladd** | Muon momentum reset (hard vs soft) | Terminal posted. Hard NULL val=3.26922 Δval=+0.0007. Soft MARGINAL val WIN val=3.26801 Δval=-0.0005. **n=2 soft 3zduzvo3 step 725/3250 mid-flight** (val=3.7486 early). |
+| **#366** | **thorfinn** | Aux-AdamW cooldown power {1.0, 2.0} | Arm A CP=1.0 n=1 val=3.2662 WIN, n=2 stuck in 10+ crash retries. Arm B CP=2.0 nucnaip1 step 550/3250 val=3.8006 mid-flight (2nd attempt — earlier crashed at step 875). No new terminal post yet. |
+| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | Arm A 1/160 n=1 sr=2975 val=3.2677 (marginal WIN). n=2 of 1/160 crashed 6× (cold-start). Arm B 1/640 lzitteno step 2800/3250 val=3.3048 (above 3.28 still — projected NULL) |
+| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | Arm A 0.5 516wmw6t step 2075/3250 val=3.4305 mid-flight. 0.6 not started. |
 
 ## Recently closed (current round)
 
 | PR | Student | Key result | Decision |
 |---|---|---|---|
+| **#332** | fern | COOLDOWN_POWER continuation {1.5, 1.8}: Arm A n=3 mean sr=2991.67 val=3.27021 (Δsr=-8.3, Δval=+0.0017 — noise floor); Arm B n=1 sr=2975 val=3.27464 (Δsr=-25, Δval=+0.0061 — val regression) | CLOSED — both arms NULL. Per-seed Arm A sr={3000,3000,2975}; 2/3 tied at baseline. **Body-side COOLDOWN_POWER axis CLOSED at 1.4.** Aux-side variant (#366 thorfinn) still open. |
 | **#347** | nezuko | LLRD per-depth {0.95, 0.85}: Arm A val=3.2804 sr=-1, Arm B val=3.3136 sr=-1 | CLOSED — monotone signal (more aggressive decay → worse). ULMFiT prior inverted for pretraining-from-scratch; NS orthogonalization already normalizes per-tensor. **Depth-based LR decomposition CLOSED.** |
 | **#311** | thorfinn | Lookahead α ∈ {0.5, 0.8}, k=5: Arm A val=3.299 sr=never; Arm B val=3.271 sr=3050 | CLOSED — mechanism active (slow-fast ratio 0.005–0.05) but unhelpful. PMuon's own whitening already produces clean updates; averaging via pullback discards genuine progress. Third closure confirming "PMuon warm-up dynamics axis CLOSED." |
 | **#327** | askeladd | Adan aux {lr_mult=1.0, lr_mult=0.33}: both NULL sr=-1 val=3.288/3.312 | CLOSED — **aux optimizer-mechanism axis CLOSED.** Lion, AdEMAMix, Adan all NULL. Aux uniformly wants fast-EMA AdamW (β1=0.8). β1=0.98 Adan stales sparse vocab rows. |
@@ -60,19 +60,18 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 4. **PMuon EMA dynamics axis CLOSED**: LR warmup (PR #261), bias-correction (PR #307) both NULL. Cold-start un-corrected EMA IS the implicit whitening warmup — load-bearing, do not modify.
 
-5. **Schedule axis OPEN**: COOLDOWN_POWER=1.4 merged (PR #274). Continuation scan in-flight (PR #332). Aux-group cooldown power newly open (PR #366).
+5. **Schedule axis**: Body-side COOLDOWN_POWER=1.4 merged (PR #274), continuation {1.5, 1.8} CLOSED (PR #332) — local optimum at 1.4. Aux-group cooldown power still open (PR #366).
 
 6. **WD, clip, z-loss**: Muon WD closed at 0.025; z-loss closed at 0 (existing logit soft-clamp sufficient); global grad-clip closed; per-tensor embed-clip NULL.
 
 ## Potential next research directions
 
-- **Fern #332 result**: if CP=1.5 confirms sr<3000 at n=2, strong signal to scan {1.6, 1.7} for body cooldown. If NULL, axis is flat at 1.4.
-- **Aux cooldown power (#366 thorfinn)**: companion to fern's body scan. Tests whether decoupling aux schedule from body helps.
+- **Aux cooldown power (#366 thorfinn)**: in flight. Tests whether decoupling aux schedule from body helps. n=1 marginal val WIN, awaiting n=2.
 - **Gradient centralization (#362 tanjiro)**: first regularization at the pre-EMA gradient level. Novel axis.
-- **Z-loss (#363 frieren)**: previous z-loss (PR #278) closed with old baseline. Retesting on current stronger baseline (better logit dynamics post COOLDOWN_POWER=1.4 merge).
-- **Momentum reset at cooldown (#364 askeladd)**: body-side cooldown mechanism — clearing stale momentum state at transition.
+- **Momentum reset at cooldown (#364 askeladd)**: body-side cooldown mechanism — n=1 marginal val WIN, n=2 in flight.
 - **Role-based LR (#387 nezuko)**: attn vs MLP LR split — follow-up to LLRD closure. If also NULL, depth+role both closed and uniform is confirmed optimal.
 - **Residual init (#350 edward)**: init axis — first time tested on this stack.
+- **NS_ITERS schedule (newly assigned)**: bump NS_ITERS from 6 to 10 during cooldown only. More precise polar approx when LR is tiny and direction quality matters most. Fresh axis.
 
 ## Open unexplored axes (for future assignment)
 

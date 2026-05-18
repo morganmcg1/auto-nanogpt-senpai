@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-18 18:07 UTC — PR #332 CLOSED: COOLDOWN_POWER continuation {1.5, 1.8} NULL (g1r1-fern)
+
+- Branch: `g1r1-fern/cooldown-power-continuation`
+- Hypothesis: Probe past the merged COOLDOWN_POWER=1.4 win (PR #274) by scanning {1.5, 1.8}. Test whether a more concave LR cooldown tail extracts additional sr improvement, or whether 1.4 is the local optimum.
+
+| Arm | CP | n | mean sr | mean val | Δsr | Δval | verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #274) | 1.4 | 2 | 3000 | 3.2685 | — | — | — |
+| Arm A | 1.5 | 3 | 2991.67 | 3.27021 | -8.33 | +0.0017 | NULL (noise floor) |
+| Arm B | 1.8 | 1 | 2975 | 3.27464 | -25 | +0.0061 | NULL (val regression) |
+
+Per-seed Arm A sr: {3000, 3000, 2975}. Two seeds tied at baseline, one dropped exactly one val-eval window (25 steps). Mean Δsr=-8.33 is well inside seed noise; sr is logged at discrete 25-step val intervals.
+
+Per-seed Arm B sr: {2975}. n=1 only; marginal Δsr=-25 but with substantial val regression (+0.0061 > stat-sig threshold 0.004). Even an n=2 confirmation of sr<3000 wouldn't be a clean merge — val regression suggests over-aggressive cooldown extracts a tiny sr advantage at the cost of converged loss quality.
+
+**Body-side COOLDOWN_POWER axis CLOSED at 1.4.** This is the second closure of the cooldown-shape axis on the body — confirms PR #274's CP=1.4 is the local optimum.
+
+Still open on this theme: thorfinn #366 testing aux-AdamW cooldown power decoupling. Both arms of #366 are in flight (CP=1.0 had a marginal n=1 val WIN but crash storm prevented n=2; CP=2.0 in flight).
+
+---
+
 ## 2026-05-18 17:25 UTC — PR #364 PENDING (sent back for n=2): Muon momentum reset hard vs soft (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/muon-reset`
