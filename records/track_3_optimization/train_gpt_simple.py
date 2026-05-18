@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -54,6 +55,12 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--adam_beta1_aux_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        help="Time-varying schedule for AdamW aux groups beta1. "
+                             "constant=fixed 0.8; ramp_up=0.65->0.95; ramp_down=0.95->0.65; "
+                             "triangle=0.65->0.95->0.65 (peak mid-training); "
+                             "cosine_updown=cosine 0.65->0.95->0.65.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -786,6 +793,21 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    def _beta1_aux_schedule(step, total_steps, schedule):
+        """Return beta1 for AdamW aux groups. All non-constant schedules have time-avg ~0.8."""
+        if schedule == "constant":
+            return 0.8
+        p = step / max(1, total_steps - 1)
+        if schedule == "ramp_up":
+            return 0.65 + 0.30 * p
+        if schedule == "ramp_down":
+            return 0.95 - 0.30 * p
+        if schedule == "triangle":
+            return 0.65 + 0.30 * (2 * min(p, 1 - p))
+        if schedule == "cosine_updown":
+            return 0.65 + 0.30 * (0.5 * (1 - math.cos(2 * math.pi * p)))
+        raise ValueError(f"Unknown adam_beta1_aux_schedule: {schedule}")
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -797,6 +819,11 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+        # Time-varying beta1 for AdamW aux groups (optimizer1 contains only aux groups).
+        beta1_aux = _beta1_aux_schedule(step, train_steps, args.adam_beta1_aux_schedule)
+        for group in optimizer1.param_groups:
+            beta2 = group["betas"][1]
+            group["betas"] = (beta1_aux, beta2)
 
 
     ########################################
@@ -924,6 +951,9 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/update_norm/{name}"] = mean_norm
                 for name, lr in current_lrs.items():
                     per_group_metrics[f"train/lr/{name}"] = lr
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "adam_aux")
+                    per_group_metrics[f"train/beta1/{gname}"] = group["betas"][0]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
