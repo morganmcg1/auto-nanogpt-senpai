@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-18 08:57 UTC — PR #307 CLOSED + PR #355 ASSIGNED: PMuon EMA bias correction → Gradient Centralization (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-bias-correct`
+- **Hypothesis:** PMuon bilateral covariance EMA bias correction {FULL: 1/(1-β^k), SQRT: 1/sqrt(1-β^k)} to sharpen the cold-start preconditioner estimate.
+- W&B runs: `kss5lyzw` (Arm A FULL, step 3250), `fku3hg2s` (Arm B SQRT, step 3250)
+
+| Arm | Correction | sr | val/loss | Δ vs baseline (PR #274) | verdict |
+|-----|------------|-----|----------|-------------------------|---------|
+| **Baseline** | OFF | **3000** | **3.2685** | — | — |
+| Arm A FULL | 1/(1-β^k) | 3050 | 3.26803 | +50 / -0.0005 (sub-noise) | NULL — sr regression |
+| Arm B SQRT | sqrt(1/(1-β^k)) | 3050 | 3.26797 | +50 / -0.0005 (sub-noise) | NULL — sr regression |
+
+**Result:** Both NULL. sr regression of +50 is decisive (outside ±25 noise band). Val improvement is sub-noise (0.0005 << 0.001 threshold).
+
+**Mechanism verified via telemetry:** L_cov 3-9× larger in corrected arms throughout training. Bias factor traces exactly match PR mechanism table (FULL: 0.0500→0.994→1.0 over 200 steps; SQRT: 0.2236→0.997→1.0). Polar residual sanity check passed. FULL and SQRT outcomes are essentially identical (Δ=0.00006 between them), so this is not a sweet-spot question.
+
+**Key mechanism finding (tanjiro):** The natural (1-β^k) ramp in PMuon covariance EMAs is an implicit warmup of the whitening preconditioner — un-corrected EMA is part of the recipe, not a bug. Mirrors frieren PR #261 (warmup-to-slow-the-ramp also NULL): both directions of perturbing the cold-start covariance dynamics (delay OR sharpen) regress.
+
+**Axis decision: cold-start covariance dynamics are load-bearing; PMuon EMA bias correction axis CLOSED.**
+
+**Next assignment:** PR #355 — Gradient Centralization (GC) for Muon body: pre-polar column-mean subtraction {column-only, column+row} (Yong et al. ECCV 2020). Novel mechanism, 1-line change, zero optimizer state, composes cleanly with current stack.
+
+---
+
 ## 2026-05-18 07:40 UTC — PR #331 CLOSED: per-tensor embed grad clipping {10, 100} (g1r1-edward)
 
 - Branch: `g1r1-edward/per-tensor-embed-clip`
