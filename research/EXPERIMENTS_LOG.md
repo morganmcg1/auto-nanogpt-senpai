@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-18 16:05 UTC — PR #347 CLOSED + PR #387 ASSIGNED: LLRD → Role-based Muon LR (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/llrd-scan`
+- Hypothesis: Layer-wise LR Decay (ULMFiT-style, Howard & Ruder 2018) assigns per-depth LR multipliers `base_lr × decay^(N-i)`, slowing bottom layers relative to top layers. Tested decay ∈ {0.95, 0.85} on the Muon body; aux unchanged.
+
+| Arm | LLRD decay | W&B | val/loss | sr | Δval | Δsr | verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 1.00 (uniform) | `vw0595an`, `s2nrw0c8` | 3.2685 | 3000 | — | — | — |
+| Arm A | 0.95 | `ffsvma03` | **3.28041** | -1 | +0.0119 | — | NULL (missed target) |
+| Arm B | 0.85 | `ud32rjej` | **3.31361** | -1 | +0.0451 | — | NULL (massive regression) |
+
+**Result:** Both arms NULL with **monotone signal** (more aggressive decay → worse). Arm A: bottom LR ≈ 0.57× base, val barely above 3.28 target. Arm B: bottom LR ≈ 0.17× base, catastrophic regression (+0.045).
+
+**Why the LLRD prior doesn't hold:**
+1. **Pretraining from scratch, not fine-tuning.** ULMFiT-style LLRD preserves frozen pretrained bottom-layer features. Here, bottom layers must actively learn token geometry from random init — slowing them costs convergence.
+2. **NS orthogonalization already normalizes per-tensor.** Muon's Newton-Schulz polar step is per-tensor and implicitly equalizes update magnitudes. Adding a depth multiplier on top re-introduces a scalar imbalance on the already-normalized update.
+3. **Flat LR axis (PR #248).** Global Muon LR is locally optimal at 0.035 ±14%. LLRD pushes ~half the body off that flat optimum by design.
+
+**Depth-based LR decomposition axis CLOSED.** Pairs with PR #248 (global LR closed) to confirm: uniform Muon body LR is optimal in both the scalar and depth-structural dimensions.
+
+**New assignment (PR #387):** Role-based Muon LR — splits body into attention (QKV+proj) vs MLP (fc1+fc2) and tests whether these mechanistically distinct roles want different LRs. If also NULL, the conclusion is clean: the NS orthogonalization already equalizes update magnitudes and any LR decomposition within the body is redundant.
+
+---
+
 ## 2026-05-18 15:32 UTC — PR #342 CLOSED: SWA tail rolling average NULL (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/swa-tail`

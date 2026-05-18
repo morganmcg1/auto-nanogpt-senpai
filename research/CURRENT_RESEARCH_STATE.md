@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 15:35 UTC
+- **Last update:** 2026-05-18 16:05 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
 
@@ -24,7 +24,7 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 | PR | Student | Mechanism | Status (15:35 UTC) |
 |---|---|---|---|
 | **#332** | **fern** | COOLDOWN_POWER continuation {1.5, 1.8} | CP=1.5 n=3 DONE (mean sr=2991.67 val=3.27021, marginal). Arm B CP=1.8 iq8u5b0h running step ~1000 |
-| **#347** | **nezuko** | LLRD per-depth {0.95, 0.85} | Both arms done: 0.95 NULL, 0.85 (ud32rjej) done val=3.3173 → NULL. Awaiting terminal |
+| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4× on attn} | **Just assigned** |
 | **#350** | **edward** | Residual Init {1/√2N, 1/N} | Arm A NULL (sr=3025). Arm B (1/N) t7607ha7 step 2875 val=3.2901 — likely NULL |
 | **#362** | **tanjiro** | Gradient Centralization for Muon | Arm A NULL (sr=3050). Arm B gc-both 5p8b7aro mid-flight |
 | **#364** | **askeladd** | Muon momentum reset (hard vs soft) | Arm A MARGINAL TIE. Arm B soft sj1qgbu1 mid-flight |
@@ -36,6 +36,7 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 | PR | Student | Key result | Decision |
 |---|---|---|---|
+| **#347** | nezuko | LLRD per-depth {0.95, 0.85}: Arm A val=3.2804 sr=-1, Arm B val=3.3136 sr=-1 | CLOSED — monotone signal (more aggressive decay → worse). ULMFiT prior inverted for pretraining-from-scratch; NS orthogonalization already normalizes per-tensor. **Depth-based LR decomposition CLOSED.** |
 | **#311** | thorfinn | Lookahead α ∈ {0.5, 0.8}, k=5: Arm A val=3.299 sr=never; Arm B val=3.271 sr=3050 | CLOSED — mechanism active (slow-fast ratio 0.005–0.05) but unhelpful. PMuon's own whitening already produces clean updates; averaging via pullback discards genuine progress. Third closure confirming "PMuon warm-up dynamics axis CLOSED." |
 | **#327** | askeladd | Adan aux {lr_mult=1.0, lr_mult=0.33}: both NULL sr=-1 val=3.288/3.312 | CLOSED — **aux optimizer-mechanism axis CLOSED.** Lion, AdEMAMix, Adan all NULL. Aux uniformly wants fast-EMA AdamW (β1=0.8). β1=0.98 Adan stales sparse vocab rows. |
 | **#307** | tanjiro | PMuon EMA bias-correct {FULL, SQRT}: both NULL sr=3050 val≈3.268 | CLOSED — cold-start un-corrected EMA IS the implicit whitening warmup; bias-correct perturbs it without benefit. Pairs with PR #261 closure. |
@@ -46,7 +47,9 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 ## Key structural findings (current program state)
 
-1. **PMuon hyperparameter axes ALL CLOSED**: NS_ITERS (flat 6–18), NS_coef (a,b) (closed at 1.5,-0.5), NS_coef c-axis (closed at c=0), Muon base LR (closed at 0.035), γ_power (closed at 0.4), β_cov (closed at 0.95), mu (closed at 0.95), TARGET_UW (closed at 0.35), LR warmup (closed).
+1. **PMuon hyperparameter axes ALL CLOSED**: NS_ITERS (flat 6–18), NS_coef (a,b) (closed at 1.5,-0.5), NS_coef c-axis (closed at c=0), Muon base LR (closed at 0.035), γ_power (closed at 0.4 — continuation in flight #386), β_cov (closed at 0.95), mu (closed at 0.95), TARGET_UW (closed at 0.35), LR warmup (closed).
+
+1a. **Body LR decomposition axes**: Depth (LLRD, PR #347) CLOSED — uniform optimal. Role-based (attn vs MLP, PR #387) in-flight.
 
 2. **Aux optimizer-mechanism axis CLOSED**: AdamW β1 (closed at 0.8), β2 (closed at 0.95), eps (closed at 1e-10). Alternative optimizers (Lion, AdEMAMix, Adan) all NULL. Aux groups uniformly want fast-EMA AdamW (β1=0.8).
 
@@ -65,20 +68,20 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 - **Gradient centralization (#362 tanjiro)**: first regularization at the pre-EMA gradient level. Novel axis.
 - **Z-loss (#363 frieren)**: previous z-loss (PR #278) closed with old baseline. Retesting on current stronger baseline (better logit dynamics post COOLDOWN_POWER=1.4 merge).
 - **Momentum reset at cooldown (#364 askeladd)**: body-side cooldown mechanism — clearing stale momentum state at transition.
-- **LLRD (#347 nezuko)**: per-depth LR multiplier — unexplored on this stack.
-- **SWA tail (#342 alphonse)**: post-hoc averaging over cooldown tail. Currently recovering from crash.
+- **Role-based LR (#387 nezuko)**: attn vs MLP LR split — follow-up to LLRD closure. If also NULL, depth+role both closed and uniform is confirmed optimal.
 - **Residual init (#350 edward)**: init axis — first time tested on this stack.
 
 ## Open unexplored axes (for future assignment)
 
 - NS iteration vs convergence threshold: adaptive NS_ITERS until ||X²-I|| < ε
-- Per-attention-head LR (Q/K vs V/proj role-based LR)
-- Per-MLP-layer LR (fc1 expansion vs fc2 contraction)
-- lm_head_lr scan (current 1/320 never explicitly tuned)
+- NS_ITERS schedule: bump from 6 to 10 during cooldown only (more precise polar approx when LR is tiny and direction quality matters most)
+- Inverse LLRD: bottom layers get HIGHER LR — contradicts ULMFiT prior, but bottom layers in pretraining-from-scratch may need MORE updates to escape near-init geometry
+- lm_head_lr scan (current 1/320 never explicitly tuned) — #367 in flight covers this
 - Muon WD downward scan {0.015, 0.020} (upward closed at 0.025)
 - EMA-weighted Polyak (newer steps get higher weight — avoids backward-bias issue)
 - Curriculum warmup for COOLDOWN_POWER itself (ramp cooldown power over training)
 - Spectral normalization of weight matrices (complement to polar decomp)
+- Adaptive grad clipping (AGC): scale per-layer by grad/param norm ratio (different from global clip, closed)
 
 ## Statistical rule reminder
 
