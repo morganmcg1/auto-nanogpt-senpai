@@ -225,6 +225,8 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            if "normuon_beta2" in group:
+                metrics[f"train/normuon_beta2/{group_name}"] = group["normuon_beta2"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -444,6 +446,8 @@ MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
+NORMUON_COOLDOWN_BETA2_START = float(os.environ.get("NORMUON_COOLDOWN_BETA2_START", "0.95"))
+NORMUON_COOLDOWN_BETA2_END   = float(os.environ.get("NORMUON_COOLDOWN_BETA2_END",   "0.95"))
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
@@ -683,7 +687,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    update = contra_normuon_update(momentum_update, state["second_moment"],
+                                                   beta2=group.get("normuon_beta2", NORMUON_BETA2))
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -836,6 +841,8 @@ if dist.get_rank() == 0:
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
+            "optimizer/normuon_cooldown_beta2_start": NORMUON_COOLDOWN_BETA2_START,
+            "optimizer/normuon_cooldown_beta2_end": NORMUON_COOLDOWN_BETA2_END,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
@@ -880,6 +887,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
+    optimizer2.param_groups[0]["normuon_beta2"] = NORMUON_COOLDOWN_BETA2_START
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -896,11 +904,18 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         cur_mu = MU + (MU_END - MU) * progress
+        cooldown_start_step = int(train_steps * (1 - cooldown_frac))
+        if step >= cooldown_start_step:
+            t = (step - cooldown_start_step) / (train_steps - cooldown_start_step)
+            cur_normuon_beta2 = NORMUON_COOLDOWN_BETA2_START + (NORMUON_COOLDOWN_BETA2_END - NORMUON_COOLDOWN_BETA2_START) * t
+        else:
+            cur_normuon_beta2 = NORMUON_COOLDOWN_BETA2_START
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                    group["normuon_beta2"] = cur_normuon_beta2
 
 
     ########################################
