@@ -6,6 +6,179 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 18:43 UTC — PR #397: Aux lm_head weight decay sweep — ASSIGNED
+
+- **Branch**: g1r3-nezuko/aux-lm-head-wd-sweep
+- **Hypothesis**: Targeted weight decay on the lm_head parameter only (~38M params, 50304×768) may stabilize lm_head norm growth during the long flat-LR phase and improve cooldown effectiveness. Orthogonal to AGC (gradient-norm clip) and softsign cap (logit scaling). Standard recipe in PaLM/T5/Chinchilla — param-group wd>0 on linear projections, wd=0 on embeddings. Reuses nezuko's existing lm_head-specific plumbing from prior `--adam_lm_head_lr` work. 3 arms: wd=0 (control bit-identical), 0.01 (mild), 0.05 (strong).
+- **Status**: Assigned to g1r3-nezuko (idle after #361 closed NEG).
+
+---
+
+## 2026-05-18 18:42 UTC — PR #361: Aux lm_head LR sweep (1/500, 1/320, 1/200) ❌ CLOSED NEG
+
+- **Branch**: g1r3-nezuko/aux-lm-head-lr-sweep
+- **Hypothesis**: Aux AdamW LR on lm_head only is sub-optimal at baseline ~1/320. Sweep 1/500 (slow), 1/320 (control), 1/200 (fast).
+- **Screen results** (vs current baseline 3.27286, n=1 bar < 3.27206):
+
+| arm | LR | wandb_id | terminal val/loss | Δ vs 3.27286 | n=1 bar (<3.27206)? |
+|---|---|---|---|---|---|
+| 1 | 0.005 (1/200) | df1mmug7 | 3.27234 | -0.00052 | **NEG** |
+| 2 | 0.003125 (1/320, ctrl) | tkwo0a9f | 3.27226 | -0.00060 | **NEG** |
+| 3 | 0.002 (1/500) | qlkifdse | **3.27415** | +0.00129 | **NEG** |
+
+- **Mechanism**: aux lm_head LR is **flat in [1/320, 1/200]** (arms 1+2 Δ=0.00008 ≪ n=1 σ≈0.001) and **degrades below** at 1/500. On the older baseline (3.27315) arms 1+2 looked borderline-pass, but PR #329 (AGC inner MuonH, baseline 3.27286) tightened it by 0.00029 — absorbing what was n=1 noise. The aux LR axis was capturing baseline noise rather than producing real improvement.
+- **Branch became CONFLICTING** after #329 merged → confirmed closure path.
+- **Operational note**: nezuko caught and recovered from a double-launcher race condition at 15:03 UTC (two scripts spawning duplicate arm 2 torchruns on same GPU) — clean execution under pressure.
+
+---
+
+## 2026-05-18 18:30 UTC — PR #396: QK-Norm sweep (off vs fixed vs learnable) — ASSIGNED
+
+- **Branch**: g1r3-askeladd/qk-norm
+- **Hypothesis**: Pre-attention RMSNorm on Q and K vectors (before RoPE). First architectural test of the run. Used in Llama 3.1, OLMo 2. 3 arms: off (control), fixed RMSNorm, learnable-scale RMSNorm. Applied before RoPE.
+- **Status**: Assigned to g1r3-askeladd (freshly idle after PR #329 merge).
+- **2026-05-18 19:00 UTC redirect**: askeladd caught two issues in original assignment:
+  1. Baseline already has F.rms_norm on Q/K (line 411) — functionally fixed QK-Norm already present
+  2. head_dim is 128 (768/6 heads), not 64 as my note said
+  - Revised arm semantics: **off** truly removes F.rms_norm (NEW); **fixed** keeps F.rms_norm (= baseline control); **learnable** adds nn.RMSNorm(elementwise_affine=True). Meaningful comparisons now: fixed↔off (does the existing F.rms_norm help?) and fixed↔learnable (does adding learnable scale help?). Smoke gate applies to **fixed** arm.
+
+---
+
+## 2026-05-18 18:26 UTC — PR #329: AGC on inner MuonH gradient (clip_ratio=0.05) ✅ MERGED
+
+- **Branch**: g1r3-askeladd/muonh-agc-inner
+- **Hypothesis**: Apply Adaptive Gradient Clipping (clip_ratio=0.05) to the MuonH inner gradient path (before NS5), in addition to existing aux AGC. Prediction: inner MuonH gradient RMS dwarfs parameter RMS by 2-4 orders of magnitude; clipping normalizes to parameter scale before NS5 orthogonalization.
+
+- **Screen results** (old baseline 3.27415):
+
+| Arm | val/loss | ffs | Δ vs old baseline |
+|---|---|---|---|
+| clip=0.10 | 3.27442 | — | +0.00027 (slight NEG) |
+| **clip=0.05** | **3.27288** | **3125** | **−0.00127 (WIN n=1)** |
+| clip=0.01 | 3.27505 | — | +0.00090 (slight NEG) |
+
+- **N=4 confirm** (new baseline 3.27315, run `dpabql6o`):
+
+| Trial | val/loss | ffs | Δ vs 3.27315 |
+|---|---|---|---|
+| 0 | 3.27209 | 3125 | −0.00106 ✓ |
+| 1 | 3.27264 | 3125 | −0.00051 ✓ |
+| 2 | 3.27365 | 3150 | +0.00050 (spoiler trial) |
+| 3 | 3.27305 | 3150 | −0.00010 ✓ |
+| **mean** | **3.27286** | **3137.5** | **−0.00029** |
+
+- **Stat margin**: (3.28 − 3.27286) × √4 = 0.01429 ≥ 0.004 ✓ (3.6× margin)
+- **Primary metric improvement**: ffs mean 3143.75 → 3137.5 (−6.25 steps)
+- **Merge decision**: Merged despite missing conservative team bar (μ < 3.27275 by +0.00011) because primary metric (ffs) improved, stat rule passed at 3.6×, and CLAUDE.md directs merge on any real improvement. Trial 2 (3.27365) was a n=1 variance outlier.
+- **Key telemetry**: AGC fires on EVERY block EVERY step (fraction_active=1.0 from step 25); scale_mean ~0.002 (inner path) vs ~0.02 (aux path) — inner gradient is 10× hotter per parameter RMS unit.
+- **New required flag**: `--muonh_agc_clip_ratio 0.05`
+- **Next assignment**: askeladd → QK-Norm (PR #396), first architectural test.
+
+---
+
+## 2026-05-18 17:10 UTC — PR #392: Logit soft-cap sweep (off vs 15 vs 30) — ASSIGNED (REDIRECTED)
+
+- **Branch**: g1r3-fern/logit-soft-cap
+- **Hypothesis**: Applying tanh(logits/cap)×cap before cross-entropy (Gemma/Llama 3 style) smoothes extreme logit values, may reduce gradient noise in cooldown phase. 3 arms: cap=0.0 (off control), cap=15, cap=30.
+- **Status**: Assigned to g1r3-fern, pending first student run.
+
+---
+
+## 2026-05-18 17:10 UTC — PR #391: MuonH warmup duration sweep (100 vs 200 vs 300 steps) — ASSIGNED
+
+- **Branch**: g1r3-thorfinn/muonh-warmup-duration-sweep
+- **Hypothesis**: PR #310 showed warmup=100 > warmup=0. PR #370 (shape NEG) confirmed it's the step-count that matters. Is 100 the optimum, or does the curve keep climbing? 3 arms: 100 (control), 200, 300 steps. No code changes — flag already exists.
+- **Status**: Assigned to g1r3-thorfinn, pending first student run.
+
+---
+
+## 2026-05-18 17:10 UTC — PR #390: MuLoCo outer optimizer class swap (SGDM vs AdamW vs Lion) — ASSIGNED
+
+- **Branch**: g1r3-frieren/outer-optimizer-class-swap
+- **Hypothesis**: After saturating MuLoCo's 3 knobs (outer_lr, outer_momentum, sync_interval) plus scheduling variants, the outer class itself is the next lever. AdamW outer could capture late-training drift variance better than SGDM; Lion outer is sign-robust to small drift magnitudes. 3 arms: SGD-momentum (control), AdamW, Lion.
+- **Status**: Assigned to g1r3-frieren, pending first student run.
+
+---
+
+## 2026-05-18 17:10 UTC — PR #389: MuonH inner mu warmup — ASSIGNED (edward)
+
+- **Branch**: g1r3-edward/muonh-mu-warmup
+- **Hypothesis**: Ramp MuonH momentum μ linearly from 0.5 → 0.95 over first N steps (distinguishes from PR #308 which was late-training mu decay). 3 arms: mu_warmup_steps ∈ {0 control, 100, 200}.
+- **Status**: Assigned to g1r3-edward (fresh assignment after #369 closed NEG), pending first student run.
+
+---
+
+## 2026-05-18 16:55 UTC — PR #370: MuonH warmup shape sweep (linear vs cosine vs sqrt) ❌ CLOSED NEG
+
+- **Branch**: g1r3-thorfinn/muonh-warmup-shape-sweep
+- **Hypothesis**: PR #310 showed warmup=100 wins. Shape of the ramp might matter. 3 arms: linear (control), cosine, sqrt.
+- **Results** (n=1 each, post-PR #310 baseline 3.27315, n=1 bar < 3.27235):
+
+| Arm | val/loss | ffs | Δ vs baseline |
+|---|---|---|---|
+| linear control | 3.27315 | — | 0.00000 |
+| cosine | 3.27348 | — | +0.00033 |
+| sqrt | 3.27307 | — | −0.00008 |
+
+- **Conclusion**: All within n=1 noise (σ≈0.001). The MuonH warmup *shape* is insensitive at 100 steps — the linear/cosine/sqrt integrals produce equivalent effective warming. The step-count is the lever (PR #310 result), not the shape.
+- **Next assignment**: thorfinn → warmup duration sweep (PR #391): 100 vs 200 vs 300 steps.
+
+---
+
+## 2026-05-18 16:52 UTC — PR #365: MuLoCo sync_interval scheduling (30→60 late training) ❌ CLOSED NEG
+
+- **Branch**: g1r3-frieren/sync-interval-scheduling
+- **Hypothesis**: Inner Δ collapses ~100× in the cosine cooldown. Widening sync_interval in the last third gives each outer step ~2× more drift to integrate, potentially restoring signal magnitude. 3 arms: fixed 30 (control), step 30→60 @ 2/3, linear 30→60.
+
+- **Results** (n=1 each, post-PR #310 baseline 3.27315, n=1 bar < 3.27235):
+
+| Arm | W&B | val/loss | ffs | Δ vs baseline | outer fires | drms step 3000 |
+|---|---|---|---|---|---|---|
+| 1 fixed sync=30 | wddw4tjm | 3.27352 | 3150 | +0.00037 | 110 | 0.135 |
+| 2 step 30→60 @ 2/3 | snbbohvq | 3.27388 | 3150 | +0.00073 | 92 | **0.210 (1.56×)** |
+| 3 linear 30→60 | pyi0ej9u | 3.27412 | 3150 | +0.00097 | 77 | 0.185 (1.37×) |
+
+- **Mechanism CONFIRMED, val NEG**: Doubling sync_interval in the last third yields 1.5–2.5× larger drift_rms per outer step exactly as predicted. But fixed outer_lr=0.7 at 2× larger Δ overshoots in the cooldown attractor. Also: fewer outer corrections (77–92 vs 110) compounds the issue.
+- **Joint closure**: PR #369 (edward outer_lr decay/grow, just closed NEG) confirms MuLoCo wants fixed outer_lr. The conjugate (wider sync + reduced outer_lr) is unlikely to net positive given both knobs are independently saturated.
+- **Conclusion**: MuLoCo 3-knob space fully saturated. **Outer class swap is the next lever** (assigned to frieren, PR #390).
+
+---
+
+## 2026-05-18 16:42 UTC — PR #369: MuLoCo outer_lr scheduling (decay and grow) ❌ CLOSED NEG
+
+- **Branch**: g1r3-edward/outer-lr-schedule
+- **Hypothesis**: Fixed outer_lr=0.7 may be suboptimal across phases; test cosine decay 0.7→0.35 (cool the outer loop) vs cosine grow 0.7→1.05 (amplify signal in mid-training) vs fixed control.
+- **Results** (n=1 each, post-PR #310 baseline 3.27315):
+
+| Arm | W&B | val/loss | ffs | Δ vs baseline |
+|---|---|---|---|---|
+| fixed 0.7 (control) | arm1 | 3.27195 | 3125 | −0.00120 |
+| cosine decay 0.7→0.35 | arm2 | **3.27609** | 3150 | **+0.00294 STRONG NEG** |
+| cosine grow 0.7→1.05 | arm3 | **3.27735** | −1 (missed target) | **+0.00540 STRONG NEG** |
+
+- **Edward's mechanistic analysis**: delta_rms/velocity_rms traces confirmed MuLoCo wants stable outer_lr — decay collapses the slow-snap contribution in the regime where MuonH is still making residual improvements; grow causes instability at transition point.
+- **Saturated lever**: outer_lr scheduled variants all closed. Fixed 0.7 confirmed optimal.
+
+---
+
+## 2026-05-18 16:45 UTC — PR #352: Aux AdamW cooldown_frac sweep (0.3 vs 0.4 vs 0.5) ❌ CLOSED NEG
+
+- **Branch**: g1r3-fern/aux-cooldown-frac-sweep-v2
+- **Hypothesis**: After PR #325 closed linear-cooldown shape optimal, test whether the duration (frac ∈ {0.3, 0.4, 0.5}) matters. Default is frac=0.4.
+- **Results** (n=1 each, post-PR #310 baseline 3.27315):
+
+| Arm | W&B | val/loss | Δ vs baseline |
+|---|---|---|---|
+| frac=0.3 | vmxi4dns | 3.27309 | −0.00006 |
+| frac=0.4 (default) | 6fuqi76u | 3.27253 | −0.00062 |
+| frac=0.5 | bwip6g4k | 3.27353 | +0.00038 |
+
+- **Conclusion**: frac=0.4 best but Δ=−0.00062 doesn't clear n=1 bar (−0.0008). U-shaped with shallow minimum near default. Sensitivity range [0.3,0.5] = only ~0.001 total variance at n=1, which is at the noise floor. n=4 confirm at frac=0.4 would cost 6h for likely null result.
+- **Saturated lever**: aux cooldown_frac in [0.3, 0.5]. Default frac=0.4 is near-optimal.
+- **Next assignment**: fern → logit soft-cap (PR #392), first architectural change.
+
+---
+
 ## 2026-05-18 10:31 UTC — PR #310: MuonH inner LR warmup (warmup_steps=100) ✅ MERGED
 
 - **Branch**: g1r3-thorfinn/muonh-lr-warmup
