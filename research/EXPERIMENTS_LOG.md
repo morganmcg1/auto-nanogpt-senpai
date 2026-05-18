@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-18 10:10 UTC — PR #311 CLOSED + PR #366 ASSIGNED: Lookahead wrapper → Aux cooldown power decoupling (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/lookahead-wrapper`
+- **Hypothesis:** Wrap both optimizers in Lookahead (Zhang et al. NeurIPS 2019): every k=5 steps, interpolate fast weights with slow weights via `slow ← slow + α·(fast − slow); fast ← slow`. Scan α ∈ {0.5, 0.8} with fixed k=5. Initial runs crashed at step 1-25 (grad_norm >200k from cold-start PMuon EMA + step-0 slow-weight snapshot). After advisor-directed fix: lazy init of slow weights at step 200 (after PMuon warmup). Final results: both arms NULL.
+- W&B runs: `0oj7k38q` (Arm A α=0.5, delayed-init), `hd9u6ffy` (Arm B α=0.8, warmup-200)
+
+| Arm | α | sr | val/loss | Δ vs baseline | verdict |
+|-----|---|-----|----------|---------------|---------|
+| **Baseline (PR #274)** | — | **3000** | **3.2685** | — | — |
+| Arm A | 0.5 | -1 (never) | 3.29851 | +0.0300 | NULL |
+| Arm B | 0.8 | 3050 | 3.27054 | +0.00204 | NULL (sr +50 regression) |
+
+**Mechanism telemetry:** `lookahead/embed_slow_fast_diff_ratio` was 0.005–0.05 for ~80% of training (mid-training), collapsing to ~1e-4 in late cooldown. Mechanism was ACTIVE but unhelpful. This is a clean "real null," not a "broken wrapper null."
+
+**Converging finding (closes Lookahead axis):** Three closed PRs (#261 warmup-to-slow EMA, #307 bias-correct cold-start, #311 Lookahead) all perturb the PMuon EMA / weight-averaging dynamics in different ways. All three NULL. The converging mechanism: the natural un-corrected cold-start EMA IS the implicit whitening warmup — PMuon's covariance warmup is load-bearing. Do not modify it.
+
+**Monotone α scan insight:** Arm A (α=0.5) worse than Arm B (α=0.8) — less blending is better; the trend `less Lookahead → closer to baseline` confirms the limit is no-Lookahead.
+
+**New assignment (PR #366):** Aux-AdamW cooldown power decoupling — scan AUX_COOLDOWN_POWER ∈ {1.0, 2.0} while body stays at 1.4. Motivated by converging evidence that aux groups want fast-adapting EMA (β1=0.8); if aux wants to keep adapting, it likely also wants a slower cooldown (power=1.0).
+
+---
+
 ## 2026-05-18 09:19 UTC — PR #327 CLOSED + PR #364 ASSIGNED: Adan aux → Muon momentum reset at cooldown (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/adan-aux-scan`
