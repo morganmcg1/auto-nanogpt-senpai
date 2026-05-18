@@ -457,6 +457,9 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# MuonEq-R: pre-NS5 row normalization for isotropic input (PR #372)
+MUONEQ_R = bool(int(os.environ.get("MUONEQ_R", "0")))
+MUONEQ_EPS = float(os.environ.get("MUONEQ_EPS", "1e-8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -464,6 +467,11 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
+
+    # MuonEq-R: pre-NS5 row normalization for isotropic input
+    if MUONEQ_R:
+        row_norms = X.norm(dim=-1, keepdim=True)
+        X = X / (row_norms + MUONEQ_EPS)
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
@@ -851,6 +859,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/muoneq_r": MUONEQ_R,
+            "optimizer/muoneq_eps": MUONEQ_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
