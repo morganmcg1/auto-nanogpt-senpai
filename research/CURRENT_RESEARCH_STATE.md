@@ -1,15 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-17 23:55 UTC. **Wave-5 mid-flight state — 3 strong signal chains, 1 near-miss, 1 productive null closed, 1 new assignment**. Current best: **val=3.27434/fs=3266.7** (n=3 mean, PR #235). **In-flight summary**:
-  - **alphonse #236 (β2=0.99) — confirmation n=2 mean BELOW baseline**: seed-1=3.27480, seed-2=3.27341. **n=2 mean=3.27411** < baseline. Seed-3 ETA ~23:45 UTC. Margin thin (−0.00023).
-  - **askeladd #241 (mu=0.97) — confirmation UNFAVORABLE**: seed-1=3.27421, seed-2=3.27664. **n=2 mean=3.27543** ABOVE baseline. Seed-3 needs ≤3.27217. ETA ~00:08 UTC. Likely DOA.
-  - **edward #280 (per-group β2) — STRONG TRIANGULATION**: arm-B (embed=0.99) val=**3.27351**, within-pod Δ=**−0.00280**. arm-C (lm_head=0.99) ETA ~23:53 UTC, arm-D (scalar=0.99) ETA ~01:37 UTC.
-  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=2 mean BELOW baseline**: seed-1=3.27158 (strong), seed-2=3.27526. **n=2 mean=3.27342** < baseline. Wider variance than expected but comfortable margin (−0.00092). Seed-3 ETA ~01:00-01:15 UTC. Strongest wave-5 candidate so far.
-  - **fern #290 (NS per-iter c) — partially falsified**: arm-B (agg→gentle) val=3.27382, arm-C (gentle→agg) val=3.27574 (within null — doesn't regress as strict asymmetric predicts). arm-D ETA ~23:58 UTC.
-  - **frieren #285 (NS cooldown SHAPE) — NEAR-MISS, n=3 confirmation requested**: arm-D (late_peak 12/20) val=**3.27442**, fs=**3250**, Δ_val=−0.00143 (0.00007 short of −0.0015 threshold). PR sent back at 23:52 UTC for n=3 within-pod confirmation chain on post-#235 baseline. Mechanism coherent (concentration in late-cooldown precision window), fs Δ=−25 substantial.
-  - **nezuko #266 (lm_head/scalar floor) ✓ CLOSED 22:52 UTC** — productive null, embed-specific mechanism confirmed. NEW PR **#315 lmhead-decay-shape** assigned (test steeper-than-linear lm_head decay; quadratic/cubic/exp_decay).
-  - **tanjiro #300 (embed floor value sweep)** — arm-A=3.27441 (control), arm-B=3.27630 (floor=0.10, Δ=+0.00189 HURTS). arm-C (floor=0.20) running ETA ~01:00 UTC, arm-D (floor=0.30) ETA ~02:50 UTC. Monotone direction confirmed below 0.15.
-All 8 students WIP. **3 strong wave-5 signals (alphonse β2, thorfinn aux WD, edward embed-β2)** all converging toward n=3 confirmation. Frieren late_peak in confirmation. Plateau Protocol not yet triggered (active progress, just below merge gate).
+- **Date:** 2026-05-18 00:05 UTC. **WAVE-5 FIRST MERGE**: alphonse #236 (β2=0.99) merged. New baseline: **val=3.27407/fs=3258.3** (n=3 mean). Current best (cumulative): **val=3.27407 / fs=3258.3**.
+  - **MERGED** ✓ alphonse #236 β2=0.99: val=3.27407/fs=3258.3, Δ=−0.00027 val / −8.4 fs. `NANOGPT_ADAMW_BETA2=0.99` now part of baseline recipe.
+  - **alphonse #322 (AdamW ε sweep) 🆕 ASSIGNED**: re-tune ε after β2=0.99 changes v̂ distribution. Arms: 1e-10 (control), 1e-9, 1e-8, 1e-7.
+  - **askeladd #241 (mu=0.97) — LIKELY DOA**: n=2 mean=3.27543, new seed-3 gate=3.27136 (was 3.27217). Extremely tight. Let seed-3 land but expect close. Notified 00:02 UTC.
+  - **edward #280 (per-group β2) — mechanism**: arm-B embed=0.99 Δ=−0.00280 (strong). arm-C (lm_head) ETA ~23:53 UTC (past), arm-D (scalar) ETA ~01:37 UTC.
+  - **thorfinn #279 (AdamW aux WD=0.005) ⚡ — n=2 mean=3.27342, seed-3 gate ≤3.27537**: comfortable margin. ETA ~01:00-01:15 UTC. Still strongest wave-5 non-merged candidate.
+  - **fern #290 (NS per-iter c) — arm-D decisive**: arm-B (agg→gentle) val=3.27382, arm-C null. arm-D ETA ~23:58 UTC (past or imminent).
+  - **frieren #285 (NS late_peak) — n=3 confirmation in flight**: arm-D near-miss Δ=−0.00143. Sent back for rebase + confirmation chain on NEW baseline (gate: n=3 mean ≤ 3.27407).
+  - **nezuko #315 (lmhead-decay-shape) 🆕 ASSIGNED**: test lm_head=quadratic/cubic/exp_decay vs linear.
+  - **tanjiro #300 (embed floor)** — arm-B (0.10) HURTS. arm-C (0.20) running ETA ~01:00 UTC.
+All 8 students WIP. Wave-5 recipe stack so far: clip=10 + NS=12/16 + embed_linear_floor + β2=0.99. Next merge candidate: thorfinn aux WD=0.005.
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Current best (branch baseline):** **3266.7 steps** (mean n=3), **val=3.27434** — tanjiro embed linear_floor=15% cooldown, PR #235 merged 2026-05-17
