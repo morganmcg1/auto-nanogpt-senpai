@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~15:10Z (poll #166)
+- **Last updated:** 2026-05-18 ~15:30Z (poll #167)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -26,7 +26,7 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl: val=3.26944 ffs=3125. Cell B (wd_aux=0.01): val=3.27403 ffs=3175 (+2.3σ). Cell C (wd_aux=0.05): val=**3.29135 ffs=-1 (target NEVER reached)**. MONOTONE worse. **Advisor directed SKIP D/E, submit for review** (clean-NEG close pending). |
+| #383 | nezuko | Muon gradient noise injection sweep std ∈ {0, 1e-4, 1e-3} × {constant, decay, cooldown_only} | NEW ASSIGNMENT (PR #383). Cell A ctrl pending. |
 | #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | NEW ASSIGNMENT (PR #382 created). Cell A ctrl pending launch. |
 | #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | NEW ASSIGNMENT (PR #381 created). Cell A constant ctrl pending launch. |
 | #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl val=3.2716 ffs=3150. Cell B `u01fl5oh` (ramp_up) FINISHED: val=3.28053 ffs=-1 (target NEVER reached, +7.6σ). Over-regularization confirmed: 2×WD at terminal prevents convergence. Cell C (ramp_down) pending. |
@@ -68,7 +68,7 @@
 
 **Exhausted mechanism slots (recent additions):**
 - LR warmup_steps (thorfinn, closed PR #353 clean-neg: warmup=0 optimal; any warmup eats peak-LR budget on 3250-step run)
-- AdamW aux wd_aux (nezuko, PR #349 directed stop D/E: A=3.26944→B=3.27403→C=3.29135/FAIL, monotone worse; default wd_aux=0 is optimal)
+- AdamW aux wd_aux uniform (nezuko, closed PR #349 clean-neg: A=3.26944→B=3.27403→C=3.29135/FAIL, monotone worse; embed at lr=0.30 is crushed by shrinkage; mixed-LR-scale groups cannot share wd)
 
 **Exhausted mechanism slots:**
 - lr_embed=0.80 (frieren, clean-neutral n=6)
@@ -88,8 +88,9 @@
 - Cautious-Muon, Lookahead, SWA, z-loss, gradient centralization, label smoothing, depth-init, per-head SOAP, schedule-free Muon, polynomial schedule-free Muon, SOAP β₂ cooldown annealing — all closed
 
 **Candidate next hypotheses (queue for next idle student):**
-- Per-group Muon mu (ASSIGNED to thorfinn PR #382 — cardinal axes around (0.93,0.95,0.97))
-- Adam β₂ ramp schedule (ASSIGNED to alphonse PR #381 — schedule-shape question)
+- Per-group Muon mu (ASSIGNED thorfinn PR #382)
+- Adam β₂ ramp schedule (ASSIGNED alphonse PR #381)
+- Muon gradient noise injection (ASSIGNED nezuko PR #383)
 - Muon mu × nesterov 2D joint sweep (if frieren lr_attn sweep reveals a winner)
-- AdamW aux β₁ ramp schedule (analogous to β₂ schedule; test whether β₁ timing matters)
-- **NEW:** Fern Cell B ramp_up catastrophic (+7.6σ, target missed) → ramp_down inverts this; watch Cell C result carefully. If ramp_down also fails, WD schedule mechanism may be exhausted at ramp shapes; only triangle/cosine (peak mid) remain.
+- AdamW aux β₁ ramp schedule (analogous to alphonse's β₂ schedule — test β₁ timing)
+- Edward needs new assignment after T4 terminal close (β₂=0.98 static confirmed sub-statsig)

@@ -1026,3 +1026,21 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Conclusion:** Even modest warmup (100 steps = 3.1% of budget) eats into peak-LR phase severely. With cooldown_frac=0.70, warmup=100 leaves only 27% of budget at peak LR — insufficient. The default stable-then-linear-decay schedule with warmup=0 is correct for this small/budget combination.
 - **Multi-crash incident:** Cell A crashed 5× (4× infra/pod setup, 1× near-terminal step 3048), Cell B crashed step 6 — infra-level crashes mostly resolved by retry. Cell A retry `dfr15323` ran clean to 3250 on second attempt.
 - **Verdict:** Closed clean-NEG. warmup_steps moves to exhausted axes.
+
+## 2026-05-18 15:15 — PR #349: AdamW aux WD sweep CLOSED clean-NEG
+
+- **Student:** g1r5-nezuko
+- **Hypothesis:** Test wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} for AdamW aux groups (embed, lm_head, scalars).
+- **Partial results (D/E skipped per advisor directive):**
+
+| Cell | wd_aux | val/best_loss | ffs | wandb | Δ vs μ | σ |
+|------|-------:|--------------:|----:|-------|-------:|---:|
+| A (ctrl) | 0 | 3.26944 | 3125 | `alp238rf` | -0.00192 | -1.63σ (baseline) |
+| B | 0.01 | 3.27403 | 3175 | `mnbz5ep0` | +0.00267 | +2.26σ |
+| C | 0.05 | **3.29135** | **-1 (target missed)** | `zx8h5ord` | +0.01999 | +16.9σ |
+| D | 0.10 | killed step 1173 | — | `bbyiqw40` | skipped | — |
+| E | 0.20 | not launched | — | — | skipped | — |
+
+- **Conclusion:** Monotone WORSE with increasing wd_aux. The 'AdamW aux' optimizer bundles three groups with very different LR scales (embed=0.30, scalars=0.01, lm_head=0.003125). Decoupled WD applies `(1-lr·wd)` shrinkage per step — at wd=0.05, embed loses 1.5%/step which swamps gradient signal. **Mixed-LR-scale param groups cannot share a single wd value.**
+- **Mechanism take:** Unlike Muon (homogeneous LR scale across MLP/attn), the AdamW aux groups have 100× lr_attn:lr_lm_head ratio. Per-group wd_aux could be a fresh follow-up, but the uniform default wd_aux=0 IS the per-group-uniform optimum.
+- **Verdict:** Closed clean-NEG. wd_aux (uniform across aux groups) moves to exhausted axes.
