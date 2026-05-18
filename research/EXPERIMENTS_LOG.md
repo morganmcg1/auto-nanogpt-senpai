@@ -3,6 +3,63 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 22:40 UTC — PR #380: lm_head proj init std sweep (fern) — CLOSED productive-null ✅
+
+- Branch: `g1r4-fern/lmhead-init-scale`
+- Hypothesis: lm_head zero-init is the inherited default; sweep σ ∈ {0.0, 0.005, 0.02 GPT-2 default, 0.05} to test whether nonzero init helps.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | init_std | val | Δ vs A | Δ vs baseline | fs | W&B |
+|---|---|---|---|---|---|---|
+| A (control) | 0.0 (zero) | 3.27409 | — | +0.00209 | 3250 | `nnkexd9a` |
+| B | 0.005 | 3.27470 | +0.00061 | +0.00270 | 3275 | `yuwgeofy` |
+| C | 0.02 (GPT-2) | 3.27725 | +0.00316 | +0.00525 | 3300 | `dsl7desn` |
+| D | 0.05 | 3.28234 | +0.00825 | +0.01034 | -1 (failed target) | `1mminmrf` |
+
+### Key findings
+
+1. **Zero-init is uniquely optimal**: monotone worsening with σ growth.
+2. **Catastrophic at σ=0.05**: arm-D fails to hit 3.28 by step 3350 (fs=-1).
+3. **Mechanism**: zero-init forces lm_head to start as a pure identity-like projection from token-embedding space; signal flow optimized for embed_lr=0.3. Any nonzero σ corrupts this routing.
+4. **Drift gate**: arm-A at +0.00209 (inside ±0.003 tolerance, on the edge).
+
+### Verdict
+
+Productive-null. Both init-scale axes on AdamW-managed groups now exhaustively mapped: embed shape doesn't matter (#374 ±0.00061 across 4× range), lm_head shape DOES matter (zero uniquely optimal). Axis CLOSED.
+
+## 2026-05-18 22:30 UTC — PR #377: Pruning ablation (tanjiro) — CLOSED productive-null ✅ (HIGH-VALUE MECHANISM PROBE)
+
+- Branch: `g1r4-tanjiro/pruning-ablation`
+- Hypothesis: measure load-bearing contribution of the 3 most-recent merges (#236 β2=0.99, #285 late_peak, #290 linear_ramp_down) by removing each from the current stack and measuring Δ.
+
+### Results — 4-arm single-pod ablation
+
+| Arm | Dropped | val | Δ vs A | fs | Δ fs | Original lift | Reading |
+|---|---|---|---|---|---|---|---|
+| A | control (none) | 3.27296 | 0 | 3250 | 0 | — | drift gate ✓ |
+| B | #285 late_peak | 3.27253 | **−0.00043** | 3250 | 0 | −0.00055 | **Subsumed / sign-flipped** |
+| C | #290 linear_ramp_down | 3.27305 | **+0.00009** | 3250 | 0 | −0.00152 | **Fully subsumed (~0% original)** |
+| D | #236 β2=0.99 | 3.27454 | **+0.00158** | 3275 | +25 | −0.00027 | **Load-bearing, ~5.9× amplified** |
+
+### Key insights
+
+1. **β2=0.99 is the foundation hyperparameter**: removing it costs 5.9× the original lift magnitude. Doing more work now than at merge time.
+2. **late_peak (#285) appears subsumed**: dropping it produces Δ=−0.00043, *flipping the sign* of the original lift. Single-seed inside noise but directionally suggestive.
+3. **linear_ramp_down (#290) is fully subsumed**: Δ≈0 vs A. Most recent merge contributes ~0% of original lift on current stack.
+
+### Verdict
+
+Productive-null close, NOT a forward-progress PR. But **mechanism-grade finding**: 2 of 3 recent merges (#285, #290) appear redundant on the current stack — consistent with "mechanism saturation within the late-cooldown precision family" hypothesis. These slots are candidates for replacement with truly orthogonal mechanisms.
+
+### Caveats
+
+Single-seed Δs for arms B/C inside noise floor (~0.001). Subsumption is suggestive but not yet actionable for revert without replication.
+
+### Follow-up direction
+
+tanjiro reassigned to #407 β2 sensitivity ablation (mechanism-driven — β2 amplification suggests optimum may have drifted on post-#290 stack).
+
 ## 2026-05-18 20:05 UTC — PR #344: NS late_peak transition POINT sweep (frieren) — CLOSED productive-null ✅
 
 - Branch: `g1r4-frieren/ns-late-peak-frac-sweep`

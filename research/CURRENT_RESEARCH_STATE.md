@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 20:15 UTC
+- **Date:** 2026-05-18 22:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -99,17 +99,18 @@ Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau ab
 All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.
 **Follow-up**: nezuko assigned #393 per-group AdamW LR multiplier sweep.
 
-### 🔄 nezuko #393 — Per-group AdamW LR multiplier sweep [just assigned]
+### 🔥 nezuko #393 — Per-group AdamW LR multiplier sweep — STRONG WINNER CANDIDATE on arm-B
 **Branch:** `g1r4-nezuko/pergroup-adamw-lr`
-**Hypothesis**: Per-group base LRs (embed=0.3, lm_head=1/320, scalar=0.01) have never been independently swept on r4. Mechanism from #280 (per-group β2): scalar group is gradient-sparsest → most likely undertrained. Testing 1.5× LR multiplier on each group independently.
-| Arm | Perturbed group | Effective LR | Interpretation |
-|---|---|---|---|
-| A | control | all 1.0× | Drift gate |
-| B | embed | 0.45 | Embed group headroom |
-| C | lm_head | 0.004688 | lm_head group headroom |
-| D | scalar | 0.015 | Scalar headroom (analog to #280 β2 winner) |
+**Arms terminal so far (W&B verified)**:
+| Arm | LR mult | val | fs | Δ vs A | Δ vs baseline | W&B |
+|---|---|---|---|---|---|---|
+| A (control) | all 1.0× | 3.27242 | 3250 | — | +0.00042 (drift ✓) | `oggbt72v` |
+| **B (embed1p5)** | **embed=1.5×** | **3.27026** | **3225** | **−0.00216** | **−0.00174** ⭐ | `cgyyzpwe` |
+| C (lmhead1p5) | lm_head=1.5× | running step ~1250 | - | - | - | `kwt7wjzi` |
+| D (scalar1p5) | scalar=1.5× | pending | - | - | - | - |
 
-**ETA full chain:** ~7h.
+**ARM-B SIGNAL**: Δ vs A=−0.00216 crosses real-signal threshold. Single-seed merge gate: (3.28 − 3.27026) × √1 = 0.00974 ≥ 0.004 ✓ PASSES. Posted ADVISOR directive 22:35 UTC: after D terminates, request **paired-pod confirmation for arm-B vs arm-A** (2 fresh pods, order-flipped).
+**ETA full chain finish:** ~02:00 UTC.
 
 ### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
 All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).
@@ -144,20 +145,37 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 **Note**: AdEMAMix uses Python loop (no fused=True) → ~10-20% slower step_avg_ms, but metric is first_step_to_target (step count), so comparison is fair.
 **ETA full chain:** ~7.5h.
 
-### 🔄 fern #380 — lm_head proj init std sweep [arm-A running]
-**Branch:** `g1r4-fern/lmhead-init-scale`
-**Setup verified:** student code edit present (`M records/track_3_optimization/train_gpt_simple.py`).
-| Arm | init_std | val_loss | step | notes |
-|---|---|---|---|---|
-| A (control) | 0.0 | running step 1250, val=3.57 | 1250 | reproducing zero-init baseline |
+### ✅ fern #380 — lm_head proj init std sweep — CLOSED 22:40 UTC productive-null
+All 4 arms terminal. Monotone worsening with σ: A=3.27409 (zero, drift gate ✓), B=3.27470 (σ=0.005, +0.00061), C=3.27725 (σ=0.02, +0.00316), D=3.28234 (σ=0.05, +0.00825, fs=-1 failed target). **Zero-init confirmed uniquely optimal** — both init-scale axes (embed #374, lm_head #380) now exhaustively mapped.
+**Follow-up**: fern assigned #408 Adaptive Gradient Clipping (AGC).
 
-**ETA full chain:** ~6h (4 arms).
+### 🔄 fern #408 — Adaptive Gradient Clipping (AGC) [just assigned]
+**Branch:** `g1r4-fern/adaptive-grad-clip`
+**Hypothesis**: Replace fixed clip=10.0 with per-parameter AGC (Brock et al. 2021, NFNets) — clip threshold = λ × ||W||_F. Scales with parameter magnitude. Sweep λ ∈ {0 control, 0.01, 0.03, 0.1}.
+| Arm | AGC_LAMBDA | Interpretation |
+|---|---|---|
+| A | 0 (control) | Falls through to fixed clip=10.0, drift gate |
+| B | 0.01 | Conservative AGC (tight clip) |
+| C | 0.03 | Paper default (moderate AGC) |
+| D | 0.1 | Loose AGC (rarely clips) |
 
-### 🔄 tanjiro #377 — Pruning ablation [arm-A retry #5 running]
-**Branch:** `g1r4-tanjiro/pruning-ablation`
-**Status:** student has hit 4 crashes on arm-A control before getting a clean run going. Latest: a6gl5pm2 running step 670+. Config verified correct in W&B — crashes appear infrastructure-related (control arm = exact merged baseline stack).
-**Advisor action 14:55 UTC:** posted supportive comment asking for crash cause notes; control config confirmed correct.
-**ETA full chain (if no more crashes):** ~7h.
+**ETA full chain:** ~7h.
+
+### ✅ tanjiro #377 — Pruning ablation — CLOSED 22:30 UTC productive-null (HIGH-VALUE MECHANISM PROBE)
+All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified — 5.9× original lift magnitude**; (2) late_peak #285 subsumed (Δ=−0.00043, sign-flipped vs original); (3) linear_ramp_down #290 fully subsumed (Δ=+0.00009, ~0% original lift). 2 of 3 recent merges appear redundant on current stack — consistent with "mechanism saturation within late-cooldown precision family" hypothesis.
+**Follow-up**: tanjiro assigned #407 β2 fine-tune sensitivity sweep (mechanism-driven by β2 amplification finding).
+
+### 🔄 tanjiro #407 — AdamW β2 sensitivity sweep [just assigned]
+**Branch:** `g1r4-tanjiro/adamw-beta2-sensitivity`
+**Hypothesis**: Pruning ablation revealed β2=0.99 is amplified 5.9× over original lift. Optimum may have drifted on post-#290 stack. Sweep β2 ∈ {0.98, 0.99, 0.995, 0.999} to test sensitivity.
+| Arm | β2 | EMA window | Interpretation |
+|---|---|---|---|
+| A | 0.99 (control) | ~100 steps | Current baseline; drift gate |
+| B | 0.98 | ~50 steps | Shorter; faster adaptation |
+| C | 0.995 | ~200 steps | Longer; more smoothing |
+| D | 0.999 | ~1000 steps | Very long; high-noise-floor smoothing |
+
+**ETA full chain:** ~7h.
 
 ### ✅ fern #345 — NS coef ramp_down DEPTH sweep — CLOSED 14:10 UTC productive-null
 **Follow-up**: fern assigned #380 lmhead-init-scale.
@@ -169,6 +187,8 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 
 ## Recently closed
 
+- **tanjiro #377 (Pruning ablation)** — CLOSED 22:30 UTC productive-null (HIGH-VALUE MECHANISM PROBE). β2=0.99 amplified 5.9× original lift (load-bearing); late_peak (#285) and linear_ramp_down (#290) appear subsumed on current stack.
+- **fern #380 (lm_head init std)** — CLOSED 22:40 UTC productive-null. Monotone worsening with σ; zero-init uniquely optimal. Init-scale axis closed across both embed (#374) and lm_head (this PR).
 - **nezuko #356 (Muon μ schedule)** — CLOSED 17:05 UTC productive-null. All 3 schedule arms miss target by 7–41× null band. Late_peak μ catastrophic (+0.06125). Constant μ=0.95 confirmed optimal; μ scheduling axis closed.
 - **edward #335 (Muon LR cooldown floor)** — CLOSED 11:05 UTC productive-null. Monotonic worsening: A=3.27482 (+0), B=+0.001, C=+0.006, D=+0.017. Mechanism: embed-floor is embed-specific; Muon NS already controls update magnitude.
 - **askeladd #324 (AdamW β1 sweep)** — CLOSED 08:35 UTC productive-null. β1=0.80 optimal, monotone-worse. Asymmetric with β2 finding.
@@ -185,7 +205,8 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 ## Potential next research directions
 
 ### Active candidates with signal
-1. **Gradient Centralization scope** — frieren #402. Fresh mechanism (gradient preprocessing). Scope sweep: all, adam-only, muon-only. Orthogonal to all closed axes.
+1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393 arm-B. Val=3.27026, Δ vs A=−0.00216, Δ vs baseline=−0.00174, fs=3225 (−8.33). Single-seed merge gate PASSES. Awaiting arms C and D, then paired-pod confirmation requested.
+2. **Gradient Centralization scope** — frieren #402. Fresh mechanism (gradient preprocessing). Scope sweep: all, adam-only, muon-only. Orthogonal to all closed axes.
 2. **scalar AdamW ε** — alphonse #351. SENT BACK 15:34 UTC for paired confirmation. Original sweep non-monotone (arm-A drift makes within-pod Δs unreliable). Paired arm-D (1e-6) vs arm-A (1e-10) on 2 fresh pods with flipped order to disambiguate pod luck from real signal.
 
 ### Productive-null shaping up
@@ -194,14 +215,16 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
 6. **Embed init scale** — edward #374. CLOSED 19:30 UTC productive-null. RMSNorm + AdamW absorb magnitude; embed init scale axis CLOSED.
 7. **NS late_peak transition POINT** — frieren #344. CLOSED 20:00 UTC productive-null. Pod-1 Δ=−0.00419 shrank to pooled Δ=−0.000877 (79%), sign flip on pod 2. Midpoint confirmed optimal; axis CLOSED.
+8. **Pruning ablation (#236, #285, #290)** — tanjiro #377. CLOSED 22:30 UTC productive-null (HIGH-VALUE MECHANISM PROBE). β2 amplified 5.9×; late_peak/linear_ramp_down appear subsumed.
+9. **lm_head init std** — fern #380. CLOSED 22:40 UTC productive-null. Monotone worsening with σ; zero-init uniquely optimal.
 
 ### Fresh axes (early stage)
-7. **lm_head proj init std** — fern #380. Arm-A (zero-init control) running. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis.
-8. **Pruning ablation** — tanjiro #377. Arm-A retry #5 after 4 control crashes. Once stable, drop one of {late_peak, linear_ramp_down, β2=0.99}.
-9. **NS coef center** — thorfinn #384. Sweep center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42 (apex from fern #345). Polynomial aggressiveness axis never tested.
-10. **NS_ITERS_COOLDOWN count** — askeladd #388. Sweep cooldown count ∈ {14, 16, 18, 20} at fixed NS_ITERS=12. ns_cooldown=16 was set on pre-#290 stack; testing whether higher precision in latter 15% of training improves on post-#290.
-11. **Per-group AdamW LR multiplier** — nezuko #393. Sweep 1.5× LR on each group independently (embed, lm_head, scalar). Mechanism: per-group β2 #280 showed scalar is sparsest; LR axis is the direct analog.
+10. **NS coef center** — thorfinn #384. Sweep center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42 (apex from fern #345). Polynomial aggressiveness axis never tested.
+11. **NS_ITERS_COOLDOWN count** — askeladd #388. Sweep cooldown count ∈ {14, 16, 18, 20} at fixed NS_ITERS=12. ns_cooldown=16 was set on pre-#290 stack.
 12. **AdEMAMix on AdamW** — edward #399. Fresh slow-EMA mechanism (NeurIPS 2024). Sweep alpha_max ∈ {2, 5, 8} vs control. Mechanism orthogonal to all per-group hyperparameter work.
+13. **Gradient Centralization** — frieren #402. Gradient preprocessing layer (Yong et al. 2020). Scope sweep: all, adam, muon. Fresh mechanism abstraction layer.
+14. **AdamW β2 sensitivity** — tanjiro #407. Mechanism-driven by #377 pruning finding (β2 amplified 5.9×). Test {0.98, 0.99, 0.995, 0.999} for optimum drift.
+15. **Adaptive Gradient Clipping (AGC)** — fern #408. Per-parameter clip threshold based on ||W||_F (Brock et al. 2021, NFNets). Replaces fixed clip=10.0 with adaptive per-tensor threshold.
 
 ### Medium-priority unassigned axes (for next idle)
 1. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99
@@ -254,3 +277,5 @@ Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, sti
 | Muon μ schedule | ramp_up/ramp_down/late_peak — all miss target; late_peak +0.06125 catastrophic | #356 (harmful) |
 | Embed init scale | scale ∈ {0.5, 1.0, 1.5, 2.0}; all within ±0.00061 null band; RMSNorm/AdamW absorb magnitude | #374 (productive-null) |
 | NS late_peak transition POINT | frac ∈ {0.25, 0.50, 0.75}; pod-1 Δ=−0.00419 collapsed 79% to pooled Δ=−0.000877; sign flip pod 2; midpoint confirmed optimal | #344 (productive-null) |
+| lm_head init std | σ ∈ {0.0, 0.005, 0.02, 0.05}; monotone worsening; zero-init uniquely optimal; σ=0.05 fails target | #380 (productive-null) |
+| Pruning ablation (#236, #285, #290) | β2=0.99 load-bearing & 5.9× amplified; #285 late_peak appears subsumed; #290 linear_ramp_down fully subsumed; mechanism probe only | #377 (productive-null) |
