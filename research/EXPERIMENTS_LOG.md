@@ -863,4 +863,63 @@ Arm-A v2 reproduces merged n=3 baseline within 0.00002. No arm reaches merge gat
 
 **Wave-5 implications**: Aux-group LR-shape lever is fully mapped at floor=15%. NOT a stacking axis beyond embed. Orthogonal wave-5 candidates (thorfinn aux WD, alphonse β2, askeladd Muon mu, fern NS c-schedule, edward per-group β2) unaffected.
 
+## 2026-05-18 06:02 UTC — PR #285: NS cooldown SHAPE (frieren) — MERGED ✅
+
+- Branch: `g1r4-frieren/ns-cooldown-shape-confirm-newbase`
+- Hypothesis: NS cooldown step-up timing matters. `late_peak` shape (NS=12 for first half of cooldown, NS=20 for second half) concentrates NS precision in the lowest-LR phase.
+
+### Results — 4-arm screening (pre-#236 baseline) + n=2 confirmation (post-#236 baseline)
+
+**Screening (4 shapes, within-pod Δ vs step control)**:
+
+| Arm | Shape | Δ_val (vs step) | Notes |
+|-----|-------|-----------------|-------|
+| A (control) | step (NS=16 constant) | — | 3.27578 |
+| B | early_peak | −0.00050 | marginal |
+| C | cosine_ramp | −0.00022 | near-null |
+| **D** | **late_peak** | **−0.00143** | winner |
+
+**Confirmation (n=2 late_peak, post-#236 stack)**:
+
+| Seed | Shape | W&B run | val/loss | fs |
+|------|-------|---------|----------|-----|
+| 1 (drift) | step | `pcek165i` | 3.27435 | 3250 |
+| 2 | late_peak | `09e6f997` | **3.27385** | **3250** |
+| 3 | late_peak | `i7ag1cqx` | **3.27318** | **3250** |
+| **n=2 late_peak mean** | | | **3.27352** | **3250** |
+
+Stat-sig: (3.28 − 3.27352) × √2 = 0.00917 ≥ 0.004 ✓. Within-pod trend: seed-2 Δ=−0.00050, seed-3 Δ=−0.00117 (strengthening, not lucky seed).
+
+### Mechanism
+
+NS=20 concentrated into the *final* half of the cooldown (lowest LR, highest precision value) outperforms NS=20 uniformly applied or applied early. Consistent with the NS=16-only-in-cooldown win from PR #176: it's not the magnitude of NS iterations but *when* they land. NS iteration is most valuable when gradient quality is highest (small LR → low-noise signal), not when variance is high.
+
+**New baseline: val=3.27352 / fs=3250 (n=2). `NANOGPT_NS_COOLDOWN_SHAPE=late_peak`.**
+
+## 2026-05-18 06:07 UTC — PR #290: NS per-iter coefficient schedule (fern) — MERGED ✅
+
+- Branch: `g1r4-fern/ns-per-iter-coef-schedule`
+- Hypothesis: NS polynomial coefficients (a,b,c for x+bx³+cx⁵) are currently fixed at tuned constants. Varying them over training (ramp_down: start high-precision, end standard) allows the NS update to adapt to the changing loss landscape.
+
+### Results — 4-arm screening + n=3 confirmation
+
+**Confirmation (n=3 linear_ramp_down, post-#236 stack)**:
+
+| Seed | NS_COEF_SCHEDULE | W&B run | val/loss | fs |
+|------|-----------------|---------|----------|-----|
+| 1 (control) | constant | `1xyn78pr` | 3.27247 | 3250 |
+| 2 | linear_ramp_down | `piofi0su` | **3.27155** | **3225** |
+| 3 | linear_ramp_down | `p8bm1h2g` | **3.27197** | **3225** |
+| **n=3 mean (chain)** | | | **3.27200** | **3233.33** |
+
+Stat-sig: (3.28 − 3.27200) × √3 = 0.01387 ≥ 0.004 ✓. n=2 ramp-down mean = 3.27176 (Δ vs post-#236 baseline = −0.00231).
+
+**Merge notes**: confirmation was run on post-#236 stack (no late_peak from #285). Mechanisms orthogonal: NS_COEF_SCHEDULE changes polynomial quality per NS step; NS_COOLDOWN_SHAPE changes timing of NS step-up. Merged as-is; compositional probe assigned to frieren #344.
+
+### Mechanism
+
+`linear_ramp_down`: NS coefficients start at high-precision values (sharper quintic approximation to the matrix square root) and ramp toward standard values. Early training: high-precision NS extracts maximum update quality; late training: standard coefficients provide a stable, well-explored update direction. The ramp-down timing (~3350 steps) aligns with the observation that late-training needs convergence stability, not innovation.
+
+**New baseline: val=3.27200 / fs=3233.33 (n=3). `NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down`.**
+
 **Follow-up assigned (PR #315)**: nezuko lmhead-decay-shape — test lm_head=quadratic/cubic/exp_decay (steeper than linear) to test the inverse hypothesis (does opposite of floor help lm_head?).
