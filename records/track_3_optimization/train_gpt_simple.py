@@ -45,6 +45,7 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--aux_cooldown_shape", type=str, default=os.environ.get("AUX_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for AdamW aux groups (embed/head/scalars). MuonH groups use --muonh_cooldown_shape independently.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -675,6 +676,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"Aux AdamW cooldown_shape={args.aux_cooldown_shape}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -721,6 +723,7 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "aux_cooldown_shape": args.aux_cooldown_shape,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -799,7 +802,7 @@ for trial_idx in range(args.num_trials):
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
-        group["cooldown_shape"] = "linear"
+        group["cooldown_shape"] = args.aux_cooldown_shape
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
@@ -972,6 +975,12 @@ for trial_idx in range(args.num_trials):
                     muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                     muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                     muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+            aux_g0 = optimizer1.param_groups[0]
+            muonh_metrics["train/aux/effective_lr"] = aux_g0["lr"]
+            muonh_metrics["train/aux/cooldown_eta"] = aux_g0["lr"] / aux_g0["initial_lr"] if aux_g0["initial_lr"] > 0 else 0.0
+            muonh_g0 = optimizer2.param_groups[0]
+            muonh_metrics["train/muonh/effective_lr"] = muonh_g0["lr"]
+            muonh_metrics["train/muonh/cooldown_eta"] = muonh_g0["lr"] / muonh_g0["initial_lr"] if muonh_g0["initial_lr"] > 0 else 0.0
             if args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
