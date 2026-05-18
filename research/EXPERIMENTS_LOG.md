@@ -1008,3 +1008,21 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Conclusion:** Cell D n=1 = 3.27033 was a favorable seed within ±2σ trial-to-trial spread (T1=3.27025, T3=3.27223, range ≈ 0.002). Mean reverts to baseline at n=4. Mechanism class: bowl with shallow basin centered near (but above) hardcoded default. Directional improvement is real but too small to clear statsig.
 - **Mechanism take:** lm_head is a single dense projection (768×50304) late in graph. Once Muon attn + lr_mlp tuning has squeezed easy gain, residual lm_head LR contribution sits within trial noise. Mirrors frieren's lr_embed=0.80 outcome (PR #228 also Phase 2 clean-neutral). Pattern: endpoint-LR sweeps look promising at n=1 but don't survive n=4 statsig on this baseline.
 - **Verdict:** Closed clean-neutral. lr_lm_head exhausted on this stack.
+
+## 2026-05-18 15:00 — PR #353: LR warmup_steps sweep CLOSED clean-NEG
+
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Test whether warmup_steps ∈ {0, 50, 100, 200, 400} can stabilize early training on the 3250-step budget.
+- **Partial results (D/E skipped per advisor directive after Cell C catastrophic):**
+
+| Cell | warmup | W&B id | val/best_loss | ffs | Δ vs μ |
+|------|------:|--------|--------------:|----:|-------:|
+| A (ctrl) | 0 | `dfr15323` | 3.27059 | 3125 | -0.65σ (baseline) |
+| B | 50 | — | — | — | infra-crashed step 6 (skipped) |
+| C | 100 | `nj3fqbk8` | **3.28032** | **-1 (no target)** | **+7.5σ (FAIL)** |
+| D | 200 | — | — | — | skipped — predicted worse |
+| E | 400 | — | — | — | skipped — predicted worse |
+
+- **Conclusion:** Even modest warmup (100 steps = 3.1% of budget) eats into peak-LR phase severely. With cooldown_frac=0.70, warmup=100 leaves only 27% of budget at peak LR — insufficient. The default stable-then-linear-decay schedule with warmup=0 is correct for this small/budget combination.
+- **Multi-crash incident:** Cell A crashed 5× (4× infra/pod setup, 1× near-terminal step 3048), Cell B crashed step 6 — infra-level crashes mostly resolved by retry. Cell A retry `dfr15323` ran clean to 3250 on second attempt.
+- **Verdict:** Closed clean-NEG. warmup_steps moves to exhausted axes.

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~14:40Z (poll #165)
+- **Last updated:** 2026-05-18 ~15:10Z (poll #166)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -27,10 +27,10 @@
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
 | #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl: val=3.26944 ffs=3125. Cell B (wd_aux=0.01): val=3.27403 ffs=3175 (+2.3σ). Cell C (wd_aux=0.05): val=**3.29135 ffs=-1 (target NEVER reached)**. MONOTONE worse. **Advisor directed SKIP D/E, submit for review** (clean-NEG close pending). |
+| #382 | thorfinn | Per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93, 0.95, 0.97}) | NEW ASSIGNMENT (PR #382 created). Cell A ctrl pending launch. |
 | #381 | alphonse | AdamW aux β₂ schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | NEW ASSIGNMENT (PR #381 created). Cell A constant ctrl pending launch. |
-| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl FINISHED: val=3.2716 ffs=3150 (+0.20σ). Cell B `u01fl5oh` (ramp_up) step 3024/3250 (~93%) val/best=3.3084 — HIGH, terminal ~8min, possible over-regularization at 2×WD endpoint. |
+| #371 | fern | Muon WD schedule sweep ∈ {constant, ramp_up, ramp_down, triangle, cosine_updown} | Cell A constant ctrl val=3.2716 ffs=3150. Cell B `u01fl5oh` (ramp_up) FINISHED: val=3.28053 ffs=-1 (target NEVER reached, +7.6σ). Over-regularization confirmed: 2×WD at terminal prevents convergence. Cell C (ramp_down) pending. |
 | #320 | edward | Adam β₂ Phase 2 n=4 | P2 `mo3leb2y` step 12011/13000 (T4 ~70%). T1=3.270414, T2=3.269201, **T3=3.272870 REGRESSED**. n=3 mean=3.27083 (-0.6σ, sub-statsig). Statsig gate unreachable. Close clean-neutral at T4 terminal ~15:10Z. |
-| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell C `nj3fqbk8` (warmup=100) FINISHED clean-NEG: val=3.2803 ffs=-1 (target never reached, +7.5σ). Advisor directed: SKIP D/E (warmup=200/400 will miss target worse); retry Cell A; close with partial data if A crashes again. |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | Cell A ctrl: val=3.2703 ffs=3125 (-0.9σ). Cell B (ortho_unit gain=1.0): val=3.27268 ffs=3150 (+1.1σ, clean-neg). Cell C ortho_scaled pending launch. |
 | #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A freq=4 FINISHED: val=3.2757 ffs=3175 (+3.6σ clean-neg). Cell B freq=8 FINISHED: val=3.2776 ffs=3200 (+5.3σ clean-neg). Cell C freq=16 ctrl launching. Monotone WORSE with more frequent refresh — default freq=16 is local optimum. |
 | #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A (0.025): val=3.26967 ffs=3125 (P2 trigger -1.43σ). Cell B ctrl (0.035): val=3.27206 ffs=3150. Cell C (0.045): val=3.27203 ffs=3150 (~baseline). Cell D (0.055), E (0.075) pending. Trend: 0.025 best so far. |
@@ -60,11 +60,15 @@
 **Active mechanism threads:**
 - **AdamW aux β₁ (fern, CLOSED #318):** β₁=0.70 n=4 mean=3.271540 (Δ=+0.000178, Phase 1 signal was seed noise). Now testing **Muon WD schedule** (PR #371).
 - **AdamW aux β₂ (edward):** β₂=0.85 neg, β₂=0.95 ctrl, **β₂=0.98 best (3.268718 ffs=3125) Phase 2 n=4 in flight**, β₂=0.99 mild improvement (3.270318)
-- **LR cooldown_frac (thorfinn, closed):** bowl-shaped, default cd=0.70 optimal. Now testing LR **warmup_steps** sweep (PR #353).
+- **LR cooldown_frac (thorfinn, closed):** bowl-shaped, default cd=0.70 optimal. LR **warmup_steps** (PR #353, closed clean-NEG): warmup=0 is optimal; any warmup eats peak-LR budget. Now testing **per-group Muon mu** (PR #382).
 - **lm_head LR (alphonse, CLOSED #306 clean-neutral):** monotone P1 inverted-U at lr=0.030 (-0.87σ n=1), but Phase 2 n=4 mean=3.2711925 misses gate. Now testing **AdamW aux β₂ time-varying schedule** (PR #381).
 - **Muon WD (askeladd, closed):** bowl-shape, default wd=0.025 optimal (wd=0 +14.5σ, wd=0.05 +6.7σ, wd=0.10 +28σ). Now testing **SOAP precond_freq** (PR #360).
 - **Muon nesterov (frieren):** nesterov=True ctrl reproduces baseline; nesterov=False (Polyak) in flight
 - **Muon mu (tanjiro, CLOSED #323):** bowl-shape, default mu=0.95 optimal. mu=0.85 +3.67σ, mu=0.97 +3.56σ, mu=0.99 failed to reach target (+31.18σ). Now testing **QKV orthogonal init** (PR #368).
+
+**Exhausted mechanism slots (recent additions):**
+- LR warmup_steps (thorfinn, closed PR #353 clean-neg: warmup=0 optimal; any warmup eats peak-LR budget on 3250-step run)
+- AdamW aux wd_aux (nezuko, PR #349 directed stop D/E: A=3.26944→B=3.27403→C=3.29135/FAIL, monotone worse; default wd_aux=0 is optimal)
 
 **Exhausted mechanism slots:**
 - lr_embed=0.80 (frieren, clean-neutral n=6)
@@ -84,7 +88,8 @@
 - Cautious-Muon, Lookahead, SWA, z-loss, gradient centralization, label smoothing, depth-init, per-head SOAP, schedule-free Muon, polynomial schedule-free Muon, SOAP β₂ cooldown annealing — all closed
 
 **Candidate next hypotheses (queue for next idle student):**
-- Per-group Muon mu (mu_mlp vs mu_attn) — student suggestion from #323 close
-- Adam β₂ ramp schedule (ASSIGNED to alphonse PR #381 — schedule-shape question, orthogonal to edward static β₂)
+- Per-group Muon mu (ASSIGNED to thorfinn PR #382 — cardinal axes around (0.93,0.95,0.97))
+- Adam β₂ ramp schedule (ASSIGNED to alphonse PR #381 — schedule-shape question)
 - Muon mu × nesterov 2D joint sweep (if frieren lr_attn sweep reveals a winner)
 - AdamW aux β₁ ramp schedule (analogous to β₂ schedule; test whether β₁ timing matters)
+- **NEW:** Fern Cell B ramp_up catastrophic (+7.6σ, target missed) → ramp_down inverts this; watch Cell C result carefully. If ramp_down also fails, WD schedule mechanism may be exhausted at ramp shapes; only triangle/cosine (peak mid) remain.
