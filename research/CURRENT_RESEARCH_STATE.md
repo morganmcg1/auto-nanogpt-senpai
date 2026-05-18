@@ -1,37 +1,38 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~07:00Z (poll #149)
+- **Last updated:** 2026-05-18 ~07:10Z (poll #150)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FERN PR #318 Phase 2 n=4 IN FLIGHT** (highest-priority experiment):
+1. **FERN PR #318 Phase 2 n=4 IN FLIGHT** (highest-priority experiment, but **gate now ~lockout**):
    - Cell A single (β₁=0.70): val=3.269202 ffs=3125
-   - Phase 2 run `53l16b0z` (group `g1r5-fern/adam-beta1-confirm`): step 3730/13000 at 05:13Z
-   - Trial 1 done: **val=3.270602 ffs=3125** (worse than Cell A single — regression-to-mean already showing)
-   - Trial 2 in flight (~480 steps into trial)
-   - Statsig target (n=4): mean ≤ 3.269362. Remaining 3 trials need mean ≤ 3.268949 — challenging but not impossible.
+   - Phase 2 run `53l16b0z` (group `g1r5-fern/adam-beta1-confirm`): step 6974/13000 at 07:10Z (~54%)
+   - **Trial 1 done: val=3.270602 ffs=3125**
+   - **Trial 2 done: val=3.272171 ffs=3150** (regression continues; mean T1+T2 = 3.271387, above baseline)
+   - Trial 3 in flight (~470 steps in)
+   - **Remaining T3+T4 need mean ≤ 3.267338** to hit n=4 gate — that's ~3.4σ below baseline, very challenging
    - ETA Phase 2 n=4 terminal: ~11:30-12:30Z May 18
 
 2. **EDWARD PR #320 Phase 2 trigger MET** ⭐:
    - Cell D (β₂=0.98) `hfn1clh2`: **val=3.268718 ffs=3125** (Δ=-0.00264, ~2.24σ below baseline)
-   - Cell E (β₂=0.99) `mhnv5jxr` running, ETA terminal ~07:30Z
+   - Cell E (β₂=0.99) `mhnv5jxr` step 2543/3250 at 07:10Z (~78%), ETA terminal ~07:30Z
    - Phase 2 n=4 ready to launch at best β₂ after Cell E terminal
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | **Mathematically locked out**: trials (3.27193, 3.27313, 3.27310), mean=3.272723. Trial 3 in flight (`407dyaw7` step 9430/13000). Close clean-neutral at terminal ~09:30Z |
-| #306 | alphonse | lm_head LR sweep | Cells A-D done, monotone trend ends at D=3.270332 ffs=3125. Cell E (`xzflql8k`, lr=0.100) step 1535/3250, ETA ~05:50Z |
-| #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 run `53l16b0z` β₁=0.70 step 3730/13000. T1=3.270602. Regression-to-mean visible. ETA n=4 terminal ~11:30Z |
-| #320 | edward | Adam β₂ aux sweep | Cell A retry β₂=0.85 val=3.27993 clean-neg; Cell C ctrl val=3.27101; Cell D (`hfn1clh2`, β₂=0.98) step 2543/3250, ETA ~05:25Z; Cell E (β₂=0.99) pending |
-| #321 | thorfinn | cooldown_frac sweep | Cell A retry cd=0.50 val=3.2742 clean-neg; Cell C ctrl cd=0.70 val=3.271924; Cell D (`hrswi937`, cd=0.80) running, ETA ~06:15Z; Cell E (cd=0.90) queued |
-| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 val=3.27569 clean-neg; Cell B mu=0.90 val=3.272627 clean-neg; Cell C ctrl (`2cgoprbp`, mu=0.95) step 2299/3250, ETA ~05:50Z; Cells D (mu=0.97), E (mu=0.99) pending |
-| #334 | askeladd | Muon WD sweep | Cell A wd=0 val=3.2885 DNR catastrophic (~14.5σ above baseline); Cell D (`r7v9ouwg`, wd=0.05) step 1301/3250, ETA ~06:00Z; Cell E (wd=0.10) pending |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | JUST ASSIGNED. Cell A (lr_attn=0.025) about to launch. |
+| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | **Mathematically locked out**: trials (3.27193, 3.27313, 3.27310). Trial 4 (`407dyaw7`) step 12519/13000, ETA ~07:30Z. Close clean-neutral at terminal. |
+| #306 | alphonse | lm_head LR Phase 2 n=4 | Phase 2 run `7xl5rcjb` step 1243/13000, ETA terminal ~13:30Z |
+| #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 6974/13000. T1=3.270602 (ffs=3125), T2=3.272171 (ffs=3150). Gate now needs T3+T4 mean ≤ 3.267338. ETA terminal ~11:30Z |
+| #320 | edward | Adam β₂ aux sweep | Cell D (β₂=0.98) val=3.268718 ffs=3125 ⭐ trigger MET. Cell E (β₂=0.99) `mhnv5jxr` step 2543/3250, ETA ~07:30Z. Phase 2 n=4 launch decision at terminal. |
+| #321 | thorfinn | cooldown_frac sweep | Cell A retry cd=0.50 val=3.2742; Cell C ctrl cd=0.70 val=3.271924; Cell D cd=0.80 done; Cell E (`xh7gpfge`, cd=0.90) step 1343/3250, ETA ~08:30Z |
+| #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 neg; Cell B mu=0.90 neg val=3.272627; Cell C ctrl mu=0.95 done; Cell D (`9419jxjr`, mu=0.97) step 2104/3250, ETA ~07:55Z; Cell E (mu=0.99) pending |
+| #334 | askeladd | Muon WD sweep | Cell A wd=0 DNR catastrophic; Cell D wd=0.05 done; Cell E (`katqhx5q`, wd=0.10) step 1001/3250, ETA ~09:00Z |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | Cell A (`v8b4l4ed`, lr_attn=0.025) step 158/3250 launched. ETA ~07:55Z |
 
 ## Closed This Session (poll #126-137)
 
@@ -40,18 +41,16 @@
 - **PR #289 (tanjiro combo n=4):** CLOSED clean-neutral, mean=3.271485.
 - **PR #264, #270** — closed earlier this session.
 
-## Upcoming Decisions (~next 4-8h from 05:14Z)
+## Upcoming Decisions (~next 4-8h from 07:10Z)
 
-- **~05:25Z:** Edward Cell D (β₂=0.98) terminal → Cell E (β₂=0.99) auto-sequential
-- **~05:50Z:** Alphonse Cell E (lr=0.100) terminal → Phase 2 n=4 at best lr (likely 0.030 or 0.100 depending on Cell E)
-- **~05:50Z:** Tanjiro Cell C ctrl (mu=0.95) terminal → Cell D (mu=0.97) sequential (directive just posted)
-- **~06:00Z:** Askeladd Cell D (wd=0.05) terminal → Cell E (wd=0.10) sequential
-- **~06:15Z:** Thorfinn Cell D (cd=0.80) terminal → Cell E (cd=0.90) auto-sequential
-- **~06:30Z:** Frieren Cell B (nesterov=False) terminal → close PR #337 with verdict on nesterov flag
-- **~07:30Z:** Tanjiro Cell D (mu=0.97) terminal → Cell E (mu=0.99) sequential
-- **~08:00Z+:** Fern P2 trial 2 terminal (n=4 boundary checks)
-- **~09:30Z:** Nezuko P2 terminal → close clean-neutral (gate locked out)
-- **~11:30-12:30Z:** Fern P2 n=4 terminal → **MERGE DECISION** on β₁=0.70 mechanism
+- **~07:30Z:** Nezuko P2 trial 4 terminal → close PR #283 clean-neutral (mathematically locked out)
+- **~07:30Z:** Edward Cell E (β₂=0.99) terminal → **Phase 2 n=4 launch decision** at best β₂
+- **~07:55Z:** Tanjiro Cell D (mu=0.97) terminal → Cell E (mu=0.99) sequential
+- **~07:55Z:** Frieren Cell A (lr_attn=0.025) terminal → Cell B (ctrl 0.035) sequential
+- **~08:30Z:** Thorfinn Cell E (cd=0.90) terminal → close PR #321 with verdict
+- **~09:00Z:** Askeladd Cell E (wd=0.10) terminal → close PR #334 with verdict
+- **~11:30-12:30Z:** Fern P2 n=4 terminal → **MERGE DECISION** on β₁=0.70 mechanism (likely clean-neutral given current trajectory)
+- **~13:30Z:** Alphonse P2 n=4 terminal → MERGE DECISION on lm_head lr_lm_head
 
 ## Research Themes
 
