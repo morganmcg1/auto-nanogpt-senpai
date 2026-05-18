@@ -513,6 +513,12 @@ class GPT(nn.Module):
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
 NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
+# Shape of NS-iter transition during cooldown window. Compute-neutral by design (mean=NS_ITERS_COOLDOWN).
+#   step       -> jump to NS_ITERS_COOLDOWN at cooldown_start (baseline behavior)
+#   two_stage  -> midpoint(base,cooldown) first half of cooldown, midpoint(cooldown,peak) second half
+#   linear_ramp-> linear ramp from NS_ITERS to peak = NS_ITERS + 2*(COOLDOWN-NS_ITERS) across cooldown
+#   late_peak  -> NS_ITERS first half of cooldown, peak second half
+NS_COOLDOWN_SHAPE = os.environ.get("NANOGPT_NS_COOLDOWN_SHAPE", "step")
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
 # Per-group embed cooldown shape (applies to adam_embed group only; lm_head/scalars keep linear).
 # options: "linear" (baseline), "cosine", "linear_floor", "quadratic"
@@ -523,6 +529,39 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+
+
+def get_ns_iters(step: int, total_steps: int, ns_base: int, ns_cooldown: int,
+                 start_frac: float, shape: str) -> int:
+    """Compute the NS-iter count for this step under the configured cooldown shape.
+
+    All non-'step' shapes are compute-neutral with shape='step' (mean iters across
+    the cooldown window equals ns_cooldown). Outside the cooldown window all
+    shapes return ns_base. If ns_cooldown<=0 the schedule is disabled.
+    """
+    if ns_cooldown <= 0:
+        return ns_base
+    boost_start = int(start_frac * total_steps)
+    if step < boost_start:
+        return ns_base
+    cd_len = max(total_steps - boost_start, 1)
+    cd_progress = (step - boost_start) / cd_len
+    cd_progress = max(0.0, min(1.0, cd_progress))
+    # peak value for the non-flat shapes: keeps mean=ns_cooldown over [0,1).
+    peak = ns_base + 2 * (ns_cooldown - ns_base)
+    if shape == "step":
+        return ns_cooldown
+    elif shape == "two_stage":
+        low = (ns_base + ns_cooldown) // 2
+        high = (ns_cooldown + peak) // 2
+        return low if cd_progress < 0.5 else high
+    elif shape == "linear_ramp":
+        val = ns_base + cd_progress * (peak - ns_base)
+        return max(ns_base, int(val + 0.5))
+    elif shape == "late_peak":
+        return ns_base if cd_progress < 0.5 else peak
+    return ns_cooldown
+
 
 def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     assert G.ndim >= 2
@@ -656,7 +695,8 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
-           f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps", console=True)
+           f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
+           f"(shape={NS_COOLDOWN_SHAPE})", console=True)
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
@@ -702,6 +742,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters": NS_ITERS,
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
+            "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
         },
@@ -747,6 +788,7 @@ for trial_idx in range(args.num_trials):
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
+    ns_cumulative_iters = 0
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -914,17 +956,19 @@ for trial_idx in range(args.num_trials):
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
             )
-        # NS iteration schedule: optionally swap to NS_ITERS_COOLDOWN in the
-        # last (1 - NS_COOLDOWN_START_FRAC) fraction of training.
-        if NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step:
-            ns_iters_this_step = NS_ITERS_COOLDOWN
-        else:
-            ns_iters_this_step = NS_ITERS
+        # NS iteration schedule: cooldown shape controls how iters evolve during
+        # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
+        # is the legacy jump-to-cooldown behavior; other shapes are compute-neutral.
+        ns_iters_this_step = get_ns_iters(
+            step, train_steps, NS_ITERS, NS_ITERS_COOLDOWN,
+            NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
+        )
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
+            ns_cumulative_iters += ns_iters_this_step
         for opt in optimizers:
             opt.step()
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
@@ -978,6 +1022,7 @@ for trial_idx in range(args.num_trials):
                 "train/ns_schedule/in_cooldown": int(
                     NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
                 ),
+                "train/ns_schedule/cumulative_iters": ns_cumulative_iters,
             }
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
