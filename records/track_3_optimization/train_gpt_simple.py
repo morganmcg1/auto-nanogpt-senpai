@@ -59,6 +59,12 @@ def parse_args():
     # Default 0.0 disables (no-op for bit-identical baseline).
     parser.add_argument("--aux_agc_clip_ratio", type=float, default=float(os.environ.get("AUX_AGC_CLIP_RATIO", "0.0")))
     parser.add_argument("--aux_agc_eps", type=float, default=float(os.environ.get("AUX_AGC_EPS", "1e-3")))
+    # Outer Lookahead: every k MuLoCo outer steps, blend a slow-EMA buffer p_slow
+    # with the current p (live post-MuLoCo state), then snap p ← p_slow. Acts
+    # only on ndim >= 2 params (matches AGC-outer / NS5-outer convention).
+    # k=0 disables (preserves baseline bit-identically).
+    parser.add_argument("--outer_lookahead_k", type=int, default=int(os.environ.get("OUTER_LOOKAHEAD_K", "0")))
+    parser.add_argument("--outer_lookahead_alpha", type=float, default=float(os.environ.get("OUTER_LOOKAHEAD_ALPHA", "0.5")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -679,6 +685,11 @@ if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on aux AdamW groups (clip_ratio=0)", console=True)
+if args.outer_lookahead_k > 0:
+    print0(f"Outer Lookahead ENABLED: k={args.outer_lookahead_k} "
+           f"alpha={args.outer_lookahead_alpha}", console=True)
+else:
+    print0("Outer Lookahead DISABLED (outer_lookahead_k=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -728,6 +739,8 @@ if dist.get_rank() == 0:
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
+            "outer_lookahead_k": args.outer_lookahead_k,
+            "outer_lookahead_alpha": args.outer_lookahead_alpha,
         },
     )
 
@@ -851,6 +864,21 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+
+    # Outer Lookahead slow-EMA buffer. Initialized after broadcast so all ranks
+    # agree on p_slow. Restricted to ndim >= 2 params (matches the AGC-outer /
+    # NS5-outer-velocity convention; biases and scalars are left untouched).
+    use_outer_lookahead = use_outer and args.outer_lookahead_k > 0
+    if use_outer_lookahead:
+        p_slow = {
+            n: p.detach().clone().to(torch.float32)
+            for n, p in model.named_parameters()
+            if p.ndim >= 2
+        }
+    else:
+        p_slow = None
+    outer_lookahead_counter = 0
+    outer_lookahead_snap_count = 0
 
     # start the clock
     training_time = 0
@@ -1035,6 +1063,44 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+            # Outer Lookahead snap (post-MuLoCo). Every outer_lookahead_k MuLoCo
+            # outer steps, blend the slow buffer with live p_fast then snap
+            # p_fast ← p_slow. The MuLoCo anchor (updated above) intentionally
+            # records the pre-snap state, so the next outer cycle's delta
+            # carries the Lookahead correction — this is the conflict flagged
+            # in PR #296.
+            if use_outer_lookahead:
+                outer_lookahead_counter += 1
+                if outer_lookahead_counter % args.outer_lookahead_k == 0:
+                    log_snap = (dist.get_rank() == 0)
+                    if log_snap:
+                        drift_sq = torch.zeros((), device=device)
+                    with torch.no_grad():
+                        for n, p in model.named_parameters():
+                            if n not in p_slow:
+                                continue
+                            if log_snap:
+                                drift_sq = drift_sq + (
+                                    p.data.float() - p_slow[n]
+                                ).square().sum()
+                            p_slow[n].mul_(args.outer_lookahead_alpha).add_(
+                                p.data.float(),
+                                alpha=1.0 - args.outer_lookahead_alpha,
+                            )
+                            p.data.copy_(p_slow[n].to(p.dtype))
+                    outer_lookahead_snap_count += 1
+                    if log_snap:
+                        drift_norm = drift_sq.item() ** 0.5
+                        wandb.log({
+                            "trial": trial_idx,
+                            "train/step": train_step,
+                            "train/outer_lookahead/snap_count": outer_lookahead_snap_count,
+                            "train/outer_lookahead/snap_step": train_step,
+                            "train/outer_lookahead/fast_slow_drift_norm": drift_norm,
+                            "train/outer_lookahead/alpha": args.outer_lookahead_alpha,
+                            "train/outer_lookahead/k": args.outer_lookahead_k,
+                        }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
