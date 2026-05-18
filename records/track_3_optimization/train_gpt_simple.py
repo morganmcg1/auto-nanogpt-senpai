@@ -530,6 +530,7 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NS_COEF_RAMP_DEPTH = float(os.environ.get("NANOGPT_NS_COEF_RAMP_DEPTH", "0.42"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -550,8 +551,12 @@ def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple
         idx = round(iter_idx * (len(c_vals) - 1) / max(total_iters - 1, 1))
         c = c_vals[idx]
     elif schedule == "linear_ramp_down":
-        # c=0.7 at iter 0 -> c=0.28 at iter total_iters-1, avg ~= 0.49
-        c = 0.7 - (0.7 - 0.28) * iter_idx / max(total_iters - 1, 1)
+        # Symmetric ramp around c_mean=0.49; depth = c_start - c_end.
+        # depth=0.42 -> c=0.70 -> 0.28 (matches PR #290 merged behavior).
+        c_mean = 0.49
+        c_start = c_mean + NS_COEF_RAMP_DEPTH / 2.0
+        c_end = c_mean - NS_COEF_RAMP_DEPTH / 2.0
+        c = c_start - (c_start - c_end) * iter_idx / max(total_iters - 1, 1)
     else:
         c = 0.5  # fallback
     a = 1.5 + c
@@ -746,7 +751,7 @@ if NS_ITERS_COOLDOWN > 0:
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
-print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE} (ramp_depth={NS_COEF_RAMP_DEPTH})", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +804,7 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_ns_coef_ramp_depth": NS_COEF_RAMP_DEPTH,
         },
     )
 
