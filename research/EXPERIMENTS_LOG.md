@@ -923,3 +923,37 @@ Stat-sig: (3.28 − 3.27200) × √3 = 0.01387 ≥ 0.004 ✓. n=2 ramp-down mean
 **New baseline: val=3.27200 / fs=3233.33 (n=3). `NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down`.**
 
 **Follow-up assigned (PR #315)**: nezuko lmhead-decay-shape — test lm_head=quadratic/cubic/exp_decay (steeper than linear) to test the inverse hypothesis (does opposite of floor help lm_head?).
+
+## 2026-05-18 07:12 UTC — PR #279: AdamW WD sweep (thorfinn) — CLOSED (productive-null)
+
+- Branch: `g1r4-thorfinn/g1r4-thorfinn-adamw-wd-sweep`
+- Hypothesis: `NANOGPT_ADAMW_WD=0.005` (decoupled WD on AdamW aux groups) shrinks effective AdamW step magnitude during cooldown, complementing β2=0.99 memory smoothing.
+
+### Results — original screening (pre-#235+#236 stack)
+
+| Arm | NANOGPT_ADAMW_WD | val_loss | fs | Δ vs arm-A | embed_fro (final) |
+|-----|-----------------:|---------:|----:|---------:|-----------------:|
+| A (screen) | 0.0 | 3.27435 | 3250 | 0 | 71680 |
+| **B (screen)** | **0.005** | **3.27158** | **3225** | **−0.00277** ✅ | 22528 |
+| C (screen) | 0.01 | 3.27824 | 3325 | +0.00389 ❌ | 13440 |
+
+Original n=3 (pre-#235+#236 chain, WD=0.005): mean=3.27346, beat that era's baseline by Δ=−0.00061. Clean U-curve with apex at WD=0.005.
+
+### Compositional confirmation (post-#236 stack, WD=0.005)
+
+| Seed | W&B run | val_loss | fs | Δ vs new baseline (3.27200) |
+|------|---------|---------:|----:|---------------------------:|
+| probe | `788vm9hq` | 3.27551 | 3300 | +0.00351 |
+| seed-2 | `64ibazta` | 3.27540 | 3300 | +0.00340 |
+| seed-3 | `22345xko` | 3.27500 | 3275 | +0.00300 |
+| **mean** | — | **3.27530** | **3291.67** | **+0.00330** ❌ |
+
+n=3 mean fails merge gate by +0.00330. Stat-sig: 0.00814 ≥ 0.004 (passes stat-sig but FAILS merge gate). Inter-seed range collapsed from 0.00368 (pre-#236) to 0.00051 (post-#236) — new stack is intrinsically lower-variance, removing the upside tail.
+
+### Mechanism reading
+
+β2=0.99 (#236) appears to ABSORB the bulk of WD=0.005's standalone gain — both mechanisms act on effective AdamW aux step magnitude during cooldown. The clean U-curve flattens out once β2=0.99 is also active. Compositional projection to post-#290 stack: ~3.27323 (still +0.00123 above gate).
+
+**Verdict**: productive-null on post-#236+ stacks. Closed.
+
+**Wave-6 follow-up assigned (PR #348)**: thorfinn per-group AdamW WD — test lm_head-only and scalar-only WD at 0.002 (smaller, accounting for stack-tightening). Scalar group is the most sparsity-vulnerable per #280, and embed is over-regularized by floor+β2.

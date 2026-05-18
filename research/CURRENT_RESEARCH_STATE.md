@@ -69,10 +69,12 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 - n=3 mean > 3.27350 → productive-null (absorbed by late_peak/ns_coef)
 **ETA for n=3 terminal:** ~08:30 UTC. Student notified of baseline change.
 
-### ⚠️ thorfinn #279 — AdamW aux WD sweep [HEADING TO PRODUCTIVE-NULL]
-**Status:** Probe seed (3.27551) + seed-2 (3.27540) → n=2 mean = 3.27546. Seed-3 running, ETA ~06:59 UTC.
-**Against new baseline 3.27200:** n=3 merge would require seed-3 ≤ 3.26508 — essentially impossible. Definitively null against post-#290 baseline. Student notified; will close after seed-3 lands.
-**Mechanism insight:** WD=0.005 benefit was likely absorbed by β2=0.99, NS late_peak, and NS coef improvements. The post-#290 stack may have already tuned effective step magnitude adequately via other mechanisms.
+### 🔄 thorfinn #348 — Per-group AdamW WD sweep [JUST ASSIGNED]
+**Branch:** `g1r4-thorfinn/per-group-adamw-wd`
+**Hypothesis:** Global WD=0.005 (closed #279) absorbed by β2=0.99. Per-group dissection: lm_head-only WD=0.002 and scalar-only WD=0.002 (per #280 sparsity finding) may yield isolated signal where embed is excluded (over-regularized by floor+β2).
+**4 arms:** A=control, B=lm_head WD, C=scalar WD, D=both. WD=0.002 (smaller than original 0.005 since stack is tighter).
+**Decision rule:** within-pod Δ ≤ −0.002 → confirmation; sub-/super-additive logic for arm-D.
+**ETA:** ~7h sequential.
 
 ### edward #335 — Muon LR cooldown FLOOR sweep [mid-chain]
 **Status:** arm-A val=3.27482 (drift gate pass: |Δ|=0.00075 ≤ 0.003). Arm-B (floor=0.05) running, ETA ~07:09 UTC. Arms C/D follow. Full chain ETA ~10:50 UTC.
@@ -94,6 +96,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 - **frieren #285 (NS cooldown SHAPE)** — MERGED ✅ 06:02 UTC. val=3.27352 (n=2). late_peak concentrates NS=20 into lowest-LR half of cooldown.
 - **fern #290 (NS coef schedule)** — MERGED ✅ 06:07 UTC. val=3.27200 (n=3). linear_ramp_down starts NS at high-precision coefficients, ramps toward standard.
+- **thorfinn #279 (AdamW WD=0.005)** — CLOSED 07:12 UTC productive-null. n=3 mean=3.27530 vs new baseline 3.27200 (+0.00330 above gate). β2=0.99 absorbed standalone gain; inter-seed variance collapsed ×7 on new stack. Wave-6 axis assigned as per-group WD #348.
 - **edward #280 (per-aux-group β2 ablation)** — CLOSED mechanism-study. Sparsity-driven mechanism: scalar > embed > lm_head (inverts pre-registration). Sub-additivity 2.5× confirms global β2=0.99 captures UNION.
 - **askeladd #241 (Muon mu=0.97)** — productive-null. Confirmed within-pod inverted-U but cross-pod fail (+0.00118 above gate).
 
