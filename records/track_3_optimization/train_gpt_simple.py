@@ -61,6 +61,9 @@ def parse_args():
     parser.add_argument("--muon_momentum_reset", default="none", choices=["none", "hard", "soft"],
                         help="One-time reset of Muon momentum buffers at cooldown start. "
                         "'hard'=zero, 'soft'=scale by MUON_RESET_SOFT_FACTOR, 'none'=baseline (PR #364).")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="If set, seed torch RNG before each trial's model re-init "
+                        "(seed = --seed + trial_idx). Default: leave RNG at process default.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -716,6 +719,7 @@ if dist.get_rank() == 0:
             # PR #364: Muon momentum reset at cooldown entry.
             "muon_momentum_reset": args.muon_momentum_reset,
             "muon_reset_soft_factor": MUON_RESET_SOFT_FACTOR,
+            "seed": args.seed,
         },
     )
 
@@ -740,6 +744,15 @@ for trial_idx in range(args.num_trials):
             {"muon_reset/cooldown_start_step": cooldown_start_step},
             step=trial_idx * (train_steps + 1),
         )
+
+    # PR #364 n=2 confirmation: optional seed for trial-level RNG perturbation.
+    if args.seed is not None:
+        trial_seed = args.seed + trial_idx
+        torch.manual_seed(trial_seed)
+        torch.cuda.manual_seed_all(trial_seed)
+        if dist.get_rank() == 0:
+            print0(f"trial_idx={trial_idx} torch_seed={trial_seed}", console=True)
+            wandb.log({"trial/torch_seed": trial_seed}, step=trial_idx * (train_steps + 1))
 
     # initialize model parameters
     for name, p in model.named_parameters():
