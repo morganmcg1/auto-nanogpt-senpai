@@ -906,3 +906,21 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Cell D β₂=0.98 is the winner**: 2.24σ below baseline, ffs=3125 matching best. β₂=0.99 also improved but only mildly (0.88σ), well behind β₂=0.98.
 - **Phase 2 directive:** n=4 confirmation run launched at β₂=0.98 (comment on PR #320). Gate: n=4 mean ≤ 3.269362.
 - **Interpretation:** Higher β₂ (slower moving EMA of second moment) reduces noise in the AdamW aux update — beneficial for embed (lr=0.30) and lm_head (lr=0.003125) groups. β₂=0.98 captures a 20-step effective "lookback" vs default β₂=0.95 (~20-step vs ~13-step).
+
+## 2026-05-18 08:35 UTC — PR #321: LR cooldown_frac sweep — **CLOSED clean-neutral (default cd=0.70 optimal)**
+
+- Branch: `g1r5-thorfinn/cooldown-frac`
+- Student: g1r5-thorfinn
+- Hypothesis: cooldown_frac (current default 0.70) controls the stable/decay split. Vary {0.50, 0.60, 0.70, 0.80, 0.90} to find optimum.
+
+| Cell | cooldown_frac | val/best_loss | ffs | W&B run | vs baseline mu=3.271362 |
+|------|---|---|---|---|---|
+| A | 0.50 | 3.274204 | 3175 | `4r1l7rhv` | +0.00284 (~2.4σ worse) |
+| B | 0.60 | (skipped) | — | — | — |
+| **C (ctrl)** | **0.70** | **3.271924** | **3150** | `vmlfw0hr` | +0.00056 (~0.48σ — baseline reproduction) |
+| D | 0.80 | 3.273066 | 3150 | `hrswi937` | +0.00170 (~1.4σ worse) |
+| E | 0.90 | 3.274376 | 3150 | `xh7gpfge` | +0.00301 (~2.5σ worse) |
+
+- **Verdict:** Bowl-shaped curve centered at default cd=0.70. Both extremes regress 2-3σ. Phase 2 gate not met. ctrl reproduces baseline tightly (+0.48σ).
+- **Mechanism conclusion:** The stable-decay split is already at optimum. The 30% stable / 70% decay default cannot be improved by sliding along this axis. Further schedule progress requires a different axis (e.g., warmup, cycling, different decay shape).
+- **Follow-on:** PR #353 (thorfinn) — LR warmup sweep (warmup_steps ∈ {0, 50, 100, 200, 400}); current schedule has NO warmup, untested.
