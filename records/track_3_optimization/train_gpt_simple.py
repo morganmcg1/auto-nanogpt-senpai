@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -54,6 +55,21 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--adam_beta2_aux", type=float, default=0.95,
+                        help="AdamW aux β₂ (constant schedule, or fallback / time-average reference)")
+    parser.add_argument("--adam_beta2_aux_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        help="Schedule shape for AdamW aux β₂. "
+                             "constant=fixed at args.adam_beta2_aux; "
+                             "ramp_up=linear low→high; "
+                             "ramp_down=linear high→low; "
+                             "triangle=linear low→high→low (peak at midpoint); "
+                             "cosine_updown=cosine low→high→low (smooth triangle). "
+                             "Applies to all AdamW aux param groups (embed, lm_head, scalars).")
+    parser.add_argument("--adam_beta2_aux_low", type=float, default=0.91,
+                        help="Low endpoint for β₂ schedule. Default 0.91.")
+    parser.add_argument("--adam_beta2_aux_high", type=float, default=0.99,
+                        help="High endpoint for β₂ schedule. Default 0.99.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -67,6 +83,26 @@ args = parse_args()
 
 def clean_metric_name(name: str) -> str:
     return name.replace(".", "/")
+
+
+def _beta2_value(step, total_steps, schedule, b2_low, b2_high, b2_const):
+    """AdamW aux β₂ for this step. All non-constant schedules have time-average
+    (b2_low + b2_high) / 2 = 0.95 when defaults (0.91, 0.99) are used."""
+    if schedule == "constant":
+        return b2_const
+    p = step / total_steps  # progress in [0, 1)
+    mid = (b2_low + b2_high) / 2.0
+    half = (b2_high - b2_low) / 2.0
+    if schedule == "ramp_up":
+        return b2_low + (b2_high - b2_low) * p
+    elif schedule == "ramp_down":
+        return b2_high - (b2_high - b2_low) * p
+    elif schedule == "triangle":
+        return b2_low + 2.0 * (b2_high - b2_low) * (p if p < 0.5 else 1.0 - p)
+    elif schedule == "cosine_updown":
+        return mid - half * math.cos(2 * math.pi * p)
+    else:
+        raise ValueError(f"Unknown adam_beta2_aux_schedule: {schedule}")
 
 
 def tensor_stats(tensor: Tensor) -> dict[str, float]:
@@ -731,6 +767,10 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "adam_beta2_aux": args.adam_beta2_aux,
+            "adam_beta2_aux_schedule": args.adam_beta2_aux_schedule,
+            "adam_beta2_aux_low": args.adam_beta2_aux_low,
+            "adam_beta2_aux_high": args.adam_beta2_aux_high,
         },
     )
 
@@ -762,10 +802,18 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
+    # initial β₂ chosen for the schedule: schedule helper overrides this each step,
+    # but the optimizer needs a sensible starting value for step 0 before set_hparams runs.
+    _b2_init = _beta2_value(
+        step=0, total_steps=int(os.environ.get("SENPAI_TRAIN_STEPS", 3250)),
+        schedule=args.adam_beta2_aux_schedule,
+        b2_low=args.adam_beta2_aux_low, b2_high=args.adam_beta2_aux_high,
+        b2_const=args.adam_beta2_aux,
+    )
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, _b2_init), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -794,9 +842,16 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        b2_now = _beta2_value(step, train_steps, args.adam_beta2_aux_schedule,
+                              args.adam_beta2_aux_low, args.adam_beta2_aux_high,
+                              args.adam_beta2_aux)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if group.get("name", "").startswith("adam_"):
+                    b1, _ = group["betas"]
+                    group["betas"] = (b1, b2_now)
+        return b2_now
 
 
     ########################################
@@ -885,7 +940,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        b2_now = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -918,12 +973,17 @@ for trial_idx in range(args.num_trials):
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
+            current_b2_aux = {group.get("name", f"adam_group_{i}"): group["betas"][1]
+                              for i, group in enumerate(optimizer1.param_groups)}
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
                     per_group_metrics[f"train/update_norm/{name}"] = mean_norm
                 for name, lr in current_lrs.items():
                     per_group_metrics[f"train/lr/{name}"] = lr
+                for name, b2 in current_b2_aux.items():
+                    per_group_metrics[f"train/beta2/{name}"] = b2
+                per_group_metrics["adam/beta2_aux_now"] = b2_now
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
