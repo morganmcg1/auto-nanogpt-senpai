@@ -1,14 +1,17 @@
 # SENPAI Research State
 
-- 2026-05-18 10:45 UTC — Cycle 55 (continued)
+- 2026-05-18 11:15 UTC — Cycle 55 (continued)
 - No human researcher directives this session.
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
-- ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FREQ_START=15→FREQ_END=7 FALSIFIED. n=4 mean val=**3.27766** (+0.00231), ffs=**3125** (+37.5). FREQ=10 stays as stability window. Fern idle, awaiting reassignment.
-- ⚠️ **EDWARD #341 Arm A MISS** (10:00 UTC, run `jt46ri0n`): SOAP_FREEZE_STEP=1000 mean val=**3.28082** (T0=3.27970, T1=3.28194). +0.0055 over baseline. Eigenbasis update post-step-1000 is load-bearing. Arm B (FREEZE=2000) launched as `604ypwx2`.
-- ⚠️ **FRIEREN #343 Arm B (β2=0.90) GRAD EXPLOSION**: First screen `x73agd63` blew up at step 275 (grad_norm=115698). Smoke tests survived (val=4.165 at step 200). Student relaunched as `0o4gobqx` at 10:27 UTC — if it also explodes, β2 axis closed in both directions.
-- ⚠️ **NEZUKO #339 Arm A FAIL** (08:21 UTC, run `2ysep6xs`): COOLDOWN_FRAC=0.6 on OLD stack — val=3.27583/ffs=3100. Ties OLD baseline val, worse ffs. Arm B (COOLDOWN_FRAC=0.8) running, ETA ~10:30 UTC.
-- ✅ **ASKELADD #319 CLOSED**: Muon LR warmup FALSIFIED (both arms, 100-step and 50-step). NS5 at full LR from step 1 is load-bearing. Reassigned → #358 CONTRA_MUON sweep.
-- ✅ **ALPHONSE #312 CLOSED**: AdamW lm_head WD no signal — n=4 p=0.57 (indistinguishable from baseline). Arm B skipped. Reassigned → #359 μ cooldown schedule ablation.
+- ✅ **FRIEREN #343 CLOSED** (11:15 UTC): AdamW β2 axis FALSIFIED in BOTH directions. β2=0.99 NaN at step 125; β2=0.90 grad explosion (grad_norm=115698) at step 275 (two consistent crashes). β2=0.95 is a stability window. Reassigned → #373 AdaMuon.
+- ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FREQ_START=15→FREQ_END=7 FALSIFIED. n=4 mean val=3.27766/ffs=3125. FREQ=10 stays as stability window. Reassigned → #372 MuonEq-R.
+- 🔥 **THORFINN #357 trial 0 STRONG**: MU_COOLDOWN_END=0.87 trial 0 val=**3.274062**, ffs=**3050** — beats baseline by −0.0013 val AND −37.5 ffs. ffs=3050 is below bimodal {3075,3100} norm. Trial 1 in progress.
+- ⚠️ **ALPHONSE #359 Arm A FAIL**: MU_COOLDOWN_START=0.92→0.90 trial 0 val=**3.283822**, ffs=-1 — +0.0085 regression. Near-flat (0.02 gap) loses most of 0.95→0.90 benefit. Killing trial 1; Arm B (constant μ=0.90) queued.
+- ⚠️ **EDWARD #341 Arm A MISS** (10:00 UTC): SOAP_FREEZE_STEP=1000 mean val=3.28082. Arm B (FREEZE=2000) at step ~1550/3175.
+- ⚠️ **NEZUKO #339 trial 0 (Arm B)**: COOLDOWN_FRAC=0.8 OLD stack — val=3.275355 (ties baseline), ffs=3075. Trial 1 in progress.
+- ⚠️ **TANJIRO #336 trial 0 (Arm B)**: TARGET_UW=0.50 — val=3.275692, ffs=3100. Marginally worse on both vs baseline. Trial 1 in progress.
+- ✅ **ASKELADD #319 CLOSED**: Muon LR warmup FALSIFIED. Reassigned → #358 CONTRA_MUON sweep.
+- ✅ **ALPHONSE #312 CLOSED**: lm_head WD no signal. Reassigned → #359 μ cooldown ablation.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -79,11 +82,13 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - Arm B (COOLDOWN_FRAC=0.8, `jmikalnz`) running, trial 1 in progress. ETA ~10:30 UTC.
 - Comparison bar UPDATED: must clear NEW baseline val<3.275350 AND ffs<3087.5 to predeclare n=4 on NEW stack.
 
-### FRIEREN #343 — AdamW β2 sweep (Arm A KILLED, Arm B grad-exploded, retrying)
-- Arm A: ADAMW_BETA2=0.99 → NaN at step 125. KILLED.
-- Arm B first attempt (`x73agd63`, β2=0.90 NEW stack): catastrophic grad explosion at step 275 (grad_norm=115698).
-- Arm B retry (`0o4gobqx`, β2=0.90 NEW stack): launched 10:27 UTC. β2=0.90 smoke (`xyuezjfz` val=4.165 at step 200) matched baseline β2=0.95 smoke (val=4.177) — not deterministically broken, may be seed-sensitive.
-- Decision: if retry survives past step 500, continue n=2. If it explodes too, axis closed in both directions (β2 stability requires exact 0.95).
+### FRIEREN #373 — AdaMuon: post-NS5 per-element variance scaling (NEW, assigned 11:15 UTC)
+- Mechanism: maintain EMA of squared NS5 outputs V_t = β2·V_{t-1} + (1-β2)·O_t², scale update by 1/√(V_t+eps) with RMS rescaling. Stacks on top of existing NorMuon (row-level) and Contra-Muon.
+- Distinct from closed PR #80 (pre-NS5 Adam variance). Orthogonal to NorMuon (post-NS5, per-element vs per-row).
+- Reference: arxiv 2507.11005 (AdaMuon). Prior work closed ~0.014 val gap vs vanilla Muon.
+- Arm A: ADAMUON=1 ADAMUON_BETA2=0.95 (conservative EMA)
+- Arm B: ADAMUON=1 ADAMUON_BETA2=0.99 (slow EMA, more stable variance)
+- Requires ~30 lines code: `adamuon_v` state buffer added to Muon state init + EMA update in `contra_normuon_update`
 
 ## Recently closed axes (since session start)
 
@@ -92,6 +97,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 | **#288** | **thorfinn** | **MERGED ⭐** | **Cooldown-only μ anneal 0.95→0.90. val Δ−0.000485 (statsig 2.3×), ffs tied at 3087.5. Mechanism: μ-anneal localizes to cooldown phase.** |
 | #319 | askeladd | FALSIFIED | Muon LR warmup both arms miss. NS5 at full LR from step 1 is load-bearing. |
 | #312 | alphonse | NO SIGNAL | lm_head WD wd=0.01 p=0.57 vs baseline. n=1 win was seed noise. |
+| #343 | frieren | FALSIFIED | AdamW β2 both directions crash: β2=0.99 NaN at step 125, β2=0.90 grad explosion step 275. β2=0.95 is stability window. |
 | #316 | nezuko | FALSIFIED | NorMuon β2 cooldown anneal; n=2 mean val=3.278405/ffs=3125. β2 variance buffer ≠ μ. |
 | #333 | frieren | FALSIFIED | AdamW eps — both 1e-8 and 1e-12 NaN. eps=1e-10 is a stability window. |
 | #313 | frieren | CLOSED (bug) | Z-loss — NaN smokes, code never pushed. |
@@ -131,6 +137,7 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 - **cooldown_frac** (nezuko #339): unchanged since PR #71
 - **TARGET_UW** (tanjiro #336): unchanged since PR #78
 - **MuonEq-R pre-NS5 row norm** (fern #372): fresh mechanism from arxiv 2603.28254; stateless, zero HPs; orthogonal to NorMuon
-- **AdaMuon cooldown-only** (next fern follow-up if #372 closes): post-NS5 variance scaling during cooldown; combined with PR #288 μ-anneal
-- **AdaFactor for aux groups** (already closed); **AdaMuon full** (arxiv 2507.11005): post-NS5 variance if fern #372 fails
-- **AdamW β2=0.90** (frieren #343 Arm B): fast variance EMA vs baseline 0.95
+- **AdaMuon post-NS5 variance** (frieren #373): per-element EMA scaling of NS5 output; distinct from closed pre-NS5 PR #80
+- **μ endpoint extension** (thorfinn #357): trial 0 STRONG (val=3.274062/ffs=3050); if Arm A confirms, extend to Arm B (MU_END=0.85)
+- **Cooldown AdaMuon switch** (next frieren follow-up if #373 closes): AdaMuon activated only at cooldown boundary; stacks with PR #288 μ-anneal
+- **Muon-VS** (arxiv 2601.14603): pre-NS5 gradient deviation variance; 1.36× step reduction on LLaMA-1.2B; save for next idle student
