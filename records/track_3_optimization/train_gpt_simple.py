@@ -431,7 +431,10 @@ class GPT(nn.Module):
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
         logits_flat = logits.view(targets.numel(), -1)
         ce_loss = F.cross_entropy(logits_flat, targets.view(-1), reduction="sum")
-        # log_Z = log(sum(exp(logits))) per token; used for optional z-loss regularization.
+        if Z_LOSS_COEF == 0.0:
+            # Bit-identical to baseline forward (no log_Z in autograd graph).
+            return ce_loss
+        # log_Z = log(sum(exp(logits))) per token; used for z-loss regularization.
         log_Z = torch.logsumexp(logits_flat, dim=-1)
         return ce_loss, log_Z
 
@@ -946,7 +949,8 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_ce, _ = model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_out = model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    val_ce = val_out[0] if isinstance(val_out, tuple) else val_out
                     val_loss += val_ce
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
@@ -992,16 +996,18 @@ for trial_idx in range(args.num_trials):
         step_log_Z_sum = torch.zeros((), device=device)
         step_log_Z_max_abs = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            ce_loss, log_Z = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
-            z_loss = (log_Z ** 2).sum()
+            mb_out = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             if Z_LOSS_COEF != 0.0:
+                ce_loss, log_Z = mb_out
+                z_loss = (log_Z ** 2).sum()
                 loss = ce_loss + Z_LOSS_COEF * z_loss
+                step_z_loss += z_loss.detach()
+                step_log_Z_sum += log_Z.detach().sum()
+                step_log_Z_max_abs = torch.maximum(step_log_Z_max_abs, log_Z.detach().abs().max())
             else:
+                ce_loss = mb_out
                 loss = ce_loss
             step_loss += ce_loss.detach()
-            step_z_loss += z_loss.detach()
-            step_log_Z_sum += log_Z.detach().sum()
-            step_log_Z_max_abs = torch.maximum(step_log_Z_max_abs, log_Z.detach().abs().max())
             loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, name
