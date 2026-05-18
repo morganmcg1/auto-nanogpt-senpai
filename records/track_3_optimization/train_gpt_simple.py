@@ -37,6 +37,12 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Muon momentum reset at cooldown entry (PR #364):
+# - "none": baseline (no reset).
+# - "hard": optimizer2.state[p]["momentum"].zero_() at cooldown_start_step.
+# - "soft": optimizer2.state[p]["momentum"].mul_(MUON_RESET_SOFT_FACTOR).
+MUON_RESET_SOFT_FACTOR = 0.3
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -52,6 +58,9 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muon_momentum_reset", default="none", choices=["none", "hard", "soft"],
+                        help="One-time reset of Muon momentum buffers at cooldown start. "
+                        "'hard'=zero, 'soft'=scale by MUON_RESET_SOFT_FACTOR, 'none'=baseline (PR #364).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +713,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #364: Muon momentum reset at cooldown entry.
+            "muon_momentum_reset": args.muon_momentum_reset,
+            "muon_reset_soft_factor": MUON_RESET_SOFT_FACTOR,
         },
     )
 
@@ -716,6 +728,18 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+
+    # PR #364: cooldown_start_step matches the boundary in set_hparams (cooldown_frac=0.7).
+    cooldown_start_step = int((1 - 0.7) * train_steps)
+    if dist.get_rank() == 0:
+        print0(
+            f"muon_momentum_reset={args.muon_momentum_reset} cooldown_start_step={cooldown_start_step}",
+            console=True,
+        )
+        wandb.log(
+            {"muon_reset/cooldown_start_step": cooldown_start_step},
+            step=trial_idx * (train_steps + 1),
+        )
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -879,6 +903,50 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #364: one-time Muon momentum reset at cooldown entry.
+        if args.muon_momentum_reset != "none" and step == cooldown_start_step:
+            momentum_norm_before = -1.0
+            params_reset = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if p in optimizer2.state and "momentum" in optimizer2.state[p]:
+                        m_buf = optimizer2.state[p]["momentum"]
+                        if momentum_norm_before < 0:
+                            momentum_norm_before = float(m_buf.norm().item())
+                        if args.muon_momentum_reset == "hard":
+                            m_buf.zero_()
+                        elif args.muon_momentum_reset == "soft":
+                            m_buf.mul_(MUON_RESET_SOFT_FACTOR)
+                        params_reset += 1
+            momentum_norm_after = -1.0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if p in optimizer2.state and "momentum" in optimizer2.state[p]:
+                        momentum_norm_after = float(optimizer2.state[p]["momentum"].norm().item())
+                        break
+                if momentum_norm_after >= 0:
+                    break
+            if dist.get_rank() == 0:
+                wandb.log(
+                    {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "muon_reset/fired": 1.0,
+                        "muon_reset/params_reset": float(params_reset),
+                        "muon_reset/momentum_norm_before": momentum_norm_before,
+                        "muon_reset/momentum_norm_after": momentum_norm_after,
+                        "muon_reset/mode_hard": 1.0 if args.muon_momentum_reset == "hard" else 0.0,
+                        "muon_reset/mode_soft": 1.0 if args.muon_momentum_reset == "soft" else 0.0,
+                    },
+                    step=wandb_step,
+                )
+                print0(
+                    f"muon_reset fired step={step} mode={args.muon_momentum_reset} "
+                    f"params_reset={params_reset} "
+                    f"norm_before={momentum_norm_before:.4g} norm_after={momentum_norm_after:.4g}",
+                    console=True,
+                )
+
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
