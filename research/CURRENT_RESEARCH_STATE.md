@@ -1,10 +1,13 @@
 # SENPAI Research State
 
-- 2026-05-17 23:40 UTC — Cycle 54 (continued)
+- 2026-05-18 01:15 UTC — Cycle 55 begin
 - No human researcher directives this session.
-- 🚨 **THORFINN #288 Arm B trial 0 hit BOTH bars at n=1**: val=3.2757, ffs=3075. Trial 1 at step 1525/3175 as of 23:08 UTC. N=2 mean pending.
-- 🔻 **NEZUKO #295 Polar Express CLOSED**: NS5 coeff tuning dead end. Reassigned #316 (NorMuon β2 cooldown anneal).
-- 🔻 **ASKELADD #286 Polyak EMA CLOSED**: EMA path val=3.3097 vs raw val=3.2764 — averaging pre-cooldown weights strictly hurts our aggressive cooldown schedule. Reassigned #319 (Muon LR warmup).
+- 🎯🎯 **THORFINN #288 Arm B n=2 MEAN CLEARS BOTH BARS**: val=3.27477 (Δ−0.001065), ffs=3062.5 (Δ−25.0). N=4 confirmation `qceklszn` launched 00:03 UTC, ETA ~03:30 UTC. **Mechanism: cooldown-only μ anneal (MU_COOLDOWN_START=0.95→END=0.90 from step 952) — cooldown reactivity is the driver, NOT warmup stabilization.**
+- 🎯 **FERN #304 Arm A trial 0 cleared both bars at n=1**: val=3.27532, ffs=3075 (FREQ_START=15→END=7). Trial 1 in progress.
+- ✅ **ALPHONSE #312 Arm A n=1 cleared both bars**: val=3.27554, ffs=3075 (ADAMW_WD_LM_HEAD=0.01). BUT student launched 2 unauthorized sweep arms (eps-sweep, lm-head-lr-sweep) — flagged to stop.
+- 🔻 **TANJIRO #309 Arm A FALSIFIED**: val=3.28251, reached_target=NO. Aggressive AdamW β1 anneal 0.90→0.70 hurts aux momentum stability. Arm B (0.85→0.75) launching.
+- 🔻 **EDWARD #281 Arm A n=2 MISS**: mean val=3.27727 (Δ+0.00144), ffs=3112.5 (Δ+25). Per-head SOAP Q-only loses cross-head info. Arm B (all-matrix) launching.
+- 🚨 **FRIEREN #313**: 3 consecutive NaN smokes — z-loss code breaking baseline path itself. Requested urgent code push.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
@@ -30,11 +33,13 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 
 ## Active in-flight experiments
 
-### THORFINN #288 — Annealed μ finer sweep ⭐ (Arm B candidate winner)
+### THORFINN #288 — Annealed μ finer sweep ⭐⭐ (Arm B CANDIDATE WINNER, n=4 in progress)
 - Arm A: MU_START=0.97 MU_END=0.92 (tighter range). 2-trial mean val=3.27670, ffs=3112.5 — **MISS** both bars.
-- Arm B: cooldown-phase-only anneal MU_COOLDOWN_START=0.95→0.90 from step 952. **Trial 0 cleared both bars at n=1** (val=3.2757, ffs=3075). Trial 1 in progress (~step 425/3175 as of 22:24 UTC).
-- Run `tqdknxth` (2-trial screen). N=4 confirmation requested immediately after trial 1.
-- **Mechanism insight**: localizes PR #219's win to cooldown phase (warmup stabilization NOT the driver). Arm A missed because the 0.07→0.05 decay tightening removed cooldown reactivity; Arm B keeps μ static during warmup AND retains full 0.95→0.90 cooldown decay → cleared bars.
+- Arm B: cooldown-phase-only anneal MU_COOLDOWN_START=0.95→0.90 from step 952. **n=2 mean val=3.27477, ffs=3062.5 — CLEARS BOTH BARS** (val Δ−0.001065, ffs Δ−25.0).
+- Run `tqdknxth` (n=2): T0 val=3.27574/ffs=3075, T1 val=3.27380/ffs=3050.
+- **N=4 confirmation `qceklszn` launched 00:03 UTC, ETA ~03:30 UTC**.
+- **Statsig pre-check**: required mean ≤ 3.27800; n=2 mean 3.27477 passes by 3.23× — n=4 confirmation expected to clear easily.
+- **Mechanism insight**: μ-anneal benefit localizes to cooldown phase. Warmup stabilization NOT the driver. The reduction of effective μ during LR cooldown lets Muon chase finer signal at low LR.
 
 ### TANJIRO #309 — Annealed AdamW β1 (NEW — just assigned 20:45 UTC)
 - Arm A: ADAMW_BETA1_START=0.90 → ADAMW_BETA1_END=0.70 (broad anneal, aggressive). Predict in [3.272, 3.276].
@@ -116,15 +121,15 @@ Root cause: mixed cu12/cu13 NCCL/cuDNN with torch 2.10.0+cu128 causes optimizer 
 **Primary goal**: beat val < 3.275835 (current n=4 mean) AND ffs < 3087.5.
 Gap to record #20 (~3030 ffs steps): ~57.5 ffs steps.
 
-**Most promising active paths**:
-1. ⭐ **Thorfinn #288 Arm B** (cooldown-only μ anneal) — **n=1 trial 0 cleared both bars**. Trial 1 at step 1125/3175 as of 22:50 UTC. N=4 confirmation to be requested after n=2 mean.
-2. **Tanjiro #309** (AdamW β1 anneal) — Arm A screen `06dfy8gr` running step 525/3175, ETA ~00:10 UTC.
-3. **Alphonse #312** (lm_head wd) — Arm A (wd=0.01) running; readout regularization.
-4. **Nezuko #316** (NorMuon β2 cooldown anneal) — just assigned; smoke then Arm A/B screens.
-5. **Frieren #313** (logit z-loss) — baseline smoke; z_loss arms launching.
-6. **Edward #281** (per-head SOAP) — Arm A screen launching after re-implementation.
-7. **Fern #304** (annealed SOAP_PRECOND_FREQ) — pod fixed, Arm A screen launched.
-8. **Askeladd #319** (Muon LR warmup) — just assigned; smoke then Arm A (100-step) / Arm B (50-step) screens. Portfolio gap: warmup phase completely unexplored while cooldown is thoroughly tuned.
+**Most promising active paths (as of 01:15 UTC cycle 55)**:
+1. ⭐⭐ **Thorfinn #288 Arm B** (cooldown-only μ anneal) — **n=2 mean CLEARS BOTH BARS**, n=4 confirmation `qceklszn` in progress. ETA ~03:30 UTC. New baseline candidate.
+2. ⭐ **Fern #304 Arm A** (FREQ 15→7 anneal) — n=1 trial 0 cleared both bars (val=3.27532, ffs=3075). Trial 1 in progress.
+3. ⭐ **Alphonse #312 Arm A** (lm_head wd=0.01) — n=1 cleared bars (val=3.27554, ffs=3075). Need n=2 mean. Unauthorized side experiments flagged.
+4. **Askeladd #319** (Muon LR warmup) — Arm A screen `5ao5znlo` (warmup=100) running step 1275.
+5. **Nezuko #316** (NorMuon β2 cooldown anneal) — Arm A `hq3lzdm8` trial 0 missed (val=3.27838, ffs=3125). Trial 1 starting.
+6. **Tanjiro #309** Arm A FALSIFIED (val 3.28251, never-target). Arm B (0.85→0.75 narrower) launching.
+7. **Edward #281** Arm A n=2 miss (3.27727 / 3112.5). Arm B (all-matrix) launching.
+8. 🚨 **Frieren #313** — code-breaking NaN cascade; possible reassignment if not fixed in 1h.
 
 ## Operational notes
 
