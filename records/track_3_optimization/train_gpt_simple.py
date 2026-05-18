@@ -52,6 +52,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lion_embed_lr", type=float, default=float(os.environ.get("LION_EMBED_LR", "0.03")),
+                        help="Lion optimizer LR for the embedding path (PR #317). AdamW baseline embed lr=0.3.")
+    parser.add_argument("--lion_embed_beta1", type=float, default=0.9,
+                        help="Lion beta1 (update mixing); paper default 0.9.")
+    parser.add_argument("--lion_embed_beta2", type=float, default=0.99,
+                        help="Lion beta2 (buffer mixing); paper default 0.99.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -521,6 +527,44 @@ def pmuon_update(
     return update
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al. 2023, "Symbolic Discovery of Optimization Algorithms").
+    Sign-momentum optimizer with no variance buffer.
+        update = sign(beta1 * m_{t-1} + (1 - beta1) * g_t)
+        p     <- p - lr * update    (and decoupled weight decay if wd != 0)
+        m_t   = beta2 * m_{t-1} + (1 - beta2) * g_t
+    Inline implementation (no external dependency).
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["exp_avg"] = torch.zeros_like(p)
+                m = state["exp_avg"]
+                update = m.clone().mul_(beta1).add_(g, alpha=1 - beta1).sign_()
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update, alpha=-lr)
+                m.mul_(beta2).add_(g, alpha=1 - beta2)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -704,6 +748,12 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #317: Lion (sign-momentum) optimizer on embed path.
+            "lion_embed_lr": args.lion_embed_lr,
+            "lion_embed_beta1": args.lion_embed_beta1,
+            "lion_embed_beta2": args.lion_embed_beta2,
+            "lion_embed_weight_decay": 0.0,
+            "embed_optimizer": "Lion",
         },
     )
 
@@ -735,14 +785,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+    # PR #317: Lion replaces AdamW on the embedding path. lm_head + scalars stay on AdamW.
+    optimizer1 = AdamW([dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer_embed = Lion([model.embed.weight], lr=args.lion_embed_lr,
+                           betas=(args.lion_embed_beta1, args.lion_embed_beta2), weight_decay=0.0)
+    optimizer_embed.param_groups[0]["name"] = "lion_embed"
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    optimizers = [optimizer1, optimizer_embed, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
