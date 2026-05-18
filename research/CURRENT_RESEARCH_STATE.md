@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~05:14Z (poll #138)
+- **Last updated:** 2026-05-18 ~07:00Z (poll #149)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -15,12 +15,10 @@
    - Statsig target (n=4): mean ≤ 3.269362. Remaining 3 trials need mean ≤ 3.268949 — challenging but not impossible.
    - ETA Phase 2 n=4 terminal: ~11:30-12:30Z May 18
 
-2. **ALPHONSE PR #306 NEAR-TRIGGER**:
-   - Cells A→D monotone trend: 3.276 → 3.272 → 3.271 → 3.270332 (Δ=-0.001 vs baseline)
-   - Cell D (lr=0.030) ffs=3125 matches baseline-best
-   - Misses val gate by 0.000332 (~0.28σ)
-   - Cell E (lr=0.100) `xzflql8k` step 1535/3250 (~47%), ETA terminal ~05:50Z
-   - Phase 2 n=4 prepared regardless of Cell E result
+2. **EDWARD PR #320 Phase 2 trigger MET** ⭐:
+   - Cell D (β₂=0.98) `hfn1clh2`: **val=3.268718 ffs=3125** (Δ=-0.00264, ~2.24σ below baseline)
+   - Cell E (β₂=0.99) `mhnv5jxr` running, ETA terminal ~07:30Z
+   - Phase 2 n=4 ready to launch at best β₂ after Cell E terminal
 
 ## Active WIP Portfolio
 
@@ -33,7 +31,7 @@
 | #321 | thorfinn | cooldown_frac sweep | Cell A retry cd=0.50 val=3.2742 clean-neg; Cell C ctrl cd=0.70 val=3.271924; Cell D (`hrswi937`, cd=0.80) running, ETA ~06:15Z; Cell E (cd=0.90) queued |
 | #323 | tanjiro | Muon mu sweep | Cell A mu=0.85 val=3.27569 clean-neg; Cell B mu=0.90 val=3.272627 clean-neg; Cell C ctrl (`2cgoprbp`, mu=0.95) step 2299/3250, ETA ~05:50Z; Cells D (mu=0.97), E (mu=0.99) pending |
 | #334 | askeladd | Muon WD sweep | Cell A wd=0 val=3.2885 DNR catastrophic (~14.5σ above baseline); Cell D (`r7v9ouwg`, wd=0.05) step 1301/3250, ETA ~06:00Z; Cell E (wd=0.10) pending |
-| #337 | frieren | Muon nesterov ablation | Cell A nesterov=True ctrl val=3.270853 ffs=3125 clean reproduction; Cell B (`0iegd51l`, nesterov=False) step 614/3250, ETA ~06:30Z |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | JUST ASSIGNED. Cell A (lr_attn=0.025) about to launch. |
 
 ## Closed This Session (poll #126-137)
 

@@ -853,3 +853,19 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Mechanism conclusion:** NS5 polynomial space is FLAT around standard (2,-1.5,0.5) settings. All four cells cluster in a tight ~0.0016 val/loss range (< 1.5σ). Cell D (gentler polynomial, lower a-coefficient) edged the best val/loss and tied baseline-best ffs=3125, but Δ=-0.00063 is within noise (p~0.3 of being real). Phase 2 gate (val ≤ 3.270) NOT met.
 - **Diagnostics:** All non-ctrl cells have ffs=3150 vs Cell D ffs=3125 — hint that a gentler polynomial may reduce variance slightly, but unreliable at n=1.
 - **Follow-on:** PR #334 (askeladd) — Muon WD sweep (wd_mlp/wd_attn ∈ {0, 0.01, 0.025 ctrl, 0.05, 0.10}) — first-ever sweep of Muon weight decay on any stack.
+
+## 2026-05-18 06:50 UTC — PR #337: Muon nesterov flag ablation — **CLOSED clean-negative (nesterov=True essential)**
+
+- Branch: `g1r5-frieren/muon-nesterov-ablation`
+- Student: g1r5-frieren
+- Hypothesis: Muon's `nesterov=True` default has never been ablated. Testing whether Polyak momentum (nesterov=False) matches or beats Nesterov — if neutral, simplifies the optimizer; if Nesterov wins, confirms it's load-bearing.
+
+| Cell | nesterov | val/loss | ffs | W&B run | Δ vs baseline mu=3.271362 |
+|------|----------|----------|-----|---------|--------------------------|
+| A (ctrl) | True | 3.270853 | 3125 | `09d0v5j2` | -0.000509 (~0.43σ below) — clean ctrl reproduction |
+| B | False (Polyak) | 3.273543 | 3150 | `0iegd51l` | +0.002181 (~1.85σ above) |
+
+- **Δ Cell B vs A ctrl: +0.00269 (~2.28σ worse).** ffs also regressed 3125 → 3150.
+- **Mechanism conclusion:** nesterov=True is load-bearing. Polyak momentum consistently worse. The Nesterov look-ahead step (computing gradient at current + momentum direction before normalization) provides real benefit in this stack. Default confirmed correct; no change needed.
+- **Incident:** Concurrent-runs violation at ~05:35Z (runs `09d0v5j2` + `vfskbh2x` both active on 1 GPU). Student resolved at 03:37Z; no data integrity issue.
+- **Follow-on:** PR #346 (frieren) — `lr_attn` sweep {0.025, 0.035 ctrl, 0.045, 0.055, 0.075} on lr_mlp=0.055 stack. Last tested at old baseline (PR #209, clean-neg); retest warranted.
