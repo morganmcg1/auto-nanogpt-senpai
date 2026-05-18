@@ -21,7 +21,7 @@ All current WIP experiments ran on CONTRA_MUON=0.5 (old stack). They are now com
 - ✅ **TANJIRO #376 CLOSED** (22:20 UTC): Arm B n=2 terminal val=3.27542/ffs=3075 — both miss new bar (val +0.00104, ffs +6.25). **Axis falsified both arms** — no operating point makes cooldown-only AdaMuon's variance scaling both active and net-beneficial given NorMuon's existing per-row variance EMA (double-normalization). Cross-confirms frieren #373 conclusion. Student gave excellent mechanism analysis. Reassigned → #406 MU_COOLDOWN_START sweep on new base.
 - **EDWARD #379** Arm A n=2 mean 3.27530/3087.5 — misses new bar. Pivoted to Arm B (1.15) on CONTRA_MUON=0.5 base.
 - **ALPHONSE #378** β2=0.99 re-run on CONTRA_MUON=0.5: TBD — will likely miss ffs bar.
-- **NEZUKO #394** ATTN_SOAP_BETA2 sweep: running on CONTRA_MUON=0.5 base — will likely miss new bar.
+- **NEZUKO #394** Arm A (0.85) terminal on OLD stack: val=3.276386/ffs=3100 — both miss. **Sent back 22:28 UTC** to run Arm B (0.95, slower adaptation — mechanistically aligned with attention's longer effective rank) on new CONTRA_MUON=0.4 base. Arm A trial 0 (3.274854/3075) was close enough to suggest axis isn't dead.
 
 Strategy shift: accept that all current in-flight runs will miss the new bar. Let them run to terminal (data informs axis characterization), then reassign to new stacked experiments on CONTRA_MUON=0.4 base. Meanwhile askeladd explores CONTRA_MUON=0.3 as direct continuation.
 
