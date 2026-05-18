@@ -37,6 +37,11 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Lookahead wrapper (Zhang et al. NeurIPS 2019): every K steps, blend slow ← (1-α)·slow + α·fast; fast ← slow.
+LOOKAHEAD_K = 5            # interpolation cadence; 0 = disabled
+LOOKAHEAD_ALPHA = 0.5      # Arm A: 0.5; Arm B: 0.8
+LOOKAHEAD_WARMUP_STEPS = 200  # capture slow weights AFTER this many steps; defers pullback past PMuon cold-start (advisor PR #311 fix)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -704,6 +709,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "lookahead_k": LOOKAHEAD_K,
+            "lookahead_alpha": LOOKAHEAD_ALPHA,
+            "lookahead_warmup_steps": LOOKAHEAD_WARMUP_STEPS,
         },
     )
 
@@ -748,6 +756,13 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Lookahead: delayed slow-weight init (advisor PR #311 fix).
+    # Eager init at step 0 made pullbacks at step k=5 pull fast weights back toward
+    # a snapshot of the still-cold model, compounding PMuon's cold-start gradient
+    # explosion. Defer capture until train_step >= LOOKAHEAD_WARMUP_STEPS so the
+    # slow snapshot lands after PMuon's covariance EMA has settled.
+    lookahead_slow: dict[str, Tensor] = {}
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def set_hparams(step, cooldown_frac=0.7):
@@ -881,6 +896,73 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # --- Lookahead: lazy slow-weight init at warmup, then pullback every K steps after. ---
+        # Eager init at step 0 caused gradient explosion (advisor PR #311 review). Capture the
+        # slow snapshot only once PMuon has past its cold-start phase (covariance EMA settled).
+        if LOOKAHEAD_K > 0 and not lookahead_slow and train_step >= LOOKAHEAD_WARMUP_STEPS:
+            for name, p in model.named_parameters():
+                lookahead_slow[name] = p.detach().clone()
+            if dist.get_rank() == 0:
+                embed_p = model.embed.weight
+                embed_slow = lookahead_slow["embed.weight"]
+                assert embed_slow.data_ptr() != embed_p.data_ptr(), (
+                    f"Lookahead init failed: slow shares storage with model.embed.weight "
+                    f"(slow_ptr={embed_slow.data_ptr()}, p_ptr={embed_p.data_ptr()})"
+                )
+                print0(
+                    f"LOOKAHEAD LAZY-INIT: train_step={train_step} K={LOOKAHEAD_K} "
+                    f"alpha={LOOKAHEAD_ALPHA} warmup={LOOKAHEAD_WARMUP_STEPS} "
+                    f"embed_norm={embed_p.norm().item():.4f}",
+                    console=True,
+                )
+        # --- Lookahead pre-pullback telemetry (captures slow-fast divergence BEFORE pullback). ---
+        # If we logged AFTER the pullback, diff would always be 0 since p.copy_(slow) makes them equal.
+        if dist.get_rank() == 0 and telemetry_due and LOOKAHEAD_K > 0 and lookahead_slow:
+            embed_p = model.embed.weight
+            embed_slow = lookahead_slow["embed.weight"]
+            slow_fast_diff = float((embed_p - embed_slow).norm().item())
+            embed_norm = float(embed_p.norm().item())
+            slow_fast_ratio = slow_fast_diff / max(embed_norm, 1e-12)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lookahead/k": LOOKAHEAD_K,
+                "lookahead/alpha": LOOKAHEAD_ALPHA,
+                "lookahead/warmup_steps": LOOKAHEAD_WARMUP_STEPS,
+                "lookahead/active": 1,
+                "lookahead/embed_slow_fast_diff": slow_fast_diff,
+                "lookahead/embed_slow_fast_diff_ratio": slow_fast_ratio,
+                "lookahead/step_phase": (train_step - LOOKAHEAD_WARMUP_STEPS) % LOOKAHEAD_K,
+            }, step=wandb_step)
+            if train_step <= LOOKAHEAD_WARMUP_STEPS + 10 or train_step % 200 == 0:
+                print0(
+                    f"LOOKAHEAD TELEM: train_step={train_step} "
+                    f"phase={(train_step - LOOKAHEAD_WARMUP_STEPS) % LOOKAHEAD_K} "
+                    f"diff={slow_fast_diff:.4f} norm={embed_norm:.4f} ratio={slow_fast_ratio:.6g}",
+                    console=True,
+                )
+        elif dist.get_rank() == 0 and telemetry_due and LOOKAHEAD_K > 0:
+            # Pre-warmup: log inactivity sentinel so we can see the warmup boundary on W&B.
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lookahead/k": LOOKAHEAD_K,
+                "lookahead/alpha": LOOKAHEAD_ALPHA,
+                "lookahead/warmup_steps": LOOKAHEAD_WARMUP_STEPS,
+                "lookahead/active": 0,
+            }, step=wandb_step)
+        # --- Lookahead pullback: every K steps after warmup, blend slow ← (1-α)·slow + α·fast; then fast ← slow. ---
+        # train_step > LOOKAHEAD_WARMUP_STEPS skips the no-op pullback that would fire at the same
+        # step we just captured slow=fast (when warmup happens to be a multiple of K).
+        if (LOOKAHEAD_K > 0 and lookahead_slow and train_step > LOOKAHEAD_WARMUP_STEPS
+                and (train_step - LOOKAHEAD_WARMUP_STEPS) % LOOKAHEAD_K == 0):
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    slow = lookahead_slow[name]
+                    # slow ← slow + alpha · (fast - slow)  ⟺  slow ← (1-α)·slow + α·fast
+                    slow.add_(p - slow, alpha=LOOKAHEAD_ALPHA)
+                    # fast ← slow
+                    p.copy_(slow)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
