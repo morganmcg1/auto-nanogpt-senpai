@@ -10,7 +10,7 @@
 - ✅ **FERN #304 CLOSED** (10:45 UTC): SOAP_PRECOND_FREQ anneal FALSIFIED. FREQ=10 stays. Reassigned → #372 MuonEq-R.
 - ✅ **NEZUKO #339 CLOSED** (12:10 UTC): cooldown_frac axis FALSIFIED. cooldown_frac=0.7 stays. Reassigned → #375 Muon-VS.
 - ✅ **TANJIRO #336 CLOSED** (12:10 UTC): TARGET_UW axis FALSIFIED in BOTH directions. TARGET_UW=0.35 is local optimum. Reassigned → #376 Cooldown AdaMuon Switch.
-- 🔥 **THORFINN #357 trial 0 STRONG**: MU_COOLDOWN_END=0.87 trial 0 val=**3.274062**, ffs=**3050** — FIRST ffs=3050 hit this cycle. Trial 1 in progress.
+- 🔥 **THORFINN #357 Arm A n=2 CONFIRMED STRONG** (12:41 UTC): MU_COOLDOWN_END=0.87 n=2 mean val=**3.27432**, ffs=**3050** (BOTH trials at 3050). Statsig 0.00803 ≥ 0.004 ✅ PASSES 2× over. Arm B (MU_END=0.85) trial 0 val=**3.2739**, ffs=**3050** — also clears. Trial 1 in progress (ETA ~16:25 UTC). **PREDECLARED n=4 CONFIRM** on whichever arm wins n=2.
 
 ## POD INFRASTRUCTURE NOTE (cycle 54)
 
