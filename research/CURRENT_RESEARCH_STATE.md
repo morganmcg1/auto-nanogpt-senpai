@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 14:15 UTC
+- **Date:** 2026-05-18 15:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -47,77 +47,100 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 ---
 
-## Active experiments — 12:40 UTC
+## Active experiments — 15:00 UTC
 
-### 🔥 frieren #344 — NS late_peak transition point sweep — PAIRED CONFIRMATION REQUESTED
+### 🔥 frieren #344 — NS late_peak transition point sweep — PAIRED CONFIRMATION RUNNING
 **Branch:** `g1r4-frieren/ns-late-peak-frac-sweep`
-**Sweep complete (n=1 each):**
-| Arm | frac | val_loss | fs | Δ vs B | Δ vs baseline |
-|---|---|---|---|---|---|
-| A | 0.25 | **3.27095** | 3225 | **−0.00419** | −0.00105 |
-| B | 0.50 | 3.27514 | 3275 | — (control) | +0.00314 (drift) |
-| C | 0.75 | 3.27164 | 3225 | **−0.00350** | −0.00036 |
+**Original sweep + paired retry seeds:**
+| Run | arm | frac | val_loss | fs |
+|---|---|---|---|---|
+| qtj0tkzo | A1 | 0.25 | 3.27095 | 3225 |
+| nhbgfpta | B1 | 0.50 | 3.27514 | 3275 |
+| 0qybug8m | C1 | 0.75 | 3.27164 | 3225 |
+| **5plbo04e** | **A2 retry** | **0.25** | **3.27496** | 3275 |
+| 7hqwnf6b | B2 retry | 0.50 | running step 1150 | - |
 
-**Reading**: A and C both beat B (likely pod-unlucky on B, drift gate over by 0.00014). Strongest within-pod signal this cycle. A−C only −0.00069 apart, so true U-shape unlikely; most parsimonious read = "frac=0.25 is a real improvement; B was unlucky".
-**Path:** Sent back 12:30 UTC for **paired confirmation**: 2 fresh pods × frac=0.25→frac=0.50 back-to-back per pod (4 runs total). Combined with original sweep → n=3 for both arms, paired Δ n=3. Merge if mean(frac=0.25)≤3.27200 AND paired Δ mean≤−0.002 AND stat-rule satisfied.
-**ETA paired conf:** ~7h.
+**Variance signal**: arm-A retry came in at 3.27496 vs original 3.27095 — **seed-to-seed Δ=+0.00401, roughly equal to the original within-pod Δ=−0.00419 signal**. Strong evidence the original signal was substantially pod luck. Paired Δ analysis pending B2 + A3/B3.
+**ETA paired conf:** ~14:00–16:00 UTC.
+
+### 🔥 alphonse #351 — Per-group SCALAR AdamW ε sweep — MIXED SIGNAL [arm D running]
+**Branch:** `g1r4-alphonse/scalar-eps-sweep`
+**Three of four arms in:**
+| Arm | scalar_eps | val_loss | fs | Δ vs A | Δ vs baseline |
+|---|---|---|---|---|---|
+| A (control) | 1e-10 | 3.27528 | 3275 | — | +0.00328 (drift gate ✗ by 0.00028) |
+| B | 1e-12 | 3.27317 | 3250 | −0.00211 | +0.00117 |
+| C | 1e-8 | 3.27372 | 3250 | −0.00156 | +0.00172 |
+| D | 1e-6 | running step 2675, val=3.352 | - | - | - |
+
+**Reading**: arm-A drifted +0.00328 vs merged baseline (just over drift gate), so within-pod Δs may be partly drift correction. Both B and C absolute vals (3.27317, 3.27372) sit ABOVE baseline (3.27200) — neither is currently better than baseline. If D shows U-shape with apex at B (1e-12), worth paired confirmation. If monotone-down (D<C<B), extend to 1e-14.
+
+### 🔄 askeladd #354 — Logit softcap value sweep [arm-D running]
+**Branch:** `g1r4-askeladd/logit-softcap-sweep`
+**Three of four arms in:**
+| Arm | softcap | val_loss | fs | Δ vs A |
+|---|---|---|---|---|
+| A (control) | 15.0 | 3.27194 | 3225 | — (drift gate ✓ by 0.00006) |
+| B | 10.0 | 3.27708 | 3300 | +0.00514 (worse) |
+| C | 20.0 | 3.27561 | 3275 | +0.00367 (worse) |
+| D | 25.0 | running step 925 | - | - |
+
+**Reading**: softcap=15.0 (default) winning so far. Both adjacent values regress materially. Pre-staged: if D also regresses → productive-null close axis (softcap=15 optimal).
+
+### 🔄 nezuko #356 — Muon μ schedule sweep [arm-D running]
+**Branch:** `g1r4-nezuko/muon-mu-schedule`
+**Three of four arms in:**
+| Arm | schedule | μ | val_loss | fs | Δ vs A |
+|---|---|---|---|---|---|
+| A (control) | constant | 0.95 | 3.27048 | 3225 | — (drift gate ✓ −0.00152) |
+| B | ramp_up 0.90→0.99 | 3.28429 | -1 | +0.01381 (much worse) |
+| C | ramp_down 0.99→0.90 | 3.28083 | -1 | +0.01035 (much worse) |
+| D | late_peak 0.90→0.99 | running step 100 | - | - |
+
+**Reading**: μ scheduling broadly hurts. Both B (ramp_up) and C (ramp_down) failed to hit target. Pre-staged: if D also regresses → productive-null. Constant μ=0.95 looks like a genuine optimum.
+
+### 🔄 thorfinn #348 — Per-group AdamW WD sweep [arm-D running, near terminal]
+**Branch:** `g1r4-thorfinn/per-group-wd`
+**Three of four arms in:**
+| Arm | wd config | val_loss | fs | Δ vs A |
+|---|---|---|---|---|
+| A (control) | all-zero | 3.27143 | 3225 | — (drift gate ✓ −0.00057) |
+| B | lm_head WD=0.002 | 3.27396 | 3250 | +0.00253 (worse) |
+| C | scalar WD=0.002 | 3.27365 | 3250 | +0.00222 (worse) |
+| D | both lm_head+scalar WD=0.002 | running step 3225, val=3.281 | - | likely worse |
+
+**Reading**: per-group WD broadly hurts. Both single-group arms regress. D likely composes regression. Pre-staged: productive-null close axis (all-zero WD optimal on current stack).
+
+### 🔄 edward #374 — Embed init scale sweep [arm-B running, near terminal]
+**Branch:** `g1r4-edward/embed-init-scale`
+**Two of four arms in:**
+| Arm | init scale | val_loss | fs | Δ vs A |
+|---|---|---|---|---|
+| A (control) | 1.0 | 3.27421 | 3250 | — (drift gate ✓ +0.00221) |
+| B | 0.5 | running step 2680, val=3.354 | - | - |
+
+**ETA full chain:** 2 more arms after B terminal.
+
+### 🔄 fern #380 — lm_head proj init std sweep [arm-A running]
+**Branch:** `g1r4-fern/lmhead-init-scale`
+**Setup verified:** student code edit present (`M records/track_3_optimization/train_gpt_simple.py`).
+| Arm | init_std | val_loss | step | notes |
+|---|---|---|---|---|
+| A (control) | 0.0 | running step 1250, val=3.57 | 1250 | reproducing zero-init baseline |
+
+**ETA full chain:** ~6h (4 arms).
+
+### 🔄 tanjiro #377 — Pruning ablation [arm-A retry #5 running]
+**Branch:** `g1r4-tanjiro/pruning-ablation`
+**Status:** student has hit 4 crashes on arm-A control before getting a clean run going. Latest: a6gl5pm2 running step 670+. Config verified correct in W&B — crashes appear infrastructure-related (control arm = exact merged baseline stack).
+**Advisor action 14:55 UTC:** posted supportive comment asking for crash cause notes; control config confirmed correct.
+**ETA full chain (if no more crashes):** ~7h.
 
 ### ✅ fern #345 — NS coef ramp_down DEPTH sweep — CLOSED 14:10 UTC productive-null
-Asymmetric plateau: steep side [0.42, 0.70] flat (A≈C≈D), shallow side hurts (B depth=0.30 → +0.00390). Depth=0.42 confirmed optimal. Only sub-0.42 could improve (arm-B shows they don't).
 **Follow-up**: fern assigned #380 lmhead-init-scale.
 
-### 🔥 alphonse #351 — Per-group SCALAR AdamW ε sweep — SIGNAL CANDIDATE [arms C,D running]
-**Branch:** `g1r4-alphonse/per-group-scalar-eps`
-**Two of four arms in:**
-| Arm | scalar_eps | val_loss | fs | Δ vs A |
-|---|---|---|---|---|
-| A (control) | 1e-10 | 3.27528 | 3275 | — |
-| B | 1e-12 (lower) | **3.27317** | 3250 | **−0.00211** (signal candidate!) |
-
-**Reading**: arm-B just past the −0.002 signal gate. Lower scalar ε helps — consistent with #280 per-group β2 finding (scalar group wants tighter normalization).
-**Pre-staged decision tree**:
-- C & D both worse → monotone-down → extend to 1e-14
-- C better, D worse → interior optimum → finer grid
-- All within ±0.0015 of A → arm-B was pod-lucky, close axis
-**ETA full chain:** C ~13:25 UTC, D ~15:10 UTC.
-
 ### ✅ tanjiro #300 — Embed floor value sweep — CLOSED 12:50 UTC productive-null
-n=2 post-#290 re-conf mean=3.274085 (+0.00209 vs baseline). floor=0.20 absorbed by late_peak + linear_ramp_down stack. 9 seeds total; verdict robust. embed-floor ⊆ late-cooldown-precision family. Current floor=0.15 (#235) remains best known.
 **Follow-up:** tanjiro assigned #377 pruning ablation.
-
-### 🔄 thorfinn #348 — Per-group AdamW WD sweep [arm-C running]
-**Branch:** `g1r4-thorfinn/per-group-adamw-wd`
-**Two of four arms in:**
-| Arm | wd config | val_loss | Δ vs A |
-|---|---|---|---|
-| A (control) | all-zero | 3.27143 | — |
-| B | lm_head WD=0.002 | 3.27396 | +0.00253 (worse) |
-
-**Reading**: lm_head WD hurts (consistent with #279 closing global WD as null). arm-C (scalar WD=0.002) and arm-D (combo) remain.
-**ETA full chain:** ~15:00 UTC.
-
-### 🔄 askeladd #354 — Logit softcap value sweep [arm-B running]
-**Branch:** `g1r4-askeladd/logit-softcap-value`
-**One of four arms in:**
-| Arm | softcap | val_loss | Δ vs baseline |
-|---|---|---|---|
-| A (control) | 15.0 | 3.27194 | −0.00006 (drift gate ✓) |
-
-**ETA full chain:** ~17:30 UTC.
-
-### 🔄 nezuko #356 — Muon μ schedule sweep [arm-B running]
-**Branch:** `g1r4-nezuko/muon-mu-schedule`
-**One of four arms in:**
-| Arm | schedule | μ | val_loss | Δ vs baseline |
-|---|---|---|---|---|
-| A (control) | constant | 0.95 | 3.27048 | −0.00152 (drift gate ✓) |
-
-**ETA full chain:** ~17:30 UTC.
-
-### 🔄 edward #374 — Embed init scale sweep [implementation fixed, arm-A running]
-**Branch:** `g1r4-edward/embed-init-scale`
-**Implementation note**: Student caught a bug — the assignment's `__init__` placement would have been overwritten by the per-trial re-init loop at line 822. Student correctly placed `w.mul_(NANOGPT_EMBED_INIT_SCALE)` immediately after `w.normal_()` in that loop. Verified with `model.embed.weight.norm()` sanity print.
-**ETA full chain:** ~7h.
 
 ---
 
@@ -138,20 +161,18 @@ n=2 post-#290 re-conf mean=3.274085 (+0.00209 vs baseline). floor=0.20 absorbed 
 ## Potential next research directions
 
 ### Active candidates with signal
-1. **NS late_peak frac=0.25** — frieren #344. Within-pod Δ=−0.00419. Paired confirmation in flight. If confirmed → merge candidate.
-2. **scalar AdamW ε=1e-12** — alphonse #351. Within-pod Δ=−0.00211 (single pair). Need C/D + paired confirmation.
+1. **NS late_peak frac=0.25** — frieren #344. Paired-confirm in flight; A2 retry (val=3.27496) showed +0.00401 vs original A1 (3.27095) → original signal likely substantially pod luck. Wait for B2 + A3/B3.
+2. **scalar AdamW ε=1e-12** — alphonse #351. Within-pod ΔB=−0.00211, ΔC=−0.00156, but arm-A drifted +0.00328 above baseline (just over drift gate). Absolute B (3.27317) and C (3.27372) both ABOVE baseline (3.27200). D pending — interpret cautiously, may need paired confirmation.
 
-### Currently null/marginal
-3. **NS coef depth** — fern #345. Apex at depth=0.42 (control); D pending. Likely close as confirmed-optimal.
-4. **Embed floor value** — tanjiro #300. Re-conf seed-1 regress on post-#290. Likely close productive-null.
-5. **lm_head WD** — thorfinn #348 arm-B null. arms C/D outstanding.
+### Productive-null shaping up
+3. **Logit softcap value** — askeladd #354. softcap=15 (default) winning. B (10) and C (20) both regress materially. D (25) pending.
+4. **Muon μ schedule** — nezuko #356. μ scheduling broadly hurts. Both ramp_up and ramp_down arms didn't hit target. D (late_peak μ schedule) pending.
+5. **Per-group AdamW WD** — thorfinn #348. Single-group WD hurts (B, C both +0.0022/0.0025). D combo running.
+6. **Embed init scale** — edward #374. Arm-A drift gate ✓. Arm-B running.
 
 ### Fresh axes (early stage)
-6. **Logit softcap value** — askeladd #354. Drift gate passed. Arms B/C/D outstanding.
-7. **Muon μ schedule** — nezuko #356. Drift gate passed. Arms B/C/D outstanding.
-8. **Embed init scale** — edward #374. Implementation fixed. Full sweep outstanding.
-9. **Pruning ablation** — tanjiro #377. Drop one of {late_peak, linear_ramp_down, β2=0.99}. Mechanism probe: identifies subsumed merges → candidate for slot swap to fresh mechanism.
-10. **lm_head proj init std** — fern #380. zero-init lm_head has never been challenged. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis; lm_head feeds logits directly (no RMSNorm).
+7. **lm_head proj init std** — fern #380. Arm-A (zero-init control) running. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis.
+8. **Pruning ablation** — tanjiro #377. Arm-A retry #5 after 4 control crashes. Once stable, drop one of {late_peak, linear_ramp_down, β2=0.99}.
 
 ### Medium-priority unassigned axes (for next idle)
 9. **NS coef mean sweep** — once fern #345 closes, sweep c_mean {0.45/0.49/0.53/0.57} at depth=0.42
@@ -164,7 +185,8 @@ n=2 post-#290 re-conf mean=3.274085 (+0.00209 vs baseline). floor=0.20 absorbed 
 - 7 merges across orthogonal axes; gap to 3030 steps ~200 steps in fs
 - Closed naive hparam sweeps (β1, global WD, global ε, lm_head steeper decay)
 - Fresh mechanism exploration (schedule axes, init, output layer) remains the priority
-- **Two live signal candidates** (#344 frieren, #351 alphonse) — current cycle's primary merge candidates
+- **Both live signal candidates weakened on 2nd-seed data**: #344 frieren A-retry showed +0.00401 variance (≈ original signal magnitude); #351 alphonse arm-A drifted above gate making within-pod Δs harder to interpret.
+- **Most current arms shaping toward productive-null** — likely cycle's outcome is mechanism-mapping rather than new merges.
 
 ---
 
