@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 12:40 UTC
+- **Date:** 2026-05-18 12:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -89,13 +89,9 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 - All within ±0.0015 of A → arm-B was pod-lucky, close axis
 **ETA full chain:** C ~13:25 UTC, D ~15:10 UTC.
 
-### ⚠️ tanjiro #300 — Embed floor value sweep — LIKELY PRODUCTIVE-NULL [seed-2 finishing]
-**Status:** Pre-stack n=3 mean=3.27184 (Δ=−0.00016). Re-conf on full post-#290 stack:
-- seed-1 (vvndpgmx): val=**3.27521**, Δ=+0.00321 → REGRESS
-- seed-2 (mr6za83o): in flight, ETA ~12:25 UTC
-
-**Reading**: First post-#290 sample regresses by +0.00321. For n=2 mean ≤ 3.27300, seed-2 needs val ≤ 3.27079 (below every prior sample on this recipe). Probability low.
-**Likely outcome**: Productive-null close — floor=0.20 absorbed by stacked late-cooldown precision levers (late_peak + linear_ramp_down + β2=0.99). The single-feature signal does NOT survive composition.
+### ✅ tanjiro #300 — Embed floor value sweep — CLOSED 12:50 UTC productive-null
+n=2 post-#290 re-conf mean=3.274085 (+0.00209 vs baseline). floor=0.20 absorbed by late_peak + linear_ramp_down stack. 9 seeds total; verdict robust. embed-floor ⊆ late-cooldown-precision family. Current floor=0.15 (#235) remains best known.
+**Follow-up:** tanjiro assigned #377 pruning ablation.
 
 ### 🔄 thorfinn #348 — Per-group AdamW WD sweep [arm-C running]
 **Branch:** `g1r4-thorfinn/per-group-adamw-wd`
@@ -140,6 +136,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 - **nezuko #315 (lm_head steeper-decay cooldown)** — CLOSED 08:35 UTC productive-null. All steeper shapes regress +0.0031–0.0035. lm_head sweet spot is linear.
 - **frieren #285 (NS cooldown SHAPE)** — MERGED ✅ 06:02 UTC. val=3.27352 (n=2). late_peak concentrates NS=20 into lowest-LR half of cooldown.
 - **fern #290 (NS coef schedule)** — MERGED ✅ 06:07 UTC. val=3.27200 (n=3). linear_ramp_down starts NS at high-precision coefficients, ramps toward standard.
+- **tanjiro #300 (embed floor=0.20)** — CLOSED 12:50 UTC productive-null. floor=0.20 absorbed by late_peak + linear_ramp_down. embed-floor ⊆ late-cooldown-precision family. 9 seeds total.
 - **thorfinn #279 (AdamW WD=0.005)** — CLOSED 07:12 UTC productive-null. β2=0.99 absorbed standalone gain.
 - **alphonse #322 (AdamW global ε)** — CLOSED 07:48 UTC productive-null. β2=0.99 smoothing already stabilizes denominator.
 
@@ -160,6 +157,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 6. **Logit softcap value** — askeladd #354. Drift gate passed. Arms B/C/D outstanding.
 7. **Muon μ schedule** — nezuko #356. Drift gate passed. Arms B/C/D outstanding.
 8. **Embed init scale** — edward #374. Implementation fixed. Full sweep outstanding.
+9. **Pruning ablation** — tanjiro #377. Drop one of {late_peak, linear_ramp_down, β2=0.99}. Mechanism probe: identifies subsumed merges → candidate for slot swap to fresh mechanism.
 
 ### Medium-priority unassigned axes (for next idle)
 9. **NS coef mean sweep** — once fern #345 closes, sweep c_mean {0.45/0.49/0.53/0.57} at depth=0.42

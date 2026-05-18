@@ -1066,3 +1066,55 @@ Drift gate (arm-A vs post-#236 baseline 3.27407): |Δ|=0.00075 ≤ 0.003 ✓.
 Strong productive-null. Muon-floor axis is closed. The embed-floor mechanism map is now complete: it is embed-specific and non-transferable.
 
 **Follow-up assigned (PR #374)**: edward embed init scale sweep — N(0,1) default init, sweep {0.5, 1.0, 1.5, 2.0} multipliers. Fresh initialization axis, completely unexplored.
+
+## 2026-05-18 12:50 UTC — PR #300: Embed LR floor value sweep (tanjiro) — CLOSED productive-null ❌
+
+- Branch: `g1r4-tanjiro/embed-floor-sweep`
+- Hypothesis: The embed LR floor (merged at 15% in #235) has not been tuned. Apex may not be 15%. Sweep floor ∈ {0.10, 0.15, 0.20, 0.30} on post-#236 stack.
+
+### Results — 3-phase sweep
+
+**Phase 1 — Screening (4-arm within-pod, pre-#236 baseline 3.27434)**
+
+| Arm | floor | W&B | val_loss | fs | Δ vs A |
+|---|---|---|---|---|---|
+| A (control) | 0.15 | `bhj5nllu` | 3.27441 | 3275 | — |
+| B | 0.10 | `dkgj7ho3` | 3.27630 | 3275 | +0.00189 |
+| **C** | **0.20** | **0jtlaw2f** | **3.27282** | **3250** | **−0.00159** ✓ signal |
+| D | 0.30 | `k6yhwuh5` | 3.27549 | 3275 | +0.00108 |
+
+Clean inverted-U with apex at floor=0.20.
+
+**Phase 2 — Confirmation (floor=0.20, post-#236+β2=0.99 stack, pre-#285+#290)**
+
+| Seed | W&B | val/loss | fs |
+|---|---|---|---|
+| seed-1 | `041u375w` | 3.26995 | 3225 |
+| seed-2 | `prem5jzv` | 3.27307 | 3250 |
+| seed-3 | `t8s4wpfe` | 3.27251 | 3250 |
+| **n=3 mean** | — | **3.27184** | **3241.67** |
+
+n=3 mean 3.27184 vs post-#290 baseline 3.27200: Δval = −0.00016 (razor-thin). fs regressed (+8.34 steps). Marginal val beat but fs gate fails → re-confirm on full post-#290 stack.
+
+**Phase 3 — Re-confirmation (floor=0.20, FULL post-#290 stack)**
+
+| Seed | W&B | val/loss | fs |
+|---|---|---|---|
+| re-conf seed-1 | `vvndpgmx` | 3.27521 | 3275 |
+| re-conf seed-2 | `mr6za83o` | 3.27296 | 3250 |
+| **n=2 mean** | — | **3.274085** | **3262.5** |
+
+vs baseline: Δval = +0.00209, Δfs = +29.17 → REGRESS. n=2 mean 3.274085 > 3.27300 threshold → productive-null per pre-staged rule.
+
+### Key findings
+
+1. **floor=0.20 was a real win on the pre-#285+#290 stack** (phase-2 n=3 technically beat val baseline by −0.00016, though fs gate fails), but the gain did NOT survive composition with late_peak + linear_ramp_down.
+2. **Mechanism saturation**: embed-floor ⊆ late-cooldown-precision family, sharing the "precise step direction in cooldown" mechanism with late_peak (#285) and linear_ramp_down (#290). Adding a 3rd lever in the same family does not compose linearly.
+3. **9 seeds total in this PR** — the most heavily tested hypothesis on the branch. Verdict is robust.
+4. **Sparsity-precision family** now has 3 confirmed members: β2=0.99 (#236), late_peak (#285), linear_ramp_down (#290). All target the cool-down phase. embed-floor is a 4th candidate absorbed by these three.
+
+### Verdict
+
+Productive-null. Current merged default floor=0.15 (#235) remains best known on post-#290 stack. Closing this axis.
+
+**Follow-up assigned (PR #377)**: Pruning ablation — drop one of {late_peak, linear_ramp_down, β2=0.99} at a time to measure each merge's load-bearing contribution on the current stack. Tests whether mechanism saturation is symmetric (i.e., any merge partially subsumed by others → candidate for swap to fresh mechanism).
