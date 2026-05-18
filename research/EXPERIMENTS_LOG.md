@@ -1,6 +1,28 @@
 # SENPAI Research Results
 
-## 2026-05-18 08:57 UTC — PR #307 CLOSED + PR #355 ASSIGNED: PMuon EMA bias correction → Gradient Centralization (g1r1-tanjiro)
+## 2026-05-18 09:09 UTC — PR #305 CLOSED + PR #363 ASSIGNED: AdEMAMix → Z-loss auxiliary (g1r1-frieren)
+
+- Branch: `g1r1-frieren/ademamix-alpha-scan`
+- **Hypothesis:** AdEMAMix dual-EMA auxiliary optimizer for embed/lm_head/scalars: slow-EMA component (β3=0.9999) with α∈{4,8} blend.
+- W&B runs: `4ahrxeo8` (Arm A α=4), `7lstqkpp` (Arm B α=8)
+
+| Arm | α | sr | val/loss | Δ vs baseline | slow_over_fast | verdict |
+|-----|---|-----|----------|---------------|----------------|---------|
+| **Baseline (PR #274)** | — | **3000** | **3.2685** | — | — | — |
+| Arm A | 4.0 | -1 | 3.28611 | +0.0176 | 0.257 | NULL — missed target |
+| Arm B | 8.0 | -1 | 3.31655 | +0.0480 | 0.640 | NULL — missed target |
+
+**Result:** Both NULL. Clear dose-response: stronger slow-EMA engagement (higher α) → worse val/loss monotonically. Mechanism unambiguously activated (slow_over_fast rose smoothly 0→0.26 for α=4, 0→0.64 for α=8) but consistently harmful.
+
+**Key mechanism finding:** With only 3250 steps and β3=0.9999, slow EMA reaches only ~28% of steady-state mass. The slow component drags update direction toward stale early-training gradients during aggressive COOLDOWN_POWER=1.4 descent — exactly when we want sharp, current gradient direction. Fast-only EMA (standard AdamW) is optimal for this aux path / horizon. Matches pre-declared falsification: "mechanism activates but doesn't improve — close AdEMAMix-on-aux axis."
+
+**BF16 note (frieren):** Correctly stored m_slow in FP32 (BF16 rounds 0.9999→1.0 making mul a no-op). Fix was necessary and properly applied.
+
+**Axis decision: AdEMAMix-on-aux CLOSED. Fresh assignment: z-loss auxiliary penalty (PR #363).**
+
+---
+
+## 2026-05-18 08:57 UTC — PR #307 CLOSED + PR #362 ASSIGNED (via #355 re-issue): PMuon EMA bias correction → Gradient Centralization (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pmuon-bias-correct`
 - **Hypothesis:** PMuon bilateral covariance EMA bias correction {FULL: 1/(1-β^k), SQRT: 1/sqrt(1-β^k)} to sharpen the cold-start preconditioner estimate.
