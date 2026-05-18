@@ -5,7 +5,7 @@
 ## 🔥 THREE-WAY N=4 CONFIRM RACE — REGRESSION-TO-MEAN WATCH (18:10 UTC)
 
 Three independent mechanism perturbations all hit `ffs=3050` floor in n=2 AND have n=2 STRONG with statsig pass. **All three n=4 confirms running; both visible early trials regressing from optimistic n=2**:
-1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). **n=4 confirm RUNNING** since 16:24 UTC. Trial 0 at step 3100/3175 with val=3.2800 (just hit target), ffs=3100 (above baseline 3087.5) — **trial 0 likely both-miss**. ETA full n=4 ~22:45 UTC.
+1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050). **n=4 confirm RUNNING** since 16:24 UTC. Trial 0 terminal val=**3.2776**/ffs=**3100** — BOTH MISS. For n=4 mean to clear, trials 1-3 need ≥ 2× ffs=3050 (low probability given n=2 was 2/2 at 3050). Trial 1 in flight (step 1700/3175). ETA full n=4 ~22:45 UTC.
 2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5). **n=4 confirm RUNNING** since 13:28 UTC. Trials 0+1 done: 2/4 mean val=**3.27475/ffs=3075** (slipped from n=2 3.27343/3062.5 but still both bars clear). ETA ~21:15 UTC.
 3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5). **n=4 confirm RUNNING** since 15:44 UTC. Trial 0 done: val=**3.27821/ffs=3125** (BOTH BARS MISS, worst result). Trial 1 at step 520 in flight. ETA ~22:50 UTC.
 
@@ -28,7 +28,8 @@ If multiple n=4 confirms pass, the next experiment is the STACKED combination (M
 
 ## 🚫 Falsified Output-Side Mechanisms
 - ✅ **NEZUKO #375 CLOSED** (17:20 UTC): Muon-VS FALSIFIED both arms (β=0.95: val+0.050/ffs=-1, β=0.90: val+0.038/ffs=-1). Reassigned → #394 ATTN_SOAP_BETA2 sweep.
-- **FRIEREN #373 AdaMuon β=0.95** Arm A n=2 MISS: val=3.27786/+0.00251, ffs=3112.5/+25. Arm B β=0.99 launched ~17:00 UTC.
+- **FRIEREN #373 AdaMuon β=0.95** Arm A n=2 MISS: val=3.27786/+0.00251, ffs=3112.5/+25.
+- 🔥 **FRIEREN #373 AdaMuon β=0.99** Arm B trial 0 STRONG: val=**3.2750**/ffs=**3075** (clears both bars by −0.00035/−12.5). Arm B is the **fifth strong candidate** this cycle. Trial 1 in flight. AdaMuon axis is **NOT fully falsified** — β=0.99 is the right side of the variance-scaling parameter.
 - **TANJIRO #376 Cooldown-AdaMuon β=0.95** trial 0 MISS: val=3.2764/+0.00105, ffs=3100/+12.5. Trial 1 in progress ETA ~18:05 UTC.
 
 
