@@ -99,17 +99,21 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 
 **Reading**: μ scheduling broadly hurts. Both B (ramp_up) and C (ramp_down) failed to hit target. Pre-staged: if D also regresses → productive-null. Constant μ=0.95 looks like a genuine optimum.
 
-### 🔄 thorfinn #348 — Per-group AdamW WD sweep [arm-D running, near terminal]
-**Branch:** `g1r4-thorfinn/per-group-wd`
-**Three of four arms in:**
-| Arm | wd config | val_loss | fs | Δ vs A |
-|---|---|---|---|---|
-| A (control) | all-zero | 3.27143 | 3225 | — (drift gate ✓ −0.00057) |
-| B | lm_head WD=0.002 | 3.27396 | 3250 | +0.00253 (worse) |
-| C | scalar WD=0.002 | 3.27365 | 3250 | +0.00222 (worse) |
-| D | both lm_head+scalar WD=0.002 | running step 3225, val=3.281 | - | likely worse |
+### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
+All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).
+**Follow-up**: thorfinn assigned #384 NS coef center sweep.
 
-**Reading**: per-group WD broadly hurts. Both single-group arms regress. D likely composes regression. Pre-staged: productive-null close axis (all-zero WD optimal on current stack).
+### 🔄 thorfinn #384 — NS poly coef CENTER sweep at depth=0.42 [just assigned]
+**Branch:** `g1r4-thorfinn/ns-coef-center`
+**Hypothesis**: the polynomial center (average c over iterations) has never been independently swept. merged linear_ramp_down (#290) has center=0.49 (average of 0.70 and 0.28). fern #345 found depth=0.42 optimal; now sweep center at that depth.
+| Arm | center | start | end | Interpretation |
+|---|---|---|---|---|
+| A | 0.49 | 0.70 | 0.28 | current default (control) |
+| B | 0.43 | 0.64 | 0.22 | gentler polynomial average |
+| C | 0.55 | 0.76 | 0.34 | more aggressive average |
+| D | 0.60 | 0.81 | 0.39 | extreme aggressive |
+
+**ETA full chain:** ~7h.
 
 ### 🔄 edward #374 — Embed init scale sweep [arm-B running, near terminal]
 **Branch:** `g1r4-edward/embed-init-scale`
@@ -167,12 +171,13 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 ### Productive-null shaping up
 3. **Logit softcap value** — askeladd #354. softcap=15 (default) winning. B (10) and C (20) both regress materially. D (25) pending.
 4. **Muon μ schedule** — nezuko #356. μ scheduling broadly hurts. Both ramp_up and ramp_down arms didn't hit target. D (late_peak μ schedule) pending.
-5. **Per-group AdamW WD** — thorfinn #348. Single-group WD hurts (B, C both +0.0022/0.0025). D combo running.
+5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
 6. **Embed init scale** — edward #374. Arm-A drift gate ✓. Arm-B running.
 
 ### Fresh axes (early stage)
 7. **lm_head proj init std** — fern #380. Arm-A (zero-init control) running. Sweep σ ∈ {0.0, 0.005, 0.02, 0.05}. Fresh init axis.
 8. **Pruning ablation** — tanjiro #377. Arm-A retry #5 after 4 control crashes. Once stable, drop one of {late_peak, linear_ramp_down, β2=0.99}.
+9. **NS coef center** — thorfinn #384. Sweep center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42 (apex from fern #345). Polynomial aggressiveness axis never tested.
 
 ### Medium-priority unassigned axes (for next idle)
 9. **NS coef mean sweep** — once fern #345 closes, sweep c_mean {0.45/0.49/0.53/0.57} at depth=0.42
@@ -218,3 +223,6 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 | lm_head steeper-decay shape | floor/steep alternatives | #315 (all worse) |
 | NS cooldown SHAPE (frieren) | late_peak wins — MERGED #285 | — |
 | NS coef schedule (fern) | linear_ramp_down wins — MERGED #290 | — |
+| NS coef depth (fern) | depth=0.42 confirmed apex, asymmetric plateau | #345 (productive-null) |
+| AdamW WD (global) | global WD=0.005 absorbed by β2=0.99 | #279 (null) |
+| AdamW WD (per-group) | per-group WD=0.002 on lm_head, scalar, or both — all harmful | #348 (harmful) |

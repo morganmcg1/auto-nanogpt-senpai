@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-18 15:15 UTC — PR #348: Per-group AdamW WD sweep (thorfinn) — CLOSED productive-null ✅
+
+- Branch: `g1r4-thorfinn/per-group-wd`
+- Hypothesis: per-group AdamW WD on lm_head and/or scalar groups spares the embed group (#279 diagnosis) and recovers WD benefit. Mechanism: lm_head/scalar groups' WD apex might still exist at WD=0.002 even when global WD=0.005 hurts due to embed.
+
+### Results — 4-arm single-pod sequential on post-#290 stack
+
+| Arm | embed WD | lm_head WD | scalar WD | val_loss | Δ vs A | fs | W&B |
+|---|---|---|---|---|---|---|---|
+| A control | 0 | 0 | 0 | 3.27143 | — | 3225 | `ep92lnxh` |
+| B | 0 | 0.002 | 0 | 3.27396 | +0.00253 | 3250 | `gifry4wd` |
+| C | 0 | 0 | 0.002 | 3.27365 | +0.00222 | 3250 | `4oynrbiv` |
+| D | 0 | 0.002 | 0.002 | 3.27335 | +0.00192 | 3250 | `uiuuds0t` |
+
+### Key findings
+
+1. **All three non-control arms regress by +0.0019 to +0.0025** — exceeds productive-null band by ~5×; this is "axis closed by harm at WD=0.002" rather than saturation.
+2. **Mechanism confirmed by fro telemetry**: B/D shrink proj_fro by 1.4-1.5%, C/D shrink scalar_grp_fro by 3.1-3.4% (composed from `train/weight_param/.../norm` keys). WD is doing what it should mechanically; the loss landscape just doesn't reward it.
+3. **Sub-additive interaction**: Δ_D=+0.00192 vs Δ_B+Δ_C=+0.00475 — D's harm is roughly half the sum, indicating both arms partially shrink the same downstream subspace.
+4. **Cross-group coupling oddity** (worth noting): arm D shrinks embed_fro by 0.75% despite zero embed WD, vs ~0.05-0.14% in B/C alone — suggests internal optimizer coupling worth probing in a future PR.
+
+### Verdict
+
+Productive-null close: post-#290 stack is globally saturated on AdamW WD across all groups. Combined with #279 (global WD null), the AdamW WD axis appears closed on r4.
+
+### Methodological notes
+
+- Per-group fro composed from existing telemetry without code changes — strong analysis under constraints.
+- Pre-staged decision tree fully applied (B/C/D all hit "FAIL" branches cleanly).
+- Cross-group coupling observation flagged as side finding, not over-claimed.
+- Honest mechanism post-mortem on why the predicted "embed-asymmetric" fix didn't work.
+
 ## 2026-05-18 02:05 UTC — PR #280: Per-aux-group AdamW β2 ablation (edward) — CLOSED mechanism-study ✅
 
 - Branch: `g1r4-edward/g1r4-edward-pergroup-adamw-beta2`
