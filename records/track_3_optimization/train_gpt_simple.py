@@ -46,6 +46,7 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_warmup_shape", type=str, default=os.environ.get("MUONH_WARMUP_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="Shape of MuonH inner LR warmup ramp.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -723,6 +724,7 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "muonh_warmup_shape": args.muonh_warmup_shape,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -812,10 +814,19 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        # MuonH-only linear warmup: scales LR by (step+1)/K for the first K steps.
-        # AdamW aux groups are unaffected. warmup_steps=0 is a no-op (factor=1.0).
-        if args.muonh_warmup_steps > 0:
-            muonh_warmup = min(1.0, (step + 1) / args.muonh_warmup_steps)
+        # MuonH-only LR warmup: scales LR over the first K steps with one of three
+        # shapes (linear / cosine / sqrt). AdamW aux groups are unaffected.
+        # warmup_steps=0 is a no-op (factor=1.0).
+        if args.muonh_warmup_steps > 0 and step < args.muonh_warmup_steps:
+            t = (step + 1) / args.muonh_warmup_steps  # t in (0, 1]
+            if args.muonh_warmup_shape == "linear":
+                muonh_warmup = t
+            elif args.muonh_warmup_shape == "cosine":
+                muonh_warmup = 0.5 * (1.0 - math.cos(math.pi * t))
+            elif args.muonh_warmup_shape == "sqrt":
+                muonh_warmup = math.sqrt(t)
+            else:
+                raise ValueError(f"unknown muonh_warmup_shape: {args.muonh_warmup_shape}")
         else:
             muonh_warmup = 1.0
         for opt in optimizers:
