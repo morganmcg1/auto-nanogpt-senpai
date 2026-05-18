@@ -6,6 +6,141 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 10:31 UTC — PR #310: MuonH inner LR warmup (warmup_steps=100) ✅ MERGED
+
+- **Branch**: g1r3-thorfinn/muonh-lr-warmup
+- **Hypothesis**: Linear warmup on MuonH-SI inner LR over first 100 steps (factor = `step/warmup_steps`). Rationale: MuonH's NS5-orthogonalized momentum buffer needs ~20 steps to populate reliable direction estimates; starting at full lr=0.018 from step 0 wastes those steps on noisy directions. Applied ONLY to MuonH groups (optimizer2); aux AdamW unchanged.
+- **Results** (n=4 confirm, all at step 3325):
+
+| Trial | W&B Run | val/loss | Δ vs baseline 3.27415 | ffs | Verdict |
+|---|---|---|---|---|---|
+| 0 | `w6xgiqzl` (trial 0) | 3.27361 | -0.00054 | 3150 | ✅ |
+| 1 | `w6xgiqzl` (trial 1) | 3.27308 | -0.00107 | 3150 | ✅ |
+| 2 | `w6xgiqzl` (trial 2) | 3.27256 | -0.00159 | **3125** | ✅ |
+| 3 | `w6xgiqzl` (trial 3) | 3.27333 | -0.00082 | 3150 | ✅ |
+| **n=4 mean** | | **3.27315** | **-0.00100** | **3143.75 (best=3125)** | **MERGED** |
+
+- **Stat margin**: (3.28 − 3.27315) × √4 = 0.01370 ≥ 0.004 ✓ (3.4× margin)
+- **All 4 trials individually beat baseline**; all reached 3.28 target.
+- **Mechanism (student's analysis)**: MuonH needs momentum buffer time; aux AdamW does NOT (β₁=0.8 already dampens early variance). Confirmed MuonH/aux asymmetry: thorfinn warmup wins, edward warmup hurts (PR #338 STRONG NEG).
+- **Screen history**: warmup=0 (control) ≈ baseline; warmup=100 = n=1 WIN; warmup=300 = DIVERGED (crashed, val_best=3.4679 at step 2350).
+- **New baseline**: val=3.27315, ffs=3125. New required flag: `--muonh_warmup_steps 100`.
+- **Next assignment**: thorfinn → warmup shape sweep (PR #370) — cosine vs linear vs sqrt ramp at fixed 100 steps.
+
+---
+
+## 2026-05-18 10:00 UTC — PR #338: Aux AdamW LR warmup sweep ❌ CLOSED NEG
+
+- **Branch**: g1r3-edward/aux-warmup-screen
+- **Hypothesis**: Mirror thorfinn's MuonH warmup success on aux AdamW groups (embed/lm_head/scalars). Delay full LR via linear ramp during first N steps to let Adam's second-moment estimates accumulate before being divided into the update. 3-arm: warmup_steps ∈ {0 (control), 100, 200} × 1 trial × 3325 steps.
+- **Results**:
+
+| Arm | W&B Run | warmup_steps | val/loss | Δ vs baseline 3.27415 | reached target | Verdict |
+|---|---|---|---|---|---|---|
+| 1 (control) | `m37tqsaz` | 0 | 3.27559 | +0.00144 | yes (step 3175) | within n=1 noise |
+| 2 | `1uenqxb0` | 100 | 3.27861 | +0.00446 | yes (step 3250) | NEG |
+| 3 | `j78eu1e7` | 200 | **3.28378** | **+0.00963** | **no** (failed target) | **STRONG NEG** |
+
+- **Monotonic-with-warmup NEG**: longer aux warmup → worse val/loss. Arm 3 (warmup=200) failed to reach the 3.28 speedrun target at all.
+- **MuonH/aux warmup asymmetry**: Same-named lever, opposite sign:
+  - MuonH warmup (PR #310): wins (n=3=3.27308 trending, Δ=-0.00107)
+  - aux AdamW warmup (this PR): hurts monotonically
+- **Mechanism (student's analysis)**: MuonH needs warmup because its momentum buffer requires time to populate before NS5 orthogonalization produces useful direction. aux AdamW already has β₁=0.8, β₂=0.95 dampening early variance, so the second-moment denominator isn't the bottleneck; what matters is getting useful gradient signal into the embedding table during the first 100-200 steps. Warmup withholds that signal during peak representational plasticity.
+- **Diagnostic quality**: Excellent. Standalone schedule replay confirmed bit-clean per-group LR ramp before launch. Control arm (warmup=0) reproduces baseline within n=1 noise — no implementation drift.
+- **Conclusion**: **CLOSED NEG.** aux LR warmup family closed.
+- **Saturated lever**: aux AdamW LR warmup (all groups uniformly). Per-group ramp (embed-only) not directly tested but n=1 control is already at +0.00144, so headroom for a finer split is small.
+- **Student's suggested follow-ups (good)**: (1) aux embed LR sweep (direct lever vs heuristic 0.3); (2) NOT a MuonH × aux warmup compound (opposite signs).
+- **Next assignment**: edward → TBD (will assign after thorfinn merge to use updated baseline).
+
+---
+
+## 2026-05-18 09:00 UTC — PR #328: MuLoCo outer_momentum cosine decay ❌ CLOSED NEG
+
+- **Branch**: g1r3-frieren/outer-momentum-decay-sweep
+- **Hypothesis**: Decay MuLoCo's outer_momentum 0.5 → final_mom on cosine envelope, in lockstep with MuonH cosine LR. Prediction: shrinking slow-snap memory near minimum prevents late-training overshoot. 3-arm screen final_mom ∈ {0.50 (no-op control), 0.25, 0.00} × 1 trial × 3325 steps.
+- **Results**:
+
+| Arm | W&B Run | Terminal val/loss | Δ vs baseline 3.27415 | Verdict |
+|---|---|---|---|---|
+| final=0.50 (no-op control) | `4ojz1uei` (in-flight; baseline by construction) | ≈ baseline | ≈0 | math identity |
+| final=0.25 | `17dtmqsh` | 3.27569 | +0.00154 | NEG slight |
+| final=0.00 | `dbbvjy9f` | **3.27805** | **+0.00390** | **STRONG NEG** |
+
+- **Monotonic NEG direction**: 0.50 → 0.25 → 0.00 produces monotonically worse terminal val/loss. The prediction is inverted.
+- **Mechanism (student's analysis, verbatim)**: "MuLoCo's outer velocity v is the slow-snap memory that integrates inner-step drift across sync intervals. Because the cosine LR shrinks inner Δ to ~0 over the run, v is _already_ self-quieting late in training; it does not need a separate decay schedule to forget. Imposing a cosine on the outer momentum itself shrinks the slow-snap memory _additionally_ exactly when the run needs to settle near a minimum, removing the contribution from the most-converged region of the trajectory."
+- **Diagnostic quality**: Clean OOM root-cause attribution (initial concurrent torchruns → strict-sequential launcher fix), decay-trace validation (outer momentum traced through cosine envelope: 0.482→0.394→0.287→0.259→0.25 for arm 0.25; 0.465→0.288→0.074→0.019→0.0 for arm 0.0), and final=0.50 control bit-identity proven by construction.
+- **Cross-study consistency**: PR #260 (thorfinn outer_momentum static sweep): 0.3=NEG, 0.5=optimal, 0.9=diverged. Two independent studies now agree **outer_momentum=0.5 fixed is the unique optimum**.
+- **Conclusion**: **CLOSED NEG.** outer_momentum decay family entirely closed. Adding to saturated levers.
+- **Saturated lever**: MuLoCo outer_momentum scheduled decay (cosine, by extension linear/step variants) — fixed 0.5 is optimal.
+- **Next assignment**: frieren → sync_interval scheduling (student's verbatim suggested follow-up: "increase sync_interval late in training (e.g., 30 → 60 over the last third)"). Orthogonal lever to momentum — tests outer-update timing rather than memory weight.
+
+---
+
+## 2026-05-18 08:40 UTC — PR #326: NS5-outer muon_update_style + outer_lr retune ❌ CLOSED NEG
+
+- **Branch**: g1r3-nezuko/ns5-outer-muon-style-sweep
+- **Hypothesis**: After PR #294 (NS5-outer blocks-only, magnitude_preserving) closed at +0.00189 mild NEG, try the alternative `muon_update_style` variant (max(1,m/n)^0.5 aspect correction, no magnitude rescale) paired with outer_lr retune to compensate for the unit-spectral-norm step magnitude. 3-arm sweep: outer_lr ∈ {0.35, 0.50, 0.70} × `muon_update_style` × blocks-only.
+- **Results**:
+
+| Arm | W&B Run | val_best (step 2875) | val_terminal (3325) | Δ_best vs baseline 3.27415 | Verdict |
+|---|---|---|---|---|---|
+| lr=0.35 muon_update_style | `0pjej454` | 3.41610 | 3.52299 | +0.142 | STRONG NEG |
+| lr=0.50 muon_update_style | `l2v9uzcd` | 3.40298 | 3.52465 | +0.129 | STRONG NEG |
+| lr=0.70 muon_update_style | `83wkljwq` | 3.39220 | 3.53489 | +0.118 | STRONG NEG |
+
+- **Pathology characterization (student's val/loss progression)**: ALL 3 arms hit val_best at step 2875 (exactly cooldown entry point), then rise by +0.11 through the cosine cooldown phase. The cooldown phase **pulls val UP** instead of DOWN. Independent of outer_lr value.
+- **Mechanism**: `muon_update_style` discards per-param magnitude info from the accumulated outer velocity. Every sync (every 30 inner steps) outputs a unit-spectral-norm step regardless of how much drift the inner loop accumulated. Once cooldown reduces inner LR, inner steps shrink — but outer keeps producing fixed unit-norm "kicks" that no longer match the inner-loop scale, pulling the model away from the cooldown-converging minimum.
+- **Conclusion**: **CLOSED NEG.** The entire `outer_orthogonalize_velocity_mode` family is closed:
+  - `magnitude_preserving` blocks-only (#294): +0.00189 mild NEG (preserves scale-match)
+  - `muon_update_style` blocks-only × 3 outer_lr (#326): +0.118 to +0.142 STRONG NEG (breaks scale-match)
+- **Key learning**: Muon-style NS5 mechanism is only suitable for **inner gradient-flavored updates** (per-step), NOT accumulated multi-step outer updates. The same scope-mismatch lesson as PR #284 (AGC-outer) — per-step regularizers don't generalize to multi-step aggregates.
+- **Saturated lever**: NS5-outer entirely closed (both variants × outer_lr).
+- **Next assignment**: nezuko → adam_lm_head LR sweep (unexplored under full stack; the 1/320 starter value has never been swept).
+
+---
+
+## 2026-05-18 08:08 UTC — PR #325: Aux AdamW cooldown shape sweep (linear vs cosine vs sqrt) ❌ CLOSED NEG
+
+- **Branch**: g1r3-fern/aux-cooldown-shape-sweep
+- **Hypothesis**: Cosine cooldown beat linear for MuonH inner LR (PR #243 MERGED). Maybe cosine also beats linear for aux AdamW (embed/head/scalar) LR? Three-arm screen: aux_cooldown_shape ∈ {linear (control), cosine, sqrt} × 1 trial × 3325 steps on full stack (MuLoCo + cosine MuonH + AGC clip=0.05).
+- **Results**:
+
+| Arm | W&B Run | Terminal val/loss | Δ vs baseline 3.27415 | Δ vs linear control | Verdict |
+|---|---|---|---|---|---|
+| linear (control) | `ij7osycz` | 3.27295 | -0.00120 | — | n=1 noise of baseline |
+| cosine | `r9zvas0i` | 3.27702 | +0.00287 | +0.00407 | **NEG — cosine HURTS aux** |
+| sqrt | `4ovuu6yi` | 3.27443 | +0.00028 | +0.00148 | NEG slight |
+
+- **Mechanism (student's η-curve + trailing-slope decomposition)**:
+  - Cosine zeros aux η mid-cooldown → embedding/head/scalar params stop fine-tuning early → terminal slope ≈ -0.00086/100 (flatlined, model has stopped learning)
+  - Sqrt keeps aux η at ~2.7% of base at terminal → embedding/head still moving too much, adds noise → terminal slope -0.00388/100 (steepest but can't catch linear)
+  - Linear settles at the Goldilocks → terminal slope -0.00199/100
+- **Conclusion**: **CLOSED NEG.** Aux AdamW cooldown shape is **saturated at linear** (current baseline). The MuonH/aux **regime asymmetry** is now confirmed: MuonH wants cosine shape (NS5-orthogonalized momentum has headroom for deep tail decay), aux AdamW wants linear shape (embedding/head/scalar updates retain raw direction and need conservative late-training decay).
+- **Earlier crash diagnostic** (4 prior failures `ajk7avas`/`zdtyyz6o`/`lxfezv10`/`3dwkwz5f`): all CLI parsing errors from `--use_outer_optimizer true` (string) vs `type=int` argparse. Fixed in driver. Not a code-path issue.
+- **Saturated lever**: aux_cooldown_shape — no further shape variants worth testing (polyak/sigmoid would land between linear and cosine).
+- **Next assignment**: fern → aux_cooldown_frac sweep (the unexplored interaction — frac=0.4 may not be globally optimal under full stack).
+
+---
+
+## 2026-05-18 02:55 UTC — PR #308: MuonH momentum β decay during cooldown (mu_final sweep) ❌ CLOSED NEG
+
+- **Branch**: g1r3-edward/muonh-mu-final-sweep
+- **Hypothesis**: Decay MuonH's β (momentum) during training, ending at mu_final ∈ {0.0, 0.5, 0.95}. Motivation: reduced late-training momentum may give sharper final convergence (analogous to LR cooldown). Three-arm screen.
+- **Results**:
+
+| Arm | W&B Run | Terminal val/loss | Δ vs baseline 3.27415 | reached_target | Verdict |
+|---|---|---|---|---|---|
+| mu_final=0.0 | `3qi78qc8` | 3.3333 | +0.059 | ✗ | CATASTROPHIC NEG |
+| mu_final=0.5 | `8zf9t97s` | 3.2940 | +0.020 | ✗ | STRONG NEG |
+| mu_final=0.95 (control) | `ozf7hic1` | 3.27592 | +0.00177 | ✓ step 3275 | within noise — matches baseline |
+
+- **Bug note**: Arm 1 (mu_final=0.0) had a schedule bug — `h_cooldown_frac_local=1.0` when mu_final≠0.95 caused mu to decay over ALL 3325 steps (not just the cooldown tail). This amplified the NEG signal for arms 1/2 but the trend is unambiguous.
+- **Conclusion**: **CLOSED NEG.** Monotonic trend mu_final=0.0 → 0.5 → 0.95 producing val 3.3333 → 3.2940 → 3.276 is unambiguous: ANY full-training μ decay degrades MuonH-SI. MuonH-SI's variance reduction mechanism depends on accumulated momentum across ALL training steps; monotonically reducing μ destroys it. **Saturated lever: MuonH inner mu_final decay is closed.**
+- **Follow-up direction**: Cooldown-window-only μ decay (PR #308.5, not yet assigned) — gate decay to start only at LR cooldown trigger, not from step 0. But requires care about implementation.
+- **Next assignment**: edward → Aux AdamW LR warmup sweep (PR #338).
+
+---
+
 ## 2026-05-17 20:55 UTC — PR #284: AGC-outer (Trust-Region Clip on MuLoCo outer update) ❌ CLOSED NEG
 
 - **Branch**: g1r3-thorfinn/agc-outer-sweep

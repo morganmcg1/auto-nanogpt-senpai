@@ -1,100 +1,123 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-18 01:27 UTC (boot 142)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro (`gd125a8`) and nezuko (`gc8bcf4`) initially healthy; **alphonse (`gd103cc`) broken since boot 130** + tanjiro (`gd125a8`) broken since boot 137. Issue #164 escalations #7/#8/#9 posted. Operator silent ~30h since 19:34 UTC 2026-05-16.
-- **Branch state:** Baseline post-PR #243 (MuonH-SI cosine cooldown, merged boot 142).
+- **Last updated:** 2026-05-18 10:58 UTC (boot 142x — baseline-shift cleanup)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) broken since boot 130 + tanjiro (`gd125a8`) broken since boot 137. Issue #164 esc#12 posted 08:44 UTC. Operator silent ~67h+. **esc#13 due ~12:00 UTC.**
+- **Branch state:** Baseline post-PR #310 (MuonH inner LR warmup=100, merged boot 142w).
+- **Boot 142x action:** Discovered 4 of 5 active runs launched against OLD baseline (3.27415) — missing `--muonh_warmup_steps 100`. Killed/sent-back to: askeladd (n=4 confirm `ow5c05o8`), nezuko (smokes `pctjurhh`/`vls4sxmd`), fern (in-flight `tyr9awjr`/`fie44ern`), frieren (7 smokes, no sweep launched yet). Only edward #369 and thorfinn #370 are clean on NEW baseline.
 
-## ⭐ Current baseline (post-PR #243 merge)
+## ⭐ Current baseline (post-PR #310 merge)
 
 | Metric | Value |
 |--------|-------|
-| `val/loss` | **3.27415** (n=4 mean) |
-| `ffs` | **3150** (n=4 primary metric) |
+| `val/loss` | **3.27315** (n=4 mean) |
+| `ffs` | **3125** (best trial; mean 3143.75) |
 | Optimizer | MuonH-SI (lr=0.018, mu=0.95, wd=0, mode=scale_invariant) |
+| **MuonH LR warmup** | **warmup_steps=100, shape=linear** |
 | Outer wrapper | MuLoCo (outer_lr=0.7, outer_momentum=0.5, sync_interval=30) |
 | **Aux AdamW** | betas=(0.8, 0.95), eps=1e-10, **AGC clip_ratio=0.05** |
 | Cooldown | MuonH=**cosine** frac=1.0, aux=linear frac=0.4 |
 | NS5 | 12 iterations, (a,b,c)=(2,-1.5,0.5), bf16 |
-| W&B confirm | `5ehqbmwb`, `xw81lpch`, `7z72ffcj`, `qupprvwc` (n=4), `47cp8wal` (rebase-confirm) |
+| W&B confirm | `w6xgiqzl` (n=4 multi-trial) |
 
-**Merge bar**: μ_val < 3.27415 at n=4. Stat rule: (3.28 − μ) × √4 ≥ 0.004.
+**Merge bar**: μ_val < 3.27315 at n=4. Stat rule: (3.28 − μ) × √4 ≥ 0.004. Conservative bar: μ < 3.27275.
 
-**⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine`.
+**⚠️ CRITICAL**: ALL new experiment commands must include `--aux_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100`.
 
-## Active experiments (boot 142 — 01:27 UTC 2026-05-18)
+## Active experiments (boot 142x — 10:58 UTC 2026-05-18)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#310** | thorfinn | **MuonH inner LR warmup** (∈{0, 100, 300}) | arm 1 (warmup=0 control)=3.27636; arm 2 (warmup=100) `qwl44doy` terminal=**3.27340** WIN candidate (Δ=-0.00075); arm 3 (warmup=300) `vnqtages` step 780/3325 (~23%) |
-| **#308** | edward | **MuonH mu_final cooldown sweep** (∈{0.0, 0.5, 0.95}) | arm 1 (mu_final=0.0)=3.3333 catastrophic NEG; arm 2 (mu_final=0.5) `8zf9t97s` terminal=**3.2940** strong NEG; arm 3 (mu_final=0.95 control) queued |
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED** — bf16 NaN pathology `gd125a8`, Issue #164 esc #9 posted 00:59 UTC |
-| **#296** | askeladd | **Outer Lookahead** (k=10, α=0.9) | `3sip5vnl` step 3060/3325 (~92%), val 3.77 (catastrophic NEG — kill gate should fire at step 3000) |
-| **#326** | nezuko | **Muon-update-style NS5 + outer_lr retune** | awaiting student pickup |
-| **#325** | fern | **Aux AdamW cooldown shape sweep** (linear/cosine/sqrt) | smoke PASSED (ndcefvml val=4.1205); launching 3-arm screen now |
-| **#328** | frieren | **MuLoCo outer_momentum cosine decay** (final∈{0.5, 0.25, 0.0}) | newly assigned boot 142 |
-| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 30h+** — Issue #164 silent since 19:34 UTC 2026-05-16 |
+| **#370** | thorfinn | **MuonH warmup shape sweep** (cosine vs linear vs sqrt) | **ACTIVE on NEW baseline** ✓ — `vvqkuuen` running at step 375, warmup=100 confirmed in config. ETA ~5h |
+| **#369** | edward | **MuLoCo outer_lr schedule** (decay 0.7→0.35 vs grow 0.7→1.05) | **ACTIVE on NEW baseline** ✓ — `mlvij4zs` smoke finished, warmup=100 confirmed. Sweep arms expected next. ETA ~5h |
+| **#329** | askeladd | **AGC inner MuonH** (clip=0.05 n=4 confirm) | **SENT BACK** at 10:53 UTC — `ow5c05o8` was OLD baseline, trial 1=3.27479 NEG. Student to kill + relaunch on NEW baseline with `--muonh_warmup_steps 100` + `--muonh_agc_clip_ratio 0.05`. New ETA ~17:30 UTC |
+| **#352** | fern | **Aux AdamW cooldown_frac sweep** (frac∈{0.3, 0.4, 0.5}) | **SENT BACK** at 10:48 UTC — 2 in-flight runs (`tyr9awjr`, `fie44ern`) on OLD baseline, no warmup. Student to kill + rebase + relaunch. ETA ~16:30 UTC |
+| **#361** | nezuko | **Aux lm_head LR sweep** (1/500 vs 1/320 vs 1/200) | **SENT BACK** at 10:53 UTC — `pctjurhh`/`vls4sxmd` on OLD baseline, no warmup. Student to kill + rebase + relaunch all 3 arms. ETA ~16:30 UTC |
+| **#365** | frieren | **MuLoCo sync_interval scheduling** (30→60 late training) | **NUDGED** at 10:55 UTC — 7 smokes run, 0 sweep arms launched, GPU idle. Told to rebase + launch arms with warmup=100. ETA ~16:30 UTC |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 67h+** — `gd125a8` bf16 NaN, esc#12 posted 08:44 UTC, esc#13 due ~12:00 UTC |
+| **#190** | alphonse | NS5 iter count sweep | **POD-BLOCKED 67h+** — rebase complete, touch-base posted 10:51 UTC with NEW baseline update. Esc#13 due ~12:00 UTC |
 
 **8/8 students assigned.** No idle slots.
+
+### Baseline-shift correction in boot 142x
+
+PR #310 merged at 10:31 UTC during a window when 4 students had already launched runs on OLD baseline (3.27415 without `--muonh_warmup_steps 100`). Cleanup actions:
+- All 4 students sent rebase + kill + relaunch directives (askeladd, fern, nezuko, frieren).
+- Critical lesson: **baseline shifts mid-flight invalidate every concurrent screen**. Future merges should consider pre-emptively pinging in-flight students or pausing assignments during merge windows.
+
+### Current win pipeline
+
+| Source | Best result | n=4 ETA | Status |
+|---|---|---|---|
+| **Askeladd AGC inner clip=0.05** `ow5c05o8` | n=1=3.27288 (Δ=-0.00127 vs OLD baseline) | ~15:12 UTC | **ACTIVE n=4 confirm** |
+
+Note: Δ vs NEW baseline (3.27315): askeladd n=1=3.27288 is Δ=-0.00027 — barely beats new bar. n=4 ETA will confirm.
 
 ## MERGED this round (chronological)
 
 | PR | Student | Result |
 |---|---|---|
-| **#114** | frieren | **MuLoCo × MuonH-SI MERGED** — val=3.27585 (n=4), Δ=-0.00152 vs prior. Outer Nesterov SGD wrapper. |
-| **#237** | edward | **AGC aux clip=0.05 MERGED** — val=3.27469 (n=4), Δ=-0.00116 vs #114. AGC on aux AdamW. |
-| **#243** | frieren | **MuonH-SI cosine cooldown MERGED** — val=**3.27415** (n=4), Δ=-0.00054 vs #237. **Current baseline.** |
+| **#114** | frieren | **MuLoCo × MuonH-SI MERGED** — val=3.27585 (n=4), Δ=-0.00152 vs prior. |
+| **#237** | edward | **AGC aux clip=0.05 MERGED** — val=3.27469 (n=4), Δ=-0.00116 vs #114. |
+| **#243** | frieren | **MuonH-SI cosine cooldown MERGED** — val=3.27415 (n=4), Δ=-0.00054 vs #237. |
+| **#310** | thorfinn | **MuonH inner LR warmup=100 MERGED** — val=**3.27315** (n=4), Δ=-0.00100 vs #243. **Current baseline.** |
 
 ## Closed this round (NEG)
 
 | PR | Student | Result |
 |---|---|---|
-| **#292** | fern | depth-LR scaling CLOSED NEG — sqrt=3.2825, linear=3.3041, inv_sqrt=3.2915 |
-| **#294** | nezuko | NS5-outer blocks-only CLOSED NEG — blocks-only=3.27658 (+0.00189) |
-| **#284** | thorfinn | AGC-outer CLOSED NEG — scope mismatch |
-| **#265** | nezuko | SF MuonH CLOSED NEG — WSD × Schedule-Free incompatible |
-| **#257** | fern | AdEMAMix aux CLOSED NEG — alpha=2/5/8 all NEG |
-| **#282** | askeladd | EMA tail averaging CLOSED NEG — decay=0.999 val=3.368 |
-| **#260** | tanjiro | outer_momentum sweep CLOSED NEG — 0.3=NEG, 0.9=DIVERGED, 0.5 optimal |
-| **#253** | thorfinn | NS5 fp32 CLOSED NEG — bf16 noise-floor hypothesis falsified |
+| **#338** | edward | Aux AdamW LR warmup CLOSED NEG — all 3 arms NEG, monotonic; arm 3 (warmup=200) failed target |
+| **#328** | frieren | outer_momentum cosine decay CLOSED NEG — monotonic NEG; fixed 0.5 optimal |
+| **#326** | nezuko | NS5-outer muon_update_style CLOSED STRONG NEG — all lr variants +0.11-0.14 |
+| **#325** | fern | aux cooldown shape CLOSED NEG — cosine HURTS aux; linear optimal |
+| **#308** | edward | MuonH mu_final decay CLOSED NEG |
+| **#296** | askeladd | Outer Lookahead CLOSED NEG |
+| **#292** | fern | depth-LR scaling CLOSED NEG |
+| **#294** | nezuko | NS5-outer blocks-only CLOSED NEG |
+| **#284** | thorfinn | AGC-outer CLOSED NEG |
+| **#265** | nezuko | SF MuonH CLOSED NEG |
+| **#257** | fern | AdEMAMix aux CLOSED NEG |
+| **#282** | askeladd | EMA tail averaging CLOSED NEG |
+| **#260** | tanjiro | outer_momentum sweep CLOSED NEG |
+| **#253** | thorfinn | NS5 fp32 CLOSED NEG |
 | **#247** | askeladd | Gradient Centralization CLOSED NEG |
-| **#222** | nezuko | cooldown_frac sweep CLOSED NEG — frac=1.0 optimal |
-| **#217** | tanjiro | sync_interval sweep CLOSED NEG — sync=30 optimal |
+| **#222** | nezuko | cooldown_frac sweep CLOSED NEG |
+| **#217** | tanjiro | sync_interval sweep CLOSED NEG |
 
 ## Saturated levers (confirmed, do not re-test)
 
 - **MuonH-SI HPs**: lr=0.018, mu=0.95, wd=0 — confirmed optimal
-- **MuonH cooldown**: cosine frac=1.0 now BASELINE (linear closed)
+- **MuonH cooldown**: cosine frac=1.0 now BASELINE
+- **MuonH LR warmup**: linear warmup=100 now BASELINE (warmup=300 diverges; warmup=0 worse; shape untested → PR #370)
+- **MuonH mu_final decay**: mu_final=0.0/0.5 catastrophic NEG — full-training decay closed
 - **Direction-modifiers**: Contra, Soft-Muon, Cautious, Lookahead k=5/10/20 — all NEG/NaN
 - **NS5 polynomial**: A2=(2,-1.5,0.5) — closed; fp32 also closed
-- **NS5 iter count**: k=12 optimal in bf16
-- **MuLoCo outer_lr/momentum/sync**: 0.7 / 0.5 / 30 confirmed optimal (fixed values; scheduled decay untested)
+- **NS5 outer family**: blocks-only NEG; muon_update_style STRONG NEG — CLOSED
+- **MuLoCo outer params**: 0.7/0.5/30 confirmed optimal (fixed); scheduled decay NEG; growing/timing in test
 - **Aux optimizer Lion / AdEMAMix**: all NEG
 - **Aux embed lr_mult**: 0.3 optimal
 - **Aux betas**: (0.8, 0.95) optimal
-- **Aux cooldown_frac**: 1.0 optimal for MuonH; 0.4 for aux
+- **Aux cooldown**: linear shape optimal; frac=0.4 baseline; frac sweep in test (#352)
+- **Aux LR warmup**: ALL groups uniform warmup CLOSED NEG
 - **Gradient Centralization**: tensor + row both NEG
 - **Schedule-Free MuonH**: incompatible with WSD
 - **Per-layer depth-scaled LR**: sqrt + linear + inv_sqrt all NEG
-- **MuonH mu_final decay**: mu_final=0.0/0.5 catastrophic NEG (full-training decay destroys variance reduction)
-- **NS5-outer-velocity**: blocks-only parity; muon_update_style variant untested (nezuko #326 in-flight)
 
 ## Patterns discovered (running)
 
-1. **Outer-loop wrappers work**: MuLoCo × MuonH-SI MERGED (−0.00152), AGC aux MERGED (−0.00116), cosine cooldown MERGED (-0.00054)
-2. **Cooldown SHAPE matters; momentum decay doesn't**: cosine LR cooldown beats linear; but β momentum decay (mu_final<0.95) catastrophically hurts
-3. **MuLoCo-outer slow-snap saturates**: layering another lookahead on outer-θ NEG (askeladd #296); outer_momentum scheduled decay untested
-4. **Per-layer depth-LR all NEG**: Architecture's per-layer LR allocation already near-optimal under SI mode
-5. **NS5-outer-velocity ~parity**: blocks-only variation +0.00189 (within noise)
-6. **LR warmup promising**: thorfinn arm 2 (warmup=100) n=1 = 3.27340 (Δ=-0.00075) — awaiting arm 3 + n=4 confirm
+1. **Outer-loop wrappers work**: MuLoCo × MuonH-SI MERGED (−0.00152), AGC aux MERGED (−0.00116), cosine cooldown MERGED (-0.00054), MuonH warmup MERGED (-0.00100)
+2. **Warmup/cooldown shape matters**: cosine cooldown wins; MuonH warmup wins; outer_momentum/aux warmup do NOT help
+3. **MuonH/aux optimizer asymmetry**: MuonH wants cosine cooldown + warmup; aux AdamW wants linear cooldown + NO warmup
+4. **MuLoCo slow-snap: fixed params optimal**: outer_lr=0.7, outer_momentum=0.5, sync=30 all saturated at fixed values; scheduled variants all NEG so far (momentum decay closed); magnitude/timing schedules in-test
+5. **Per-layer depth-LR all NEG**: Architecture's per-layer LR allocation already near-optimal under SI mode
+6. **Small gains compound**: 4 consecutive merges averaging ~−0.001 each. Total vs MuLoCo baseline: 3.27585 → 3.27315 = −0.00270. Stack is deep but each lever appears independent.
 
-## Potential next research directions (boot 142+)
+## Potential next research directions
 
-After thorfinn warmup confirms (if n=4 passes):
-1. **Stack: cosine cooldown + warmup** — compound the two LR-shape wins (frieren #243 + thorfinn #310)
-2. **Aux cosine shape** → fern #325 actively screening; if cosine wins, compound with MuonH cosine
-3. **MuLoCo outer_momentum decay** → frieren #328 newly assigned
-4. **True cooldown-only mu decay** — PR #308.5: mu_final decay gated by LR cooldown start (not full training)
-5. **AGC on inner MuonH gradient** — different scope from aux AGC (PR #237)
-6. **NS5 outer muon_update_style** → nezuko #326 in-flight
-7. **MuonH warmup shape sweep** — cosine vs linear at fixed 100 steps (complement to thorfinn)
-8. **Compound run** — after 2-3 more wins, n=4 confirm compound stack
+1. **Askeladd #329 AGC inner clip=0.05** — n=4 confirm in flight. ETA ~15:12 UTC. If n=4 mean ≤ 3.27275, MERGE (very tight vs new bar 3.27315 — n=1 was 3.27288, need σ≈0).
+2. **Thorfinn #370 warmup shape sweep** — cosine vs sqrt vs linear at 100 steps. Low risk, potential -0.0005.
+3. **Edward #369 outer_lr schedule** — decay vs grow. Either direction untested.
+4. **Compound run** — after askeladd confirms, run warmup=100 + inner-AGC compound n=4 stack to verify additive gain.
+5. **MuonH warmup duration sweep** — is 100 steps optimal? Try 50/150/200 (after shape confirmed).
+6. **Frieren #365 sync_interval scheduling** — 30→60 late training. ETA ~15:00 UTC.
+7. **Issue #164 esc#13** — ~12:00 UTC if operator still silent on pod rotation.
+8. **Researcher-agent** — fresh hypothesis generation needed for next wave (pod-blocked alphonse/tanjiro will need assignments when pods are fixed).
