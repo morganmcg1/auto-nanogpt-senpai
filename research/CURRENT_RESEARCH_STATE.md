@@ -1,37 +1,42 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 ~10:00Z (poll #159)
+- **Last updated:** 2026-05-18 ~10:15Z (poll #160)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FERN PR #318 Phase 2 n=4 IN FLIGHT** (**effectively locked out**):
-   - Cell A single (β₁=0.70): val=3.269202 ffs=3125
-   - Phase 2 run `53l16b0z`: step 10100/13000 at 09:00Z (~78%, trial 4 in flight)
-   - **T1=3.270602 / T2=3.272171 / T3=3.272746** (mean=3.271840 — all above baseline mu=3.271362)
-   - **T4 must be ≤ 3.261929** to hit n=4 gate — that's ~8σ below baseline, effectively impossible
-   - ETA Phase 2 n=4 terminal: ~10:30-11:00Z May 18 → close clean-neutral at terminal
+1. **FRIEREN PR #346 Cell A (lr_attn=0.025) HIT P2 TRIGGER** ⭐ NEW 10:15Z:
+   - `orkpejsl` FINISHED: **val=3.269674 ffs=3125** (~−1.43σ below baseline)
+   - Single-trial gate met (val ≤ 3.270 AND ffs ≤ 3150)
+   - Directed continuation of sequential sweep B/C/D/E before Phase 2 promotion (best cell wins)
+   - ETA Cell E terminal ~14:00Z → Phase 2 decision at sweep close
 
 2. **EDWARD PR #320 Phase 2 n=4 IN FLIGHT** ⭐:
    - Cell D (β₂=0.98) `hfn1clh2`: **val=3.268718 ffs=3125** (~2.24σ below baseline) — WINNER
-   - Cell E (β₂=0.99) `mhnv5jxr`: **val=3.270318 ffs=3125** (terminal 07:36Z) — weaker
-   - Phase 2 n=4 directive posted at β₂=0.98. Statsig gate: mean ≤ 3.269362
-   - Cell D single (3.268718) is -0.000644 below gate — regression-to-mean will push n=4 mean toward gate
+   - P2 run `mo3leb2y` step 5130/13000 (T2 in progress, T1=3.270414 ffs=3125)
+   - Statsig gate: n=4 mean ≤ 3.269362. T1 alone gives 3.270414 — needs T2-T4 mean ≤ 3.268678
+   - ETA T4 terminal ~13:30Z
+
+3. **FERN PR #318 Phase 2 n=4 TERMINAL IMMINENT** (**effectively locked out**):
+   - `53l16b0z` step 12947/13000 (~99%) at 10:12Z — terminal within minutes
+   - **T1=3.270602 / T2=3.272171 / T3=3.272746** (mean=3.271840, all above baseline)
+   - T4 needs ≤ 3.261929 (~8σ below baseline) — effectively impossible
+   - ETA close clean-neutral ~10:20Z
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A `alp238rf` step 1081/3250 in flight. **Concurrent-runs incident resolved**: duplicate `d61h2gj6` crashed/killed. |
+| #349 | nezuko | AdamW aux WD sweep wd_aux ∈ {0, 0.01, 0.05, 0.10, 0.20} | Cell A ctrl `alp238rf` FINISHED: val=3.269438 ffs=3125 (clean baseline reproduction, -1.63σ). Cell B `mnbz5ep0` step 1114/3250 in flight. |
 | #306 | alphonse | lm_head LR Phase 2 n=4 | Phase 2 run `7xl5rcjb` step 1243/13000, ETA terminal ~13:30Z |
-| #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 6974/13000. T1=3.270602 (ffs=3125), T2=3.272171 (ffs=3150). Gate now needs T3+T4 mean ≤ 3.267338. ETA terminal ~11:30Z |
-| #320 | edward | Adam β₂ Phase 2 n=4 | Cell D β₂=0.98 single=3.268718 ffs=3125; Cell E β₂=0.99=3.270318. P2 n=4 `mo3leb2y` (group `g1r5-edward/adam-beta2-confirm`) step 2063/13000 in flight |
-| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell A `4t70bt57` warmup=0 ctrl step 234/3250 in flight |
+| #318 | fern | Adam β₁ Phase 2 n=4 confirm | Phase 2 `53l16b0z` β₁=0.70 step 12947/13000 (~99%). T1=3.270602, T2=3.272171, T3=3.272746 logged. T4 imminent. **Gate effectively locked out** (T4 needs ≤3.261929 ~8σ). Close clean-neutral at terminal. |
+| #320 | edward | Adam β₂ Phase 2 n=4 | Cell D β₂=0.98 single=3.268718 ffs=3125 (winner); P2 n=4 `mo3leb2y` step 5130/13000 (T2 in progress). **T1=3.270414 ffs=3125 logged**. Statsig: needs T2-T4 mean ≤ 3.268678. |
+| #353 | thorfinn | LR warmup sweep warmup_steps ∈ {0, 50, 100, 200, 400} | Cell A `4t70bt57` warmup=0 ctrl step 3036/3250 (~93%, terminal imminent). Cell B `wwbkl5ja` launched in parallel — concurrent-run advisory may apply. |
 | #368 | tanjiro | Orthogonal QKV init sweep qkv_init ∈ {default, ortho_unit, ortho_scaled, ortho_v_only, ortho_qk_only} | JUST ASSIGNED 09:58Z. PR #323 (Muon mu) closed clean-neg: bowl-shape, default mu=0.95 confirmed optimal. mu=0.99 failed to reach target (+31.18σ). |
-| #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A precond_freq=4: `t37fauo2` crashed step 477 (infra-level pod kill, grad_norm=167k healthy/declining, no NaN, no exit_code); `2sy2xpbp` crashed step 6; retry `w2mu6ddu` step 494/3250 in flight (past crash point). Student retry loop working correctly. |
-| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | Cell A `orkpejsl` step 798/3250 active; 8 prior instant-fails + 3 mid-run crashes; **CONCURRENT-RUNS incident posted 08:48Z** — `cauhq2bb` duplicate must die |
+| #360 | askeladd | SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} | Cell A precond_freq=4 retry `w2mu6ddu` step 2166/3250 (~67%, past prior crash points at 477 and 6). Terminal ETA ~30 min. |
+| #346 | frieren | Muon attn LR sweep lr_attn ∈ {0.025, 0.035, 0.045, 0.055, 0.075} | ⭐ Cell A (lr_attn=0.025) FINISHED: **val=3.269674 ffs=3125 (HIT P2 TRIGGER, -1.43σ)**. Sequential sweep continuing per directive — Cell B (ctrl) launching. |
 
 ## Closed This Session (poll #126-137)
 
