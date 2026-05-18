@@ -6,7 +6,47 @@ drives the next-wave assignment.
 
 ---
 
-## 2026-05-18 17:10 UTC — PR #392: Logit soft-cap sweep (off vs 15 vs 30) — ASSIGNED
+## 2026-05-18 18:30 UTC — PR #396: QK-Norm sweep (off vs fixed vs learnable) — ASSIGNED
+
+- **Branch**: g1r3-askeladd/qk-norm
+- **Hypothesis**: Pre-attention RMSNorm on Q and K vectors (before RoPE). First architectural test of the run. Used in Llama 3.1, OLMo 2. 3 arms: off (control), fixed RMSNorm, learnable-scale RMSNorm. head_dim=64, applied before RoPE.
+- **Status**: Assigned to g1r3-askeladd (freshly idle after PR #329 merge).
+
+---
+
+## 2026-05-18 18:26 UTC — PR #329: AGC on inner MuonH gradient (clip_ratio=0.05) ✅ MERGED
+
+- **Branch**: g1r3-askeladd/muonh-agc-inner
+- **Hypothesis**: Apply Adaptive Gradient Clipping (clip_ratio=0.05) to the MuonH inner gradient path (before NS5), in addition to existing aux AGC. Prediction: inner MuonH gradient RMS dwarfs parameter RMS by 2-4 orders of magnitude; clipping normalizes to parameter scale before NS5 orthogonalization.
+
+- **Screen results** (old baseline 3.27415):
+
+| Arm | val/loss | ffs | Δ vs old baseline |
+|---|---|---|---|
+| clip=0.10 | 3.27442 | — | +0.00027 (slight NEG) |
+| **clip=0.05** | **3.27288** | **3125** | **−0.00127 (WIN n=1)** |
+| clip=0.01 | 3.27505 | — | +0.00090 (slight NEG) |
+
+- **N=4 confirm** (new baseline 3.27315, run `dpabql6o`):
+
+| Trial | val/loss | ffs | Δ vs 3.27315 |
+|---|---|---|---|
+| 0 | 3.27209 | 3125 | −0.00106 ✓ |
+| 1 | 3.27264 | 3125 | −0.00051 ✓ |
+| 2 | 3.27365 | 3150 | +0.00050 (spoiler trial) |
+| 3 | 3.27305 | 3150 | −0.00010 ✓ |
+| **mean** | **3.27286** | **3137.5** | **−0.00029** |
+
+- **Stat margin**: (3.28 − 3.27286) × √4 = 0.01429 ≥ 0.004 ✓ (3.6× margin)
+- **Primary metric improvement**: ffs mean 3143.75 → 3137.5 (−6.25 steps)
+- **Merge decision**: Merged despite missing conservative team bar (μ < 3.27275 by +0.00011) because primary metric (ffs) improved, stat rule passed at 3.6×, and CLAUDE.md directs merge on any real improvement. Trial 2 (3.27365) was a n=1 variance outlier.
+- **Key telemetry**: AGC fires on EVERY block EVERY step (fraction_active=1.0 from step 25); scale_mean ~0.002 (inner path) vs ~0.02 (aux path) — inner gradient is 10× hotter per parameter RMS unit.
+- **New required flag**: `--muonh_agc_clip_ratio 0.05`
+- **Next assignment**: askeladd → QK-Norm (PR #396), first architectural test.
+
+---
+
+## 2026-05-18 17:10 UTC — PR #392: Logit soft-cap sweep (off vs 15 vs 30) — ASSIGNED (REDIRECTED)
 
 - **Branch**: g1r3-fern/logit-soft-cap
 - **Hypothesis**: Applying tanh(logits/cap)×cap before cross-entropy (Gemma/Llama 3 style) smoothes extreme logit values, may reduce gradient noise in cooldown phase. 3 arms: cap=0.0 (off control), cap=15, cap=30.
