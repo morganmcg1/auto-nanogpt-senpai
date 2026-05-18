@@ -30,7 +30,7 @@ PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 
 # End-of-cooldown SWA tail (PR #342). Maintain a FP32 running uniform mean of model
 # parameters starting at int(SWA_START_FRAC * train_steps), and report val_loss using
 # the SWA-averaged params at every val checkpoint thereafter.
-SWA_START_FRAC = 0.85
+SWA_START_FRAC = 0.70
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
