@@ -814,3 +814,21 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Mechanism conclusion:** Shared Q/K Gram is mildly WORSE than separate (Δ=+0.00064 at n=1). Q and K have distinct curvature structure despite operating on the same input. Sharing the Gram averages across them, washing out per-projection eigenstructure. The negative result is definitively informative — confirms SOAP attn's per-projection Gram factorization is correct.
 - **No Phase 2 trigger** (val ≤ 3.270 gate not passed by either cell).
 - **Follow-on:** PR #318 (fern) — Adam β₁ sweep for AdamW aux groups (embed/lm_head/scalars). β₁=0.90 inherited default, never swept on this stack.
+
+
+## 2026-05-18 02:50 UTC — PR #301: NS5 polynomial coeff sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-askeladd/ns5-poly-coeff-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: NS5's cubic polynomial (a, b, c) at fixed iters=12 has the standard Muon-paper values (2, -1.5, 0.5). Varying the polynomial could find a more aggressive spectral normalization trajectory that converges faster.
+
+| Cell | (a, b, c) | val/loss | ffs | W&B run | Δ vs baseline mu=3.271362 |
+|------|-----------|----------|-----|---------|--------------------------|
+| A (ctrl) | (2.0, -1.5, 0.5) | 3.27235 | 3150 | `0gjpqh9x` | +0.00099 (~0.84σ) |
+| B (Muon-paper) | (3.4445, -4.775, 2.0315) | 3.27189 | 3150 | `lup676zw` | +0.00053 (~0.45σ) |
+| C (intermediate) | (2.5, -2.5, 1.0) | 3.27203 | 3150 | `uia9awwp` | +0.00067 (~0.57σ) |
+| **D (gentler)** | **(1.7, -1.1, 0.4)** | **3.27073** | **3125** | `ct9g7ora` | **-0.00063 (~0.53σ)** |
+
+- **Mechanism conclusion:** NS5 polynomial space is FLAT around standard (2,-1.5,0.5) settings. All four cells cluster in a tight ~0.0016 val/loss range (< 1.5σ). Cell D (gentler polynomial, lower a-coefficient) edged the best val/loss and tied baseline-best ffs=3125, but Δ=-0.00063 is within noise (p~0.3 of being real). Phase 2 gate (val ≤ 3.270) NOT met.
+- **Diagnostics:** All non-ctrl cells have ffs=3150 vs Cell D ffs=3125 — hint that a gentler polynomial may reduce variance slightly, but unreliable at n=1.
+- **Follow-on:** PR #334 (askeladd) — Muon WD sweep (wd_mlp/wd_attn ∈ {0, 0.01, 0.025 ctrl, 0.05, 0.10}) — first-ever sweep of Muon weight decay on any stack.

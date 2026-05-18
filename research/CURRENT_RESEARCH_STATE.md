@@ -1,97 +1,83 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-18 (poll #126, ~00:05 UTC)
+- **Last updated:** 2026-05-18 (~02:50 UTC, poll #129)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged 12:42Z)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
 
 ## ⭐ Active Hot Signals
 
-1. **FRIEREN PR #228 n=6 extension in-flight** (`3704tjm5`):
-   - n=4 complete: t0=3.270223, t1=3.269885, t2=3.270447, t3=3.270973, **mean=3.270382** ffs=3125 4/4
-   - n=4 merge gate FAILS (mu=3.270382 > n=4 gate 3.269362)
-   - n=6 extension `3704tjm5` launched ~22:50Z, step 1272 at 23:22Z
-   - **For n=6 merge:** need t4+t5 mean ≤ 3.268423 (~4.3σ below current 4-trial mean — tough but possible)
-   - If n=6 fails: extend to n=8 (gate ≤ 3.269948, ~1.6σ gap from 4-trial mean)
-   - ETA terminal ~02:30Z May 18
+1. **FERN PR #318 β₁=0.70 Phase 2 trigger MET** (`bmiour40`):
+   - Cell A (β₁=0.70): **val=3.26920 ffs=3125** (Δ=-0.00216, ~1.8σ below baseline) ⭐
+   - Phase 2 gate cleared: val ≤ 3.270 AND ffs ≤ 3150 ✓
+   - Cell B (β₁=0.80 ctrl, `xinpvprd`) running step ~1364/3250, ETA ~03:25Z
+   - **Directive:** After Cell B terminal — stop Phase 1 sweep (skip C/D/E), launch Phase 2 n=4 at β₁=0.70
+   - Phase 2 command: `--num_trials 4 --adam_beta1_aux 0.70 --wandb_group g1r5-fern/adam-beta1-confirm`
+   - Phase 2 ETA launch ~03:25Z, terminal ~11:00Z May 18
+   - **Statsig target (n=4):** mean ≤ 3.269362
 
-2. **NEZUKO PR #283 Phase 2 n=4 AGC λ=0.03 launched** (~23:37Z):
-   - Phase 1 sweep: A=3.27208, B=3.27226, **C=3.27002 ⭐ ffs=3125**, D=3.27075 ffs=3125
-   - Both C (λ=0.03) and D (λ=0.1) beat baseline mu at n=1; plateau at λ∈{0.03,0.1}
-   - **Phase 2 n=4 at λ=0.03** (W&B group `g1r5-nezuko/agc-confirm`) running
-   - ETA terminal ~07:00Z May 18
-   - **Statsig target:** mu ≤ 3.269362. Cell C n=1=3.27002 sits 0.00066 above threshold — plausible
-   - If n=4 lands borderline: extend to n=6 (gate 3.269729)
+2. **FRIEREN PR #228 n=6 extension `3704tjm5` in-flight**:
+   - t0-t3: (3.270223, 3.269885, 3.270447, 3.270973) mean=3.270382
+   - **t4=3.269534** ⭐ new frieren single-trial best (ffs=3125)
+   - t5 (trial 1 of `3704tjm5`) running step ~2165/3250, ETA ~03:13Z
+   - For n=6 merge: t5 ≤ 3.267312 (= 6×3.269729 − sum(t0..t4) = 19.618374 − 16.351062)
+   - If n=6 fails: extend to n=8 (gate mean ≤ 3.269948)
 
-3. **ASKELADD PR #301 NS5 polynomial sweep continuing**:
-   - Cell A ctrl: val=3.27235 ffs=3150 | Cell B Muon-paper: val=3.27189 ffs=3150
-   - Cell C `uia9awwp` (~step 2427 at 23:22Z, ETA ~00:15Z)
-   - Phase 2 trigger: val ≤ 3.270 AND ffs ≤ 3150
+3. **NEZUKO PR #283 Phase 2 n=4 AGC λ=0.03** (`407dyaw7`):
+   - Trial 0: val=3.27193 ffs=3150 (slight regression from n=1=3.27002)
+   - Trial 1 running (step ~711/3250 within trial), ETA trial 1 terminal ~04:00Z
+   - Full n=4 terminal ~06:30Z
+   - **Statsig target (n=4):** mean ≤ 3.269362 — with trial 0=3.27193, remaining 3 need mean ≤ 3.268516 (tight)
+   - If n=4 borderline: extend to n=6 (gate 3.269729)
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #228 | frieren | lr_embed=0.80 n=6 extension (`3704tjm5`) | Running step 1272 (~02:30Z) |
-| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | Running ~07:00Z May 18 |
-| #301 | askeladd | NS5 polynomial coeff sweep | Cell C step 2949 (~00:15Z) |
-| #306 | alphonse | lm_head LR sweep | Cell B `pvk9u2pg` step 1866, ETA ~01:00Z |
-| #318 | fern | Adam β₁ sweep (β₁=0.80 ctrl) | Cell A `bmiour40` step 1019, ETA ~02:00Z |
-| #320 | edward | Adam β₂ sweep for AdamW aux groups | Cells A+C both in flight (~23:50Z launch; parallel issue flagged) |
-| #321 | thorfinn | LR cooldown fraction sweep (cooldown_frac) | Cell C ctrl just started ~23:55Z |
-| #323 | tanjiro | Muon momentum (mu) sweep | **JUST ASSIGNED** ~00:05Z |
+| #228 | frieren | lr_embed=0.80 n=6 extension (`3704tjm5`) | t5 running ~03:13Z |
+| #283 | nezuko | AGC Phase 2 n=4 λ=0.03 | Trial 1 step ~711, full ETA ~06:30Z |
+| #306 | alphonse | lm_head LR sweep | Cell C (`o7pictq5`, lr=0.010) step ~2211, ETA ~03:20Z |
+| #318 | fern | Adam β₁ sweep → Phase 2 pivot | Cell B ctrl (`xinpvprd`) step ~1364, ETA ~03:25Z; Phase 2 launches after |
+| #320 | edward | Adam β₂ aux sweep | Cell A retry (`9zjcpd9q`, β₂=0.85) step ~417, sequential B→D→E pending |
+| #321 | thorfinn | cooldown_frac sweep | Cell C ctrl (`vmlfw0hr`) step ~2621; Cell A retry pending (qmsl9jww crashed); Cell B→D→E pending |
+| #323 | tanjiro | Muon mu sweep | Cell A (`gr0xvxt1`, mu=0.85) step ~2961, ETA ~02:50Z |
+| #334 | askeladd | **NEW: Muon WD sweep** (wd_mlp/wd_attn ∈ {0,0.01,0.025,0.05,0.10}) | Just assigned; Cell A (wd=0) launching |
 
-## Closed This Polling Window (poll #125-126)
+## Closed This Session (poll #127-129)
 
-- **PR #289 (tanjiro combo n=4): CLOSED clean-neutral 00:03Z May 18**
-  - n=4 mean=3.271485 (Δ=+0.000123, ~0.4σ within noise). Combo gain fully absorbed by lr_mlp=0.055.
-  - → Tanjiro reassigned PR #323 (Muon mu sweep)
-- **PR #270 (edward SOAP β₂ warmup): CLOSED clean-neutral 23:40Z May 17**
-  - Best: Cell C (0.50/500) val=3.27154 ffs=3150 (Δ=+0.00018). No Phase 2 trigger.
-  - → Edward reassigned PR #320 (Adam β₂ aux sweep)
-- **PR #264 (thorfinn SOAP eigvec EMA): CLOSED clean-neutral 23:38Z May 17**
-  - Best: Cell B (α=0.3) val=3.27263 ffs=3125 (Δ=+0.00127, within 1σ). No Phase 2 trigger.
-  - Inverted-U around α=0.3 confirmed. Mechanism exhausted.
-  - → Thorfinn reassigned PR #321 (cooldown_frac sweep)
+- **PR #301 (askeladd NS5 polynomial): CLOSED clean-neutral ~02:45Z May 18**
+  - Best: Cell D (1.7,-1.1,0.4) val=3.27073 ffs=3125 (Δ=-0.00063, ~0.5σ within noise)
+  - Phase 2 gate NOT met (val=3.27073 > 3.270). Polynomial space FLAT around current settings.
+  - → Askeladd reassigned PR #334 (Muon WD sweep)
 
-## New Assignments (poll #125)
+- **PR #289, #264, #270** — closed earlier this session (see previous state doc)
 
-- **PR #320 edward — Adam β₂ aux sweep:**
-  - 5 cells: β₂ ∈ {0.85, 0.90, 0.95 ctrl, 0.99, 0.999}
-  - Companion to fern PR #318 (β₁ sweep) — together map the AdamW 2D momentum surface
-  - Phase 2 trigger: val ≤ 3.270 AND ffs ≤ 3150
+## Upcoming Decisions (~next 4-8h)
 
-- **PR #321 thorfinn — LR cooldown_frac sweep:**
-  - 5 cells: cooldown_frac ∈ {0.5, 0.6, 0.7 ctrl, 0.8, 0.9}
-  - cooldown_frac=0.7 inherited from original record, never swept. High prior on signal.
-  - Mechanism: controls when ffs can first hit 3.28 → direct connection to speedrun metric
-  - Phase 2 trigger: val ≤ 3.270 AND ffs ≤ 3150
-
-## Pending Closures (awaiting SENPAI-RESULT then close)
-
-- **PR #289 (tanjiro combo n=4):** Trial 3 at step 12566 (ETA ~00:45Z). Close clean-neutral after. 3-trial mean=3.271603 → n=4 merge dead.
-
-## Upcoming Decisions (~next 2-4h)
-
-- ~00:15Z: askeladd Cell C terminal → if val ≤ 3.270, Phase 2 trigger
-- ~00:45Z: tanjiro trial 3 terminal → close PR #289 clean-neutral, reassign tanjiro
-- ~01:00Z: alphonse Cell B terminal → Cell C (lr_lm_head=0.010) launches; sweep continues
-- ~02:00Z: fern Cell A terminal → Cell B (β₁=0.80 ctrl) launches
-- ~02:30Z: frieren n=6 extension terminal → apply statsig math, decide n=8 if needed
-- ~07:00Z: nezuko Phase 2 n=4 terminal → merge if statsig passes, else extend to n=6
+- ~02:50Z: tanjiro Cell A terminal (mu=0.85 — if val ≤ 3.270, Phase 2 trigger)
+- ~03:05Z: thorfinn Cell C ctrl terminal → if ctrl reproduces baseline, auto-launch Cell A retry
+- ~03:13Z: frieren t5 terminal → n=6 merge decision (needs t5 ≤ 3.267312 for merge; if miss, n=8 extension)
+- ~03:20Z: alphonse Cell C terminal (lr_lm_head=0.010)
+- ~03:25Z: fern Cell B ctrl terminal → Phase 2 n=4 at β₁=0.70 launches
+- ~04:00-11:00Z: Sweep completions rolling in (edward, thorfinn cells, tanjiro B→E, askeladd WD A→E)
+- ~06:30Z: nezuko Phase 2 n=4 terminal → merge if statsig passes, else n=6 extension
+- ~11:00Z: fern Phase 2 n=4 terminal → merge decision
 
 ## Research Themes
 
-**Primary goal:** Stack orthogonal mechanisms onto lr_mlp=0.055 base to push below ffs=3125. Target trajectory: ffs=3100 → 3075 → beyond.
+**Primary goal:** Stack orthogonal mechanisms onto lr_mlp=0.055 base to push below ffs=3125. Target: ffs=3100 → 3075 → beyond.
 
 **Active mechanism threads:**
-- **AdamW aux hyperparams:** β₁ (fern), β₂ (edward) — mapping full 2D momentum space
-- **LR schedule:** cooldown_frac (thorfinn) — first-ever cooldown boundary sweep
-- **AdamW lm_head LR:** alphonse — last per-group LR axis after embed (frieren) and MLP (edward PR #162)
-- **AGC clipping:** nezuko Phase 2 — best n=1 signal in portfolio (Δ=-0.00134)
-- **NS5 polynomial:** askeladd — characterizing polynomial space at fixed iters=12
+- **AdamW aux β₁ (fern):** β₁=0.70 shows 1.8σ signal → Phase 2 confirm in flight
+- **AdamW aux β₂ (edward):** β₂ sweep A/B/D/E in progress
+- **LR schedule (thorfinn):** cooldown_frac sweep — first-ever on this stack
+- **lm_head LR (alphonse):** 0.001/0.003 worse, 0.010 pending (~3.2× ctrl)
+- **AGC clipping (nezuko):** Phase 2 n=4 in flight; trial 0 slightly regressed from n=1
+- **Muon WD (askeladd):** JUST ASSIGNED — wd_mlp/wd_attn never swept on any stack
+- **Muon mu (tanjiro):** mu=0.85 first cell, B→E pending
 
 **Exhausted mechanism slots:**
+- NS5 polynomial space (askeladd, clean-neutral, flat around (2,-1.5,0.5))
 - SOAP attn eigvec smoothing (thorfinn, clean-neutral)
 - SOAP β₂ cold-start warmup (edward, clean-neutral)
 - Q/K shared Gram (fern, clean-neutral)
@@ -101,10 +87,10 @@
 - SOAP attn Gram damping (fern, clean-neutral)
 - Cautious-Muon, Lookahead, SWA, z-loss, gradient centralization, label smoothing, depth-init, per-head SOAP, schedule-free Muon, polynomial schedule-free Muon, SOAP β₂ cooldown annealing — all closed
 
-**What hasn't been tried (candidate next hypotheses):**
-- Muon momentum (mu) sweep — mu=0.95 default, never swept on this stack
-- Separate lr_attn sweep was done at old baseline (PR #209 clean-negative); but not re-tested with lr_mlp=0.055 stack (inference from that result: lr_attn=0.035 stays)
-- Cooldown SHAPE on new stack (PR #48 on old Muon — retesting with SOAP could differ)
-- Spectral/orthogonal init for QKV weights
-- Adam β₂ schedule (ramp over training, complementing thorfinn's SOAP β₂ idea)
-- lm_head LR result may suggest per-group lr_embed × lr_lm_head 2D joint confirm
+**Candidate next hypotheses (unassigned):**
+- Separate lr_attn sweep on new stack (PR #209 was clean-negative at old baseline)
+- Spectral/orthogonal QKV weight init
+- Adam β₂ schedule ramp over training
+- Per-group lr_embed × lr_lm_head 2D joint confirm (after alphonse sweep)
+- NS5 + AGC compound (if both β₁ and AGC confirm)
+- Muon nesterov flag ablation (nesterov=True hardcoded; test nesterov=False)
