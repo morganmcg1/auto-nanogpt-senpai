@@ -529,6 +529,9 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+NANOGPT_ADAMW_EMBED_WD = float(os.environ.get("NANOGPT_ADAMW_EMBED_WD", "0.0"))
+NANOGPT_ADAMW_LM_HEAD_WD = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_WD", "0.0"))
+NANOGPT_ADAMW_SCALAR_WD = float(os.environ.get("NANOGPT_ADAMW_SCALAR_WD", "0.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -798,6 +801,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_adamw_embed_wd": NANOGPT_ADAMW_EMBED_WD,
+            "nanogpt_adamw_lm_head_wd": NANOGPT_ADAMW_LM_HEAD_WD,
+            "nanogpt_adamw_scalar_wd": NANOGPT_ADAMW_SCALAR_WD,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -830,9 +836,9 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, weight_decay=NANOGPT_ADAMW_EMBED_WD, name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=1/320, weight_decay=NANOGPT_ADAMW_LM_HEAD_WD, name="adam_lm_head"),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, weight_decay=NANOGPT_ADAMW_SCALAR_WD, name="adam_scalars")],
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
