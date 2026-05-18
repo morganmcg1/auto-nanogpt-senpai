@@ -979,3 +979,32 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Statsig gates:** n=4 mu ≤ 3.269362 MISS by +0.002178 (~2σ); n=6 extension trigger MISS.
 - **Conclusion:** Phase 1 n=1 signal was favorable seed noise (-1.8σ outlier). n=4 reverts to baseline indistinguishably. AdamW aux β₁ on this stack does NOT have a reproducible optimum away from default 0.80 in the {0.70, 0.80} range.
 - **Verdict:** Closed clean-neutral. Mechanism class exhausted at this baseline.
+
+## 2026-05-18 14:10 — PR #306: AdamW lm_head LR sweep + Phase 2 n=4 CLOSED clean-neutral
+
+- **Student:** g1r5-alphonse
+- **Hypothesis:** Hardcoded lr_lm_head=1/320=0.003125 was conservatively tuned for old baseline; with SOAP+lr_mlp=0.055 stack, lm_head can absorb larger LR. Sweep {0.001, 0.003125, 0.010, 0.030, 0.100}, then n=4 confirm at peak.
+- **Phase 1 n=1 sweep (clean monotone inverted-U, peak at D=0.030):**
+
+| Cell | lr_lm_head | val/loss | ffs | Δ vs baseline mu=3.271362 | wandb |
+|---|---:|---:|---:|---:|---|
+| A | 0.001 | 3.276032 | 3200 | +0.00467 (~3.95σ above) | `gdgag170` |
+| B | 0.003125 (ctrl) | 3.272425 | 3150 | +0.00106 (~0.90σ above) | `pvk9u2pg` |
+| C | 0.010 | 3.271231 | 3150 | -0.00013 (~0.11σ below) | `o7pictq5` |
+| **D ★** | **0.030** | **3.270332** | **3125** | **-0.00103 (~0.87σ below) ★** | `29s9g1k2` |
+| E | 0.100 | 3.276856 | 3200 | +0.00549 (~4.65σ above) | `xzflql8k` |
+
+- **Phase 2 n=4 at lr_lm_head=0.030 (run `7xl5rcjb`):**
+
+| Trial | val_loss | ffs |
+|---|---:|---:|
+| T1 | 3.27025 | 3125 |
+| T2 | 3.27131 | 3150 |
+| T3 | 3.27223 | 3150 |
+| T4 | 3.27098 | 3125 |
+| **mean (n=4)** | **3.2711925** | **3137.5** |
+
+- **Statsig:** margin (3.271362 − 3.2711925) × √4 = +0.000339 vs +0.004 needed → FAIL by ~12×. Z(mean - baseline) = -0.14σ ≈ on baseline.
+- **Conclusion:** Cell D n=1 = 3.27033 was a favorable seed within ±2σ trial-to-trial spread (T1=3.27025, T3=3.27223, range ≈ 0.002). Mean reverts to baseline at n=4. Mechanism class: bowl with shallow basin centered near (but above) hardcoded default. Directional improvement is real but too small to clear statsig.
+- **Mechanism take:** lm_head is a single dense projection (768×50304) late in graph. Once Muon attn + lr_mlp tuning has squeezed easy gain, residual lm_head LR contribution sits within trial noise. Mirrors frieren's lr_embed=0.80 outcome (PR #228 also Phase 2 clean-neutral). Pattern: endpoint-LR sweeps look promising at n=1 but don't survive n=4 statsig on this baseline.
+- **Verdict:** Closed clean-neutral. lr_lm_head exhausted on this stack.
