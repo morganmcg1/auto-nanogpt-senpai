@@ -1,15 +1,19 @@
 # SENPAI Research State
 
-- 2026-05-18 15:10 UTC — Cycle 55 (continued)
+- 2026-05-18 16:15 UTC — Cycle 55 (continued)
 
-## 🔥 THREE-MECHANISM CONVERGENCE (15:10 UTC)
+## 🔥 THREE-MECHANISM CONVERGENCE — ALL n=2 CONFIRMED (16:15 UTC)
 
-Three independent mechanism perturbations have all hit `ffs=3050` (below the bimodal {3075, 3100} floor) this cycle:
-1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050, both trials)
-2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5; n=4 confirm running)
-3. **FERN #372** MuonEq-R eps=1e-8 → trial 0 STRONG (val=3.2735/ffs=3050; trial 1 ETA ~15:40 UTC)
+Three independent mechanism perturbations all hit `ffs=3050` (below bimodal {3075, 3100} floor) AND have n=2 STRONG with statsig pass:
+1. **THORFINN #357** MU_COOLDOWN_END=0.87 → n=2 STRONG (val=3.27432/ffs=3050, statsig PASS). Arm B (MU_END=0.85) trial 1 at step 2975/3175 AT RISK of missing target.
+2. **ASKELADD #358** CONTRA_MUON=0.4 → n=2 STRONG (val=3.27343/ffs=3062.5, statsig PASS). **n=4 confirm RUNNING** (trial 0 done val=3.2752/ffs=3075 borderline; trial 1+ in progress; ETA ~20:30 UTC).
+3. **FERN #372** MuonEq-R eps=1e-8 → n=2 STRONG (val=3.273925/ffs=3062.5, statsig PASS, T0=3.27352/3050 + T1=3.27433/3075). **n=4 confirm LAUNCHED 15:44 UTC** (ETA ~22:50 UTC). Arm B (eps=1e-6) queued via background launcher.
 
-**Mechanism reading**: All three perturbations affect cooldown-phase update geometry (μ floor, contra correction, pre-NS5 row normalization). Possible that cooldown is the active lever and any geometric perturbation there compounds. If both n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 ± MuonEq-R).
+**Mechanism reading**: All three perturbations affect cooldown-phase update geometry (μ floor, contra correction, pre-NS5 row normalization). The active lever is likely cooldown-stage update geometry — any perturbation there compounds. If multiple n=4 confirms pass, the next experiment is the STACKED combination (MU_COOLDOWN_END=0.87 + CONTRA_MUON=0.4 + MuonEq-R) to test additivity vs substitutability.
+
+## ⏳ At-Risk Watch
+- **thorfinn #357 Arm B trial 1**: val=3.2871 at step 2975/3175, needs to drop 0.007 in ~200 steps to reach target=3.28. If misses → ffs=NaN for trial 1 → n=2 mean uncomputable. Arm A n=2 already STRONG so trial-B miss doesn't affect baseline win, just upper-direction sweep.
+
 
 - No human researcher directives this session (Issue #164 is on r3 branch, not r2).
 - ✅ **PR #288 MERGED** (08:35 UTC): Cooldown-only μ anneal 0.95→0.90 — NEW BASELINE. val=3.275350/ffs=3087.5. MU_START/MU_END deprecated; new stack is MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 CONTRA_MUON=0.5.
