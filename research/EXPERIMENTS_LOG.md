@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-18 23:14 UTC — PR #367 MERGED: lm_head_lr=1/160 confirmed WIN (g1r1-frieren)
+
+- Branch: `g1r1-frieren/lm-head-lr-scan`
+- Hypothesis: lm_head_lr=1/320 was inherited and possibly under-tuned. Scan bidirectional: 1/160 (2×) vs 1/640 (0.5×).
+
+| Run | Arm | lm_head_lr | Seed | sr | val/loss | Verdict |
+|---|---|---|---|---|---|---|
+| `7xub16ua` | A | 1/160 | 1 | 2975 | 3.26774 | n=1 marginal WIN |
+| `lzitteno` | B | 1/640 | 1 | 3025 | 3.26977 | NULL (worse both metrics) |
+| `f9nyqjxn` | A | 1/160 | 2 | 2975 | 3.26670 | n=2 confirm WIN |
+| **n=2 mean** | A | **1/160** | — | **2975** | **3.26722** | **CONFIRMED WIN** |
+| Baseline (PR #274) | — | 1/320 | — | 3000 | 3.2685 | — |
+| **Δ** | | | | **−25** | **−0.00128** | ≥ 0.001 threshold ✓ |
+
+n=2 statistical check: (3.28 − 3.26722)·√2 = 0.01807 ≥ 0.004 ✓ (4.52×). Both seeds independently hit sr=2975 — not noise floor.
+
+**Conclusion: lm_head_lr=1/320 was marginally under-tuned for the current PMuon+cubic-Newton-NS+COOLDOWN_POWER=1.4 stack. Doubling to 1/160 reliably saves 25 steps. Symmetric falsification (1/640 hurts) confirms direction is real. MERGED as new baseline: sr=2975, val=3.26722. Follow-up: fine-scan {1/80, 1/100, 1/120} for peak.**
+
+---
+
 ## 2026-05-18 21:05 UTC — PR #364 CLOSED: Muon momentum reset at cooldown FALSIFIED at n=2 (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/muon-momentum-reset-at-cooldown`

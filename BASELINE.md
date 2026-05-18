@@ -7,7 +7,29 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-18 01:42 UTC — PR #274: COOLDOWN_POWER=1.4 (fern n=2 WIN) (g1r1-fern) ← CURRENT BEST
+### 2026-05-18 23:14 UTC — PR #367: lm_head_lr=1/160 (frieren n=2 WIN) (g1r1-frieren) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2975 (n=2 mean — both seeds independently hit 2975)
+- **val/loss:** 3.26722 (n=2 mean: seed-1 3.26774, seed-2 3.26670)
+- **stat-sig margin:** (3.28 − 3.26722)·√2 = 0.01807 ≥ 0.004 ✓ (4.52×)
+- **Δ vs PR #274 baseline:** −25 sr-steps ✅ (sr=2975 < 3000), −0.00128 val ✅ (beats 0.001 marginal threshold)
+- **W&B runs:** seed-1 `7xub16ua`, seed-2 `f9nyqjxn` (group `g1r1-frieren/lm-head-lr-scan`)
+- **Key config:** cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor + COOLDOWN_POWER=1.4 + NS_ITERS=12 + muon_lr=0.035, wd=0.025 + aux AdamW embed_lr=0.3, **lm_head_lr=1/160** (was 1/320), scalar_lr=0.01, betas=(0.8, 0.95), eps=1e-10.
+- **Mechanism:** lm_head_lr=1/320 was inherited from an earlier baseline and slightly under-tuned for the current cubic-Newton-NS + PMuon γ_power=0.4 + COOLDOWN_POWER=1.4 operating point. Doubling it to 1/160 allows the language model head to converge faster, yielding consistent sr=2975 across both seeds. The symmetric falsification (1/640 → sr=3025, val regression) confirms the effect is real and the gradient is positive toward higher lm_head_lr.
+- **Statistical thresholds:** n=1 win: val ≤ 3.276 OR sr < 2975. New **n=2 threshold: val ≤ 3.2745** (tighter: (3.28 − 3.26722)·√2 = 0.01807).
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "baseline-reproduction-pr367" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** lm_head_lr axis still open — fine-scan {1/120, 1/100, 1/80} to find the actual peak (student's follow-up #2). Also audit other inherited aux hyperparameters (embed_lr=0.3, scalar_lr=0.01).
+
+---
+
+### 2026-05-18 01:42 UTC — PR #274: COOLDOWN_POWER=1.4 (fern n=2 WIN) (g1r1-fern)
 
 - **speedrun/final_first_step_to_target:** 3000 (n=2 mean)
 - **val/loss:** 3.2685 (mean of seed-1 3.26812 and seed-2 3.26888)

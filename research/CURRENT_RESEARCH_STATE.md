@@ -1,37 +1,45 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-18 21:05 UTC
+- **Last update:** 2026-05-18 23:14 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 3000 steps. Public record is 3030 steps (Record #20). We are currently TIED with record (local n=2 sr=3000).
+- **Target:** Push `speedrun/final_first_step_to_target` below 2975 steps (just BEAT previous record of 3030 — new local n=2 sr=2975). Public record was 3030 steps (Record #20).
 
 ## Current local baseline
 
-**sr=3000, val/loss=3.2685 (n=2)** — PR #274 (g1r1-fern, COOLDOWN_POWER=1.4).
+**sr=2975, val/loss=3.26722 (n=2)** — PR #367 (g1r1-frieren, lm_head_lr=1/160). **NEW RECORD BEAT — sr=2975 < public 3030.**
 
-Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (TARGET_UW=0.35) + COOLDOWN_POWER=1.4 + Muon lr=0.035 wd=0.025 + aux AdamW embed_lr=0.3, lm_head_lr=1/320, scalar_lr=0.01, betas=(0.8, 0.95), eps=1e-10.
+Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (TARGET_UW=0.35) + COOLDOWN_POWER=1.4 + Muon lr=0.035 wd=0.025 + aux AdamW embed_lr=0.3, **lm_head_lr=1/160**, scalar_lr=0.01, betas=(0.8, 0.95), eps=1e-10.
 
-W&B runs: `vw0595an` (seed-1), `s2nrw0c8` (seed-2).
+W&B runs: `7xub16ua` (seed-1), `f9nyqjxn` (seed-2).
 
-Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
+Win conditions: sr<2975 OR (sr=2975 AND val<3.26722). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
+
+**KEY STATUS: We have BEATEN the public record (3030 steps → our 2975). Next target: push sr below 2975 (sub-2975).**
 
 ## Pending confirmation (unmerged n=1 wins)
 
-- **frieren #367 Arm A lm_head_lr=1/160**: n=1 sr=2975 val=3.2677 (marginal WIN). n=2 retry `f9nyqjxn` in flight — at step 1375 val=3.6298 (mid-flight).
+None at this time.
 
-**Infrastructure:** Cold-start crash storm has stabilized. All recent launches succeed on first attempt. Closed PRs #364, #366 had infra problems that prevented in-flight n=2; thorfinn #404 will get a clean n=2 confirmation seed for CP=1.0.
+**Infrastructure:** Stable. Cold-start crash storm fully abated.
 
 ## Active experiments (8 students)
 
-| PR | Student | Mechanism | Status (21:05 UTC) |
+| PR | Student | Mechanism | Status (23:14 UTC) |
 |---|---|---|---|
-| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4×} | Arm A 0.7× DONE sr=3000 val=3.2704 (Δval=+0.0019 NULL projected). Arm B 0.4× `0aay0p7y` step 675/3250 val=3.7235 mid-flight. ETA Arm B terminal ~23:30 UTC. |
-| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} | Arm A WD=0.020 `o5z8a5n3` step 500/3250 mid-flight. ETA ~22:50 UTC. |
-| **#367** | **frieren** | Aux lm_head_lr {1/160, 1/640} | n=2 1/160 `f9nyqjxn` step 1375/3250 mid-flight. ETA terminal ~22:00 UTC. |
-| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | γ=0.5 DONE val=3.2800 NULL. γ=0.6 `yhfo48gj` step 1075/3250 mid-flight. ETA terminal ~22:30 UTC. |
-| **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm A ns-iters-cooldown-14 `2vz1ge7p` step 1750/3250 past cooldown boundary. ETA terminal ~22:30 UTC. |
-| **#400** | **edward** | AGC on aux AdamW per-row λ ∈ {0.04, 0.02} | Arm A λ=0.04 `2y0ewtlb` step 400/3250 mid-flight. ETA ~23:00 UTC. |
-| **#403** | **askeladd** | Curriculum COOLDOWN_POWER: linear ramp p_start → p_end | Just assigned (21:05 UTC). Arm A 1.2→1.6 to launch. |
-| **#404** | **thorfinn** | Aux CP extend: CP=1.0 n=2 confirm + CP=0.5 extend | Just assigned (21:05 UTC). Arm A CP=1.0 (fresh seed) to launch. |
+| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4×} | Arm A 0.7× DONE sr=3000 val=3.2704 (NULL vs new baseline). Arm B 0.4× `0aay0p7y` step 2800/3250 mid-flight. ETA terminal ~23:30 UTC. |
+| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} | Arm A WD=0.020 `o5z8a5n3` running. ETA ~23:50 UTC. |
+| **#410** | **frieren** | lm_head_lr fine-scan {1/120, 1/100, 1/80} vs new baseline 1/160 | Just assigned (23:14 UTC). Arm A 1/120 to launch. |
+| **#386** | **alphonse** | PMuon γ_power continuation {0.5, 0.6} | γ=0.5 DONE val=3.2800 NULL. γ=0.6 `yhfo48gj` step 3175/3250 near terminal. ETA terminal <5 min. |
+| **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm A DONE sr=3025 val=3.2699 (NULL). Arm B cooldown=18 launching. |
+| **#400** | **edward** | AGC on aux AdamW per-row λ ∈ {0.04, 0.02} | Arm A λ=0.04 `2y0ewtlb` step 2525/3250 mid-flight. ETA ~00:10 UTC. |
+| **#403** | **askeladd** | Curriculum COOLDOWN_POWER: linear ramp p_start → p_end | Arm A 1.2→1.6 `jq5rgqb7` step 950/3250 running. ETA ~01:00 UTC. |
+| **#404** | **thorfinn** | Aux CP extend: CP=1.0 n=2 confirm + CP=0.5 extend | Arm A CP=1.0 seed2 `jv2oi3fv` step 575/3250 running (prior crashes). ETA ~01:30 UTC. |
+
+## Recently merged (current round)
+
+| PR | Student | Key result | Decision |
+|---|---|---|---|
+| **#367** | frieren | lm_head_lr=1/160: n=2 mean sr=2975 val=3.26722 (Δsr=−25, Δval=−0.00128, both seeds independently 2975) | **MERGED** — new baseline sr=2975 val=3.26722. lm_head_lr axis open for fine-scan {1/120, 1/100, 1/80}. |
 
 ## Recently closed (current round)
 
@@ -57,7 +65,7 @@ Win conditions: sr<3000 OR (sr=3000 AND val<3.2685). Marginal (Δsr≤25 OR Δva
 
 1a. **Body LR decomposition axes**: Depth (LLRD, PR #347) CLOSED — uniform optimal. Role-based (attn vs MLP, PR #387) in-flight.
 
-2. **Aux optimizer-mechanism axis CLOSED**: AdamW β1 (closed at 0.8), β2 (closed at 0.95), eps (closed at 1e-10). Alternative optimizers (Lion, AdEMAMix, Adan) all NULL. Aux groups uniformly want fast-EMA AdamW (β1=0.8). Aux gradient clipping (AGC per-row) in flight #400.
+2. **Aux optimizer-mechanism axis CLOSED**: AdamW β1 (closed at 0.8), β2 (closed at 0.95), eps (closed at 1e-10). Alternative optimizers (Lion, AdEMAMix, Adan) all NULL. Aux groups uniformly want fast-EMA AdamW (β1=0.8). **lm_head_lr=1/320 → 1/160 MERGED (PR #367)**; fine-scan in flight (PR #408). Aux gradient clipping (AGC per-row) in flight #400.
 
 3. **Weight-averaging axis CLOSED**: Polyak/Ruppert (PR #293), Lookahead k=5 (PR #311) both NULL. Power-law cooldown makes late-phase params much better than mid-phase; any averaging backward in time is counterproductive.
 
@@ -82,7 +90,6 @@ Three themes active simultaneously:
 - NS adaptive threshold: stop NS iterations when ||X²-I||_F < ε (convergence criterion vs fixed count)
 - Inverse LLRD: bottom layers get HIGHER LR (contradicts ULMFiT prior but may hold for pretraining-from-scratch)
 - Spectral normalization of weight matrices (complement to polar decomp)
-- lm_head_lr continuation {1/120, 1/80} — once frieren #367 n=2 confirms 1/160 WIN
 - NS_ITERS fine-scan continuation — after fern #395 indicates direction
 - Aux β1 continuation {0.7, 0.85} — once aux AGC/lm_head signals clarify
 - Per-layer NS_ITERS schedule (more iterations for deeper layers)
@@ -91,6 +98,6 @@ Three themes active simultaneously:
 ## Statistical rule reminder
 
 `(3.28 − μ) × √n ≥ 0.004`.
-n=1 win: sr < 3000 OR (sr=3000 AND val < 3.2685).
-Stat-sig threshold: val ≤ 3.276 (n=1), val ≤ 3.277 (n=2).
+n=1 win: sr < 2975 OR (sr=2975 AND val < 3.26722).
+Stat-sig threshold: val ≤ 3.276 (n=1), val ≤ 3.277 (n=2). *(unchanged — rule anchored at 3.28, not baseline)*
 Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
