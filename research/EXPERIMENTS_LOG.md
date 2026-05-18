@@ -957,3 +957,27 @@ n=3 mean fails merge gate by +0.00330. Stat-sig: 0.00814 ≥ 0.004 (passes stat-
 **Verdict**: productive-null on post-#236+ stacks. Closed.
 
 **Wave-6 follow-up assigned (PR #348)**: thorfinn per-group AdamW WD — test lm_head-only and scalar-only WD at 0.002 (smaller, accounting for stack-tightening). Scalar group is the most sparsity-vulnerable per #280, and embed is over-regularized by floor+β2.
+
+## 2026-05-18 07:48 UTC — PR #322: AdamW ε sweep (alphonse) — CLOSED (productive-null)
+
+- Branch: `g1r4-alphonse/adamw-eps-sweep`
+- Hypothesis: After β2=0.99 merge, the AdamW denominator √v̂ + ε floor needs re-tuning. Originally tested ε ∈ {1e-10, 1e-9, 1e-8, 1e-7}.
+
+### Results — n=1 within-pod (post-#236 stack)
+
+| Arm | ε | W&B | val_loss | fs | Δ vs A |
+|-----|---|-----|---------:|----:|--------:|
+| A (control) | 1e-10 | `xtu4lenc` | **3.27152** | 3225 | — |
+| B | 1e-9 | `edimlls6` | 3.27413 | 3250 | +0.00261 |
+| C | 1e-8 | `4247pkjc` | 3.27464 | 3275 | +0.00312 |
+| D | 1e-7 | `efcp88at` | 3.27314 | 3250 | +0.00162 |
+
+All 3 treatment arms regress >+0.0015 vs control. ε=1e-10 (current default) is within-pod winner. Concave shape (peak regression at C=1e-8, partial recovery at D=1e-7).
+
+### Mechanism reading
+
+β2=0.99 (#236) already smooths v̂ across ~100 steps. Larger ε floor masks legitimate signal in the AdamW step normalizer rather than stabilizing it. Partial recovery at D may reflect ε approaching typical √v̂ magnitude where it stops being a "mostly-zero floor" and starts blunting effective LR uniformly.
+
+**Verdict**: productive-null on GLOBAL ε axis.
+
+**Follow-up assigned (PR #351)**: alphonse per-group SCALAR ε — edward #280 showed scalar group is most sparsity-vulnerable. Test scalar ε ∈ {1e-12, 1e-10, 1e-8, 1e-6} while embed/lm_head stay at 1e-10. Scalar-specific apex may exist where global apex didn't.

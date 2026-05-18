@@ -81,8 +81,11 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 **Note:** All arms use post-#236 stack (no #285+#290 yet). Will need re-confirmation on post-#290 stack if any arm shows signal.
 **Decision:** within-pod Δ ≤ −0.002 → real signal candidate.
 
-### alphonse #322 — AdamW ε sweep [mid-chain, likely null direction]
-**Status:** Arm-A (ε=1e-10) = 3.27152, arm-B (ε=1e-9) = 3.27413 (+0.00261 worse). Arm-C running. Monotone worsening direction (higher ε = worse) likely. Decision rule: all within ±0.0015 of A → productive-null.
+### 🔄 alphonse #351 — Per-group SCALAR AdamW ε sweep [JUST ASSIGNED]
+**Branch:** `g1r4-alphonse/per-group-scalar-eps`
+**Hypothesis:** Global ε null (closed #322). Edward #280: scalar group most sparsity-vulnerable. Test scalar-specific ε ∈ {1e-12, 1e-10, 1e-8, 1e-6} while embed/lm_head stay at 1e-10.
+**Decision rule:** within-pod Δ ≤ −0.002 → real signal; all within ±0.0015 → null.
+**ETA:** ~7h sequential.
 
 ### askeladd #324 — AdamW β1 sweep [mid-chain, likely null direction]
 **Status:** Arm-A (β1=0.8) = 3.27113, arm-B (β1=0.85) = 3.27251 (+0.00138 worse). Arm-C (β1=0.9) running. Monotone worsening direction likely.
@@ -97,6 +100,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 - **frieren #285 (NS cooldown SHAPE)** — MERGED ✅ 06:02 UTC. val=3.27352 (n=2). late_peak concentrates NS=20 into lowest-LR half of cooldown.
 - **fern #290 (NS coef schedule)** — MERGED ✅ 06:07 UTC. val=3.27200 (n=3). linear_ramp_down starts NS at high-precision coefficients, ramps toward standard.
 - **thorfinn #279 (AdamW WD=0.005)** — CLOSED 07:12 UTC productive-null. n=3 mean=3.27530 vs new baseline 3.27200 (+0.00330 above gate). β2=0.99 absorbed standalone gain; inter-seed variance collapsed ×7 on new stack. Wave-6 axis assigned as per-group WD #348.
+- **alphonse #322 (AdamW global ε)** — CLOSED 07:48 UTC productive-null. All 3 treatment arms +0.0016-0.0031 worse than control ε=1e-10. β2=0.99 smoothing already stabilizes denominator. Wave-6 axis assigned as per-group scalar ε #351.
 - **edward #280 (per-aux-group β2 ablation)** — CLOSED mechanism-study. Sparsity-driven mechanism: scalar > embed > lm_head (inverts pre-registration). Sub-additivity 2.5× confirms global β2=0.99 captures UNION.
 - **askeladd #241 (Muon mu=0.97)** — productive-null. Confirmed within-pod inverted-U but cross-pod fail (+0.00118 above gate).
 
