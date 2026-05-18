@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-19 00:00 UTC — PR #386 CLOSED: PMuon γ_power continuation {0.5, 0.6} — both NULL, axis closes at 0.4 (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/gamma-power-continuation`
+- Hypothesis: Monotone γ_power signal from PR #202 (0.2→0.3→0.4 improving) suggested unsaturated headroom past 0.4. Scan {0.5, 0.6}.
+
+| Arm | γ_power | W&B run | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 0.5 | `516wmw6t` | 3250 | 3.27999 | +275 | +0.01277 | NULL — severe regression |
+| B | 0.6 | `yhfo48gj` | −1 | 3.28892 | ∞ | +0.02170 | FAIL — never reached ≤3.28 |
+| Baseline (PR #367) | 0.4 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+
+**Key diagnostic (whitening telemetry at terminal):**
+| Arm | γ | `whitened_sv_max` | `lcov_eigh_ratio` |
+|---|---|---|---|
+| A | 0.5 | 3.5e-4 | 1.55e6 |
+| B | 0.6 | 5.0e-5 (7× smaller) | 1.80e7 (11.6× larger) |
+
+γ=0.6 collapses post-whitening SV spectrum (7× smaller max-SV) while left-cov condition number blows up 11.6× — NS polar receives near-singular operand. γ=0.5 maintains convergence but slows it. The monotone signal saturates at 0.4 and inverts sharply past it.
+
+**Conclusion: Both arms NULL per falsification table → γ_power axis CLOSES at 0.4. New assignment PR #413 (scalar_lr upward scan).**
+
+---
+
 ## 2026-05-18 23:14 UTC — PR #367 MERGED: lm_head_lr=1/160 confirmed WIN (g1r1-frieren)
 
 - Branch: `g1r1-frieren/lm-head-lr-scan`
