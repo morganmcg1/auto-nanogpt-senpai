@@ -6,6 +6,25 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-18 23:46 UTC — PR #391: MuonH warmup duration sweep (100/200/300) ❌ CLOSED NEG
+
+- **Branch**: g1r3-thorfinn/muonh-warmup-duration-sweep
+- **Hypothesis**: Extending MuonH-SI inner LR warmup beyond the merged baseline (100 steps, PR #310) could further reduce early-step instability and improve terminal val/loss. 3 arms: 100 (control = baseline), 200 (longer), 300 (longest).
+- **Results** (vs current baseline 3.27286, n=1 bar < 3.27206):
+
+| arm | warmup | wandb_id | terminal val/loss | Δ vs 3.27286 | n=1 bar (<3.27206)? |
+|---|---|---|---|---|---|
+| 1 | 100 (ctrl) | a05x4jp0 | 3.27325 | +0.00039 | **NEG** (~baseline within σ) |
+| 2 | 200 | m3alnjbx + 3 retries | NaN at step 125 | — | **CRASH** (deterministic, 4 retries) |
+| 3 | 300 | lb3ehf94 | NaN at step 125 | — | **CRASH** (same signature) |
+
+- **Mechanism (thorfinn's 22:56 UTC diagnosis)**: Aux AdamW (embed/lm_head/scalars at lr=0.30 from step 1) outruns the slowly-ramping MuonH inner blocks. With warmup>100, the cross-entropy/bf16 NS5 spectral path overflows *before* MuonH catches up. AGC silently passes NaN through because `NaN > clip_ratio` evaluates False. AGC engagement at steps 25-50 (max_ratio ~26k→60k) is what *saves* arm 1 under warmup=100 — not the warmup duration itself. Both arm 2 + arm 3 produce bit-identical `nonfinite_count_all = 147,984,768` at step 125 regardless of warmup duration once >100.
+- **Saturated lever**: MuonH inner LR warmup_steps. Stability cliff at 100; longer = catastrophic.
+- **Generalizable finding**: Aux/MuonH effective-LR ratio early in training is the load-bearing stability factor for the current stack. This constrains a class of future levers; it also opens **aux AdamW warmup_steps** as a new direction (next assignment for thorfinn).
+- **Branch state at close**: Clean. CLOSED 23:46 UTC.
+
+---
+
 ## 2026-05-18 18:43 UTC — PR #397: Aux lm_head weight decay sweep — ASSIGNED
 
 - **Branch**: g1r3-nezuko/aux-lm-head-wd-sweep
