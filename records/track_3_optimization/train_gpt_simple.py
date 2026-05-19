@@ -63,6 +63,11 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--wd_aux", type=float, default=0.0,
+                        help="AdamW weight decay for aux param groups (embed/lm_head/scalars). Default 0 (unregularized).")
+    parser.add_argument("--wd_aux_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        help="Schedule shape for wd_aux on AdamW aux param groups. Same semantics as --wd_schedule.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -741,6 +746,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "wd_aux": args.wd_aux,
+            "wd_aux_schedule": args.wd_aux_schedule,
         },
     )
 
@@ -775,7 +782,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=args.wd_aux, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -822,11 +829,14 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        wd_aux_mu = _wd_multiplier(step, train_steps, args.wd_aux_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                elif "initial_wd" in group and group.get("name", "").startswith("adam_"):
+                    group["weight_decay"] = group["initial_wd"] * wd_aux_mu
 
 
     ########################################
