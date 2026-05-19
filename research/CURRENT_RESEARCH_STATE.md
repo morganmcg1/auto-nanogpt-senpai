@@ -70,10 +70,11 @@ Replace AdamW's `m/(√v + ε)` with `atan2(m, b·√v)` on aux groups. Arm A re
 Strictly monotone regression: A=3.27326 (ctrl), B=3.31900 (+0.046), C=3.37495 (+0.102), D=3.49666 (+0.223). B/C/D never reached 3.28 target. The merged stack already has three confidence-pressure regularizers (logit softcap=15, embed_lr_mult=1.5×, NS cooldown) — adding label smoothing subtracts gradient signal on already-regularized correct-token targets. **17th productive-null/negative this cycle.** Regularization-addition axes are fully closed.
 **Follow-up**: thorfinn assigned **#483 WD warmup schedule** — first regularization-REDUCTION test this cycle.
 
-### 🔄 thorfinn #483 — WD warmup schedule [assigned 15:40 UTC]
+### 🔄 thorfinn #483 — WD warmup schedule (Muon block group) [assigned 15:40 UTC, spec clarified 15:48 UTC]
 
 **Branch:** `g1r4-thorfinn/wd-warmup`
-**Hypothesis**: Currently WD is constant from step 0. WD warmup ramps WD linearly from 0 → full over first N% of training, then holds constant. Tests if early-phase over-regularization is hurting discovery. First regularization-REDUCTION test this cycle (all 17 prior axes ADDED regularization and failed). Implementation: `group['weight_decay'] = base_wd * min(1, step/warmup_steps)`.
+**Hypothesis**: WD warmup ramps WD linearly from 0 → full over first N% of training, then holds constant. Tests if early-phase over-regularization on body weights is hurting discovery. First regularization-REDUCTION test this cycle (all 17 prior axes ADDED regularization and failed).
+**Spec correction (15:48 UTC)**: Student correctly flagged that AdamW WD=0 across all groups in the merged stack — the only nonzero WD is on Muon block weights (WD=0.025, line 846; decoupled WD applied at Muon.step():704). Warmup now applied to the Muon block group: `for g in optimizer2.param_groups: g['weight_decay'] = 0.025 * mult`. All other spec elements (arm sweep, decision rules, drift gate) unchanged.
 | Arm | NANOGPT_WD_WARMUP_FRAC | Warmup window |
 |---|---:|---|
 | A | 0.0 (control) | none (constant WD) |
