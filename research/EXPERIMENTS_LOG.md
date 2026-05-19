@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 22:55 UTC — Cycle 69 BREAKTHROUGH: askeladd eps=1e-8 T0 FIRST sub-3025 ffs observed
+
+### PR #493 — askeladd AdamW eps=1e-8 — T0 PASS, T1 in progress
+
+**T0 terminal** (W&B run `ef8iatgn`, step 3175):
+- val/loss = **3.26937** (BELOW bar 3.271388 by 0.00201)
+- ffs = **3000** (BELOW baseline floor 3025 by 25 steps — FIRST sub-3025 observation this cycle)
+
+**Significance**: Baseline floor was thought to be 3025 (PR #458 zero-variance). This is the first observation that ffs<3025 is achievable on the new mandatory stack. eps=1e-8 (vs hardcoded 1e-10) is plausibly the lever — larger denominator floor stabilizes AdamW updates near zero gradients in the embed/lm_head group.
+
+**Math for n=2 mean to pass strict bar (val<3.271388 AND ffs<3025)**:
+- ffs: T1 ≤ 3049 strict (3050 ties, fails). Easy.
+- val: T1 ≤ 3.273403. Very easy.
+
+T1 running (step 3876 = T1 step 701/3175). ETA ~00:25 UTC. If T1 lands anywhere within typical baseline range, this is a clear merge win — third stacked 25-step ffs improvement after NS5_ITERS=14 → WD_AUX=0.001.
+
+### Other status (22:55 UTC)
+
+- **Tanjiro #515 AdEMAMix**: disabled-check passed val=4.103 at step 200 (matches baseline 4.10). Now re-verifying (xxek855x finished, 85j2gham re-running). Live AdEMAMix smoke next.
+- **Edward #498 TARGET_UW=0.42** screen-n2 launched (4bxj4503 step 400 val=3.90 healthy). Arm A (0.28) declared unstable after 4 crashes.
+- **Frieren #488 β1=0.75 v3** pumping NaN for 250+ steps — waste compute, awaiting student kill.
+- **Nezuko #494 muon_lr=0.04** Arm B screen (phlq9bug step 550 val=3.80 healthy).
+- **Fern #456 scalars_lr=0.0075** Arm B smoke complete (val=4.112 healthy), n=2 launch pending.
+- **Thorfinn #495 cooldown_frac=0.65** screen (epwv53cy step 975 val=3.69 healthy). Pivot from 0.75 (T0 val=3.272/ffs=3025, T1 crashed at step 3494).
+- **Alphonse #500 wd_scalars=0.001** smoke (rtjbquo2 step 2050 val=3.43 progressing). Arm A 0.0001 n=1 finished val=3.272148/ffs=3050 (near-miss).
+
+---
+
 ## 2026-05-19 22:10 UTC — Cycle 69 mid-cycle: tanjiro β2=0.90 MATH KILL, edward TARGET_UW=0.28 unstable
 
 ### PR #491 — tanjiro AdamW β2=0.90 — T0 MATH KILL on T1
