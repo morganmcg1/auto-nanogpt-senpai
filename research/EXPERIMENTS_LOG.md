@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 18:09 UTC — Cycle 68: #485 CLOSED COOLDOWN_POWER=0.5 gate kill — axis fully characterized
+
+### PR #485 — tanjiro COOLDOWN_POWER=0.5 (sqrt back-loaded cooldown) — KILLED EARLY
+
+Branch: `g1r2-tanjiro/cooldown-power-0.5-screen`. Full new mandatory stack + COOLDOWN_POWER=0.5.
+
+| step | val/loss | Δval/Δ125steps |
+|---|---|---|
+| 1000 | 3.65348 | — |
+| 1500 | 3.54749 | −0.0309/Δ125 |
+| 2000 | **3.46616** | (gate at 3.40 — violated by +0.066) |
+| 2125 | 3.44927 | −0.0169/Δ125 (decelerating) |
+
+W&B run: `bkng1ngd` — KILLED at step 2272 (saved ~105 min compute).
+
+**Kill rationale**: val@step2000=3.46616, 0.066 above gate, 0.096 worse than baseline trajectory at same step. Rate Δval/step decelerating; extrapolation shows no path to baseline final (3.273) within remaining 1050 steps.
+
+**Axis verdict — COOLDOWN_POWER fully characterized**:
+- power=2.0 (front-loaded quadratic) → PR #464 math kill (T0 val=3.28756, never crossed 3.28)
+- power=1.0 (linear) → baseline (winning)
+- power=0.5 (back-loaded sqrt) → PR #485 gate kill (val falls behind too far)
+
+Symmetric pair of misses confirms power=1.0 is local optimum. Cooldown shape sensitivity is low on extremes; the linear ramp is robust.
+
+**Reassignment**: tanjiro → #491 ADAM_BETA2 sweep (0.90 vs 0.99 around hardcoded 0.95). Fresh AdamW-side axis paired orthogonally with frieren's β1 sweep (#488).
+
+---
+
 ## 2026-05-19 17:09 UTC — Cycle 68: T0 wave (4 PRs hit step 3175): 2 PASS, 1 MATH-KILL, 2 narrow MISS
 
 ### PR #479 — alphonse NS5_ITERS=14 T0 PASS (strict bar both axes)
