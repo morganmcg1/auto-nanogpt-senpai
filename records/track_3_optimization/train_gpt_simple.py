@@ -503,7 +503,17 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_2d = logits.view(targets.numel(), -1)
+        targets_1d = targets.view(-1)
+        ce_loss = F.cross_entropy(logits_2d, targets_1d, reduction="sum")
+        # Z-loss only during training; eval path returns pure CE so val/loss
+        # stays comparable to baseline. With NANOGPT_Z_LOSS_WEIGHT=0.0 the
+        # branch is bypassed -> bitwise-identical to pre-change behavior.
+        if self.training and NANOGPT_Z_LOSS_WEIGHT > 0.0:
+            log_z = torch.logsumexp(logits_2d, dim=-1)
+            z_loss = NANOGPT_Z_LOSS_WEIGHT * (log_z * log_z).sum()
+            return ce_loss + z_loss
+        return ce_loss
 
 
 ########################################
@@ -530,6 +540,11 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Logit z-loss (PaLM/T5 style): adds lambda * sum(logsumexp(logits)^2) to the
+# training loss. Disabled at 0.0 (bypassed branch -> bitwise-identical to baseline).
+# Only applied during training (self.training); validation reports pure CE so
+# val/loss remains comparable to historical baselines.
+NANOGPT_Z_LOSS_WEIGHT = float(os.environ.get("NANOGPT_Z_LOSS_WEIGHT", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -747,6 +762,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"Z_LOSS_WEIGHT: {NANOGPT_Z_LOSS_WEIGHT} "
+       f"({'ENABLED' if NANOGPT_Z_LOSS_WEIGHT > 0 else 'DISABLED'})", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +816,7 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_z_loss_weight": NANOGPT_Z_LOSS_WEIGHT,
         },
     )
 
