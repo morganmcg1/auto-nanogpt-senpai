@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 08:15 UTC
+- **Date:** 2026-05-19 09:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -107,16 +107,27 @@ Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau ab
 All 4 arms terminal. A/B/D cluster within ±0.001 (val ∈ {3.27239, 3.27266, 3.27290}; all fs=3250). C single +0.00335 outlier. Drift gate ✓. Mechanism reading: **NS precision in cooldown SATURATED on post-#290 stack** — third productive-null on NS precision family (#345 depth, #384 center, #388 count). Combined with merged #285 shape and #290 schedule, NS cooldown family fully characterized.
 **Follow-up**: askeladd assigned #419 Cautious AdamW updates (Liang et al. 2024).
 
-### 🔄 askeladd #419 — Cautious AdamW updates (Liang et al. 2024) — partial results
-**Branch:** `g1r4-askeladd/cautious-adamw`
-Arms A (3.27159, Δ=−0.00041, drift ✓) and B (arm running per latest comment) terminal so far. Arms C/D still running (arm B detail in last comment).
-| Arm | CAUTIOUS | val | Δ vs baseline | W&B |
-|---|---|---:|---:|---|
-| A (control) | off | 3.27159 | −0.00041 ✓ | `tkpem30s` |
-| B | rescaled, all | pending details | — | `engpgyik` |
-| C | plain mask | running | — | `crsnqzoc` |
-| D | embed-only | queued | — | — |
-Arm A clean drift gate (val=3.27159, Δ=−0.00041, fs=3225). Arm B running. ETA full chain completion ~14:00 UTC based on 06:42 UTC partial update.
+### ✅ askeladd #419 — Cautious AdamW updates (Liang et al. 2024) — CLOSED 08:55 UTC productive-null ✅
+All 4 arms terminal. Drift gate ✓ (A=3.27159, |Δ vs baseline|=0.00041). B/C/D all regress vs control:
+| Arm | CAUTIOUS | val | Δ vs A | reached_target | W&B |
+|---|---|---:|---:|---|---|
+| A (control) | off | 3.27159 | — | ✓ fs=3225 | `tkpem30s` |
+| B (paper) | rescaled, all | 3.28460 | **+0.01301** | ✗ | `engpgyik` |
+| C (plain) | no-rescale, all | 3.28288 | **+0.01129** | ✗ | `crsnqzoc` |
+| D (embed) | rescaled, embed-only | 3.27518 | **+0.00361** | ✓ fs=3275 | `wppw91x9` |
+Monotonic less-bad as scope narrows: B (all+rescale) > C (all+plain) > D (embed-only). Mechanism: merged stack β₁=0.8 on aux groups means stale-momentum overshoot is already rare — cautious mask has little to bite on. Rescale amplifies un-masked components on fast-curvature budget → destabilizes. **13th productive-null on optimizer-internal mechanisms this cycle. Cautious-AdamW axis CLOSED.**
+**Follow-up**: askeladd assigned #(TBD) block output projection init scale sweep.
+
+### 🔄 askeladd #(new) — Block output projection init scale sweep [assigned 09:00 UTC]
+**Branch:** `g1r4-askeladd/block-out-init-scale`
+**Hypothesis**: Scale `attn.proj` and `mlp.proj` weights at init by factor s ∈ {1.0, 0.5, 0.2, 0.05}. Mechanism: per-block residual contribution magnitude at init is the lever; DeepNet/T-Fixup/Fixup/ReZero family. **Init-side mechanism — fundamentally distinct from all 13 productive-nulls this cycle on optimizer/gradient/loss/parameter-space axes.** Different from edward #374 (embed init null) — perturbs depth-wise residual rate, not entry-point magnitude. Critical empirical question: does Muon's NS-normalized update step undo init scaling within first ~100 steps?
+| Arm | NANOGPT_BLOCK_OUT_INIT_SCALE | Interpretation |
+|---|---|---|
+| A | 1.0 (control) | Drift gate, bitwise-identical |
+| B | 0.5 | Mild — half initial residual |
+| C | 0.2 | Moderate — ~1/sqrt(L) DeepNet-ish |
+| D | 0.05 | Aggressive — near-ReZero |
+**ETA full chain:** ~7.3h.
 
 ### ✅ nezuko #356 — Muon μ schedule sweep — CLOSED 17:05 UTC productive-null
 All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.

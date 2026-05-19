@@ -3,6 +3,35 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 08:55 UTC — PR #419: Cautious AdamW updates (askeladd) — CLOSED productive-null ✅ (cautious-on-all harmful, embed-only less bad but still regresses)
+
+- Branch: `g1r4-askeladd/cautious-adamw`
+- Hypothesis: Liang et al. 2024 cautious mask zeroes AdamW update components whose sign disagrees with current gradient. Tests three variants: rescale-on-all (paper default), plain-mask-on-all (no rescale), and embed-only scope. Mechanism: suppress stale-momentum overshoot against fresh gradient signal.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | CAUTIOUS config | val | Δ vs A | Δ vs baseline (3.27200) | fs | reached_target | W&B |
+|---|---|---:|---:|---:|---:|---|---|
+| A (control) | off | **3.27159** | — | **−0.00041 ✓** (drift) | 3225 | ✓ | `tkpem30s` |
+| B (paper) | mask + rescale, all AdamW groups | 3.28460 | **+0.01301** | +0.01260 | −1 | ✗ | `engpgyik` |
+| C (plain) | mask, no rescale, all AdamW groups | 3.28288 | **+0.01129** | +0.01088 | −1 | ✗ | `crsnqzoc` |
+| D (embed) | mask + rescale, embed group only | 3.27518 | **+0.00361** | +0.00318 | 3275 | ✓ | `wppw91x9` |
+
+### Key findings
+
+1. **Drift gate ✓**: arm A reproduces baseline (|Δ|=0.00041 ≤ 0.003).
+2. **All 3 cautious variants regress**. Monotonic ordering: B (all+rescale, worst) > C (all+plain) > D (embed-only, least bad). Narrowing scope = less harm.
+3. **B/C fail the 3.28 target entirely** — `reached_target=0` and `first_step_to_target=−1`. The cautious mask on all AdamW groups destabilizes training enough that the schedule cooldown doesn't recover.
+4. **Rescale (B) is worse than no-rescale (C)** by Δ=+0.00172. The rescale factor `numel/mask_sum` amplifies un-masked components — on this fast-curvature 3350-step budget this amplifies noise more than it preserves signal.
+5. **D (embed-only) reaches target at fs=3275, 50 steps slower than control**. The mechanism is less catastrophic when scope is narrow, but still doesn't help.
+6. **Mechanism reading**: Post-#290 stack uses β₁=0.8 (low first-moment momentum) on aux groups. Low β₁ means stale-momentum-vs-fresh-gradient sign disagreement is already rare — the cautious mask has very little to bite on. Meanwhile Muon carries the bulk of training signal and is untouched by this AdamW-only intervention.
+
+### Verdict
+
+Cautious AdamW axis CLOSED. **13th productive-null on optimizer-internal mechanisms this cycle.** Combined with #411 grad-noise, #399 AdEMAMix, #407 β2, #322 ε, #409 LLRD, #354 softcap, #388 NS-iter-count, #345 NS-depth, #384 NS-center, #356 Muon-μ — comprehensive evidence that the merged stack is saturated at the optimizer/gradient/moment level. Live frontier remains: loss-side regularization (z-loss #441, label-smoothing #446 in flight), parameter-space averaging (Lookahead #434, weight-EMA #436 in flight), update-rule reformulation (adam-atan2 #442 in flight), paired-pod confirmations (per-group LR #393, AGC #408 in flight), and untested **init/architecture-side** mechanisms (next: askeladd block out init scale).
+
+---
+
 ## 2026-05-19 08:12 UTC — PR #409: Per-block LR decay (LLRD) for Muon (thorfinn) — CLOSED productive-null ✅ (per-block Muon LR axis closed)
 
 - Branch: `g1r4-thorfinn/muon-llrd`
