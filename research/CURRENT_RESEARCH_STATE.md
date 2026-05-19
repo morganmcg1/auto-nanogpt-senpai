@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 22:00 UTC
+- **Last update:** 2026-05-19 23:50 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,12 +12,11 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## 🎯 LIVE: Frieren #482 MARGINAL WIN — seed-2 confirmation running
+## 🔚 Frieren #482 marginal-win NULLed at n=2 (CLOSED 23:25 UTC)
 
-**Arm A `89lpkhfc`** (MLP-WD=0.05, ATTN-WD=0): sr=2925, val=3.2622 → Δsr=−12.5 ✓, Δval=−0.00208 ✓. **First body-Muon structural partition signal ever.**
-**Seed-2 `qpbwahok` RUNNING step 500/3250** — ETA ~2.5h to terminal. If confirms (sr≤2925, val stat-sig at n=2 threshold 3.277), merge as new baseline.
+**Seed-2 `qpbwahok`** landed fs=2975, val=3.26593. **n=2 mean: sr=2950 (Δsr=+12.5 vs baseline), val=3.264065 (Δval=−0.000213 ≪ stat-sig margin 0.001).** Seed-1 Arm A win (sr=2925, val=3.2622) didn't replicate — within seed noise. **Axis CLOSES at uniform body-Muon WD=0.025.** This is the textbook n=2 filter doing its job on a marginal n=1 win.
 
-## Axes CLOSED this cycle (11:48–22:10 UTC)
+## Axes CLOSED this cycle (11:48–23:50 UTC)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
@@ -33,27 +32,31 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#466** | edward | Aux WD scan {0.001, 0.01} clean monotone NULL (Δsr +12.5/+37.5, Δval +0.0013/+0.0007). aux WD=0 confirmed. | CLOSED 20:25 UTC |
 | **#465** | fern | Body-Muon lr fine-scan {0.030, 0.040} symmetric NULL (Δsr=+62.5 both, Δval +0.005/+0.003). lr=0.035 confirmed locally optimal. | CLOSED 20:51 UTC |
 | **#480** | tanjiro | Attn-scale scan {0.09, 0.15} asymmetric NULL (A: Δsr +87.5/Δval +0.006; B: Δsr +37.5/Δval +0.002 marginal). attn_scale=0.12 confirmed. | CLOSED 21:59 UTC |
-| **#476** | thorfinn | Z-loss scan {1e-4, 1e-3} clear monotone NULL (A: Δsr +37.5/Δval +0.0028; B: DNF/Δval +0.02). z-loss=0 confirmed; mechanism net-harmful. | **CLOSED 22:08 UTC** |
+| **#476** | thorfinn | Z-loss scan {1e-4, 1e-3} clear monotone NULL (A: Δsr +37.5/Δval +0.0028; B: DNF/Δval +0.02). z-loss=0 confirmed; mechanism net-harmful. | CLOSED 22:08 UTC |
+| **#482** | frieren | Body-Muon WD partition (MLP=0.05, ATTN=0): seed-1 sr=2925 val=3.2622 marginal win, seed-2 sr=2975 val=3.26593. **n=2 mean sr=2950, Δval=−0.0002 (≪ 0.001 stat-sig)**. Per-substructure WD partition does not improve over uniform WD. | **CLOSED 23:25 UTC** |
 
-## Active experiments (8 students, 22:10 UTC)
+## Active experiments (8 students, 23:50 UTC)
 
 | PR | Student | Run | Step | bl | Status |
 |---|---|---|---|---|---|
-| **#513** | **thorfinn** | (awaiting pickup) | — | — | **NEW — Body-Muon gradient clipping max_norm∈{1.0, 0.5} vs no-clip. Damping family, orthogonal to all 6 body-Muon variants in flight.** |
-| **#511** | tanjiro | (awaiting pickup) | — | — | NS_ITERS scan {10, 14} vs baseline 12. Preconditioner-quality |
-| **#505** | fern | (awaiting pickup) | — | — | Lookahead wrapper on body-Muon k∈{5, 10}, α=0.5 |
-| **#503** | edward | (awaiting pickup) | — | — | Body-Muon WD schedule warmup-25pct vs cooldown-25pct |
-| **#502** | askeladd | (awaiting pickup, **2h+ no pickup**) | — | — | PMuon body β_cov scan; manual kick comment posted 22:10 |
-| **#499** | alphonse | `vrmveqoe` Arm A | ~1825 | 3.48 | Body-Muon LR partition MLP=0.042/ATTN=0.028 |
-| **#486** | nezuko | `u23wjr7m` Arm B | ~1650 | 3.54 | Skylight TARGET_UW=0.45 (Arm A fs=3025 NULL) |
-| **#482** | frieren | `qpbwahok` seed-2 | ~1925 | 3.45 | n=2 confirmation of Arm A marginal win (PRIMARY SIGNAL) |
+| **#519** | **frieren** | (awaiting pickup) | — | — | **NEW — PMuon γ pruning ablation γ_power∈{0, 0.8} vs baseline 0.4. Is the γ mechanism load-bearing? First *ablation*-class test (γ=0 fully prunes correction).** |
+| **#513** | thorfinn | `2w9fkwqa` Arm A | ~1342 | 3.59 | Body-Muon gradient clipping max_norm=1.0 (Arm B max_norm=0.5). Damping family. ~2.5h to terminal. |
+| **#511** | tanjiro | `x6pxjdk4` Arm A | ~1575 | 3.53 | NS_ITERS=10 (Arm B =14). Preconditioner-quality axis. ~2.2h to terminal. |
+| **#505** | fern | `8ad3mzjz` Arm A | ~2025 | 3.39 | Lookahead k=5 (Arm B k=10), α=0.5 on body-Muon. Wrapper-class first test. ~1.4h to terminal. |
+| **#503** | edward | `vcc1mty6` Arm A | ~2776 | 3.30 | Body-Muon WD warmup-25pct schedule. Val ~3.30 at step 2776 — trailing baseline (~3.32 at this step is acceptable cooldown territory). ~35 min to terminal. |
+| **#502** | askeladd | Arm A `o31yd0nw` **FINISHED** fs=2950 val=3.264775 (Δsr=+12.5, Δval=+0.000497 — marginal/NULL); Arm B `7donghzb` β_cov=0.99 step 1 just started | — | — | β_cov=0.90 marginal NULL. Awaiting Arm B verdict (~3.5h). |
+| **#499** | alphonse | Arm A `vrmveqoe` **FINISHED** fs=3025 val=3.270402 (Δsr=+87.5, Δval=+0.0061 — clear NULL); Arm B `tdw0diir` (MLP=0.028/ATTN=0.042 swap) step 1 just started | — | — | MLP-fast/ATTN-slow direction NULL. Awaiting swap direction (~3h). |
+| **#486** | nezuko | `u23wjr7m` Arm B TARGET_UW=0.45 | ~3100 | 3.27 | Step 3100/3250, fs=3025 — NULL trajectory. ~5 min to terminal. |
 
-## Next terminal events (from 22:10 UTC)
+## Next terminal events (from 23:50 UTC)
 
-1. **frieren seed-2** — ~55 min to terminal (PRIMARY SIGNAL — step 1925/3250).
-2. **alphonse #499** — ~1h to terminal.
-3. **nezuko Arm B** — ~1.3h to terminal.
-4. **edward #503, askeladd #502, fern #505, tanjiro #511, thorfinn #513** — depend on pickup.
+1. **nezuko Arm B** — ~5 min to terminal (Skylight 0.45 NULL likely).
+2. **edward #503 Arm A** — ~35 min to terminal (val/loss trajectory looks weak, likely NULL).
+3. **fern #505 Arm A** — ~1.4h to terminal (Lookahead wrapper).
+4. **tanjiro #511 Arm A** — ~2.2h to terminal (NS_ITERS=10).
+5. **thorfinn #513 Arm A** — ~2.5h to terminal (grad-clip max_norm=1.0).
+6. **alphonse #499 Arm B + askeladd #502 Arm B** — ~3h each (swap arms started).
+7. **frieren #519** — depends on pickup, then ~3.5h.
 
 ## Recently merged
 
@@ -62,30 +65,32 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#413** | alphonse | scalar_lr=0.025: n=2 sr=2937.5, val=3.264278 (Δsr=−37.5, Δval=−0.002942) | **MERGED 11:48 UTC** — current baseline. |
 | **#367** | frieren | lm_head_lr=1/160: n=2 sr=2975 val=3.26722 | MERGED — prior baseline. |
 
-## Current research focus (updated 22:10 UTC)
+## Current research focus (updated 23:50 UTC)
 
-**Per-substructure mechanism class is the live frontier.** Frieren #482 Arm A (MLP-WD=0.05 / ATTN-WD=0) crossed sr ≤ 2925 with stat-sig val at n=1. Seed-2 (`qpbwahok`) running step 1925/3250 (~55 min to terminal). Active orthogonal axes:
+**Per-substructure partition hypothesis partially refuted; body-Muon mechanism diversification on multiple orthogonal axes is the live frontier.** Frieren #482 closed at n=2 NULL — the textbook seed-1 marginal-win → seed-2 regression-to-mean pattern. Alphonse #499 Arm A NULL (MLP-fast/ATTN-slow direction); Arm B (swap) is the last partition-direction test. Active orthogonal axes:
 
-1. **Body-Muon WD partition** (frieren #482 — seed-2 running)
-2. **Body-Muon LR partition** (alphonse #499 — running)
-3. **PMuon β_cov scalar scan** (askeladd #502 — awaiting pickup)
-4. **Body-Muon WD schedule** (edward #503 — awaiting pickup)
-5. **Lookahead wrapper on body-Muon** (fern #505 — awaiting pickup, wrapper-class)
-6. **NS_ITERS scan** (tanjiro #511 — awaiting pickup, preconditioner-quality diversifier)
-7. **Body-Muon gradient clipping** (thorfinn #513 — awaiting pickup, damping family)
+1. **Body-Muon LR partition swap direction** (alphonse #499 — Arm B running)
+2. **PMuon β_cov scalar** (askeladd #502 — Arm A marginal NULL, Arm B running)
+3. **Body-Muon WD schedule** (edward #503 — Arm A near-terminal)
+4. **Lookahead wrapper on body-Muon** (fern #505 — Arm A running)
+5. **NS_ITERS scan** (tanjiro #511 — Arm A running, preconditioner-quality)
+6. **Body-Muon gradient clipping** (thorfinn #513 — Arm A running, damping)
+7. **PMuon γ pruning ablation** (frieren #519 — awaiting pickup, ablation-class)
+8. **Skylight u/w-floor** (nezuko #486 — Arm B near-terminal)
 
-**Pattern emerging:** scalar axes saturate at inherited defaults. 13 axes closed this cycle: {scalar_lr, NS adaptive threshold, β2-by-group, β1, logit soft-cap, embed init, γ_power, cooldown_frac aux, embed eps, aux WD, body-Muon lr fine, attn_scale, z-loss}. Aux AdamW scalars fully audited; body-Muon scalars fully audited; architectural scalars fully audited; regularizer family (z-loss) closes net-harmful. **Body-Muon mechanism diversification: 5 partition/wrapper/schedule/damping axes + 1 preconditioner-quality + 1 Skylight all active in parallel.**
+**Pattern emerging:** scalar axes saturate at inherited defaults. **14 axes closed this cycle**: {scalar_lr, NS adaptive threshold, β2-by-group, β1, logit soft-cap, embed init, γ_power phase ramp, cooldown_frac aux, embed eps, aux WD, body-Muon lr fine, attn_scale, z-loss, body-Muon WD partition}. Aux AdamW scalars fully audited; body-Muon scalars fully audited; architectural scalars fully audited; regularizer family closes net-harmful; per-substructure WD partition closes NULL at n=2. **Body-Muon mechanism diversification: partition (swap arm remaining), scalar (β_cov), schedule (WD), wrapper (Lookahead), preconditioner (NS_ITERS), damping (grad-clip), ablation (γ pruning) all active in parallel — 7 distinct mechanism families.**
 
 ## Open unexplored axes (candidate next assignments)
 
 - **Per-block residual scaling** (DeepNet-style gates) — on r4 #452
 - **Skip-connection LR multiplier** — UNTESTED at r1
 - **Per-block LR multiplier** (early vs late blocks) — UNTESTED
-- **Lookahead-AdamW wrapper** — closed at old op point; could retest
-- **Gradient clipping for body-Muon** — fresh mechanism
-- **Per-head Muon WD partition** (finer than MLP/attention split)
-- **PMuon NS_ITERS scan** {10, 14} vs 12 — preconditioner quality axis
+- **Lookahead-AdamW wrapper** — closed at old op point; could retest after #505 verdict
+- **Per-head Muon WD partition** (finer than MLP/attention split) — partition class regressing, lower priority
 - **Embed eps below 1e-10** {1e-12, 1e-14} — gradient pointed *down* from #463
+- **Tied lm_head ↔ embed** (weight sharing experiment)
+- **Curriculum/data-ordering** — UNTESTED
+- **Auxiliary distillation/self-distillation step** — UNTESTED
 
 ## Statistical rule reminder
 
