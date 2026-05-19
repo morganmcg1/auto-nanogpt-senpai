@@ -37,6 +37,29 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# AGC (Adaptive Gradient Clipping; Brock et al. NFNets, ICML 2021) applied per-row to
+# aux AdamW params (embed/lm_head/scalars). Arm A: 0.04 NULL (val/loss=3.446).
+# Revised Arm B: 0.10 (2.5x more permissive than Arm A, per advisor 2026-05-19).
+# Per-row clip uses param-norm dim=1 over the embedding dim, one threshold per vocab row.
+AGC_LAMBDA = 0.10
+AGC_EPS = 1e-3
+
+
+def agc_clip_per_row(
+    param: Tensor, grad: Tensor, lambda_val: float, eps: float = 1e-3
+) -> tuple[Tensor, Tensor]:
+    """AGC per-row (Brock et al. NFNets 2021). Returns (clipped_grad, clip_coef)."""
+    if param.dim() >= 2:
+        param_norm = param.detach().norm(dim=1, keepdim=True).clamp(min=eps)
+        grad_norm = grad.norm(dim=1, keepdim=True).clamp(min=1e-12)
+        clip_coef = (lambda_val * param_norm / grad_norm).clamp(max=1.0)
+        return grad * clip_coef, clip_coef.detach()
+    # 1D fallback: treat the whole vector as one row.
+    param_norm_v = param.detach().norm().clamp(min=eps)
+    grad_norm_v = grad.norm().clamp(min=1e-12)
+    clip_coef_v = (lambda_val * param_norm_v / grad_norm_v).clamp(max=1.0)
+    return grad * clip_coef_v, clip_coef_v.detach().reshape(1)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -704,6 +727,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "agc_lambda": AGC_LAMBDA,
+            "agc_eps": AGC_EPS,
+            "agc_scope": "aux_adamw_per_row",
         },
     )
 
@@ -783,6 +809,13 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    agc_accum = {
+        "embed_clip_rate_sum": 0.0,
+        "embed_mean_clip_coef_sum": 0.0,
+        "lm_head_clip_rate_sum": 0.0,
+        "lm_head_mean_clip_coef_sum": 0.0,
+        "n_steps": 0,
+    }
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -879,6 +912,24 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # AGC: clip aux AdamW gradients per-row before the optimizer step. Applied to
+        # every aux group (embed, lm_head, scalars). Clipped grad flows into AdamW's
+        # moment accumulators. Telemetry tracked on rank 0 for embed/lm_head only.
+        for group in optimizer1.param_groups:
+            for p in group["params"]:
+                if p.grad is not None:
+                    new_grad, clip_coef = agc_clip_per_row(p, p.grad.data, AGC_LAMBDA, AGC_EPS)
+                    p.grad.data = new_grad
+                    if dist.get_rank() == 0:
+                        name = group.get("name", "")
+                        if name == "adam_embed":
+                            agc_accum["embed_clip_rate_sum"] += float((clip_coef < 1.0).float().mean().item())
+                            agc_accum["embed_mean_clip_coef_sum"] += float(clip_coef.mean().item())
+                        elif name == "adam_lm_head":
+                            agc_accum["lm_head_clip_rate_sum"] += float((clip_coef < 1.0).float().mean().item())
+                            agc_accum["lm_head_mean_clip_coef_sum"] += float(clip_coef.mean().item())
+        if dist.get_rank() == 0:
+            agc_accum["n_steps"] += 1
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -920,6 +971,24 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if agc_accum["n_steps"] > 0:
+                n_agc = agc_accum["n_steps"]
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "agc/lambda": AGC_LAMBDA,
+                    "agc/eps": AGC_EPS,
+                    "agc/embed_clip_rate": agc_accum["embed_clip_rate_sum"] / n_agc,
+                    "agc/embed_mean_clip_coef": agc_accum["embed_mean_clip_coef_sum"] / n_agc,
+                    "agc/lm_head_clip_rate": agc_accum["lm_head_clip_rate_sum"] / n_agc,
+                    "agc/lm_head_mean_clip_coef": agc_accum["lm_head_mean_clip_coef_sum"] / n_agc,
+                    "agc/window_steps": n_agc,
+                }, step=wandb_step)
+                agc_accum["embed_clip_rate_sum"] = 0.0
+                agc_accum["embed_mean_clip_coef_sum"] = 0.0
+                agc_accum["lm_head_clip_rate_sum"] = 0.0
+                agc_accum["lm_head_mean_clip_coef_sum"] = 0.0
+                agc_accum["n_steps"] = 0
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
