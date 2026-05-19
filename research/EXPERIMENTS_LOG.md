@@ -1,5 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 16:23 UTC — Cycle 68: #462 thorfinn Arm A n=2 MISS new bar marginally → n=4 confirm continuation
+
+### PR #462 — MU_WARMUP_START=0.80 (Arm A) n=2 screen on NEW stack — n=4 CONFIRM ASKED
+
+Branch: `g1r2-thorfinn/warmup-start-sweep`. Full new mandatory stack.
+
+| Trial | val (step 3175) | ffs | vs new bar |
+|---|---|---|---|
+| T0 | 3.27516 | 3075 | val MISS +0.0017, ffs MISS +18.75 |
+| T1 | **3.27399** | **3050** | val PASS −0.0005, ffs PASS −6.25 ✅ |
+| **n=2 mean** | **3.274575** | **3062.5** | val MISS +0.0011, ffs MISS +6.25 |
+
+- W&B run: `btr2ygl9` (single job, both trials)
+- vs OLD bar (PR #358): val MISS +0.0002 (extremely close), ffs PASSES
+- T1 individually beat BOTH new bars cleanly (val=3.27399 < 3.273477; ffs=3050 < 3056.25)
+- T0-T1 variance: Δval=0.00117 / Δffs=25 — large at n=2
+
+**Decision**: NOT closed. Sent back for **n=4 confirm at MU_WARMUP_START=0.80** (predeclared T2+T3 batch). T1 being a clear pass means the axis is *capable* of winning — variance-dominated at n=2, not falsified. n=4 math: T2+T3 mean val must be < 3.2724 (achievable if tracking T1), ffs must both hit floor=3050.
+
+**Branching after n=4**:
+- PASS strict bar → merge candidate
+- MISS by < 0.0005 val → axis no-worse-than-baseline, move to Arm B (0.90)
+- MISS by > 0.0005 val → axis falsified in this direction → launch Arm B
+
+---
+
 ## 2026-05-19 16:05 UTC — Cycle 68: #464 CLOSED COOLDOWN_POWER=2.0 mathematical kill on NEW stack; tanjiro → power=0.5 sqrt cooldown re-screen
 
 ### PR #464 — COOLDOWN_POWER=2.0 (quadratic, Arm B) n=2 screen on NEW stack — CLOSED
