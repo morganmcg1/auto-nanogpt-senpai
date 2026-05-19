@@ -735,10 +735,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # PR #433 Arm B: per-group β2 decoupling — sparse-vocab embed/lm_head use very slow V_t EMA (β2=0.999)
+    # while dense scalars stay at β2=0.95 (the prior uniform value).
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, betas=(0.8, 0.999), name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=1/160, betas=(0.8, 0.999), name="adam_lm_head"),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, betas=(0.8, 0.95), name="adam_scalars")],
+                       eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -920,6 +922,39 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            # PR #433: per-group AdamW V_t telemetry for sparse-vocab β2 decoupling diagnosis.
+            aux_metrics: dict[str, float] = {
+                "trial": trial_idx,
+                "train/step": train_step,
+            }
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                if gname not in ("adam_embed", "adam_lm_head"):
+                    continue
+                beta1, beta2 = group["betas"]
+                aux_metrics[f"aux/beta2/{gname}"] = beta2
+                for p in group["params"]:
+                    state = optimizer1.state.get(p, {})
+                    v = state.get("exp_avg_sq")
+                    if v is None:
+                        continue
+                    v_flat = v.detach().float()
+                    aux_metrics[f"aux/v_norm/{gname}"] = float(v_flat.norm().item())
+                    aux_metrics[f"aux/v_mean/{gname}"] = float(v_flat.mean().item())
+                    aux_metrics[f"aux/v_max/{gname}"] = float(v_flat.max().item())
+                    if v_flat.dim() == 2:
+                        row_norms = v_flat.norm(dim=1)
+                        # Avoid log(0); use nonzero rows for the min so untouched rows don't blow up the ratio.
+                        nz = row_norms[row_norms > 0]
+                        if nz.numel() > 0:
+                            r_max = float(row_norms.max().item())
+                            r_min = float(nz.min().item())
+                            aux_metrics[f"aux/v_row_max/{gname}"] = r_max
+                            aux_metrics[f"aux/v_row_min_nz/{gname}"] = r_min
+                            aux_metrics[f"aux/v_max_to_min/{gname}"] = r_max / r_min if r_min > 0 else 0.0
+                            aux_metrics[f"aux/v_row_zero_fraction/{gname}"] = float((row_norms == 0).float().mean().item())
+                    break  # one tensor per group
+            wandb.log(aux_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
