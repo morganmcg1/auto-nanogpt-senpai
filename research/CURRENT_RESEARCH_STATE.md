@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 13:45 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; esc#24 posted at 12:47 UTC 2026-05-19 — ~91h total operator silence. esc#25 due ~14:50 UTC.
+- **Last updated:** 2026-05-19 14:30 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; esc#24 posted at 12:47 UTC 2026-05-19 — ~93h total operator silence. esc#25 due ~14:50 UTC.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **NEW BASELINE**.
 
 ## ⭐ Current baseline (post-PR #443 merge)
@@ -16,7 +16,6 @@
 | MuonH LR warmup | warmup_steps=100, shape=linear |
 | Outer wrapper | MuLoCo Nesterov-SGDM (outer_lr=0.7, outer_momentum=0.5, sync_interval=30) |
 | Aux AdamW | betas=(0.8, 0.95), **eps=1e-6**, AGC clip_ratio=0.05, weight_decay=0 |
-| Aux AdamW scalars LR | 0.01 (never swept, now being tested via PR #475) |
 | Cooldown | MuonH=cosine frac=1.0, aux=linear frac=0.4 |
 | NS5 | 12 iterations, (a,b,c)=(2,-1.5,0.5), bf16 |
 | W&B run | `t1coza71` (n=1 single trial) |
@@ -31,56 +30,58 @@
 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6
 ```
 
-**Note**: n=4 confirmation of eps=1e-6 in progress via PR #471 (edward). If n=4 mean fails to beat 3.27286 (the prior n=4 baseline), this win may be an outlier seed. Watch carefully.
+**Note**: n=4 confirmation of eps=1e-6 in progress via PR #471 (edward). Smoke runs done (val~4.22 × 3), n=4 full chain expected to launch shortly.
 
-## Active experiments (13:45 UTC 2026-05-19)
+## Active experiments (14:30 UTC 2026-05-19)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#471** | edward | **n=4 confirm eps=1e-6** | Assigned 13:30 UTC. Student should pick up shortly. |
-| **#475** | fern | **Aux AdamW scalars LR sweep** (0.005 / 0.01 ctrl / 0.02) | Freshly assigned 13:45 UTC. |
-| **#453** | frieren | **MuLoCo sync_interval re-sweep** (15 / 30 ctrl / 60) | Arm 1 ctrl done (val=3.27387). **Arm 2 sync=15 `ri1dkfwa` running, past terminal ETA ~13:35 UTC — no SENPAI-RESULT yet, likely close.** |
-| **#450** | askeladd | **MuonH inner static mu sweep** (0.90 / 0.95 ctrl / 0.98) | Arm 1 ctrl +0.00063, arm 2 mu=0.90 ~7σ NEG. **Arm 3 mu=0.98 in flight, terminal ~14:15 UTC.** |
-| **#451** | nezuko | **MuonH budget_mult sweep** (0.9 / 1.0 ctrl / 1.1) | Arm 1 ctrl +0.00090, arm 2 bm=0.90 ~2σ NEG. **Arm 3 bm=1.1 `65k2dls4` in flight, terminal ~15:00 UTC.** |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~91h** — silicon failure on GPU `g71b0d6`. esc#24 posted. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~91h** — NaN on GPU `gd125a8`. esc#24 posted. |
+| **#471** | edward | **n=4 confirm eps=1e-6** | 3 smoke runs complete (val~4.22 band). N=4 chain launching imminently. |
+| **#478** | askeladd | **Aux AdamW embed LR sweep** (0.2 / 0.3 ctrl / 0.4) | Freshly assigned 14:28 UTC. |
+| **#475** | fern | **Aux AdamW scalars LR sweep** (0.005 / 0.01 ctrl / 0.02) | Assigned 13:45 UTC. Likely in arm 1 ctrl. |
+| **#453** | frieren | **MuLoCo sync_interval re-sweep** (15 / 30 ctrl / 60) | Arm 1 ctrl done (val=3.27387). Arm 2 sync=15 ~10σ NEG (val=3.27855). **Arm 3 sync=60 `pry9qino` running, terminal ~15:36 UTC.** |
+| **#451** | nezuko | **MuonH budget_mult sweep** (0.9 / 1.0 ctrl / 1.1) | Arm 1 ctrl +0.00090, arm 2 bm=0.90 ~2σ NEG. **Arm 3 bm=1.1 `65k2dls4` running, terminal ~15:00 UTC.** |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~93h** — silicon failure on GPU `g71b0d6`. esc#24 posted. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~93h** — NaN on GPU `gd125a8`. esc#24 posted. |
 | **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#24 posted. |
 
 ## Saturated levers (post-PR #443)
 
 - **Inner LR dynamics**: MuonH-SI HPs (lr/mu/wd), cooldown shape/frac, warmup steps=100, mu warmup/cooldown ALL NEG.
 - **Inner optimizer geometry**: AGC clip_ratio (insensitive [0.02, 0.10]), Nesterov outer SGDM mu (0.5 optimal, drop/increase both NEG).
-- **Aux optimizer**: eps sweep confirms **1e-6 > 1e-10 >> 1e-8** (surprisingly, 1e-8 not better than ctrl). betas saturated.
-- **NS5**: k-count blocked, classical Halley ~3σ NEG, sharper polynomial ~3σ NEG, all polynomial families closed (PR #438 closed).
+- **Aux optimizer**: eps sweep confirms **1e-6 > 1e-10 >> 1e-8**. betas saturated.
+- **NS5**: k-count blocked, all polynomial families closed (PR #438).
 - **Logit softsign cap**: cap=15 is local optimum.
-- **MuonH inner mu**: lower (0.90) ~7σ NEG. Higher (0.98) in progress.
-- **MuonH budget_mult**: lower (0.90) ~2σ NEG baseline-equiv. Higher (1.1) in progress.
+- **MuonH inner mu**: FULLY CLOSED (PR #450). Strong asymmetric U-shape — 0.90 mild NEG, **0.98 catastrophic (failed to reach 3.28 target)**. 0.95 unique optimum.
+- **MuonH budget_mult**: lower (0.90) ~2σ NEG. Higher (1.1) in progress (nezuko).
 
 ## Key recent results (this round)
 
 | PR | Lever | Arm results | Decision |
 |---|---|---|---|
 | #443 MERGED | Aux eps | ctrl=+0.00091, 1e-8=+0.00103, **1e-6=−0.00167 WIN** | **MERGED. New baseline 3.27119** |
-| #438 CLOSED | NS5 polynomial | ctrl +0.00010, classical ~3σ NEG, sharper ~1σ NEG | **CLOSED — lever saturated** |
-| #450 askeladd | MuonH mu | ctrl +0.00063, mu=0.90 ~7σ NEG | mu=0.98 in flight |
+| #450 CLOSED | MuonH mu | ctrl +0.00230, mu=0.90 ~10σ NEG, **mu=0.98 CATASTROPHIC (target not reached)** | **CLOSED — unique optimum at 0.95** |
+| #438 CLOSED | NS5 polynomial | ctrl +0.00177, classical ~5σ NEG, sharper ~3σ NEG | **CLOSED — lever saturated** |
+| #453 frieren | sync_interval | ctrl +0.00268, sync=15 ~10σ NEG | sync=60 in flight |
 | #451 nezuko | budget_mult | ctrl +0.00090, bm=0.90 ~2σ NEG | bm=1.1 in flight |
-| #453 frieren | sync_interval | ctrl +0.00101 | sync=15 in flight (just past terminal) |
 
-## Research direction (13:45 UTC)
+## Research direction (14:30 UTC)
 
-**WIN: eps=1e-6 on aux AdamW unexpectedly helped.** This opens an auxiliary optimizer parameter exploration angle. The denominator floor on aux AdamW matters because embed/lm_head/scalars have diverse gradient scales — a larger eps stabilizes the adaptive LR for the small-gradient parameters.
+**WIN: eps=1e-6 on aux AdamW.** Denominator floor matters for small-gradient parameters. Followup thread active: sweeping per-group LRs to find the shifted optimum under new eps.
 
-**Current active thread**: auxiliary optimizer parameter tuning. The eps=1e-6 win changed the effective per-step magnitude for low-gradient parameters (scalars most affected). Adjacent questions:
+**Active per-group LR thread** (directly follows from eps=1e-6 win):
+1. **Scalars LR** (PR #475 fern) — smallest gradient group
+2. **Embed LR** (PR #478 askeladd) — largest gradient group
+3. **lm_head LR** — next candidate if either scalars or embed wins
 
-1. **Scalars LR re-sweep** (PR #475 fern) — under eps=1e-6, scalar effective step is smaller (floored denom). Optimal LR has likely shifted. Testing 0.005/0.01/0.02.
-2. **n=4 confirm eps=1e-6** (PR #471 edward) — CRITICAL to validate the n=1 win. If fails, scalars LR thread collapses too.
-3. **MuLoCo sync_interval** (PR #453 frieren in progress) — sync=15 terminal imminent.
-4. **MuonH inner mu=0.98** (askeladd arm 3) — whether upper bound is useful (~14:15 UTC).
-5. **MuonH budget_mult=1.1** (nezuko arm 3) — whether larger hyperball helps (~15:00 UTC).
+**Also in flight**:
+- **n=4 eps confirm** (PR #471 edward) — CRITICAL. If it fails, scalars/embed LR PRs become lower-priority.
+- **MuLoCo sync_interval** (PR #453 frieren) — arm 3 sync=60 terminal ~15:36 UTC
+- **budget_mult=1.1** (PR #451 nezuko) — terminal ~15:00 UTC
 
-**Pending next hypotheses** (when more students become available):
-- Aux AdamW per-group eps (per-group eps decomposition to validate eps=1e-6 mechanism)
-- Embed/lm_head LR sweep (if scalars LR sweep is informative)
+**Pending next hypotheses** (when students free up from in-flight PRs):
+- Per-group eps decomposition (identify whether eps=1e-6 win came from scalars, embed, or lm_head)
+- lm_head LR sweep if scalars/embed results are informative
 - Architectural axes (residual init, NS5 k-count) — blocked on pod replacements
 
-**Operator silence Issue #164**: esc#24 posted 12:47 UTC, ~91h total. esc#25 due ~14:50 UTC.
+**Operator silence Issue #164**: esc#24 posted 12:47 UTC, ~93h total. esc#25 due ~14:50 UTC.

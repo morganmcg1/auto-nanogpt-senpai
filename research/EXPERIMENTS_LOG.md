@@ -1,3 +1,21 @@
+## 2026-05-19 14:28 UTC — PR #450 CLOSED (askeladd): MuonH inner static mu sweep — catastrophic at mu=0.98, axis closed
+
+- Branch: `g1r3-askeladd/muonh-mu-sweep`
+- Hypothesis: MuonH inner static momentum mu may not be optimal at 0.95; lower (0.90, more responsive) or higher (0.98, more stable) might improve convergence under AGC.
+- Results:
+
+| Arm | mu | W&B run | val/loss | ffs | reached_target | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|
+| 1 ctrl | 0.95 | `iye79oh5` | 3.27349 | 3150 | yes | +0.00230 (~3σ NEG) |
+| 2 | 0.90 | `dujzmvpf` | 3.27853 | 3250 | yes | +0.00734 (~10σ NEG) |
+| 3 | **0.98** | `sgncg5wf` | **3.30059** | **-1 (target NOT reached)** | **no** | +0.02940 (~40σ NEG) |
+
+- **Strong asymmetric U-shape** around mu=0.95. Arm 3 (mu=0.98) failed to reach target val<3.28 (ffs=-1). Catastrophic regression.
+- Mechanism: at mu=0.98, MuonH momentum buffer integrates ~50 steps of history. NS5 polynomial maps gradient direction onto a normalized orthogonal frame each step, so high momentum applied to that frame causes update direction to lag the current loss landscape. With AGC pre-clipping, this lag is amplified.
+- Step 250 val was already above smoke band for arm 3 (4.28034 vs ctrl 4.21017), signaling slow convergence from step 0.
+- mu=0.95 is the unique local optimum. Upper bound sensitivity (mu≥0.98) far more severe than lower bound (mu=0.90 mild). Axis fully saturated.
+- Askeladd reassigned to aux AdamW embed LR sweep (PR #478).
+
 ## 2026-05-19 13:42 UTC — PR #438 CLOSED (fern): NS5 polynomial coefficient sweep — all 3 arms NEG, lever closed
 
 - Branch: `g1r3-fern/ns5-coeff-sweep`
