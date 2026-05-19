@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 18:15 UTC
+- **Date:** 2026-05-19 21:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -134,9 +134,22 @@ Arms B/C/D (lm_head_floor, scalar_floor, both): best Δ=−0.00098 (arm B), half
 | D | all_aux | embed + lm_head + scalars |
 **ETA full chain:** ~7.3h.
 
-### 🔄 frieren #470 — NS iterations NORMAL phase sweep [assigned 13:10 UTC]
+### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
-NS_ITERS ∈ {8, 10, 12 ctrl, 14} during pre-cooldown training. First sweep of normal-phase NS precision — all prior NS work touched cooldown side. Arm A running.
+Arms B=8 (+0.00235 regression), C=10 (−0.00168 null), D=14 (−0.00145 null). Wide saturation plateau NS ∈ [10, 14]; NS=8 below floor. **Critical compute finding: NS step-time is flat (±1%) across all NS values — orthogonalization is not the per-step bottleneck.** 21st productive-null/negative.
+**Follow-up**: frieren assigned **#506 NS-iter warmup schedule** — ramp NS from {8,10} → 12 over first 5-10%.
+
+### 🔄 frieren #506 — NS-iter warmup schedule [assigned 21:00 UTC]
+
+**Branch:** `g1r4-frieren/ns-warmup`
+**Hypothesis**: Ramp NS_ITERS from a low starting value → 12 over the first N% of normal phase. Builds on #470 findings: NS=8 is below precision floor in flat mode, but may be acceptable for the first 5% (noisy gradients). Structurally novel: first NS schedule experiment *within* the normal phase (all prior NS schedule work targeted cooldown). Pairs with WD warmup (#483) and embed LR warmup (#489) — "less constraint early" cluster.
+| Arm | NS_ITERS_WARMUP_START | NS_ITERS_WARMUP_FRAC | Profile |
+|---|---:|---:|---|
+| A | 12 | 0.0 | flat NS=12 (control) |
+| B | 10 | 0.05 | NS 10→12 over 167 steps |
+| C | 8 | 0.05 | NS 8→12 over 167 steps |
+| D | 10 | 0.10 | NS 10→12 over 335 steps |
+**ETA full chain:** ~7.3h.
 
 ### 🔄 edward #474 — AdaBelief for aux groups [assigned 13:45 UTC]
 
@@ -146,7 +159,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 ## Research theme — current cycle
 
-**20 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**21 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -164,12 +177,13 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 6. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483 spec corrected)
 7. Are any cooldown-NS merged components now redundant after later merges? (#487)
 8. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
+9. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
 
-**Stack convergence signal**: 20 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
-1. **Regularization REDUCTION**: WD warmup (#483) and embed-LR warmup (#489) are the deregularization pair this cycle
-2. **Precision interactions**: NS iteration count during normal phase (#470) is a clean unexplored 1D axis
+**Stack convergence signal**: 21 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+1. **Regularization REDUCTION cluster** (in flight): WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506) — three "less constraint early" axes simultaneously
+2. **Adam-family reformulation**: AdaBelief (#474, variance), NAdam (#490, first-moment) complete the three-axis AdamW-internal ablation alongside atan2 (#442 NEGATIVE, magnitude)
 3. **Stack simplification** if any pruning (#487) finds redundant components
-4. **Adam-family reformulation**: AdaBelief (#474, variance), NAdam (#490, first-moment) complete the three-axis AdamW-internal ablation alongside atan2 (#442 NEGATIVE, magnitude)
+4. **NS-iter compute finding (from #470)**: forward/backward is the bottleneck, not NS. Future NS decisions should be motivated by val/loss, not step-time
 
 ---
 
@@ -208,7 +222,8 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 - NS cooldown SHAPE=late_peak: MERGED #285; pruning ablation in-flight (#487 arm C)
 - NS coef schedule=linear_ramp_down: MERGED #290; pruning ablation in-flight (#487 arm D)
 - NS coef depth/center: saturated (#345, #384)
-- NS=12 normal phase: in-flight (#470)
+- NS=12 normal phase: CLOSED productive-null (#470; wide plateau NS ∈ [10,14]; NS=8 below floor; NS step-time flat ±1%)
+- NS-iter warmup: in-flight (#506)
 
 **Schedule**:
 - Cooldown frac (global): closed

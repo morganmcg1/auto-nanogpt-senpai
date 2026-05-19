@@ -3,6 +3,37 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 20:55 UTC — PR #470: NS iterations normal-phase sweep NS∈{8,10,12,14} (frieren) — CLOSED productive-null
+
+- Branch: `g1r4-frieren/ns-iters-normal`
+- Hypothesis: NS_ITERS=12 during the normal phase (step 0 → 70%) may be above saturation (i.e., fewer iterations could achieve same val with less compute), or below the precision floor (more iterations would help). 4-arm sweep: A=12 (ctrl), B=8, C=10, D=14.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | NS_ITERS | val/loss | Δ vs A | fs/step | W&B |
+|---|---:|---:|---:|---:|---|
+| A (ctrl) | 12 | 3.27181 | — | 3225 | `rnjvvj2g` |
+| B | 8 | 3.27416 | +0.00235 | 3250 | `bzofkgf9` |
+| C | 10 | **3.27013** | −0.00168 | 3225 | `wmzxyuy5` |
+| D | 14 | **3.27036** | −0.00145 | 3225 | `dk6edqef` |
+
+Drift gate: |val_A − 3.27174| = +0.00007 ✓.
+
+### Key findings
+
+1. **No arm crosses Δ ≤ −0.002**: C (−0.00168) is 84% of threshold; D (−0.00145) similar. Per pre-staged rules: productive-null. Both pass n=1 stat-rule on absolute baseline (3.27013 ≤ 3.27174) but within-pod Δ is canonical; no paired-pod confirmation.
+2. **NS=8 confirms precision floor exists**: Δ=+0.00235 regression — consistent with #388 prior saturation finding.
+3. **NS ∈ [10, 14] is a wide saturation plateau**: all three within ~0.0017 of each other, within paired-pod noise.
+4. **Critical compute finding**: NS step-time is essentially flat (±1%) across NS ∈ [8, 14]. Naive prediction was 17-33% per arm. Forward/backward dominates per-step time — orthogonalization is NOT the bottleneck. Kills "lower NS for compute savings" angle.
+
+### Mechanism takeaway
+
+**21st productive-null/negative this cycle.** NS_ITERS normal-phase is saturated for NS ∈ [10, 14]. NS=8 below floor. NS=12 (current default) is well-placed on the plateau. The compute finding means future NS decisions should be motivated by val/loss only, not step-time.
+
+**Follow-up**: frieren assigned **#506 NS-iter warmup schedule** — ramp NS from low → 12 over first N% of training. First NS schedule experiment to vary precision within the normal phase (all prior NS schedule work targeted cooldown). Pairs with WD warmup (#483) and embed LR warmup (#489) in a "less constraint early" research cluster.
+
+---
+
 ## 2026-05-19 18:05 UTC — PR #454: Aux-group linear_floor cooldown extension (nezuko) — CLOSED productive-null
 
 - Branch: `g1r4-nezuko/aux-floor-cooldown`
