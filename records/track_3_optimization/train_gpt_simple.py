@@ -532,6 +532,13 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+# Adam-atan2 (Everett et al. 2024, arXiv:2407.05872): replace the ε-division in the
+# AdamW update with atan2(m_hat, b * sqrt(v_hat)). Bounded in (-π/2, π/2), removes the
+# tiny-v_hat explosion mode. 0.0 = disabled, fall through to standard fused AdamW
+# (bitwise-identical to baseline). >0 = enabled, use the AdamAtan2 class on aux groups.
+NANOGPT_ADAMW_ATAN2_B = float(os.environ.get("NANOGPT_ADAMW_ATAN2_B", "0.0"))
+if NANOGPT_ADAMW_ATAN2_B < 0:
+    raise ValueError(f"NANOGPT_ADAMW_ATAN2_B must be >= 0, got {NANOGPT_ADAMW_ATAN2_B}")
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -706,6 +713,67 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class AdamAtan2(torch.optim.Optimizer):
+    """AdamW variant where the update is atan2(m_hat, b * sqrt(v_hat)) instead of m_hat / (sqrt(v_hat) + eps).
+
+    Reference: Everett et al. 2024 (arXiv:2407.05872). The atan2 output is bounded
+    in (-π/2, π/2), so tiny v_hat no longer produces unbounded updates and ε is
+    no longer needed. `atan2_b` plays the role analogous to ε's scale: smaller b
+    keeps the update closer to ±π/2 (signed-momentum-like) for small v_hat; larger
+    b suppresses the update toward 0 (more conservative on small gradients).
+    Bias correction matches PyTorch AdamW; weight decay is decoupled (AdamW-style).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), atan2_b=1.0, weight_decay=0.0):
+        if atan2_b <= 0:
+            raise ValueError(f"atan2_b must be > 0, got {atan2_b}")
+        if not 0 <= betas[0] < 1 or not 0 <= betas[1] < 1:
+            raise ValueError(f"betas must be in [0, 1), got {betas}")
+        # eps is stored as 0.0 for telemetry compatibility (log_adamw_step_direction
+        # reads group["eps"]); it is not used in the atan2 update.
+        defaults = dict(lr=lr, betas=betas, atan2_b=atan2_b, weight_decay=weight_decay, eps=0.0)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            b = group["atan2_b"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                # AdamW-style moment updates.
+                exp_avg.lerp_(grad, 1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                bias1 = 1.0 - beta1 ** t
+                bias2 = 1.0 - beta2 ** t
+                # atan2(m_hat, b * sqrt(v_hat)) with proper bias correction.
+                # m_hat = exp_avg/bias1, sqrt(v_hat) = sqrt(exp_avg_sq)/sqrt(bias2).
+                # atan2 is scale-invariant on positive scales, so we rewrite as
+                # atan2(exp_avg, b * sqrt(exp_avg_sq) * bias1 / sqrt(bias2)).
+                scale = b * bias1 / math.sqrt(bias2)
+                denom = exp_avg_sq.sqrt().mul_(scale)
+                update = torch.atan2(exp_avg, denom)
+
+                # Decoupled weight decay (AdamW-style).
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(update, alpha=-lr)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -744,6 +812,9 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"ADAMW_ATAN2_B: {NANOGPT_ADAMW_ATAN2_B} "
+       f"({'enabled (AdamAtan2 on aux groups)' if NANOGPT_ADAMW_ATAN2_B > 0 else 'disabled, using standard fused AdamW'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -806,6 +877,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
+            "nanogpt_adamw_atan2_b": NANOGPT_ADAMW_ATAN2_B,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -838,10 +910,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    adam_param_groups = [dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")]
+    if NANOGPT_ADAMW_ATAN2_B > 0:
+        optimizer1 = AdamAtan2(adam_param_groups,
+                               betas=(0.8, NANOGPT_ADAMW_BETA2), atan2_b=NANOGPT_ADAMW_ATAN2_B,
+                               weight_decay=0)
+    else:
+        optimizer1 = AdamW(adam_param_groups,
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
