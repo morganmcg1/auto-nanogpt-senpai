@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~13:55Z (poll #248)
+- **Last updated:** 2026-05-19 ~14:10Z (poll #249)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -30,14 +30,15 @@
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | **Cell A `zcpp564w` running ~36%** |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | Cell A TERMINAL val=3.26757 ffs=3100; **Cell B `el26535y` (cooldown_frac=0.3) running ~24%** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A TERMINAL −0.90σ ctrl; **Cell B `3tm0uy2a` (const tiny 0.0025) running ~10%** |
-| #445 | tanjiro | Muon mu schedule sweep | A −3.67σ ctrl; B +11.29σ NEG; **C TERMINAL +8.11σ NEG** (ramp_down 0.99→0.90 very bad); Cell D chaining |
+| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | **NEW — add `--adam_embed_lr` flag; Cell A (ctrl 0.3) first** |
 | #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 n=4 `h8g04vyb` running** |
 | #422 | edward | Muon WD shape variants | **P2 n=4 `ob6ek9zt` trial 1 ffs=3000 ✓; trial 2 step ~955** |
 
 
 ## Recent Closures (polls #242–248)
 
-- **#428 frieren SOAP β₂ static sweep** — CLOSED clean-NEG (poll #248). β₂ axis flat in {0.80..0.98} (all ±1σ); Cell D (β₂=0.95) +2.00σ outlier non-monotonic, likely seed noise. Axis closed.
+- **#445 tanjiro Muon mu schedule sweep** — CLOSED clean-NEG (poll #249). Any mu schedule change hurts: ramp_up +11.29σ, ramp_down +8.11σ. Static 0.95 is the robust optimum. Axis closed.
+- **#428 frieren SOAP β₂ static sweep** — CLOSED clean-NEG (poll #248). β₂ axis flat in {0.80..0.98} (all ±1σ). Axis closed.
 - **#427 nezuko Muon WD per-block decomp** — CLOSED clean-NEG (poll #245). +4.56σ asym-heavy-MLP worst.
 - **#426 thorfinn LR schedule shape** — CLOSED clean-NEG (poll #244). Linear cliff optimal.
 - **#423 fern WD peak sensitivity** — CLOSED clean-NEG (poll #243). Peak=0.050 optimal.
@@ -53,9 +54,9 @@
 - **Edward #422 Cell C `stable_only` (P2):** cliff to zero WD at cooldown start; trial 1 ffs=3000 promising
 - **Askeladd #437 Cell C `ramp_down_8_64` (P2):** less frequent SOAP precond in cooldown
 
-**Muon mu schedule axis (tanjiro #445) — CLOSING NEG:**
-- Any mu schedule change hurts: ramp_up 0→1: +11.29σ, ramp_down 0.99→0.90: +8.11σ
-- Axis is clearly closed: mu=0.95 constant is optimal. Cell D still chaining but axis conclusion is clear.
+**Muon mu schedule axis (tanjiro #445) — CLOSED NEG:** both ramp directions catastrophic (+8–11σ). Static 0.95 confirmed optimal.
+
+**AdamW embed LR axis (tanjiro #473 — NEW):** adam_embed=0.3 hardcoded, never ablated. 5-cell log-spaced sweep {0.05, 0.1, 0.3, 0.6, 1.0}. LR=0.3 is 30× typical Adam; may be over-tuned or under-tuned on embed.
 
 **SOAP β₂ static axis (frieren #428) — CLOSED FLAT:** insensitive to β₂ in {0.80..0.98}; no winner.
 
