@@ -54,6 +54,13 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--muon_grad_noise_std", type=float, default=0.0,
+                        help="Std of Gaussian noise added to Muon-side param gradients pre-NS5. "
+                             "0 = no noise (baseline). Applied to MLP + attn Muon groups only.")
+    parser.add_argument("--muon_grad_noise_schedule", type=str, default="constant",
+                        choices=["constant", "linear_decay", "cooldown_only"],
+                        help="constant=fixed; linear_decay=std*(1-progress); "
+                             "cooldown_only=std during cooldown_frac phase, 0 in stable phase.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -63,6 +70,20 @@ def parse_args():
 
 
 args = parse_args()
+
+
+def _muon_noise_scale(step: int, total_steps: int, schedule: str, base_std: float,
+                      cooldown_frac: float = 0.7) -> float:
+    if base_std <= 0:
+        return 0.0
+    p = step / total_steps
+    if schedule == "constant":
+        return base_std
+    elif schedule == "linear_decay":
+        return base_std * (1.0 - p)
+    elif schedule == "cooldown_only":
+        return base_std if p >= (1.0 - cooldown_frac) else 0.0
+    raise ValueError(f"Unknown schedule: {schedule}")
 
 
 def clean_metric_name(name: str) -> str:
@@ -912,6 +933,44 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        noise_scale = _muon_noise_scale(
+            step, train_steps,
+            args.muon_grad_noise_schedule, args.muon_grad_noise_std,
+        )
+        if noise_scale > 0:
+            pre_norm = None
+            if step == 0 and dist.get_rank() == 0:
+                for group in optimizer2.param_groups:
+                    if group.get("name") == "muon_mlp":
+                        for p in group["params"]:
+                            if p.grad is not None:
+                                pre_norm = float(p.grad.norm().item())
+                                break
+                        if pre_norm is not None:
+                            break
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    if p.grad is not None:
+                        p.grad.add_(torch.randn_like(p.grad), alpha=noise_scale)
+            if step == 0 and dist.get_rank() == 0 and pre_norm is not None:
+                post_norm = None
+                for group in optimizer2.param_groups:
+                    if group.get("name") == "muon_mlp":
+                        for p in group["params"]:
+                            if p.grad is not None:
+                                post_norm = float(p.grad.norm().item())
+                                break
+                        if post_norm is not None:
+                            break
+                print0(
+                    f"[noise smoke] step=0 schedule={args.muon_grad_noise_schedule}"
+                    f" std={args.muon_grad_noise_std} scale={noise_scale}"
+                    f" mlp_grad_norm pre={pre_norm:.6f} post={post_norm:.6f}",
+                    console=True,
+                )
+        if dist.get_rank() == 0 and telemetry_due:
+            wandb.log({"trial": trial_idx, "train/step": train_step,
+                       "muon/grad_noise_scale": noise_scale}, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
