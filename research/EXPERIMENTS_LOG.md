@@ -1,3 +1,20 @@
+## 2026-05-19 07:05 UTC — PR #417 CLOSED: MuonH inner cooldown_frac sweep (full sweep complete, close_neg)
+- Branch: `g1r3-edward/muonh-inner-cooldown-frac-sweep`
+- Hypothesis: Test whether shortening the MuonH cosine cooldown (cooldown_frac < 1.0) frees up early-mid-training peak-LR steps for productive learning while still leaving enough budget to converge.
+- Full results:
+
+| Arm | cooldown_frac | W&B run | val/loss | ffs | reached 3.28 | Δ vs baseline (3.27286) |
+|---|---|---|---|---|---|---|
+| 1 (ctrl) | 1.0 | `zu2yy4jn` | 3.27236 | 3125 | ✓ | -0.00050 |
+| 2 | 0.7 | `u88kyal5` | 3.28949 | -1 | ✗ | +0.01663 (~20σ NEG) |
+| 3 | 0.5 | `us53ifim` | 3.31306 | -1 | ✗ | +0.04020 (~40σ NEG) |
+
+- **Monotonic catastrophic curve**: cooldown_frac < 1.0 is strictly worse, scales with magnitude. cooldown_frac=1.0 is the operating point.
+- Arm 1 ctrl reproduces baseline within σ (n=1 draw at 3.27236 vs n=4 mean 3.27286). Adds to our σ estimate ensemble.
+- Mechanism: cosine cooldown is doing real optimization work — the final ~30-50% of training relies on monotonically declining LR to converge below 3.28. Truncating it leaves LR too high at the end. NOT a tapering-off detail.
+- Lever closed: cooldown_frac is saturated at 1.0. Future cooldown-related work should test *shape* (cosine vs sqrt vs linear) at full duration, not *truncation*.
+- PR CLOSED.
+
 ## 2026-05-19 06:50 UTC — PR #424 (arm 1): MuLoCo outer standard SGDM mu=0.5 (drop_nesterov) — NEG
 - Branch: `g1r3-askeladd/muloco-nesterov-sweep`
 - Hypothesis: Test whether Nesterov correction `μ·v + δ` (lines 1093-1095) in MuLoCo outer step is load-bearing. Arm 1 = drop_nesterov (standard SGDM, position update uses raw `v` instead of `μ·v + δ`).
