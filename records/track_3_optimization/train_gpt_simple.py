@@ -35,6 +35,12 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
+# Adaptive NS polar convergence: stop NS iterations early when ||X X^T - I||_F < threshold.
+# When NS_ADAPTIVE=True, NS_ITERS is unused for the PMuon path.
+NS_ADAPTIVE = True
+NS_ADAPTIVE_THRESHOLD = 0.5  # Arm A = 0.5 (loose), Arm B = 0.1 (tight)
+NS_ADAPTIVE_MIN_ITERS = 3
+NS_ADAPTIVE_MAX_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
@@ -447,23 +453,56 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
+def zeropower_via_newtonschulz5(
+    G: Tensor,
+    a: float = NS_A,
+    b: float = NS_B,
+    c: float = NS_C,
+    iters: int = NS_ITERS,
+    adaptive: bool = NS_ADAPTIVE,
+    adaptive_threshold: float = NS_ADAPTIVE_THRESHOLD,
+    adaptive_min_iters: int = NS_ADAPTIVE_MIN_ITERS,
+    adaptive_max_iters: int = NS_ADAPTIVE_MAX_ITERS,
+) -> tuple[Tensor, int, float]:
+    # Returns (polar, actual_iters, residual_at_exit). residual_at_exit is the
+    # post-iter ||X X^T - I||_F at the iter we returned at (early-exit threshold
+    # crossed, or max_iters reached). In non-adaptive mode residual_at_exit is -1.
     assert G.ndim >= 2
     X = G.bfloat16()
-    if G.size(-2) > G.size(-1):
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
         X = X.mT
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    for _ in range(iters):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
 
-    if G.size(-2) > G.size(-1):
+    residual_at_exit = -1.0
+    actual_iters = 0
+
+    if not adaptive:
+        for _ in range(iters):
+            A = X @ X.mT
+            B_term = b * A + c * A @ A
+            X = a * X + B_term @ X
+        actual_iters = iters
+    else:
+        m = X.size(-2)  # X is the wide orientation: m <= n
+        eye = torch.eye(m, device=X.device, dtype=X.dtype)
+        for i in range(adaptive_max_iters):
+            A = X @ X.mT
+            B_term = b * A + c * A @ A
+            X = a * X + B_term @ X
+            actual_iters = i + 1
+            if i + 1 >= adaptive_min_iters:
+                A_post = X @ X.mT
+                residual = float((A_post - eye).norm().item())
+                residual_at_exit = residual
+                if residual < adaptive_threshold:
+                    break
+
+    if transposed:
         X = X.mT
-    return X
+    return X, actual_iters, residual_at_exit
 
 
 def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
@@ -501,22 +540,32 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
-    # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
-    # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
-    if polar_diag is not None and "residual" not in polar_diag:
-        X = polar
-        m, n = X.shape[-2], X.shape[-1]
-        Xf = X.float()
-        if m <= n:
-            gram = Xf @ Xf.T
-            eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
-        else:
-            gram = Xf.T @ Xf
-            eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
-        polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
-        polar_diag["sample_rows"] = m
-        polar_diag["sample_cols"] = n
+    polar, actual_iters, residual_at_exit = zeropower_via_newtonschulz5(
+        m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c,
+    )
+    if polar_diag is not None:
+        # Per-call adaptive stats: aggregated across all params handled in this step.
+        polar_diag.setdefault("iters_list", []).append(actual_iters)
+        if residual_at_exit >= 0:
+            polar_diag.setdefault("residual_at_exit_list", []).append(residual_at_exit)
+        # Existing first-eligible-param residual sample (kept for dashboard continuity).
+        # Reuse the adaptive function's residual when available to avoid an extra matmul.
+        if "residual" not in polar_diag:
+            X = polar
+            m, n = X.shape[-2], X.shape[-1]
+            if residual_at_exit >= 0:
+                polar_diag["residual"] = residual_at_exit
+            else:
+                Xf = X.float()
+                if m <= n:
+                    gram = Xf @ Xf.T
+                    eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+                else:
+                    gram = Xf.T @ Xf
+                    eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
+                polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
+            polar_diag["sample_rows"] = m
+            polar_diag["sample_cols"] = n
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
@@ -699,6 +748,10 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
+            "ns_adaptive": NS_ADAPTIVE,
+            "ns_adaptive_threshold": NS_ADAPTIVE_THRESHOLD,
+            "ns_adaptive_min_iters": NS_ADAPTIVE_MIN_ITERS,
+            "ns_adaptive_max_iters": NS_ADAPTIVE_MAX_ITERS,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
@@ -902,7 +955,7 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                polar_metrics = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -911,7 +964,27 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                }
+                iters_list = polar_diag.get("iters_list", [])
+                if iters_list:
+                    polar_metrics["pmuon/ns_actual_iters_mean"] = sum(iters_list) / len(iters_list)
+                    polar_metrics["pmuon/ns_actual_iters_max"] = max(iters_list)
+                    polar_metrics["pmuon/ns_actual_iters_min"] = min(iters_list)
+                    polar_metrics["pmuon/ns_actual_iters_count"] = len(iters_list)
+                    polar_metrics["pmuon/ns_actual_iters_at_max_frac"] = sum(
+                        1 for it in iters_list if it >= NS_ADAPTIVE_MAX_ITERS
+                    ) / len(iters_list)
+                    polar_metrics["pmuon/ns_actual_iters_at_min_frac"] = sum(
+                        1 for it in iters_list if it <= NS_ADAPTIVE_MIN_ITERS
+                    ) / len(iters_list)
+                residual_list = polar_diag.get("residual_at_exit_list", [])
+                if residual_list:
+                    polar_metrics["pmuon/ns_residual_at_exit_mean"] = sum(residual_list) / len(residual_list)
+                    polar_metrics["pmuon/ns_residual_at_exit_max"] = max(residual_list)
+                    polar_metrics["pmuon/ns_residual_at_exit_min"] = min(residual_list)
+                polar_metrics["pmuon/ns_adaptive"] = int(NS_ADAPTIVE)
+                polar_metrics["pmuon/ns_adaptive_threshold"] = NS_ADAPTIVE_THRESHOLD
+                wandb.log(polar_metrics, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
