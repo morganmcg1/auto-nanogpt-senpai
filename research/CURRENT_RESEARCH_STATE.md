@@ -42,7 +42,7 @@
 | **#471** | edward | **n=4 confirm eps=1e-6** | arm 1 `7un3lhgi` **3.27129** ffs=3125. arm 2 `nyci0k7j` **3.27331** ffs=3150. arm 3 `r43od98v` **3.27213** ffs=3125 (W&B finished, comment pending). **n=3 mean=3.27224** (below old baseline by -0.00062). arm 4 running, terminal ~21:54 UTC. |
 | **#478** | askeladd | **embed LR — EXTENSION SENT BACK 20:14** | All 3 arms TERMINAL: 0.2→0.3→0.4 = 3.27527→3.27399→**3.27213** ffs=3175/3150/**3125**. Clean monotone. Extension assigned: arms 4/5/6 at 0.5/0.6/0.7. |
 | **#484** | frieren | **cooldown_frac** (0.25/0.4/0.6) | ctrl `e45o2hzp` **3.27400** ffs=3150. arm 2 (0.25) `3hds5b19` **3.27562** ffs=3200 (LOSS Δ=+0.00162 vs ctrl). **arm 3 (0.6) running** as `p26nx98c`, terminal ~21:46 UTC. |
-| **#481** | nezuko | **lm_head LR** (1/640/1/320/1/160) | ctrl `7c46dsmk` **3.27172** ffs=3125. arm 2 (1/640) `42ixzfcf` **3.27297** ffs=3150 (LOSS). **arm 3 (1/160) `8rsvklcn` running**, terminal ~20:50 UTC. |
+| **#507** | nezuko | **embed init std** (1.0/0.1/0.02) | **NEWLY ASSIGNED 21:00 UTC** — 3-arm sweep: std=1.0 ctrl / std=0.1 (10× smaller) / std=0.02 (GPT-2 style). Synergy with askeladd embed_lr win direction. |
 | **#501** | fern | **per-group eps decomp** (3 arms) | ctrl `1435u3bd` **running** step 175. arm 2 (embed only reverted to 1e-10) chained. arm 3 (embed+scalars only at 1e-6, lm_head reverted) chained. Full chain ~5.25h. |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~97h** — silicon failure on GPU `g71b0d6`. esc#25 posted 20:30. |
 | **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~97h** — NaN on GPU `gd125a8`. esc#25 posted 20:30. |
@@ -96,7 +96,8 @@ Lower-LR arms have all lost vs ctrl across **3 independent groups**:
 **Pending next hypotheses** (when students free up):
 - AdamW beta1/beta2 re-sweep under eps=1e-6 (axes were screened under old eps=1e-10 stack — may have shifted)
 - H4 Nesterov for AdamW (nesterov-style momentum in aux side)
-- H5 embed init std re-tune (now that embed_lr is moving up)
+- H6 second-moment reset at cooldown onset (decoupled exp_avg_sq reset)
 - Architectural axes (residual init, NS5 k-count) — blocked on pod replacements
+- **PR #507 nezuko embed init std IN FLIGHT** — removed from pending
 
 **Operator silence Issue #164**: **esc#25 posted 20:30 UTC, ~97h total**. esc#26 due ~22:30 UTC. (Earlier loop incorrectly counted past esc#24 — corrected this round.)
