@@ -530,6 +530,15 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Lookahead (Zhang et al. 2019). scope: off|adamw|muon|both
+NANOGPT_LOOKAHEAD_SCOPE = os.environ.get("NANOGPT_LOOKAHEAD_SCOPE", "off")
+NANOGPT_LOOKAHEAD_K = int(os.environ.get("NANOGPT_LOOKAHEAD_K", "5"))
+NANOGPT_LOOKAHEAD_ALPHA = float(os.environ.get("NANOGPT_LOOKAHEAD_ALPHA", "0.5"))
+_VALID_LOOKAHEAD_SCOPES = ("off", "adamw", "muon", "both")
+if NANOGPT_LOOKAHEAD_SCOPE not in _VALID_LOOKAHEAD_SCOPES:
+    raise ValueError(
+        f"NANOGPT_LOOKAHEAD_SCOPE={NANOGPT_LOOKAHEAD_SCOPE!r}, must be one of {_VALID_LOOKAHEAD_SCOPES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -703,6 +712,65 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class LookaheadWrapper:
+    """Lookahead (Zhang et al. 2019). Wraps a fast optimizer. After every k inner
+    steps, blend slow weights θ_s ← θ_s + α(θ_f − θ_s), then reset θ_f ← θ_s."""
+
+    def __init__(self, optimizer, k: int = 5, alpha: float = 0.5):
+        self.optimizer = optimizer
+        self.k = k
+        self.alpha = alpha
+        self.step_count = 0
+        # Slow weights: clone of each fast weight (same device/dtype).
+        self.slow_weights: dict[int, torch.Tensor] = {}
+        for group in optimizer.param_groups:
+            for p in group["params"]:
+                if p.requires_grad:
+                    self.slow_weights[id(p)] = p.detach().clone()
+        # Diagnostics — populated on each blend event.
+        self.last_blend_step_count: int = -1
+        self.last_pre_blend_dev_norm: float = 0.0
+        self.last_pre_blend_slow_norm: float = 0.0
+
+    def __getattr__(self, name):
+        # Only called when attribute is NOT found on instance/class. Forward to
+        # the wrapped optimizer (e.g. .state, .set_ns_iters_this_step,
+        # .spectral_stats). Guard against recursion before __init__ sets
+        # self.optimizer.
+        if name == "optimizer":
+            raise AttributeError(name)
+        return getattr(self.optimizer, name)
+
+    @property
+    def param_groups(self):
+        return self.optimizer.param_groups
+
+    @torch.no_grad()
+    def step(self, *args, **kwargs):
+        result = self.optimizer.step(*args, **kwargs)
+        self.step_count += 1
+        if self.step_count % self.k == 0:
+            dev_sq_sum = 0.0
+            slow_sq_sum = 0.0
+            for group in self.optimizer.param_groups:
+                for p in group["params"]:
+                    pid = id(p)
+                    sw = self.slow_weights.get(pid)
+                    if sw is None:
+                        continue
+                    dev = p.detach() - sw
+                    dev_sq_sum += float(dev.float().pow(2).sum().item())
+                    slow_sq_sum += float(sw.float().pow(2).sum().item())
+                    # θ_s ← θ_s + α(θ_f − θ_s)
+                    sw.add_(dev, alpha=self.alpha)
+                    # θ_f ← θ_s
+                    p.copy_(sw)
+            self.last_blend_step_count = self.step_count
+            self.last_pre_blend_dev_norm = dev_sq_sum ** 0.5
+            self.last_pre_blend_slow_norm = slow_sq_sum ** 0.5
+        return result
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -747,6 +815,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"LOOKAHEAD: scope={NANOGPT_LOOKAHEAD_SCOPE} k={NANOGPT_LOOKAHEAD_K} alpha={NANOGPT_LOOKAHEAD_ALPHA}",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +869,9 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_lookahead_scope": NANOGPT_LOOKAHEAD_SCOPE,
+            "nanogpt_lookahead_k": NANOGPT_LOOKAHEAD_K,
+            "nanogpt_lookahead_alpha": NANOGPT_LOOKAHEAD_ALPHA,
         },
     )
 
@@ -840,6 +913,10 @@ for trial_idx in range(args.num_trials):
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    if NANOGPT_LOOKAHEAD_SCOPE in ("adamw", "both"):
+        optimizer1 = LookaheadWrapper(optimizer1, k=NANOGPT_LOOKAHEAD_K, alpha=NANOGPT_LOOKAHEAD_ALPHA)
+    if NANOGPT_LOOKAHEAD_SCOPE in ("muon", "both"):
+        optimizer2 = LookaheadWrapper(optimizer2, k=NANOGPT_LOOKAHEAD_K, alpha=NANOGPT_LOOKAHEAD_ALPHA)
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
@@ -1081,6 +1158,15 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            for opt_label, opt_obj in (("adamw", optimizer1), ("muon", optimizer2)):
+                if isinstance(opt_obj, LookaheadWrapper):
+                    slow_norm = opt_obj.last_pre_blend_slow_norm
+                    ns_metrics[f"train/lookahead/{opt_label}/last_blend_step"] = opt_obj.last_blend_step_count
+                    ns_metrics[f"train/lookahead/{opt_label}/pre_blend_dev_norm"] = opt_obj.last_pre_blend_dev_norm
+                    ns_metrics[f"train/lookahead/{opt_label}/pre_blend_slow_norm"] = slow_norm
+                    ns_metrics[f"train/lookahead/{opt_label}/pre_blend_relative_dev"] = (
+                        opt_obj.last_pre_blend_dev_norm / slow_norm if slow_norm > 0 else 0.0
+                    )
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
