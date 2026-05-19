@@ -71,6 +71,8 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_cooldown_frac", type=float, default=float(os.environ.get("AUX_COOLDOWN_FRAC", "0.4")),
+                        help="Aux AdamW (embed/lm_head/scalars) cooldown fraction. Default 0.4 = baseline. Cooldown begins at progress=(1-frac).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,6 +768,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_cooldown_frac": args.aux_cooldown_frac,
         },
     )
 
@@ -837,7 +840,7 @@ for trial_idx in range(args.num_trials):
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
     h_cooldown_frac = 1.0
-    aux_cooldown_frac = 0.4
+    aux_cooldown_frac = args.aux_cooldown_frac
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
