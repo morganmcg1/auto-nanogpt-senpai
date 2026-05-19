@@ -464,6 +464,10 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# LR cooldown polynomial power (PR #464): shape of the LR decay during cooldown.
+# Default 1.0 reproduces the current linear schedule. >1 front-loads decay
+# (faster drop early in cooldown); <1 back-loads decay (LR stays high longer).
+COOLDOWN_POWER = float(os.environ.get("COOLDOWN_POWER", "1.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -860,6 +864,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/cooldown_power": COOLDOWN_POWER,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -913,7 +918,7 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            eta = ((1 - progress) / cooldown_frac) ** COOLDOWN_POWER
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
