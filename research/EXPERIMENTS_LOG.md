@@ -1,5 +1,14 @@
 # SENPAI Research Results
 
+## 2026-05-19 00:46 UTC — PR #403 CLOSED: Curriculum COOLDOWN_POWER — operational failure (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/cooldown-power-curriculum`
+- Hypothesis: Linear ramp of COOLDOWN_POWER from p_start → p_end during cooldown phase.
+- **Result: OPERATIONAL FAILURE** — 5+ crash loop (all crashes ≤step 25). Implementation bug (likely division-by-zero or index error in the ramp formula). Student pod continued relaunching broken config. No training data collected. Branch had zero code commits (only assignment commit). GPU reclaimed by closing.
+- **Conclusion:** PR closed operationally. Curriculum cooldown power direction remains valid but needs clean re-implementation with explicit early-step guard. New assignment PR #416 (aux β1 fine-scan).
+
+---
+
 ## 2026-05-19 00:17 UTC — PR #387 CLOSED: Role-based Muon LR {0.7×, 0.4× on attn} — both NULL, role-axis closes (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/muon-role-lr`

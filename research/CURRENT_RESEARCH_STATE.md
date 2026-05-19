@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 00:17 UTC
+- **Last update:** 2026-05-19 00:46 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2975 steps (just BEAT previous record of 3030 — new local n=2 sr=2975). Public record was 3030 steps (Record #20).
 
@@ -32,7 +32,7 @@ None at this time.
 | **#413** | **alphonse** | scalar_lr upward scan {0.025, 0.05} vs baseline 0.01 | Just assigned (00:05 UTC). Arm A scalar_lr=0.025 to launch. |
 | **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm A DONE sr=3025 val=3.2699 (NULL). Arm B cooldown=18 launching. |
 | **#400** | **edward** | AGC on aux AdamW per-row λ ∈ {0.04, 0.02} | Arm A λ=0.04 `2y0ewtlb` step 2525/3250 mid-flight. ETA ~00:10 UTC. |
-| **#403** | **askeladd** | Curriculum COOLDOWN_POWER: linear ramp p_start → p_end | Arm A 1.2→1.6 `jq5rgqb7` step 950/3250 running. ETA ~01:00 UTC. |
+| **#416** | **askeladd** | Aux AdamW β1 fine-scan {0.75, 0.85} — closes β1 axis at fine grid | Just assigned (00:46 UTC). Arm A β1=0.75 to launch. |
 | **#404** | **thorfinn** | Aux CP extend: CP=1.0 n=2 confirm + CP=0.5 extend | Arm A CP=1.0 seed2 `jv2oi3fv` step 575/3250 running (prior crashes). ETA ~01:30 UTC. |
 
 ## Recently merged (current round)
@@ -73,7 +73,7 @@ None at this time.
 
 4. **PMuon EMA dynamics axis CLOSED**: LR warmup (PR #261), bias-correction (PR #307) both NULL. Cold-start un-corrected EMA IS the implicit whitening warmup — load-bearing, do not modify.
 
-5. **Schedule axis**: Body-side COOLDOWN_POWER=1.4 merged (PR #274), continuation {1.5, 1.8} CLOSED (PR #332) — local optimum at 1.4. Aux-group cooldown power CLOSED at n=1 (PR #366, Arm A marginal val WIN unconfirmed due to crash storm, but direction preserved in PR #404). NS_ITERS cooldown schedule in flight (PR #395 fern). Curriculum cooldown power in flight (PR #403 askeladd).
+5. **Schedule axis**: Body-side COOLDOWN_POWER=1.4 merged (PR #274), continuation {1.5, 1.8} CLOSED (PR #332) — local optimum at 1.4. Aux-group cooldown power CLOSED at n=1 (PR #366, Arm A marginal val WIN unconfirmed due to crash storm, but direction preserved in PR #404). NS_ITERS cooldown schedule in flight (PR #395 fern). Curriculum cooldown power #403 CLOSED operationally (crash loop, implementation bug).
 
 6. **WD, clip, z-loss**: Muon WD closed at 0.025; z-loss closed at 0 (existing logit soft-clamp sufficient); global grad-clip closed; per-tensor embed-clip NULL (PR #331).
 
@@ -83,7 +83,7 @@ None at this time.
 
 Three themes active simultaneously:
 
-1. **Cooldown-phase precision** (fern #395 NS_ITERS schedule, askeladd #403 curriculum cooldown power): Do cooldown-phase updates benefit from higher-quality direction or time-varying power-law concavity? Both target the ~2275 cooldown steps where LR is tiny and direction quality matters most.
+1. **Cooldown-phase precision** (fern #395 NS_ITERS schedule, nezuko #414 cosine cooldown shape): fern probes scheduled NS_ITERS; nezuko probes opposite-curvature cosine shape vs power-law 1.4.
 2. **Aux AdamW optimization** (frieren #367 lm_head_lr, edward #400 AGC, thorfinn #404 aux CP extend): Aux side has multiple marginal-WIN signals — at least one may stack. Thorfinn #404 confirms direction from #366 + extends to CP=0.5.
 3. **Exploring new schedule mechanisms and closing remaining aux dimensions**: Muon LR fully exhausted across all linear decompositions. Cooldown SHAPE exploration via nezuko #414 (cosine family vs power-law). Tanjiro #401 closes Muon WD downward. Alphonse #413 closes scalar_lr axis.
 
