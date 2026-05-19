@@ -46,6 +46,8 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_cooldown_frac", type=float, default=float(os.environ.get("MUONH_COOLDOWN_FRAC", "1.0")),
+        help="Fraction of training spent in cooldown for MuonH groups (1.0=full cosine from step 0, 0.5=plateau for first half then cosine cooldown)")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -753,6 +755,7 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "muonh_cooldown_frac": args.muonh_cooldown_frac,
             "muonh_warmup_steps": args.muonh_warmup_steps,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
@@ -833,7 +836,7 @@ for trial_idx in range(args.num_trials):
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
-    h_cooldown_frac = 1.0
+    h_cooldown_frac = args.muonh_cooldown_frac
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
