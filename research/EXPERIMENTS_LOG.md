@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-19 07:18 UTC — PR #410 CLOSED: lm_head_lr fine-scan {1/120, 1/100} — both NULL, axis closes UPWARD from 1/160 (g1r1-frieren)
+
+- Branch: `g1r1-frieren/aux-lmhead-lr-fine-scan`
+- Hypothesis: Continue lm_head_lr scaling past freshly merged 1/160 baseline (PR #367). Test {1/120, 1/100, 1/80} for monotone improvement direction.
+
+| Arm | lm_head_lr | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #367) | 1/160 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+| A | 1/120 | `9hgqqx38` | 3000 | 3.268949 | +25 ✗ | +0.001728 ✗ | NULL |
+| B | 1/100 | `cjv8cqab` | 3000 | 3.269108 | +25 ✗ | +0.001876 ✗ | NULL |
+| C | 1/80 | killed step 128 (advisor-directed) | — | — | — | — | not run |
+
+**Signal: FLAT — not monotone increasing.** Both Arms A and B miss baseline on both metrics simultaneously with virtually identical val deltas (+0.0017 vs +0.0019). Δsr is exactly at the marginal threshold (+25 at advisor stat rule cutoff) but BOTH arms regress on BOTH metrics in tandem — that's NULL, not seed noise.
+
+**Operational note:** Arm C (1/80) was killed at step 128 per advisor directive after observing the flat A+B signal. Saved ~3.5h compute on a closed-direction extension. Student demonstrated clean operational discipline (immediate kill, terminal SENPAI-RESULT posted within 7 minutes of advisor comment).
+
+**Mechanistic conclusion:** Combined with merge sequence 1/640→1/320→1/160 (PR #211→#357→#367), the maximum useful lm_head_lr appears to sit at 1/160. Going from 1/320 to 1/160 was a real ~25 sr gain (PR #367 confirmed n=2). Going past 1/160 in either direction (1/120, 1/100) costs sr while regressing val — the lm_head_lr axis is now bracketed.
+
+**Conclusion: lm_head_lr axis CLOSED upward from 1/160 (PR #367 is the peak).** Future aux work on this group must be different mechanism class (β1/β2/eps already closed; remaining open: per-group hypers, ε floor scheduling, etc.). New assignment PR #444 (PMuon γ_power phase schedule — first phase-dependent γ test).
+
+---
+
 ## 2026-05-19 06:42 UTC — PR #401 CLOSED: Muon WD downward {0.020, 0.015} — both NULL, axis closes both directions (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/muon-wd-downward`
