@@ -1,3 +1,43 @@
+## 2026-05-19 06:50 UTC — PR #424 (arm 1): MuLoCo outer standard SGDM mu=0.5 (drop_nesterov) — NEG
+- Branch: `g1r3-askeladd/muloco-nesterov-sweep`
+- Hypothesis: Test whether Nesterov correction `μ·v + δ` (lines 1093-1095) in MuLoCo outer step is load-bearing. Arm 1 = drop_nesterov (standard SGDM, position update uses raw `v` instead of `μ·v + δ`).
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 2 ctrl (3.27353) |
+|---|---|---|---|---|
+| `o7pbf2f3` (drop_nesterov mu=0.5) | 3.27863 | 3250 | +0.00577 (~7σ NEG) | +0.00510 |
+
+- **Clear NEG**: ~7σ on the 1-trial bar. Dropping Nesterov correction hurts even at mu=0.5.
+- Mechanism: outer δ_rms trajectories differ by ≤0.005 at the macro scale, but the lookahead bias `0.5·v` worth of correction accumulates over 110 outer steps to a measurable loss gap.
+- Confirms current `outer_nesterov=True` is doing real work in MuLoCo. Saturated lever in this direction.
+- Arm 3 (Nesterov mu=0.8) `o04vcj4x` chaining.
+
+## 2026-05-19 06:50 UTC — PR #421 (arm 2): MuonH inner AGC clip_ratio=0.02 (tight) — baseline-equivalent
+- Branch: `g1r3-nezuko/muonh-agc-clip-ratio-sweep`
+- Hypothesis: Tighter AGC clip ratio (0.02 vs 0.05 baseline) may further stabilize MuonH gradient.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 1 ctrl (3.27522) |
+|---|---|---|---|---|
+| `9imntmmb` (clip=0.02 tight) | 3.27372 | 3150 | +0.00086 (within σ) | -0.00150 |
+
+- **Baseline-equivalent**: Δ=+0.00086 is within σ (~0.0006-0.0008). DOES NOT pass n=1 merge bar (3.27206) — Δ=+0.00166 above bar.
+- Relative to arm 1 ctrl (clip=0.05 = 3.27522), arm 2 (clip=0.02) is 0.00150 *better* — but that's within noise of single-trial draws. Cannot conclude tighter clip helps.
+- Arm 3 (clip=0.10 loose) chains next.
+
+## 2026-05-19 06:50 UTC — PR #417 (arm 3): MuonH inner cooldown_frac=0.5 (catastrophic short cooldown) — NEG
+- Branch: `g1r3-edward/muonh-inner-cooldown-frac-sweep`
+- Hypothesis: Even more aggressive cooldown shortening (cooldown_frac=0.5: first 50% flat, last 50% cooldown).
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 2 (cdfrac=0.7) |
+|---|---|---|---|---|
+| `us53ifim` (cooldown_frac=0.5) | 3.31306 | -1 | +0.04020 (~40σ NEG) | +0.02357 (~30σ NEG) |
+
+- **Catastrophic NEG**: Δ=+0.04020 ~40σ, ffs=-1 (failed 3.28 target).
+- Confirms monotonic relationship: shorter cooldown → worse terminal. cooldown_frac=1.0 is the operating point; reducing it kills convergence.
+- PR #417 sweep complete: cooldown_frac axis is saturated at 1.0. Lever closed.
+
 ## 2026-05-19 05:30 UTC — PR #425 (arm 1 ctrl): MuonH-SI mu_final=0.95 (control) — baseline-equivalent
 - Branch: `g1r3-frieren/muonh-mu-cooldown-sweep`
 - Hypothesis context: Cosine-decay MuonH inner momentum 0.95 → mu_final over cooldown. Arm 1 ctrl = mu_final=0.95 (bit-identical no-op).
