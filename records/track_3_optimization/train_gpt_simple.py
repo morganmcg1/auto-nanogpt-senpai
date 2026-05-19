@@ -739,10 +739,34 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    # Body-Muon WD partition: split MLP and attention into separate optimizers
+    WD_MLP = 0.05    # Arm A seed-2 confirmation.
+    WD_ATTN = 0.0    # Arm A seed-2 confirmation.
+
+    mlp_params, attn_params = [], []
+    for block in model.blocks:
+        for p in block.mlp.parameters():
+            if p.ndim >= 2:
+                mlp_params.append(p)
+        for p in block.attn.parameters():
+            if p.ndim >= 2:
+                attn_params.append(p)
+
+    all_body_2d = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    assert len(mlp_params) + len(attn_params) == len(all_body_2d), (
+        f"partition mismatch: mlp={len(mlp_params)} + attn={len(attn_params)} != body_2d={len(all_body_2d)}"
+    )
+
+    optimizer2_mlp  = Muon(mlp_params,  lr=0.035, weight_decay=WD_MLP,  beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_attn = Muon(attn_params, lr=0.035, weight_decay=WD_ATTN, beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_mlp.param_groups[0]["name"]  = "muon_mlp"
+    optimizer2_attn.param_groups[0]["name"] = "muon_attn"
+
+    # Alias preserves diagnostic reads at lines ~892/903/924 (reports MLP-side only).
+    optimizer2 = optimizer2_mlp
+    optimizers = [optimizer1, optimizer2_mlp, optimizer2_attn]
+    if dist.get_rank() == 0:
+        wandb.config.update({"wd_mlp": WD_MLP, "wd_attn": WD_ATTN}, allow_val_change=True)
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
