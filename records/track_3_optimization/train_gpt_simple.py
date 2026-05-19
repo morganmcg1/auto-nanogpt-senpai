@@ -760,7 +760,7 @@ for trial_idx in range(args.num_trials):
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = 0.5 * (1 + math.cos(math.pi * cooldown_progress))
+            eta = (0.5 * (1 + math.cos(math.pi * cooldown_progress))) ** 2
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
