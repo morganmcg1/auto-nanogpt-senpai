@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 00:50 UTC
+- **Date:** 2026-05-19 02:20 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -106,18 +106,20 @@ All 4 arms terminal. A/B/D cluster within ±0.001 (val ∈ {3.27239, 3.27266, 3.
 All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.
 **Follow-up**: nezuko assigned #393 per-group AdamW LR multiplier sweep.
 
-### 🔥 nezuko #393 — Per-group AdamW LR multiplier sweep — STRONG WINNER CANDIDATE on arm-B
+### 🔥 nezuko #393 — Per-group AdamW LR multiplier sweep — SENT BACK 02:15 UTC for paired-pod confirmation
 **Branch:** `g1r4-nezuko/pergroup-adamw-lr`
-**Arms terminal so far (W&B verified)**:
+**All 4 arms terminal — full sweep verified on W&B**:
 | Arm | LR mult | val | fs | Δ vs A | Δ vs baseline | W&B |
 |---|---|---|---|---|---|---|
 | A (control) | all 1.0× | 3.27242 | 3250 | — | +0.00042 (drift ✓) | `oggbt72v` |
-| **B (embed1p5)** | **embed=1.5×** | **3.27026** | **3225** | **−0.00216** | **−0.00174** ⭐ | `cgyyzpwe` |
-| C (lmhead1p5) | lm_head=1.5× | running step ~1250 | - | - | - | `kwt7wjzi` |
-| D (scalar1p5) | scalar=1.5× | pending | - | - | - | - |
+| **B (embed1p5)** ⭐ | **embed=1.5×** | **3.27026** | **3225** | **−0.00216** | **−0.00174** | `cgyyzpwe` |
+| C (lmhead1p5) | lm_head=1.5× | 3.27505 | 3275 | +0.00263 | +0.00305 | `kwt7wjzi` |
+| D (scalar1p5) | scalar=1.5× | 3.27142 | TBD | −0.00100 | −0.00058 | `1bgjs64f` |
 
-**ARM-B SIGNAL**: Δ vs A=−0.00216 crosses real-signal threshold. Single-seed merge gate: (3.28 − 3.27026) × √1 = 0.00974 ≥ 0.004 ✓ PASSES. Posted ADVISOR directive 22:35 UTC: after D terminates, request **paired-pod confirmation for arm-B vs arm-A** (2 fresh pods, order-flipped).
-**ETA full chain finish:** ~02:00 UTC.
+**ARM-B**: Single-seed stat-rule passes cleanly: (3.28 − 3.27026) × √1 = 0.00974 ≥ 0.004 ✓ AND 3.27026 ≤ 3.27200 ✓. **Sent back 02:15 UTC** for paired-pod confirmation per pre-staged protocol (2 recent null collapses on #344, #351 set precedent for confirming before merging single-seed wins).
+**ARM-D**: Marginal Δ=−0.00058 vs baseline, n=1; defer follow-up pending B confirmation.
+**Path**: Paired-pod request — 2 fresh pods × {A, B} with flipped order. After confirmation, pool n=3 per arm. Merge if mean(val_B, n=3) ≤ 3.27200 AND paired Δ_B ≤ −0.002 (or smaller-but-real with positive Δ_B); else productive-null.
+**ETA paired conf:** ~7h.
 
 ### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
 All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).
@@ -219,7 +221,7 @@ All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified —
 ## Potential next research directions
 
 ### Active candidates with signal
-1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393 arm-B. Val=3.27026, Δ vs A=−0.00216, Δ vs baseline=−0.00174, fs=3225 (−8.33). Single-seed merge gate PASSES. Awaiting arms C and D, then paired-pod confirmation requested.
+1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393 arm-B. Val=3.27026, Δ vs A=−0.00216, Δ vs baseline=−0.00174, fs=3225 (−8.33). Full sweep done. **SENT BACK 02:15 UTC** for paired-pod confirmation (2 fresh pods × {A, B} with flipped order). Highest-priority confirmation in the current portfolio.
 2. **Gradient Centralization scope** — frieren #402. Fresh mechanism (gradient preprocessing). Scope sweep: all, adam-only, muon-only. Orthogonal to all closed axes.
 
 ### Productive-null shaping up
