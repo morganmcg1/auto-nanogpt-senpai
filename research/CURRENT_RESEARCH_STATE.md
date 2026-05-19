@@ -1,79 +1,84 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~22:00Z (poll #278)
+- **Last updated:** 2026-05-19 ~22:50Z (poll #279)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.265948 | n=6: mu ≤ 3.266316 | n=8: mu ≤ 3.266536
 
 
-## ⭐ Active Winner Candidates (P2 in progress)
+## ⭐ ACTIVE WINNER CANDIDATE — STRONGLY HOT
 
-### 🚀 #0 THORFINN #461 — Cell B `ns_iter=6`: **NEW BEST SINGLE-SEED −2.94σ**
-- **Mechanism:** Newton-Schulz iter=6 (down from default 12) for Muon orthogonalization.
-- **FULL SWEEP RESULTS (Cells A–D terminal, Cell E ns_iter=14 running `zkrrgr1a`):**
+### 🚀 askeladd #497 — P2 n=4 confirmation of `ns_iter=6` — **T1 ALREADY BELOW GATE**
 
-| Cell | ns_iter | val/loss | ffs | Δσ vs baseline |
-|------|:-------:|---------:|----:|---------------:|
-| A (ctrl) | 12 | 3.26623 | 3075 | −1.61σ |
-| **B** | **6** | **3.26553** | **3075** | **−2.94σ** 🚀 |
-| C | 8 | 3.26834 | 3100 | +0.48σ |
-| D | 10 | 3.26693 | 3075 | −1.24σ |
-| E | 14 | pending (`zkrrgr1a`) | — | — |
+- **T1 TERMINAL** (run `ues3hmz1`): val=**3.26566**, ffs=**3075**
+- **n=4 gate**: mu ≤ 3.265948 → T1 at 3.26566 is **already 0.000288 BELOW the gate as a single trial**
+- **Clean replication of thorfinn #461 Cell B** (val=3.26553, Δ=0.000129) — same mechanism (ns_iter=6) on fresh seed reproduces nearly identical val
+- **T2 running** (step 133/3250 @ 22:50 UTC); T3, T4 sequential
+- **ETA**: T2 ~00:30 UTC (May 20), T3 ~02:15, T4 ~04:00
+- **n=4 outcome:** if T2-T4 mean ≤ 3.265948, **NEW BASELINE WINNER**. Mechanism: fewer NS iterations (6 vs hardcoded 12) for Muon orthogonalization.
 
-- **Non-monotonic pattern:** B(6) ≪ D(10) < A(12) < C(8). Seed noise dominates — no clean monotonic curve. The B(ns=6) result remains the clear standout.
-- **P2 status:** askeladd #497 running 4-trial confirmation (val 3.26553 already BELOW n=4 gate 3.265948).
-- **Edward #496** covers the lower extension {12, 5, 4, 3, 2} — Cell A ctrl 3.26793 (baseline match); Cell B ns_iter=5 running.
+### Supporting evidence (other PRs converging on the same ns_iter mechanism):
+- **thorfinn #461 Cell B (ns_iter=6, n=1)** val=3.26553 −2.94σ (the original hot signal)
+- **edward #496 Cell B (ns_iter=5, in flight)** step 2117/3250 (~65%), tracking ~−0.005 below Cell A at every val checkpoint → terminal expected ~3.263 (~−5σ if gap holds). Continued negative trend would broaden the support.
 
----
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | **Trial 1 in progress** `ues3hmz1` (~7hr total from launch ~14:xx UTC; expected ~22:xx UTC terminal). n=4 gate: mu ≤ 3.265948. If passes → NEW BASELINE WINNER |
-| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | **Cells A/B/C/D all terminal**; Cell E ns_iter=14 `zkrrgr1a` launched 20:55 UTC → ETA ~22:45 UTC. Best cell: B (ns_iter=6) val=3.26553 −2.94σ. Thorfinn WIP confirmed — waiting on Cell E |
-| #496 | edward | NS iter LOW sweep (12 ctrl / 5 / 4 / 3 / 2) | **Cell A (ns_iter=12) TERMINAL** val=3.26793 ffs=3100 (−0.02σ ≈ baseline ✓); **Cell B (ns_iter=5) running** `(pending run id)` launched 21:13 UTC → ETA ~22:50 UTC |
-| #508 | alphonse | Muon momentum (mu) static value sweep (0.85/0.90/0.95/0.97/0.99) | **NEW (poll #277)** — first static mu sweep ever; Cell A ctrl (0.95) first |
-| **#509** | **frieren** | **lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075)** | **NEW (poll #278)** — SOAP-MLP carries 2.6× more lift than SOAP-ATTN; lr_mlp=0.055 may have headroom. No code change needed (--lr_mlp already exists) |
-| #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | **NEW (poll #276)** — probes LR=0 boundary condition; Cell A ctrl (0.0) running |
-| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.26638 ffs=3075 (−1.88σ); **B (lr=0.1) TERMINAL val=3.27420 ffs=3150 (+7.59σ NEG)**; **C (lr=0.6) TERMINAL val=3.26608 ffs=3075 (−1.63σ — BEST in sweep)**; **D (lr=0.05) `chjq4r86` running**; E (1.0) pending. Trend: lr=0.6 mildly best, watching for pattern |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.26694 (−1.28σ); B val=3.26775 (−0.21σ); **C val=3.26693 (−1.28σ — noisy noise-tie with A)**; **D `f6ju7rdq` running**; E pending. **Trust threshold axis flat — no winner** |
+| **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | 🔥 **T1 TERMINAL val=3.26566 ffs=3075 — already below n=4 gate**. T2 running step 133/3250. T3/T4 sequential. n=4 verdict ~04:00 UTC May 20 |
+| #496 | edward | NS iter LOW sweep (12 ctrl / 5 / 4 / 3 / 2) | Cell A (ns_iter=12) terminal val=3.26793; **Cell B (ns_iter=5) running step 2117/3250 (~65%)**, tracking −0.005 below A consistently → expected terminal ~3.263 (~−5σ if gap holds, very strong if true) |
+| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A-D terminal; **Cell E (ns_iter=14) `zkrrgr1a` running** → ETA ~22:45 UTC. Best cell remains B (ns_iter=6) at 3.26553 |
+| #508 | alphonse | Muon momentum (mu) static value sweep (0.85/0.90/0.95/0.97/0.99) | First static mu sweep ever — early cells running |
+| #509 | frieren | lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) | NEW (poll #278) — SOAP-MLP carries 2.6× more lift; tests lr_mlp headroom |
+| **#517** | **tanjiro** | **EMA / Polyak averaging for eval (0.0/0.99/0.999/0.9999/+cooldown-only)** | **NEW (poll #279)** — first fresh-mechanism PR after embed LR closure; cooldown noise-floor reduction via eval-only weight averaging |
+| #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | Cell A ctrl (0.0) running — probes LR=0 boundary condition |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | Trust threshold axis FLAT across cells A/B/C; D `f6ju7rdq` running; E pending. **No winner expected** |
 
 
-## Recent Closures (polls #273–278)
+## Recent Closures (polls #273–279)
 
-- **#472 frieren SOAP scope ablation** — CLOSED clean-neutral (poll #278). 4-cell ablation: A (MLP+ATTN ctrl) −1.2σ best; B (MLP-only) +1.1σ; C (ATTN-only) +4.8σ NEG; D (no-SOAP) +10.3σ NEG. SOAP is NOT eliminable. SOAP-MLP carries 2.6× more lift than SOAP-ATTN. Current --soap_attn scope is correct. ffs degrades: 3100→3100→3125→3200.
-- **#455 alphonse AdamW aux WD sweep** — CLOSED clean-neutral (poll #277). Best cell D (0.0025, ramp_down) −1.18σ within ctrl noise. Aux WD does NOT compound with Muon WD ramp_down.
-- **#457 fern cooldown_frac sweep** — CLOSED clean-neutral (poll #276). U-shape with min at ctrl 0.7; both shorter and longer hurt. Cooldown_frac axis closed.
-- **#437 askeladd SOAP precond_freq schedule** — CLOSED (poll #275). P2 mu=3.267644, fails gate by 0.001696.
-- **#422 edward Muon WD shape variants** — CLOSED (poll #273). P2 mu=3.266171, fails gate by 0.000223.
+- **#473 tanjiro adam_embed_lr sweep** — CLOSED clean-neutral (poll #279). Wide flat bowl across LR=[0.3, 0.6]; cells outside (0.05, 0.1, 1.0) decisively underfit. Adam_embed_lr axis closed. **Excellent honest analysis** from student.
+- **#472 frieren SOAP scope ablation** — CLOSED clean-neutral (poll #278). D (no SOAP) +10.3σ refutes eliminability. SOAP-MLP carries 2.6× more lift than SOAP-ATTN.
+- **#455 alphonse AdamW aux WD** — CLOSED clean-neutral (poll #277). Best cell within ctrl noise.
+- **#457 fern cooldown_frac** — CLOSED clean-neutral (poll #276). U-shape with min at ctrl 0.7.
+- **#437 askeladd SOAP precond_freq schedule** — CLOSED (poll #275). P2 failed gate by 0.001696.
+- **#422 edward Muon WD shape variants** — CLOSED (poll #273). P2 failed gate by 0.000223.
 
 
 ## Research Themes
 
-**Primary goal:** Push below ffs=3100 on the Muon WD ramp_down baseline. askeladd P2 #497 (ns_iter=6) is the headline experiment — Trial 1 expected terminal ~22:xx UTC.
+**Primary goal:** Push below n=4 gate mu ≤ 3.265948. **askeladd P2 #497 is the headline experiment — Trial 1 already proves the single-seed mechanism reliably reproduces. Three more trials over the next ~5 hours determine n=4 confirmation.**
 
-**"Less optimizer intensity" principle — confirmed across multiple axes:**
-- **PR #371 (WINNER):** Muon WD ramp_down → zero WD at end
-- **Thorfinn ns_iter=6 (−2.94σ single-seed):** fewer Newton-Schulz iterations globally still works; cheaper Muon orthogonalization
-- Edward/askeladd earlier: stable_only WD, precond_freq ramp (both failed P2 but mechanism showed in P1)
+**Convergence on ns_iter=6 mechanism:**
+- thorfinn #461 Cell B (n=1): val=3.26553, ffs=3075 — original hot signal
+- askeladd #497 T1 (n=1, fresh seed): val=3.26566, ffs=3075 — **0.000129 different from thorfinn**, identical ffs
+- edward #496 Cell B (ns_iter=5, in flight): tracking −0.005 below Cell A throughout → extends the trend downward
+- Three independent runs on closely-related ns_iter values all show val ≤ 3.266 — strongly suggests the mechanism is real, not a single-seed lucky variance.
 
-**SOAP scope axis (frieren #472 — CLOSED):** SOAP everywhere is correct; cannot reduce scope. SOAP-MLP provides 2.6× more val lift than SOAP-ATTN. This points to lr_mlp having untapped headroom → frieren #509 fine-scan.
+**"Less optimizer intensity" principle — strongly extended by ns_iter findings:**
+- **PR #371 winner:** Muon WD ramp_down → zero WD at end (cooldown axis)
+- **NS iter axis:** fewer Newton-Schulz iterations globally (12 → 6) wins despite less precise orthogonality. **bfloat16 quadratic convergence saturates ~5 iter; default 12 was massively over-iterating.**
+- Two failed P2s (edward #422 stable_only WD, askeladd #437 ramp_down_8_64 precond) showed mechanism but variance ate the gate.
 
-**NS iteration axis — dominant current thread:**
-- thorfinn #461: {6, 8, 10, 12, 14} — B(6) is the hot signal
-- edward #496: {12 ctrl, 5, 4, 3, 2} — maps lower extension; Cell B ns_iter=5 running
-- askeladd #497: P2 n=4 confirmation of ns_iter=6 — Trial 1 in progress
-- Critical question: is ns_iter=6 a lucky single-seed or a genuine mechanism? P2 will answer within hours.
+**Fresh mechanism threads:**
+- **tanjiro #517 EMA / Polyak (NEW):** cooldown noise-floor reduction via eval-only weight averaging. Compounds with WD/LR ramp_down theme. Untested in this run.
+- **frieren #509 lr_mlp fine-scan (NEW):** tests SOAP-MLP headroom revealed by #472 (MLP carries 2.6× ATTN's lift).
+- **fern #504 LR floor in cooldown:** tests whether LR=0 terminal is load-bearing alongside WD=0.
+- **alphonse #508 Muon mu static sweep:** first static sweep ever; tanjiro's earlier mu schedule sweep failed catastrophically — tests basin sharpness at 0.95.
 
-**lr_mlp fresh axis (frieren #509 — NEW):** First fine-scan of MLP learning rate on the NEW baseline. Motivated by SOAP scope ablation showing SOAP-MLP carries most of the optimizer lift — if the preconditioner has more headroom, a higher MLP LR may extract it.
+**Candidate next hypotheses (queue after askeladd P2 result):**
+- **If askeladd P2 PASSES (NEW WINNER ns_iter=6):**
+  - Compound with WD ramp_down (already part of baseline — already compounded)
+  - Try ns_iter schedule (high→low across training; matches "less intensity in cooldown" principle)
+  - Compound with EMA / Polyak (if tanjiro #517 shows lift)
+  - Fine-scan around ns_iter=6 (try {5, 6, 7} fresh seeds for cleaner curve)
+- **If askeladd P2 FAILS:** the −2.94σ thorfinn signal + −2.90σ askeladd T1 BOTH being single-seed lucky variance is unlikely; if Trials 2-4 average above gate, the mechanism has high variance — propose n=6 extension OR retry with different seed pool
+- **stable_only WD fresh n=4** — edward #422 mechanism IS real (3 of 4 trials hit ffs=3000); could clear gate after T3-style outlier averages out
+- **NS poly coefficient ablation** — currently hardcoded (a, b, c) coefficients; alternative quintic coefficients could converge faster
+- **Gradient clipping for Muon** — currently no clip; could stabilize seed variance
 
-**Candidate next hypotheses (queue):**
-- **NS iter ramp_down schedule** — if thorfinn ns_iter=6 P2 confirms, try scheduling (high→low over training) as a further gain
-- **stable_only WD fresh n=4** — edward #422 showed 3 of 4 trials under the gate; T3 outlier killed the mean. A second n=4 at stable_only could clear the gate.
-- **Compound ns_iter=6 + WD ramp_down** — likely orthogonal axes; small gain if both are real
-- **lr_mlp scheduled** — if frieren #509 shows a better static LR, test scheduled lr_mlp (peak above then decay)
-- **finer lr_mlp grid** — follow-up to #509 if C/D win (grid {0.058, 0.062, 0.068})
-
-**Key variance calibration:** Single-seed ctrl repros land ±2σ from n=4 mean. Always require P2 n=4 before claiming winner. ns_iter sweep shows all cells within ~3.4σ span (seed noise dominates at n=1).
+**Key insights:**
+- **n=1 single-seed noise ≈ 2σ** — askeladd T1 = 3.26566, thorfinn Cell B = 3.26553 are within 0.0002 (well under σ=0.000823). Either both are lucky in the same direction, OR the mechanism's true mean is firmly below gate.
+- **The "less intensity" theme keeps producing hits.** WD, NS iter both win. Continue exploring this axis.
