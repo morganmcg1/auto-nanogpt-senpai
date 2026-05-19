@@ -1,3 +1,31 @@
+## 2026-05-19 03:28 UTC — PR #392 (arm cap=10): Softsign logit cap = 10 (tighter) — NEG
+- Branch: `g1r3-fern/logit-soft-cap`
+- Hypothesis: Tightening the softsign cap from 15 to 10 should regularize attention logits more aggressively and potentially improve generalization.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs cap=15 ctrl (3.27396) |
+|---|---|---|---|---|
+| `7ap085t3` (cap=10) | 3.27933 | 3275 | +0.00647 | +0.00537 |
+| `6hideyt9` (cap=15 ctrl) | 3.27341 | 3150 | +0.00055 | — |
+| `tk0a5wdm` (cap=15 ctrl 2nd) | 3.27451 | 3175 | +0.00165 | — |
+
+- Cap=10 NEG: ~8-10σ over baseline, ~7σ over cap=15 ctrl. Tighter cap is harmful.
+- Telemetry: logit_max_pre_cap grows to 223 (15× the ±15 cap) — cap saturates aggressively throughout training. Tighter cap=10 bites earlier and limits the model's logit headroom for token discrimination.
+- Cap=30 (looser) arm `ahgrgeub` in flight; will determine if more headroom helps.
+
+## 2026-05-19 03:09 UTC — PR #417 (arm 1): MuonH inner cooldown_frac = 1.0 (control) — baseline-equivalent
+- Branch: `g1r3-edward/muonh-inner-cooldown-frac-sweep`
+- Hypothesis: Test whether shortening the MuonH inner cooldown phase (cooldown_frac < 1.0) improves training. Arm 1 = ctrl at cooldown_frac=1.0 (baseline).
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) |
+|---|---|---|---|
+| `zu2yy4jn` (cooldown_frac=1.0 ctrl) | 3.27236 | 3125 | -0.00050 |
+
+- Clean baseline reproduction. Within σ (~0.0006-0.0008) but does not pass n=1 promotion bar (3.27206).
+- Confirms baseline holds at n=5 (4 multi-trial confirm runs + this ctrl).
+- Arms 2 (cooldown_frac=0.7) and 3 (cooldown_frac=0.5) chaining.
+
 # SENPAI Research Results — auto-nanogpt-1gpu-r3
 
 Per-PR record of experiment outcomes. New entries prepended (newest first).
