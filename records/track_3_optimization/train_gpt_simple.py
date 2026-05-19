@@ -530,6 +530,16 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Adaptive Gradient Clipping (Brock et al. 2021, NFNets). Per-parameter clip
+# based on ||W||_F. When AGC_LAMBDA>0, replaces global grad clip.
+NANOGPT_AGC_LAMBDA = float(os.environ.get("NANOGPT_AGC_LAMBDA", "0.0"))
+NANOGPT_AGC_EPS_W = float(os.environ.get("NANOGPT_AGC_EPS_W", "1e-3"))
+NANOGPT_AGC_SCOPE = os.environ.get("NANOGPT_AGC_SCOPE", "all")  # all, adam, muon
+_VALID_AGC_SCOPES = ("all", "adam", "muon")
+if NANOGPT_AGC_SCOPE not in _VALID_AGC_SCOPES:
+    raise ValueError(
+        f"NANOGPT_AGC_SCOPE={NANOGPT_AGC_SCOPE!r}, must be one of {_VALID_AGC_SCOPES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -735,6 +745,11 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+if NANOGPT_AGC_LAMBDA > 0:
+    print0(f"AGC: lambda={NANOGPT_AGC_LAMBDA} eps_w={NANOGPT_AGC_EPS_W} scope={NANOGPT_AGC_SCOPE} (global clip={NANOGPT_GRAD_CLIP} BYPASSED)",
+           console=True)
+else:
+    print0(f"AGC: disabled; using global clip={NANOGPT_GRAD_CLIP}", console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
@@ -799,6 +814,9 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_agc_lambda": NANOGPT_AGC_LAMBDA,
+            "nanogpt_agc_eps_w": NANOGPT_AGC_EPS_W,
+            "nanogpt_agc_scope": NANOGPT_AGC_SCOPE,
         },
     )
 
@@ -963,7 +981,43 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
-        if NANOGPT_GRAD_CLIP > 0:
+        agc_total = 0
+        agc_trigger_t = None
+        agc_max_ratio_t = None
+        if NANOGPT_AGC_LAMBDA > 0:
+            # Adaptive Gradient Clipping (Brock et al. 2021): per-parameter
+            # threshold = lambda * max(||W||_F, eps_w); clip ||g|| to threshold.
+            per_group_pre_clip = {
+                "embed": model.embed.weight.grad.detach().norm(),
+                "lmhead": model.proj.weight.grad.detach().norm(),
+            }
+            agc_trigger_t = torch.zeros((), device=device, dtype=torch.float32)
+            agc_max_ratio_t = torch.zeros((), device=device, dtype=torch.float32)
+            for name, p in model.named_parameters():
+                if p.grad is None:
+                    continue
+                is_embed = (name == "embed.weight")
+                is_lmhead = (name == "proj.weight")
+                is_block = name.startswith("blocks.")
+                in_scope = (
+                    (NANOGPT_AGC_SCOPE == "all") or
+                    (NANOGPT_AGC_SCOPE == "adam" and (is_embed or is_lmhead)) or
+                    (NANOGPT_AGC_SCOPE == "muon" and is_block)
+                )
+                if not in_scope:
+                    continue
+                agc_total += 1
+                param_norm = p.detach().norm()
+                grad_norm = p.grad.detach().norm()
+                max_norm = NANOGPT_AGC_LAMBDA * torch.clamp(param_norm, min=NANOGPT_AGC_EPS_W)
+                # Branchless clip: scale = min(1, max_norm / (grad_norm + eps)); leaves grad untouched when below threshold.
+                scale = torch.clamp(max_norm / (grad_norm + 1e-6), max=1.0)
+                p.grad.mul_(scale.to(p.grad.dtype))
+                agc_trigger_t += (grad_norm > max_norm).to(torch.float32)
+                ratio = grad_norm / (max_norm + 1e-6)
+                agc_max_ratio_t = torch.maximum(agc_max_ratio_t, ratio.to(torch.float32))
+            pre_clip_grad_norm = None
+        elif NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
             # min(1, clip_norm / global_norm); these per-group norms tell us where each
@@ -1010,6 +1064,17 @@ for trial_idx in range(args.num_trials):
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
             )
+        if dist.get_rank() == 0 and NANOGPT_AGC_LAMBDA > 0 and train_step % 100 == 0:
+            agc_triggers = int(agc_trigger_t.item())
+            agc_max_ratio = float(agc_max_ratio_t.item())
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/agc/trigger_rate": agc_triggers / max(agc_total, 1),
+                "train/agc/triggers": agc_triggers,
+                "train/agc/total": agc_total,
+                "train/agc/max_ratio": agc_max_ratio,
+            }, step=wandb_step)
         # NS iteration schedule: cooldown shape controls how iters evolve during
         # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
         # is the legacy jump-to-cooldown behavior; other shapes are compute-neutral.
