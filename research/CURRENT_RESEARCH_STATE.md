@@ -1,14 +1,14 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 09:00 UTC
+- **Date:** 2026-05-19 09:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 - **Public leaderboard best:** 3030 steps (record #20 — Contra-Soft-Muon + KL-SOAP + trust gate)
 
-## Current merged baseline — post-#290
+## Current merged baseline — post-#393
 
-**val=3.27200 / fs=3233.33 (n=3 mean)**
+**val=3.27174 / fs=3233.33 (n=3 paired-pod mean)**
 
 Merged recipe:
 ```
@@ -20,6 +20,7 @@ NANOGPT_EMBED_COOLDOWN_SHAPE=linear_floor
 NANOGPT_ADAMW_BETA2=0.99
 NANOGPT_NS_COOLDOWN_SHAPE=late_peak
 NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
+NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 ```
 
 ### Merged stack history
@@ -33,7 +34,8 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 | #235 | embed linear_floor=15% | 3.27434 (3) | 3266.7 | 3.27434 |
 | #236 | AdamW β2=0.99 | 3.27407 (3) | 3258.3 | 3.27407 |
 | #285 | NS cooldown SHAPE=late_peak | 3.27352 (2) | 3250 | 3.27352 |
-| **#290** | **NS coef schedule=linear_ramp_down** | **3.27200 (3)** | **3233.33** | **3.27200** ← CURRENT |
+| #290 | NS coef schedule=linear_ramp_down | 3.27200 (3) | 3233.33 | 3.27200 |
+| **#393** | **AdamW embed LR mult=1.5×** | **3.27174 (3)** | **3233.33** | **3.27174** ← CURRENT |
 
 ### Mechanism landscape (8 merges, largely orthogonal axes)
 
@@ -44,6 +46,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 5. **AdamW β2** (#236): longer second-moment memory (20 → 100 step) smooths step sizes
 6. **NS cooldown SHAPE** (#285): NS=12→20 transition at midpoint of cooldown (late_peak)
 7. **NS coef schedule** (#290): linear ramp-down of NS polynomial coefficients over training
+8. **AdamW embed LR mult** (#393): embed effective LR raised from 0.30 → 0.45 (1.5×)
 
 ---
 
@@ -133,7 +136,20 @@ Monotonic less-bad as scope narrows: B (all+rescale) > C (all+plain) > D (embed-
 All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.
 **Follow-up**: nezuko assigned #393 per-group AdamW LR multiplier sweep.
 
-### 🔥 nezuko #393 — Per-group AdamW LR multiplier sweep — PAIRED-POD CONFIRMATION IN PROGRESS (pod-2 running)
+### ✅ nezuko #393 — Per-group AdamW LR multiplier sweep — MERGED 09:30 UTC ⭐ (embed=1.5× beats baseline val by 0.00026)
+All 6 paired-pod runs terminal. Drift gates ✓ (all 3 A controls). Pooled paired Δ=−0.00137 (compressed from single-seed −0.00216; direction 3/3 pods consistent). mean(B,n=3)=3.27174 passes benchmark stat-rule: (3.28−3.27174)×√3=0.01431≥0.004 ✓. New baseline: val=3.27174, fs=3233.33.
+**Follow-up**: nezuko assigned lm_head + scalar cooldown shape extension.
+
+### 🔄 nezuko #(new) — lm_head and scalar cooldown shape extension [assigned 09:35 UTC]
+**Branch:** `g1r4-nezuko/aux-cooldown-floor`
+**Hypothesis**: Embed linear_floor was merged (#235) — keeps embed LR at 15% floor through final cooldown instead of decaying to 0. lm_head and scalars still use default linear-to-zero. Extend the floor mechanism to these groups. With embed_mult=1.5× (just merged), the aux groups run at different effective LRs; their cooldown shape may matter for convergence precision.
+| Arm | lm_head shape | scalar shape | Interpretation |
+|---|---|---|---|
+| A | linear (default) | linear (default) | Control — drift gate vs new baseline 3.27174 |
+| B | linear_floor | linear | lm_head gets LR floor |
+| C | linear | linear_floor | Scalars get LR floor |
+| D | linear_floor | linear_floor | Both get LR floor |
+**ETA full chain:** ~7.3h.
 **Branch:** `g1r4-nezuko/pergroup-adamw-lr`
 **All 4 arms terminal (original sweep)**:
 | Arm | LR mult | val | Δ vs baseline | W&B |

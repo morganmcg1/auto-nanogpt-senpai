@@ -3,6 +3,51 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 09:30 UTC — PR #393: Per-group AdamW LR multiplier sweep (nezuko) — MERGED ⭐ (val 3.27200 → 3.27174)
+
+- Branch: `g1r4-nezuko/pergroup-adamw-lr`
+- Hypothesis: Sweep independent LR multipliers on AdamW aux groups (embed, lm_head, scalars). Mechanism: different parameter groups have different curvature and signal-to-noise ratios; per-group calibration can be orthogonal to global scheduler tuning.
+
+### Results — 4-arm sweep + n=3 paired-pod confirmation
+
+**Sweep (original pod):**
+| Arm | LR mult | val | Δ vs baseline | fs | W&B |
+|---|---|---:|---:|---:|---|
+| A (control) | all 1.0× | 3.27242 | +0.00042 ✓ | 3250 | `oggbt72v` |
+| **B (embed1.5)** ⭐ | embed=1.5× | **3.27026** | **−0.00174** | 3225 | `cgyyzpwe` |
+| C (lmhead1.5) | lm_head=1.5× | 3.27505 | +0.00305 | 3250 | `kwt7wjzi` |
+| D (scalar1.5) | scalar=1.5× | 3.27142 | −0.00058 | 3275 | `1bgjs64f` |
+
+**Paired-pod confirmation (n=3 per arm):**
+| Pod | Arm | val | Within-pod Δ (B−A) |
+|---|---|---:|---:|
+| 0 (orig) | A | 3.27242 | −0.00216 |
+| 0 (orig) | B | 3.27026 | |
+| 1 | A | 3.27361 | −0.00163 |
+| 1 | B | 3.27198 | |
+| 2 | A | 3.27329 | −0.00031 |
+| 2 | B | 3.27298 | |
+| **mean** | | A=3.27311, B=3.27174 | **−0.00137** |
+
+- Drift gates: all 3 A controls ✓ (|Δ vs 3.27200| ≤ 0.003)
+- Pooled paired Δ=−0.00137 (compressed from initial −0.00216; consistent direction 3/3 pods)
+- mean(B, n=3)=3.27174 ≤ 3.27200 baseline ✓
+- Stat-rule: (3.28−3.27174)×√3 = 0.01431 ≥ 0.004 ✓
+
+### Key findings
+
+1. **Embed LR 1.5× wins**: raising embed from 0.30 → 0.45 effective LR improves final val. Mechanism: embed is the most-clip-sensitive group and gains from more signal at the current per-step budget.
+2. **lm_head LR 1.5× regresses** (+0.00305): lm_head at 1/320 × 1.5 = 0.00469 is too aggressive for its current cooldown schedule. 
+3. **Scalar LR 1.5× is near-null** (−0.00058): slight signal but inside null band.
+4. **Single-seed vs paired-pod Δ inflation**: original pod-0 Δ=−0.00216 compressed to mean Δ=−0.00137 under n=3 confirmation. Pattern consistent with earlier paired-pod collapses (#344, #351). Recommendation: future n=3 confirmations should run the full chain from the start, not expand from n=1.
+5. **New merged recipe**: adds `NANOGPT_ADAMW_EMBED_LR_MULT=1.5` to the post-#290 stack. New baseline: val=3.27174, fs=3233.33.
+
+### Verdict
+
+MERGED. Improvement is small but real and passes the program.md benchmark contract. Per-group AdamW calibration is a productive axis; lm_head/scalar follow-up experiments remain open.
+
+---
+
 ## 2026-05-19 08:55 UTC — PR #419: Cautious AdamW updates (askeladd) — CLOSED productive-null ✅ (cautious-on-all harmful, embed-only less bad but still regresses)
 
 - Branch: `g1r4-askeladd/cautious-adamw`
