@@ -36,6 +36,7 @@ NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+EMBED_INIT_STD = 2.0   # Arm B. Arm A was 0.5. Baseline = 1.0 (torch default).
 
 
 def parse_args():
@@ -704,6 +705,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "embed_init_std": EMBED_INIT_STD,
         },
     )
 
@@ -724,7 +726,7 @@ for trial_idx in range(args.num_trials):
             if "proj" in name:
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # default torch init
+                w.normal_(std=EMBED_INIT_STD)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
