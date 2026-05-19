@@ -34,8 +34,13 @@ PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 
 NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
-NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+# Newton-Schulz iteration schedule (PR #395).
+# Baseline is NS_ITERS=12 uniform; this PR tests bumping cooldown-phase iters
+# while keeping constant-phase iters at the baseline value of 12.
+NS_ITERS_CONSTANT = int(os.environ.get("NS_ITERS_CONSTANT", "12"))
+NS_ITERS_COOLDOWN = int(os.environ.get("NS_ITERS_COOLDOWN", "12"))
+NS_ITERS = NS_ITERS_CONSTANT  # legacy alias kept for zeropower_via_newtonschulz5 default
+MUON_METHOD = "pmuon-uw-floor-power-cool-1p4-ns-coef-cubic-gamma-power-0p4-ns-iter-sched"
 
 
 def parse_args():
@@ -487,7 +492,9 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    iters: int = NS_ITERS,
     polar_diag: dict | None = None,
+    polar_diag_all: bool = False,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -501,10 +508,11 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
-    # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
-    if polar_diag is not None and "residual" not in polar_diag:
+    # When polar_diag_all is False, only the first eligible parameter writes (cheap, every step).
+    # When True, every eligible parameter contributes (used at telemetry steps for mean/max).
+    if polar_diag is not None and (polar_diag_all or "residual" not in polar_diag):
         X = polar
         m, n = X.shape[-2], X.shape[-1]
         Xf = X.float()
@@ -514,21 +522,27 @@ def pmuon_update(
         else:
             gram = Xf.T @ Xf
             eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
-        polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
-        polar_diag["sample_rows"] = m
-        polar_diag["sample_cols"] = n
+        residual = float(torch.linalg.norm(gram - eye).item())
+        if "residual" not in polar_diag:
+            polar_diag["residual"] = residual
+            polar_diag["sample_rows"] = m
+            polar_diag["sample_cols"] = n
+        if polar_diag_all:
+            polar_diag.setdefault("residuals", []).append(residual)
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, ns_iters=NS_ITERS_CONSTANT):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, ns_iters=ns_iters)
         super().__init__(params, defaults)
+        # Step-mutable knob: training loop sets this every step to reflect the NS_ITERS schedule.
+        self._polar_diag_all = False
 
     @torch.no_grad()
     def step(self):
@@ -539,6 +553,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        polar_diag_all = getattr(self, "_polar_diag_all", False)
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -561,7 +576,9 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        iters=group["ns_iters"],
                         polar_diag=polar_diag,
+                        polar_diag_all=polar_diag_all,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -696,6 +713,8 @@ if dist.get_rank() == 0:
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
+            "ns_iters_constant": NS_ITERS_CONSTANT,
+            "ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
@@ -750,7 +769,10 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
-    def set_hparams(step, cooldown_frac=0.7):
+    cooldown_frac = 0.7
+    cooldown_start_step = int((1 - cooldown_frac) * train_steps)
+
+    def set_hparams(step, cooldown_frac=cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
@@ -764,6 +786,14 @@ for trial_idx in range(args.num_trials):
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
         return progress, cooldown_progress, eta
+
+    # NS_ITERS schedule (PR #395): use a different Newton-Schulz iteration count
+    # during the cooldown phase (step >= cooldown_start_step) than during the
+    # constant-LR phase.
+    def ns_iters_for_step(step: int) -> int:
+        if step < cooldown_start_step:
+            return NS_ITERS_CONSTANT
+        return NS_ITERS_COOLDOWN
 
 
     ########################################
@@ -879,6 +909,12 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #395: apply NS_ITERS schedule and arm the all-param polar residual diag
+        # on telemetry steps so we can log polar_residual/{mean,max} across all params.
+        current_ns_iters = ns_iters_for_step(step)
+        for group in optimizer2.param_groups:
+            group["ns_iters"] = current_ns_iters
+        optimizer2._polar_diag_all = bool(telemetry_due)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -902,7 +938,8 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
-                wandb.log({
+                residuals = polar_diag.get("residuals", [])
+                polar_metrics = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "polar/ortho_residual_sample": polar_diag["residual"],
@@ -911,7 +948,13 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
-                }, step=wandb_step)
+                }
+                if residuals:
+                    polar_metrics["polar_residual/mean"] = sum(residuals) / len(residuals)
+                    polar_metrics["polar_residual/max"] = max(residuals)
+                    polar_metrics["polar_residual/min"] = min(residuals)
+                    polar_metrics["polar_residual/count"] = len(residuals)
+                wandb.log(polar_metrics, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
@@ -919,6 +962,11 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "ns_schedule/current_ns_iters": current_ns_iters,
+                "ns_schedule/transition_fired": int(step >= cooldown_start_step),
+                "ns_schedule/cooldown_start_step": cooldown_start_step,
+                "ns_schedule/ns_iters_constant": NS_ITERS_CONSTANT,
+                "ns_schedule/ns_iters_cooldown": NS_ITERS_COOLDOWN,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
