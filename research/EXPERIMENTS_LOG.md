@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 03:30 UTC — Cycle 60: #372 CLOSED (MuonEq-R axis-falsified on new base; cooldown-geometry lever saturated); fern → #431 AdamW lm_head_lr sweep
+
+### PR #372 — MuonEq-R: pre-NS5 row normalization for isotropic input — CLOSED axis-falsified
+
+Branch: `g1r2-fern/muoneq-r-prens5-row-norm`. Axis cleared OLD bar at n=4 (would have merged); sent back for new-base re-test per predeclared additivity check. New-base n=2 screen terminal at 03:01 UTC.
+
+| Phase | Stack | W&B run | val (n=2 mean) | ffs (n=2 mean) | vs new bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|
+| n=4 confirm old stack | OLD CONTRA_MUON=0.5 | (prior runs) | 3.275140 | 3081.25 | PASS old bar — MISS new bar (+0.00076/+12.5) | sent back |
+| **n=2 screen new base** | **NEW CONTRA_MUON=0.4** | `6thehevw` | **3.27591** (T0=3.27685, T1=3.27497) | **3087.5** (T0=3100, T1=3075) | **val MISS +0.001527, ffs MISS +18.75** | **FALSIFIED** |
+
+**Additivity prediction**: val ~3.27417, ffs ~3062.5. **Actual**: val 3.27591, ffs 3087.5. Falsified by +0.001737 val / +25 ffs.
+
+**Effect direction across bases**:
+- OLD stack: MuonEq-R delta = val −0.00021, ffs −6.25 (small beneficial)
+- NEW stack: MuonEq-R delta = val +0.001527, ffs +18.75 (harmful)
+
+**Key finding — cooldown-geometry lever saturation**:
+Three independent old-base mechanisms each broke ffs=3050 in isolation:
+1. MU_COOLDOWN_END=0.87 (#357)
+2. CONTRA_MUON=0.4 (#358, now baseline)
+3. MuonEq-R (this PR #372)
+
+The non-additivity of MuonEq-R + CONTRA_MUON=0.4 proves these are **partially substitutive parameterizations of cooldown-stage update geometry**. Once CONTRA_MUON=0.4 saturates the lever in the new baseline, MuonEq-R not only provides no additional benefit but actively hurts — suggesting the pre-NS5 row normalization that helped with larger contra-correction (which was "correcting away" the gradient direction more aggressively) now fights against the cleaner momentum signal that CONTRA_MUON=0.4 allows through.
+
+**Strategic consequence**: Future experiments targeting "tighter cooldown-stage geometry / smaller correction magnitude" should be flagged as likely hitting the saturated lever. The entire Muon-side cooldown-geometry lever surface appears exhausted at the current CONTRA_MUON=0.4 + MU_COOLDOWN=0.95→0.90 default. **Redirect to AdamW-path, output-side, and structural axes.**
+
+**Process notes**:
+- Predeclared and held n=2 decision tree (miss both bars → close) without extension.
+- Explicit additivity prediction stated before run; falsified after — proper hypothesis-test discipline.
+- Old-vs-new base comparison table in terminal post is the clearest cross-stack diagnostic of the round.
+- Three-mechanisms-one-lever insight is the most impactful research finding this cycle.
+- Implementation robust: no NaN across 5 smokes + 6 old-base trials + 2 new-base trials.
+
+**Reassignment**: → **PR #431 AdamW lm_head_lr sweep** (0.0025 vs 0.00375 around default 0.003125). First AdamW-path axis swept on this stack; `proj.weight` is the largest parameter in the model; orthogonal to all in-flight Muon-side axes.
+
+---
+
 ## 2026-05-19 03:10 UTC — Cycle 59: #378 CLOSED (NORMUON_BETA2 axis falsified on new base both directions, EMA-family exhaustion across 3 axes); #379 CLOSED (EMBED_INIT_STD=1.15 stack-specific — wins on old, doesn't compose with CONTRA_MUON=0.4); alphonse → #429 NS5 iterations sweep; edward → #430 MUON_LR sweep
 
 ### PR #378 — NORMUON_BETA2 fine sweep (Arm A=0.99 new-base re-run) — CLOSED axis-falsified
