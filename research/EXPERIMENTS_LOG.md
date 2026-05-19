@@ -3,6 +3,39 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 15:38 UTC — PR #446: Label smoothing sweep α∈{0.05,0.1,0.2} (thorfinn) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-thorfinn/label-smoothing`
+- Hypothesis: Replace hard one-hot CE targets with soft distribution: `target_smoothed = (1−α)·one_hot + α/V`. Train on smoothed loss; val/loss reported un-smoothed for fair benchmark comparison. Loss-side regularization mechanism, orthogonal to all optimizer/gradient axes.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | α | val/loss | Δ vs A | first_step_to_target | W&B |
+|---|---:|---:|---:|---:|---|
+| A (control) | 0.0 | 3.27326 | — | 3250 | `qdyewmeq` |
+| B | 0.05 | 3.31900 | +0.04574 | **−1 (failed)** | `y66da3d0` |
+| C | 0.1 | 3.37495 | +0.10169 | **−1 (failed)** | `854e86hq` |
+| D | 0.2 | 3.49666 | +0.22340 | **−1 (failed)** | `aoi6du9y` |
+
+W&B group: `g1r4-thorfinn/label-smoothing`. Drift gate Arm A: Δ=+0.00152 ≤ 0.003 ✓.
+
+### Key findings
+
+1. **Strictly monotone worsening in α** — not noise, not an inverted-U. Cleanest regression of the cycle. B/C/D all fail to reach 3.28 target, with D regressing +0.22 nats.
+2. **Mechanism: regularization budget fully spent.** The merged stack carries three overlapping confidence-regularizers (logit softcap=15, per-group LR embed_mult=1.5×, NS cooldown schedule). Label smoothing's mechanism (dampen correct-token gradient, add uniform wrong-token pressure) overlaps with what these deliver — acts as net gradient subtraction on already-regularized signal.
+3. **Even α=0.05 (below all paper defaults including PaLM/T5/LLaMA at 0.1) regresses +0.046 nats** — far beyond any plausible noise. No recovery at any α.
+4. **Implementation clean**: val/loss correctly un-smoothed via `model.eval()` → `self.training=False` → `smoothing=0.0`. Un-smoothed comparison is valid.
+
+### Mechanism takeaway for the cycle
+
+This is the **17th productive-null/negative this cycle**. The pattern is now clear: **adding regularization of any kind fails** (label smoothing, AGC, Cautious, AdEMAMix, GC, gradient noise, weight-EMA, Lookahead, WD values). The stack is fully regularized for the 3350-step horizon. Future experiments must reduce or invert regularization (WD warmup, LR boost) or change the optimizer mechanism fundamentally (AdaBelief, OrthoGrad, etc.).
+
+### Bonus: student caught a plugin bug
+
+g1r4-thorfinn fixed `plugins/senpai/scripts/senpai-pr-guard.py`: line 22 used substring match (`"SENPAI-RESULT:" not in line`) which triggered on advisor prose containing "SENPAI-RESULT:" mid-sentence. Fix: `line.lstrip().startswith("SENPAI-RESULT:")`. Plugin-side only; no target repo change.
+
+---
+
 ## 2026-05-19 14:15 UTC — PR #408: Adaptive Gradient Clipping (AGC) sweep (fern) — CLOSED productive-null
 
 - Branch: `g1r4-fern/adaptive-grad-clip`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 14:20 UTC
+- **Date:** 2026-05-19 15:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -65,9 +65,22 @@ Loss-side: `loss += λ · Σ_t logsumexp(logits_t)²`. Arm A (control) terminal,
 
 Replace AdamW's `m/(√v + ε)` with `atan2(m, b·√v)` on aux groups. Arm A rebased (val=3.27213, drift +0.00039 ✓). Sweep b ∈ {0.0 ctrl, 0.3, 1.0, 3.0}. Arm B running.
 
-### 🔄 thorfinn #446 — Label smoothing sweep [assigned 08:14 UTC]
+### ✅ thorfinn #446 — Label smoothing sweep — CLOSED 15:38 UTC productive-NEGATIVE
 
-Loss-side soft targets: α ∈ {0.0, 0.05, 0.10, 0.20}. Train on smoothed loss; val/loss reported un-smoothed. Arm C running.
+Strictly monotone regression: A=3.27326 (ctrl), B=3.31900 (+0.046), C=3.37495 (+0.102), D=3.49666 (+0.223). B/C/D never reached 3.28 target. The merged stack already has three confidence-pressure regularizers (logit softcap=15, embed_lr_mult=1.5×, NS cooldown) — adding label smoothing subtracts gradient signal on already-regularized correct-token targets. **17th productive-null/negative this cycle.** Regularization-addition axes are fully closed.
+**Follow-up**: thorfinn assigned **#483 WD warmup schedule** — first regularization-REDUCTION test this cycle.
+
+### 🔄 thorfinn #483 — WD warmup schedule [assigned 15:40 UTC]
+
+**Branch:** `g1r4-thorfinn/wd-warmup`
+**Hypothesis**: Currently WD is constant from step 0. WD warmup ramps WD linearly from 0 → full over first N% of training, then holds constant. Tests if early-phase over-regularization is hurting discovery. First regularization-REDUCTION test this cycle (all 17 prior axes ADDED regularization and failed). Implementation: `group['weight_decay'] = base_wd * min(1, step/warmup_steps)`.
+| Arm | NANOGPT_WD_WARMUP_FRAC | Warmup window |
+|---|---:|---|
+| A | 0.0 (control) | none (constant WD) |
+| B | 0.05 | ~170 steps |
+| C | 0.10 | ~335 steps |
+| D | 0.20 | ~670 steps |
+**ETA full chain:** ~7.3h.
 
 ### 🔄 askeladd #452 — Block output projection init scale [assigned ~09:00 UTC]
 
@@ -98,10 +111,12 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 **Current open questions** (in-flight):
 1. Is NS=12 during the normal phase at saturation or below precision floor? (#470)
 2. Does AdaBelief's variance-of-prediction-error second moment help aux groups? (#474)
-3. Does label smoothing help? (#446) / Does z-loss help? (#441)
-4. Does block init scaling matter under Muon? (#452)
-5. Does lm_head/scalar cooldown floor generalize from embed? (#454)
-6. Is Adam-atan2 better than AdamW on aux? (#442)
+3. Does OrthoGrad (gradient ⊥ to weight) help AdamW aux groups? (#477)
+4. Does z-loss help? (#441)
+5. Does block init scaling matter under Muon? (#452)
+6. Does lm_head/scalar cooldown floor generalize from embed? (#454)
+7. Is Adam-atan2 better than AdamW on aux? (#442)
+8. Does WD warmup reduce early-phase over-regularization? (#483)
 
 **Stack convergence signal**: Most axes are converging to productive-nulls. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **Fresh mechanism families**: not optimizer-internal (so not AdaBelief scope, init, loss-side are the most promising)
@@ -114,6 +129,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #446 | thorfinn | Label smoothing α∈{0.05,0.1,0.2} | CLOSED productive-NEGATIVE (monotone: +0.046/+0.102/+0.223; stack already well-regularized) |
 | #434 | edward | Lookahead scope sweep | CLOSED productive-NEGATIVE (all arms regression-monotone; Muon wrapping 4.5× worse) |
 | #436 | frieren | Weight-EMA (Polyak averaging) | CLOSED productive-NEGATIVE (damage monotone with window; cooldown is signal not noise) |
 | #419 | askeladd | Cautious AdamW (all scopes) | CLOSED productive-null (regression all scopes; β₁=0.80 leaves little room for cautious mask) |
@@ -158,7 +174,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 **Loss-side**:
 - Logit softcap=15: confirmed optimal (#354)
 - Z-loss: in-flight (#441)
-- Label smoothing: in-flight (#446)
+- Label smoothing α∈{0.0–0.2}: monotone catastrophic regression; closed (#446 productive-NEGATIVE)
 
 **Clipping**:
 - clip=5 → clip=10: MERGED #165
