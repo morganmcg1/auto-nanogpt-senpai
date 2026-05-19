@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~19:25Z (poll #261)
+- **Last updated:** 2026-05-19 ~16:55Z (poll #262)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -9,15 +9,16 @@
 
 ## ⭐ Active Winner Candidates (P2 in progress)
 
-### #1 EDWARD #422 — Cell C `stable_only` WD: ⭐ **n=2 PASSES, ON TRACK FOR WINNER** ⭐
-- **Mechanism:** WD=0 during entire cooldown phase (cliff at cooldown start). Less cumulative cooldown WD = better val.
+### #1 EDWARD #422 — Cell C `stable_only` WD: ⚠️ **P2 LIKELY FAILING — trial 3 confirmed regression**
+- **Mechanism:** WD=0 during entire cooldown phase (cliff at cooldown start).
 - **P2 n=4 results so far:**
-  - **Trial 1 TERMINAL:** val=**3.265809**, ffs=**3000**
-  - **Trial 2 TERMINAL:** val=**3.265615**, ffs=**3000** ✓ CONFIRMED
-  - **n=2 mean = 3.265712, std = 0.000137 (TIGHT)**, both ffs=3000 (100 steps faster than baseline)
-- **Trial 3 (idx 2) running:** train/step 2910/3250 (89.5%), ~10 min from terminal
-- **Trial 4 not yet started:** ~6 hr from terminal
-- **Gate:** mu_p2 ≤ 3.265948 (n=4). n=2 mean already passes by 0.000236; trials 3+4 need to avg ≤ 3.266184 — high probability given trials 1+2 came in at 3.2656.
+  - **T1 TERMINAL:** val=**3.265800**, ffs=**3000** ✓ −2.61σ
+  - **T2 TERMINAL:** val=**3.265600**, ffs=**3000** ✓ −2.84σ
+  - **T3 TERMINAL:** val=**3.267800**, ffs=**3025** (+0.18σ — slight regression vs baseline mu)
+  - **T4 ~7%:** in-trial step 214/3250
+- **n=3 mu = 3.266400** — FAILS n=4 gate (3.265948) by 0.000452
+- For n=4 to pass: T4 must land ≤ **3.264592** (below all 3 observed trials; T1+T2 best was 3.2656)
+- **Verdict:** T1+T2 likely positive variance draws; T3 reverted to near-baseline. n=4 unlikely to recover. Will close after T4 finishes (~3hr from now).
 
 ### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1) — **P2 LIKELY FAILING**
 - **Cell C single-trial:** val=3.266906, ffs=3075 — beat baseline on BOTH metrics
@@ -25,7 +26,7 @@
 - **P2 n=4 LAUNCHED.** Run `h8g04vyb`. n=2 results so far identical:
   - **Trial 1 TERMINAL:** val=3.2680, ffs=3100 (+0.06σ above baseline mu)
   - **Trial 2 TERMINAL:** val=3.2680, ffs=3100 (identical to trial 1, +0.06σ)
-  - **Trial 3 (idx 2) starting** ~step 63
+  - **Trial 3 in-trial step 1941/3250 (~60%)**, val=3.46 mid-run
 - **Gate analysis:** n=2 mean=3.2680 already above mu=3.267948. For n=4 gate (mu_p2 ≤ 3.265948), trials 3+4 must average ≤ 3.2639 — very unlikely given trials 1+2 came in identical at 3.2680. Single-trial Cell C result was likely a positive variance draw.
 
 
@@ -33,14 +34,14 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A TERMINAL ctrl val=3.2670 ffs=3100 (−1.15σ); **B `hpmoe4v4` (MLP-only) step 250; C smoke `lvzj4zsz` starting** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **Cell B `sbroalg6` (trust=0.1) LAUNCHED step 255 — watcher recovered!** (`1ufeapa2` ctrl-dup also still alive at step 875) |
-| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075; **Cell B `mv7ee25g` (ns_iter=6) running step 127** |
-| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 ffs=3225 (+13.4σ NEG); **Cell C `sr1uguv4` (cooldown_frac=0.5) running step 251** |
-| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **Cell C `w5gsh5k2` (rd, 0.025) running step 337** |
-| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A TERMINAL ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ re-anchor); **Cell B `r41glyh7` (lr=0.1) launched** |
-| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER → **P2 LIKELY FAILING** (T1+T2 both val=3.2680 ffs=3100, n=2 mean=3.2680 above mu); T3 starting |
-| #422 | edward | Muon WD shape variants | ⭐ **P2 n=2 PASS** (T1=3.265809, T2=3.265615, both ffs=3000); T3 89.5% (~10min); T4 ~5hr; **n=3 will pass gate universally** |
+| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A `z(prev)` terminal val=3.2670 ffs=3100 (−1.15σ); A re-launch `2cryitbk` (ctrl-n1 confirm?) just started; **B `hpmoe4v4` (MLP-only) step 1375 val=3.57 (~57%)**; smoke `fyhgrpre` finished; C ATTN-only full not yet launched |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **Cell B `sbroalg6` (trust=0.1) step 2029 val=3.44 (~62%)** |
+| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075; **Cell B `mv7ee25g` (ns_iter=6) step 2928/3250 val=3.30 (~90%, likely NEG)** |
+| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 +13.4σ NEG; **C (0.5) TERMINAL val=3.2724 ffs=3150 (+5.35σ NEG)**; D (0.85) `608h20tn` step ~116 running; E (1.0) not yet launched. **Trend: longer cooldown is better — Cells B,C confirm shorter hurts** |
+| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **Cell C `w5gsh5k2` (rd, 0.025) step 2783/3250 val=3.35 (~86%)** |
+| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A TERMINAL ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ re-anchor); **Cell B `r41glyh7` (lr=0.1) step 1596/3250 val=3.54 (~49%)** |
+| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER → **P2 LIKELY FAILING** (T1+T2 both val=3.2680 ffs=3100, n=2 mean=3.2680 above mu); **T3 step 1941/3250 (~60%)** |
+| #422 | edward | Muon WD shape variants | ⚠️ **P2 likely failing**; T1=3.2658/3000, T2=3.2656/3000, T3=3.2678/3025 (regression); **n=3 mu=3.2664 FAILS n=4 gate** by 0.000452; T4 needs ≤3.2646 to recover (~7% in) |
 
 
 ## Recent Closures (polls #242–248)
