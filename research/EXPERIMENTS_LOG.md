@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-19 14:10 UTC — PR #439 CLOSED: Logit soft-cap value scan c∈{10,30} — both NULL, axis closes at baseline c=15 (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/logit-softcap-scan`
+- Hypothesis: Scan the logit soft-cap `f(x) = c·x/√(x²+c²)` value: tighter c=10 (constrains earlier) vs looser c=30 (Gemma/Llama default). Baseline c=15.
+
+| Arm | c | W&B | sr | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A (tighter) | 10 | `zb1xmejl` | 3050 | 3.27316 | +112.5 ✗ | +0.00888 ✗ | NULL clear regression |
+| **Baseline** | 15 | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+| B (looser, Gemma/Llama default) | 30 | `3ek9yl3d` | 3050 | 3.27182 | +112.5 ✗ | +0.00754 ✗ | NULL clear regression |
+
+**Signal: strong-bracket signature — symmetric +112.5 sr regression in both directions** with similar magnitude val degradation (Δval ≈ 0.006-0.009). Both arms move monotonically away from baseline in both metrics.
+
+**Mechanistic conclusion:** c=15 sits in a real local optimum w.r.t. the single-knob soft-cap axis under the current optimizer/schedule/init stack. Tighter caps (c=10) saturate too early on legitimate logit magnitudes, damping cooldown-phase precision. Looser caps (c=30) add noise/instability on the cooldown tail without unlocking new headroom. The fact that BOTH directions degrade by the same ~+75-112.5 sr is strong evidence the inherited value c=15 was previously tuned for this regime (likely upstream).
+
+**Operational notes:**
+- Student caught a duplicate-process incident on Arm A (zb1xmejl + wqd48u4t), resolved cleanly without intervention (duplicate self-terminated).
+- Val-loss tail in Arm B clean & monotone (3.288 @ s=2925 → 3.272 @ s=3250) — no late-phase blowup from larger logits despite looser cap.
+
+**Strategic implication:** Loss-side scalar knobs are now characterized for this regime. Future loss-side work should target structurally different mechanisms (Z-loss / log-Z regularizer, attention temperature, pre-softmax scaling) rather than fine-tuning the soft-cap value. Follow-up: PR #476 (thorfinn z-loss scan) assigned immediately.
+
+---
+
 ## 2026-05-19 12:30 UTC — PR #433 CLOSED: Aux AdamW β2 by group {0.99, 0.999 on embed+lm_head} — both NULL, axis closes at uniform 0.95 (g1r1-edward)
 
 - Branch: `g1r1-edward/aux-beta2-by-group`
