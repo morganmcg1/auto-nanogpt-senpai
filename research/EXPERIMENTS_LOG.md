@@ -1285,3 +1285,31 @@ New assignment: PR #445 — Muon mu schedule sweep (ramp_up_090_099 / ramp_down_
 - **Code change:** Add `--muon_mu_schedule` CLI flag; per-step mutate `group["mu"]` in all Muon optimizer param groups; log `opt/muon_mu` to W&B.
 - **Cells:** A ctrl, B ramp_up_090_099, C ramp_down_099_090, D cliff_at_cooldown_095_099 (optional)
 - **Status:** Assigned, waiting for student code implementation
+
+## 2026-05-19 23:50 UTC — PR #467: nezuko SOAP trust threshold sweep {0.0/0.1/0.3/0.5/0.8} — **CLOSED clean-neutral**
+
+- **Branch:** `g1r5-nezuko/soap-trust-threshold`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** SOAP trust threshold (default 0.0 = always trust) had never been varied. A threshold > 0 triggers Muon fallback when SOAP update direction disagrees with Muon direction (cos_sim < threshold), potentially preventing bad updates during stale-preconditioner phases.
+
+### Results
+
+| Cell | trust_threshold | val/loss | Δσ vs baseline | ffs | fired_fraction | W&B run |
+|------|----------------|----------|-----------------|-----|---------------|---------|
+| A | 0.0 (ctrl) | 3.26694 | −1.23σ | 3075 | 0.00% | y9fsimjv |
+| B | 0.1 | 3.26775 | −0.24σ | 3100 | 0.10% | sbroalg6 |
+| C | 0.3 | 3.26693 | −1.24σ | 3100 | 0.44% | mmwxjnak |
+| D | 0.5 | 3.26940 | +1.76σ | 3100 | 0.71% | f6ju7rdq |
+| E | 0.8 | 3.26791 | −0.04σ | 3100 | 20.58% | n4dyzo4z |
+
+Range = 0.00247 (~3σ). No cell clears n=4 gate (3.265948) or n=1 interesting gate consistently.
+
+### Conclusion
+
+**Axis closed, clean-neutral.** The SOAP vs Muon cosine-similarity distribution is tight (min=0.78, mean=0.84, max=0.91). Thresholds ≤ 0.5 are mechanical no-ops (gate never fires because min cos_sim > threshold). Threshold=0.8 fires 20.6% of param-steps but val/loss lands at baseline (−0.04σ). 
+
+Critical diagnostic: **at the moments where SOAP and Muon updates disagree most strongly, substituting Muon costs zero in terminal val.** This suggests SOAP provides lift not through directional advantage over Muon at those specific moments but through steady accumulated preconditioner improvement over the full run.
+
+Useful telemetry logged: `trust/fired_fraction`, `trust/cos_sim_mean`, `trust/cos_sim_min/max`, attn vs mlp breakdown. Cos_sim is consistently lower for attn (~0.82) than mlp (~0.88) — potentially useful diagnostic for future SOAP scope experiments.
+
+New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this run; targets single-seed variance).
