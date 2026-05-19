@@ -1,3 +1,17 @@
+## 2026-05-19 15:48 UTC — PR #453 CLOSED (frieren): MuLoCo sync_interval re-sweep — axis SATURATED, sync=30 confirmed optimal
+
+- Branch: `g1r3-frieren/muloco-sync-interval-resweep`
+- Hypothesis: Under new AGC+warmup+eps=1e-6 stack, optimal MuLoCo sync_interval may have shifted from baseline sync=30. Tighter (15) would improve if AGC-clipped inner steps need more outer corrections; looser (60) would help if outer accumulation window is too noisy.
+
+| Arm | sync_interval | W&B run | val/loss | ffs | reached_target | Δ vs ctrl (3.27387) | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | 30 | `pe9zk9ot` | 3.27387 | 3150 | yes | (ctrl) | +0.00268 |
+| 2 tighter | 15 | `ri1dkfwa` | 3.27855 | 3250 | yes | +0.00468 (~6σ NEG) | **+0.00736 (~10σ NEG)** |
+| 3 looser | 60 | `pry9qino` | 3.27478 | 3150 | yes | +0.00091 (noise) | +0.00359 (~5σ NEG) |
+
+- **Conclusion**: All 3 arms NEG vs new baseline 3.27119. sync=30 is the local optimum under the current AGC+warmup stack. Tighter sync (15) is decisively worse — the outer MuLoCo Nesterov-SGDM needs ≥30 inner steps per outer update to maintain directional signal. Looser sync (60) is within noise of ctrl, providing no improvement. All MuLoCo knobs now saturated: sync_interval (this PR), outer_lr=0.7 (PR #369 closed), outer_momentum=0.5 (previously), outer optimizer class=SGDM (vs AdamW/Lion). MuLoCo lever fully closed.
+- Frieren reassigned to PR #484: Aux AdamW cooldown_frac sweep (0.25/0.4/0.6) under eps=1e-6.
+
 ## 2026-05-19 15:06 UTC — PR #451 CLOSED (nezuko): MuonH budget_mult sweep — axis FLAT, lever closed
 
 - Branch: `g1r3-nezuko/muonh-budget-mult-sweep`
