@@ -530,6 +530,15 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Gradient Centralization (Yong et al. 2020). Subtract mean gradient along non-batch dims.
+NANOGPT_GC_ENABLED = os.environ.get("NANOGPT_GC_ENABLED", "0") == "1"
+# Apply GC to which parameter groups: "all", "adam", "muon", or "embed_only"
+NANOGPT_GC_SCOPE = os.environ.get("NANOGPT_GC_SCOPE", "all")
+_VALID_GC_SCOPES = ("all", "adam", "muon", "embed_only")
+if NANOGPT_GC_SCOPE not in _VALID_GC_SCOPES:
+    raise ValueError(
+        f"NANOGPT_GC_SCOPE={NANOGPT_GC_SCOPE!r}, must be one of {_VALID_GC_SCOPES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -747,6 +756,10 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_GC_ENABLED:
+    print0(f"GC: enabled, scope={NANOGPT_GC_SCOPE}", console=True)
+else:
+    print0("GC: disabled", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +812,8 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_gc_enabled": NANOGPT_GC_ENABLED,
+            "nanogpt_gc_scope": NANOGPT_GC_SCOPE,
         },
     )
 
@@ -963,6 +978,26 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        # Gradient Centralization (Yong et al. 2020): subtract mean gradient along
+        # all dims EXCEPT dim 0 (output features axis). Applied AFTER all_reduce and
+        # BEFORE clip_grad_norm_ so the clip threshold sees the centralized gradients.
+        if NANOGPT_GC_ENABLED:
+            for name, p in model.named_parameters():
+                if p.grad is None or p.dim() <= 1:
+                    continue  # skip scalars / 1D tensors
+                is_embed = (name == "embed.weight")
+                is_lmhead = (name == "proj.weight")
+                is_block = name.startswith("blocks.")
+                in_scope = (
+                    (NANOGPT_GC_SCOPE == "all") or
+                    (NANOGPT_GC_SCOPE == "adam" and (is_embed or is_lmhead)) or
+                    (NANOGPT_GC_SCOPE == "muon" and is_block) or
+                    (NANOGPT_GC_SCOPE == "embed_only" and is_embed)
+                )
+                if not in_scope:
+                    continue
+                mean = p.grad.mean(dim=tuple(range(1, p.dim())), keepdim=True)
+                p.grad.sub_(mean)
         if NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
