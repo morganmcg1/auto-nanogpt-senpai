@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 00:00 UTC — Cycle 57: #357 CLOSED (MU_COOLDOWN_END axis characterized on old stack, ties ffs bar on new); thorfinn → #415 muon_warmup_steps sweep
+
+### PR #357 — MU_COOLDOWN_END sweep (0.87 / 0.85) on old CONTRA_MUON=0.5 stack — CLOSED on MISS
+
+Branch: `g1r2-thorfinn/mu-cooldown-end-sweep`. Both arms screened on old stack pre-baseline-shift; n=4 confirm on Arm A on old stack.
+
+| Phase | Arm | W&B run | val n | ffs n | n | vs new bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|---|
+| n=2 SCREEN | A (0.87) | `q1jcq9k9` | 3.27432 | 3050 | 2 | val CLEAR −0.000063, ffs CLEAR −18.75 (lucky-draw both at 3050) | promoted to n=4 |
+| n=2 SCREEN | B (0.85) | `fhkubmcu` | 3.275205 | 3062.5 | 2 | val MISS +0.000822, ffs CLEAR −6.25 | dominated by A; not promoted |
+| **n=4 CONFIRM** | **A (0.87)** | **`0rbppojt`** | **3.275425** | **3068.75** | **4** | **val MISS +0.001042, ffs TIES (not strict <)** | **MISS new bar — CLOSE** |
+
+**Per-trial n=4 confirm**: T0=3.27763/3100, T1=3.27568/3075, T2=3.27364/3050, T3=3.27475/3050. Only 2 of 4 trials at ffs=3050 → mean=3068.75 ties bar.
+
+**Mechanism diagnosis**:
+- The cooldown μ endpoint axis on old stack trades val for ffs at ~1:18 ratio. Lower endpoint = more Muon reactivity at training end = better ffs (more trials hit 3050) but slight val penalty.
+- Pareto front is roughly flat between 0.85 and 0.90; sweet spot is ~0.87 but the trade doesn't compose with new CONTRA_MUON=0.4 stack to clear new bar (would need ffs ≤ 3050 mean which still leaves val MISS).
+- The n=2 SCREEN/n=4 CONFIRM regression on Arm A (val 3.27432 → 3.275425; ffs 3050 → 3068.75) is textbook seed-variance lucky-draw: n=2 hit both at ffs=3050 by chance; n=4 reverts to bimodal {3050, 3075} distribution.
+
+**Reassignment**: thorfinn → **#415 muon_warmup_steps sweep** (200/400 vs default 300) on new CONTRA_MUON=0.4 base. Fresh schedule-side axis never swept on r2. Mechanistic motivation: lower CONTRA_MUON means more natural-momentum signal early in training, so warmup tuned for old stack may be misaligned.
+
+---
+
 ## 2026-05-18 22:20 UTC — Cycle 56: #376 CLOSED (cooldown-only AdaMuon axis FALSIFIED); tanjiro → #406 MU_COOLDOWN_START sweep on new base
 
 ### PR #376 — Cooldown-only AdaMuon switch (post-NS5 variance scaling, cooldown phase only) — FALSIFIED
