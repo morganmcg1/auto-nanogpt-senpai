@@ -30,7 +30,7 @@
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
 | #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | **Cell A `qcycy1e9` running ~42% (smokes passed)** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A TERMINAL ctrl (t=0.0) val=3.2669 ffs=3075 (re-anchor); **Cell B watcher-stalled — monitor next poll** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A TERMINAL ctrl val=3.2669 ffs=3075; **WATCHER STALLED — `1ufeapa2` is ctrl dup at step 313, no trust>0 launched in 50min** |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075; **Cell B `mv7ee25g` (ns_iter=6) running step 127** |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 ffs=3225 (+13.4σ NEG); **Cell C `sr1uguv4` (cooldown_frac=0.5) running step 251** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A −0.90σ ctrl; **B TERMINAL (const 0.0025) val=3.2675 ffs=3100 (−0.54σ, neutral); Cell C awaiting watcher** |
