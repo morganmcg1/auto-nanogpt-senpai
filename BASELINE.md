@@ -8,6 +8,39 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-19 12:05 — PR #415: MU_WARMUP_STEPS=200 — Muon momentum warmup (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | Added explicit Muon μ warmup: `cur_mu` ramps from `MU_WARMUP_START=0.85` → `MU_COOLDOWN_START=0.95` linearly over the first 200 steps, then holds at plateau. Previously `cur_mu=0.95` from step 0. Env vars: `MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`. |
+| Contra-Muon HPs | `CONTRA_MUON=0.4`, `TARGET_UW=0.35`, `MUON_LR=0.0375` |
+| Cooldown μ HPs | `MU_COOLDOWN_START=0.95`, `MU_COOLDOWN_END=0.90` |
+| Warmup μ HPs | `MU_WARMUP_STEPS=200`, `MU_WARMUP_START=0.85` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; `ATTN_SOAP_TRUST_THRESHOLD=0.85` |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `nh6ge2df` (n=4 confirm); `xi4d6osg` (n=2 screen) |
+| **n=4 mean val/loss** | **3.273477** |
+| **n=4 statsig margin** | **0.013046** ≥ 0.004 — PASSES (3.26×) |
+| **ffs mean** | **3056.25** (T0=3050, T1=3050, T2=3050, T3=3075) |
+| **speedup vs PR #358** | val Δ=−0.000906; ffs Δ=−12.5 |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.272928 | 3050 |
+| T1 | 3.274003 | 3050 |
+| T2 | 3.272357 | 3050 |
+| T3 | 3.274621 | 3075 |
+
+**Mechanism insight**: Muon EMA `state["momentum"]` starts at zero; applying `cur_mu=0.95` (high smoothing) while the buffer is still populating produces effectively over-smoothed early updates. With explicit warmup (0.85→0.95 over 200 steps), the optimizer follows the recent-gradient signal more faithfully during the EMA-fill window, then ramps to full plateau momentum once the buffer is meaningful. Empirical signature: step-125 val ≈4.42 (Arm A) vs ≈4.51 (baseline) — earlier loss improvement without any stability regression. Cross-trial spread 0.0023 is one of the tightest n=4 seen this cycle.
+
+**New merge bar**: mean val < **3.273477** AND ffs_mean < **3056.25** (STRICT — both required)
+
+**All new experiments must include**: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`
+
+---
+
 ### 2026-05-18 20:55 — PR #358: CONTRA_MUON=0.4 (reduced from 0.5) (squash-merged)
 
 | Field | Value |
