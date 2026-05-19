@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 04:28 UTC
+- **Date:** 2026-05-19 04:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -53,17 +53,21 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 Pod-1 Δ=−0.00419 collapsed to n=3 pooled Δ=−0.000877 (79% shrinkage). Sign flipped on pod 2 (+0.00278). Per-arm seed spread (0.00401) larger than claimed signal. Midpoint (frac=0.50) confirmed optimal on post-#290 stack; NS late_peak transition POINT axis CLOSED.
 **Follow-up**: frieren assigned #402 Gradient Centralization scope sweep.
 
-### 🔄 frieren #402 — Gradient Centralization (GC) scope sweep [just assigned]
-**Branch:** `g1r4-frieren/gradient-centralization`
-**Hypothesis**: GC (Yong et al. 2020) subtracts mean gradient along non-output dims before optimizer step. Operates at gradient preprocessing abstraction layer — orthogonal to all per-group AdamW/NS/Muon/init work. Sweep by scope to map where GC helps.
-| Arm | GC_ENABLED | GC_SCOPE | Interpretation |
-|---|---|---|---|
-| A | 0 | — | No GC, drift gate |
-| B | 1 | all | GC on AdamW + Muon weights |
-| C | 1 | adam | GC on embed + lm_head only |
-| D | 1 | muon | GC on block weights only |
+### ✅ frieren #402 — Gradient Centralization (GC) scope sweep — CLOSED 04:40 UTC productive-null (absorbed by existing stack)
+All 4 arms within null band (max |Δ|=0.00111). Faint monotone B(all) > C(adam) > D(muon) ≈ A ordering — GC subtracts useful signal from AdamW aux gradients. NS orthogonalization on Muon side already approximately mean-centers block weight gradients. Post-#290 stack saturated on gradient-preprocessing axes: grad clip, per-group LR, NS spec tightening, β2=0.99 all jointly absorb any remaining mean-subtraction gain.
+**Follow-up**: frieren assigned #436 EMA of weights (Polyak averaging).
 
-**ETA full chain:** ~7h.
+### 🔄 frieren #436 — EMA of weights (Polyak averaging) [assigned 04:43 UTC]
+**Branch:** `g1r4-frieren/weight-ema`
+**Hypothesis**: Maintain parallel θ_ema = β·θ_ema + (1−β)·θ accumulator; use θ_ema for val_loss evaluation (not for training). Orthogonal to all closed gradient/moment-space mechanisms (AdEMAMix closed #399 — that was gradient EMA; this is weight EMA). Operating in weight-trajectory space, not gradient space. Sweep decay ∈ {off, 0.999, 0.9999, 0.99}.
+| Arm | decay | Half-life | Interpretation |
+|---|---|---|---|
+| A | 0.0 (off) | — | Control / drift gate |
+| B | 0.999 | ~700 steps | Moderate — averages last ~30% of training |
+| C | 0.9999 | ~7000 steps | Long — near-full-training average |
+| D | 0.99 | ~70 steps | Short — last ~3% of training |
+
+**ETA full chain:** ~7.5h.
 
 ### ✅ alphonse #351 — Per-group SCALAR AdamW ε sweep — CLOSED 23:15 UTC productive-null (paired-pod confirmation collapsed signal)
 Paired-pod re-run of A vs D produced mean Δ=+0.00019 (signal collapsed). Original "D wins by −0.00278" was arm-A unlucky-seed pod luck (val=3.27528 drifted +0.00328 above baseline). Second consecutive paired-confirmation null collapse (after frieren #344). Scalar ε axis fully closed across {1e-12, 1e-10, 1e-8, 1e-6}.

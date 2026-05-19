@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 04:40 UTC — PR #402: Gradient Centralization scope sweep (frieren) — CLOSED productive-null ✅ (absorbed by existing stack)
+
+- Branch: `g1r4-frieren/gradient-centralization`
+- Hypothesis: GC (Yong et al. 2020) subtracts mean gradient along non-output dims before optimizer step. Sweep by scope: all, adam-only, muon-only.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | GC scope | val | Δ vs A | Δ vs baseline-mean (n=3) | fs | W&B |
+|---|---|---:|---:|---:|---:|---|
+| A (control) | off | 3.27247 | — | +0.00047 (drift gate ✓) | 3250 | `74kyo7fr` |
+| B | all | 3.27358 | +0.00111 | +0.00158 | 3250 | `z87ocjr4` |
+| C | adam-only | 3.27290 | +0.00043 | +0.00090 | 3250 | `pisakfl9` |
+| D | muon-only | 3.27262 | +0.00015 | +0.00062 | 3250 | `i37gxc0d` |
+
+### Key findings
+
+All 3 GC arms within the productive-null band (|Δ| ≤ 0.0015 from A). Pre-staged rule #5 fires: "all flat". Faint monotone ordering B > C > D > A: wider GC scope is slightly worse. Consistent with GC subtracting useful gradient signal from AdamW aux groups. NS orthogonalization on Muon side already approximately mean-centers block weight gradients; per-group LR / grad clip / β2=0.99 on AdamW side absorb the rest. First_step_to_target unchanged at 3250 across all arms. Step-time arms B/C/D are 470s faster than A — pod variability, not from GC.
+
+### Verdict
+
+GC axis CLOSED as productive-null. Post-#290 stack saturated on gradient-preprocessing mechanisms. **8th productive-null this cycle** — pattern: all gradient/moment-space add-ons are absorbed by the existing 8-mechanism stack.
+
+---
+
 ## 2026-05-19 04:24 UTC — PR #399: AdEMAMix on AdamW groups (edward) — CLOSED productive-null ✅ (slow-EMA redundant with β2=0.99)
 
 - Branch: `g1r4-edward/ademamix-adamw`
