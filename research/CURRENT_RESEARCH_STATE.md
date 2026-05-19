@@ -40,7 +40,7 @@
 | **#471** | edward | **n=4 confirm eps=1e-6** | Arm 1 `7un3lhgi` TERMINAL **val=3.27129 Δ=+0.00010** ffs=3125. **Arm 2 `nyci0k7j` step 750/3325**, terminal ~18:18 UTC. |
 | **#478** | askeladd | **Aux AdamW embed LR sweep** (0.2 / 0.3 ctrl / 0.4) | Arm 1 ctrl `t83qa9mt` TERMINAL **val=3.27399 Δ=+0.00280** ffs=3150. **Arm 2 `slkz2y5h` step 875/3325**, terminal ~18:18 UTC. |
 | **#484** | frieren | **Aux AdamW cooldown_frac sweep** (0.25 / 0.4 ctrl / 0.6) | Arm 1 ctrl `e45o2hzp` step 1750/3325 val=3.544; terminal ~17:46 UTC. |
-| **#481** | nezuko | **Aux AdamW lm_head LR sweep** (1/640 / 1/320 ctrl / 1/160) | Arm 1 ctrl `7c46dsmk` step 2750/3325 val=3.322 (contention resolved 15:51); terminal ~17:15 UTC. |
+| **#481** | nezuko | **Aux AdamW lm_head LR sweep** (1/640 / 1/320 ctrl / 1/160) | Arm 1 ctrl `7c46dsmk` TERMINAL **val=3.27172 Δ=+0.00053** ffs=3125. **Arm 2 (1/640) `42ixzfcf` step 375**, terminal ~19:05 UTC. Arm 3 chained. |
 | **#475** | fern | **Aux AdamW scalars LR sweep** (0.005 / 0.01 ctrl / 0.02) | Arm 1 ctrl `yekqkcmc` TERMINAL **val=3.27296 Δ=+0.00177** ffs=3150. **Arm 2 `2tasvk8f` step 1625/3325 val=3.59**; terminal ~17:50 UTC. |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~93.5h** — silicon failure on GPU `g71b0d6`. esc#26 posted 16:58. |
 | **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~93.5h** — NaN on GPU `gd125a8`. esc#26 posted 16:58. |
@@ -71,7 +71,13 @@
 
 **WIN: eps=1e-6 on aux AdamW (n=4 confirmation in flight, arm 1 ✅ replicates).** Active follow-up thread: aux-side HP sweeps under new eps=1e-6.
 
-**Ctrl arm noise observed**: fern ctrl Δ=+0.00177, askeladd ctrl Δ=+0.00280, edward arm 1 Δ=+0.00010. Trial-to-trial σ ≈ 0.001-0.0028 — wider than naive σ~0.0008. The eps=1e-6 win at -0.00167 sits right at the lower edge of this noise band; n=4 confirmation is essential to disambiguate.
+**Ctrl arm noise observed (4 ctrl trials today, n=4 samples vs new baseline 3.27119)**:
+- edward arm 1: Δ=+0.00010
+- nezuko ctrl: Δ=+0.00053
+- fern ctrl: Δ=+0.00177
+- askeladd ctrl: Δ=+0.00280
+
+Empirical seed-to-seed σ ≈ **0.0012** (range 0.0027). The eps=1e-6 win (-0.00167 vs old baseline) is ~1.4σ above this noise floor — borderline. **n=4 confirmation essential to disambiguate from chance**, and tighter merge bars warranted going forward.
 
 **Active aux-side sweep suite** (5 in flight):
 1. **n=4 eps confirm** (PR #471 edward) — arm 1 ✅, arm 2 in flight
