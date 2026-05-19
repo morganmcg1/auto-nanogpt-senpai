@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~09:30Z (poll #233)
+- **Last updated:** 2026-05-19 ~10:05Z (poll #235)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -26,8 +26,8 @@
 3. **PER-BLOCK WD DECOMP (nezuko #427)**:
    - B `mlp_only` (no attn WD): +3.42σ NEG; **C `attn_only` (no MLP WD): +12.40σ NEG** — confirms **MLP WD is overwhelmingly load-bearing**. Cell D `c6xs02nv` running step ~2303 (~71%).
 
-4. **LR-SHAPE SWEEP (thorfinn #426)**:
-   - B (linear_throughout) +3.44σ NEG; C (cosine_throughout) val=3.2782 +12.5σ NEG but ffs=3050 (50 steps faster — interesting tradeoff). Cell D `bwhvrqmy` (stable_then_cosine) running step ~2707 (~83%).
+4. **LR-SHAPE SWEEP (thorfinn #426)** — closing clean-NEG:
+   - B (linear_throughout) +3.44σ NEG; C (cosine_throughout) val=3.2782 +12.5σ; **D (stable_then_cosine) TERMINAL val=3.273911, ffs=3000, +7.25σ NEG**. All LR-shape variants worse than ramp_down baseline. Axis closes when student posts unified table.
 
 5. **SOAP β₂ STATIC SWEEP (frieren #428)** — flat band confirmed:
    - A (0.90 ctrl) +0.31σ; B (0.85) −0.24σ; **C (0.80) TERMINAL −0.14σ**. All within ±0.5σ. β₂ static axis is flat in {0.80..0.90}.
@@ -42,20 +42,22 @@
    - B (β1=0.80, β2=0.98) +1.97σ; C (β1=0.90, β2=0.95) +5.58σ NEG; **D (β1=0.90, β2=0.98) TERMINAL +4.18σ NEG** (anti-synergy: regressed +1.45σ above additive prediction).
    - **Cell E `blrvl2n1` (β1=0.70, β2=0.99) running step ~1307** (~40%); ETA ~11:00Z.
 
-8. **TANJIRO MUON MU SCHEDULE (NEW PR #445)**:
-   - **Cell A `xxjjw1ab` (muon-mu-A-constant ctrl) running step ~1855 (~57%)**, ETA ~11:00Z.
-   - Tests: constant / ramp_up_090_099 / ramp_down_099_090 / cliff_at_cooldown_095_099 — apply "schedule timing" insight to Muon momentum axis. Auto-chains A→B→C.
+8. **TANJIRO MUON MU SCHEDULE (PR #445)**:
+   - **Cell A `xxjjw1ab` (constant ctrl) TERMINAL val=3.264929, ffs=3075, −3.67σ vs n=4 mean** — control config landed lucky-low. Important variance calibration: single-seed of baseline config can fall well below the n=4 mean.
+   - Cell B `3tvr1x36` (ramp_up_090_099) running step ~241 (~7%); auto-chain to C (ramp_down_099_090) then D (cliff_at_cooldown).
+
+**⚠️ Variance calibration insight (poll #234):** Tanjiro Cell A control reproduction at −3.67σ shows the single-seed std of the baseline is wider than the n=4 SEM suggests. **Edward Cell C (−1.60σ) and Cell D (−0.61σ) signals are weaker than tanjiro's lucky control reproduction — both may be noise.** P2 n=4 confirmation is essential before claiming a winner.
 
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #445 | tanjiro | Muon mu schedule sweep (constant / ramp_up / ramp_down / cliff) | Cell A `xxjjw1ab` (constant ctrl) ~57% step 1855 |
+| #445 | tanjiro | Muon mu schedule sweep (constant / ramp_up / ramp_down / cliff) | **A TERMINAL val=3.2649 −3.67σ (lucky-seed ctrl);** B `3tvr1x36` (ramp_up) step ~241 |
 | #437 | askeladd | SOAP precond_freq schedule (constant/ramp_down_4_32/ramp_down_8_64) | A +0.13σ ✓; **B +17.39σ NEG**; 2 retries (`60vwhvpg`,`zc2f9o9j`) flagged — Cell C next |
 | #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) | A +0.31σ; B (0.85) −0.24σ; **C (0.80) −0.14σ**; retry `7z7s1zj5` flagged — Cell D next |
 | #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn) | B (mlp_only) +3.42σ NEG; C (attn_only) +12.40σ NEG; D `c6xs02nv` ~71% step 2303 |
-| #426 | thorfinn | LR schedule shape sweep | B (linear) +3.44σ NEG; C (cosine) +12.5σ ffs=3050; D `bwhvrqmy` ~83% step 2707 |
+| #426 | thorfinn | LR schedule shape sweep | B (linear) +3.44σ; C (cosine) +12.5σ ffs=3050; **D (stable_then_cosine) TERMINAL +7.25σ NEG** — axis closing |
 | #423 | fern | WD peak sensitivity (peak ∈ {0.025..0.150}) | A=-2.91σ ✓; B/C/D +5.42/+1.23/+7.41σ; **E `5gwchl7s` (peak=0.150)** ~24% step 789 |
 | #422 | edward | Muon WD shape variants (lr_coupled/stable_only/early_dropoff/constant) | A=+1.51σ; B=+2.25σ; **C=−1.60σ (#1)**; **D=−0.61σ (#2)**; E `3fdvpo5h` ~11% step 345 |
 | #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | B +1.97σ; C +5.58σ; **D (β1=0.90,β2=0.98) TERMINAL +4.18σ NEG**; E `blrvl2n1` ~40% step 1307 |
