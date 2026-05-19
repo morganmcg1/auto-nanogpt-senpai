@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 11:55 UTC
+- **Last update:** 2026-05-19 12:35 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD NOW 2937.5 (PR #367 → #413 compound).
 
@@ -8,33 +8,33 @@
 
 **sr=2937.5 (n=2 mean), val/loss=3.264278 (n=2 mean)** — PR #413 (g1r1-alphonse, scalar_lr=0.025). **MERGED 11:48 UTC.**
 
-Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (TARGET_UW=0.35) + COOLDOWN_POWER=1.4 + Muon lr=0.035 wd=0.025 + aux AdamW embed_lr=0.3, lm_head_lr=1/160, **scalar_lr=0.025**, betas=(0.8, 0.95), eps=1e-10.
+Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (TARGET_UW=0.35) + COOLDOWN_POWER=1.4 + Muon lr=0.035 wd=0.025 + aux AdamW embed_lr=0.3, lm_head_lr=1/160, **scalar_lr=0.025**, betas=(0.8, 0.95), eps=1e-10, **wd=0**.
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`.
 
 Win conditions: sr<2937.5 (i.e. ≤2925) OR (sr=2925 AND val<3.264278). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
 
-## Active experiments (8 students)
+## Active experiments (8 students, full coverage)
 
-| PR | Student | Mechanism | Status (11:55 UTC) |
+| PR | Student | Mechanism | Status (12:35 UTC) |
 |---|---|---|---|
-| **#460** | **alphonse** | scalar_lr fine-scan {0.020, 0.030} — brackets the confirmed 0.025 winner (predeclared follow-up from #413). Peak localization | Just assigned (11:52 UTC). Arm A to launch. |
-| **#448** | **nezuko** | Decoupled cooldown_frac: aux groups vs body Muon. Arm A aux cf=0.5, Arm B aux cf=0.85. First per-group schedule decoupling | **Arm A `0a9r5lof` step 2750, bl=3.302** (~38 min to terminal). |
-| **#447** | **fern** | NS polar adaptive convergence threshold: data-dependent iter count. Arm A threshold=0.5, Arm B threshold=0.1 | **Arm A `7logfkqq` step 2725, bl=3.320** (~39 min to terminal). |
-| **#444** | **frieren** | PMuon γ_power phase schedule. **Arm A FINISHED NULL (sr=2975 val=3.26760, Δval=+0.00038).** Advisor comment posted for Arm B launch | Arm B (γ=0.4→0.5 ramp) pending student launch. |
-| **#440** | **tanjiro** | Embed init scale scan. **Arm A NULL (sr=3000 val=3.26878).** Advisor comment posted for Arm B launch | **Arm B `xt1o5rce` step 825, bl=3.750** (~3.1h to terminal). |
-| **#439** | **thorfinn** | Logit soft-cap scan. **Arm A NULL (c=10 sr=3050 val=3.27316).** | **Arm B `3ek9yl3d` step 1225, bl=3.665** (~2.8h to terminal). |
-| **#433** | **edward** | Aux AdamW β2 by group: embed+lm_head {0.99, 0.999} vs scalars 0.95. **Arm A (β2=0.99) TIED baseline (sr=2975 val=3.26738 Δval=+0.00016 NULL).** | **Arm B `2qoyvxmz` step 2750, bl=3.309** (~38 min to terminal). |
-| **#416** | **askeladd** | Aux AdamW β1 fine-scan {0.75, 0.85}. **Arm B (β1=0.85) seed-1 val=3.26669 (Δval=−0.00053 — marginal WIN). n=2 confirmation in flight.** | **seed-2 `k7u7pfy5` step 2875, bl=3.290** (~28 min to terminal). |
+| **#466** | **edward** | Aux AdamW WD scan: {0.001, 0.01} on embed+lm_head matrices (first WD test on aux). Replaces β2-by-group axis (closed) | **Just assigned 12:30 UTC** — student to pick up. |
+| **#465** | **fern** | Muon LR fine-scan: {0.030, 0.040} vs baseline 0.035 — highest-value unscanned axis. Replaces NS adaptive (closed) | **Just assigned 12:25 UTC** — student to pick up. |
+| **#463** | **askeladd** | Adam embed eps scan: {1e-8, 1e-7} vs baseline 1e-10. Tests sparse-gradient eps interaction | **Arm A `rsl6ijrg` step 100, bl=10.83** (~3h to terminal). Replaces β1 axis (closed). |
+| **#460** | **alphonse** | scalar_lr fine-scan {0.020, 0.030} brackets confirmed 0.025 winner | **Arm A `a7bmaf65` step 475, bl=3.883** (~162 min to terminal). |
+| **#448** | **nezuko** | Decoupled cooldown_frac: Arm A cf-aux=0.5 NULL (sr=2975 val=3.26521). Arm B cf-aux=0.85 (LONGER aux cooldown) | **Arm B `taremaia` step 100, bl=10.83** (~3h to terminal). |
+| **#444** | **frieren** | PMuon γ_power phase schedule. **Arm A NULL (sr=2975 val=3.26760, Δval=+0.00038).** Arm B (γ=0.4→0.5 ramp) | Arm B pending student launch. |
+| **#440** | **tanjiro** | Embed init scale scan. **Arm A NULL (sr=3000 val=3.26878).** Arm B std=2.0 | **Arm B `xt1o5rce` step 1575, bl=3.530** (~98 min to terminal). |
+| **#439** | **thorfinn** | Logit soft-cap scan. **Arm A NULL (c=10 sr=3050 val=3.27316).** Arm B c=30 | **Arm B `3ek9yl3d` step 1925, bl=3.455** (~77 min to terminal). |
 
-## Next terminal events (estimates from 11:55 UTC)
+## Next terminal events (estimates from 12:35 UTC)
 
-1. **askeladd k7u7pfy5** (seed-2 β1=0.85 confirmation) — ~28 min (12:23 UTC)
-2. **edward 2qoyvxmz** (Arm B β2=0.999) — ~38 min (12:33 UTC)
-3. **nezuko 0a9r5lof** (Arm A cooldown_frac decoupled) — ~38 min (12:33 UTC)
-4. **fern 7logfkqq** (Arm A NS adaptive) — ~39 min (12:34 UTC)
-5. **tanjiro xt1o5rce** (Arm B embed init 2.0) — ~3.1h (15:05 UTC)
-6. **thorfinn 3ek9yl3d** (Arm B soft-cap c=30) — ~2.8h (14:45 UTC)
+1. **thorfinn 3ek9yl3d** (Arm B soft-cap c=30) — ~77 min (13:52 UTC)
+2. **tanjiro xt1o5rce** (Arm B embed init std=2.0) — ~98 min (14:13 UTC)
+3. **alphonse a7bmaf65** (Arm A scalar_lr=0.020) — ~162 min (15:17 UTC)
+4. **askeladd rsl6ijrg** (Arm A embed-eps=1e-8) — ~3h (15:30 UTC)
+5. **nezuko taremaia** (Arm B cf-aux=0.85) — ~3h (15:30 UTC)
+6. Pending launches: edward #466, fern #465, frieren #444 Arm B
 
 ## Recently merged
 
@@ -43,12 +43,15 @@ Win conditions: sr<2937.5 (i.e. ≤2925) OR (sr=2925 AND val<3.264278). Marginal
 | **#413** | alphonse | scalar_lr=0.025: n=2 mean sr=2937.5, val=3.264278 (Δsr=−37.5, Δval=−0.002942). Both seeds independently beat baseline. Non-monotone with 0.050 regressing. | **MERGED 11:48 UTC** — new baseline. Closes aux LR characterization triplet. Follow-up: #460. |
 | **#367** | frieren | lm_head_lr=1/160: n=2 mean sr=2975 val=3.26722 | MERGED — was baseline prior to #413. |
 
-## Recently closed
+## Recently closed (this cycle)
 
 | PR | Student | Key result | Decision |
 |---|---|---|---|
+| **#447** | fern | NS adaptive threshold: Arm A NULL (sr=3000 val=3.26915). Student diagnosed mechanism never engages — NS residual plateaus at ~6.9 vs thresholds 0.5/0.1. Arm B was guaranteed to also produce no signal. | **CLOSED 12:25 UTC** — axis closed cleanly without running Arm B. Side-finding: NS convergence quality at this operating point. |
+| **#433** | edward | Aux AdamW β2-by-group: Arm A (β2=0.99) sr=2975 val=3.26738 tied (Δval=+0.00017, NULL). Arm B (β2=0.999) sr=3050 val=3.27327 clear regression. | **CLOSED 12:30 UTC** — β2 axis exhausted at uniform 0.95 for aux. Sparse-vs-dense intuition not borne out. |
+| **#416** | askeladd | Aux AdamW β1=0.85: seed-1 n=1 marginal WIN (Δval=-0.00053), seed-2 confirmation NULL (val=3.26911, Δsr=+25, Δval=+0.00189). n=2 mean falsified. | CLOSED earlier — β1 axis closes at 0.8. Demonstrated value of n=2 confirmation discipline. |
 | **#414** | nezuko | Cosine cooldown shape: Arm A sr=3050 Δval=+0.008; Arm B sr=-1 val=3.294 catastrophic | CLOSED — cooldown shape axis at power-law 1.4 across families |
-| **#395** | fern | NS_ITERS cooldown schedule {14,18}: both NULL monotone-down | CLOSED — NS_ITERS axis exhausted (static + phase). Adaptive in-flight #447. |
+| **#395** | fern | NS_ITERS cooldown schedule {14,18}: both NULL monotone-down | CLOSED — NS_ITERS axis exhausted (static + phase). Adaptive in-flight (closed #447). |
 | **#410** | frieren | lm_head_lr fine-scan {1/120, 1/100}: flat NULL | CLOSED — lm_head_lr axis CLOSED at 1/160 |
 | **#401** | tanjiro | Muon WD downward {0.020, 0.015}: both NULL monotone | CLOSED — WD axis CLOSED at 0.025 both directions |
 
@@ -56,24 +59,24 @@ Win conditions: sr<2937.5 (i.e. ≤2925) OR (sr=2925 AND val<3.264278). Marginal
 
 **Three strategic themes:**
 
-1. **Aux AdamW per-group mechanics** (askeladd #416 β1, edward #433 β2, alphonse #460 scalar_lr fine-scan): Systematic coverage of aux optimizer hypers. β1=0.85 is a marginal n=1 WIN awaiting n=2 confirmation.
+1. **Aux AdamW per-group mechanics** (askeladd #463 embed eps, edward #466 aux WD, alphonse #460 scalar_lr fine-scan): Systematic coverage of aux optimizer hypers. β1 + β2 axes both CLOSED at uniform values. eps and WD axes opening up.
 
-2. **Schedule decoupling** (nezuko #448 cooldown_frac aux vs body): First per-group schedule decoupling in program. Arm A (aux shorter cooldown) in flight.
+2. **Schedule decoupling** (nezuko #448 cooldown_frac aux vs body): First per-group schedule decoupling in program. Arm A cf-aux=0.5 NULL but close (Δval=+0.00094). Arm B cf-aux=0.85 in flight (opposite direction).
 
-3. **Fresh mechanism classes** (fern #447 adaptive NS, frieren #444 γ phase, tanjiro #440 embed init, thorfinn #439 soft-cap): Four structurally novel axes simultaneously in flight.
+3. **Body-Muon mechanism axes** (fern #465 Muon LR fine-scan, frieren #444 γ phase, tanjiro #440 embed init, thorfinn #439 soft-cap): Four structurally novel axes simultaneously in flight on the body optimizer / model.
 
 ## Open unexplored axes (candidate next assignments)
 
-- NS adaptive threshold follow-up (after fern #447 closes direction)
-- PMuon γ_power phase ramp Arm B (frieren assigned, pending launch)
-- Embed init Arm B std=2.0 (tanjiro assigned, running xt1o5rce)
-- soft-cap c=30 Arm B (thorfinn assigned, running 3ek9yl3d)
-- **Adam ε per-group** (embed/lm_head sparse vs scalars dense — never tested)
-- **Muon LR fine-scan** (0.035 is long-standing; try {0.030, 0.038, 0.040})
-- **β_cov fine-scan at new operating point** (closed at 0.95 on old stack; scalar_lr merge may shift optimum)
-- **Inverse LLRD** (bottom layers HIGHER LR — contradicts ULMFiT but may hold for pretraining)
-- **scalar_lr × COOLDOWN_POWER interaction** (alphonse suggested — compound test after fine-scan)
+- **PMuon EMA bias correction revisit** (#307 closed; revisit at new op point?)
+- **Lookahead-AdamW wrapper on aux** (#143 closed at old op point; r2 #459 is current)
+- **Z-loss / logit norm regularizer** (orthogonal to all current axes)
+- **Attention temperature** (softmax sharpening) — never tested
+- **Pre-softmax logit scaling** (decouple from soft-cap)
+- **scalar_lr × COOLDOWN_POWER interaction** (alphonse suggested — compound test after fine-scan #460)
 - **Different NS polynomial coefficients** (c ≠ 0 variants — closed at c=0 but with asymmetric a,b not fully explored)
+- **MLP-only vs attention-only WD** (orthogonal partition of body WD)
+- **Per-block residual scaling** (DeepNet-style gates)
+- **Skip-connection LR multiplier**
 
 ## Statistical rule reminder
 
