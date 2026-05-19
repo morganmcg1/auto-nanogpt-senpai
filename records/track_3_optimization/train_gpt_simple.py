@@ -249,57 +249,65 @@ def log_training_telemetry(
 
 @torch.no_grad()
 def log_adamw_step_direction(
-    optimizer: torch.optim.Optimizer,
+    optimizers: list[torch.optim.Optimizer],
     trial_idx: int,
     step: int,
     wandb_step: int,
 ):
-    """Per-group ||m_hat / (sqrt(v_hat) + eps)|| for AdamW.
-    Bias-corrected step direction whose variance over time reflects β2 stability."""
-    beta1, beta2 = optimizer.param_groups[0].get("betas", (None, None))
-    eps = optimizer.param_groups[0].get("eps", 1e-10)
+    """Per-group ||m_hat / (sqrt(v_hat) + eps)|| for the aux (Adam-family) optimizers.
+    Bias-corrected step direction whose variance over time reflects β2 stability.
+    Accepts a list so both AdamW and AdaBeliefW (if present) contribute to the
+    same metric namespace; each aux param group has a unique name so keys do not
+    collide."""
     metrics = {"trial": trial_idx, "train/step": step}
-    if beta1 is not None and beta2 is not None:
-        metrics["train/optimizer1/beta1"] = float(beta1)
-        metrics["train/optimizer1/beta2"] = float(beta2)
-        metrics["train/optimizer1/eps"] = float(eps)
+    representative_set = False
     grand_sq = 0.0
     grand_n = 0
-    for group in optimizer.param_groups:
-        group_name = group.get("name", "unknown")
-        group_b1, group_b2 = group.get("betas", (beta1, beta2))
-        group_eps = group.get("eps", eps)
-        sq_sum = 0.0
-        nel = 0
-        max_abs = 0.0
-        for p in group["params"]:
-            st = optimizer.state.get(p, {})
-            if "exp_avg" not in st or "exp_avg_sq" not in st:
-                continue
-            t = st.get("step")
-            t_val = float(t.item()) if torch.is_tensor(t) else float(t or 0)
-            if t_val <= 0:
-                continue
-            bc1 = 1.0 - group_b1 ** t_val
-            bc2 = 1.0 - group_b2 ** t_val
-            m_hat = st["exp_avg"] / bc1
-            v_hat = st["exp_avg_sq"] / bc2
-            step_dir = m_hat / (v_hat.sqrt() + group_eps)
-            sq = float((step_dir * step_dir).sum().item())
-            sq_sum += sq
-            nel += step_dir.numel()
-            m_abs = float(step_dir.abs().max().item())
-            if m_abs > max_abs:
-                max_abs = m_abs
-        if nel > 0:
-            norm = sq_sum ** 0.5
-            rms = (sq_sum / nel) ** 0.5
-            metrics[f"train/optimizer1_step_dir/{group_name}_norm"] = norm
-            metrics[f"train/optimizer1_step_dir/{group_name}_rms"] = rms
-            metrics[f"train/optimizer1_step_dir/{group_name}_max_abs"] = max_abs
-            metrics[f"train/optimizer1_step_dir/{group_name}_numel"] = nel
-            grand_sq += sq_sum
-            grand_n += nel
+    for optimizer in optimizers:
+        if optimizer is None:
+            continue
+        beta1, beta2 = optimizer.param_groups[0].get("betas", (None, None))
+        eps = optimizer.param_groups[0].get("eps", 1e-10)
+        if not representative_set and beta1 is not None and beta2 is not None:
+            metrics["train/optimizer1/beta1"] = float(beta1)
+            metrics["train/optimizer1/beta2"] = float(beta2)
+            metrics["train/optimizer1/eps"] = float(eps)
+            representative_set = True
+        for group in optimizer.param_groups:
+            group_name = group.get("name", "unknown")
+            group_b1, group_b2 = group.get("betas", (beta1, beta2))
+            group_eps = group.get("eps", eps)
+            sq_sum = 0.0
+            nel = 0
+            max_abs = 0.0
+            for p in group["params"]:
+                st = optimizer.state.get(p, {})
+                if "exp_avg" not in st or "exp_avg_sq" not in st:
+                    continue
+                t = st.get("step")
+                t_val = float(t.item()) if torch.is_tensor(t) else float(t or 0)
+                if t_val <= 0:
+                    continue
+                bc1 = 1.0 - group_b1 ** t_val
+                bc2 = 1.0 - group_b2 ** t_val
+                m_hat = st["exp_avg"] / bc1
+                v_hat = st["exp_avg_sq"] / bc2
+                step_dir = m_hat / (v_hat.sqrt() + group_eps)
+                sq = float((step_dir * step_dir).sum().item())
+                sq_sum += sq
+                nel += step_dir.numel()
+                m_abs = float(step_dir.abs().max().item())
+                if m_abs > max_abs:
+                    max_abs = m_abs
+            if nel > 0:
+                norm = sq_sum ** 0.5
+                rms = (sq_sum / nel) ** 0.5
+                metrics[f"train/optimizer1_step_dir/{group_name}_norm"] = norm
+                metrics[f"train/optimizer1_step_dir/{group_name}_rms"] = rms
+                metrics[f"train/optimizer1_step_dir/{group_name}_max_abs"] = max_abs
+                metrics[f"train/optimizer1_step_dir/{group_name}_numel"] = nel
+                grand_sq += sq_sum
+                grand_n += nel
     if grand_n > 0:
         metrics["train/optimizer1_step_dir/all_norm"] = grand_sq ** 0.5
         metrics["train/optimizer1_step_dir/all_rms"] = (grand_sq / grand_n) ** 0.5
@@ -533,6 +541,36 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# AdaBelief aux-optimizer switch. When "adabelief", param groups listed in
+# NANOGPT_ADABELIEF_SCOPE use AdaBelief (variance-of-prediction-error second
+# moment); other aux groups stay on AdamW.
+NANOGPT_AUX_OPTIMIZER = os.environ.get("NANOGPT_AUX_OPTIMIZER", "adamw")
+_VALID_AUX_OPTIMIZERS = ("adamw", "adabelief")
+if NANOGPT_AUX_OPTIMIZER not in _VALID_AUX_OPTIMIZERS:
+    raise ValueError(
+        f"NANOGPT_AUX_OPTIMIZER={NANOGPT_AUX_OPTIMIZER!r}, must be one of {_VALID_AUX_OPTIMIZERS}"
+    )
+NANOGPT_ADABELIEF_SCOPE = os.environ.get("NANOGPT_ADABELIEF_SCOPE", "none")
+_VALID_ADABELIEF_SCOPES = (
+    "none", "embed", "lm_head", "scalars", "embed_lm_head", "embed_lm_head_scalars",
+)
+if NANOGPT_ADABELIEF_SCOPE not in _VALID_ADABELIEF_SCOPES:
+    raise ValueError(
+        f"NANOGPT_ADABELIEF_SCOPE={NANOGPT_ADABELIEF_SCOPE!r}, must be one of {_VALID_ADABELIEF_SCOPES}"
+    )
+_ADABELIEF_SCOPE_MAP = {
+    "none": (),
+    "embed": ("adam_embed",),
+    "lm_head": ("adam_lm_head",),
+    "scalars": ("adam_scalars",),
+    "embed_lm_head": ("adam_embed", "adam_lm_head"),
+    "embed_lm_head_scalars": ("adam_embed", "adam_lm_head", "adam_scalars"),
+}
+ADABELIEF_GROUP_NAMES = (
+    set(_ADABELIEF_SCOPE_MAP[NANOGPT_ADABELIEF_SCOPE])
+    if NANOGPT_AUX_OPTIMIZER == "adabelief"
+    else set()
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -706,6 +744,64 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class AdaBeliefW(torch.optim.Optimizer):
+    """AdaBelief (Zhuang et al. NeurIPS 2020) with decoupled weight decay.
+
+    Replaces AdamW's second moment v_t = β₂·v_{t-1} + (1-β₂)·g_t² with
+        s_t = β₂·s_{t-1} + (1-β₂)·(g_t − m_t)² + ε
+    (variance of gradient prediction error). The inner +ε floor prevents
+    s_t from collapsing when g_t tracks m_t exactly.
+
+    State (m=`exp_avg`, s=`exp_avg_sq`, `step`) is kept in float32 even when
+    the parameter is bfloat16 — `(g − m)²` cancellation would otherwise lose
+    most significant bits in bfloat16's 7-bit mantissa. State names match
+    AdamW so the existing step-direction telemetry helpers work unchanged.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad.to(torch.float32) if p.grad.dtype != torch.float32 else p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state["exp_avg"] = torch.zeros_like(p, dtype=torch.float32, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32, memory_format=torch.preserve_format)
+                state["step"] += 1
+                t = float(state["step"].item())
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # First moment: m_t = β1·m_{t-1} + (1-β1)·g
+                m.mul_(beta1).add_(g, alpha=1.0 - beta1)
+                # Second moment (AdaBelief): s_t = β2·s_{t-1} + (1-β2)·(g-m)² + ε
+                diff = g.sub(m)
+                v.mul_(beta2).addcmul_(diff, diff, value=1.0 - beta2).add_(eps)
+                # Bias-corrected step.
+                bias1 = 1.0 - beta1 ** t
+                bias2 = 1.0 - beta2 ** t
+                m_hat = m / bias1
+                denom = (v / bias2).sqrt_().add_(eps)
+                update = m_hat / denom
+                if update.dtype != p.dtype:
+                    update = update.to(p.dtype)
+                # Decoupled weight decay then parameter update.
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+        return None
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -744,6 +840,9 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"AUX_OPTIMIZER: {NANOGPT_AUX_OPTIMIZER}, ADABELIEF_SCOPE: {NANOGPT_ADABELIEF_SCOPE} "
+       f"(AdaBelief groups: {sorted(ADABELIEF_GROUP_NAMES) if ADABELIEF_GROUP_NAMES else 'none'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +906,9 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_aux_optimizer": NANOGPT_AUX_OPTIMIZER,
+            "nanogpt_adabelief_scope": NANOGPT_ADABELIEF_SCOPE,
+            "nanogpt_adabelief_group_names": sorted(ADABELIEF_GROUP_NAMES),
         },
     )
 
@@ -838,10 +940,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    aux_group_specs = [
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars"),
+    ]
+    adamw_specs = [g for g in aux_group_specs if g["name"] not in ADABELIEF_GROUP_NAMES]
+    adabelief_specs = [g for g in aux_group_specs if g["name"] in ADABELIEF_GROUP_NAMES]
+    aux_common = dict(betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0)
+    optimizer1 = AdamW(adamw_specs, fused=True, **aux_common) if adamw_specs else None
+    optimizer1b = AdaBeliefW(adabelief_specs, **aux_common) if adabelief_specs else None
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -851,7 +959,8 @@ for trial_idx in range(args.num_trials):
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
-    optimizers = [optimizer1, optimizer2]
+    aux_optimizers = [opt for opt in [optimizer1, optimizer1b] if opt is not None]
+    optimizers = aux_optimizers + [optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1039,10 +1148,18 @@ for trial_idx in range(args.num_trials):
         embed_step_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and embed_step_due:
             with torch.no_grad():
-                embed_state = optimizer1.state.get(model.embed.weight, {})
-                if "exp_avg" in embed_state and "exp_avg_sq" in embed_state:
+                # Find whichever aux optimizer owns the embed weight (AdamW or AdaBeliefW).
+                embed_opt = None
+                embed_state: dict = {}
+                for opt in aux_optimizers:
+                    st = opt.state.get(model.embed.weight, {})
+                    if "exp_avg" in st and "exp_avg_sq" in st:
+                        embed_opt = opt
+                        embed_state = st
+                        break
+                if embed_opt is not None:
                     embed_group = next(
-                        g for g in optimizer1.param_groups if g.get("name") == "adam_embed"
+                        g for g in embed_opt.param_groups if g.get("name") == "adam_embed"
                     )
                     beta1, beta2 = embed_group["betas"]
                     eps = embed_group["eps"]
@@ -1067,7 +1184,7 @@ for trial_idx in range(args.num_trials):
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
             log_adamw_step_direction(
-                optimizer=optimizer1,
+                optimizers=aux_optimizers,
                 trial_idx=trial_idx,
                 step=train_step,
                 wandb_step=wandb_step,
