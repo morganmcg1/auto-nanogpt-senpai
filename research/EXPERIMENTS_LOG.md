@@ -1,5 +1,66 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 04:30 UTC — Cycle 61: #373 CLOSED (AdaMuon axis-falsified at n=4 on both baselines; EMA-family exhaustion 4-deep; "input-side robust vs output-side fragile" mechanism finding); frieren → #435 logit softcap K sweep (strategy-tier shift to model-side axes)
+
+### PR #373 — AdaMuon: post-NS5 per-element EMA variance scaling — CLOSED axis-falsified
+
+Branch: `g1r2-frieren/adamuon`. Arm B (ADAMUON_BETA2=0.99) cleared OLD bar at n=2 screen; predeclared n=4 confirm on new base. Terminal at 04:00 UTC.
+
+| Phase | Stack | W&B run | val (n=4 mean) | ffs (n=4 mean) | vs new bar (val<3.274383, ffs<3068.75) | vs old bar (val<3.275350, ffs<3087.5) | Verdict |
+|---|---|---|---|---|---|---|---|
+| n=2 screen old stack | OLD CONTRA_MUON=0.5 | (prior runs) | 3.27500 | 3075 | val MISS +0.00062, ffs MISS +6.25 | val PASS −0.00035, ffs PASS −12.5 | screening pass on old |
+| **n=4 confirm new base** | **NEW CONTRA_MUON=0.4** | `[per-trial table below]` | **3.27665** | **3093.75** | **val MISS +0.00227, ffs MISS +25** | **val MISS +0.00130, ffs MISS +6.25** | **FALSIFIED both bars both bases** |
+
+Per-trial new-base n=4: T0=3.27729/3100, T1=3.27577/3075, T2=3.27727/3100, T3=3.27626/3100. Three of four trials at unfavorable ffs=3100 — clean regression to mean from n=2 lucky-draw.
+
+**Key cross-cycle research finding — "input-side robust vs output-side fragile" mechanism**:
+
+The optimizer pipeline is SOAP → NS5 → Contra-Muon → NorMuon → u/w-floor scaling. **Pre-NS5 mechanisms tolerate perturbations because NS5 re-projects to the orthogonal manifold**:
+- MuonEq-R #372 (pre-NS5 row normalization) — tolerable on old stack
+- Contra-Muon (op-norm normalization) — robust across stacks
+- NorMuon-lite row scaling — robust
+
+**Post-NS5 mechanisms have no re-projection downstream and perturbations propagate directly into the parameter update**:
+- AdaMuon #373 (per-element EMA after NS5) — falsified this PR
+- Post-NS5 RMS variants (multiple prior cycles) — falsified
+
+This framing predicts that **any future "scale-the-NS5-output" mechanism will fail unless it ablates an existing downstream variance-scaling component** (NorMuon, u/w-floor). It also explains why pre-NS5 mechanisms can survive on the old stack while their post-NS5 counterparts fail across both stacks.
+
+**EMA-family exhaustion (4-deep)**:
+
+| Cycle | PR | Mechanism | Verdict |
+|---|---|---|---|
+| 53 | #223 | SOAP_BETA2 sweep | EMA exhausted |
+| 58 | #378 | NORMUON_BETA2 sweep | EMA exhausted |
+| 58 | #394 | ATTN_SOAP_BETA2 sweep | EMA exhausted |
+| 60 | #373 | AdaMuon ADAMUON_BETA2 | EMA exhausted (post-NS5 specifically) |
+
+The variance-scaling stack has fundamental redundancy that resists BOTH EMA detuning and EMA-family additions. **Strategic consequence: any future PR proposing a new second-moment / variance / EMA mechanism on the existing pipeline should be treated with strong prior skepticism unless it ablates an existing redundant component.**
+
+**Cross-cycle Plateau Protocol trigger — 7 closures since PR #358 merged ~8h ago**:
+
+| Cycle | PR | Mechanism family | Verdict |
+|---|---|---|---|
+| 57 | #357 | MU_COOLDOWN_END=0.87 | cooldown-geometry lucky draw |
+| 58 | #372 (initial) | MuonEq-R pre-NS5 row norm | stack-specific |
+| 58 | #378 | NORMUON_BETA2 | EMA exhausted |
+| 58 | #379 | EMBED_INIT_STD=1.15 | stack-specific |
+| 58 | #394 | ATTN_SOAP_BETA2 | EMA exhausted |
+| 60 | #372 (rerun) | MuonEq-R pre-NS5 row norm | cooldown-geometry saturated |
+| 61 | #373 | AdaMuon post-NS5 EMA | EMA exhausted, post-NS5 |
+
+**Plateau Protocol applied**: strategy-tier shift warranted. Output-side model mechanisms, AdamW-path mechanisms, and structural mechanisms are the unexplored axes. Already in flight: fern #431 (AdamW lm_head_lr — AdamW-path).
+
+**Process notes**:
+- Frieren's terminal close analysis is one of the strongest of this round — the "input-side robust vs output-side fragile" framing produces a real research finding.
+- Honest regression-to-mean call: explicit cross-reference to thorfinn #357 / fern #372 / askeladd / edward as a cohort of similar attrition.
+- Predeclared close verdict held without negotiation.
+- Foreclosure math at 03:46 UTC was correct in principle but slightly cushioned wording — actual T3 was closer to projection floor than bar required.
+
+**Reassignment**: → **PR #435 logit softcap K sweep** (K=10 vs K=22 around default K=15). First non-optimizer-pipeline axis this cycle. Hardcoded at K=15 since project inception, never swept, load-bearing through ALL cycles, implicated as mediator in both edward #379 and fern #372 closure analyses.
+
+---
+
 ## 2026-05-19 03:30 UTC — Cycle 60: #372 CLOSED (MuonEq-R axis-falsified on new base; cooldown-geometry lever saturated); fern → #431 AdamW lm_head_lr sweep
 
 ### PR #372 — MuonEq-R: pre-NS5 row normalization for isotropic input — CLOSED axis-falsified
