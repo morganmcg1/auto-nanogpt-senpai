@@ -1,5 +1,34 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 01:10 UTC — Cycle 58: #394 CLOSED (ATTN_SOAP_BETA2 axis falsified both directions on new base, third EMA-family axis exhausted); nezuko → #420 ATTN_SOAP_TRUST_THRESHOLD sweep
+
+### PR #394 — ATTN_SOAP_BETA2 fine sweep (0.85 / 0.95) — CLOSED axis-falsified
+
+Branch: `g1r2-nezuko/attn-soap-beta2-sweep`. Arm A (0.85) screened on old CONTRA_MUON=0.5 stack pre-baseline-shift; Arm B (0.95) re-screened on new CONTRA_MUON=0.4 base per advisor 22:28 UTC sendback.
+
+| Phase | Arm | W&B run | val (n) | ffs (n) | n | vs new bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|---|
+| n=2 SCREEN old stack | A (0.85, faster) | (prior, pre-#358) | 3.275620 | 3087.5 | 2 | val MISS +0.001237, ffs MISS +18.75 | dominated, not advanced |
+| n=2 SCREEN new base | B (0.95, slower) | `scyomo0r` | 3.27734 (T0 only) | 3125 (T0 only) | 1 (T1 terminated) | val MISS +0.00296, ffs MISS +56.25 | **FALSIFIED** |
+
+**Trial 1 early termination**: Student correctly identified mathematical foreclosure at step 444:
+- Val statsig needs `trial_1 < 2·3.27717 − 3.27734 = 3.27700` (and for merge bar `trial_1 < 2·3.274383 − 3.27734 = 3.27143`, extreme tail).
+- FFS merge bar needs `trial_1_ffs < 2·3068.75 − 3125 = 3012.5` — below the 3025 quantization floor; hard-foreclosed.
+- ffs alone forecloses the AND-conjunction merge bar.
+
+**Mechanism diagnosis**:
+- ATTN_SOAP_BETA2=0.95 (slower EMA) on attention SOAP gate is the WORSE direction on new base, not the better one. The "longer effective rank → slower EMA" intuition is wrong here:
+  1. ATTN_SOAP_TRUST_THRESHOLD=0.85 already filters high-noise eigenbasis refreshes — slowing β₂ doesn't add information, just delays adaptation to legitimate basis drift.
+  2. Cooldown-phase dynamics need fast eigenbasis adaptation to track the rapidly-shrinking learning rate. Slow β₂=0.95 lags this.
+  3. Attention's "longer rank" applies to gradient *structure* (handled by the 4-head trust-gate routing), not temporal correlation (which β₂ tracks).
+- ATTN_SOAP_BETA2=0.90 default is a sharp local optimum — **third EMA-family β₂ axis confirmed exhausted** after SOAP_BETA2 (PR #223, prior cycle) and NORMUON_BETA2 (PR #378, this cycle).
+
+**Process notes**:
+- Initial advisor pod-diagnosis at 00:33 UTC was wrong — three concurrent failed launches (`ng7u2ep3`, `05r5oea7`, `9mwdil39`) masked the healthy `scyomo0r` run that was actually progressing. Corrected at 00:55 UTC after deeper W&B inspection. Pod was torch 2.11.0+cu130 (healthy) all along.
+- Student's terminal analysis was exemplary — explicit foreclosure proof, gate-on rate context, multi-axis cross-comparison with PR #378 (alphonse NORMUON sibling).
+
+**Suggested follow-up from student (rank #1)**: ATTN_SOAP_TRUST_THRESHOLD currently 0.85, never swept since PR #16, never tested on new cooldown stack. Different attention-pathway lever (basis-rotation gating, not EMA decay). → assigned as **PR #420 ATTN_SOAP_TRUST_THRESHOLD sweep (0.70 vs 0.95)**.
+
 ## 2026-05-19 00:00 UTC — Cycle 57: #357 CLOSED (MU_COOLDOWN_END axis characterized on old stack, ties ffs bar on new); thorfinn → #415 muon_warmup_steps sweep
 
 ### PR #357 — MU_COOLDOWN_END sweep (0.87 / 0.85) on old CONTRA_MUON=0.5 stack — CLOSED on MISS

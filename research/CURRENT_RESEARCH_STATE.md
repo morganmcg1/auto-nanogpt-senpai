@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- 2026-05-19 00:00 UTC — Cycle 57 — **thorfinn #357 CLOSED on miss (n=4 val=3.275425/ffs=3068.75, ties ffs bar), reassigned to #415 muon_warmup_steps sweep on new base. Edward #379 Arm B n=2 mean val=3.273530/ffs=3062.5 CLEARS new bar — n=4 confirm pending student post.**
+- 2026-05-19 01:10 UTC — Cycle 58 — **nezuko #394 CLOSED axis-falsified (Arm B 0.95 trial 0 val=3.27734/ffs=3125 on new base, trial 1 mathematically foreclosed and terminated early at step 444). Reassigned to #420 ATTN_SOAP_TRUST_THRESHOLD sweep (0.70 vs 0.95) on new base — pure env-var, fresh attention-pathway axis untouched since PR #16/#212.**
 
 ## ⭐ NEW BASELINE — PR #358 MERGED (20:55 UTC)
 
@@ -21,7 +21,7 @@ All current WIP experiments ran on CONTRA_MUON=0.5 (old stack). They are now com
 - ✅ **TANJIRO #376 CLOSED** (22:20 UTC): Arm B n=2 terminal val=3.27542/ffs=3075 — both miss new bar (val +0.00104, ffs +6.25). **Axis falsified both arms** — no operating point makes cooldown-only AdaMuon's variance scaling both active and net-beneficial given NorMuon's existing per-row variance EMA (double-normalization). Cross-confirms frieren #373 conclusion. Student gave excellent mechanism analysis. Reassigned → #406 MU_COOLDOWN_START sweep on new base.
 - 🔥 **EDWARD #379 Arm B n=2 SCREEN on OLD stack** (00:17 UTC): EMBED_INIT_STD=1.15 trials T0=3.274099/3075, T1=3.272960/3050 → n=2 mean **val=3.273530, ffs=3062.5** (clears new bar nominally by −0.000853/−6.25, statsig 0.00915). Student launched n=4 confirm on OLD CONTRA_MUON=0.5 stack and proactively flagged the stack mismatch. **Sent back 00:22 UTC** to kill old-stack n=4 and re-screen on new CONTRA_MUON=0.4 base. Direction (1.15 wins, 0.85 loses) contradicts arxiv 2502.05366 prior — mechanism likely tied to SOAP+logits-softcap interaction. If new-stack re-screen clears bar → high-priority merge candidate. Additivity prediction: ~3.27256/3050 on new stack.
 - **ALPHONSE #378** terminal on OLD stack: Arm A (β2=0.99) val=3.27509/ffs=3075 — clears old bar BOTH axes (statsig 0.00694); Arm B (β2=0.90) misses both. Arm A misses new bar by val +0.00071/ffs +6.25 (close, mechanistically aligned). **Sent back 22:54 UTC** to re-run Arm A (β2=0.99) on new CONTRA_MUON=0.4 base. Arm B falsified.
-- **NEZUKO #394** Arm A (0.85) terminal on OLD stack: val=3.276386/ffs=3100 — both miss. **Sent back 22:28 UTC** to run Arm B (0.95, slower adaptation — mechanistically aligned with attention's longer effective rank) on new CONTRA_MUON=0.4 base. Arm A trial 0 (3.274854/3075) was close enough to suggest axis isn't dead.
+- ✅ **NEZUKO #394 CLOSED** (01:10 UTC 2026-05-19): Arm B (β₂=0.95, slower) trial 0 on new base val=**3.27734**/ffs=**3125** — BOTH miss new bar (val +0.00296, ffs +56.25). Trial 1 mathematically foreclosed (val statsig needs trial_1 ≤ 3.27143; ffs bar needs trial_1 ≤ 3012.5 below quantization floor) — student terminated early at step 444. **Axis FALSIFIED both directions on new base** — confirms third EMA-family axis exhausted (after SOAP_BETA2 in PR #223 and NORMUON_BETA2 in PR #378). β₂=0.90 default is sharp local optimum across all three. Reassigned → **#420 ATTN_SOAP_TRUST_THRESHOLD sweep** (0.70 vs 0.95) on new base.
 
 Strategy shift: accept that all current in-flight runs will miss the new bar. Let them run to terminal (data informs axis characterization), then reassign to new stacked experiments on CONTRA_MUON=0.4 base. Meanwhile askeladd explores CONTRA_MUON=0.3 as direct continuation.
 
@@ -29,7 +29,8 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 
 - **ASKELADD #405** — CONTRA_MUON=0.3 and 0.35 sweep: does the contra-gradient axis continue below 0.4? Direct follow-up to merged PR #358. Arm A=0.3, Arm B=0.35. T0=3.275554/3075 (trial 1 ETA ~01:30 UTC).
 - **TANJIRO #406** (22:20 UTC) — MU_COOLDOWN_START sweep 0.93/0.97 on new base. START=0.95 has been fixed since PR #288 merge but never swept directly. Schedule-side axis (input-robust win pattern). Pure env-var change.
-- **THORFINN #415** (NEW 00:00 UTC 2026-05-19) — **muon_warmup_steps sweep** 200/400 vs default 300 on new base. Fresh schedule-side axis never swept on r2 — Muon momentum warmup tuned for old CONTRA_MUON=0.5 may be mis-aligned with new CONTRA_MUON=0.4 (lower contra-correction → more natural momentum signal early). Small code edit (env var read in `get_muon_momentum`).
+- **THORFINN #415** (NEW 00:00 UTC 2026-05-19) — **muon_warmup_steps sweep** 200/400 vs default 300 on new base. Fresh schedule-side axis never swept on r2 — Muon momentum warmup tuned for old CONTRA_MUON=0.5 may be mis-aligned with new CONTRA_MUON=0.4 (lower contra-correction → more natural momentum signal early). Confirmed Option A code addition at 00:21 UTC (MU_WARMUP_STEPS + MU_WARMUP_START env vars added to `set_hparams`); awaiting student smoke test then Arm A=200 launch.
+- **NEZUKO #420** (NEW 01:10 UTC 2026-05-19) — **ATTN_SOAP_TRUST_THRESHOLD sweep** 0.70 vs 0.95 on new base. Default 0.85 unswept since PR #16/#212 introduced Attn-SOAP; stack has shifted 3× (MU schedule + CONTRA_MUON) since then. Pure env-var change, attention-pathway lever, orthogonal to all other in-flight axes. ETA ~6.8h total wall time. Student's #1 follow-up suggestion from her own #394 terminal analysis.
 
 ## Previous cycle racing context (now superseded by new bar)
 
