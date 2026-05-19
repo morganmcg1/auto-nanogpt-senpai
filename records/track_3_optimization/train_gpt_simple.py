@@ -69,6 +69,12 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # Decoupled weight decay applied ONLY to the aux AdamW lm_head param group
+    # (model.proj.weight). Embeddings, scalars, and biases stay at wd=0 like the
+    # baseline. AdamW applies wd as theta = theta - lr * theta * wd. 0.0 = no-op.
+    parser.add_argument("--adam_lm_head_wd", type=float, default=float(os.environ.get("ADAM_LM_HEAD_WD", "0.0")),
+                        help="Decoupled weight decay for the aux AdamW lm_head group only "
+                             "(model.proj.weight). 0.0 = bit-identical to baseline (default).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -763,6 +769,7 @@ if dist.get_rank() == 0:
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
+            "adam_lm_head_wd": args.adam_lm_head_wd,
         },
     )
 
@@ -810,7 +817,8 @@ for trial_idx in range(args.num_trials):
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                             weight_decay=args.adam_lm_head_wd),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
