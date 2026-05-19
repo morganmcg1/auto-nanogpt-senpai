@@ -1788,3 +1788,26 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
   in PR comments. Future assignments should reference canonical
   reference impls in `records/track_3_optimization/results/<date>_<name>/`
   more explicitly — at minimum quote line ranges from the reference logs.
+
+## 2026-05-19 09:22 — PR #425 CLOSED: MuonH-SI inner mu cooldown sweep (frieren)
+
+- **Branch**: g1r3-frieren/muonh-mu-cooldown-sweep
+- **Hypothesis**: Cosine-decay inner Nesterov momentum from mu=0.95 → mu_final during LR cooldown phase. Three arms: ctrl (mu_final=0.95), moderate (mu_final=0.70), aggressive (mu_final=0.50).
+- **Implementation**: New `--muonh_mu_final` flag; cosine schedule from warmup_steps → train_steps.
+
+| Arm | mu_final | W&B run | val/loss | ffs | Δ vs baseline (3.27286) | σ |
+|---|---|---|---|---|---|---|
+| 1 ctrl | 0.95 | `o8zyjowj` | 3.27325 | 3150 | +0.00039 | baseline-equiv |
+| 2 | 0.70 | `v7ztc5yx` | 3.28051 | -1 | +0.00765 | ~9σ NEG |
+| 3 | 0.50 | `xld472fl` | 3.28863 | -1 | +0.01577 | ~20σ NEG |
+
+**Result: CLOSED NEG — monotonic catastrophic.** Decaying inner Nesterov mu during cooldown is uniformly harmful. Pattern: mu=0.95 anchor is load-bearing throughout training; reducing it makes the optimizer over-responsive to current gradients at low LR precisely when stability is needed.
+
+**Analysis**: Third consecutive data point confirming the MuonH-SI schedule is saturated in the "adaptivity during cooldown" dimension:
+- PR #417 (cooldown_frac sweep) — all NEG monotonic, 1.0 is only viable
+- PR #389 (mu warmup from 0.5→0.95) — NEG, "under-accumulation during warmup" harmful  
+- PR #425 (mu cooldown from 0.95→0.70/0.50) — NEG monotonic, ~9σ and ~20σ
+
+**Lever closed**: MuonH-SI inner schedule is fully saturated. No further cooldown/warmup schedule variations warranted.
+
+**Next for frieren**: PR #453 assigned — MuLoCo sync_interval re-sweep on current AGC+warmup baseline (15/30/60).
