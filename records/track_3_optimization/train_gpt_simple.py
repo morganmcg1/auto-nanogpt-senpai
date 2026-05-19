@@ -46,6 +46,8 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_beta2", type=float, default=SOAP_BETA2,
+                        help="SOAP Gram matrix EMA decay β₂ (default: 0.90)")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -615,7 +617,7 @@ class Muon(torch.optim.Optimizer):
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, beta2=args.soap_beta2)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -626,7 +628,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, shampoo_beta=args.soap_beta2, precondition_frequency=PRECOND_FREQ)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -732,7 +734,7 @@ if dist.get_rank() == 0:
             "soap_scope": "mlp.fc.weight,mlp.proj.weight" + (
                 ",attn.q.weight,attn.k.weight,attn.v.weight,attn.proj.weight" if args.soap_attn else ""
             ),
-            "soap_beta2": SOAP_BETA2,
+            "soap_beta2": args.soap_beta2,
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -847,6 +849,7 @@ for trial_idx in range(args.num_trials):
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
     dist.barrier()
+    print0(f"SOAP β₂={args.soap_beta2} (PRECOND_FREQ={PRECOND_FREQ})", console=True)
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
 
