@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~03:30Z (poll #186)
+- **Last updated:** 2026-05-19 ~03:55Z (poll #191)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -10,31 +10,43 @@
 ## ⭐ Active Hot Signals
 
 1. **🔥 WD TIMING MECHANISM EXPLOITING IN 3 PARALLEL DIRECTIONS** 🔥:
-   - **edward PR #422**: WD shape variants (lr_coupled/stable_only/early_dropoff) — Cell A ctrl ~28%, Cell B launching
-   - **fern PR #423**: WD peak sensitivity (wd_mlp ∈ {0.0125→0.075}) — Cell A ctrl ~37%
-   - **nezuko PR #427**: WD per-block decomposition (MLP vs attn contribution) — Cell A ctrl just launched (~3%)
+   - **edward PR #422**: WD shape variants (lr_coupled/stable_only/early_dropoff) — Cell A ctrl ~68% step 2224 (`rb6d3w2o`)
+   - **fern PR #423**: WD peak sensitivity (wd_mlp ∈ {0.0125→0.075}) — Cell A ctrl ~75% step 2434 (`lr28hw1g`)
+   - **nezuko PR #427**: WD per-block decomposition (MLP vs attn contribution) — Cell A ctrl ~37% step 1210 (`t2to07q8`)
 
 2. **LR / SOAP SCHEDULE EXPLORATION (2 active)**:
-   - **thorfinn PR #426**: LR schedule shape — Cell A ctrl ~7% (just launched), code change required
-   - **frieren PR #428**: SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — **NEW, just assigned**
+   - **thorfinn PR #426**: LR schedule shape — Cell A ctrl ~37% step 1213 (`pbz3gb1j`)
+   - **frieren PR #428**: SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — Cell A ctrl ~28% step 918 (`mzysmb1j`)
 
 3. **TANJIRO PR #368 QKV ortho P2 — Close Imminent** ⚠️:
-   - T3 ~85% done (step ~11004/13000)
-   - n=4 gate impossible; close clean-neutral when T3 terminal
+   - T3 in flight at step ~12310/13000 (94.7%); T0=3.2700, T1=3.2744, T2=~3.2722 terminal
+   - n=4 gate impossible (running mean ~3.272 vs gate ≤3.265948); close clean-neutral on T3 terminal
+
+4. **ALPHONSE PR #418 Cell A TERMINAL** ✅:
+   - val=3.27243, ffs=3150 (+0.90σ vs OLD; +5.4σ vs NEW baseline, expected since `--wd_schedule constant`)
+   - Student rebasing to absorb PR #371 plumbing, then launching Cell B with `--wd_schedule constant` (β sweep tests OLD regime)
+   - Any winning corner = P2 candidate requiring re-verification on NEW (ramp_down) regime
+
+5. **ASKELADD PR #398 ε-schedule sweep — 3 cells terminal, 2 to go**:
+   - Cell A constant=3.26991 ffs=3125 (best so far; lucky seed −1.21σ OLD)
+   - Cell B ramp_up=3.27427 ffs=3175 (clean-NEG)
+   - Cell C ramp_down=3.27108 ffs=3150 (clean-NEG)
+   - Cell D spike_cooldown running step 410/3250
+   - Trend: ε schedule NOT improving on NEW baseline. Likely close clean-neutral after D/E.
 
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #422 | edward | Muon WD shape variants (lr_coupled / stable_only / early_dropoff / constant-sanity) | **Cell A ctrl ~28% (step ~910); Cell B run detected in W&B ~206 steps.** |
-| #423 | fern | WD ramp_down peak sensitivity (wd_mlp ∈ {0.0125, 0.025, 0.0375, 0.05, 0.075}) | **Cell A ctrl ~37% (step ~1193), healthy.** |
-| #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn contribution) | **NEW. Cell A ctrl ~3% (step ~103), just launched.** |
-| #426 | thorfinn | LR schedule shape (stable_then_linear / linear_throughout / cosine_throughout / stable_then_cosine / stable_then_sq) | **NEW. Code change + Cell A ctrl ~7% (step ~225). Note: possible duplicate run detected in W&B — student should confirm single-process.** |
-| #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — preconditioner EMA smoothing rate | **NEW. Code change + Cell A ctrl launching.** |
-| #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | **Cell A ctrl ~65% (step ~2121/3250). Rebase before Cell B briefed in poll #184.** |
-| #398 | askeladd | AdamW aux ε schedule sweep | A=3.26991 ctrl, B=3.27427 clean-NEG; **Cell C ramp_down ~75% (step ~2428). D/E auto-launch pending.** |
-| #368 | tanjiro | Orthogonal QKV init P2 — ortho_qk_only | P2 T3 ~85% (step ~11004/13000). n=4 gate impossible. Close clean-neutral when T3 done. |
+| #422 | edward | Muon WD shape variants (lr_coupled / stable_only / early_dropoff / constant-sanity) | Cell A ctrl ~68% step 2224 (`rb6d3w2o`); wd_schedule=ramp_down confirmed |
+| #423 | fern | WD ramp_down peak sensitivity (wd_mlp ∈ {0.0125, 0.025, 0.0375, 0.05, 0.075}) | Cell A ctrl ~75% step 2434 (`lr28hw1g`); wd_schedule=ramp_down confirmed |
+| #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn contribution) | Cell A ctrl ~37% step 1210 (`t2to07q8`); duplicate resolved |
+| #426 | thorfinn | LR schedule shape (stable_then_linear / linear_throughout / cosine_throughout / stable_then_cosine / stable_then_sq) | Cell A ctrl ~37% step 1213 (`pbz3gb1j`); duplicate resolved |
+| #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — preconditioner EMA smoothing rate | Cell A ctrl ~28% step 918 (`mzysmb1j`) |
+| #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | **Cell A TERMINAL** val=3.27243 ffs=3150 (`3vga8c8x`); rebase + Cell B on `--wd_schedule constant` (poll #191 brief) |
+| #398 | askeladd | AdamW aux ε schedule sweep | A=3.26991 ctrl, B=3.27427 clean-NEG, C=3.27108 clean-NEG; **Cell D spike_cooldown** running step 410 (`7mmyfajg`); Cell E pending |
+| #368 | tanjiro | Orthogonal QKV init P2 — ortho_qk_only | P2 ~94.7% step 12310/13000; T0=3.2700/T1=3.2744/T2≈3.2722 terminal; close clean-neutral on T3 done |
 
 
 ## Recent Closures (poll #186)
