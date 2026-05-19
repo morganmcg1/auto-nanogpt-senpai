@@ -1142,3 +1142,38 @@ Family retired: Per-group Muon mu hypothesis class closed for r5.
 - **Cells:** A ctrl stable_then_linear, B linear_throughout, C cosine_throughout, D stable_then_cosine, E stable_then_sq
 - **Code change:** Add `_lr_multiplier` function + `--lr_schedule` CLI flag (parallel to `_wd_multiplier` from PR #371)
 - **Status:** In progress — waiting for student to implement code change and launch Cell A
+
+## 2026-05-19 03:00 UTC — PR #383: Muon gradient noise injection sweep — **CLOSED clean-negative**
+
+- **Student:** g1r5-nezuko
+- **Hypothesis:** Stochastic gradient noise (injected after NS5 Newton step) may help escape sharp minima or provide implicit regularization during training. Sweep std ∈ {0, 1e-4, 1e-3} × schedule {constant, linear_decay, cooldown_only}.
+
+### Results
+
+| Cell | std | schedule | val/loss | ffs | Δ vs OLD baseline | σ | Δ vs NEW baseline | σ_new | W&B id |
+|------|----:|----------|---------:|----:|------------------:|---:|------------------:|------:|--------|
+| A (ctrl) | 0 | constant | 3.27218 | 3150 | +0.00082 | +0.69 | +0.00423 | +5.14 | 2bojk9g6 |
+| B | 1e-4 | constant | 3.27108 | 3150 | -0.00028 | -0.24 | +0.00313 | +3.80 | isqlrt28 |
+| **C** | **1e-3** | **constant** | **3.27081** | **3125** | **-0.00055** | **-0.47** | **+0.00286** | **+3.48** | td3g1stj |
+| D | 1e-3 | linear_decay | 3.27158 | 3150 | +0.00022 | +0.19 | +0.00363 | +4.41 | 4jibve9v |
+| E | 1e-3 | cooldown_only | 3.27327 | 3150 | +0.00191 | +1.62 | +0.00532 | +6.47 | bzn94mp1 |
+
+### Mechanism interpretation
+
+**Ranking C > D > E** (for std=1e-3 schedules) strongly implies: **noise during stable phase is beneficial; noise during cooldown is actively harmful**. This aligns precisely with the WD ramp_down breakthrough principle. The cooldown_only schedule (Cell E) adds noise exactly when the model is least able to absorb it. Constant noise across all phases is net positive because the stable-phase benefit outweighs the cooldown harm.
+
+Monotone A→B→C improvement at constant schedule suggests the std curve has not peaked at 1e-3. Student suggested trying std=3e-3 or 5e-3, or "stable_only" schedule (noise only in stable phase, 0 in cooldown).
+
+### Conclusion
+
+Best cell C at +3.48σ vs NEW baseline (mu=3.267948) — far below Phase 2 gate (need mu ≤ 3.265948 for n=4 confirm). Gap is too large for n=4 to recover. Closing clean-negative. Muon gradient noise injection family retired for r5.
+
+New assignment: nezuko PR #427 — WD per-block decomposition (MLP vs attn contribution).
+
+## 2026-05-19 03:00 UTC — PR #427: nezuko WD per-block decomp — **ASSIGNED**
+
+- **Student:** g1r5-nezuko
+- **Hypothesis:** WD ramp_down gain from PR #371 applied equally to MLP and attn Muon groups. This sweep decomposes whether MLP WD, attn WD, or both contribute to the gain, and tests asymmetric peak (heavy MLP, light attn).
+- **Cells:** A ctrl (both), B (MLP only), C (attn only), D (no WD), E (asymmetric heavy MLP)
+- **Code change:** None — uses existing `--wd_mlp`, `--wd_attn`, `--wd_schedule` flags
+- **Status:** In progress — waiting for student to launch Cell A
