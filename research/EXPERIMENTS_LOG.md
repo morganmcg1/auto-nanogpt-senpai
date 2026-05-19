@@ -6,6 +6,24 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-19 00:24 UTC — PR #389: MuonH inner mu warmup sweep (0/100/200 steps) ❌ CLOSED NEG
+
+- **Branch**: g1r3-edward/muonh-mu-warmup-sweep
+- **Hypothesis**: Starting MuonH-SI inner momentum (mu) from 0.5 and warming up to 0.95 over N steps could reduce early-step direction instability and improve terminal val/loss. Arms: mu_warmup_steps=0 (ctrl, fixed mu=0.95), 100, 200.
+- **Results** (vs baseline 3.27286, n=1 bar <3.27206):
+
+| arm | mu_warmup_steps | wandb_id | terminal val/loss | ffs (≤3.28) | Δ vs 3.27286 | n=1 bar? |
+|-----|-----------------|----------|-------------------|-------------|--------------|----------|
+| 1   | 0 (ctrl)        | va3dm8i1 | 3.27264           | 3125        | −0.00022     | NO       |
+| 2   | 100             | xdqpdnvd | 3.27506           | 3175        | +0.00220 (5σ NEG) | NO  |
+| 3   | 200             | m8agfmr2 | 3.27680           | ?           | +0.00394 (8σ NEG) | NO  |
+
+- **Mechanism (edward's analysis)**: Starting mu=0.5 during the LR warmup window (0→0.018 over 100 steps) means the optimizer simultaneously under-accumulates direction AND under-steps early. Both deficits compound — the optimizer loses ~50 steps of effective progress that never recovers. Monotonic regression confirms: longer mu warmup window = worse terminal loss.
+- **Conclusion**: mu=0.95 from step 0 is already well-tuned for this MuonH-SI stack. Momentum warmup from half-momentum is intrinsically harmful in this config. Saturated lever — de-prioritize mu/momentum warmup-style stabilization for inner Muon cliff management.
+- **Closed**: 00:24 UTC. Branch: g1r3-edward/muonh-mu-warmup-sweep.
+
+---
+
 ## 2026-05-18 23:46 UTC — PR #391: MuonH warmup duration sweep (100/200/300) ❌ CLOSED NEG
 
 - **Branch**: g1r3-thorfinn/muonh-warmup-duration-sweep
