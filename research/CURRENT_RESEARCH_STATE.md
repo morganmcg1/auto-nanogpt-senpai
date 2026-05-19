@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 14:35 UTC
+- **Last update:** 2026-05-19 15:40 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,39 +12,40 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278).
 
-## Three axes CLOSED this cycle (11:48–14:33 UTC)
+## Axes CLOSED this cycle (11:48–15:35 UTC)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
 | **#447** | fern | NS adaptive threshold: mechanism never engages (residual plateau ~6.9). | CLOSED 12:25 UTC |
 | **#433** | edward | Aux AdamW β2-by-group: both NULL/regression. Uniform 0.95 optimal. | CLOSED 12:30 UTC |
 | **#416** | askeladd | Aux AdamW β1=0.85: n=2 falsification. β1 axis closes at 0.8. | CLOSED earlier |
-| **#439** | thorfinn | Logit soft-cap c∈{10,30}: symmetric +112.5 sr regression both arms. c=15 in local optimum. | **CLOSED 14:10 UTC** |
-| **#440** | tanjiro | Embed init scale std∈{0.5,2.0}: symmetric NULL both arms. std=1.0 in local optimum. | **CLOSED 14:33 UTC** |
+| **#439** | thorfinn | Logit soft-cap c∈{10,30}: symmetric +112.5 sr regression. c=15 in local optimum. | CLOSED 14:10 UTC |
+| **#440** | tanjiro | Embed init scale std∈{0.5,2.0}: symmetric NULL. std=1.0 in local optimum. | CLOSED 14:33 UTC |
+| **#444** | frieren | PMuon γ_power phase ramp both directions: Δsr=+37.5 both arms. γ=0.4 STATIC invariant. | **CLOSED 15:35 UTC** |
 
-## Active experiments (8 students, 14:35 UTC)
+## Active experiments (8 students, 15:40 UTC)
 
 | PR | Student | Run | Step | bl | ETA term | Status |
 |---|---|---|---|---|---|---|
-| **#480** | **tanjiro** | (awaiting pickup) | — | — | ~3.5h after launch | **NEW — attention scale scan {0.09, 0.15} vs baseline 0.12.** First scan of softmax temperature. |
-| **#476** | **thorfinn** | `j3gh6b0q` Arm A z-loss=1e-4 | 125 | 4.47 | ~4.7h | Z-loss (log-Z regularizer) just started; orthogonal to soft-cap. |
-| **#465** | fern | `jyizvqdk` Arm A muon-lr=0.030 | 1450 | 3.5423 | ~136m | Duplicate killed; canonical solo again. |
-| **#466** | edward | `p9teuxjm` Arm A aux-wd=0.001 | 1650 | 3.5041 | ~115m | Stable progression |
-| **#463** | askeladd | `jdhgubwr` Arm A embed-eps=1e-8 | 1725 | 3.5036 | ~101m | Stable progression |
-| **#460** | alphonse | `a7bmaf65` Arm A scalar_lr=0.020 | 2250 | 3.3767 | ~70m | Mid-cooldown |
-| **#448** | nezuko | `taremaia` Arm B cf-aux=0.85 | 1900 | 3.4477 | ~94m | Mid-cooldown |
-| **#444** | frieren | `894sq3ig` Arm B γ ramp 0.4→0.5 | 2525 | 3.3355 | **~50m** | Closest to terminal |
+| **#482** | **frieren** | (awaiting pickup) | — | — | ~7h sequential | **NEW — body Muon WD partition: MLP-only vs attention-only WD.** First structural partition of body group. |
+| **#480** | tanjiro | `kz1m6rzg` Arm A attn-scale=0.09 | 725 | 3.754 | ~2.9h | First softmax temperature scan running |
+| **#476** | thorfinn | `j3gh6b0q` Arm A z-loss=1e-4 | 975 | 3.687 | ~2.5h | Z-loss running cleanly |
+| **#465** | fern | `jyizvqdk` Arm A muon-lr=0.030 | 2275 | 3.368 | ~50m | Late cooldown |
+| **#466** | edward | `p9teuxjm` Arm A aux-wd=0.001 | 2475 | 3.356 | ~36m | Late cooldown |
+| **#463** | askeladd | `jdhgubwr` Arm A embed-eps=1e-8 | 2600 | 3.336 | ~28m | Late cooldown |
+| **#460** | alphonse | `a7bmaf65` Arm A scalar_lr=0.020 | 3075 | 3.272 | **~12m** | Closest to terminal; fs=2975 locks NULL on 1st clause |
+| **#448** | nezuko | `taremaia` Arm B cf-aux=0.85 | 2725 | 3.321 | ~22m | Late cooldown |
 
-## Next terminal events (from 14:35 UTC)
+## Next terminal events (from 15:40 UTC)
 
-1. **frieren 894sq3ig** — ~15:25 UTC (50 min). bl=3.336, late cooldown. Plausible NULL (would need bl<3.264 in 700 steps).
-2. **alphonse a7bmaf65** — ~15:45 UTC (70 min). bl=3.38.
-3. **nezuko taremaia** — ~16:09 UTC (94 min).
-4. **askeladd jdhgubwr** — ~16:16 UTC (101 min).
-5. **edward p9teuxjm** — ~16:30 UTC (115 min).
-6. **fern jyizvqdk** — ~16:51 UTC (136 min).
-7. **thorfinn j3gh6b0q** — ~19:15 UTC (4.7h, just started).
-8. **tanjiro PR #480** — depends on pickup time (just assigned).
+1. **alphonse a7bmaf65** — ~15:52 UTC (~12 min). bl=3.272, fs=2975 already locked → NULL on first clause; would need val<3.264 in ~175 steps. Plausible NULL.
+2. **nezuko taremaia** — ~16:02 UTC (~22 min).
+3. **askeladd jdhgubwr** — ~16:08 UTC (~28 min).
+4. **edward p9teuxjm** — ~16:16 UTC (~36 min).
+5. **fern jyizvqdk** — ~16:30 UTC (~50 min).
+6. **thorfinn j3gh6b0q** — ~18:10 UTC (~2.5h).
+7. **tanjiro kz1m6rzg** — ~18:30 UTC (~2.9h).
+8. **frieren #482** — depends on pickup; ~7h sequential after launch.
 
 ## Recently merged
 
@@ -53,26 +54,28 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#413** | alphonse | scalar_lr=0.025: n=2 sr=2937.5, val=3.264278 (Δsr=−37.5, Δval=−0.002942) | **MERGED 11:48 UTC** — current baseline. |
 | **#367** | frieren | lm_head_lr=1/160: n=2 sr=2975 val=3.26722 | MERGED — prior baseline. |
 
-## Current research focus (updated 14:35 UTC)
+## Current research focus (updated 15:40 UTC)
 
-**Pattern emerging: two consecutive axes (soft-cap, embed init) closed at inherited defaults with symmetric bracket regressions.** This suggests the inherited constants in the model definition are largely well-tuned for this op point. Productive frontier shifts toward:
+**Pattern intensifying: three consecutive axes (soft-cap, embed init, γ_power phase) closed at inherited defaults with symmetric bracket regressions.** Plus PMuon scalar axes (γ_power phase, β_cov static, LR warmup) all NULL via frieren's three closures. PMuon scalar HPs and inherited model constants are saturated at this op point. Productive frontier:
 
-1. **Structurally novel mechanisms** (Z-loss orthogonal to soft-cap, attention temperature as inherited-but-not-round-number constant): thorfinn #476, tanjiro #480.
-2. **Per-group optimizer axes still characterizing** (eps, WD on aux groups): askeladd #463, edward #466.
-3. **Schedule decoupling** (per-group cooldown): nezuko #448.
-4. **Body-Muon mechanism axes**: fern #465 (Muon LR fine), frieren #444 (γ phase).
+1. **Structurally novel mechanisms** (Z-loss orthogonal to soft-cap, softmax temperature): thorfinn #476, tanjiro #480.
+2. **Body Muon structural partition** (MLP vs attention WD): frieren #482 — first partition of body group ever tested.
+3. **Per-group optimizer axes still characterizing** (eps, WD on aux groups): askeladd #463, edward #466.
+4. **Schedule decoupling** (per-group cooldown): nezuko #448.
+5. **Body-Muon scalar mechanism** (Muon LR fine): fern #465.
 
 ## Open unexplored axes (candidate next assignments)
 
 - **Pre-softmax logit scaling** (decouple temperature from soft-cap)
 - **PMuon EMA bias correction revisit** (#307 closed; revisit at new op point?)
-- **Lookahead-AdamW wrapper on aux** (#143 closed at old op point)
+- **Lookahead-AdamW wrapper on aux** (#143 closed at old op point — being tested at r2)
 - **scalar_lr × COOLDOWN_POWER interaction** (alphonse suggested compound after #460)
 - **Different NS polynomial coefficients** (c ≠ 0 variants with asymmetric a,b)
-- **MLP-only vs attention-only WD** (orthogonal partition of body WD)
-- **Per-block residual scaling** (DeepNet-style gates)
+- **Per-block residual scaling** (DeepNet-style gates) — being tested on r4 #452
 - **Skip-connection LR multiplier**
-- **Body weight std multiplier** (tanjiro suggested — 0.33 constant in body init never scanned)
+- **β_cov scheduled ramp** (orthogonal to γ — frieren suggested as last untested PMuon axis)
+- **Per-block LR multiplier on deepest vs shallowest blocks**
+- **Output projection scale (block exit) — small-scale init for proj.weight**
 
 ## Statistical rule reminder
 

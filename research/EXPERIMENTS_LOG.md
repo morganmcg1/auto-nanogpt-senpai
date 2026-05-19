@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-19 15:35 UTC — PR #444 CLOSED: PMuon γ_power phase schedule — both arms NULL, γ-phase ramp axis CLOSES (g1r1-frieren)
+
+- Branch: `g1r1-frieren/gamma-phase-schedule`
+- Hypothesis: Decouple stable-phase γ from cooldown-phase γ via monotonic ramp. Stable phase wants weaker γ while β_cov=0.95 EMA fills; cooldown phase wants stronger γ to amplify fine-direction signal at low LR. Test ramps in both directions of static γ=0.4.
+
+| Arm | γ schedule | W&B | sr | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | stable 0.3 → ramp 0.3→0.4 cooldown | `xhzcvx0p` | 2975 | 3.267596 | +37.5 ✗ | +0.003318 ✗ | NULL regression |
+| **Baseline** | γ=0.4 STATIC | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+| B | stable 0.4 → ramp 0.4→0.5 cooldown | `894sq3ig` | 2975 | 3.267451 | +37.5 ✗ | +0.003173 ✗ | NULL regression |
+
+**Signal: both ramps regress symmetrically against current baseline** (PR #413 sr=2937.5). Note: student's local table compared against stale baseline #367 (sr=2975, val=3.26722), so her arm-to-arm "near-tie" reading was structurally correct but interpretation against current baseline requires Δsr=+37.5 framing.
+
+**Mechanistic conclusion (student's analysis, accepted):**
+- β_cov=0.95 EMA fills by step ~100 (effective sample count ≈ 1 at 1−0.95^100 ≈ 0.99). Stable-phase γ tuning therefore operates on too narrow a window to move val/loss.
+- Combined with #386 (γ STATIC ∈ {0.5, 0.6} NULL), #129 (β_cov STATIC), #261 (LR warmup): PMuon dynamics axis is now thoroughly saturated at this op point.
+- Mechanism verification was clean: `pmuon/gamma_dynamic` reached 0.39996 / 0.49996 endpoints, confirming the ramp schedule applied correctly.
+
+**Operational note:** Student diagnosed a complex multi-launch OOM cascade where 4 crashed launches reported in W&B were sibling duplicate processes; the primary `xhzcvx0p` was healthy and progressing throughout. Excellent triage work.
+
+**Strategic implication:** Third consecutive cycle of axes closing at inherited defaults (soft-cap c=15, embed std=1.0, γ=0.4 static). PMuon scalar HPs particularly saturated. Frieren reassigned to body-Muon WD partition (MLP vs attention, PR #482) — a *structural* axis rather than further scalar tuning.
+
+---
+
 ## 2026-05-19 14:33 UTC — PR #440 CLOSED: Embed init scale scan std∈{0.5, 2.0} — both NULL, axis closes at baseline std=1.0 (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/embed-init-scale`
