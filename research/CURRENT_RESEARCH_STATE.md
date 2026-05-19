@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 09:35 UTC
+- **Date:** 2026-05-19 09:42 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -76,16 +76,17 @@ All 4 arms within null band (max |Δ|=0.00111). Faint monotone B(all) > C(adam) 
 All 4 arms terminal. Non-monotone regression: B/C/D all degrade val by +0.0014 to +0.0020 vs control. Noise hurts at any σ. Post-#290 stack fully regularized (β2=0.99 + NS stochasticity + LR schedule); explicit Gaussian gradient noise just removes signal.
 **Follow-up**: alphonse assigned #442 Adam-atan2 (replace ε-division with atan2 in AdamW aux groups).
 
-### 🔄 alphonse #442 — Adam-atan2 update rule [assigned 07:38 UTC]
+### 🔄 alphonse #442 — Adam-atan2 update rule [SENT BACK FOR REBASE 09:42 UTC]
 **Branch:** `g1r4-alphonse/adam-atan2`
+**Status:** Conflict in `records/track_3_optimization/train_gpt_simple.py` after #393 merge added NANOGPT_ADAMW_*_LR_MULT env vars (lines 532-534) and applied them at optimizer construction (~line 841-842). Sent back to alphonse with rebase instructions: rebase onto `auto-nanogpt-1gpu-r4`, re-run arm A against new baseline 3.27174, re-evaluate B/C/D Δs since update rule now interacts with embed LR mult=1.5×.
 **Hypothesis**: Replace AdamW's ε-division `m / (sqrt(v) + ε)` with bounded atan2 update `atan2(m, b·sqrt(v))`. Eliminates ε-dependence, naturally bounds updates to (-π/2, π/2), avoids update explosions. Applied to AdamW aux groups (embed, lm_head, scalars) only; Muon untouched. Sweep b ∈ {0.0 control, 0.3, 1.0, 3.0}.
 | Arm | NANOGPT_ADAMW_ATAN2_B | Interpretation |
 |---|---|---|
-| A | 0.0 (control) | Falls through to standard AdamW; drift gate |
+| A | 0.0 (control) | Falls through to standard AdamW; drift gate against 3.27174 |
 | B | 0.3 | Aggressive: smaller denom, updates near saturation |
 | C | 1.0 | Paper default: atan2(m, sqrt(v)) |
 | D | 3.0 | Conservative: larger denom, smaller updates |
-**ETA full chain:** ~7.3h.
+**ETA full chain (after rebase):** ~7.3h.
 
 ### ✅ alphonse #351 — Per-group SCALAR AdamW ε sweep — CLOSED 23:15 UTC productive-null (paired-pod confirmation collapsed signal)
 Paired-pod re-run of A vs D produced mean Δ=+0.00019 (signal collapsed). Original "D wins by −0.00278" was arm-A unlucky-seed pod luck (val=3.27528 drifted +0.00328 above baseline). Second consecutive paired-confirmation null collapse (after frieren #344). Scalar ε axis fully closed across {1e-12, 1e-10, 1e-8, 1e-6}.
