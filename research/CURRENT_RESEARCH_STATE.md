@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 13:45 UTC
+- **Date:** 2026-05-19 14:20 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -40,18 +40,22 @@ NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 
 ## Active experiments (all on r4)
 
-### 🔄 fern #408 — Adaptive Gradient Clipping (AGC) — PAIRED-POD CONFIRMATION (pod2-A running, ETA ~14:00 UTC)
+### ✅ fern #408 — Adaptive Gradient Clipping (AGC) — CLOSED 14:15 UTC productive-null
 
-**Shaping toward productive-null.** Pod0 signal was pod-luck:
-| Pod | Arm | val | Paired Δ (B−A) |
-|---|---|---|---|
-| Pod-0 (original) | A | 3.27315 | −0.00252 ← original signal |
-| Pod-0 (original) | B | 3.27063 | |
-| Pod-1 confirm | A | 3.27317 | **+0.00006** (null) |
-| Pod-1 confirm | B | 3.27323 | |
-| Pod-2 confirm | B | 3.27427 | pending (A running) |
+Paired-pod confirmation collapsed pod-0 signal. Final n=3 pooled: mean(val_B)=3.27271 > baseline 3.27200 → pre-staged rule triggers CLOSE. Pod-0 Δ=−0.00252 was favorable-seed luck (pod-1 Δ=+0.00006, pod-2 Δ=+0.00071). AGC mechanism consistent (99.4% trigger rate across all 3 B runs), but val benefit not reproducible. **16th productive-null this cycle.**
+**Follow-up**: fern assigned **#477 OrthoGrad for aux groups** — gradient projection orthogonal to weight direction (structurally distinct from AGC magnitude clipping).
 
-Provisional mean(val_B, n=3)=3.27271 > baseline 3.27200 → fails merge rule regardless of pod2-A value. Will close productive-null when pod2-A terminal.
+### 🔄 fern #477 — OrthoGrad for aux AdamW groups [assigned 14:20 UTC]
+
+**Branch:** `g1r4-fern/orthograd-aux`
+**Hypothesis**: Preprocess AdamW gradient by projecting out the weight-parallel component before AdamW first/second-moment accumulation: `g_perp = g_t − (g_t·w_t / ||w_t||²)·w_t`. Weight-parallel gradient just rescales parameter magnitude — removing it lets AdamW focus on direction signal. Applied only to 2D aux matrices (embed, lm_head); scalars degenerate. Structurally distinct from all 16 productive-null/negative axes this cycle — first gradient-direction-projection mechanism tested.
+| Arm | NANOGPT_ORTHOGRAD_SCOPE | Tests |
+|---|---|---|
+| A | none (control) | Drift gate against baseline 3.27174 |
+| B | embed | Sparse-gradient, large ||w||² (~770M) |
+| C | lm_head | Dense-gradient, V×768 matrix |
+| D | embed_lm_head | Both 2D aux weight matrices |
+**ETA full chain:** ~7.3h.
 
 ### 🔄 tanjiro #441 — Logit Z-loss (PaLM style) [assigned 06:49 UTC]
 
@@ -126,7 +130,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 **Optimizer-internal / Adam-family**:
 - β₁, β₂, ε per-group: all swept, β₁=0.80/β₂=0.99/ε=1e-10 confirmed
 - WD per-group: all harmful, axis closed
-- Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA: all closed
+- Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC: all closed
 - Lion, Adafactor on aux: closed (prior rounds)
 - LLRD Muon: closed (NS normalizes depth scaling)
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×

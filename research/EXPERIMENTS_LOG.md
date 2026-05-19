@@ -3,6 +3,49 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 14:15 UTC — PR #408: Adaptive Gradient Clipping (AGC) sweep (fern) — CLOSED productive-null
+
+- Branch: `g1r4-fern/adaptive-grad-clip`
+- Hypothesis: Per-parameter Frobenius-relative gradient clipping (NFNets-style AGC). Replaces fixed global `clip_grad_norm_(10.0)` with per-parameter trust region: `g'_i = g_i · min(1, λ · ||w_i||_F / ||g_i||_F)`. Scope=all (Muon + AdamW), λ ∈ {0.0, 0.01, 0.03, 0.1}.
+
+### Results — 4-arm original sweep + 3-pod paired confirmation
+
+**Original within-pod sweep (n=1 each):**
+
+| Arm | λ | val/loss | Δ vs A | first_step_to_target | trigger_rate | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A (control) | 0.0 | 3.27315 | — | 3250 | — | `501a4e8x` |
+| **B** | **0.01** | **3.27063** | **−0.00252** | 3225 | 99.4% | `5b62glw0` |
+| C | 0.03 | 3.27076 | −0.00239 | 3225 | 99.4% | `4mm7u7rm` |
+| D | 0.10 | 3.27289 | −0.00026 | 3250 | 99.4% | `ivd6ribv` |
+
+**Paired-pod confirmation (n=3 each):**
+
+| Pod | A val | B (λ=0.01) val | Δ within pod |
+|---|---:|---:|---:|
+| 0 (original) | 3.27315 | 3.27063 | **−0.00252** ← original signal |
+| 1 (confirm) | 3.27317 | 3.27323 | **+0.00006** (null) |
+| 2 (confirm) | 3.27356 | 3.27427 | **+0.00071** (B worse than A) |
+| **Pooled mean n=3** | **3.27329** | **3.27271** | **−0.00058** |
+
+All W&B runs: `501a4e8x`, `5b62glw0`, `4mm7u7rm`, `ivd6ribv`, `sa8ggn7j` (pod1-A), `o43p6e7i` (pod1-B), `yqf87h3c` (pod2-B), `q7ucq17u` (pod2-A). Groups: `g1r4-fern/adaptive-grad-clip`, `g1r4-fern/agc-confirm`.
+
+**Pre-staged decision rule**: mean(val_B,n=3)=3.27271 > baseline 3.27200 → **CLOSE productive-null** (fails "≤3.27200" leg).
+
+### Key findings
+
+1. **Pod-0 signal was favorable-seed luck**: val_B spread across 3 pods: [3.27063, 3.27323, 3.27427] = 0.00364 range. Pod-1 Δ=+0.00006, Pod-2 Δ=+0.00071 — both null or wrong-sign.
+2. **Mechanism is operating consistently**: AGC trigger-rate=99.4% across ALL 3 B runs (nearly every parameter clipped), yet val improvement is not reproducible. The per-parameter trust-region clipping is doing the same computation each time — it just doesn't yield consistent val benefit on this 3350-step stack vs global clip=10.0.
+3. **Cross-pod seed variance dominates**: within-pod arm-A spread [3.27315, 3.27317, 3.27356] = 0.00041 (tight); arm-B spread 0.00364 (much wider). AGC adds seed-level variance rather than deterministic signal. Suggests AGC changes the effective optimization trajectory in ways that are sensitive to initialization.
+4. **Third paired-pod collapse this cycle** (after #344 frieren NS-transition, #351 alphonse scalar-ε): confirms the paired-pod protocol is the correct guard against pod-luck at the |Δ|~0.002 frontier.
+5. **Critical stat observation (fern)**: "future single-seed signals at |Δ| < 0.005 should be considered tentative until paired-confirmed." The val spread of 0.00364 across seeds is comparable to the signal magnitudes we're trying to detect. Paired-pod confirmation is essential for any candidate with |Δ| < 0.005.
+
+### Mechanism takeaway for the cycle
+
+AGC step-time overhead is ≈0.4–0.5% — negligible. The problem is not compute efficiency; it's signal reproducibility. Fixed global `clip_grad_norm_(10.0)` is already near-sufficient as a gradient norm regularizer on this stack. AGC axis closed (including per-group AGC variants). **16th productive-null this cycle.**
+
+---
+
 ## 2026-05-19 13:43 UTC — PR #434: Lookahead optimizer scope sweep (edward) — CLOSED productive-NEGATIVE
 
 - Branch: `edward/lookahead-scope-sweep`
