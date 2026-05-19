@@ -26,6 +26,20 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+# PMuon γ_power phase schedule (PR #444): γ is static during stable phase
+# (steps 0..(1-cooldown_frac)*T) and linearly ramps to GAMMA_COOLDOWN_END during cooldown.
+# Arm A: stable 0.3 → cooldown 0.4. Arm B: stable 0.4 → cooldown 0.5.
+GAMMA_STABLE = 0.4
+GAMMA_COOLDOWN_END = 0.5
+GAMMA_SCHEDULE = "stable_static_cooldown_ramp"
+
+
+def gamma_for_progress(progress: float, cooldown_frac: float = 0.7) -> float:
+    """Phase-dependent γ_power. Static during stable phase, linear ramp during cooldown."""
+    if progress < 1 - cooldown_frac:
+        return GAMMA_STABLE
+    cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
+    return GAMMA_STABLE + (GAMMA_COOLDOWN_END - GAMMA_STABLE) * cooldown_progress
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -695,6 +709,9 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
+            "gamma_stable": GAMMA_STABLE,
+            "gamma_cooldown_end": GAMMA_COOLDOWN_END,
+            "gamma_schedule": GAMMA_SCHEDULE,
             "ns_iterations": NS_ITERS,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
@@ -750,6 +767,8 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # PMuon γ_power schedule: static GAMMA_STABLE in stable phase, linear ramp to
+    # GAMMA_COOLDOWN_END across cooldown (gamma_for_progress).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -760,10 +779,13 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
+        gamma_dyn = gamma_for_progress(progress, cooldown_frac)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+                if "gamma" in group:  # Muon groups have "gamma"; AdamW groups do not
+                    group["gamma"] = gamma_dyn
+        return progress, cooldown_progress, eta, gamma_dyn
 
 
     ########################################
@@ -852,7 +874,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_gamma = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -919,9 +941,10 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "pmuon/gamma_dynamic": sched_gamma,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2, sched_gamma)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
