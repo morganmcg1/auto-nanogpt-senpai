@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-19 04:20 UTC — PR #400 CLOSED: AGC on aux AdamW per-row λ ∈ {0.04, 0.10} — both NULL, axis closes (g1r1-edward)
+
+- Branch: `g1r1-edward/agc-aux`
+- Hypothesis: Adaptive Gradient Clipping (Brock et al. NFNets 2021) on aux AdamW (embed + lm_head + scalars). Per-row clip `||grad_row||/||param_row|| ≤ λ`. Tests whether Zipfian rare-token rows receive disproportionately large gradient spikes that AdamW variance doesn't protect against.
+
+| Arm | λ | W&B run | sr | val/loss | embed clip_rate | lm_head clip_rate | mean clip_coef (lm_head) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A | 0.04 | `2y0ewtlb` | -1 | 3.44634 | ~0% | **97.5%** | 0.055 | NULL (catastrophic) |
+| B (revised) | 0.10 | `llni6tar` | -1 | 3.44015 | ~0% | **96.9%** | 0.073 | NULL (catastrophic) |
+| Baseline (PR #367) | — | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — | — |
+
+- Note: original Arm B (λ=0.02) was killed at step 104 per advisor redirect (stricter clip would fail worse); replaced with λ=0.10 probe.
+
+**Mechanistic key:** embed clip rate ~0% (large param norms → natural grad/param ratio low). lm_head clip rate ~97% at BOTH λ values — lm_head's natural grad/param ratio is structurally >> 0.10. Going 2.5× more permissive (0.04→0.10) moved val only 3.44634→3.44015 (-0.0062) — confirming lm_head is being clipped well below its natural operating regime even at λ=0.10. Effective 14-18× slowdown of lm_head learning → severe underfit → +0.17 val/loss regression. AdamW's V_t already provides per-element bounding; AGC double-clips a path that's already well-conditioned.
+
+**Conclusion:** AGC axis CLOSED on aux. Per-row gradient clipping with any λ ∈ [0.01, 0.10] aggressively hamstrings lm_head. Suggested future direction: row-wise AdamW with per-row second-moment normalization (per student's analysis). New assignment PR #433 (aux β2 by group).
+
+---
+
 ## 2026-05-19 00:46 UTC — PR #403 CLOSED: Curriculum COOLDOWN_POWER — operational failure (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/cooldown-power-curriculum`
