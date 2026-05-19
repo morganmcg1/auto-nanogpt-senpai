@@ -1,3 +1,17 @@
+## 2026-05-19 21:00 UTC — PR #481 CLOSED (nezuko): Aux AdamW lm_head LR sweep — axis FLAT/SATURATED, 1/320 local optimum
+
+- Branch: `g1r3-nezuko/aux-lm-head-lr-sweep`
+- Hypothesis: Under eps=1e-6 baseline, the optimal aux lm_head LR may have shifted. Sweep 1/640 (halve) / 1/320 ctrl / 1/160 (double).
+
+| Arm | lm_head_lr | W&B run | val/loss | ffs | reached_target | Δ vs ctrl (3.27172) | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | 1/320 | `7c46dsmk` | 3.27172 | 3125 | yes | (ctrl) | +0.00053 |
+| 2 halve | 1/640 | `42ixzfcf` | 3.27297 | 3150 | yes | **+0.00125 (LOSS)** | +0.00178 |
+| 3 double | 1/160 | `8rsvklcn` | 3.27221 | 3125 | yes | +0.00049 (tied) | +0.00102 |
+
+- **Conclusion**: Axis flat-or-down. Asymmetric U-shape — halving clearly hurts; doubling is essentially tied with ctrl. lm_head_lr=1/320 is at/near local optimum under eps=1e-6. Cross-group comparison: scalars (PR #475) and lm_head (this PR) are well-tuned; only embed (PR #478) has a non-trivial gradient (monotone improvement upward). Consistent with eps=1e-6 lifting denominator floor primarily on the highest-grad-norm group (embed).
+- Nezuko reassigned to **H5 embed init std sweep** (mechanism test — initialization, not scalar HP). Strong synergy with the active embed_lr win direction.
+
 ## 2026-05-19 19:56 UTC — PR #475 CLOSED (fern): Aux AdamW scalars LR sweep — axis NEAR-SATURATED, 0.01 local optimum
 
 - Branch: `g1r3-fern/aux-adamw-scalars-lr-sweep`
