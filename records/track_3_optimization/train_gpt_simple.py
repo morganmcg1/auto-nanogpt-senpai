@@ -533,6 +533,11 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Init scale for block residual output projections (attn.proj, mlp.proj).
+# 0.0 (default) preserves baseline zero-init. Non-zero applies the standard
+# per-fan-in normal init (std=sqrt(0.33)/sqrt(fan_in)) then multiplies by this scale.
+# lm_head proj remains zero-init regardless.
+NANOGPT_BLOCK_OUT_INIT_SCALE = float(os.environ.get("NANOGPT_BLOCK_OUT_INIT_SCALE", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -744,6 +749,9 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"BLOCK_OUT_INIT_SCALE: {NANOGPT_BLOCK_OUT_INIT_SCALE} "
+       f"({'zero-init baseline' if NANOGPT_BLOCK_OUT_INIT_SCALE == 0.0 else 'scaled normal init (std=sqrt(0.33)/sqrt(fan_in)) * scale'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +815,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_block_out_init_scale": NANOGPT_BLOCK_OUT_INIT_SCALE,
         },
     )
 
@@ -825,7 +834,14 @@ for trial_idx in range(args.num_trials):
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                # Block residual output projections (attn.proj, mlp.proj) optionally
+                # get scaled normal init when NANOGPT_BLOCK_OUT_INIT_SCALE != 0.
+                # lm_head proj (name == "proj.weight") stays zero-init regardless.
+                if name.startswith("blocks.") and NANOGPT_BLOCK_OUT_INIT_SCALE != 0.0:
+                    w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
+                    w.mul_(NANOGPT_BLOCK_OUT_INIT_SCALE)
+                else:
+                    w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
