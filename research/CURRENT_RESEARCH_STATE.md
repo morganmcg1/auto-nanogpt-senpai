@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~03:55Z (poll #191)
+- **Last updated:** 2026-05-19 ~03:30Z (poll #193)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -18,41 +18,42 @@
    - **thorfinn PR #426**: LR schedule shape — Cell A ctrl ~37% step 1213 (`pbz3gb1j`)
    - **frieren PR #428**: SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — Cell A ctrl ~28% step 918 (`mzysmb1j`)
 
-3. **TANJIRO PR #368 QKV ortho P2 — Close Imminent** ⚠️:
-   - T3 in flight at step ~12310/13000 (94.7%); T0=3.2700, T1=3.2744, T2=~3.2722 terminal
-   - n=4 gate impossible (running mean ~3.272 vs gate ≤3.265948); close clean-neutral on T3 terminal
+3. **TANJIRO PR #368 QKV ortho P2 — CLOSED clean-neutral** ✅:
+   - n=4 mean=3.27250, ffs=3150 — +5.53σ vs NEW baseline. Gate failed. QKV init family closed.
+   - **NEW: PR #432 tanjiro Muon nesterov ablation assigned** — testing whether nesterov=True matters after NS5.
 
-4. **ALPHONSE PR #418 Cell A TERMINAL** ✅:
-   - val=3.27243, ffs=3150 (+0.90σ vs OLD; +5.4σ vs NEW baseline, expected since `--wd_schedule constant`)
-   - Student rebasing to absorb PR #371 plumbing, then launching Cell B with `--wd_schedule constant` (β sweep tests OLD regime)
-   - Any winning corner = P2 candidate requiring re-verification on NEW (ramp_down) regime
+4. **ALPHONSE PR #418 β corner sweep progressing**:
+   - Cell A=3.27243 ffs=3150 (ctrl, `--wd_schedule constant`, OLD regime)
+   - Cell B `2wut791f` running step ~700 (22%)
+   - Any winning corner = P2 candidate requiring re-verification on NEW regime
 
 5. **ASKELADD PR #398 ε-schedule sweep — 3 cells terminal, 2 to go**:
-   - Cell A constant=3.26991 ffs=3125 (best so far; lucky seed −1.21σ OLD)
+   - Cell A constant=3.26991 ffs=3125 (best; lucky seed)
    - Cell B ramp_up=3.27427 ffs=3175 (clean-NEG)
    - Cell C ramp_down=3.27108 ffs=3150 (clean-NEG)
-   - Cell D spike_cooldown running step 410/3250
-   - Trend: ε schedule NOT improving on NEW baseline. Likely close clean-neutral after D/E.
+   - Cell D spike_cooldown running step ~1143/3250 (35%)
+   - Trend: ε schedule NOT improving. Close clean-neutral expected after D/E.
 
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #422 | edward | Muon WD shape variants (lr_coupled / stable_only / early_dropoff / constant-sanity) | Cell A ctrl ~68% step 2224 (`rb6d3w2o`); wd_schedule=ramp_down confirmed |
-| #423 | fern | WD ramp_down peak sensitivity (wd_mlp ∈ {0.0125, 0.025, 0.0375, 0.05, 0.075}) | Cell A ctrl ~75% step 2434 (`lr28hw1g`); wd_schedule=ramp_down confirmed |
-| #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn contribution) | Cell A ctrl ~37% step 1210 (`t2to07q8`); duplicate resolved |
-| #426 | thorfinn | LR schedule shape (stable_then_linear / linear_throughout / cosine_throughout / stable_then_cosine / stable_then_sq) | Cell A ctrl ~37% step 1213 (`pbz3gb1j`); duplicate resolved |
-| #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — preconditioner EMA smoothing rate | Cell A ctrl ~28% step 918 (`mzysmb1j`) |
-| #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | **Cell A TERMINAL** val=3.27243 ffs=3150 (`3vga8c8x`); rebase + Cell B on `--wd_schedule constant` (poll #191 brief) |
-| #398 | askeladd | AdamW aux ε schedule sweep | A=3.26991 ctrl, B=3.27427 clean-NEG, C=3.27108 clean-NEG; **Cell D spike_cooldown** running step 410 (`7mmyfajg`); Cell E pending |
-| #368 | tanjiro | Orthogonal QKV init P2 — ortho_qk_only | P2 ~94.7% step 12310/13000; T0=3.2700/T1=3.2744/T2≈3.2722 terminal; close clean-neutral on T3 done |
+| #432 | tanjiro | Muon nesterov ablation (nesterov=True vs False after NS5) | **NEW** Cell A ctrl launching; 2-cell quick screen |
+| #422 | edward | Muon WD shape variants (lr_coupled / stable_only / early_dropoff / constant-sanity) | Cell A ctrl ~95% step 3084 (); ~5 min to terminal |
+| #423 | fern | WD peak sensitivity (wd_mlp ∈ {0.0125→0.075}) | **Cell A ctrl TERMINAL** val=3.265555 ffs=3075 (n=1 lucky seed −2.91σ NEW); Cell B running step 78 () |
+| #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn contribution) | Cell A ctrl ~61% step 1981 () |
+| #426 | thorfinn | LR schedule shape sweep | Cell A ctrl ~62% step 2015 () |
+| #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) | Cell A on 4th attempt  running step 407 (13%); 3 prior kills — student briefed to commit code change |
+| #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | Cell A=3.27243 terminal; Cell B () running step ~700 (22%) |
+| #398 | askeladd | AdamW aux ε schedule sweep | A=3.26991, B=3.27427, C=3.27108 terminal; Cell D running step 1143 (); Cell E pending |
 
 
-## Recent Closures (poll #186)
+## Recent Closures (poll #193)
 
-- **#346 frieren lr_attn P2** — CLOSED clean-neutral. n=4 mean ~3.272631 (+5.69σ vs NEW baseline). lr_attn perturbation sub-noise at n=4 — family closed.
-- **#383 nezuko Muon grad noise** — CLOSED clean-negative (poll #185). Best +3.48σ vs NEW baseline.
+- **#368 tanjiro QKV ortho init P2** — CLOSED clean-neutral (poll #193). n=4 mean=3.27250 (+5.53σ). QKV init family closed.
+- **#346 frieren lr_attn P2** — CLOSED clean-neutral. n=4 mean ~3.272631 (+5.69σ vs NEW baseline). lr_attn perturbation sub-noise.
+- **#383 nezuko Muon grad noise** — CLOSED clean-negative (poll #185). Best +3.48σ.
 - **#382 thorfinn per-group Muon mu** — CLOSED clean-neutral (poll #184). Default mu=0.95 optimal.
 
 

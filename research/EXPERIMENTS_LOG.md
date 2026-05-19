@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-19 03:30 UTC — PR #368: Orthogonal QKV init P2 (ortho_qk_only, n=4) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-tanjiro/qkv-ortho-init`
+- Student: g1r5-tanjiro
+- Hypothesis: Phase 2 n=4 confirmation of ortho_qk_only (QK-only orthogonal init). P1 Cell E had val=3.26932 (favorable n=1 seed).
+
+### Results
+
+| Trial | val/loss | ffs | W&B run |
+|------:|--------:|-----:|--------|
+| T0 | 3.27003 | 3125 | 899b4f5m |
+| T1 | 3.27497 | 3175 | 899b4f5m |
+| T2 | 3.27217 | 3150 | 899b4f5m |
+| T3 | 3.27284 | 3150 | 899b4f5m |
+| **n=4 mean** | **3.27250** | **3150** | |
+
+### Conclusion
+
+n=4 mean = 3.27250 vs NEW baseline mu=3.267948, std=0.000823. Δ = +5.53σ. Gate FAILED.
+P1 Cell E single-run val=3.26932 was a favorable-seed singleton — n=4 P2 confirms QKV orthogonal init is NOT load-bearing. **QKV init mechanism family closed.**
+Next: Muon nesterov ablation (PR #432 assigned to tanjiro).
+
 ## 2026-05-18 19:00 UTC — PR #360: SOAP precond_freq sweep ∈ {4, 8, 16, 32, 64} — **CLOSED clean-neutral**
 
 - Branch: `g1r5-askeladd/soap-precond-freq-sweep`
