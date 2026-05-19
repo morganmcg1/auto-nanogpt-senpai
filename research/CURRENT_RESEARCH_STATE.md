@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 03:35 UTC (esc#19 posted 03:30 UTC; edward arm 1 ctrl baseline-reproduces; fern cap=10 NEG; cap=30 chaining)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) + tanjiro (`gd125a8`) + thorfinn (`g71b0d6`) still broken. esc#19 posted at 03:30 UTC 2026-05-19 — ~80h total operator silence.
+- **Last updated:** 2026-05-19 05:35 UTC (esc#20 posted 05:32 UTC; fern PR #392 CLOSED all NEG; fern PR #438 NS5 coeff sweep ASSIGNED; askeladd arm 2 ctrl baseline-reproduces; edward arm 2 NEG; nezuko arm 1 ctrl baseline-reproduces)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) + tanjiro (`gd125a8`) + thorfinn (`g71b0d6`) still broken. esc#20 posted at 05:32 UTC 2026-05-19 — ~82h total operator silence.
 - **Branch state:** Baseline post-PR #329 (AGC inner MuonH clip=0.05, merged 18:26 UTC 2026-05-18).
 
 ## ⭐ Current baseline (post-PR #329 merge)
@@ -29,27 +29,30 @@
 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100
 ```
 
-## Active experiments (03:35 UTC 2026-05-19)
+## Active experiments (05:35 UTC 2026-05-19)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#417** | edward | **MuonH inner cooldown_frac sweep** (1.0/0.7/0.5) | **Arm 1 ctrl `zu2yy4jn` TERMINAL val=3.27236, ffs=3125** (Δ=-0.00050, clean baseline reproduction, within σ). Arm 2 `u88kyal5` (cooldown_frac=0.7) running step 725/3325. ETA arm 2 terminal ~05:35 UTC; arm 3 chains after. |
-| **#421** | nezuko | **MuonH inner AGC clip ratio sweep** (0.02/0.05/0.10) | Nudged at 03:06 UTC. Ctrl arm `ndt56ttp` (clip=0.05) launched, step 575 val=3.91 (on baseline pace). ETA ctrl terminal ~05:30 UTC; arms 0.02 + 0.10 chain after. |
-| **#424** | askeladd | **MuLoCo outer SGDM Nesterov sweep** (drop_nest / keep_nest mu=0.5 / nest mu=0.8) | Smoke arm2 `dwliwjxr` finished val=4.22 (passed gate). Ctrl arm `1qq8lbpn` (arm2 nest mu=0.5) running step 250 val=4.22 (on baseline pace). Note: zombie wandb run `n0ok0cgj` also showing same arm. Arm 1 smoke `vx59qcr2` failed step 0 (relaunch needed). |
-| **#425** | frieren | **MuonH-SI inner mu cooldown sweep** (0.95→0.70/0.50) | **Concerning** — student has launched 4 ctrl runs (ohv95v1v, 4pu30gxj, 3rcd7c6v, o8zyjowj) with same config. Currently `o8zyjowj` at step 120. No commits yet to remote. Implementation may be unstable. |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED** — confirmed silicon failure on GPU `dc8b1158`. ~2h blocked. In esc#19. |
-| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | Cap=15 ctrl confirmed Δ=+0.00110 within σ. **Cap=10 `7ap085t3` TERMINAL val=3.27933, ffs=3275 (Δ=+0.00647 NEG)** — tighter cap harmful. Cap=30 `ahgrgeub` running step 140 (on pace). ETA arm 3 terminal ~05:30 UTC. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 80h+** — `gd125a8` bf16 NaN. In esc#19. |
-| **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 80h+** — needs_rebase, `gd103cc`. In esc#19. |
+| **#417** | edward | **MuonH inner cooldown_frac sweep** (1.0/0.7/0.5) | Arm 1 ctrl `zu2yy4jn` 3.27236 baseline. **Arm 2 `u88kyal5` TERMINAL val=3.28949, ffs=-1 (Δ=+0.01663 ~20σ NEG — failed 3.28 target)**. Arm 3 `us53ifim` (cooldown_frac=0.5, even more aggressive) running step 250 — expected even stronger NEG. |
+| **#421** | nezuko | **MuonH inner AGC clip ratio sweep** (0.02/0.05/0.10) | **Arm 1 ctrl `ndt56ttp` TERMINAL val=3.27522, ffs=3175 (Δ=+0.00236 within σ — baseline-reproduces).** Arm 2 `9imntmmb` (clip=0.02 tight) running step 75. Arm 3 (clip=0.10 loose) chains after. |
+| **#424** | askeladd | **MuLoCo outer Nesterov SGDM mu sweep** (drop_nest / keep_nest mu=0.5 / nest mu=0.8) | **Arm 2 ctrl `n0ok0cgj` TERMINAL val=3.27353, ffs=3150 (Δ=+0.00067 within σ — baseline-reproduces).** Arm 1 `o7pbf2f3` (drop_nesterov standard SGDM mu=0.5) running step 240. Arm 3 (Nesterov mu=0.8) chains after. **Code note:** the current outer "SGDM" is actually **Nesterov SGDM** per askeladd's code reading at lines 1093-1095. |
+| **#425** | frieren | **MuonH-SI inner mu cooldown sweep** (0.95→0.70/0.50) | Commit `5002b62` posted with `--muonh_mu_final` flag. Currently `o8zyjowj` (ctrl, mu_final=0.95) at step 2825/3325, val=3.32 (on baseline pace). ETA ctrl terminal ~06:10 UTC. Arms mu_final=0.70/0.50 chain after. |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED 28h+** — confirmed silicon failure on GPU `g71b0d6`. In esc#20. |
+| **#438** | fern | **NS5 polynomial coefficient sweep** (current / classical quintic / sharper unique-FP) | **Newly assigned 05:35 UTC.** Tests the classical Halley quintic (1.875, -1.25, 0.375) — mathematically removes the σ=√2 fixed-point leak in the current (2, -1.5, 0.5) polynomial. PR #174 prior test was a single nearby variant (2.5, -2.5, 0.75) that landed within noise of then-baseline 3.27585. Fresh axis on the new baseline 3.27286. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 82h+** — `gd125a8` bf16 NaN. In esc#20. |
+| **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 82h+** — needs_rebase, `gd103cc`. In esc#20. |
 
 **8/8 students assigned.** 3 pods broken (alphonse + tanjiro + thorfinn) = 37.5% research capacity lost.
 
-## Recent terminal results (03:35 UTC wave)
+## Recent terminal results (03:35 UTC → 05:30 UTC wave)
 
 | PR | Student | Result |
 |---|---|---|
-| **#417 arm 1** | edward | **Ctrl cooldown_frac=1.0**: val=**3.27236**, ffs=3125 (Δ=-0.00050, baseline-equivalent). Run `zu2yy4jn`. |
-| **#392 arm cap=10** | fern | **Tighter cap=10**: val=**3.27933**, ffs=3275 (Δ=+0.00647 NEG). Logit_max_pre_cap saturates fast, cap restricts useful headroom. Run `7ap085t3`. |
+| **#392 arm cap=30** | fern | **Loose cap=30**: val=**3.28086**, ffs=**-1** (Δ=+0.00800, ~11σ NEG, FAILED 3.28 target). Run `ahgrgeub`. Telemetry: post_cap saturates at only ~26 (87% asymptote) vs cap=15's 14.97 (100% asymptote). Model loses compressive regularization. **PR #392 CLOSED.** |
+| **#421 arm 1 ctrl** | nezuko | **Clip=0.05 ctrl**: val=**3.27522**, ffs=3175 (Δ=+0.00236, baseline-reproduces within σ). Run `ndt56ttp`. |
+| **#424 arm 2 ctrl** | askeladd | **Nesterov SGDM mu=0.5 ctrl**: val=**3.27353**, ffs=3150 (Δ=+0.00067, baseline-reproduces within σ). Run `n0ok0cgj`. |
+| **#417 arm 2** | edward | **Cooldown_frac=0.7 (shortened)**: val=**3.28949**, ffs=**-1** (Δ=+0.01663, ~20σ NEG, FAILED 3.28 target). Run `u88kyal5`. Cooldown phase is essential for convergence below 3.28. |
+| **#417 arm 1 ctrl** | edward | **Ctrl cooldown_frac=1.0**: val=**3.27236**, ffs=3125 (Δ=-0.00050, baseline-equivalent). Run `zu2yy4jn`. |
 
 ## Recent closures (01:37 UTC wave)
 
@@ -76,7 +79,8 @@
 - MuonH-SI HPs (lr/mu/wd), cooldown shape, LR warmup step-count (100 optimal), warmup shape (insensitive), mu warmup (PR #389 NEG)
 - MuLoCo outer params (0.7/0.5/30 all saturated); scheduled variants all NEG; outer CLASS (Nesterov-SGDM/AdamW/Lion) all NEG except Nesterov-SGDM. **Code note**: The current outer SGDM is actually **Nesterov SGDM** (the `lr*(mu*v + delta)` form at lines 1093-1095) — confirmed by askeladd's code reading on PR #424.
 - Aux optimizer (Lion/AdEMAMix NEG); aux betas, embed lr_mult, cooldown shape, frac, LR warmup, lm_head wd — all saturated
-- NS5 polynomial (12-iter optimal, polynomial coefficients neutral at k=12 per PR #174); fp32 closed; k-count blocked
+- NS5 polynomial: 12-iter optimal; coefficients (2.5,-2.5,0.75) neutral at then-baseline per PR #174 — RETESTING on new baseline 3.27286 via PR #438 with classical Halley quintic (1.875,-1.25,0.375); fp32 closed; k-count blocked (alphonse PR #190)
+- **Logit softsign cap value** (PR #392 CLOSED 05:30 UTC): cap=15 is local optimum; cap=10 NEG ~10σ; cap=30 NEG ~11σ and fails 3.28 target. Axis closed.
 - Gradient centralization NEG; schedule-free NEG; depth-LR NEG; lookahead NEG; EMA tail averaging NEG
 - QK-Norm (removing or learning: both NEG; fixed F.rms_norm is optimal)
 - Outer optimizer class (Nesterov-SGDM-only; AdamW/Lion catastrophic)
