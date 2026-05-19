@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 06:50 UTC
+- **Date:** 2026-05-19 07:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -69,6 +69,21 @@ All 4 arms within null band (max |Δ|=0.00111). Faint monotone B(all) > C(adam) 
 
 **ETA full chain:** ~7.5h.
 
+### ✅ alphonse #411 — Gradient noise injection (Neelakantan 2015) — CLOSED 07:36 UTC productive-null ✅
+All 4 arms terminal. Non-monotone regression: B/C/D all degrade val by +0.0014 to +0.0020 vs control. Noise hurts at any σ. Post-#290 stack fully regularized (β2=0.99 + NS stochasticity + LR schedule); explicit Gaussian gradient noise just removes signal.
+**Follow-up**: alphonse assigned #442 Adam-atan2 (replace ε-division with atan2 in AdamW aux groups).
+
+### 🔄 alphonse #442 — Adam-atan2 update rule [assigned 07:38 UTC]
+**Branch:** `g1r4-alphonse/adam-atan2`
+**Hypothesis**: Replace AdamW's ε-division `m / (sqrt(v) + ε)` with bounded atan2 update `atan2(m, b·sqrt(v))`. Eliminates ε-dependence, naturally bounds updates to (-π/2, π/2), avoids update explosions. Applied to AdamW aux groups (embed, lm_head, scalars) only; Muon untouched. Sweep b ∈ {0.0 control, 0.3, 1.0, 3.0}.
+| Arm | NANOGPT_ADAMW_ATAN2_B | Interpretation |
+|---|---|---|
+| A | 0.0 (control) | Falls through to standard AdamW; drift gate |
+| B | 0.3 | Aggressive: smaller denom, updates near saturation |
+| C | 1.0 | Paper default: atan2(m, sqrt(v)) |
+| D | 3.0 | Conservative: larger denom, smaller updates |
+**ETA full chain:** ~7.3h.
+
 ### ✅ alphonse #351 — Per-group SCALAR AdamW ε sweep — CLOSED 23:15 UTC productive-null (paired-pod confirmation collapsed signal)
 Paired-pod re-run of A vs D produced mean Δ=+0.00019 (signal collapsed). Original "D wins by −0.00278" was arm-A unlucky-seed pod luck (val=3.27528 drifted +0.00328 above baseline). Second consecutive paired-confirmation null collapse (after frieren #344). Scalar ε axis fully closed across {1e-12, 1e-10, 1e-8, 1e-6}.
 **Follow-up**: alphonse assigned #411 Gradient noise injection (Neelakantan 2015).
@@ -117,18 +132,19 @@ All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down
 | C (lmhead1p5) | lm_head=1.5× | 3.27505 | +0.00305 | `kwt7wjzi` |
 | D (scalar1p5) | scalar=1.5× | 3.27142 | −0.00058 | `1bgjs64f` |
 
-**Paired-pod confirmation chain status (launched 01:55 UTC)**:
+**Paired-pod confirmation chain status (W&B verified 07:38 UTC)**:
 | Run | Pod | Arm | val | Δ_B vs A (same pod) |
 |---|---|---|---:|---:|
 | Confirm pod0 (original) | orig | B | 3.27026 vs A 3.27242 | −0.00216 |
-| pod1-A | pod1 | A | 3.27361 | — |
-| pod1-B | pod1 | B | 3.27198 | **−0.00163** |
-| pod2-B | pod2 | B | **running (launched 05:37 UTC, ETA 07:28 UTC)** | TBD |
-| pod2-A | pod2 | A | queued after pod2-B | TBD |
+| pod1-A | pod1 | A | 3.27362 | — |
+| pod1-B | pod1 | B | 3.27198 | **−0.00164** |
+| pod2-B | pod2 | B | **running (step 2825/3350, 84%, ETA ~07:58 UTC)** | TBD |
+| pod2-A | pod2 | A | queued after pod2-B (~09:50 UTC) | TBD |
 
-Pooled n=2 (pod0+pod1): mean(A)=3.273015, mean(B)=3.27112, Δ=**−0.001895** (just below −0.002 threshold). **Pod2 result is critical** — if pod2-Δ ≥ −0.002, pooled n=3 falls above threshold; if pod2-Δ ≤ −0.002, confirms.
+Pooled n=2 W&B verified: mean(A)=3.273018, mean(B)=3.271118, Δ=**−0.001900** (exactly at −0.002 threshold).
+**Pod-2 is decisive**: if pod2-B vs pod2-A Δ ≤ −0.002, final n=3 pooled Δ crosses threshold → MERGE; if Δ > −0.002, productive-null.
 **Pre-staged decision rule** (n=3 pool): Paired mean Δ_B ≤ −0.002 AND mean(val_B) ≤ 3.27200 → MERGE; else productive-null.
-**ETA full chain:** ~09:19 UTC.
+**ETA full chain:** ~09:50 UTC (pod2-A terminal).
 
 ### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
 All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).

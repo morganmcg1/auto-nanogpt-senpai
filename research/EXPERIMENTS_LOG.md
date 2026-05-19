@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 07:36 UTC — PR #411: Gradient noise injection (alphonse) — CLOSED productive-null ✅ (noise degrades on all scales)
+
+- Branch: `g1r4-alphonse/gradient-noise-injection`
+- Hypothesis: Annealed Gaussian noise σ_t = σ_0 / (1+t)^γ (Neelakantan et al. 2015) added to gradients post-all_reduce, pre-clip. Tests whether deterministic gradient signal is over-fitted to data ordering at this short-training scale.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | σ_0 | val | Δ vs A | Δ vs baseline (3.27200) | fs | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A (control) | 0.0 | **3.27231** | — | **+0.00031 ✓** (drift) | 3250 | `re5hs6d6` |
+| B | 0.001 | 3.27419 | +0.00188 | +0.00219 | 3250 | `cf0lz42z` |
+| C | 0.003 | 3.27428 | +0.00197 | +0.00228 | 3250 | `wnoa9rx8` |
+| D | 0.010 | 3.27372 | +0.00141 | +0.00172 | 3250 | `qh6oc6we` |
+
+### Key findings
+
+1. **All 3 noise levels degrade val by Δ ∈ {+0.0014, +0.0020}** vs control. None show improvement.
+2. **Non-monotone shape**: B/C virtually tied (+0.00188 vs +0.00197), then D regresses LESS (+0.00141). This non-monotonicity (weakest noise is worse than strongest) points to grad-clip=10 catching the large-σ runs before they fully degrade, while σ=0.001/0.003 adds noise right below the clip threshold — worst of both worlds.
+3. **All arms reach fs=3250** — noise degrades val but does not dramatically slow convergence speed. The model converges but to worse minima.
+4. **Mechanism**: Post-#290 stack (β2=0.99 long EMA + NS stochasticity + AdamW per-group calibration) is already operating near the variance-vs-bias optimal for 3350 steps. Extra gradient noise just removes useful directional signal. Neelakantan 2015 helped on longer training runs where the signal-to-noise naturally decreases; at 3350 steps the high-SNR regime is unchanged by annealing.
+
+### Verdict
+
+Gradient noise injection axis CLOSED. **11th productive-null on optimizer/gradient-preprocessing axes this cycle.** Pattern: post-#290 stack is saturated on signal-modification mechanisms; orthogonal structural changes (loss-side, trust-region, parameter-space) remain the live frontier.
+
+---
+
 ## 2026-05-19 06:48 UTC — PR #407: AdamW β2 sensitivity sweep (tanjiro) — CLOSED productive-null ✅ (β2=0.99 confirmed optimal)
 
 - Branch: `g1r4-tanjiro/adamw-beta2-sensitivity`
