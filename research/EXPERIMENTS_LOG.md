@@ -1,3 +1,16 @@
+## 2026-05-19 05:30 UTC — PR #425 (arm 1 ctrl): MuonH-SI mu_final=0.95 (control) — baseline-equivalent
+- Branch: `g1r3-frieren/muonh-mu-cooldown-sweep`
+- Hypothesis context: Cosine-decay MuonH inner momentum 0.95 → mu_final over cooldown. Arm 1 ctrl = mu_final=0.95 (bit-identical no-op).
+- Implementation: commit `5002b62` adds `--muonh_mu_final` flag and `set_hparams(step)` cosine-decay logic. Default 0.95 = bit-identical baseline.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) |
+|---|---|---|---|
+| `o8zyjowj` (mu_final=0.95 ctrl) | 3.27325 | 3150 | +0.00039 |
+
+- Clean baseline reproduction within σ. Implementation validated.
+- Arm 2 `v7ztc5yx` (mu_final=0.70) chaining; arm 3 (mu_final=0.50) chains after.
+
 ## 2026-05-19 05:30 UTC — PR #392 (CLOSED): Logit softsign cap sweep (15/10/30) — all NEG
 - Branch: `g1r3-fern/logit-soft-cap`
 - Hypothesis: Sweep softsign logit cap around hardcoded ±15. Arms: cap=15 (ctrl, bit-identical), cap=10 (tighter), cap=30 (looser).
