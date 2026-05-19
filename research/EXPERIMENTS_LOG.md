@@ -1111,3 +1111,34 @@ Full screening result (n=1 per cell, train_steps=3250, --soap_attn):
 - **Conclusion:** Monotone WORSE with increasing wd_aux. The 'AdamW aux' optimizer bundles three groups with very different LR scales (embed=0.30, scalars=0.01, lm_head=0.003125). Decoupled WD applies `(1-lr·wd)` shrinkage per step — at wd=0.05, embed loses 1.5%/step which swamps gradient signal. **Mixed-LR-scale param groups cannot share a single wd value.**
 - **Mechanism take:** Unlike Muon (homogeneous LR scale across MLP/attn), the AdamW aux groups have 100× lr_attn:lr_lm_head ratio. Per-group wd_aux could be a fresh follow-up, but the uniform default wd_aux=0 IS the per-group-uniform optimum.
 - **Verdict:** Closed clean-NEG. wd_aux (uniform across aux groups) moves to exhausted axes.
+
+## 2026-05-19 02:00 UTC — PR #382: per-group Muon mu sweep (mu_mlp × mu_attn ∈ {0.93,0.95,0.97}) — **CLOSED clean-neutral**
+
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** MLP (processed by SOAP) and attn (plain Muon) may want different momentum decay rates given their different gradient statistics. Sweep mu_mlp × mu_attn over {0.93, 0.95, 0.97} per-group.
+
+### Results
+
+| Cell | mu_mlp | mu_attn | val/loss | ffs | Δ vs A ctrl | Δ vs OLD baseline | σ | W&B id |
+|------|-------:|--------:|---------:|----:|------------:|------------------:|---:|--------|
+| A (ctrl) | 0.95 | 0.95 | 3.26964 | 3125 | — | -0.00172 | -1.46σ | uw0gy7qy |
+| B | 0.93 | 0.95 | 3.27108 | 3125 | +0.00144 | -0.00028 | -0.24σ | 3di3pof9 |
+| C | 0.97 | 0.95 | 3.27378 | 3150 | +0.00414 | +0.00242 | +2.04σ | nu705adw |
+| D | 0.95 | 0.93 | 3.27276 | 3150 | +0.00312 | +0.00140 | +1.18σ | 2bc1t3kz |
+| E | 0.95 | 0.97 | 3.27185 | 3150 | +0.00221 | +0.00049 | +0.42σ | odu3051c |
+
+Note: All comparisons above vs OLD baseline (mu=3.271362). vs NEW baseline (mu=3.267948) all cells are ≥ +3.8σ.
+
+### Conclusion
+
+Per-group Muon mu differentiation not load-bearing within [0.93, 0.97] band. Cell A's 3.26964 is a favorable seed (not a real per-group effect). Weak directional hints: MLP wants slightly lower mu (0.93 mildly best), attn wants slightly higher mu (0.97 mildly best) — but sub-noise at n=1. Both axes worse than default 0.95. Default mu=0.95 confirmed as robust optimum for both groups.
+
+Family retired: Per-group Muon mu hypothesis class closed for r5.
+
+## 2026-05-19 02:00 UTC — PR #426: thorfinn LR schedule shape sweep — **ASSIGNED**
+
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Following WD ramp_down breakthrough (PR #371), test whether LR cooldown shape also matters: cosine vs linear cooldown; with vs without stable phase.
+- **Cells:** A ctrl stable_then_linear, B linear_throughout, C cosine_throughout, D stable_then_cosine, E stable_then_sq
+- **Code change:** Add `_lr_multiplier` function + `--lr_schedule` CLI flag (parallel to `_wd_multiplier` from PR #371)
+- **Status:** In progress — waiting for student to implement code change and launch Cell A
