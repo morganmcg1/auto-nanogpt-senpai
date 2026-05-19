@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 14:34 UTC — Cycle 68: #429 CLOSED NS5_ITERS=14 PREV stack (bar moved, axis valid); alphonse → #479 re-screen on NEW stack
+
+### PR #429 — NS5_ITERS=14 (Arm B) n=4 confirm on PREV stack — CLOSED
+
+Branch: `g1r2-alphonse/ns5-iters-sweep`. PREV mandatory stack (no MU_WARMUP_STEPS).
+
+| Stage | NS5_ITERS | n | val mean | ffs mean | vs OLD bar | vs NEW bar |
+|---|---|---|---|---|---|---|
+| Arm A n=2 | 10 | 2 | 3.27503 | 3075 | MISS both | MISS both |
+| Arm B n=2 screen | 14 | 2 | 3.273885 | 3062.5 | **PASS both** ✅ | MISS both |
+| Arm B T0 (n=4 start) | 14 | 1 | **3.27310** | 3050 | PASS both | PASS both individually |
+| Arm B T1 (n=4) | 14 | 1 | 3.27559 | 3075 | PASS val / MISS ffs | MISS both |
+| Arm B n=2 partial mean | 14 | 2 | 3.274342 | 3062.5 | PASS val / PASS ffs | MISS both |
+| T2 | 14 | — | killed at step 87 (Option B) | — | — | ffs foreclosed |
+| T3 | 14 | — | killed at step 87 (Option B) | — | — | ffs foreclosed |
+
+**Closure reason**: T1 ffs=3075 mathematically forecloses all-4-at-floor requirement on NEW bar (ffs mean must be < 3056.25 → requires all 4 at 3050; T1=3075 makes that impossible regardless of T2/T3). Student correctly executed Option B early-termination (saved ~6.8h GPU).
+
+**Axis verdict**: VALID, NOT falsified. T0=3.27310/3050 is the best single-trial val we've ever seen on the new bar stack. The reason for closure is bar tightening (PR #415 raised bar by Δval=−0.000906/Δffs=−12.5), not axis failure. Sign confirmed at n=2 on PREV stack (Δval=−0.000498 vs PREV baseline).
+
+**Reassignment**: alphonse → #479 NS5_ITERS=14 re-screen on NEW mandatory stack (MU_WARMUP_STEPS=200 adds ~0.0009 val improvement; predicted T0 on new stack ≈3.272; highest-priority axis re-test in portfolio; +0.8% step-time cost only).
+
+---
+
 ## 2026-05-19 12:42 UTC — Cycle 68 cont: #449 CLOSED EMBED_LR Arm A n=2 MISS (high T1 variance); nezuko → #469 re-screen on new stack
 
 ### PR #449 — EMBED_LR=0.225 (Arm A n=2) — CLOSED

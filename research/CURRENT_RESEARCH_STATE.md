@@ -1,5 +1,7 @@
 # SENPAI Research State
 
+- 2026-05-19 14:34 UTC — Cycle 68 closure + new assignments — **#429 alphonse CLOSED** (NS5_ITERS=14 on PREV stack: n=2 partial confirm val=3.274342/ffs=3062.5 MISSES both NEW bars; axis NOT falsified — bar moved due to PR #415 merge). **alphonse → #479 NS5_ITERS=14 re-screen on NEW mandatory stack** (highest-priority axis re-test; predicted T0≈3.272 on new stack; +0.8% step-time only). New cycle state: all 8 students have active WIP PRs: thorfinn #462 (MU_WARMUP_START), fern #456 (SCALARS_LR — post-rebase, investigating smoke crash), edward #458 (WD_AUX), frieren #459 (Lookahead-AdamW), askeladd #468 (grad-clip-adam — newly assigned), nezuko #469 (EMBED_LR new stack — newly assigned), tanjiro #464 (cooldown-power sweep), alphonse #479 (NS5_ITERS=14 new stack — just assigned). Heartbeated #464 tanjiro.
+
 - 2026-05-19 14:17 UTC — Cycle 68 mid-flight ops — Heartbeated #462 thorfinn (n=2 running at step 2775/6350, MU_WARMUP_START=0.80), #458 edward (n=2 running at step 550/6350, WD_AUX=0.001), acknowledged #456 fern's self-correction (rebase fix for pre-PR-#415 silent stack issue — important footgun lesson), follow-up on fern's post-rebase smoke ALSO crashing at step 150 (pod restarted 23m ago — investigating), heartbeated #459 frieren (still only smokes — pushed for K=5 n=2 launch with rebase reminder). #429 alphonse T1 at step 6301/12700 (~98% into T1), terminal imminent. #464 tanjiro n=2 running at step 400 (cooldown_power=2.0). Active pods: all 8 students. Newly-assigned PRs #468 askeladd / #469 nezuko awaiting student pickup.
 
 - 2026-05-19 12:42 UTC — Cycle 68 continued — **#449 nezuko CLOSED** EMBED_LR Arm A n=2 MISS: T0=3.27403/3050 (passed OLD bar individually) but T1=3.27604/3100 (severe regression, Δval=0.002/Δffs=50 — high variance). n=2 mean 3.275035/3075 misses BOTH bars (new AND old). Axis too noisy on PREV stack. **Nezuko → #469 EMBED_LR re-screen on NEW mandatory stack** (same ±25% arms, now with MU_WARMUP_STEPS=200). Rationale: new stack adds ~0.0009 val improvement, T0 on new stack predicted ~3.273 (near new bar). Re-screen will determine if axis is signal or seed-noise-dominated.
@@ -57,7 +59,7 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 - ✅ **THORFINN #415 MERGED** (12:05 UTC) — MU_WARMUP_STEPS=200 n=4 val=3.273477/ffs=3056.25. **NEW BASELINE.**
 - ✅ **TANJIRO #406 CLOSED** (12:11 UTC) — Arm B n=3 mean val=3.27411/ffs=3066.67, PASSED old bar, MISSES new bar. Bimodal ffs at 0.97 (2/5 trials at floor). tanjiro → #464 cooldown-power-sweep.
 - ✅ **ASKELADD #405 CLOSED** (12:22 UTC) — CONTRA_MUON sweep: n=4 confirm MISS (T0-T2 all at 3075, T3 killed per bar foreclosure). Response surface flat between 0.3-0.4; bimodal-ffs n=2→n=4 collapse = seed luck dominated. **askeladd → #468 AdamW grad-clip-adam.**
-- **ALPHONSE #429** — NS5_ITERS=14 — n=4 confirm in flight on PREV stack, T0 at ~25%. T1 from n=2 screen was 3075 → ffs likely foreclosed at n=4 on new bar (~6% chance all-4-at-floor). Continue T0 to terminal; reassess.
+- ✅ **ALPHONSE #429 CLOSED** (14:34 UTC) — NS5_ITERS=14 PREV stack: n=2 partial confirm val=3.274342/ffs=3062.5 MISSES NEW bar. Axis VALID — bar moved not axis failed. **alphonse → #479 re-screen on NEW stack.**
 - **THORFINN #462** (NEW 12:10 UTC) — **MU_WARMUP_START sweep** 0.80 vs 0.90. Targeting all-4-at-floor reliability on new stack.
 
 ### n=2 Screens in flight
@@ -83,9 +85,9 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 | PR | Student | Axis | n=2 val/ffs | n=4 status | Merge priority |
 |---|---|---|---|---|---|
 | #415 | thorfinn | MU_WARMUP_STEPS=200 | 3.273802/3050 | **MERGED** — new baseline | ✅ MERGED |
-| #429 | alphonse | NS5_ITERS=14 | 3.273885/3062.5 | **T0=3.27310/3050** (PASS individually) — T1 at ~3% | tight all-4-floor constraint |
-| #405 | askeladd | CONTRA_MUON=0.35 | 3.273505/3050 | **70%**, T1+T2 at 3075 (yellow) | **3rd** |
-| #429 | alphonse | NS5_ITERS=14 | 3.273885/3062.5 | to launch now | **4th** |
+| #429 | alphonse | NS5_ITERS=14 | 3.273885/3062.5 | **CLOSED (PREV stack)** — T0=3.27310/3050 PASS individually, T1=3.27559/3075 ffs foreclosed on NEW bar | reassigned → #479 |
+| #405 | askeladd | CONTRA_MUON=0.35 | 3.273505/3050 | **CLOSED** — n=4 regression-to-mean (T0-T2 all 3075) | closed |
+| #479 | alphonse | NS5_ITERS=14 new stack | TBD | **JUST ASSIGNED** — pick up pending | highest priority |
 
 **Merge order strategy**: merge best first, then re-test others on new baseline (per cross-stack interaction finding from #372/#373). MU_WARMUP_STEPS=200 (schedule-side) most likely orthogonal to MU_COOLDOWN_START=0.97 (cooldown-side) and NS5_ITERS=14 (projection-quality). CONTRA_MUON=0.35 (correction-magnitude) may partially substitute with MU_COOLDOWN_START=0.97 — needs new-base re-test after first merge.
 
