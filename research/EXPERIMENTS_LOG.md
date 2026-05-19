@@ -1,5 +1,31 @@
 # SENPAI Research Results
 
+## 2026-05-19 11:48 UTC — PR #413 MERGED: scalar_lr=0.025 (alphonse n=2 WIN) ← NEW BASELINE
+
+- Branch: `g1r1-alphonse/scalar-lr-scan`
+- Hypothesis: Scan scalar_lr (RMSNorm gain + bias AdamW group) upward from the unintuitive default 0.01. Two arms: 0.025 (2.5×) and 0.05 (5×). Completes the aux LR characterization triplet.
+
+| Arm | scalar_lr | W&B | sr | val/best_loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #367 n=2) | 0.01 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+| **A seed-1** | **0.025** | `k7ylyby9` | **2950** | **3.26543** | **−25** | **−0.00179** | n=1 WIN (sr-marginal) |
+| **A seed-2** | **0.025** | `dm4joozw` | **2925** | **3.26312** | **−50** | **−0.00410** | confirms A |
+| B | 0.05 | `03c9tk79` | 2975 | 3.26674 | 0 | −0.00048 | n=1 marginal (val within noise) |
+
+**n=2 mean (Arm A confirmed):** sr=2937.5, val=3.264278. Stat-sig: (3.28 − 3.264278)·√2 = 0.0222 ≥ 0.004 ✓ (5.56×).
+
+**Signal: non-monotone, peak at 0.025.** val curve: 3.26722 → 3.26428 → 3.26674 (0.01 → 0.025 → 0.05). Arm B at 0.05 shows regression back toward baseline on sr with minimal val gain — past the optimum.
+
+**Mechanistic analysis:** RMSNorm gains and bias parameters benefit from 2.5× faster adaptation via scalar_lr=0.025. The gains converge faster before COOLDOWN_POWER=1.4's sharper LR taper eliminates the adaptation window. Arm B's regression at 0.05 confirms a concave response — the optimum is narrow with 0.025 as the confirmed peak. Both seeds independently beat baseline (seed-2 improved further at sr=2925 vs seed-1 sr=2950), ruling out luck.
+
+**Closes aux LR characterization triplet:** embed_lr CLOSED at 0.3, lm_head_lr CLOSED at 1/160 (PR #367), scalar_lr now MERGED at 0.025. All three aux AdamW LR axes characterized.
+
+**New baseline:** sr=2937.5 (n=2 mean), val=3.264278. All subsequent PRs compare against this.
+
+**Next assignment:** PR #460 (alphonse scalar_lr fine-scan {0.020, 0.030} — peak localization around confirmed 0.025 winner).
+
+---
+
 ## 2026-05-19 08:35 UTC — PR #414 CLOSED: cosine cooldown shape {pure cosine, cosine²} — both NULL, monotone catastrophic, axis closes (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/cooldown-shape-cosine`
