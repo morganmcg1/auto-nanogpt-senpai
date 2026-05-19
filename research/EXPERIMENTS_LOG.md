@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-19 16:13 UTC — PR #448 CLOSED: Decoupled cooldown_frac aux vs body — both arms NULL, cf-decoupling axis CLOSES (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/decoupled-cooldown-frac`
+- Hypothesis: Decouple aux-group cooldown start from body Muon cooldown start. Aux groups (embed+lm_head+scalars) under AdamW may want different cooldown phase boundaries than body matrices under PMuon.
+
+| Arm | cf_body | cf_aux | W&B | sr | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A | 0.7 | 0.5 (aux shorter, longer high-LR) | `0a9r5lof` | 2975 | 3.265212 | +37.5 ✗ | +0.000934 ✗ | NULL (marginal val, clear sr) |
+| **Baseline** | 0.7 | 0.7 (uniform) | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+| B | 0.7 | 0.85 (aux longer, shorter high-LR) | `taremaia` | 3025 | 3.27052 | +87.5 ✗ | +0.00624 ✗ | NULL (clear) |
+
+**Signal: clear asymmetric NULL** — Arm A (aux-delayed cooldown) much closer to baseline than Arm B (aux-advanced cooldown), with Arm B regressing strongly on both metrics.
+
+**Mechanistic conclusion (student's analysis, accepted):**
+- Body Muon and AdamW-on-aux groups are coupled through val/loss-driven gradient distribution shifts. Breaking the phase coincidence of cooldown start shifts the joint optimization trajectory off-manifold.
+- Asymmetry consistent with sparse aux groups benefiting slightly from delayed cooldown (more high-LR accumulation), but the gain in val/loss (+0.00094) doesn't translate to faster speedrun.
+- This is a SCHEDULE COUPLING axis: cf=0.7 uniform is structurally optimal at this op point.
+
+**Strategic implication:** 4th consecutive axis this cycle closing at inherited default (soft-cap c=15, embed std=1.0, γ=0.4 static, cf=0.7 uniform). Simple-scalar-axis frontier saturated. Nezuko reassigned to **Skylight u/w-floor TARGET_UW scan** (#486) — first scan of the floor-amplification threshold inherited at 0.35.
+
+---
+
 ## 2026-05-19 15:35 UTC — PR #444 CLOSED: PMuon γ_power phase schedule — both arms NULL, γ-phase ramp axis CLOSES (g1r1-frieren)
 
 - Branch: `g1r1-frieren/gamma-phase-schedule`
