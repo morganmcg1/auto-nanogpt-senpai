@@ -1,3 +1,36 @@
+## 2026-05-19 08:45 UTC — PR #421 (arm 3): MuonH inner AGC clip_ratio=0.10 (loose) — baseline-equivalent (sweep complete)
+- Branch: `g1r3-nezuko/muonh-agc-clip-ratio-sweep`
+- Hypothesis: Looser AGC clip ratio (0.10 vs 0.05 baseline) may allow productive gradient magnitudes through that tighter clip suppresses.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 1 ctrl (3.27522) |
+|---|---|---|---|---|
+| `nhw3crpe` (clip=0.10 loose) | 3.27404 | 3150 | +0.00118 (within σ) | -0.00118 |
+
+- **Baseline-equivalent**. All 3 arms of the AGC clip sweep landed within σ:
+  - Arm 1 ctrl (clip=0.05): 3.27522
+  - Arm 2 (clip=0.02 tight): 3.27372
+  - Arm 3 (clip=0.10 loose): 3.27404
+- **AGC clip_ratio is insensitive in [0.02, 0.10]** — no arm passes n=1 merge bar (3.27206). The lever is saturated within this range.
+- **PR #421 closing baseline-equivalent**. The AGC clip mechanism activates rarely under SI projection; the specific ratio value matters less than the existence of the clip itself.
+
+## 2026-05-19 08:42 UTC — PR #424 (arm 3): MuLoCo outer Nesterov SGDM mu=0.8 (high momentum) — CATASTROPHIC NEG (sweep complete)
+- Branch: `g1r3-askeladd/muloco-nesterov-sweep`
+- Hypothesis: Higher Nesterov outer momentum (mu=0.8 vs 0.5 baseline) may accelerate convergence through stronger slow-snap.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 2 ctrl (3.27353) |
+|---|---|---|---|---|
+| `o04vcj4x` (Nesterov mu=0.8) | 3.35359 | -1 | +0.08073 (~100σ catastrophic) | +0.08006 |
+
+- **Catastrophic NEG**: ~100σ over baseline, failed 3.28 target. Nesterov mu=0.8 overshoots in the outer loop and destabilizes convergence.
+- **Full sweep result**:
+  - Arm 1 (drop_nesterov, mu=0.5 plain SGDM): 3.27863 (+0.00577, ~7σ NEG)
+  - Arm 2 ctrl (Nesterov, mu=0.5): 3.27353 (baseline-equiv)
+  - Arm 3 (Nesterov, mu=0.8): 3.35359 (+0.08073 catastrophic)
+- **mu=0.5 with Nesterov is the local optimum** — strictly better than both higher (mu=0.8 catastrophic) and lower-momentum-effective (drop_nesterov) neighbors.
+- **Outer Nesterov-SGDM mu axis SATURATED at 0.5**. Lever closed.
+
 ## 2026-05-19 07:15 UTC — PR #425 (arm 2): MuonH-SI mu_final=0.70 (moderate mu cooldown) — NEG
 - Branch: `g1r3-frieren/muonh-mu-cooldown-sweep`
 - Hypothesis: Cosine-decaying MuonH inner momentum from 0.95 → mu_final during LR cooldown. Arm 2 = moderate cooling to 0.70.
