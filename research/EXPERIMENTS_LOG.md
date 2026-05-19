@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 12:42 UTC — Cycle 68 cont: #449 CLOSED EMBED_LR Arm A n=2 MISS (high T1 variance); nezuko → #469 re-screen on new stack
+
+### PR #449 — EMBED_LR=0.225 (Arm A n=2) — CLOSED
+
+Branch: `g1r2-nezuko/embed-lr-sweep`. PREV mandatory stack (no MU_WARMUP_STEPS).
+
+| Trial | EMBED_LR | val | ffs |
+|---|---|---|---|
+| T0 | 0.225 | 3.27403 | 3050 |
+| T1 | 0.225 | 3.27604 | 3100 |
+| n=2 mean | 0.225 | 3.275035 | 3075 |
+
+- n=2 mean vs NEW bar: val MISS +0.001558, ffs MISS +18.75
+- n=2 mean vs OLD bar: val MISS +0.000652, ffs MISS +6.25
+- Δval T0→T1 = +0.00201, Δffs = +50 — HIGH VARIANCE
+
+**Mechanism**: T0 individually passed OLD val bar (3.27403 < 3.274383) at the ffs floor (3050). But T1 severely regressed (3.27604/3100). The step-3025 val trajectory determines both val quantization boundary (3.28) and ffs slot. This is the same bimodal-ffs seed-dominance pattern seen in #405 askeladd. The embed_lr effect is likely smaller than seed noise at this scale.
+
+**Key finding**: EMBED_LR=0.225 is directionally neutral-to-slightly-positive on val vs default 0.3, but the effect is too small to reliably win over seed variance. The axis may be more detectable on the new stack (MU_WARMUP_STEPS=200 reduces early-training variance).
+
+**Reassignment**: nezuko → #469 EMBED_LR re-screen on NEW mandatory stack (MU_WARMUP_STEPS=200). Predicted: new stack adds ~0.0009 val improvement; T0 on new stack ≈ 3.273 (potentially clearing new val bar 3.273477 with ffs=3050).
+
 ## 2026-05-19 12:22 UTC — Cycle 68: #405 CLOSED CONTRA_MUON sweep (regression-to-mean at n=4); askeladd → #468 AdamW gradient clipping
 
 ### PR #405 — CONTRA_MUON sweep (0.3 Arm A, 0.35 Arm B) — CLOSED
