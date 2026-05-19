@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~19:45Z (poll #275)
+- **Last updated:** 2026-05-19 ~20:55Z (poll #276)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -46,15 +46,16 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A val=3.2670 ffs=3100 (−1.15σ); **B (MLP-only) TERMINAL val=3.268883 ffs=3100 (+1.14σ ≈ baseline; ATTN SOAP ≈ +0.002 worth at most)**; **C `xg90tq7m` (ATTN-only) step 133 launched**; D (none) pending |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; B (0.1) val=3.2678 ffs=3100 (−0.18σ ≈ baseline); **C `mmwxjnak` (trust=0.3) step 238 launched**; D (0.5), E (0.8) pending |
-| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A ctrl (ns_iter=12) val=3.26623 ffs=3075 (−1.61σ); **B (ns_iter=6) TERMINAL val=3.265531 ffs=3075 (−2.94σ NEW BEST SINGLE-SEED)** 🚀; **C (ns_iter=8) TERMINAL val=3.26834 ffs=3100 (+0.48σ ≈ baseline)**; **D (ns_iter=10) step 464 launched** `bkr4pvcp`; E (ns_iter=14) pending |
-| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 NEG; C (0.5) val=3.2724 NEG; **D (0.85) TERMINAL val=3.26919 ffs=3100 (+1.18σ — mildly NEG, closer to ctrl than C)**; **E (1.0) step 996 launched** `qj9fynum`. **Trend: ctrl 0.7 still optimal; longer (0.85) mildly worse, shorter (0.3/0.5) catastrophic** |
-| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **C (rd, 0.025) TERMINAL val=3.278096 ffs=3225 (+12.3σ NEG)** — wd_aux=0.025 too high; axis trend: 0 ≈ 0.0025 ≫ 0.025 |
-| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ); **B (lr=0.1) TERMINAL val=3.274197 ffs=3150 (+7.59σ NEG — lr=0.1 too low)**; **C `em4ff9ro` (lr=0.6) step 70 warmup**; D (0.05), E (1.0) pending |
-| **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | **NEW (poll #275)** — P2 confirmation of thorfinn's hottest single-seed (val=3.265531 ffs=3075 −2.94σ). val already below n=4 gate of 3.265948; just need clean n=4 mean to confirm. Runs in parallel with thorfinn sweep + edward LOW |
-| **#496** | **edward** | **NS iter LOW sweep (12 ctrl / 5 / 4 / 3 / 2)** | **PICKED UP (poll #274):** Cell A ns_iter=12 ctrl `6c6ikozf` step 242 running — extends thorfinn ns_iter=6 winner candidate to the uncovered low end |
-| ~~#437~~ | ~~askeladd~~ | ~~SOAP precond_freq schedule~~ | **CLOSED poll #275** — P2 n=4 mu=3.267644 fails gate by 0.001696 (only 0.000304 below baseline) |
+| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A val=3.2670 ffs=3100 (−1.15σ); **B (MLP-only) TERMINAL val=3.26888 ffs=3100 (+1.14σ ≈ baseline)**; **C (ATTN-only) TERMINAL val=3.27186 ffs=3125 (+5.4σ NEG)**; **D `sz9dmixj` (no-SOAP ctrl) step 2100 ~65%**. Insight so far: SOAP everywhere ≫ MLP-only > ATTN-only; ATTN benefits most from SOAP |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A (trust=0.0) val=3.26694 ffs=3075; **B (0.1) TERMINAL val=3.26775 ffs=3100 (−0.21σ ≈ baseline)**; **C (0.3) TERMINAL val=3.26693 ffs=3100 (−1.28σ — best so far, but only 0.00001 above ctrl A = noise)**; **D (0.5) `f6ju7rdq` step 1908 ~59%**; E (0.8) pending. **Trust threshold axis flat — no winner** |
+| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A ctrl (ns_iter=12) val=3.26623 ffs=3075 (−1.61σ); **B (ns_iter=6) TERMINAL val=3.265531 ffs=3075 (−2.94σ NEW BEST SINGLE-SEED)** 🚀; **C (ns_iter=8) TERMINAL val=3.26834 ffs=3100 (+0.48σ ≈ baseline)**; **D (ns_iter=10) `bkr4pvcp` step 3124 ~96% — terminal imminent**; E (ns_iter=14) pending |
+| #455 | alphonse | AdamW aux WD sweep | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **C (rd, 0.025) TERMINAL val=3.278096 ffs=3225 (+12.3σ NEG)**. Axis trend: 0 ≈ 0.0025 ≫ 0.025; remaining cells unclear — wandb group search returned 0 hits, **CHECK POD STATE NEXT POLL** |
+| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.26638 ffs=3075 (−1.88σ); **B (lr=0.1) TERMINAL val=3.27420 ffs=3150 (+7.59σ NEG — too low)**; **C (lr=0.6) TERMINAL val=3.26608 ffs=3075 (−1.63σ — BEST in sweep, beats ctrl by tiny margin)**; **D (lr=0.05) `chjq4r86` step 1999 ~62%**; E (1.0) pending. Tentative trend: lr=0.6 slightly outperforms ctrl 0.3 — worth watching |
+| **#504** | **fern** | **LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40)** | **NEW (poll #276)** — probes LR=0 boundary condition; complementary to WD ramp_down winner; tests whether keeping a small LR floor at end (5-40% of peak) helps or hurts vs the current LR→0 cliff |
+| **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | **LAUNCHED**: run `ues3hmz1` step 2049/13000 (Trial 1 ~63%). Will resolve hottest signal in ~6-7 hrs. If n=4 mu ≤ 3.265948, NEW WINNER |
+| #496 | edward | NS iter LOW sweep (12 ctrl / 5 / 4 / 3 / 2) | **Cell A ctrl `6c6ikozf` step 2683 ~82% — terminal imminent** (after 2 earlier crashed retries); B-E pending |
+| ~~#457~~ | ~~fern~~ | ~~cooldown_frac sweep~~ | **CLOSED clean-neutral poll #276** — clean asymmetric U with min at ctrl 0.7 (−0.46σ); both shorter (+5.4σ at 0.5, +13.4σ at 0.3) and longer (+1.5σ at 0.85, +5.2σ at 1.0) hurt. New WD baseline didn't shift cooldown_frac optimum |
+| ~~#437~~ | ~~askeladd~~ | ~~SOAP precond_freq schedule~~ | **CLOSED poll #275** — P2 n=4 mu=3.267644 fails gate by 0.001696 |
 | ~~#422~~ | ~~edward~~ | ~~Muon WD shape variants~~ | **CLOSED poll #273** — P2 n=4 failed gate by 0.000223 |
 
 
@@ -89,12 +90,13 @@
 **SOAP scope ablation (frieren #472 — NEW):** Critical fresh axis — does SOAP on MLP actually help? With `--soap_attn` + trust_threshold=0.0, every 2D weight uses SOAP. Muon NS is never invoked in current best config. Testing MLP-only / ATTN-only / no-SOAP to understand what SOAP actually contributes.
 
 **Active fresh mechanism threads:**
-- **askeladd #497 (NEW poll #275):** P2 n=4 confirmation of ns_iter=6 — the headline experiment of this batch; could become next baseline winner if clean n=4 mean < 3.265948
-- **nezuko #467:** SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8)
-- **thorfinn #461:** NS iteration count (6/8/10/12/14) — broader sweep
-- **edward #496:** NS iteration count LOW extension (12 ctrl / 5 / 4 / 3 / 2) — replicate thorfinn hot signal and probe theoretical bf16 saturation floor
-- **fern #457:** cooldown_frac re-sweep on NEW baseline
-- **alphonse #455:** AdamW aux WD axis (currently WD=0 for embed/lm_head/scalars)
+- **askeladd #497:** P2 n=4 confirmation of ns_iter=6 — the headline experiment of this batch; could become next baseline winner if clean n=4 mean < 3.265948 (Trial 1 already at ~63%)
+- **fern #504 (NEW poll #276):** LR floor in cooldown — probes LR=0 boundary condition (does the "less optimizer intensity" theme extend symmetrically to LR alongside WD?)
+- **nezuko #467:** SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) — axis looking flat (B/C all within 1σ of ctrl)
+- **thorfinn #461:** NS iteration count (6/8/10/12/14) — Cell D terminal imminent; Cell E pending
+- **edward #496:** NS iteration count LOW extension (12 ctrl / 5 / 4 / 3 / 2) — Cell A terminal imminent
+- **alphonse #455:** AdamW aux WD axis — needs pod state check next poll (wandb group missing recent runs)
+- **tanjiro #473:** adam_embed LR sweep — Cell C (lr=0.6) val=3.26608 is mildly best (−1.63σ), worth watching
 
 **Key variance calibration:** Single-seed ctrl repros frequently land ±2σ from n=4 mean. Always require P2 n=4 before claiming winner.
 
