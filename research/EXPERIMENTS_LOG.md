@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 16:05 UTC — Cycle 68: #464 CLOSED COOLDOWN_POWER=2.0 mathematical kill on NEW stack; tanjiro → power=0.5 sqrt cooldown re-screen
+
+### PR #464 — COOLDOWN_POWER=2.0 (quadratic, Arm B) n=2 screen on NEW stack — CLOSED
+
+Branch: `g1r2-tanjiro/cooldown-power-sweep`. NEW mandatory stack (MU_WARMUP_STEPS=200).
+
+| step | val/loss (T0, n8hr5zpq) | bar |
+|---|---|---|
+| 3000 | 3.288261 | < 3.273477 |
+| 3050 | 3.287814 | < 3.273477 |
+| 3100 | 3.287616 | < 3.273477 |
+| 3150 | 3.287554 (min) | < 3.28 (ffs target) |
+| 3175 | **3.28756** | < 3.273477 |
+
+- T0 val = 3.28756 → MISS new val bar by Δ=+0.014
+- T0 ffs = **undefined** (val never crossed 3.28 within 3175-step budget) → MISS new ffs bar by ∞
+- T1 aborted at step ~279/3175 (saved ~94 min GPU)
+- n=2 mean mathematically dead: requires T1 val < 3.25939 (impossible) AND T1 ffs < 2937.5 (impossible)
+- Plumbing verified clean via smokes (emto9g9h, 5o8665fx, 1lltxrsf — `optimizer/cooldown_power` correctly set per arm)
+
+**Closure reason**: Mathematical kill at T0. Quadratic cooldown convexity front-loads decay too aggressively, starving the final ~250-step refinement window that drives the last 0.01-0.02 val improvement on the baseline trajectory.
+
+**Axis verdict**: power > 1 (front-loaded decay) is the WRONG direction on the new stack. New stack with MU_WARMUP_STEPS=200, MU_COOLDOWN_START=0.95 needs MORE late-LR, not less. Strong directional signal that the symmetric counter (power < 1, e.g., sqrt) is the natural next test.
+
+**Reassignment**: tanjiro → cooldown_power=0.5 sqrt cooldown n=2 screen on NEW stack (back-loaded decay; plumbing already verified by smoke 5o8665fx).
+
+---
+
 ## 2026-05-19 14:34 UTC — Cycle 68: #429 CLOSED NS5_ITERS=14 PREV stack (bar moved, axis valid); alphonse → #479 re-screen on NEW stack
 
 ### PR #429 — NS5_ITERS=14 (Arm B) n=4 confirm on PREV stack — CLOSED
