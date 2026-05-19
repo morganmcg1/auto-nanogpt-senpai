@@ -532,6 +532,15 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+# Linear warmup on the adam_embed group LR only. 0.0 (default) = no warmup, matches
+# pre-#489 behavior. Positive values multiply the embed group's LR by step/warmup_steps
+# for the first warmup_frac * train_steps steps, then keep multiplier=1.0 for the rest
+# of training. Other groups (Muon body, lm_head, scalars) are unaffected.
+NANOGPT_EMBED_LR_WARMUP_FRAC = float(os.environ.get("NANOGPT_EMBED_LR_WARMUP_FRAC", "0.0"))
+if NANOGPT_EMBED_LR_WARMUP_FRAC < 0.0 or NANOGPT_EMBED_LR_WARMUP_FRAC >= 1.0:
+    raise ValueError(
+        f"NANOGPT_EMBED_LR_WARMUP_FRAC={NANOGPT_EMBED_LR_WARMUP_FRAC!r}, must be in [0.0, 1.0)"
+    )
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -744,6 +753,8 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"EMBED_LR_WARMUP_FRAC: {NANOGPT_EMBED_LR_WARMUP_FRAC} ({'ENABLED' if NANOGPT_EMBED_LR_WARMUP_FRAC > 0 else 'DISABLED'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -806,6 +817,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
+            "nanogpt_embed_lr_warmup_frac": NANOGPT_EMBED_LR_WARMUP_FRAC,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -858,9 +870,27 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    # Linear-warmup multiplier for the adam_embed group only. Independent of
+    # cooldown / shape. Returns 1.0 when warmup is disabled or step >= warmup_steps.
+    embed_warmup_steps = int(NANOGPT_EMBED_LR_WARMUP_FRAC * train_steps)
+
+    def embed_warmup_multiplier(step):
+        if NANOGPT_EMBED_LR_WARMUP_FRAC <= 0.0 or embed_warmup_steps <= 0:
+            return 1.0
+        if step >= embed_warmup_steps:
+            return 1.0
+        return step / embed_warmup_steps
+
+    if NANOGPT_EMBED_LR_WARMUP_FRAC > 0:
+        print0(f"  Embed LR warmup: linear 0 -> full over first {embed_warmup_steps} steps "
+               f"({NANOGPT_EMBED_LR_WARMUP_FRAC * 100:.1f}% of {train_steps} train steps)",
+               console=True)
+
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
     # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    # The adam_embed group additionally receives an embed-only LR warmup
+    # multiplier (NANOGPT_EMBED_LR_WARMUP_FRAC) applied on top of eta_embed.
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -880,12 +910,15 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+        embed_warmup = embed_warmup_multiplier(step)
+        eta_embed_final = eta_embed * embed_warmup
         for opt in optimizers:
             for group in opt.param_groups:
                 if group.get("name") == "adam_embed":
-                    group["lr"] = group["initial_lr"] * eta_embed
+                    group["lr"] = group["initial_lr"] * eta_embed_final
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        return embed_warmup
 
 
     ########################################
@@ -988,7 +1021,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        current_embed_warmup_multiplier = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1063,6 +1096,11 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/adam_step_rms": embed_step_rms,
                             "train/embed_schedule/lr_embed": embed_group["lr"],
                             "train/embed_schedule/adam_steps_taken": step_count,
+                            "train/embed_schedule/warmup_multiplier": current_embed_warmup_multiplier,
+                            "train/embed_schedule/warmup_steps": embed_warmup_steps,
+                            "train/embed_schedule/in_warmup": int(
+                                NANOGPT_EMBED_LR_WARMUP_FRAC > 0 and step < embed_warmup_steps
+                            ),
                         }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
