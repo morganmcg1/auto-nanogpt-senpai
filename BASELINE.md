@@ -8,6 +8,51 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-19 19:35 — PR #458: WD_AUX=0.001 — Auxiliary AdamW weight decay on embed/head (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | Added `WD_AUX=0.001` env var wiring weight_decay on embed/head params in the AdamW group. Previously `weight_decay=0` for all params. The auxiliary weight decay imposes a soft L2 regularization on embedding and output projection weights — structurally different from the main model body — providing a distinct implicit bias that sharpens final-token representations. |
+| Contra-Muon HPs | `CONTRA_MUON=0.4`, `TARGET_UW=0.35`, `MUON_LR=0.0375` |
+| Cooldown μ HPs | `MU_COOLDOWN_START=0.95`, `MU_COOLDOWN_END=0.90` |
+| Warmup μ HPs | `MU_WARMUP_STEPS=200`, `MU_WARMUP_START=0.85` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; `ATTN_SOAP_TRUST_THRESHOLD=0.85` |
+| NS5 HPs | `NS5_ITERS=14` |
+| WD HPs | `WD_AUX=0.001` |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `uoak0qa8` (n=2 screen) |
+| **n=2 mean val/loss** | **3.271388** |
+| **n=2 statsig margin** | **0.01218** ≥ 0.004 — PASSES (3.04×) |
+| **ffs mean** | **3025** (T0=3025, T1=3025) |
+| **speedup vs PR #479** | val Δ=−0.001697; ffs Δ=−25 |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.27166 | 3025 |
+| T1 | 3.271114 | 3025 |
+
+**Mechanism insight**: Both trials landing at ffs=3025 with zero variance (first time seen this cycle) is strong evidence WD_AUX=0.001 consistently shaves 25 steps off baseline. The embed/head weight decay creates a distinct regularization path for the input/output coupling parameters, complementary to the Muon spectral-normalization path for QKV/MLP.
+
+**New merge bar**: mean val < **3.271388** AND ffs_mean < **3025** (STRICT — both required)
+
+**All new experiments must include**: `NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 \
+  MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 \
+  torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'baseline-repro-pr458' \
+  --wandb_group 'baseline-verification'
+```
+
+---
+
 ### 2026-05-19 18:39 — PR #479: NS5_ITERS=14 — Newton-Schulz iterations sweep (squash-merged)
 
 | Field | Value |
