@@ -704,6 +704,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "aux_adamw_wd_matrix": 0.01,
+            "aux_adamw_wd_scalars": 0.0,
         },
     )
 
@@ -735,9 +737,10 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+    WD_AUX = 0.01  # Arm B (PyTorch default). Arm A used 0.001.
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head", weight_decay=WD_AUX),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars", weight_decay=0.0)],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
