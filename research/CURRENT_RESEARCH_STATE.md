@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~18:05Z (poll #258)
+- **Last updated:** 2026-05-19 ~18:30Z (poll #259)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -30,14 +30,14 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A TERMINAL ctrl (MLP+ATTN) val=3.2670 ffs=3100 (−1.15σ re-anchor); **Cell B `qtogegt2` step 86 (possibly stalled/smoke — verify next poll)** |
+| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A TERMINAL ctrl val=3.2670 ffs=3100 (−1.15σ); **B `hpmoe4v4` (MLP-only) step 250; C smoke `lvzj4zsz` starting** |
 | #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **Cell B `sbroalg6` (trust=0.1) LAUNCHED step 255 — watcher recovered!** (`1ufeapa2` ctrl-dup also still alive at step 875) |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075; **Cell B `mv7ee25g` (ns_iter=6) running step 127** |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 ffs=3225 (+13.4σ NEG); **Cell C `sr1uguv4` (cooldown_frac=0.5) running step 251** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **Cell C `w5gsh5k2` (rd, 0.025) running step 337** |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A TERMINAL ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ re-anchor); **Cell B `r41glyh7` (lr=0.1) launched** |
 | #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER → **P2 LIKELY FAILING** (T1+T2 both val=3.2680 ffs=3100, n=2 mean=3.2680 above mu); T3 starting |
-| #422 | edward | Muon WD shape variants | **P2 trial 1 val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 train/step 2107/3250 (~15-20 min from terminal)** |
+| #422 | edward | Muon WD shape variants | **P2 trial 1 val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 IMMINENT terminal — key reproducibility check** |
 
 
 ## Recent Closures (polls #242–248)
