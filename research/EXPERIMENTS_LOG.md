@@ -1,3 +1,20 @@
+## 2026-05-19 15:06 UTC — PR #451 CLOSED (nezuko): MuonH budget_mult sweep — axis FLAT, lever closed
+
+- Branch: `g1r3-nezuko/muonh-budget-mult-sweep`
+- Hypothesis: Larger hyperball (bm=1.1) gives inner optimizer more room; smaller (bm=0.90) applies stronger regularization → better generalization.
+- Results:
+
+| Arm | bm | W&B run | val/loss | ffs | reached_target | Δ vs ctrl (3.27376) | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | 1.0 | `vimjhzp0` | 3.27376 | 3150 | yes | (ctrl) | +0.00257 |
+| 2 | 0.9 | `ozmx5ukq` | 3.27430 | 3150 | yes | +0.00054 | +0.00311 |
+| 3 | 1.1 | `65k2dls4` | **3.27374** | 3150 | yes | **-0.00002** | +0.00255 |
+
+- **FLAT axis**: arm 3 bm=1.1 is bit-equivalent to ctrl (Δ=-0.00002, well inside σ≈0.0006 noise). All 3 arms cluster within ±0.00054 band — smallest spread on any lever this round.
+- Mechanism: under MuonH-SI mode, budget_mult is an always-active rescaling to hold Frobenius norm constant at `||p_0|| * bm`. Varying bm by ±10% only changes the constant norm scale, not update direction or effective LR → near-bitwise-equivalent outcomes.
+- Runs used OLD baseline stack (no `--aux_adamw_eps 1e-6`). Gap vs new baseline (3.27119) is entirely explained by missing eps=1e-6 flag, not by bm choice.
+- Nezuko reassigned to aux AdamW lm_head LR sweep (PR #481) to complete per-group LR trio.
+
 ## 2026-05-19 14:28 UTC — PR #450 CLOSED (askeladd): MuonH inner static mu sweep — catastrophic at mu=0.98, axis closed
 
 - Branch: `g1r3-askeladd/muonh-mu-sweep`
