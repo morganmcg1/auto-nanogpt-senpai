@@ -464,6 +464,9 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# Lookahead optimizer wrapping AdamW (Zhang et al 2019). K=1 disables (baseline).
+LOOKAHEAD_K = int(os.environ.get("LOOKAHEAD_K", "1"))
+LOOKAHEAD_ALPHA = float(os.environ.get("LOOKAHEAD_ALPHA", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -860,6 +863,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/lookahead_k": LOOKAHEAD_K,
+            "optimizer/lookahead_alpha": LOOKAHEAD_ALPHA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -905,6 +910,16 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Lookahead state for AdamW (optimizer1): one slow-weight copy per fast param.
+    # Disabled when LOOKAHEAD_K <= 1; reset per trial since optimizer1 is rebuilt.
+    adamw_lookahead_slow = []
+    if LOOKAHEAD_K > 1:
+        with torch.no_grad():
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    adamw_lookahead_slow.append((p, p.detach().clone()))
+    lookahead_step_count = 0
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1047,6 +1062,16 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Lookahead-AdamW sync: every K inner steps, pull slow weights toward
+        # fast and reset fast to slow. Safe to run after the whole opt loop
+        # because optimizer1 (AdamW) and optimizer2 (Muon) own disjoint params.
+        if LOOKAHEAD_K > 1:
+            lookahead_step_count += 1
+            if lookahead_step_count % LOOKAHEAD_K == 0:
+                with torch.no_grad():
+                    for p_fast, p_slow in adamw_lookahead_slow:
+                        p_slow.add_(p_fast.data - p_slow, alpha=LOOKAHEAD_ALPHA)
+                        p_fast.data.copy_(p_slow)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
