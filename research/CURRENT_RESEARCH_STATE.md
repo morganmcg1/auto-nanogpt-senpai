@@ -1,27 +1,25 @@
 # SENPAI Research State
 
-- 2026-05-19 19:10 UTC — **MAJOR PROGRESS: PR #479 MERGED + edward #458 EXCEPTIONAL n=2 result**
+- 2026-05-19 19:35 UTC — **TWO CONSECUTIVE MERGES: PR #479 + PR #458 both squash-merged this cycle**
 
-  **PR #479 merged (NS5_ITERS=14)**: New baseline val=3.273085/ffs=3050. New mandatory stack adds NS5_ITERS=14. New bar: val<3.273085 AND ffs<3050 (strict, both required).
+  **PR #458 MERGED (WD_AUX=0.001 — edward)**: New baseline val=3.271388/ffs=3025 (n=2, zero-variance ffs). New mandatory stack adds WD_AUX=0.001. **New bar: val<3.271388 AND ffs<3025 (strict, both required)**. Statsig 3.04×. W&B: `uoak0qa8`. Rebase notices sent to all 7 in-flight PRs.
 
-  **Edward #458 (WD_AUX=0.001)**: Run `uoak0qa8` FINISHED. Both T0=T1=ffs=3025 (zero variance!). n=2 mean: val≈3.27139/ffs=3025 — beats new bar by 0.0017 val and 25 ffs. Statsig 3.04×. Awaiting student SENPAI-RESULT for merge.
+  **PR #479 MERGED (NS5_ITERS=14 — alphonse)** [cycle 68 close-out]: Baseline val=3.273085/ffs=3050. Closed 18:50 UTC.
 
-  **Three math kills from new bar tightening**:
-  - Askeladd #468 (GRAD_CLIP_NORM_ADAM=1.0): n=2 mean ffs=3062.5, MISS both bars. CLOSED.
-  - Nezuko #469 (EMBED_LR=0.225): T0 ffs=3075, new bar requires T1<3025 impossible. MATH KILL.
-  - Thorfinn #462 (MU_WARMUP_START=0.80 n=4): T0+T1+T2={3075,3050,3075}, T3=3025 gives mean=3056.25>3050. MATH KILL.
+  **Three math kills from bar tightening**: Askeladd #468 (GRAD_CLIP), Nezuko #469 (EMBED_LR), Thorfinn #462 (MU_WARMUP_START n=4) — all closed.
 
-  **Fern #456** sent back for Arm B (SCALARS_LR=0.0125) with NS5=14 stack.
+  **Current in-flight PRs (7 active)**:
+  - Fern #456: Arm B SCALARS_LR=0.0125 — needs rebase on new stack (WD_AUX=0.001 added)
+  - Frieren #488: AdamW β1 sweep (0.75 vs 0.85) — rebase required
+  - Tanjiro #491: AdamW β2 sweep (0.90 vs 0.99) — rebase required
+  - Alphonse #492: NS5_ITERS=16 — rebase required
+  - Askeladd #493: AdamW eps=1e-8 vs 1e-10 — rebase required
+  - Nezuko #494: MUON_LR sweep (0.035 vs 0.04) — rebase required
+  - Thorfinn #495: COOLDOWN_FRAC sweep (0.65 vs 0.75) — rebase required
 
-  **New assignments** (all 4 idle students now assigned):
-  - Alphonse → #492 NS5_ITERS=16 (direct extension of winning axis)
-  - Askeladd → #493 AdamW eps=1e-8 (vs hardcoded 1e-10, never swept)
-  - Nezuko → #494 MUON_LR sweep (0.035 vs 0.04 around 0.0375, never swept)
-  - Thorfinn → #495 COOLDOWN_FRAC sweep (0.65 vs 0.75 around 0.7, never swept)
+  **Current research focus**: With TWO stacked wins at ffs=3025 (NS5_ITERS=14 + WD_AUX=0.001), the next target is ffs<3025 (i.e., ffs=3000). Active axes: (a) NS5_ITERS=16 extension — can 2 more iterations push ffs to 3000? (b) AdamW beta sweeps — β1 and β2 both hardcoded since project init, compounding with WD_AUX plausible. (c) MUON_LR/COOLDOWN_FRAC — long-untouched hyperparameters at low complexity. (d) AdamW eps — small but orthogonal.
 
-  **In-flight**: edward #458 (awaiting SENPAI-RESULT, ~merge-ready), fern #456 (Arm B pending), frieren #488 (AdamW β1), tanjiro #491 (AdamW β2).
-
-  **Research theme shift**: With NS5_ITERS=14 and WD_AUX=0.001 both showing ffs=3025 (25 steps better than baseline), the focus is on (a) confirming WD_AUX win, (b) probing further NS5 iterations, and (c) sweeping long-untouched hyperparameters (MUON_LR, COOLDOWN_FRAC, Adam epsilon). Two stacked wins at ffs=3025 suggest compounding potential — if NS5=16 and WD_AUX=0.001 are orthogonal, stacking could push ffs toward 3000.
+  **Stack compounding hypothesis**: NS5_ITERS=14 and WD_AUX=0.001 both delivered independent 25-step ffs improvements. If any in-flight axis is orthogonal, ffs=3000 is reachable by stacking. The two merged wins suggest the optimizer is still improvable via regularization (WD) + projection quality (NS5).
 
 - 2026-05-19 18:09 UTC — Cycle 68 ops — **#485 tanjiro CLOSED** COOLDOWN_POWER=0.5 (sqrt back-loaded cooldown) gate-killed at step 2272 (val@step2000=3.46616 vs gate 3.40, baseline ~3.37 — saved ~105 min compute by skipping T1). **COOLDOWN_POWER axis fully characterized**: power=2.0 → math kill (#464); power=1.0 → baseline; power=0.5 → gate kill (#485). Local optimum at linear. **Tanjiro → #491 AdamW β2 sweep** (ADAM_BETA2=0.90 vs 0.99 around hardcoded 0.95) — FRESH axis: AdamW betas (0.8, 0.95) hardcoded since project init; β2=0.95 unusual vs PyTorch default 0.999. Cleanly orthogonal to frieren's β1 sweep (#488). Could compound with edward's WD_AUX=0.001 T0 winner.
 

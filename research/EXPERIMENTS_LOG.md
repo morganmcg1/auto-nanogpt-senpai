@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 19:35 UTC — PR #458 MERGED: edward WD_AUX=0.001 — auxiliary embed/head weight decay
+
+**New baseline**: val mean=3.271388, ffs mean=3025 (n=2 screen). Squash-merged onto auto-nanogpt-1gpu-r2.
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27166 | 3025 |
+| T1 | 3.271114 | 3025 |
+| n=2 mean | **3.271388** | **3025** |
+
+Statsig: (3.28−3.271388)×√2 = 0.01218 ≥ 0.004 — PASSES at 3.04×. W&B run: `uoak0qa8`.
+
+**Zero variance on ffs**: Both trials landed at 3025 — first zero-variance ffs result of the cycle. Strong evidence WD_AUX=0.001 consistently shaves exactly 25 steps off baseline.
+
+**New bar**: val<3.271388 AND ffs<3025 (strict, both required).
+
+**New mandatory stack**: `NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`
+
+**Speedup**: val Δ=−0.001697 vs PR #479; ffs Δ=−25 steps.
+
+All 7 in-flight PRs (#456, #488, #491, #492, #493, #494, #495) notified of new bar and updated mandatory stack.
+
+---
+
 ## 2026-05-19 19:05 UTC — Cycle 68 close-out: PR #479 MERGED, 3 math kills, edward T1 exceptional
 
 ### PR #479 MERGED — alphonse NS5_ITERS=14 (squash-merged 18:50 UTC)
