@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 15:40 UTC
+- **Last update:** 2026-05-19 15:55 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -23,29 +23,29 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#440** | tanjiro | Embed init scale std∈{0.5,2.0}: symmetric NULL. std=1.0 in local optimum. | CLOSED 14:33 UTC |
 | **#444** | frieren | PMuon γ_power phase ramp both directions: Δsr=+37.5 both arms. γ=0.4 STATIC invariant. | **CLOSED 15:35 UTC** |
 
-## Active experiments (8 students, 15:40 UTC)
+## Active experiments (8 students, 15:55 UTC)
 
 | PR | Student | Run | Step | bl | ETA term | Status |
 |---|---|---|---|---|---|---|
-| **#482** | **frieren** | (awaiting pickup) | — | — | ~7h sequential | **NEW — body Muon WD partition: MLP-only vs attention-only WD.** First structural partition of body group. |
-| **#480** | tanjiro | `kz1m6rzg` Arm A attn-scale=0.09 | 725 | 3.754 | ~2.9h | First softmax temperature scan running |
-| **#476** | thorfinn | `j3gh6b0q` Arm A z-loss=1e-4 | 975 | 3.687 | ~2.5h | Z-loss running cleanly |
-| **#465** | fern | `jyizvqdk` Arm A muon-lr=0.030 | 2275 | 3.368 | ~50m | Late cooldown |
-| **#466** | edward | `p9teuxjm` Arm A aux-wd=0.001 | 2475 | 3.356 | ~36m | Late cooldown |
-| **#463** | askeladd | `jdhgubwr` Arm A embed-eps=1e-8 | 2600 | 3.336 | ~28m | Late cooldown |
-| **#460** | alphonse | `a7bmaf65` Arm A scalar_lr=0.020 | 3075 | 3.272 | **~12m** | Closest to terminal; fs=2975 locks NULL on 1st clause |
-| **#448** | nezuko | `taremaia` Arm B cf-aux=0.85 | 2725 | 3.321 | ~22m | Late cooldown |
+| **#482** | **frieren** | `88akvbl3` Arm A failed (Muon ctor reject) | — | — | TBD | **Code correction sent**: param_groups not accepted by Muon, use two separate Muon optimizers; await relaunch |
+| **#480** | tanjiro | `kz1m6rzg` Arm A attn-scale=0.09 | 950 | 3.691 | ~2.7h | First softmax temperature scan running |
+| **#476** | thorfinn | `j3gh6b0q` Arm A z-loss=1e-4 | 1200 | 3.634 | ~2.3h | Z-loss running cleanly |
+| **#465** | fern | `jyizvqdk` Arm A muon-lr=0.030 | 2500 | 3.331 | ~45m | Late cooldown |
+| **#466** | edward | `p9teuxjm` Arm A aux-wd=0.001 | 2700 | 3.317 | ~30m | Late cooldown |
+| **#463** | askeladd | `jdhgubwr` Arm A embed-eps=1e-8 | 2850 | 3.301 | ~22m | Late cooldown |
+| **#460** | alphonse | Arm A `a7bmaf65` TERMINAL NULL; Arm B `evr56g3n` launched | 0 → 3250 | 3.267 (A) | A done; B ~3.5h | Arm A NULL (sr=2975 Δsr=+37.5, val=3.266651 Δval=+0.002373); Arm B sequential launch |
+| **#448** | nezuko | Arm A `0a9r5lof` finished marginal NULL; Arm B `taremaia` running | 2950 | 3.284 (B) | ~10m | Arm A NULL (sr=2975, val=3.265212 Δval=+0.000934 marginal); Arm B trending worse (bl=3.284 at step 2950 still) |
 
-## Next terminal events (from 15:40 UTC)
+## Next terminal events (from 15:55 UTC)
 
-1. **alphonse a7bmaf65** — ~15:52 UTC (~12 min). bl=3.272, fs=2975 already locked → NULL on first clause; would need val<3.264 in ~175 steps. Plausible NULL.
-2. **nezuko taremaia** — ~16:02 UTC (~22 min).
-3. **askeladd jdhgubwr** — ~16:08 UTC (~28 min).
-4. **edward p9teuxjm** — ~16:16 UTC (~36 min).
-5. **fern jyizvqdk** — ~16:30 UTC (~50 min).
-6. **thorfinn j3gh6b0q** — ~18:10 UTC (~2.5h).
-7. **tanjiro kz1m6rzg** — ~18:30 UTC (~2.9h).
-8. **frieren #482** — depends on pickup; ~7h sequential after launch.
+1. **nezuko taremaia** — ~16:05 UTC (~10 min). Arm B bl=3.284 at step 2950; very late cooldown, trending NULL.
+2. **askeladd jdhgubwr** — ~16:17 UTC (~22 min). Arm A only.
+3. **edward p9teuxjm** — ~16:25 UTC (~30 min). Arm A only.
+4. **fern jyizvqdk** — ~16:40 UTC (~45 min). Arm A only.
+5. **thorfinn j3gh6b0q** — ~18:15 UTC (~2.3h). Arm A only.
+6. **tanjiro kz1m6rzg** — ~18:40 UTC (~2.7h). Arm A only.
+7. **alphonse evr56g3n Arm B** — ~19:25 UTC (~3.5h).
+8. **frieren #482** — awaiting code fix + relaunch (~7h sequential after launch).
 
 ## Recently merged
 
