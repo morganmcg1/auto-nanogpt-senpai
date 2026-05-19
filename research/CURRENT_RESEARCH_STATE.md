@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~14:10Z (poll #249)
+- **Last updated:** 2026-05-19 ~14:35Z (poll #250)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -11,28 +11,32 @@
 
 ### #1 EDWARD #422 — Cell C `stable_only` WD: −1.60σ (n=1)
 - **Mechanism:** WD=0 during entire cooldown phase (cliff at cooldown start). Less cumulative cooldown WD = better val.
-- **P2 n=4 LAUNCHED:** edward running `--num_trials 4 --wd_schedule stable_only`. Run `ob6ek9zt`. Trial 1 ffs=3000 (better than baseline 3100!); trial 2 at step ~955.
-- **Gate:** mu_p2 ≤ 3.265948
+- **P2 n=4 LAUNCHED:** edward running `--num_trials 4 --wd_schedule stable_only`. Run `ob6ek9zt`.
+  - **Trial 1 (idx 0) TERMINAL:** val=3.2658, ffs=3000 → −2.61σ on n=1 (beats baseline on BOTH metrics).
+  - **Trial 2 (idx 1) running:** step ~3122/3250, current best_val=3.2720 — terminal in ~8 min.
+- **Gate:** mu_p2 ≤ 3.265948. So far so good — trial 1 well below gate, trial 2 hovering near it.
 
 ### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1)
-- **val=3.266906, ffs=3075** — beats baseline on BOTH metrics
+- **Cell C single-trial:** val=3.266906, ffs=3075 — beats baseline on BOTH metrics
 - **Mechanism:** SOAP precond_freq ramps down (8→64 updates per step), less frequent precond during cooldown = better. CROSS-AXIS CONFIRMATION of "less intensity in cooldown" principle.
-- **P2 n=4 LAUNCHED (poll #244).** Run `h8g04vyb`. Step ~2733, progressing.
-- **Gate:** mu_p2 ≤ 3.265948
+- **P2 n=4 LAUNCHED (poll #244).** Run `h8g04vyb`.
+  - **Trial 1 (idx 0) TERMINAL:** val=3.2680, ffs=3100 → −0.06σ on n=1 (essentially baseline mean — single-trial winner regressing).
+  - **Trial 2 (idx 1) running:** step ~1622/3250, current val=3.5333. ~108 min from trial 2 terminal.
+- **Gate:** mu_p2 ≤ 3.265948. Already in trouble — trial 1 lands at mu, leaves ZERO margin. P2 likely fails unless trials 2-4 land well below 3.266.
 
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | **NEW — add `--no_soap_mlp` flag; Cell A (ctrl) first** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | **Cell A `y9fsimjv` running ~41%** |
-| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | **Cell A `zcpp564w` running ~36%** |
-| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | Cell A TERMINAL val=3.26757 ffs=3100; **Cell B `el26535y` (cooldown_frac=0.3) running ~24%** |
-| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A TERMINAL −0.90σ ctrl; **Cell B `3tm0uy2a` (const tiny 0.0025) running ~10%** |
-| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | **NEW — add `--adam_embed_lr` flag; Cell A (ctrl 0.3) first** |
-| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 n=4 `h8g04vyb` running** |
-| #422 | edward | Muon WD shape variants | **P2 n=4 `ob6ek9zt` trial 1 ffs=3000 ✓; trial 2 step ~955** |
+| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | **Cell A `qcycy1e9` running ~42% (smokes passed)** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | **Cell A `y9fsimjv` running ~94% — terminal imminent** |
+| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | **Cell A `zcpp564w` running ~94% — terminal imminent** |
+| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | Cell A TERMINAL val=3.26757 ffs=3100; **Cell B `el26535y` (cooldown_frac=0.3) running ~91%** |
+| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A TERMINAL −0.90σ ctrl; **Cell B `3tm0uy2a` (const tiny 0.0025) running ~77%** |
+| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | **Cell A `74k60vo3` running ~41% (smokes passed)** |
+| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 trial 1 val=3.2680 ffs=3100 at-mu; trial 2 step ~1622** |
+| #422 | edward | Muon WD shape variants | **P2 trial 1 val=3.2658 ffs=3000 ✓ (−2.61σ); trial 2 step ~3122 imminent** |
 
 
 ## Recent Closures (polls #242–248)
