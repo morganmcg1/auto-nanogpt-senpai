@@ -534,6 +534,65 @@ NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_M
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
+# OrthoGrad (arxiv:2501.04697, 2506.04487): project the aux-group AdamW gradients
+# orthogonal to the current weight direction before AdamW's m_t/v_t accumulators see
+# them. Acts only on the 2D aux weight matrices (embed and/or lm_head); scalars are
+# skipped because the projection is degenerate for 1D parameters. Muon body params
+# are never modified.
+#   "none"           -> no projection (control)
+#   "embed"          -> embed weight only
+#   "lm_head"        -> lm_head proj weight only
+#   "embed_lm_head"  -> both 2D aux weights
+NANOGPT_ORTHOGRAD_SCOPE = os.environ.get("NANOGPT_ORTHOGRAD_SCOPE", "none")
+_VALID_ORTHOGRAD_SCOPES = ("none", "embed", "lm_head", "embed_lm_head")
+if NANOGPT_ORTHOGRAD_SCOPE not in _VALID_ORTHOGRAD_SCOPES:
+    raise ValueError(
+        f"NANOGPT_ORTHOGRAD_SCOPE={NANOGPT_ORTHOGRAD_SCOPE!r}, must be one of {_VALID_ORTHOGRAD_SCOPES}"
+    )
+_ORTHOGRAD_SCOPE_TO_GROUPS = {
+    "none": frozenset(),
+    "embed": frozenset({"adam_embed"}),
+    "lm_head": frozenset({"adam_lm_head"}),
+    "embed_lm_head": frozenset({"adam_embed", "adam_lm_head"}),
+}
+ORTHOGRAD_GROUPS: frozenset[str] = _ORTHOGRAD_SCOPE_TO_GROUPS[NANOGPT_ORTHOGRAD_SCOPE]
+
+
+@torch.no_grad()
+def apply_orthograd_to_optimizer(
+    optimizer: torch.optim.Optimizer,
+    target_groups: frozenset[str],
+    eps: float = 1e-30,
+) -> dict[str, float]:
+    """Project p.grad orthogonal to p.data for parameters whose group["name"] is in
+    target_groups. Modifies p.grad in place. Computation runs in float32 for numerical
+    accuracy (the embed tensor is bf16 with ~38M elements, where bf16 dot products lose
+    precision). Returns a dict mapping short group names to projection fractions
+    (||parallel|| / ||g||) for telemetry.
+    """
+    fracs: dict[str, float] = {}
+    if not target_groups:
+        return fracs
+    for group in optimizer.param_groups:
+        gname = group.get("name", "")
+        if gname not in target_groups:
+            continue
+        short = "embed" if gname == "adam_embed" else ("lm_head" if gname == "adam_lm_head" else gname)
+        for p in group["params"]:
+            if p.grad is None or p.ndim < 2:
+                continue
+            g_f = p.grad.detach().float().flatten()
+            w_f = p.data.detach().float().flatten()
+            w_norm_sq = w_f.dot(w_f).clamp_min(eps)
+            coef = g_f.dot(w_f) / w_norm_sq
+            parallel = coef * w_f
+            g_norm = g_f.norm()
+            par_norm = parallel.norm()
+            denom = g_norm.clamp_min(eps)
+            fracs[short] = float((par_norm / denom).item())
+            p.grad.add_(parallel.view_as(p.grad).to(p.grad.dtype), alpha=-1.0)
+    return fracs
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -744,6 +803,7 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"ORTHOGRAD_SCOPE: {NANOGPT_ORTHOGRAD_SCOPE} (target groups: {sorted(ORTHOGRAD_GROUPS) if ORTHOGRAD_GROUPS else 'none — no projection'})", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +867,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_orthograd_scope": NANOGPT_ORTHOGRAD_SCOPE,
         },
     )
 
@@ -971,6 +1032,11 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        # OrthoGrad: project aux-group gradients orthogonal to weight direction
+        # BEFORE the global grad clip (projection commutes with scalar rescaling,
+        # so the order is mathematically equivalent; doing it pre-clip keeps the
+        # clip threshold semantics over the gradient that AdamW actually consumes).
+        orthograd_fracs = apply_orthograd_to_optimizer(optimizer1, ORTHOGRAD_GROUPS)
         if NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
@@ -1018,6 +1084,17 @@ for trial_idx in range(args.num_trials):
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
             )
+        if dist.get_rank() == 0 and telemetry_due and orthograd_fracs:
+            ortho_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/orthograd/scope_id": {
+                    "none": 0, "embed": 1, "lm_head": 2, "embed_lm_head": 3,
+                }.get(NANOGPT_ORTHOGRAD_SCOPE, -1),
+            }
+            for short_name, frac in orthograd_fracs.items():
+                ortho_metrics[f"train/orthograd/{short_name}/proj_frac"] = frac
+            wandb.log(ortho_metrics, step=wandb_step)
         # NS iteration schedule: cooldown shape controls how iters evolve during
         # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
         # is the legacy jump-to-cooldown behavior; other shapes are compute-neutral.
