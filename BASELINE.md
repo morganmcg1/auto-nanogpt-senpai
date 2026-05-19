@@ -2,6 +2,44 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-05-19 01:10 UTC — PR #371: Muon WD ramp_down schedule (n=4 confirm)
+
+- **Primary metric:** `speedrun/final_first_step_to_target` = **3100** (ALL 4 trials); ffs_mean=3100
+- **val/loss (mu):** **3.267948** (std=0.000823, SE=0.000412)
+- **n:** 4 seeds (Phase 2 confirm run `okae8f06`), `train_steps=3250`
+- **Statsig:** `(3.271362 − 3.267948) × √4 = 0.006828 ≥ 0.004` ✅ PASS (1.71× headroom)
+- **New merge statsig rule:** `(3.267948 - mu) × sqrt(n) ≥ 0.004`
+  → need mu ≤ 3.265948 for n=4, ≤ 3.266316 for n=6, ≤ 3.266536 for n=8
+- **vs previous baseline (PR #162):** Δmu = −0.003414 (−2.89σ), Δffs = −41.67 steps (mean), new ffs_best=3100
+- **W&B runs:** `yh4fzyoe` (P1 Cell C trigger), `okae8f06` (P2 n=4 confirm, group `g1r5-fern/wd-schedule-sweep`)
+- **Student:** g1r5-fern
+- **What changed:** Muon WD (wd_mlp, wd_attn) follows a `ramp_down` schedule: starts at 0.05, linearly decays to 0.0 over the 3250-step run (time-average = 0.025 = old constant). High WD early regularizes the high-LR phase; zero WD late avoids competition with LR cooldown consolidation. Cell B (`ramp_up` 0→0.05) failed the target outright at +7.76σ, confirming the mechanism: WD must be frontloaded.
+- **Trial breakdown (all 4, no cherry-picking):**
+  | Trial | best_val_loss | ffs |
+  |-------|---------------|-----|
+  | 0 (okae8f06) | 3.26758 | 3100 |
+  | 1 (okae8f06) | 3.26917 | 3100 |
+  | 2 (okae8f06) | 3.26766 | 3100 |
+  | 3 (okae8f06) | 3.26738 | 3100 |
+  | **mean** | **3.267948** | **3100** |
+- **Reproduce:**
+
+```bash
+cd "$PROBLEM_DIR" && \
+  pip install -r requirements.txt && \
+  python data/cached_fineweb10B.py 20 && \
+  SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py \
+    --num_trials 4 \
+    --soap_attn \
+    --lr_mlp 0.055 \
+    --wd_schedule ramp_down \
+    --wandb_name "baseline-wd-rampdown-n4" \
+    --wandb_group "baselines"
+```
+
+---
+
 ## 2026-05-17 12:42 UTC — PR #162: Per-group LR: lr_mlp=0.055 (sweep + n=6 confirm)
 
 - **Primary metric:** `speedrun/final_first_step_to_target` = **3141.67** (mean, n=6); best seed=**3125** (2/6 trials)
