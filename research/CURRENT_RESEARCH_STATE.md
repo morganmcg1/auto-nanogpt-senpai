@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~23:55Z (poll #281)
+- **Last updated:** 2026-05-19 ~23:55Z (poll #282)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -33,12 +33,12 @@ This is **critical new information** — if ns_iter=5 doesn't beat ns_iter=12, t
 |------|---------|-----------|--------|
 | **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | T1 val=3.26566 ffs=3075; **T2 TERMINAL val=3.26957 ffs=3125** (variance ate signal). T3 ~4%, T4 pending. n=2 mean=3.26762, **needs T3+T4 mean ≤ 3.264281 for n=4 gate** — lean failing |
 | #496 | edward | NS iter LOW sweep (12 / 5 / 4 / 3 / 2) | Cell A ctrl (ns=12) TERMINAL val=3.26793; Cell B (ns=5) TERMINAL val=3.26754 (−0.49σ); **Cell C (ns=4) running step ~559/3250 (~17%)**; D/E pending |
-| #508 | alphonse | Muon momentum (mu) static value sweep (0.85/0.90/0.95/0.97/0.99) | **Cell A ctrl (mu=0.95) step 3161/3250 (~97%)**, val=3.27290 — terminal imminent. (poll #281 stale_wip flag is false positive — pod active, run running) |
-| #509 | frieren | lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) | **Cell A ctrl (0.055) step 2343/3250 (~72%)** mid-cooldown val=3.401; B–E pending |
-| #517 | tanjiro | EMA / Polyak averaging for eval (0.0/0.99/0.999/0.9999/+cooldown-only) | **Cell A ctrl (decay=0) step 586/3250 (~18%)**; B–E pending |
-| **#518** | **thorfinn** | **NS polynomial coefficient sweep — current / Muon paper / analytical quintic** | NEW (poll #280) — student has not yet launched W&B group; expected to start shortly |
-| #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | Cell A ctrl (0.0) TERMINAL val=3.2662 ffs=3075 (refactor no-op); **Cell B (0.05) running step 1120/3250 (~34%)** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | **3 cells terminal: val=3.273–3.275 (all worse than baseline by +1.4 to +1.9σ)**. Axis flat-but-WORSE; D running, E pending. **No winner — close clean-neutral when E done** |
+| #508 | alphonse | Muon momentum (mu) static value sweep (0.85/0.90/0.95/0.97/0.99) | **Cell A ctrl (mu=0.95) TERMINAL val=3.26763 ffs=3100** (ctrl confirms baseline mean exactly); Cell B (mu=0.85) running step ~180. Student comment pending — stale_wip flag is false positive |
+| #509 | frieren | lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) | **Cell A ctrl (0.055) running step 2874/3250 (~88%)** mid-cooldown — terminal ~20 min |
+| #517 | tanjiro | EMA / Polyak averaging for eval (0.0/0.99/0.999/0.9999/+cooldown-only) | Cell A ctrl (decay=0) running step 1124/3250 (~35%); B–E pending |
+| **#518** | **thorfinn** | **NS polynomial coefficient sweep — current / Muon paper / analytical quintic** | Student has done refactor edits but not yet launched first W&B run; on correct branch. Next student heartbeat ~23:45 UTC |
+| #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | Cell A ctrl (0.0) TERMINAL val=3.26617 ffs=3075 (refactor no-op, lucky-side variance); **Cell B (0.05) running step 1561/3250 (~48%)** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | **5+ cells terminal: val=3.273–3.275 (all +1.4 to +1.9σ vs baseline mu)**. Axis flat-but-WORSE; **READY TO CLOSE clean-neutral when student posts final SENPAI-RESULT** |
 
 
 ## Recent Closures (polls #273–280)
