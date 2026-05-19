@@ -1,3 +1,29 @@
+## 2026-05-19 04:59 UTC — PR #424 (arm 2 ctrl): MuLoCo outer Nesterov SGDM mu=0.5 (control) — baseline-equivalent
+- Branch: `g1r3-askeladd/muloco-nesterov-sweep`
+- Hypothesis context: Askeladd's code reading on PR #424 confirmed the current MuLoCo outer update at lines 1093-1095 is **Nesterov SGDM** (not standard SGDM as initially framed). Arm 2 is ctrl with the current (Nesterov) configuration at mu=0.5.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) |
+|---|---|---|---|
+| `n0ok0cgj` (Nesterov SGDM mu=0.5 ctrl) | 3.27353 | 3150 | +0.00067 |
+
+- Clean baseline reproduction (within σ ~0.0006-0.0008).
+- Arm 1 (drop_nesterov, standard SGDM mu=0.5) `o7pbf2f3` chaining.
+- Arm 3 (Nesterov mu=0.8) will chain after arm 1.
+
+## 2026-05-19 04:59 UTC — PR #417 (arm 2): MuonH inner cooldown_frac = 0.7 (shortened cooldown) — NEG
+- Branch: `g1r3-edward/muonh-inner-cooldown-frac-sweep`
+- Hypothesis: Test whether shortening the MuonH inner cooldown phase improves training. Arm 2 = cooldown_frac=0.7 (first 30% of training is flat at peak LR, last 70% is cooldown — versus baseline cooldown_frac=1.0 full cooldown).
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 1 ctrl (3.27236) |
+|---|---|---|---|---|
+| `u88kyal5` (cooldown_frac=0.7) | 3.28949 | -1 | +0.01663 | +0.01713 |
+
+- **Clear NEG**: Δ=+0.01663 is ~20σ over baseline. **ffs=-1 — run never reached 3.28 target.**
+- The cooldown phase is doing real work — leaving LR too high near training end prevents convergence below 3.28.
+- Arm 3 (cooldown_frac=0.5, even more aggressive) `us53ifim` chaining; expected even stronger NEG.
+
 ## 2026-05-19 03:28 UTC — PR #392 (arm cap=10): Softsign logit cap = 10 (tighter) — NEG
 - Branch: `g1r3-fern/logit-soft-cap`
 - Hypothesis: Tightening the softsign cap from 15 to 10 should regularize attention logits more aggressively and potentially improve generalization.
