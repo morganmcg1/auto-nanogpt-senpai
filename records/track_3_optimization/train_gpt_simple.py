@@ -63,6 +63,11 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--precond_freq_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_down_4_32", "ramp_down_8_64", "ramp_up_32_4"],
+                        help="SOAP preconditioner update frequency schedule. "
+                             "constant=16 throughout; ramp_down_4_32=freq 4 at step 0 -> 32 at last step; "
+                             "ramp_down_8_64=freq 8 -> 64; ramp_up_32_4=freq 32 -> 4 (sanity check).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -551,6 +556,7 @@ class Muon(torch.optim.Optimizer):
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
                  soap_attn=False, trust_threshold=0.0):
+        self.precondition_frequency = PRECOND_FREQ
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -626,7 +632,7 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(p.grad, state, precondition_frequency=self.precondition_frequency)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -741,6 +747,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "precond_freq_schedule": args.precond_freq_schedule,
         },
     )
 
@@ -813,6 +820,18 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _precond_freq_schedule(step, total_steps, schedule):
+        if schedule == "constant":
+            return PRECOND_FREQ
+        p = step / max(1, total_steps - 1)
+        if schedule == "ramp_down_4_32":
+            return max(1, int(round(2 ** (2 + 3 * p))))
+        if schedule == "ramp_down_8_64":
+            return max(1, int(round(2 ** (3 + 3 * p))))
+        if schedule == "ramp_up_32_4":
+            return max(1, int(round(2 ** (5 - 3 * p))))
+        raise ValueError(f"Unknown precond_freq_schedule: {schedule}")
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -827,6 +846,7 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        optimizer2.precondition_frequency = _precond_freq_schedule(step, train_steps, args.precond_freq_schedule)
 
 
     ########################################
@@ -916,6 +936,9 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        if step == 0:
+            print0(f"precond_freq_schedule={args.precond_freq_schedule}, freq@step0={optimizer2.precondition_frequency}",
+                   console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -961,6 +984,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["opt/precond_freq"] = optimizer2.precondition_frequency
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
