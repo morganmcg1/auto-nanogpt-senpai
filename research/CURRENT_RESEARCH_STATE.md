@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~18:10Z (poll #267)
+- **Last updated:** 2026-05-19 ~18:19Z (poll #268)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -42,14 +42,14 @@
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A terminal val=3.2670 ffs=3100 (−1.15σ); A re-launch `2cryitbk` ZOMBIE; **B `hpmoe4v4` (MLP-only) step 3125/3250 val=3.277 (~96%, terminal ~5min, tracking near-baseline)**; C ATTN-only full not yet launched |
+| #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A val=3.2670 ffs=3100 (−1.15σ); **B (MLP-only) TERMINAL val=3.268883 ffs=3100 (+1.14σ ≈ baseline; ATTN SOAP ≈ +0.002 worth at most)**; **C `xg90tq7m` (ATTN-only) step 133 launched**; D (none) pending |
 | #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; B (0.1) val=3.2678 ffs=3100 (−0.18σ ≈ baseline); **C `mmwxjnak` (trust=0.3) step 238 launched**; D (0.5), E (0.8) pending |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A ctrl val=3.2662 ffs=3075; **B (ns_iter=6) TERMINAL val=3.265531 ffs=3075 (−2.94σ NEW BEST SINGLE-SEED)** 🚀; **C `1y798afx` ns_iter=8 (re-anchor) step 1314 val=3.60 (~40%)** ⚠; D (10/12), E (14) pending |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 +13.4σ NEG; C (0.5) val=3.2724 ffs=3150 +5.35σ NEG; **D (0.85) `608h20tn` step 1726/3250 val=3.50 (~53%)**; E (1.0) pending. **Trend: longer cooldown is better — B,C confirm shorter hurts** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **C (rd, 0.025) TERMINAL val=3.278096 ffs=3225 (+12.3σ NEG)** — wd_aux=0.025 too high; axis trend: 0 ≈ 0.0025 ≫ 0.025 |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ); **B (lr=0.1) TERMINAL val=3.274197 ffs=3150 (+7.59σ NEG — lr=0.1 too low)**; **C `em4ff9ro` (lr=0.6) step 70 warmup**; D (0.05), E (1.0) pending |
-| #437 | askeladd | SOAP precond_freq schedule | **P2 likely failing**: T1=3.2680/3100, T2=3.2680/3100, T3=3.2669/3075; n=3 mu=3.267633 fails n=4 gate by 0.001685; T4 step 426/3250 (~13%) |
-| #422 | edward | Muon WD shape variants | ⚠️ **P2 likely failing**; T1=3.2658/3000, T2=3.2656/3000, T3=3.2678/3025; n=3 mu=3.2664 fails n=4 gate by 0.000452; T4 step 1930/3250 (~59%) |
+| #437 | askeladd | SOAP precond_freq schedule | **P2 likely failing**: T1=3.2680/3100, T2=3.2680/3100, T3=3.2669/3075; n=3 mu=3.267633 fails n=4 gate by 0.001685; T4 step 668/3250 (~21%) |
+| #422 | edward | Muon WD shape variants | ⚠️ **P2 likely failing**; T1=3.2658/3000, T2=3.2656/3000, T3=3.2678/3025; n=3 mu=3.2664 fails n=4 gate by 0.000452; T4 step 2174/3250 (~67%) |
 
 
 ## Recent Closures (polls #242–248)
