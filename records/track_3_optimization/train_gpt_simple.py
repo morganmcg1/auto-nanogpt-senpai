@@ -47,13 +47,19 @@ def parse_args():
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
-    # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
-    # snapshots an anchor at trial start, then every sync_interval inner steps
-    # computes delta = anchor - p, integrates Nesterov velocity, and steps the
-    # model toward anchor - lr*(mu*v + delta). Inner optimizer state is NOT reset.
+    # MuLoCo outer SGDM (Algorithm 1, K=1). Wraps all trainable params; snapshots
+    # an anchor at trial start, then every sync_interval inner steps computes
+    # delta = anchor - p, integrates velocity v = mu*v + delta, and steps the
+    # model. The --outer_nesterov flag selects between:
+    #   * False: standard SGDM        p = anchor - lr * v
+    #   * True : Nesterov SGDM        p = anchor - lr * (mu*v + delta)
+    # Default True preserves the existing baseline (PR #114 was Nesterov).
+    # Inner optimizer state is NOT reset at outer boundaries.
     parser.add_argument("--use_outer_optimizer", type=int, default=int(os.environ.get("USE_OUTER_OPTIMIZER", "1")))
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--outer_nesterov", type=int, default=int(os.environ.get("OUTER_NESTEROV", "1")),
+                        help="1 (default) = Nesterov SGDM (current baseline); 0 = standard SGDM.")
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
@@ -699,7 +705,8 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+           f"outer_momentum={args.outer_momentum} outer_nesterov={bool(args.outer_nesterov)} "
+           f"sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -758,6 +765,7 @@ if dist.get_rank() == 0:
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
+            "muloco_outer_nesterov": bool(args.outer_nesterov),
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
@@ -1072,7 +1080,7 @@ for trial_idx in range(args.num_trials):
             )
         model.zero_grad(set_to_none=True)
 
-        # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
+        # MuLoCo outer SGDM step (Algorithm 1, K=1). Fires every sync_interval
         # inner steps, never on the final step (we want the last inner update to
         # remain the live state). All ranks hold identical p.data after MuonH's
         # all_gather and AdamW's identical-on-all-ranks update, so the outer step
@@ -1081,6 +1089,9 @@ for trial_idx in range(args.num_trials):
         # initial-Frobenius sphere; the next MuonH-SI inner step reads
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
+        # With outer_nesterov=1 (default), the update is the Nesterov form
+        # p = anchor - lr*(mu*v + delta); with outer_nesterov=0 it's standard
+        # SGDM p = anchor - lr*v.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
             if log_outer:
@@ -1091,8 +1102,11 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    if args.outer_nesterov:
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                    else:
+                        p.data.copy_(outer_anchor[n] - args.outer_lr * outer_velocity[n])
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
