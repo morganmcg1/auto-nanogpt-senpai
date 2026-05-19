@@ -530,6 +530,10 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Layer-wise LR decay for Muon. decay=1.0 -> uniform (baseline). decay<1.0 ->
+# deeper blocks get smaller LR. decay>1.0 -> deeper blocks get larger LR.
+# Per-block LR is 0.035 * decay**(i/(n_blocks-1)) for block index i.
+NANOGPT_MUON_LLRD_DECAY = float(os.environ.get("NANOGPT_MUON_LLRD_DECAY", "1.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -641,8 +645,16 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], torch.nn.Parameter):
+            # Flat list path (legacy uniform-LR behavior): single param group.
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            # Param-group dict path (per-block LR): sort within each group so
+            # the round-robin sharding loop is consistent across ranks.
+            assert isinstance(params[0], dict)
+            for group in params:
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
         # Step-dependent NS iteration count. Set by the training loop before each step()
@@ -747,6 +759,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"MUON_LLRD_DECAY: {NANOGPT_MUON_LLRD_DECAY} (1.0=uniform; <1.0 deeper blocks smaller LR; >1.0 deeper blocks larger LR)",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +813,7 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_llrd_decay": NANOGPT_MUON_LLRD_DECAY,
         },
     )
 
@@ -834,12 +849,30 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Per-block param groups for Muon with optional layer-wise LR decay.
+    # decay==1.0 reproduces uniform LR=0.035 across all blocks.
+    muon_n_blocks = len(model.blocks)
+    muon_param_groups = []
+    for i, block in enumerate(model.blocks):
+        block_params = [p for p in block.parameters() if p.ndim >= 2]
+        if not block_params:
+            continue
+        depth_frac = i / max(1, muon_n_blocks - 1)
+        lr_scale = NANOGPT_MUON_LLRD_DECAY ** depth_frac
+        muon_param_groups.append(dict(
+            params=block_params,
+            lr=0.035 * lr_scale,
+            name=f"muon_block_{i:02d}",
+        ))
+    optimizer2 = Muon(muon_param_groups, weight_decay=0.025)
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    if trial_idx == 0:
+        print0(f"MUON_LLRD: decay={NANOGPT_MUON_LLRD_DECAY} n_blocks={muon_n_blocks}",
+               console=True)
+        for grp in optimizer2.param_groups:
+            print0(f"  {grp['name']}: lr={grp['lr']:.5f}", console=True)
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
