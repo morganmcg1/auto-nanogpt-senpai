@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-19 14:33 UTC — PR #440 CLOSED: Embed init scale scan std∈{0.5, 2.0} — both NULL, axis closes at baseline std=1.0 (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/embed-init-scale`
+- Hypothesis: Scan the input embedding weight init std around PyTorch's default 1.0. Test tighter (0.5, smaller initial body activations) vs wider (2.0, faster initial body learning).
+
+| Arm | std | W&B | sr | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A (tighter) | 0.5 | `e27g8crp` | 3000 | 3.26878 | +62.5 ✗ | +0.00450 ✗ | NULL clear regression |
+| **Baseline** | 1.0 | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+| B (wider) | 2.0 | `xt1o5rce` | 3025 | 3.26970 | +87.5 ✗ | +0.00542 ✗ | NULL clear regression |
+
+**Signal: strong-bracket signature — both arms regress monotonically away from baseline std=1.0** with similar magnitude (Δsr=+62.5/+87.5, Δval=+0.0045/+0.0054). Very slight skew toward tighter being preferred (Arm A regressing ~25% less than Arm B), but gradient too small to be worth fine-scanning.
+
+**Mechanistic conclusion:** PyTorch default embed std=1.0 is empirically well-placed for this Muon + AdamW(lr=0.3, betas=0.8/0.95) stack at this op point. Token row L2 norm ≈ 27.7 with std=1.0 is large in absolute terms but evidently in the right range for current optimizers to consume gradients efficiently in 3250 steps. Same "inherited default already optimal" pattern as PR #439 (soft-cap c=15 closed identically).
+
+**Operational note:** Pod entrypoint auto-relaunched a duplicate Arm B (\`1zyj7lxw\` 14:23 UTC step 0); student SIGKILL'd cleanly without waste. Good operational catch.
+
+**Strategic implication:** Two consecutive scans (soft-cap value, embed init scale) closed at inherited defaults with symmetric bracket regressions. The fast wins are likely in *structurally novel* mechanisms (Z-loss, attention temperature, NS asymmetric coefficients, per-block residual scaling, MLP-vs-attn WD partition), not in fine-tuning further inherited constants. Follow-up: PR #480 (tanjiro attention scale scan).
+
+---
+
 ## 2026-05-19 14:10 UTC — PR #439 CLOSED: Logit soft-cap value scan c∈{10,30} — both NULL, axis closes at baseline c=15 (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/logit-softcap-scan`
