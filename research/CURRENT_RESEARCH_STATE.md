@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 21:35 UTC
+- **Date:** 2026-05-19 22:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -156,15 +156,28 @@ Arms B=8 (+0.00235 regression), C=10 (−0.00168 null), D=14 (−0.00145 null). 
 | D | 10 | 0.10 | NS 10→12 over 335 steps |
 **ETA full chain:** ~7.3h.
 
-### 🔄 edward #474 — AdaBelief for aux groups [assigned 13:45 UTC]
+### ✅ edward #474 — AdaBelief for aux groups — CLOSED 22:35 UTC productive-NEGATIVE
 
-Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β₂s_{t-1} + (1-β₂)(g_t-m_t)²` on aux groups. Scope sweep: B=embed only, C=lm_head only, D=all aux. Structurally distinct from all 15 productive-null/negative Adam-family axes tested this cycle. Arm A control about to launch.
+Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B trajectory confirms embed group dominates catastrophic regression. Root cause: AdaBelief's `(g−m)²` fails on sparse-row embed (absent rows have g=0 but m≠0 → `(g−m)²=m²`, inflating denominator globally). lm_head: stable mild regression. **23rd productive-null/negative this cycle.** Second-moment-formulation axis fully closed.
+**Follow-up**: edward assigned **#516 Yogi optimizer on aux groups** — sign-based additive second-moment update (avoids embed sparsity pathology, structurally distinct).
+
+### 🔄 edward #516 — Yogi optimizer on aux groups [assigned 22:35 UTC]
+
+**Branch:** `g1r4-edward/yogi-aux`
+**Hypothesis**: Yogi replaces AdamW's multiplicative β₂-EMA second moment with sign-based additive update: `v_t = v_{t-1} − (1−β₂)·sign(v_{t-1} − g_t²)·g_t²`. Avoids AdaBelief's absent-row pathology (accumulates g², not (g−m)²). Distinct mechanism: bounded-additive update vs multiplicative EMA. Motivated by heavy-tailed gradient distributions (embed token sparsity, lm_head token frequency noise). Structurally distinct from every prior Adam-family axis tested.
+| Arm | NANOGPT_AUX_OPTIMIZER | NANOGPT_YOGI_SCOPE | Tests |
+|---|---|---|---|
+| A | adamw | none (control) | Drift gate |
+| B | yogi | embed | Sparse-row: does additive update help? |
+| C | yogi | lm_head | Dense-noisy: does bounded update help? |
+| D | yogi | embed_lm_head_scalars | Full aux scope |
+**ETA full chain:** ~7.3h.
 
 ---
 
 ## Research theme — current cycle
 
-**22 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**23 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -174,21 +187,22 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 3. **Additive regularization always fails on this stack.** AGC, GC, gradient noise, label smoothing, z-loss — all hurt.
 
 **Current open questions** (in-flight):
-1. Does AdaBelief's variance-of-prediction-error second moment help aux groups? (#474)
-2. Does block init scaling matter under Muon? (#452)
-3. Does embed-only LR warmup help sparse-row early training? (#489)
-4. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483)
-5. Are any cooldown-NS merged components now redundant after later merges? (#487)
-6. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
-7. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
-8. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514, fern new)
+1. Does block init scaling matter under Muon? (#452)
+2. Does embed-only LR warmup help sparse-row early training? (#489)
+3. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483)
+4. Are any cooldown-NS merged components now redundant after later merges? (#487)
+5. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
+6. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
+7. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
+8. Does Yogi's sign-based additive second-moment update help aux groups? (#516, edward new)
 
-**Stack convergence signal**: 22 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+**Stack convergence signal**: 23 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **Regularization REDUCTION / "less constraint early" cluster** (in flight): WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — four schedule axes simultaneously probing early-phase deregularization
-2. **Adam-family reformulation**: AdaBelief (#474, variance), NAdam (#490, first-moment) complete the three-axis AdamW-internal ablation alongside atan2 (#442 NEGATIVE, magnitude)
+2. **Adam-family second-moment update rule**: NAdam (#490, Nesterov first-moment) and Yogi (#516, sign-additive second-moment) are the last two in-flight Adam-family mechanism axes. AdaBelief (#474 NEG) and atan2 (#442 NEG) both closed negative, second-moment-formulation mostly exhausted.
 3. **Stack simplification** if any pruning (#487) finds redundant components
-4. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group
+4. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group; aux groups resist single-axis perturbation
 5. **NS-iter compute finding (from #470)**: forward/backward is the bottleneck, not NS. Future NS decisions should be motivated by val/loss, not step-time
+6. **Embed sparsity structural insight (from #474)**: any optimizer that uses `(g − m)²` or other first-moment-based formulations will fail on embed group due to absent-row pathology; mechanisms using `g²` only (like AdamW, Yogi, AMSGrad) are safe
 
 ---
 
@@ -196,6 +210,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #474 | edward | AdaBelief aux scope sweep | CLOSED productive-NEGATIVE (B=+0.041/D=+0.035 catastrophic embed sparsity; C=+0.002 mild; second-moment-formulation axis closed) |
 | #477 | fern | OrthoGrad aux scope sweep | CLOSED productive-null (D=−0.00080 short of −0.002; non-monotonic: singles regress, combined recovers; aux groups coupled system) |
 | #470 | frieren | NS iterations normal phase NS∈{8,10,12,14} | CLOSED productive-null (wide plateau [10,14]; NS=8 below floor; NS step-time flat ±1%) |
 | #454 | nezuko | lm_head/scalar linear_floor cooldown | CLOSED productive-null (best Δ=−0.00098, half threshold; embed-specific mechanism, not aux-generic) |
@@ -219,6 +234,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 - β₁, β₂, ε per-group: all swept, β₁=0.80/β₂=0.99/ε=1e-10 confirmed
 - WD per-group: all harmful, axis closed
 - Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC, OrthoGrad: all closed
+- AdaBelief variance-of-prediction-error second moment: CLOSED productive-NEGATIVE (#474; embed sparsity pathology; `(g−m)²` fails on absent-row sparse groups)
 - Lion, Adafactor on aux: closed (prior rounds)
 - LLRD Muon: closed (NS normalizes depth scaling)
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×

@@ -3,6 +3,41 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 22:35 UTC — PR #474: AdaBelief aux scope sweep (edward) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-edward/adabelief-aux`
+- Hypothesis: Replace AdamW's second moment `v_t = β₂·v_{t-1} + (1−β₂)·g_t²` with AdaBelief's `s_t = β₂·s_{t-1} + (1−β₂)·(g_t − m_t)²`. Penalizes gradient prediction error rather than gradient magnitude. Scope sweep across aux groups.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | Scope | val/loss | Δ vs A | Verdict |
+|---|---:|---:|---:|---|
+| A (ctrl) | adamw/none | 3.27268 | — | drift +0.00094 ✓ |
+| B | adabelief/embed | 3.31349 | +0.04081 | **catastrophic regression** |
+| C | adabelief/lm_head | 3.27456 | +0.00188 | mild regression |
+| D | adabelief/embed_lm_head_scalars | 3.30747 | +0.03479 | **catastrophic regression** |
+
+W&B runs: A=`5l0mpqge`, B=`x72bobwp`, C=`bbju977a`, D=`ad41khqb`.
+
+Drift gate: |val_A − 3.27174| = +0.00094 ✓.
+
+### Key findings
+
+1. **No arm crosses Δ ≤ −0.002**: all arms worse than control. Arm B catastrophic (+0.04081), arm D catastrophic (+0.03479), arm C mild (+0.00188 at null-edge/regression threshold). **Close productive-NEGATIVE.**
+2. **Embed sparsity pathology** (identified by edward): Embed gradients are sparse — absent-row token has g_t=0 but m_t≠0 from recent visits. `(g_t − m_t)² = m_t²` (large) for those rows, inflating the whole-tensor denominator and shrinking effective updates for active rows. AdamW's `g_t²` contributes zero for absent rows — no pathology.
+3. **D ≈ B trajectory** (~0.005 separation across 3350 steps): adding lm_head + scalars to Yogi scope adds essentially zero additional damage. Embed group dominates catastrophic regression in D.
+4. **lm_head (arm C)**: brief improvement at step 1000 (Δ=−0.00025) then stable +0.002 lag. Consistent with token-frequency noise heterogeneity — stable but mildly underperforming AdamW.
+
+### Mechanism takeaway
+
+**23rd productive-null/negative this cycle.** AdaBelief closes the variance-of-prediction-error second-moment axis. Combined with AdEMAMix (#399), Cautious (#419), atan2 (#442 NEG), OrthoGrad (#477), AGC (#408), the aux-group AdamW response surface for all gradient-direction AND second-moment-formulation axes is now exhausted. NAdam (#490, first-moment Nesterov) is the last in-flight Adam-family mechanism axis.
+
+**Critical structural finding**: AdaBelief's `(g − m)²` assumption requires m_t to be a reasonable predictor of current g_t. On sparse-row aux groups (embed), the EMA-decayed first moment `m_t` carries signal from absent rows, making `(g − m)²` large when g=0. This is a fundamental incompatibility with embedding-matrix sparse gradients.
+
+**Follow-up**: edward assigned **#516 Yogi optimizer on aux groups** — sign-based additive second-moment update. Avoids AdaBelief pathology (accumulates g² like AdamW, not (g−m)²), but uses additive bounded update rather than multiplicative EMA.
+
+---
+
 ## 2026-05-19 21:35 UTC — PR #477: OrthoGrad aux scope sweep (fern) — CLOSED productive-null
 
 - Branch: `g1r4-fern/orthograd-aux`
