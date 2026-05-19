@@ -533,6 +533,17 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_WD_WARMUP_FRAC = float(os.environ.get("NANOGPT_WD_WARMUP_FRAC", "0.0"))
+
+
+def wd_warmup_multiplier(step: int, total_steps: int, warmup_frac: float) -> float:
+    """Linear ramp 0 -> 1 over the first warmup_frac*total_steps; 1.0 thereafter."""
+    if warmup_frac <= 0.0:
+        return 1.0
+    warmup_steps = int(warmup_frac * total_steps)
+    if step >= warmup_steps:
+        return 1.0
+    return step / max(1, warmup_steps)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -752,6 +763,7 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"WD_WARMUP_FRAC: {NANOGPT_WD_WARMUP_FRAC}", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +819,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_wd_warmup_frac": NANOGPT_WD_WARMUP_FRAC,
         },
     )
 
@@ -819,6 +832,14 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
+
+    if NANOGPT_WD_WARMUP_FRAC > 0:
+        _wd_warmup_steps = int(NANOGPT_WD_WARMUP_FRAC * train_steps)
+        print0(
+            f"  WD warmup: Muon WD ramps linear 0 -> 0.025 over first {_wd_warmup_steps} steps "
+            f"({NANOGPT_WD_WARMUP_FRAC * 100:.1f}% of training)",
+            console=True,
+        )
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -857,6 +878,7 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+            group["initial_weight_decay"] = group.get("weight_decay", 0.0)
 
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
@@ -1031,6 +1053,16 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        wd_mult = wd_warmup_multiplier(step, train_steps, NANOGPT_WD_WARMUP_FRAC)
+        for group in optimizer2.param_groups:
+            group["weight_decay"] = group["initial_weight_decay"] * wd_mult
+        if dist.get_rank() == 0 and (step == 0 or train_step % 25 == 0 or train_step == train_steps):
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/wd_warmup_multiplier": wd_mult,
+                "train/wd_muon_blocks_effective": optimizer2.param_groups[0]["weight_decay"],
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
