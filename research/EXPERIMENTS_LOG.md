@@ -1,3 +1,21 @@
+## 2026-05-19 13:25 UTC — PR #443 MERGED (edward): Aux AdamW eps=1e-6 WINS — new baseline val=3.27119, ffs=3100
+
+- Branch: `g1r3-edward/aux-adamw-eps-sweep`
+- Hypothesis: Aux AdamW eps controls denominator smoothing. Default 1e-10 is very tight; standard PyTorch 1e-8 is common; heavier 1e-6 adds stability to low-gradient aux params (embed/lm_head/scalars).
+- Results:
+
+| Arm | eps | W&B run | val/loss | ffs | Δ vs baseline (3.27286) |
+|---|---|---|---|---|---|
+| 1 ctrl | 1e-10 | `wgtlme0x` | 3.27377 | 3150 | +0.00091 |
+| 2 | 1e-8 | `0uo2507f` | 3.27389 | 3150 | +0.00103 |
+| **3 WINNER** | **1e-6** | **`t1coza71`** | **3.27119** | **3100** | **−0.00167** |
+
+- **WINNER**: eps=1e-6 beats baseline by -0.00167 on val/loss AND improves ffs by 25 steps (3100 vs 3125). Passes n=1 bar (< 3.27206) and stat rule (0.00881 ≥ 0.004).
+- Arms 1+2 (eps=1e-10/1e-8) are operationally equivalent — denominator far smaller than actual gradient magnitudes.
+- eps=1e-6 adds meaningful denominator floor on aux params with small gradients, smoothing adaptive LR noise.
+- **PR #443 squash-merged at 13:25 UTC. New baseline: val=3.27119, ffs=3100.**
+- Edward assigned n=4 confirmation PR #471.
+
 ## 2026-05-19 08:50 UTC — PR #424 CLOSED + PR #421 CLOSED: Both sweeps close_neg, askeladd → PR #450, nezuko → PR #451
 - PR #424 closed (SENPAI-RESULT posted); new assignment PR #450 (MuonH static mu sweep 0.90/0.95/0.98)
 - PR #421 closed (SENPAI-RESULT posted); new assignment PR #451 (MuonH budget_mult sweep 0.9/1.0/1.1)

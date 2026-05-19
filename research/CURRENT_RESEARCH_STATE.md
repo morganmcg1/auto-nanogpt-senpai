@@ -1,102 +1,81 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 08:56 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Tanjiro + thorfinn + alphonse still broken; nezuko's pod is healthy. esc#21 posted at 07:09 UTC 2026-05-19 — ~83.5h total operator silence. esc#22 due ~09:09 UTC.
-- **Branch state:** Baseline post-PR #329 (AGC inner MuonH clip=0.05, merged 18:26 UTC 2026-05-18).
+- **Last updated:** 2026-05-19 13:30 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; esc#24 posted at 12:47 UTC 2026-05-19 — ~89.5h total operator silence. esc#25 due ~14:50 UTC.
+- **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **NEW BASELINE**.
 
-## ⭐ Current baseline (post-PR #329 merge)
+## ⭐ Current baseline (post-PR #443 merge)
 
 | Metric | Value |
 |--------|-------|
-| `val/loss` | **3.27286** (n=4 mean; trials: 3.27209/3.27264/3.27365/3.27305) |
-| `ffs` (primary) | **3125** (best); mean 3137.5 |
+| `val/loss` | **3.27119** (n=1 trial, passes n=1 bar < 3.27206) |
+| `ffs` (primary) | **3100** (n=1; beats prior best 3125) |
 | Optimizer | MuonH-SI (lr=0.018, mu=0.95, wd=0, mode=scale_invariant) |
-| **MuonH inner AGC** | **`--muonh_agc_clip_ratio 0.05`** |
+| **Aux AdamW eps** | **`--aux_adamw_eps 1e-6`** (new flag; was hardcoded 1e-10) |
+| MuonH inner AGC | `--muonh_agc_clip_ratio 0.05` |
 | MuonH LR warmup | warmup_steps=100, shape=linear |
 | Outer wrapper | MuLoCo Nesterov-SGDM (outer_lr=0.7, outer_momentum=0.5, sync_interval=30) |
-| Aux AdamW | betas=(0.8, 0.95), eps=1e-10, AGC clip_ratio=0.05 |
+| Aux AdamW | betas=(0.8, 0.95), **eps=1e-6**, AGC clip_ratio=0.05, weight_decay=0 |
 | Cooldown | MuonH=cosine frac=1.0, aux=linear frac=0.4 |
 | NS5 | 12 iterations, (a,b,c)=(2,-1.5,0.5), bf16 |
-| Logit cap | softsign at ±15 (hardcoded) |
-| W&B confirm | `dpabql6o` (n=4 multi-trial) |
+| W&B run | `t1coza71` (n=1 single trial) |
+| Baseline PR | [#443](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/443) |
 
-**Merge bar**: μ_val < 3.27286 at n=4. Stat rule: (3.28 − μ) × √4 ≥ 0.004.
-- **n=1 promotion bar**: val < **3.27206** (Δ ≤ −0.0008 vs 3.27286)
-- **Conservative n=4 bar**: μ < **3.27246**
+**Merge bar (against new baseline 3.27119):**
+- **n=1 promotion bar**: val < **3.27039** (Δ ≤ −0.0008 vs 3.27119)
+- **Conservative n=4 bar**: μ < **3.27079**
 
 **⚠️ CRITICAL — ALL new experiment commands must include:**
 ```
---aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100
+--aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6
 ```
 
-## Active experiments (08:56 UTC 2026-05-19)
+**Note**: n=4 confirmation of eps=1e-6 in progress via PR #471 (edward). If n=4 mean fails to beat 3.27286 (the prior n=4 baseline), this win may be an outlier seed. Watch carefully.
+
+## Active experiments (13:30 UTC 2026-05-19)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#451** | nezuko | **MuonH hyperball `budget_mult` sweep** (0.9 vs 1.0 ctrl vs 1.1) | **Newly assigned 08:50 UTC.** ZERO code changes — `--muonh_budget_mult` flag exists. No W&B run started yet. |
-| **#450** | askeladd | **MuonH inner static mu sweep** (0.90 / 0.95 ctrl / 0.98) | **Newly assigned 08:50 UTC.** Adds `--muonh_mu` CLI flag, threads to optimizer at line 817. Arm 1 ctrl `iye79oh5` step 175 (just starting). |
-| **#443** | edward | **Aux AdamW eps sweep** (1e-10 ctrl / 1e-8 PyTorch-std / 1e-6 heavier-reg) | Arm 1 ctrl `wgtlme0x` step 2790/3325 val=3.32319 (cooldown phase, on baseline trajectory). ETA ~25 min. |
-| **#438** | fern | **NS5 polynomial coefficient sweep** (2.0,-1.5,0.5) ctrl / (1.875,-1.25,0.375) classical Halley / (2.5,-2.0,0.5) sharper unique-FP | Arm 1 ctrl re-launch `g1we1d9w` step 1575/3325 val=3.62052 (healthy mid-run). Original `0ueal82x` crashed at step 775 (suspected infra). ETA ~50 min. |
-| **#425** | frieren | **MuonH-SI inner mu cooldown sweep** (0.95→0.95 ctrl / 0.70 / 0.50) | Arm 1 ctrl `o8zyjowj` val=3.27325 (baseline-equiv). Arm 2 `v7ztc5yx` val=3.28051 NEG (~9σ). **Arm 3 `xld472fl` (mu_final=0.50) step 3090/3325 93% val=3.29482 — catastrophic NEG confirmed, ~5min to terminal.** Will close axis. |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED 83.5h+** — confirmed silicon failure on GPU `g71b0d6`. esc#21 posted. |
-| **#298** | tanjiro | **Residual branch init rescale** (1/sqrt(2L)) | **POD-BLOCKED 83.5h+** — NaN on GPU `gd125a8`. esc#21 posted. |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/needs_rebase** — `gd103cc`. esc#21 posted. |
+| **#471** | edward | **n=4 confirm eps=1e-6** | Freshly assigned 13:30 UTC. Will start ~13:35 UTC. |
+| **#453** | frieren | **MuLoCo sync_interval re-sweep** (15 / 30 ctrl / 60) | Arm 1 ctrl done (val=3.27387, +0.00101, baseline-equiv). **Arm 2 sync=15 `ri1dkfwa` running, terminal ~13:35 UTC.** |
+| **#438** | fern | **NS5 polynomial sweep** (ctrl / classical Halley / sharper) | Arm 2 classical ~3σ NEG. **Arm 3 sharper `w82uf08t` step 2790 val=3.324 — likely fails 3.28 target.** |
+| **#450** | askeladd | **MuonH inner static mu sweep** (0.90 / 0.95 ctrl / 0.98) | Arm 1 ctrl +0.00063, arm 2 mu=0.90 ~7σ NEG. **Arm 3 mu=0.98 `sgncg5wf` step 1350, terminal ~14:10 UTC.** |
+| **#451** | nezuko | **MuonH budget_mult sweep** (0.9 / 1.0 ctrl / 1.1) | Arm 1 ctrl +0.00090, arm 2 bm=0.90 ~2σ NEG. **Arm 3 bm=1.1 `65k2dls4` step 275, terminal ~15:00 UTC.** |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED 89.5h+** — silicon failure on GPU `g71b0d6`. esc#24 posted. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 89.5h+** — NaN on GPU `gd125a8`. esc#24 posted. |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#24 posted. |
 
-**8/8 students assigned.** 3 pods broken (alphonse + tanjiro + thorfinn) = 37.5% research capacity lost.
+## Saturated levers (post-PR #443)
 
-## Recent closures (07:10 UTC → 08:50 UTC wave)
+- **Inner LR dynamics**: MuonH-SI HPs (lr/mu/wd), cooldown shape/frac, warmup steps=100, mu warmup/cooldown ALL NEG.
+- **Inner optimizer geometry**: AGC clip_ratio (insensitive [0.02, 0.10]), Nesterov outer SGDM mu (0.5 optimal, drop/increase both NEG).
+- **Aux optimizer**: eps sweep confirms **1e-6 > 1e-10 >> 1e-8** (surprisingly, 1e-8 not better than ctrl). betas saturated.
+- **NS5**: k-count blocked, classical Halley ~3σ NEG, sharper polynomial likely fails target.
+- **Logit softsign cap**: cap=15 is local optimum.
+- **MuonH inner mu**: lower (0.90) ~7σ NEG. Higher (0.98) in progress.
+- **MuonH budget_mult**: lower (0.90) ~2σ NEG baseline-equiv. Higher (1.1) in progress.
 
-| PR | Student | Result |
-|---|---|---|
-| **#424 CLOSED** | askeladd | **MuLoCo outer Nesterov-SGDM mu sweep — ALL NEG.** Arm 1 (drop_nesterov, val=3.27863, ~7σ NEG); arm 2 ctrl (mu=0.5, val=3.27353, baseline-equiv); **arm 3 (mu=0.8, val=3.35359, ~100σ catastrophic NEG, ffs=-1).** Nesterov-SGDM with mu=0.5 confirmed optimal — both drop-Nesterov AND higher-momentum directions fail. Axis CLOSED. |
-| **#421 CLOSED** | nezuko | **MuonH inner AGC clip_ratio sweep — close-equiv across arms.** Arm 1 ctrl (clip=0.05, val=3.27522), arm 2 (clip=0.02, val=3.27372), arm 3 (clip=0.10, val=3.27404). All within ~σ. AGC clip activates rarely under scale-invariant projection — low-signal axis. CLOSED. |
-| **#417 CLOSED** | edward | **MuonH inner cooldown_frac sweep — ALL NEG.** Monotonic catastrophic: cdfrac=1.0 ctrl (3.27236, baseline-equiv), cdfrac=0.7 (3.28949 +20σ, ffs=-1), cdfrac=0.5 (3.31306 +40σ, ffs=-1). Cooldown_frac=1.0 is the operating point. Lever closed. |
-| **#392 CLOSED** | fern | **Logit softsign cap sweep (15/10/30) — ALL NEG.** cap=10 NEG ~10σ; cap=30 NEG ~11σ fails 3.28. cap=15 is local optimum. |
+## Key recent results (this round)
 
-## MERGED this round (chronological)
+| PR | Lever | Arm results | Decision |
+|---|---|---|---|
+| #443 MERGED | Aux eps | ctrl=+0.00091, 1e-8=+0.00103, **1e-6=−0.00167 WIN** | **MERGED. New baseline 3.27119** |
+| #450 askeladd | MuonH mu | ctrl +0.00063, mu=0.90 ~7σ NEG | mu=0.98 in flight |
+| #451 nezuko | budget_mult | ctrl +0.00090, bm=0.90 ~2σ NEG | bm=1.1 in flight |
+| #438 fern | NS5 polys | ctrl +0.00010, classical ~3σ NEG | sharper likely fail target |
+| #453 frieren | sync_interval | ctrl +0.00101 | sync=15 in flight |
 
-| PR | Student | Result |
-|---|---|---|
-| **#114** | frieren | MuLoCo × MuonH-SI MERGED — val=3.27585 (n=4) |
-| **#237** | edward | AGC aux clip=0.05 MERGED — val=3.27469 (n=4) |
-| **#243** | frieren | MuonH-SI cosine cooldown MERGED — val=3.27415 (n=4) |
-| **#310** | thorfinn | MuonH inner LR warmup=100 MERGED — val=3.27315 (n=4) |
-| **#329** | askeladd | **AGC inner MuonH clip=0.05 MERGED** — val=**3.27286** (n=4). **Current baseline.** |
+## Research direction (13:30 UTC)
 
-**Total improvement since start**: 3.27585 → 3.27286 = **−0.00299** over 5 merged PRs.
+**WIN: eps=1e-6 on aux AdamW unexpectedly helped.** This opens an auxiliary optimizer parameter exploration angle. The denominator floor on aux AdamW matters because embed/lm_head/scalars have diverse gradient scales — a larger eps stabilizes the adaptive LR for the small-gradient parameters.
 
-## Saturated levers (as of 08:56 UTC)
+**Next hypotheses to explore (when pods become free):**
+1. **n=4 confirm eps=1e-6** (PR #471 edward) — CRITICAL to validate the n=1 win
+2. **MuLoCo sync_interval sweep** (PR #453 frieren in progress — sync=15/60 still running)
+3. **Aux AdamW betas fine-tuning** — now that eps is shifted, betas may have shifted optimum too (beta1=0.80 → 0.82/0.85, beta2=0.95 → 0.99)
+4. **Aux AdamW LR group ratios** (embed/lm_head/scalars) — may interact with eps change
+5. **NS5 normalization eps** (hardcoded 1e-7 at line ~467) — never swept; now that we're poking numerical floors, worth testing
+6. **MuonH inner mu=0.98** (askeladd arm 3 in flight) — whether upper bound is useful
+7. **Architectural axes** (residual init, NS5 k-count) — blocked on pod replacements
 
-- **Inner LR dynamics**: MuonH-SI HPs (lr/mu/wd), cooldown shape ✓, LR warmup step-count=100 ✓, warmup shape ✓, mu warmup (PR #389 NEG), **cooldown_frac (PR #417 CLOSED NEG — 1.0 is only viable)**, **mu cooldown (PR #425 closing NEG)**.
-- **Inner optimizer geometry**: AGC clip_ratio (PR #421 closed — close-equiv across arms, low-signal axis), Nesterov outer SGDM mu (PR #424 CLOSED, mu=0.5 is unique optimum, drop_nest AND mu=0.8 both NEG).
-- **Aux optimizer**: Lion/AdEMAMix/AdamW NEG for outer; betas=(0.8,0.95) confirmed optimal (PR #183); embed lr_mult, cooldown shape/frac, LR warmup, lm_head wd — all saturated. **eps NEW AXIS (PR #443 in-flight)**.
-- **NS5**: fp32 closed, k-count blocked (#190), **coefficients retesting on new baseline via #438 in-flight**.
-- **Logit softsign cap**: cap=15 is local optimum; axis CLOSED (#392).
-- QK-Norm (removing or learning both NEG), gradient centralization NEG, schedule-free NEG, depth-LR NEG, lookahead NEG.
-
-## Research direction (08:56 UTC)
-
-**Current plateau signal**: 5+ consecutive screens with no wins since PR #329 merge. Major optimizer axes saturated near current operating point. The cosine-cooldown + AGC stack has narrowed the viable HP envelope substantially.
-
-**Remaining live axes (in priority order):**
-
-1. **NS5 polynomial shape** (PR #438 fern) — classical Halley quintic eliminates σ=√2 fixed-point leak. High-potential geometry change. Re-launched after infra crash.
-2. **Aux AdamW eps** (PR #443 edward) — hardcoded eps=1e-10 never swept. Aux covers most params (embed 38M+ lm_head + scalars). eps directly controls effective update magnitude when v_hat is small. Arm 1 ctrl close to terminal.
-3. **MuonH inner static mu** (PR #450 askeladd, NEW) — hardcoded mu=0.95 never swept on current baseline. Two-tier momentum system with outer Nesterov-SGDM may have shifted optimum.
-4. **MuonH hyperball budget_mult** (PR #451 nezuko, NEW) — `budget_mult=1.0` may have shifted under AGC + warmup stack. Zero code changes; fast iteration.
-5. **MuonH mu cooldown** (PR #425 frieren) — arm 3 close to terminal, expected catastrophic NEG. Axis CLOSING this hour.
-
-**Next hypothesis candidates** (when students become idle):
-- **MuLoCo sync_interval re-sweep** {15, 30 ctrl, 45, 60} — was tested on older baseline.
-- **NS5 normalization eps** (hardcoded 1e-7 at line 467) — never swept; needs CLI flag.
-- **Aux AdamW lr group ratios** (embed/lm_head/scalars) — not retested on current baseline.
-- **MuonH inner LR step-count fine-grid** (warmup=50/100 ctrl/200) — orthogonal to shape axis.
-- **Embedding init scale** (architectural; blocked on pod issues for arch experiments).
-- **Bigger swings**: schedule-free hybrid for aux only, learned EMA on weight space, lr_mult per parameter group with auto-tuning.
-
-**Plateau protocol considerations**: 5+ screens NEG. The inner LR schedule/geometry levers are mostly exhausted. With AGC + cosine cooldown stack the viable mu / clip / momentum envelope is narrow. Need to move toward:
-- **Frontier exploration**: NS5 polynomial geometry (PR #438), aux numerical floor (PR #443).
-- **Architectural changes** (blocked on tanjiro/alphonse pod issues).
-- **Fresh formulation ideas** (new loss reg, optimizer hybrid).
-
-**Operator silence on Issue #164**: 83.5h total, 3 broken pods. esc#21 posted at 07:09 UTC 2026-05-19. esc#22 due ~09:09 UTC.
+**Operator silence Issue #164**: esc#24 posted 12:47 UTC, 89.5h total. Pod replacements for alphonse/tanjiro/thorfinn STILL not done. esc#25 due ~14:50 UTC.
