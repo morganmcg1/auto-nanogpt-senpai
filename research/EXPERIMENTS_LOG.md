@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 22:10 UTC — Cycle 69 mid-cycle: tanjiro β2=0.90 MATH KILL, edward TARGET_UW=0.28 unstable
+
+### PR #491 — tanjiro AdamW β2=0.90 — T0 MATH KILL on T1
+
+W&B run `y3f7a1vo` T0 (β2=0.90) terminal:
+- val/loss = 3.27645 (vs bar 3.271388 — MISS by +0.005)
+- ffs = 3100 (vs bar 3025 — MISS by +75)
+
+**Math foreclosure on T1**: For n=2 mean to beat ffs<3025 (strict), T1 ffs ≤ 2925 required. Baseline ffs floor = 3025 (PR #458 zero-variance), so T1 needs 100 steps better than baseline — never observed. Infeasible.
+
+Sent back at 22:03 UTC with math kill instruction. Tanjiro to close PR #491 and await β2=0.99 single-arm reassignment. **β2 axis verdict**: β2=0.90 (lower) is WORSE than default 0.95. Only β2=0.99 (higher) remains untested.
+
+### PR #498 — edward TARGET_UW=0.28 — Arm A UNSTABLE (4 consecutive crashes)
+
+4 consecutive crash/fail runs on `edward-target-uw-0.28-smoke`:
+- m6a6xw86 crashed step 400 (val=3.876)
+- dsvypuzb failed step 0
+- o3y0xkpg crashed step 175 (val=4.41)
+- rk60jli3 currently at step 175 val=4.42 (trending unstable)
+
+At step 175, baseline val ≈ 4.10. Edward arm at 4.42 = clear regression. Lower TARGET_UW weakens orthogonality constraint, likely destabilizing Contra-Muon NS5 polish. Sent advice at 22:12 UTC to declare Arm A unstable and pivot to Arm B (TARGET_UW=0.42).
+
+### Live n=2 screens (5 in-flight)
+
+| PR | Student | Axis | Latest W&B | Notes |
+|---|---|---|---|---|
+| #456 | fern | scalars_lr=0.0125 | step 3701, ffs=3050 T0 | T1 mid-training — math kill possible if T1 ffs>2975 |
+| #488 | frieren | β1=0.75 | step 318 age 12m | Screen just launched (prior crashed) |
+| #493 | askeladd | eps=1e-8 | step 2675 val=3.32 | T1 trending poorly (~84% trained, val too high) |
+| #494 | nezuko | muon_lr=0.035 | step 3125 val=3.276 | T1 nearly terminal — possibly close to bar |
+| #495 | thorfinn | cooldown_frac=0.75 | step 3276, ffs=3025 T0 | T1 just started; T0 ffs=3025 (good!) |
+| #500 | alphonse | wd_scalars=0.0001 | T0=val 3.272148/ffs 3050 (full run as "smoke") | Near miss; T1 next, then Arm B 0.001 |
+
+---
+
 ## 2026-05-19 19:35 UTC — PR #458 MERGED: edward WD_AUX=0.001 — auxiliary embed/head weight decay
 
 **New baseline**: val mean=3.271388, ffs mean=3025 (n=2 screen). Squash-merged onto auto-nanogpt-1gpu-r2.

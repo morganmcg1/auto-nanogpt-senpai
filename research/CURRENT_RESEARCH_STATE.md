@@ -1,28 +1,36 @@
 # SENPAI Research State
 
-- 2026-05-19 19:35 UTC — **TWO CONSECUTIVE MERGES: PR #479 + PR #458 both squash-merged this cycle**
+- 2026-05-19 22:20 UTC — **Cycle 69 mid-cycle: 4 math kills, 1 fresh assignment, target ffs<3025 still open**
 
-  **PR #458 MERGED (WD_AUX=0.001 — edward)**: New baseline val=3.271388/ffs=3025 (n=2, zero-variance ffs). New mandatory stack adds WD_AUX=0.001. **New bar: val<3.271388 AND ffs<3025 (strict, both required)**. Statsig 3.04×. W&B: `uoak0qa8`. Rebase notices sent to all 7 in-flight PRs.
+  **Bar remains**: val<3.271388 AND ffs<3025 (strict, both required). ffs=3025 is baseline floor (zero-variance PR #458). Getting ffs<3025 requires crossing into uncharted territory.
 
-  **PR #479 MERGED (NS5_ITERS=14 — alphonse)** [cycle 68 close-out]: Baseline val=3.273085/ffs=3050. Closed 18:50 UTC.
+  **Math kills this cycle (6 total)**:
+  - Tanjiro #491 (β2=0.90): val=3.276/ffs=3100 → T1 ffs≤2925 required → closed
+  - Fern #456 Arm A (scalars_lr=0.0125): T0 ffs=3050 → T1 ffs≤2999 required → math kill sent
+  - Nezuko #494 Arm A (muon_lr=0.035): T0 val=3.275/ffs=3075 → T1 ffs≤2974 required → math kill sent
+  - Frieren #488 Arm A screen (β1=0.75): one earlier run crashed; new screen running (9jimz5zu step 318)
+  - Edward #498 Arm A (TARGET_UW=0.28): 4 consecutive crashes/instabilities → advised pivot to Arm B 0.42
 
-  **Three math kills from bar tightening**: Askeladd #468 (GRAD_CLIP), Nezuko #469 (EMBED_LR), Thorfinn #462 (MU_WARMUP_START n=4) — all closed.
+  **Current active PRs (8 students — all assigned)**:
+  - Tanjiro #515: **NEW** AdEMAMix for AdamW group (fast+slow EMA mix on embed/lm_head/scalars) — FRESH mechanism
+  - Edward #498: TARGET_UW=0.42 Arm B pivot (Arm A 0.28 unstable after 4 crashes)
+  - Alphonse #500: WD_SCALARS sweep — Arm A (0.0001) n=1 done val=3.272/ffs=3050 (near miss); Arm B (0.001) smoke running
+  - Fern #456: Arm B (scalars_lr=0.0075) pivot after Arm A math kill
+  - Nezuko #494: Arm B (muon_lr=0.04) pivot after Arm A math kill
+  - Askeladd #493: AdamW eps=1e-8 screen T0 in progress (step 2775, val=3.32 — trending poorly)
+  - Thorfinn #495: COOLDOWN_FRAC=0.75 T0 DONE val=3.271932/ffs=3025 — T1 in progress (very close to bar!)
+  - Frieren #488: AdamW β1=0.75 new screen just launched (9jimz5zu step 318)
 
-  **Current in-flight PRs (8 active — all 8 students assigned)**:
-  - Edward #498: TARGET_UW sweep (0.28 vs 0.42 around hardcoded 0.35 — fresh Contra-Muon axis)
-  - Alphonse #500: WD_SCALARS sweep (0.0001 vs 0.001 on bias/LN params — fresh regularization axis)
-  - Fern #456: SCALARS_LR Arm B (0.0125) — rebase needed
-  - Frieren #488: AdamW β1 sweep (0.75 vs 0.85) — rebase needed
-  - Tanjiro #491: AdamW β2 sweep (0.90 vs 0.99) — CONFLICTING, sent back for rebase
-  - Askeladd #493: AdamW eps=1e-8 vs 1e-10 — rebase needed
-  - Nezuko #494: MUON_LR sweep (0.035 vs 0.04) — rebase needed
-  - Thorfinn #495: COOLDOWN_FRAC sweep (0.65 vs 0.75) — rebase needed
+  **Priority watch: Thorfinn #495** — T0 val=3.271932/ffs=3025 is closest anyone has come to bar this cycle. T1 needs ffs<3025 (unobserved so far) AND val≤3.270844 for n=2 mean to pass. If T1 also gives 3025, mean ties ffs bar (not strict pass). Keeping T1 running to inform ffs floor uncertainty.
 
-  **Note**: Alphonse PR #492 (NS5_ITERS=16) was closed by the student at 19:40 UTC without results posted — student may have determined the smoke run was not promising after seeing the new WD_AUX baseline. Reassigned to WD_SCALARS sweep.
+  **Current research themes**:
+  1. **HP sweeps winding down** — ffs=3025 floor makes most AdamW HP sweeps infeasible for mean<3025. Axes like β1, β2, eps, MUON_LR, COOLDOWN_FRAC, scalars_lr all approaching math kill territory.
+  2. **Fresh mechanism push** — Tanjiro #515 AdEMAMix is the first genuine mechanism change this cycle (not HP tuning). Needed per Launch Extra Instructions.
+  3. **TARGET_UW open** — edward Arm B (0.42) still to be tested; Contra-Muon upper-side unexplored.
+  4. **WD_SCALARS open** — alphonse testing weight decay on bias/LN. Arm A 0.0001 near miss (ffs=3050).
+  5. **ffs floor uncertainty** — is ffs=3025 a true floor or just current stack average? Thorfinn T1 will inform this.
 
-  **Current research focus**: With TWO stacked wins at ffs=3025 (NS5_ITERS=14 + WD_AUX=0.001), the next target is ffs<3025 (i.e., ffs=3000). Active axes: (a) regularization extension — WD on scalars (alphonse) complements WD_AUX win; (b) Contra-Muon mechanism — TARGET_UW sweep (edward) characterizes interaction with CONTRA_MUON=0.4; (c) AdamW beta sweeps — β1 (frieren) and β2 (tanjiro) both hardcoded since project init; (d) scalar HP sweeps — MUON_LR, COOLDOWN_FRAC, AdamW eps, SCALARS_LR.
-
-  **Stack compounding hypothesis**: NS5_ITERS=14 + WD_AUX=0.001 = two 25-step ffs wins stacked. WD_SCALARS is a direct extension of the winning regularization mechanism. If orthogonal, a third 25-step win would push ffs to 3000.
+  **Next researcher-agent cycle** needed when more PRs close — plan for AdEMAMix-on-Muon, Schedule-Free, Lion optimizer, preconditioner ablations.
 
 - 2026-05-19 18:09 UTC — Cycle 68 ops — **#485 tanjiro CLOSED** COOLDOWN_POWER=0.5 (sqrt back-loaded cooldown) gate-killed at step 2272 (val@step2000=3.46616 vs gate 3.40, baseline ~3.37 — saved ~105 min compute by skipping T1). **COOLDOWN_POWER axis fully characterized**: power=2.0 → math kill (#464); power=1.0 → baseline; power=0.5 → gate kill (#485). Local optimum at linear. **Tanjiro → #491 AdamW β2 sweep** (ADAM_BETA2=0.90 vs 0.99 around hardcoded 0.95) — FRESH axis: AdamW betas (0.8, 0.95) hardcoded since project init; β2=0.95 unusual vs PyTorch default 0.999. Cleanly orthogonal to frieren's β1 sweep (#488). Could compound with edward's WD_AUX=0.001 T0 winner.
 
