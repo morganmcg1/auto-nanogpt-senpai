@@ -8,18 +8,21 @@
 
   **Three math kills from bar tightening**: Askeladd #468 (GRAD_CLIP), Nezuko #469 (EMBED_LR), Thorfinn #462 (MU_WARMUP_START n=4) — all closed.
 
-  **Current in-flight PRs (7 active)**:
-  - Fern #456: Arm B SCALARS_LR=0.0125 — needs rebase on new stack (WD_AUX=0.001 added)
-  - Frieren #488: AdamW β1 sweep (0.75 vs 0.85) — rebase required
-  - Tanjiro #491: AdamW β2 sweep (0.90 vs 0.99) — rebase required
-  - Alphonse #492: NS5_ITERS=16 — rebase required
-  - Askeladd #493: AdamW eps=1e-8 vs 1e-10 — rebase required
-  - Nezuko #494: MUON_LR sweep (0.035 vs 0.04) — rebase required
-  - Thorfinn #495: COOLDOWN_FRAC sweep (0.65 vs 0.75) — rebase required
+  **Current in-flight PRs (8 active — all 8 students assigned)**:
+  - Edward #498: TARGET_UW sweep (0.28 vs 0.42 around hardcoded 0.35 — fresh Contra-Muon axis)
+  - Alphonse #500: WD_SCALARS sweep (0.0001 vs 0.001 on bias/LN params — fresh regularization axis)
+  - Fern #456: SCALARS_LR Arm B (0.0125) — rebase needed
+  - Frieren #488: AdamW β1 sweep (0.75 vs 0.85) — rebase needed
+  - Tanjiro #491: AdamW β2 sweep (0.90 vs 0.99) — CONFLICTING, sent back for rebase
+  - Askeladd #493: AdamW eps=1e-8 vs 1e-10 — rebase needed
+  - Nezuko #494: MUON_LR sweep (0.035 vs 0.04) — rebase needed
+  - Thorfinn #495: COOLDOWN_FRAC sweep (0.65 vs 0.75) — rebase needed
 
-  **Current research focus**: With TWO stacked wins at ffs=3025 (NS5_ITERS=14 + WD_AUX=0.001), the next target is ffs<3025 (i.e., ffs=3000). Active axes: (a) NS5_ITERS=16 extension — can 2 more iterations push ffs to 3000? (b) AdamW beta sweeps — β1 and β2 both hardcoded since project init, compounding with WD_AUX plausible. (c) MUON_LR/COOLDOWN_FRAC — long-untouched hyperparameters at low complexity. (d) AdamW eps — small but orthogonal.
+  **Note**: Alphonse PR #492 (NS5_ITERS=16) was closed by the student at 19:40 UTC without results posted — student may have determined the smoke run was not promising after seeing the new WD_AUX baseline. Reassigned to WD_SCALARS sweep.
 
-  **Stack compounding hypothesis**: NS5_ITERS=14 and WD_AUX=0.001 both delivered independent 25-step ffs improvements. If any in-flight axis is orthogonal, ffs=3000 is reachable by stacking. The two merged wins suggest the optimizer is still improvable via regularization (WD) + projection quality (NS5).
+  **Current research focus**: With TWO stacked wins at ffs=3025 (NS5_ITERS=14 + WD_AUX=0.001), the next target is ffs<3025 (i.e., ffs=3000). Active axes: (a) regularization extension — WD on scalars (alphonse) complements WD_AUX win; (b) Contra-Muon mechanism — TARGET_UW sweep (edward) characterizes interaction with CONTRA_MUON=0.4; (c) AdamW beta sweeps — β1 (frieren) and β2 (tanjiro) both hardcoded since project init; (d) scalar HP sweeps — MUON_LR, COOLDOWN_FRAC, AdamW eps, SCALARS_LR.
+
+  **Stack compounding hypothesis**: NS5_ITERS=14 + WD_AUX=0.001 = two 25-step ffs wins stacked. WD_SCALARS is a direct extension of the winning regularization mechanism. If orthogonal, a third 25-step win would push ffs to 3000.
 
 - 2026-05-19 18:09 UTC — Cycle 68 ops — **#485 tanjiro CLOSED** COOLDOWN_POWER=0.5 (sqrt back-loaded cooldown) gate-killed at step 2272 (val@step2000=3.46616 vs gate 3.40, baseline ~3.37 — saved ~105 min compute by skipping T1). **COOLDOWN_POWER axis fully characterized**: power=2.0 → math kill (#464); power=1.0 → baseline; power=0.5 → gate kill (#485). Local optimum at linear. **Tanjiro → #491 AdamW β2 sweep** (ADAM_BETA2=0.90 vs 0.99 around hardcoded 0.95) — FRESH axis: AdamW betas (0.8, 0.95) hardcoded since project init; β2=0.95 unusual vs PyTorch default 0.999. Cleanly orthogonal to frieren's β1 sweep (#488). Could compound with edward's WD_AUX=0.001 T0 winner.
 
