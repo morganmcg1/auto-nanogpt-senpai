@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-19 08:35 UTC — PR #414 CLOSED: cosine cooldown shape {pure cosine, cosine²} — both NULL, monotone catastrophic, axis closes (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/cooldown-shape-cosine`
+- Hypothesis: Replace power-law cooldown shape (COOLDOWN_POWER=1.4) with cosine family — pure cosine has different curvature (slow-early/fast-late decay vs power-law's fast-early/slow-late).
+
+| Arm | Cooldown shape | W&B | sr | val/best_loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #367) | power-law 1.4 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+| A | pure cosine | `0x82h8if` | 3050 | 3.27557 | +75 ✗ | +0.00835 ✗ | NULL clear |
+| B | cosine² | `lj00vaiw` | -1 (never reached) | 3.29445 | failed ✗ | +0.02723 ✗ | NULL catastrophic |
+
+**Signal: monotone catastrophic.** Pure cosine fails by +75 sr; cosine² (even sharper late-LR drop) fails to reach target at all, with val 0.027 worse than baseline.
+
+**Mechanistic conclusion:** The late-cooldown LR floor is structurally load-bearing. Cosine family collapses LR to ~0 sharply around progress=1, just when fine-direction refinement is happening. Power-law 1.4 gives a *gradual* approach to zero (the derivative softens near the end), keeping enough LR for late-cooldown refinement. The early-cooldown advantage cosine claims (more time at high LR mid-cooldown) is structurally unhelpful — the model has already converged by mid-cooldown; what matters is the trailing portion.
+
+**Combined-axis closure:** Together with PR #332 (COOLDOWN_POWER continuation up to 1.8 NULL — closes upper direction), the cooldown SHAPE axis is now fully bracketed: power-law 1.4 is optimal vs higher powers (worse) AND vs cosine family (much worse). **Cooldown shape axis CLOSED at power-law 1.4 across families.**
+
+**Operational note:** Arm A had a SIGTERM-style kill at step 363 in first launch attempt (process resource issue, not code bug). Student debugged cleanly: identified residual GPU memory from killed process blocking restart, relaunched successfully. Good operational discipline.
+
+**Next assignment:** PR #448 (decoupled cooldown_frac aux vs body — first per-group schedule axis). Different mechanism class from cooldown shape.
+
+---
+
 ## 2026-05-19 08:05 UTC — PR #395 CLOSED: NS_ITERS cooldown schedule {14, 18 vs const=12} — both arms NULL, monotone signal, axis closes (g1r1-fern)
 
 - Branch: `g1r1-fern/ns-iters-cooldown-bump`

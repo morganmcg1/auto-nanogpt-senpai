@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 08:05 UTC
+- **Last update:** 2026-05-19 08:35 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2975 steps (just BEAT previous record of 3030 — new local n=2 sr=2975). Public record was 3030 steps (Record #20).
 
@@ -26,7 +26,7 @@ Win conditions: sr<2975 OR (sr=2975 AND val<3.26722). Marginal (Δsr≤25 OR Δv
 
 | PR | Student | Mechanism | Status (04:05 UTC) |
 |---|---|---|---|
-| **#414** | **nezuko** | Cosine cooldown shape: {pure cosine, cosine²} vs power-law 1.4 | Arm A pure cosine `0x82h8if` step 3125 val/best=3.2767 sr=3050 — NEAR TERMINAL will FAIL baseline. Arm B cosine² predeclared next. |
+| **#448** | **nezuko** | Decoupled cooldown_frac: aux groups (embed/lm_head/scalars) vs body Muon. Arm A aux cf=0.5 (longer high-LR), Arm B aux cf=0.85 (longer cooldown). First per-group schedule decoupling | Just assigned (08:35 UTC). Arm A to launch. |
 | **#440** | **tanjiro** | Embed init scale scan: std∈{0.5, 2.0} vs baseline std=1.0 — first init-side axis (never scanned) | Just assigned (06:42 UTC). Arm A std=0.5 to launch. |
 | **#444** | **frieren** | PMuon γ_power phase schedule: stable-phase γ static, cooldown-phase γ ramps. Arm A γ=0.3 stable→0.4 cooldown, Arm B γ=0.4 stable→0.5 cooldown. First phase-dependent γ test in program | Just assigned (07:18 UTC). Arm A to launch. |
 | **#413** | **alphonse** | scalar_lr upward scan {0.025, 0.05} vs baseline 0.01 | **Arm A (0.025) FINISHED MARGINAL WIN sr=2950 val=3.2654.** Arm B (0.05) `03c9tk79` step 75 just launched. |
@@ -45,7 +45,8 @@ Win conditions: sr<2975 OR (sr=2975 AND val<3.26722). Marginal (Δsr≤25 OR Δv
 
 | PR | Student | Key result | Decision |
 |---|---|---|---|
-| **#395** | fern | NS_ITERS cooldown schedule {14, 18 vs const=12}: Arm B (cd=18) `a9l9oqh3` FINISHED FAILED sr=3025 val=3.2706 (Δsr=+50, Δval=+0.0034 NULL clear); Arm A (cd=14) crash-loop after 3 attempts — never produced terminal result. Direction monotone (more cooldown iters = worse). | CLOSED — NS_ITERS cooldown-schedule axis CLOSED upward direction. Combined with PR #184 static (6 wins, 18 loses) the static-iter-count question is exhausted; data-dependent (adaptive) iter count is the natural next-class extension → PR #447. |
+| **#414** | nezuko | Cosine cooldown shape {pure cosine, cosine²} vs power-law 1.4: Arm A `0x82h8if` sr=3050 val=3.27557 (Δsr=+75 Δval=+0.00835); Arm B `lj00vaiw` sr=-1 (never reached) val=3.29445 (Δval=+0.02723). Monotone (cosine² worse than pure cosine). | CLOSED — cooldown shape axis CLOSED at power-law 1.4 across families. Cosine collapses LR to 0 too sharply at late cooldown; power-law 1.4's gradual late floor is load-bearing. New assignment PR #448. |
+| **#395** | fern | NS_ITERS cooldown schedule {14, 18 vs const=12}: Arm A `fg01web0` sr=3000 val=3.26865 (NULL clear); Arm B `a9l9oqh3` sr=3025 val=3.27060 (NULL clear, monotone). Polar-residual telemetry confirms mechanism fires (7.8→4.5→2.0) but harms downstream. | CLOSED — NS_ITERS cooldown-schedule axis CLOSED. Combined with PR #184 static, NS_ITERS axis exhausted in static + phase-localized variants; data-dependent (adaptive) iter count is the natural next-class extension → PR #447. |
 | **#410** | frieren | lm_head_lr fine-scan {1/120, 1/100, 1/80} vs new 1/160 baseline: Arm A sr=3000 val=3.26895 (Δsr=+25 Δval=+0.00173); Arm B sr=3000 val=3.26911 (Δsr=+25 Δval=+0.00188). Arm C killed at step 128 per advisor instruction (flat signal). | CLOSED — lm_head_lr axis CLOSED upward from 1/160. PR #367 (1/160) is the peak; gradient flattens past it. Combined with prior 1/640→1/320→1/160 progression, the maximum useful lm_head_lr appears at 1/160. New assignment PR #444 (γ_power phase schedule). |
 | **#401** | tanjiro | Muon WD downward {0.020, 0.015}: Arm A sr=3000 val=3.26937 (Δsr=+25 Δval=+0.00215); Arm B sr=3025 val=3.26980 (Δsr=+50 Δval=+0.00258). Monotone signal. | CLOSED — Muon WD axis CLOSED both directions at 0.025. |
 | **#404** | thorfinn | Aux CP extend: CP=1.0 n=2 (cross-stack sr=3000) + CP=0.5 (sr=3050). Both fail baseline sr=2975. | CLOSED — lower-CP direction exhausted. Baseline aux-following-body CP=1.4 optimal. |
@@ -88,9 +89,10 @@ Win conditions: sr<2975 OR (sr=2975 AND val<3.26722). Marginal (Δsr≤25 OR Δv
 
 Three themes active simultaneously:
 
-1. **Cooldown-phase precision** (fern #395 NS_ITERS schedule, nezuko #414 cosine cooldown shape): fern probes scheduled NS_ITERS; nezuko probes opposite-curvature cosine shape vs power-law 1.4.
-2. **Aux AdamW optimization** (askeladd #416 β1, edward #433 β2-by-group, alphonse #413 scalar_lr): Heavy aux-side portfolio. Multiple marginal-WIN candidates pending. **lm_head_lr fine-scan PR #410 CLOSED upward — axis at 1/160.**
-3. **Exploring new mechanism classes**: tanjiro #440 first init-side axis (embed std scan), thorfinn #439 first loss-side axis (logit soft-cap value), frieren #444 first PMuon phase-schedule axis (γ_power decoupled by phase). Three structurally novel mechanism classes simultaneously in flight.
+1. **NS polar mechanism (new class)** (fern #447 adaptive iter count): first data-dependent NS iter count test in program. Static+phase-schedule variants both closed.
+2. **Aux AdamW optimization** (askeladd #416 β1, edward #433 β2-by-group, alphonse #413 scalar_lr): Heavy aux-side portfolio. alphonse Arm A n=1 marginal WIN sr=2950 pending seed-2 confirmation (in flight). **lm_head_lr fine-scan PR #410 CLOSED upward — axis at 1/160.**
+3. **Schedule mechanism (new class)** (nezuko #448 decoupled cooldown_frac aux vs body): first per-group schedule decoupling test. Uniform variant heavily-explored and closed.
+4. **Exploring new mechanism classes**: tanjiro #440 first init-side axis (embed std scan), thorfinn #439 first loss-side axis (logit soft-cap value), frieren #444 first PMuon phase-schedule axis (γ_power decoupled by phase). Four structurally novel mechanism classes simultaneously in flight (counting fern #447 + nezuko #448).
 
 ## Open unexplored axes (for future assignment)
 
@@ -103,7 +105,7 @@ Three themes active simultaneously:
 - NS_ITERS fine-scan continuation — after fern #395 indicates direction
 - Adam ε per-group (different ε for sparse-vocab vs dense scalars)
 - Per-layer NS_ITERS schedule (more iterations for deeper layers)
-- Decoupled cooldown_frac for aux groups (different cooldown start step)
+- Decoupled cooldown_frac for aux groups — **ASSIGNED to nezuko PR #448** (first per-group schedule axis)
 - Different logit soft-cap SHAPE (Karras vs tanh vs softplus) — after thorfinn #439 closes
 - scalar_lr scan {0.025, 0.05} — IN FLIGHT PR #413 alphonse
 - Cosine cooldown shape {pure cosine, cosine²} — IN FLIGHT PR #414 nezuko
