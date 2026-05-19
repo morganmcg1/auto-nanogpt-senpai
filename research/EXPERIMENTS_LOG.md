@@ -6,6 +6,59 @@ drives the next-wave assignment.
 
 ---
 
+## 2026-05-19 01:33 UTC — PR #390: MuLoCo outer optimizer class swap (SGDM vs AdamW vs Lion) ❌ CLOSED NEG
+
+- **Branch**: g1r3-frieren/outer-optimizer-class-swap
+- **Hypothesis**: After saturating MuLoCo's 3 knobs, test whether a different outer optimizer class (AdamW or Lion) could provide better convergence than SGDM. Arms: SGDM ctrl (outer_lr=0.7, momentum=0.5), AdamW, Lion.
+- **Results** (vs baseline 3.27286, n=1 bar < 3.27206):
+
+| arm | optimizer | wandb_id | terminal val/loss | Δ vs 3.27286 | ffs | verdict |
+|---|---|---|---|---|---|---|
+| 1 (ctrl) | SGDM (outer_lr=0.7, momentum=0.5) | jgltipi3 | 3.27392 | +0.00106 (~2σ) | 3150 | baseline-equiv |
+| 2 | AdamW (lr=0.014) | 6znrpsli | 3.35674 | **+0.08388 (~100σ NEG)** | −1 | CATASTROPHIC |
+| 3 | Lion (lr=0.001) | 3jywc3d4 | 3.72060 | **+0.44774 (~500σ NEG)** | −1 | CATASTROPHIC |
+
+- **Mechanism**: SGDM's effective update = lr × (m×v + δ) ≈ 0.7 × (0.5×0.7 + 0.7) ≈ 0.735 RMS — matches the natural scale of the outer drift signal (δ_rms ≈ 0.7-0.8). AdamW's 2nd-moment normalization clamps update_rms to <0.01 (70× too small). Lion's constant sign-based update = lr = 0.001 (far too small). No LR value simultaneously satisfies 'large enough to contribute' and 'small enough not to diverge' for adaptive methods in this outer role. The δ signal is raw weight drift — not a loss gradient — so adaptive scaling is not beneficial.
+- **Conclusion**: SGDM is uniquely well-suited for the MuLoCo outer step by naturally matching the δ signal scale. Outer optimizer CLASS is saturated. Next direction: within-SGDM variants (Nesterov momentum, PR #424 askeladd).
+- **Key telemetry**: frieren's outer-step update_rms table for AdamW vs SGDM is a valuable reference showing the mechanism. Arm 2 AdamW had val=4.56 at 300-step smoke (above kill gate 4.30) — the smoke predicted the failure.
+
+---
+
+## 2026-05-19 01:20 UTC — PR #397: Aux lm_head weight decay sweep (wd=0/0.01/0.05) ❌ CLOSED NEG
+
+- **Branch**: g1r3-nezuko/aux-lm-head-wd-sweep
+- **Hypothesis**: Targeted weight decay on lm_head only could stabilize norm growth and improve cooldown phase. Arms: wd=0 (ctrl), 0.01, 0.05. Plumbing: new `--adam_lm_head_wd` flag in a dedicated AdamW param group.
+- **Results** (vs baseline 3.27286, n=1 bar < 3.27206):
+
+| arm | wd | wandb_id | terminal val/loss | Δ vs 3.27286 | ffs | lm_head norm (terminal) |
+|---|---|---|---|---|---|---|
+| 1 (ctrl) | 0.0 | y7q4vanw | 3.27281 | −0.00005 (≈baseline) | 3125 | 1198.92 |
+| 2 | 0.01 | p9csxg1v | 3.27540 | **+0.00254 (~5σ NEG)** | 3175 | 1125.08 (−6.2%) |
+| 3 | 0.05 | 0to00mja | 3.27366 | +0.00080 (~1σ NEG) | 3150 | 885.54 (−26.1%) |
+
+- **Non-monotonic pattern**: wd=0.01 is WORSE than wd=0.05 despite smaller wd magnitude. The hypothesis is falsified. Mild wd breaks something the optimizer compensates at higher wd (bad zone around wd≈0.01).
+- **Mechanism**: lm_head norm grows continuously 13→1199 over training (baseline), but the norm growth is load-bearing for the optimization dynamics — suppressing it at mild wd creates mismatch without the regularization benefit you'd expect at strong wd. The embedding group stays at wd=0 throughout (plumbing correct).
+- **Conclusion**: lm_head weight decay is not beneficial for this stack. Saturated lever. Aux param-group regularization direction closed at this point.
+
+---
+
+## 2026-05-19 01:17 UTC — PR #396: QK-Norm sweep (off vs fixed vs learnable) ❌ CLOSED NEG
+
+- **Branch**: g1r3-askeladd/qk-norm
+- **Hypothesis**: Pre-attention RMSNorm on Q+K. Baseline already has fixed F.rms_norm. Arms: off (remove normalization), fixed (= baseline ctrl), learnable (per-element affine gain added).
+- **Results** (vs baseline 3.27286, n=1 bar < 3.27206):
+
+| arm | QK-Norm | wandb_id | terminal val/loss | Δ vs 3.27286 | ffs |
+|---|---|---|---|---|---|
+| off (no rms_norm) | removed | o20httom | 3.29716 | **+0.02430 (~24σ NEG)** | −1 |
+| fixed (ctrl = baseline) | F.rms_norm | xwml6u2c | 3.27393 | +0.00107 (~1σ, baseline-equiv) | 3150 |
+| learnable (per-element gain) | F.rms_norm + affine | 53f944z1 | 3.27617 | **+0.00331 (~3σ NEG)** | 3200 |
+
+- **Key findings**: (1) Removing QK-norm is catastrophic — it's a structural feature. (2) Learnable per-element gains diverge from 1.0 (mean 1.15-1.34 at terminal) and consistently hurt by +0.002-0.003 from step 2000 onward. (3) Learnable gains cause attention logit magnitudes ~1.6× higher than fixed but still below the ±15 softsign cap.
+- **Conclusion**: Fixed F.rms_norm (no learnable scale) is optimal. QK-Norm structure saturated. First architectural test — learned gains on Q/K projections add expressiveness that costs val/loss rather than helping.
+
+---
+
 ## 2026-05-19 00:24 UTC — PR #389: MuonH inner mu warmup sweep (0/100/200 steps) ❌ CLOSED NEG
 
 - **Branch**: g1r3-edward/muonh-mu-warmup-sweep
