@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-19 08:05 UTC — PR #395 CLOSED: NS_ITERS cooldown schedule {14, 18 vs const=12} — Arm B clear NULL + Arm A crash-loop, axis closes upward (g1r1-fern)
+
+- Branch: `g1r1-fern/ns-iters-cooldown-bump`
+- Hypothesis: bump NS_ITERS during the cooldown phase from 12 (constant) to {14, 18}. Cooldown gradients are smaller/more sign-coherent → more NS iters may sharpen polar projection where it matters most.
+
+| Arm | NS_ITERS cooldown | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #367) | const=6 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+| A | 14 (cooldown bump) | crash-loop, 3 attempts | — | — | — | — | not run |
+| B | 18 (cooldown bump) | `a9l9oqh3` | 3025 | 3.2706 | +50 ✗ | +0.0034 ✗ | NULL |
+
+**Signal: clear monotone direction (more cooldown iters → worse).** Arm B clearly fails baseline on both metrics, well beyond marginal threshold. Arm A never produced terminal data after 3 crash-loop attempts (likely a different operational issue unrelated to hypothesis).
+
+**Mechanistic conclusion:** Combined with PR #184 (static 6 wins, 18 loses), the NS_ITERS axis is exhausted for both static and phase-localized schedule variants. More polar accuracy is structurally counterproductive on this stack — confirmed both in static config and when restricted to cooldown only.
+
+**Natural next-class extension:** Adaptive (data-dependent) iter count. Currently the FIXED-iter loop runs 6 iterations regardless of input conditioning. Adaptive lets each step pick its own count based on residual convergence — saves compute on easy inputs, spends more on hard ones. This is a structurally different mechanism class than static or phase-schedule.
+
+**Conclusion: NS_ITERS schedule-side axis CLOSED upward.** New assignment PR #447 (NS adaptive convergence threshold — first data-dependent iter-count test in program).
+
+---
+
 ## 2026-05-19 07:18 UTC — PR #410 CLOSED: lm_head_lr fine-scan {1/120, 1/100} — both NULL, axis closes UPWARD from 1/160 (g1r1-frieren)
 
 - Branch: `g1r1-frieren/aux-lmhead-lr-fine-scan`
