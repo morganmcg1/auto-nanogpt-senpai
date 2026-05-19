@@ -67,7 +67,7 @@
 ## Saturated levers
 
 - MuonH-SI HPs (lr/mu/wd), cooldown shape, LR warmup step-count (100 optimal), warmup shape (insensitive), mu warmup (PR #389 NEG)
-- MuLoCo outer params (0.7/0.5/30 all saturated); scheduled variants all NEG; outer CLASS (SGDM/AdamW/Lion) all NEG except SGDM
+- MuLoCo outer params (0.7/0.5/30 all saturated); scheduled variants all NEG; outer CLASS (Nesterov-SGDM/AdamW/Lion) all NEG except Nesterov-SGDM. **Code note**: The current outer SGDM is actually **Nesterov SGDM** (the `lr*(mu*v + delta)` form at lines 1093-1095) — confirmed by askeladd's code reading on PR #424. frieren's "SGDM ctrl" in PR #390 was therefore Nesterov-SGDM.
 - Aux optimizer (Lion/AdEMAMix NEG); aux betas, embed lr_mult, cooldown shape, frac, LR warmup, lm_head wd — all saturated
 - NS5 polynomial (12-iter optimal, polynomial coefficients neutral at k=12 per PR #174); fp32 closed; k-count blocked
 - Gradient centralization NEG; schedule-free NEG; depth-LR NEG; lookahead NEG; EMA tail averaging NEG
