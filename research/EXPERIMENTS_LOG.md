@@ -3,6 +3,36 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 21:35 UTC — PR #477: OrthoGrad aux scope sweep (fern) — CLOSED productive-null
+
+- Branch: `g1r4-fern/orthograd-aux`
+- Hypothesis: Preprocess AdamW gradient on aux groups by projecting out the weight-parallel component: `g_perp = g_t − (g_t·w_t / ||w_t||²)·w_t`. Weight-parallel gradient just rescales magnitude — removing it lets AdamW focus on direction signal. Scope sweep: embed-only, lm_head-only, both.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | NANOGPT_ORTHOGRAD_SCOPE | val/loss | Δ vs A | Verdict |
+|---|---|---:|---:|---|
+| A (ctrl) | none | 3.27181 | — | drift +0.00007 ✓ |
+| B | embed | 3.27344 | +0.00163 | **regression** |
+| C | lm_head | 3.27466 | +0.00285 | **regression** |
+| D | embed_lm_head | 3.27101 | −0.00080 | productive-null |
+
+Drift gate: |val_A − 3.27174| = +0.00007 ✓.
+
+### Key findings
+
+1. **No arm crosses Δ ≤ −0.002**: D passes stat-rule on absolute baseline (3.27101 ≤ 3.27174) but Δ=−0.00080 is 40% of the −0.002 within-pod signal threshold. Per pre-staged rules: productive-null. Default to within-pod Δ over stat-rule on static baseline — matches #344, #351, #408 false-positive precedents.
+2. **Non-monotonic scope finding**: Single-group projection regresses (B embed: +0.00163, C lm_head: +0.00285), combined (D embed+lm_head) recovers partially (−0.00080). Non-monotonic pattern.
+3. **Mechanistic interpretation**: embed and lm_head co-evolve through the residual stream; partial OrthoGrad on only one group breaks their relative magnitude balance. Combined OrthoGrad lets both groups co-cool through the shared WD+cooldown mechanism, restoring balance.
+
+### Mechanism takeaway
+
+**22nd productive-null/negative this cycle.** OrthoGrad joins the productive-null cluster on aux-group AdamW gradient-direction axis (#408 AGC, #419 Cautious, #399 AdEMAMix). Key design insight: **aux-group AdamW magnitude dynamics are NOT independent — they are a coupled system that resists single-axis perturbation.** Future aux-group experiments should default to "all aux" scope, not single-group, unless there's a specific sparse-vs-dense reason.
+
+**Follow-up**: fern assigned **#514 β₁ warmup on aux AdamW groups** — first-moment smoothing rate as a schedule axis. Same family (gradient-level intervention on aux AdamW), structurally distinct mechanism. Pairs with the "less constraint early" cluster: WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506).
+
+---
+
 ## 2026-05-19 20:55 UTC — PR #470: NS iterations normal-phase sweep NS∈{8,10,12,14} (frieren) — CLOSED productive-null
 
 - Branch: `g1r4-frieren/ns-iters-normal`

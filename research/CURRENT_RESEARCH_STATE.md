@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 21:00 UTC
+- **Date:** 2026-05-19 21:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -42,19 +42,24 @@ NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 
 ### ✅ fern #408 — Adaptive Gradient Clipping (AGC) — CLOSED 14:15 UTC productive-null
 
-Paired-pod confirmation collapsed pod-0 signal. Final n=3 pooled: mean(val_B)=3.27271 > baseline 3.27200 → pre-staged rule triggers CLOSE. Pod-0 Δ=−0.00252 was favorable-seed luck (pod-1 Δ=+0.00006, pod-2 Δ=+0.00071). AGC mechanism consistent (99.4% trigger rate across all 3 B runs), but val benefit not reproducible. **16th productive-null this cycle.**
-**Follow-up**: fern assigned **#477 OrthoGrad for aux groups** — gradient projection orthogonal to weight direction (structurally distinct from AGC magnitude clipping).
+Paired-pod confirmation collapsed pod-0 signal. Final n=3 pooled: mean(val_B)=3.27271 > baseline 3.27200 → pre-staged rule triggers CLOSE. Pod-0 Δ=−0.00252 was favorable-seed luck. AGC mechanism consistent (99.4% trigger rate) but val benefit not reproducible. **16th productive-null this cycle.**
+**Follow-up**: fern assigned **#477 OrthoGrad for aux groups**.
 
-### 🔄 fern #477 — OrthoGrad for aux AdamW groups [assigned 14:20 UTC]
+### ✅ fern #477 — OrthoGrad for aux AdamW groups — CLOSED 21:35 UTC productive-null
 
-**Branch:** `g1r4-fern/orthograd-aux`
-**Hypothesis**: Preprocess AdamW gradient by projecting out the weight-parallel component before AdamW first/second-moment accumulation: `g_perp = g_t − (g_t·w_t / ||w_t||²)·w_t`. Weight-parallel gradient just rescales parameter magnitude — removing it lets AdamW focus on direction signal. Applied only to 2D aux matrices (embed, lm_head); scalars degenerate. Structurally distinct from all 16 productive-null/negative axes this cycle — first gradient-direction-projection mechanism tested.
-| Arm | NANOGPT_ORTHOGRAD_SCOPE | Tests |
-|---|---|---|
-| A | none (control) | Drift gate against baseline 3.27174 |
-| B | embed | Sparse-gradient, large ||w||² (~770M) |
-| C | lm_head | Dense-gradient, V×768 matrix |
-| D | embed_lm_head | Both 2D aux weight matrices |
+Arms B (embed: +0.00163), C (lm_head: +0.00285) regress; D (embed+lm_head: −0.00080) recovers. Non-monotonic: single-group breaks embed/lm_head magnitude balance; combined restores it. D Δ=−0.00080 passes stat-rule on absolute baseline but well short of −0.002 within-pod threshold — productive-null. **22nd productive-null/negative this cycle.** Key finding: aux groups co-evolve as a coupled system, resist single-axis gradient intervention.
+**Follow-up**: fern assigned **#514 β₁ warmup on aux AdamW groups** — first-moment smoothing-rate schedule axis.
+
+### 🔄 fern #514 — AdamW β₁ warmup on aux groups [assigned 21:35 UTC]
+
+**Branch:** `g1r4-fern/beta1-warmup`
+**Hypothesis**: Ramp β₁ from a low starting value → 0.8 over first N% of training for all 3 aux AdamW groups (embed, lm_head, scalars). Lower β₁ early = slower first-moment accumulation = less smoothing = more responsive to noisy early gradients. Pairs with WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506) — "less constraint early" cluster. First-moment smoothing rate is the one AdamW schedule axis not yet varied dynamically.
+| Arm | NANOGPT_ADAMW_BETA1_WARMUP_START | NANOGPT_ADAMW_BETA1_WARMUP_FRAC | Profile |
+|---|---:|---:|---|
+| A | 0.8 | 0.0 | flat β₁=0.8 (control) |
+| B | 0.6 | 0.05 | β₁ 0.6→0.8 over 167 steps |
+| C | 0.4 | 0.05 | β₁ 0.4→0.8 over 167 steps |
+| D | 0.6 | 0.10 | β₁ 0.6→0.8 over 335 steps |
 **ETA full chain:** ~7.3h.
 
 ### 🔄 tanjiro #441 — Logit Z-loss (PaLM style) [assigned 06:49 UTC]
@@ -159,7 +164,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 ## Research theme — current cycle
 
-**21 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**22 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -169,21 +174,21 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 3. **Additive regularization always fails on this stack.** AGC, GC, gradient noise, label smoothing, z-loss — all hurt.
 
 **Current open questions** (in-flight):
-1. Is NS=12 during the normal phase at saturation or below precision floor? (#470)
-2. Does AdaBelief's variance-of-prediction-error second moment help aux groups? (#474)
-3. Does OrthoGrad (gradient ⊥ to weight) help AdamW aux groups? (#477)
-4. Does block init scaling matter under Muon? (#452)
-5. Does embed-only LR warmup help sparse-row early training? (#489)
-6. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483 spec corrected)
-7. Are any cooldown-NS merged components now redundant after later merges? (#487)
-8. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
-9. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
+1. Does AdaBelief's variance-of-prediction-error second moment help aux groups? (#474)
+2. Does block init scaling matter under Muon? (#452)
+3. Does embed-only LR warmup help sparse-row early training? (#489)
+4. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483)
+5. Are any cooldown-NS merged components now redundant after later merges? (#487)
+6. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
+7. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
+8. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514, fern new)
 
-**Stack convergence signal**: 21 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
-1. **Regularization REDUCTION cluster** (in flight): WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506) — three "less constraint early" axes simultaneously
+**Stack convergence signal**: 22 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+1. **Regularization REDUCTION / "less constraint early" cluster** (in flight): WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — four schedule axes simultaneously probing early-phase deregularization
 2. **Adam-family reformulation**: AdaBelief (#474, variance), NAdam (#490, first-moment) complete the three-axis AdamW-internal ablation alongside atan2 (#442 NEGATIVE, magnitude)
 3. **Stack simplification** if any pruning (#487) finds redundant components
-4. **NS-iter compute finding (from #470)**: forward/backward is the bottleneck, not NS. Future NS decisions should be motivated by val/loss, not step-time
+4. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group
+5. **NS-iter compute finding (from #470)**: forward/backward is the bottleneck, not NS. Future NS decisions should be motivated by val/loss, not step-time
 
 ---
 
@@ -191,6 +196,8 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #477 | fern | OrthoGrad aux scope sweep | CLOSED productive-null (D=−0.00080 short of −0.002; non-monotonic: singles regress, combined recovers; aux groups coupled system) |
+| #470 | frieren | NS iterations normal phase NS∈{8,10,12,14} | CLOSED productive-null (wide plateau [10,14]; NS=8 below floor; NS step-time flat ±1%) |
 | #454 | nezuko | lm_head/scalar linear_floor cooldown | CLOSED productive-null (best Δ=−0.00098, half threshold; embed-specific mechanism, not aux-generic) |
 | #442 | alphonse | Adam-atan2 b∈{0.3,1.0,3.0} | CLOSED productive-NEGATIVE (D=+0.010 missed 3.28; all worse than ε-based AdamW; magnitude-transform axis closed) |
 | #441 | tanjiro | Logit Z-loss λ∈{1e-5,1e-4,1e-3} | CLOSED productive-NEGATIVE (B=+0.00211/C=+0.00151/D=+0.022 missed 3.28; softcap c=15 already bounds logits, z-loss redundant) |
@@ -211,7 +218,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 **Optimizer-internal / Adam-family**:
 - β₁, β₂, ε per-group: all swept, β₁=0.80/β₂=0.99/ε=1e-10 confirmed
 - WD per-group: all harmful, axis closed
-- Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC: all closed
+- Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC, OrthoGrad: all closed
 - Lion, Adafactor on aux: closed (prior rounds)
 - LLRD Muon: closed (NS normalizes depth scaling)
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×
