@@ -1,3 +1,17 @@
+## 2026-05-19 19:56 UTC — PR #475 CLOSED (fern): Aux AdamW scalars LR sweep — axis NEAR-SATURATED, 0.01 local optimum
+
+- Branch: `g1r3-fern/aux-adamw-scalars-lr-sweep`
+- Hypothesis: Under eps=1e-6 baseline, the optimal aux scalars LR (gains/biases group) may have shifted. Sweep 0.005 (halve) / 0.01 ctrl / 0.02 (double).
+
+| Arm | scalars_lr | W&B run | val/loss | ffs | reached_target | Δ vs ctrl (3.27296) | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | 0.01 | `yekqkcmc` | 3.27296 | 3150 | yes | (ctrl) | +0.00177 |
+| 2 halve | 0.005 | `2tasvk8f` | 3.27722 | 3200 | yes | **+0.00426 (CLEAR LOSS)** | +0.00603 |
+| 3 double | 0.02 | `et18r49k` | 3.27254 | 3150 | yes | −0.00042 (tied) | +0.00135 |
+
+- **Conclusion**: Lever asymmetric. Halving clearly hurts (CLEAR LOSS ~4σ); doubling is within seed noise of ctrl (-0.00042). Axis near-saturated at scalars_lr=0.01. The +0.00177 ctrl Δ vs baseline reinforces that baseline `t1coza71` is a favorable-seed outlier (6/6 baseline-equivalent samples this round come in Δ>0).
+- Fern reassigned to **H1 per-group eps decomposition** (mechanism test, not scalar HP).
+
 ## 2026-05-19 15:48 UTC — PR #453 CLOSED (frieren): MuLoCo sync_interval re-sweep — axis SATURATED, sync=30 confirmed optimal
 
 - Branch: `g1r3-frieren/muloco-sync-interval-resweep`
