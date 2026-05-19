@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 00:05 UTC
+- **Last update:** 2026-05-19 00:17 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2975 steps (just BEAT previous record of 3030 — new local n=2 sr=2975). Public record was 3030 steps (Record #20).
 
@@ -26,7 +26,7 @@ None at this time.
 
 | PR | Student | Mechanism | Status (23:14 UTC) |
 |---|---|---|---|
-| **#387** | **nezuko** | Role-based Muon LR: attn vs MLP {0.7×, 0.4×} | Arm A 0.7× DONE sr=3000 val=3.2704 (NULL vs new baseline). Arm B 0.4× `0aay0p7y` step 2800/3250 mid-flight. ETA terminal ~23:30 UTC. |
+| **#414** | **nezuko** | Cosine cooldown shape: {pure cosine, cosine²} vs power-law 1.4 | Just assigned (00:17 UTC). Arm A pure cosine to launch. |
 | **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} | Arm A WD=0.020 `o5z8a5n3` running. ETA ~23:50 UTC. |
 | **#410** | **frieren** | lm_head_lr fine-scan {1/120, 1/100, 1/80} vs new baseline 1/160 | Just assigned (23:14 UTC). Arm A 1/120 to launch. |
 | **#413** | **alphonse** | scalar_lr upward scan {0.025, 0.05} vs baseline 0.01 | Just assigned (00:05 UTC). Arm A scalar_lr=0.025 to launch. |
@@ -51,6 +51,7 @@ None at this time.
 | **#362** | tanjiro | GC column-only val@3250=3.27043 sr=3025 (NULL), GC both val@3250=3.29637 sr=-1 (NULL) | CLOSED — PMuon's cov-EMA whitening already absorbs drift GC removes; row-centering over-constrains transformer linear weights. **GC axis CLOSED on Muon body.** |
 | **#386** | alphonse | PMuon γ_power continuation {0.5,0.6}: Arm A γ=0.5 sr=3250 val=3.27999 NULL; Arm B γ=0.6 sr=-1 never reached target (lcov cond-num 11.6× blowup) | CLOSED — both NULL, γ_power axis CLOSES at 0.4. |
 | **#332** | fern | COOLDOWN_POWER continuation {1.5, 1.8}: Arm A n=3 mean sr=2991.67 val=3.27021 (Δsr=-8.3, Δval=+0.0017 — noise floor); Arm B n=1 sr=2975 val=3.27464 (Δsr=-25, Δval=+0.0061 — val regression) | CLOSED — both arms NULL. Per-seed Arm A sr={3000,3000,2975}; 2/3 tied at baseline. **Body-side COOLDOWN_POWER axis CLOSED at 1.4.** Aux-side variant (#366 thorfinn) still open. |
+| **#387** | nezuko | Role-based Muon LR {0.7×, 0.4× attn}: Arm A sr=3000 val=3.27037, Arm B sr=3025 val=3.27243 — monotone-down vs baseline 2975/3.26722 | CLOSED — role-axis CLOSED. NS polar normalizes update magnitudes across roles; any LR decomposition is counterproductive. |
 | **#347** | nezuko | LLRD per-depth {0.95, 0.85}: Arm A val=3.2804 sr=-1, Arm B val=3.3136 sr=-1 | CLOSED — monotone signal (more aggressive decay → worse). ULMFiT prior inverted for pretraining-from-scratch; NS orthogonalization already normalizes per-tensor. **Depth-based LR decomposition CLOSED.** |
 | **#311** | thorfinn | Lookahead α ∈ {0.5, 0.8}, k=5: Arm A val=3.299 sr=never; Arm B val=3.271 sr=3050 | CLOSED — mechanism active (slow-fast ratio 0.005–0.05) but unhelpful. PMuon's own whitening already produces clean updates; averaging via pullback discards genuine progress. Third closure confirming "PMuon warm-up dynamics axis CLOSED." |
 | **#327** | askeladd | Adan aux {lr_mult=1.0, lr_mult=0.33}: both NULL sr=-1 val=3.288/3.312 | CLOSED — **aux optimizer-mechanism axis CLOSED.** Lion, AdEMAMix, Adan all NULL. Aux uniformly wants fast-EMA AdamW (β1=0.8). β1=0.98 Adan stales sparse vocab rows. |
@@ -64,7 +65,7 @@ None at this time.
 
 1. **PMuon hyperparameter axes ALL CLOSED**: NS_ITERS (flat 6–18 uniform — schedule variant in flight #395), NS_coef (a,b) (closed at 1.5,-0.5), NS_coef c-axis (closed at c=0), Muon base LR (closed at 0.035), γ_power (**CLOSED at 0.4 — PR #386: continuation {0.5,0.6} both NULL, whitening collapses**), β_cov (closed at 0.95), mu (closed at 0.95), TARGET_UW (closed at 0.35), LR warmup (closed).
 
-1a. **Body LR decomposition axes**: Depth (LLRD, PR #347) CLOSED — uniform optimal. Role-based (attn vs MLP, PR #387) in-flight.
+1a. **Body LR decomposition axes**: Depth (LLRD, PR #347) CLOSED — uniform optimal. Role-based (attn vs MLP, PR #387) **CLOSED — both NULL. Monotone-down confirms 1.0× optimal. All linear decompositions of Muon LR exhausted.**
 
 2. **Aux optimizer-mechanism axis CLOSED**: AdamW β1 (closed at 0.8), β2 (closed at 0.95), eps (closed at 1e-10). Alternative optimizers (Lion, AdEMAMix, Adan) all NULL. Aux groups uniformly want fast-EMA AdamW (β1=0.8). **lm_head_lr=1/320 → 1/160 MERGED (PR #367)**; fine-scan in flight (PR #408). Aux gradient clipping (AGC per-row) in flight #400.
 
@@ -84,7 +85,7 @@ Three themes active simultaneously:
 
 1. **Cooldown-phase precision** (fern #395 NS_ITERS schedule, askeladd #403 curriculum cooldown power): Do cooldown-phase updates benefit from higher-quality direction or time-varying power-law concavity? Both target the ~2275 cooldown steps where LR is tiny and direction quality matters most.
 2. **Aux AdamW optimization** (frieren #367 lm_head_lr, edward #400 AGC, thorfinn #404 aux CP extend): Aux side has multiple marginal-WIN signals — at least one may stack. Thorfinn #404 confirms direction from #366 + extends to CP=0.5.
-3. **Closing remaining body-side and aux dimensions** (nezuko #387 role-based LR — near terminal, tanjiro #401 Muon WD downward, alphonse #413 scalar_lr scan): γ_power axis closed via #386. scalar_lr (#413) is the final untouched aux LR axis.
+3. **Exploring new schedule mechanisms and closing remaining aux dimensions**: Muon LR fully exhausted across all linear decompositions. Cooldown SHAPE exploration via nezuko #414 (cosine family vs power-law). Tanjiro #401 closes Muon WD downward. Alphonse #413 closes scalar_lr axis.
 
 ## Open unexplored axes (for future assignment)
 
@@ -96,6 +97,7 @@ Three themes active simultaneously:
 - Per-layer NS_ITERS schedule (more iterations for deeper layers)
 - Body warmup duration scan {fast, slow} — currently using single warmup schedule
 - scalar_lr scan {0.025, 0.05} — IN FLIGHT PR #413 alphonse
+- Cosine cooldown shape {pure cosine, cosine²} — IN FLIGHT PR #414 nezuko
 
 ## Statistical rule reminder
 

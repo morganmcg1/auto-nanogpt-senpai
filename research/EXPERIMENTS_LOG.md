@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-19 00:17 UTC — PR #387 CLOSED: Role-based Muon LR {0.7×, 0.4× on attn} — both NULL, role-axis closes (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/muon-role-lr`
+- Hypothesis: Attn vs MLP body params may benefit from different LR multipliers. Scan {0.7×, 0.4×} on attn while MLP stays at 1.0×.
+
+| Arm | attn_lr_mult | W&B run | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 0.7× | `g8hqguwn` | 3000 | 3.27037 | +25 | +0.00315 | NULL |
+| B | 0.4× | `0aay0p7y` | 3025 | 3.27243 | +50 | +0.00521 | NULL |
+| Baseline (PR #367) | 1.0× | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+
+**Mechanistic key**: NS update_norm is invariant to LR multiplier choice (attn≈25.6, mlp≈41.0 regardless of arm) — confirming polar step normalizes direction independently of LR scaling. Monotone-down trend Arm B < Arm A < Baseline means 1.0× is the local optimum.
+
+**Conclusion: Role-axis CLOSED. Combined with PR #347 (depth NULL) and PR #248 (global LR flat), Muon LR is optimal under all linear decompositions tested. New assignment PR #414 (cosine cooldown shape).**
+
+---
+
 ## 2026-05-19 00:00 UTC — PR #386 CLOSED: PMuon γ_power continuation {0.5, 0.6} — both NULL, axis closes at 0.4 (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/gamma-power-continuation`
