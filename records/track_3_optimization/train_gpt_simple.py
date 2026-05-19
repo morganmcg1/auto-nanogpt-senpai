@@ -55,13 +55,17 @@ def parse_args():
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
     parser.add_argument("--wd_schedule", type=str, default="constant",
-                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown",
+                                 "lr_coupled", "stable_only", "early_dropoff"],
                         help="Schedule shape for wd_mlp and wd_attn on the Muon optimizer side. "
                              "constant=fixed at args.wd_mlp/wd_attn; "
                              "ramp_up=linear 0->2x over training (average matches constant); "
                              "ramp_down=linear 2x->0 over training (average matches constant); "
                              "triangle=linear 0->2x->0 with peak at midpoint; "
-                             "cosine_updown=cosine 0->2x->0 (smooth triangle). "
+                             "cosine_updown=cosine 0->2x->0 (smooth triangle); "
+                             "lr_coupled=flat 2x during stable phase, linear 2x->0 mirroring LR decay; "
+                             "stable_only=flat 2x during stable phase, cliff to 0 at cooldown start; "
+                             "early_dropoff=linear 2x->0 over first half of training, then 0. "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -797,7 +801,7 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
 
-    def _wd_multiplier(step, total_steps, schedule):
+    def _wd_multiplier(step, total_steps, schedule, cooldown_frac=0.7):
         if schedule == "constant":
             return 1.0
         p = step / total_steps
@@ -810,6 +814,19 @@ for trial_idx in range(args.num_trials):
         elif schedule == "cosine_updown":
             import math
             return 1.0 - math.cos(2 * math.pi * p)
+        elif schedule == "lr_coupled":
+            stable_end = 1.0 - cooldown_frac
+            if p < stable_end:
+                return 2.0
+            cd_progress = (p - stable_end) / cooldown_frac
+            return 2.0 * (1.0 - cd_progress)
+        elif schedule == "stable_only":
+            stable_end = 1.0 - cooldown_frac
+            return 2.0 if p < stable_end else 0.0
+        elif schedule == "early_dropoff":
+            if p < 0.5:
+                return 2.0 * (1.0 - p / 0.5)
+            return 0.0
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
@@ -821,7 +838,7 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
-        wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule, cooldown_frac=cooldown_frac)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
