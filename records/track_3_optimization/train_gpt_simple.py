@@ -447,6 +447,13 @@ MU_END = float(os.environ.get("MU_END", "0.95"))
 MU_COOLDOWN_ENABLED = ("MU_COOLDOWN_START" in os.environ) or ("MU_COOLDOWN_END" in os.environ)
 MU_COOLDOWN_START = float(os.environ.get("MU_COOLDOWN_START", "0.95"))
 MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
+# Optional Muon momentum warmup (PR #415): linearly ramp cur_mu from
+# MU_WARMUP_START -> MU_COOLDOWN_START over the first MU_WARMUP_STEPS optimizer
+# steps before entering the plateau+cooldown schedule. Only active when
+# MU_COOLDOWN_ENABLED is True. MU_WARMUP_STEPS=0 disables the warmup branch
+# entirely and exactly reproduces the prior cooldown-only schedule.
+MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
+MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -842,6 +849,8 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_enabled": MU_COOLDOWN_ENABLED,
             "optimizer/mu_cooldown_start": MU_COOLDOWN_START,
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
+            "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
+            "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -906,7 +915,10 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         if MU_COOLDOWN_ENABLED:
-            if progress < 1 - cooldown_frac:
+            if step < MU_WARMUP_STEPS:
+                w = step / MU_WARMUP_STEPS
+                cur_mu = MU_WARMUP_START + (MU_COOLDOWN_START - MU_WARMUP_START) * w
+            elif progress < 1 - cooldown_frac:
                 cur_mu = MU_COOLDOWN_START
             else:
                 t = (progress - (1 - cooldown_frac)) / cooldown_frac
