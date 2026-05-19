@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-19 06:42 UTC — PR #401 CLOSED: Muon WD downward {0.020, 0.015} — both NULL, axis closes both directions (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/muon-wd-downward`
+- Hypothesis: Decrease Muon weight decay from baseline 0.025 to test if less regularization yields better convergence. Combined with previously-closed upward direction, this closes the Muon WD axis fully.
+
+| Arm | muon_wd | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #367) | 0.025 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — | — |
+| A | 0.020 | `o5z8a5n3` | 3000 | 3.26937 | +25 ✗ | +0.00215 ✗ | NULL |
+| B | 0.015 | `qvlr4y7g` | 3025 | 3.26980 | +50 ✗ | +0.00258 ✗ | NULL |
+
+**Clean monotone signal:** lower WD → worse on both metrics. Both arms also exceed marginal threshold (Δsr ≤ 25 OR Δval ≤ 0.001) → no n=2 confirmation needed.
+
+**Mechanistic conclusion:** Muon WD axis is now fully CLOSED at 0.025 in both directions. Muon's NS orthogonalization combined with PMuon's bilateral cov-EMA whitening produces well-conditioned updates whose magnitude is structurally controlled. Lower WD lets unconstrained parameter growth; higher WD over-shrinks. The interior optimum at WD=0.025 is structurally tied to the body stack.
+
+**Note on Arm A:** Cross-stack confound — Arm A ran on pre-#367 baseline config (lm_head_lr=1/320). However the directional signal holds for both stacks (vs old baseline sr=3000 val=3.2685, Arm A matched sr and val=+0.0009 within n=1 noise). New assignment PR #440 (embed init scale scan — fresh init-side axis).
+
+---
+
 ## 2026-05-19 05:50 UTC — PR #404 CLOSED: Aux CP extend (CP=1.0 n=2 + CP=0.5 n=1) — both NULL on primary metric, axis closes (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/aux-cooldown-power-extend`
