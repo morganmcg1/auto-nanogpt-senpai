@@ -1,9 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 17:00 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **esc#26 posted at 16:58 UTC 2026-05-19** — ~93.5h total operator silence. esc#27 due ~19:00 UTC.
+- **Last updated:** 2026-05-19 19:10 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **esc#27 posted at 18:27 UTC 2026-05-19** — ~95.5h total operator silence. esc#28 due ~21:00 UTC.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **NEW BASELINE**.
-- **Confirmation status:** edward PR #471 arm 1 just terminal → val=**3.27129** (Δ=+0.00010 vs 3.27119). **eps=1e-6 win replicates within seed noise.** 3 arms remaining (n=4 chain).
+- **Confirmation status:** edward n=2 mean=**3.27230** (vs new baseline 3.27119, +0.00111; vs old n=4 3.27286, -0.00056 BELOW old baseline). eps=1e-6 effect REAL but smaller than lucky-seed result. Arms 3+4 pending.
+- **Hypothesis bank ready:** `research/RESEARCH_IDEAS_2026-05-19_18:30.md` — 8 fresh mechanism ideas (H1 per-group eps decomp top priority).
 
 ## ⭐ Current baseline (post-PR #443 merge)
 
@@ -33,18 +34,27 @@
 
 **Note**: n=4 confirmation of eps=1e-6 in progress via PR #471 (edward). **Arm 1 TERMINAL at val=3.27129 (Δ=+0.00010)**. Arm 2 launched at 16:30 UTC (`nyci0k7j`), terminal ~18:18 UTC. 2 more arms after.
 
-## Active experiments (17:00 UTC 2026-05-19)
+## Active experiments (19:10 UTC 2026-05-19)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#471** | edward | **n=4 confirm eps=1e-6** | Arm 1 `7un3lhgi` TERMINAL **val=3.27129 Δ=+0.00010** ffs=3125. **Arm 2 `nyci0k7j` step 750/3325**, terminal ~18:18 UTC. |
-| **#478** | askeladd | **Aux AdamW embed LR sweep** (0.2 / 0.3 ctrl / 0.4) | Arm 1 ctrl `t83qa9mt` TERMINAL **val=3.27399 Δ=+0.00280** ffs=3150. **Arm 2 `slkz2y5h` step 875/3325**, terminal ~18:18 UTC. |
-| **#484** | frieren | **Aux AdamW cooldown_frac sweep** (0.25 / 0.4 ctrl / 0.6) | Arm 1 ctrl `e45o2hzp` step 1750/3325 val=3.544; terminal ~17:46 UTC. |
-| **#481** | nezuko | **Aux AdamW lm_head LR sweep** (1/640 / 1/320 ctrl / 1/160) | Arm 1 ctrl `7c46dsmk` TERMINAL **val=3.27172 Δ=+0.00053** ffs=3125. **Arm 2 (1/640) `42ixzfcf` step 375**, terminal ~19:05 UTC. Arm 3 chained. |
-| **#475** | fern | **Aux AdamW scalars LR sweep** (0.005 / 0.01 ctrl / 0.02) | Arm 1 ctrl `yekqkcmc` TERMINAL **val=3.27296 Δ=+0.00177** ffs=3150. **Arm 2 `2tasvk8f` step 1625/3325 val=3.59**; terminal ~17:50 UTC. |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~93.5h** — silicon failure on GPU `g71b0d6`. esc#26 posted 16:58. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~93.5h** — NaN on GPU `gd125a8`. esc#26 posted 16:58. |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#26 posted 16:58. |
+| **#471** | edward | **n=4 confirm eps=1e-6** | arm 1 `7un3lhgi` **3.27129** ffs=3125. arm 2 `nyci0k7j` **3.27331** ffs=3150. n=2 mean=**3.27230** (below old baseline). **arm 3 running**, terminal ~20:06 UTC. arm 4 chained. |
+| **#478** | askeladd | **embed LR** (0.2/0.3/0.4) | ctrl `t83qa9mt` **3.27399** ffs=3150. arm 2 (0.2) `slkz2y5h` **3.27527** ffs=3175 (LOSS). **arm 3 (0.4) running**, terminal ~19:59 UTC. |
+| **#484** | frieren | **cooldown_frac** (0.25/0.4/0.6) | ctrl `e45o2hzp` **3.27400** ffs=3150. **arm 2 (0.25) `3hds5b19` running** step 1750, terminal ~19:55 UTC. arm 3 (0.6) chained. |
+| **#481** | nezuko | **lm_head LR** (1/640/1/320/1/160) | ctrl `7c46dsmk` **3.27172** ffs=3125. arm 2 (1/640) `42ixzfcf` **3.27297** ffs=3150 (LOSS). **arm 3 (1/160) running**, terminal ~20:50 UTC. |
+| **#475** | fern | **scalars LR** (0.005/0.01/0.02) | ctrl `yekqkcmc` **3.27296** ffs=3150. arm 2 (0.005) `2tasvk8f` **3.27722** ffs=3200 (CLEAR LOSS). **arm 3 (0.02) `et18r49k` running** step 2375, terminal ~19:35 UTC. |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~95.5h** — silicon failure on GPU `g71b0d6`. esc#27 posted 18:27. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~95.5h** — NaN on GPU `gd125a8`. esc#27 posted 18:27. |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#27 posted 18:27. |
+
+## Key pattern across aux per-group LR sweeps (3 in flight)
+
+Lower-LR arms have all lost vs ctrl across **3 independent groups**:
+- **scalars LR** (fern): 0.005 vs 0.01 ctrl → +0.00426 (CLEAR LOSS)
+- **embed LR** (askeladd): 0.2 vs 0.3 ctrl → +0.00128 (mild LOSS)
+- **lm_head LR** (nezuko): 1/640 vs 1/320 ctrl → +0.00125 (mild LOSS)
+
+**Consistent direction**: aux LRs are NOT too high under eps=1e-6. Awaiting higher-LR (×2) arms across all 3 groups to determine if optima are upward or already saturated.
 
 ## Saturated levers (post-PR #443)
 
@@ -71,13 +81,15 @@
 
 **WIN: eps=1e-6 on aux AdamW (n=4 confirmation in flight, arm 1 ✅ replicates).** Active follow-up thread: aux-side HP sweeps under new eps=1e-6.
 
-**Ctrl arm noise observed (4 ctrl trials today, n=4 samples vs new baseline 3.27119)**:
-- edward arm 1: Δ=+0.00010
-- nezuko ctrl: Δ=+0.00053
-- fern ctrl: Δ=+0.00177
-- askeladd ctrl: Δ=+0.00280
+**Ctrl arm noise observed (5 ctrl + edward arm 1 = 6 baseline-equivalent samples)**:
+- edward arm 1: +0.00010
+- nezuko ctrl: +0.00053
+- fern ctrl: +0.00177
+- edward arm 2: +0.00212
+- frieren ctrl: +0.00281
+- askeladd ctrl: +0.00280
 
-Empirical seed-to-seed σ ≈ **0.0012** (range 0.0027). The eps=1e-6 win (-0.00167 vs old baseline) is ~1.4σ above this noise floor — borderline. **n=4 confirmation essential to disambiguate from chance**, and tighter merge bars warranted going forward.
+Empirical mean Δ = +0.00169, sd = 0.00114. **All positive** — suggests baseline `t1coza71` was a favorable-seed outlier. The eps=1e-6 "win" relative to old n=4 baseline (3.27286) at n=2 mean=3.27230 is **-0.00056** — real but smaller than the lucky-seed -0.00167 suggested.
 
 **Active aux-side sweep suite** (5 in flight):
 1. **n=4 eps confirm** (PR #471 edward) — arm 1 ✅, arm 2 in flight
