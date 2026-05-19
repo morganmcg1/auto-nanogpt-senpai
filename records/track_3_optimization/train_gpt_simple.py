@@ -24,7 +24,8 @@ import wandb
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
-COOLDOWN_POWER = 1.4
+COOLDOWN_POWER = 1.4         # body cooldown power (PR #274 merged)
+AUX_COOLDOWN_POWER = 0.5     # PR #404 Arm B (direction extension); Arm A=1.0 completed jv2oi3fv val=3.26555 sr=3000
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
@@ -702,6 +703,7 @@ if dist.get_rank() == 0:
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
+            "aux_cooldown_power": AUX_COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
         },
@@ -749,21 +751,25 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # learning rate schedule: stable then power-law cooldown.
+    # Body (Muon, optimizer2) uses COOLDOWN_POWER; aux AdamW (optimizer1) uses AUX_COOLDOWN_POWER.
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            eta_body = 1.0
+            eta_aux = 1.0
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
-        for opt in optimizers:
-            for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+            eta_body = w ** COOLDOWN_POWER
+            eta_aux = w ** AUX_COOLDOWN_POWER
+        for group in optimizer1.param_groups:   # AdamW aux (embed, lm_head, scalars)
+            group["lr"] = group["initial_lr"] * eta_aux
+        for group in optimizer2.param_groups:   # Muon body
+            group["lr"] = group["initial_lr"] * eta_body
+        return progress, cooldown_progress, eta_body, eta_aux
 
 
     ########################################
@@ -852,7 +858,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta_body, sched_eta_aux = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -917,8 +923,12 @@ for trial_idx in range(args.num_trials):
                 "train/step": train_step,
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
-                "train/cooldown/lr_multiplier": sched_eta,
+                "train/cooldown/lr_multiplier": sched_eta_body,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "schedule/lr_mult_body": sched_eta_body,
+                "schedule/lr_mult_aux": sched_eta_aux,
+                "schedule/body_cooldown_power": COOLDOWN_POWER,
+                "schedule/aux_cooldown_power": AUX_COOLDOWN_POWER,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
