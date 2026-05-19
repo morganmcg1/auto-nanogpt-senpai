@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-19 06:38 UTC — PR #398: AdamW aux ε schedule sweep — **CLOSED clean-NEG**
+
+- Branch: `askeladd/eps-aux-schedule`
+- Student: g1r5-askeladd
+- Hypothesis: Time-varying ε for AdamW aux groups (embed/lm_head/scalars) across 5 schedule shapes. Static ε=1e-10 was robust on older sessions — this tests whether a *schedule* (varying ε through training phases) could unlock a phase-specific edge.
+
+### Results
+
+| Cell | schedule | val/loss | ffs | Δσ vs NEW baseline | W&B run |
+|------|----------|----------|-----|---------------------|---------|
+| A | constant 1e-10 (ctrl) | 3.269913 | 3125 | +2.39σ (lucky seed) | rz6ibzdy |
+| B | ramp_up 1e-12→1e-8 | 3.274274 | 3175 | +7.69σ | px2ecgt2 |
+| C | ramp_down 1e-8→1e-12 | 3.271079 | 3150 | +3.80σ | knmurh9a |
+| D | spike_cooldown (1e-10→1e-7 last 70%) | 3.272561 | 3150 | +5.60σ | 7mmyfajg |
+| E | log_cosine | killed ~step 233 | — | — | — |
+| **mean A-D** | — | **3.271957** | **3150** | **+4.87σ** | |
+
+NEW baseline: mu=3.267948, std=0.000823.
+
+### Conclusion
+
+Monotonic story A<C<D<B — any non-constant ε degrades val/loss. Magnitude scales with elevation duration and cooldown overlap. Ramp_up worst (+7.69σ): ε=1e-8 at cooldown suppresses precision recovery. Ramp_down least bad: ε is inactive by cooldown preserving precision recovery, but early-training elevation (1e-8) damages learning. Spike_cooldown: sustained large ε through cooldown hurts similarly. **Static ε=1e-10 is near-optimal; no time-varying shape helps.** ε-schedule axis exhausted.
+
+Cell E (log_cosine) killed ~step 233 per advisor suggestion after 4/4 non-constant cells landed clean-NEG. Student confirmed and submitted promptly.
+
+Next: askeladd PR #437 — SOAP precond_freq schedule sweep (timing axis, informed by WD ramp_down insight).
+
 ## 2026-05-19 03:30 UTC — PR #368: Orthogonal QKV init P2 (ortho_qk_only, n=4) — **CLOSED clean-neutral**
 
 - Branch: `g1r5-tanjiro/qkv-ortho-init`
