@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 00:46 UTC
+- **Last update:** 2026-05-19 04:05 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2975 steps (just BEAT previous record of 3030 — new local n=2 sr=2975). Public record was 3030 steps (Record #20).
 
@@ -18,22 +18,22 @@ Win conditions: sr<2975 OR (sr=2975 AND val<3.26722). Marginal (Δsr≤25 OR Δv
 
 ## Pending confirmation (unmerged n=1 wins)
 
-None at this time.
+- **PR #413 alphonse Arm A scalar_lr=0.025 (k7ylyby9):** sr=2950 val=3.2654 — beats baseline on BOTH metrics (Δsr=-25, Δval=-0.00182). **MARGINAL per stat rule** (Δsr=25 at threshold). n=2 seed-2 confirmation required before merge. Arm B (scalar_lr=0.05, 03c9tk79) launched 04:00 UTC, sequential.
 
-**Infrastructure:** Stable. Cold-start crash storm fully abated.
+**Infrastructure:** Stable. Cold-start crash storm fully abated. Fern Arm A (cd=14) experiencing 3-attempt crash loop — under student investigation.
 
 ## Active experiments (8 students)
 
-| PR | Student | Mechanism | Status (23:14 UTC) |
+| PR | Student | Mechanism | Status (04:05 UTC) |
 |---|---|---|---|
-| **#414** | **nezuko** | Cosine cooldown shape: {pure cosine, cosine²} vs power-law 1.4 | Just assigned (00:17 UTC). Arm A pure cosine to launch. |
-| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} | Arm A WD=0.020 `o5z8a5n3` running. ETA ~23:50 UTC. |
-| **#410** | **frieren** | lm_head_lr fine-scan {1/120, 1/100, 1/80} vs new baseline 1/160 | Just assigned (23:14 UTC). Arm A 1/120 to launch. |
-| **#413** | **alphonse** | scalar_lr upward scan {0.025, 0.05} vs baseline 0.01 | Just assigned (00:05 UTC). Arm A scalar_lr=0.025 to launch. |
-| **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm A DONE sr=3025 val=3.2699 (NULL). Arm B cooldown=18 launching. |
-| **#400** | **edward** | AGC on aux AdamW per-row λ ∈ {0.04, 0.02} | Arm A λ=0.04 `2y0ewtlb` step 2525/3250 mid-flight. ETA ~00:10 UTC. |
-| **#416** | **askeladd** | Aux AdamW β1 fine-scan {0.75, 0.85} — closes β1 axis at fine grid | Just assigned (00:46 UTC). Arm A β1=0.75 to launch. |
-| **#404** | **thorfinn** | Aux CP extend: CP=1.0 n=2 confirm + CP=0.5 extend | Arm A CP=1.0 seed2 `jv2oi3fv` step 575/3250 running (prior crashes). ETA ~01:30 UTC. |
+| **#414** | **nezuko** | Cosine cooldown shape: {pure cosine, cosine²} vs power-law 1.4 | Arm A pure cosine `0x82h8if` step 2925, val/best=3.288. ETA ~30min terminal. Below baseline trajectory. |
+| **#401** | **tanjiro** | Muon WD downward scan {0.020, 0.015} | Arm B WD=0.015 fresh `qvlr4y7g` step 975, val=3.689. ~2.5h to terminal. |
+| **#410** | **frieren** | lm_head_lr fine-scan {1/120, 1/100, 1/80} vs new baseline 1/160 | Arm 1 (1/120) `9hgqqx38` CLOSED FAILED sr=3000 val=3.26895 (both metrics worse). Arm 2 (1/100) `cjv8cqab` step 650 running. |
+| **#413** | **alphonse** | scalar_lr upward scan {0.025, 0.05} vs baseline 0.01 | **Arm A (0.025) FINISHED MARGINAL WIN sr=2950 val=3.2654.** Arm B (0.05) `03c9tk79` step 75 just launched. |
+| **#395** | **fern** | NS_ITERS cooldown schedule {14, 18 vs const=12} | Arm B (cd=18) `a9l9oqh3` FINISHED FAILED sr=3025 val=3.2706. Arm A (cd=14) crash loop 3 attempts — debug requested. |
+| **#400** | **edward** | AGC on aux AdamW per-row λ ∈ {0.04, 0.02} | Arm B λ=0.10 (per student amendment) `llni6tar` step 3200 val=3.4410. Far above target — will NOT reach. |
+| **#416** | **askeladd** | Aux AdamW β1 fine-scan {0.75, 0.85} — closes β1 axis at fine grid | Arm A β1=0.75 `e2xpz277` step 2850 val=3.305. ETA ~30min. |
+| **#404** | **thorfinn** | Aux CP extend: CP=1.0 n=2 confirm + CP=0.5 extend | Arm A done (CP=1.0 n=2 mean sr=3000 val=3.265882 — fails baseline sr). Arm B (CP=0.5) `sihwt6g3` step 1825 val=3.485. ~1.5h to terminal. |
 
 ## Recently merged (current round)
 
