@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 00:55 UTC (boot 143x — edward arm 3 mu_warmup=200 NEG Δ=+0.00394, frieren AdamW catastrophic NEG Δ=+0.08388, thorfinn #412 blocked on plumbing bug)
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) + tanjiro (`gd125a8`) still broken. Issue #164 esc#18 posted 00:50 UTC. Operator silent ~77h+ (esc#19 due ~03:30 UTC).
+- **Last updated:** 2026-05-19 00:38 UTC (PR #389 closed NEG, #417 assigned to edward; #412 unblocked — NaN was baseline stochasticity not code bug; terminal wave pending nezuko/askeladd/frieren/fern)
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse (`gd103cc`) + tanjiro (`gd125a8`) still broken. Issue #164 esc#18 posted 00:50 UTC. Operator silent ~78h+ (esc#19 due ~03:30 UTC).
 - **Branch state:** Baseline post-PR #329 (AGC inner MuonH clip=0.05, merged 18:26 UTC).
 
 ## ⭐ Current baseline (post-PR #329 merge)
@@ -33,17 +33,19 @@
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#397** | nezuko | **Aux lm_head weight decay sweep** (wd=0/0.01/0.05 on lm_head only) | Arm 1 ctrl `y7q4vanw` val=3.27281 (Δ=−0.00005); **Arm 2 wd=0.01 `p9csxg1v` val=3.27540 (Δ=+0.00254, 5σ NEG)**; Arm 3 wd=0.05 `0to00mja` step ~2050 — ETA ~01:25 UTC. |
-| **#396** | askeladd | **QK-Norm sweep** (off/fixed/learnable RMSNorm on Q+K) | Arm 1 off `o20httom` val=3.29716 (Δ=+0.02430 NEG); **Arm 2 fixed `xwml6u2c` val=3.27393 (Δ=+0.00107 ~baseline)**; Arm 3 learnable `53f944z1` step ~1550 — ETA ~01:40 UTC. |
-| **#389** | edward | **MuonH inner mu warmup** (mu_warmup_steps 0/100/200) | **ALL ARMS TERMINAL.** Arm 1 ctrl val=3.27264; Arm 2 val=3.27506 (Δ=+0.00220); **Arm 3 mu_warmup=200 `m8agfmr2` val=3.27680 (Δ=+0.00394).** Monotonic regression. **Awaiting SENPAI-RESULT marker, will close NEG.** |
-| **#390** | frieren | **MuLoCo outer optimizer class** (SGDM/AdamW/Lion) | Arm 1 SGDM ctrl `jgltipi3` val=3.27392 (Δ=+0.00106 ~baseline); **Arm 2 AdamW `6znrpsli` val=3.35674 (Δ=+0.08388, CATASTROPHIC NEG ~100σ)**; Arm 3 Lion `3jywc3d4` step 825 val 5.297 — ETA ~01:40 UTC, likely catastrophic too. |
-| **#391** | thorfinn | **MuonH warmup duration** (100/200/300 steps) | **CLOSED NEG.** Arm 1 warmup=100 reproduces baseline; arms 2+3 deterministic NaN at step 125 across 4 retries each. **warmup=100 is stable maximum.** |
-| **#412** | thorfinn | **Aux AdamW warmup duration** (0/100/200 steps) — addresses thorfinn's mechanism finding | **PLUMBING BUG.** Arm 1 control (aux_warmup_steps=0, should be no-op) `i4mhhehj` NaN at step 125 — same cascade signature as #391. 3 candidate bugs flagged (elif placement, divide-by-zero default, opt swap). Held for student debugging (kill instruction follow-up posted 00:48 UTC). |
-| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | Smoke clean; cap=15 control `6hideyt9` step 775 val 3.820 — ETA terminal ~01:30 UTC. cap=10/cap=30 arms auto-chained. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 77h+** — `gd125a8` bf16 NaN, no operator rotation. |
-| **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 77h+** — needs_rebase, `gd103cc`, no operator rotation. |
+| **#417** | edward | **MuonH inner cooldown_frac sweep** (1.0/0.7/0.5) | **NEWLY ASSIGNED** — add `--muonh_cooldown_frac` CLI flag; test shorter plateau before cosine decay starts. ETA launch ~01:10 UTC when student picks up. |
+| **#397** | nezuko | **Aux lm_head weight decay sweep** (wd=0/0.01/0.05 on lm_head only) | Arm 1 ctrl val=3.27281; **Arm 2 wd=0.01 val=3.27540 (5σ NEG)**; Arm 3 wd=0.05 `0to00mja` step 3060 val=3.2873 — TERMINAL IMMINENT (~<5 min). |
+| **#396** | askeladd | **QK-Norm sweep** (off/fixed/learnable RMSNorm on Q+K) | Arm 1 off val=3.29716 (NEG); **Arm 2 fixed val=3.27393 (~baseline)**; Arm 3 learnable `53f944z1` step 2520 val=3.3747 — ETA ~24 min. |
+| **#389** | edward | **MuonH inner mu warmup** | **CLOSED NEG.** Monotonic regression: ctrl 3.27264, mu100 3.27506, mu200 3.27680. Lever harmful. |
+| **#390** | frieren | **MuLoCo outer optimizer class** (SGDM/AdamW/Lion) | SGDM ctrl +0.00106; **AdamW catastrophic Δ=+0.08388**; Lion `3jywc3d4` step 1860 val=4.098 — ETA ~44 min, likely catastrophic NEG too. |
+| **#412** | thorfinn | **Aux AdamW warmup duration** (0/100/200 steps) | **UNBLOCKED.** NaN on arm 1 was baseline stochasticity (~8% failure rate), NOT a code bug — implementation verified correct (aux_warmup=1.0 at all steps, muonh_warmup correctly applied). Told to relaunch arm 1. |
+| **#392** | fern | **Softsign logit cap value** (cap=10/15/30) | cap=15 ctrl `6hideyt9` step 1775 val=3.544 — ETA ~47 min terminal, then cap=10/cap=30 arms auto-chain. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED 78h+** — `gd125a8` bf16 NaN, no operator rotation. |
+| **#190** | alphonse | **NS5 iter count sweep** | **POD-BLOCKED 78h+** — needs_rebase, `gd103cc`, no operator rotation. |
 
-**8/8 students assigned.** Two PRs awaiting student SENPAI-RESULT close-out (#389 edward, #391 thorfinn). One PR held for plumbing fix (#412 thorfinn).
+**8/8 students assigned.** Key finding: thorfinn's PR #412 plumbing investigation revealed baseline ~8% stochastic NaN failure rate at current stack — this constrains future stability assumptions and opens AGC hardening as a future lever.
+
+**Pending reviews** (all expected <01:15 UTC): nezuko arm 3 SENPAI-RESULT (→ close #397 NEG), then askeladd + frieren + fern wave.
 
 ## MERGED this round (chronological)
 
