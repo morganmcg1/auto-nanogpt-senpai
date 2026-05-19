@@ -1,5 +1,28 @@
 # SENPAI Research State
 
+- 2026-05-19 19:10 UTC — **MAJOR PROGRESS: PR #479 MERGED + edward #458 EXCEPTIONAL n=2 result**
+
+  **PR #479 merged (NS5_ITERS=14)**: New baseline val=3.273085/ffs=3050. New mandatory stack adds NS5_ITERS=14. New bar: val<3.273085 AND ffs<3050 (strict, both required).
+
+  **Edward #458 (WD_AUX=0.001)**: Run `uoak0qa8` FINISHED. Both T0=T1=ffs=3025 (zero variance!). n=2 mean: val≈3.27139/ffs=3025 — beats new bar by 0.0017 val and 25 ffs. Statsig 3.04×. Awaiting student SENPAI-RESULT for merge.
+
+  **Three math kills from new bar tightening**:
+  - Askeladd #468 (GRAD_CLIP_NORM_ADAM=1.0): n=2 mean ffs=3062.5, MISS both bars. CLOSED.
+  - Nezuko #469 (EMBED_LR=0.225): T0 ffs=3075, new bar requires T1<3025 impossible. MATH KILL.
+  - Thorfinn #462 (MU_WARMUP_START=0.80 n=4): T0+T1+T2={3075,3050,3075}, T3=3025 gives mean=3056.25>3050. MATH KILL.
+
+  **Fern #456** sent back for Arm B (SCALARS_LR=0.0125) with NS5=14 stack.
+
+  **New assignments** (all 4 idle students now assigned):
+  - Alphonse → #492 NS5_ITERS=16 (direct extension of winning axis)
+  - Askeladd → #493 AdamW eps=1e-8 (vs hardcoded 1e-10, never swept)
+  - Nezuko → #494 MUON_LR sweep (0.035 vs 0.04 around 0.0375, never swept)
+  - Thorfinn → #495 COOLDOWN_FRAC sweep (0.65 vs 0.75 around 0.7, never swept)
+
+  **In-flight**: edward #458 (awaiting SENPAI-RESULT, ~merge-ready), fern #456 (Arm B pending), frieren #488 (AdamW β1), tanjiro #491 (AdamW β2).
+
+  **Research theme shift**: With NS5_ITERS=14 and WD_AUX=0.001 both showing ffs=3025 (25 steps better than baseline), the focus is on (a) confirming WD_AUX win, (b) probing further NS5 iterations, and (c) sweeping long-untouched hyperparameters (MUON_LR, COOLDOWN_FRAC, Adam epsilon). Two stacked wins at ffs=3025 suggest compounding potential — if NS5=16 and WD_AUX=0.001 are orthogonal, stacking could push ffs toward 3000.
+
 - 2026-05-19 18:09 UTC — Cycle 68 ops — **#485 tanjiro CLOSED** COOLDOWN_POWER=0.5 (sqrt back-loaded cooldown) gate-killed at step 2272 (val@step2000=3.46616 vs gate 3.40, baseline ~3.37 — saved ~105 min compute by skipping T1). **COOLDOWN_POWER axis fully characterized**: power=2.0 → math kill (#464); power=1.0 → baseline; power=0.5 → gate kill (#485). Local optimum at linear. **Tanjiro → #491 AdamW β2 sweep** (ADAM_BETA2=0.90 vs 0.99 around hardcoded 0.95) — FRESH axis: AdamW betas (0.8, 0.95) hardcoded since project init; β2=0.95 unusual vs PyTorch default 0.999. Cleanly orthogonal to frieren's β1 sweep (#488). Could compound with edward's WD_AUX=0.001 T0 winner.
 
 - 2026-05-19 17:21 UTC — Cycle 68 ops — **#459 frieren CLOSED** Lookahead-AdamW K=5 (T0 val=3.27981/ffs=3175 → math kill; student aborted T1 at step 611, saved ~50 min GPU). Axis tentatively falsified at α=0.5 on new stack — slow-weight averaging tracked baseline mid-cooldown but failed to pull ahead in late cooldown. **Frieren → #488 AdamW β1 sweep** (ADAM_BETA1=0.75 vs 0.85 around hardcoded 0.8) — FRESH axis: AdamW betas `(0.8, 0.95)` hardcoded since project init, never swept; β1=0.8 unusual vs PyTorch default 0.9. Plumbing: single-line addition `ADAM_BETA1 = float(os.environ.get(...))` + replace `betas=(0.8, 0.95)` with `betas=(ADAM_BETA1, 0.95)`. Cleanly orthogonal to all in-flight axes; could compound with edward's WD_AUX winner. Zero idle students; all 8 active with PRs.

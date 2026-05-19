@@ -1,5 +1,63 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 19:05 UTC — Cycle 68 close-out: PR #479 MERGED, 3 math kills, edward T1 exceptional
+
+### PR #479 MERGED — alphonse NS5_ITERS=14 (squash-merged 18:50 UTC)
+
+**New baseline**: val mean=3.273085, ffs mean=3050 (n=2). **New mandatory stack**: NS5_ITERS=14 added.
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27175 | 3025 |
+| T1 | 3.27442 | 3075 |
+| n=2 mean | **3.273085** | **3050** |
+
+Statsig: (3.28−3.273085)×√2 = 0.00978 ≥ 0.004 — PASSES at 2.45×. W&B run: `1qyzfn8q`.
+
+**New bar**: val<3.273085 AND ffs<3050 (strict, both required).
+
+---
+
+### PR #468 CLOSED — askeladd GRAD_CLIP_NORM_ADAM=1.0 — n=2 MISS both axes
+
+T0=3.2757/3075, T1=3.2734/3050. n=2 mean: val=3.27455, ffs=3062.5.
+Both miss old bar (val<3.273477, ffs<3056.25). New bar even harder. Axis characterized: gradient clipping on AdamW subset shows no benefit.
+Askeladd reassigned → #493 AdamW epsilon sweep (eps=1e-8 vs 1e-10).
+
+---
+
+### PR #469 CLOSED (MATH KILL) — nezuko EMBED_LR=0.225 re-screen — new bar forecloses T1
+
+T0: val=3.27503, ffs=3075. New bar requires ffs mean<3050 (strict). With T0=3075, T1 needs ffs<3025 (strict), but minimum feasible ffs=3025 (3025<3025 is false). Mathematically impossible.
+Nezuko reassigned → #494 MUON_LR sweep (0.035 vs 0.04).
+
+---
+
+### PR #462 CLOSED (MATH KILL) — thorfinn MU_WARMUP_START=0.80 n=4 — both bars foreclosed
+
+T0=3075, T1=3050, T2=3075 locked. Best T4=3025 gives n=4 mean=(3075+3050+3075+3025)/4=3056.25.
+New bar ffs<3050: 3056.25>3050 → IMPOSSIBLE. Old bar (ffs<3056.25): 3056.25 ties, not strict pass.
+MU_WARMUP_START=0.80: 2/3 trials at 3075, 1/3 at 3050 — inconsistent improvement.
+Thorfinn reassigned → #495 COOLDOWN_FRAC sweep (0.65 vs 0.75).
+
+---
+
+### PR #458 — edward WD_AUX=0.001 — EXCEPTIONAL n=2 result, awaiting SENPAI-RESULT
+
+W&B run `uoak0qa8` FINISHED. Both trials at ffs=3025 (zero ffs variance!).
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27166 | 3025 |
+| T1 | 3.271114 | 3025 |
+| n=2 mean | **~3.27139** | **3025** |
+
+Against new bar: val PASS −0.001698, ffs PASS −25. Statsig: (3.28−3.27139)×√2 = 0.01218 ≥ 0.004 — PASSES at 3.04×.
+**Zero ffs variance** (T0=T1=3025) is the strongest signal yet — WD_AUX=0.001 is highly consistent.
+Awaiting student SENPAI-RESULT to trigger merge preflight.
+
+---
+
 ## 2026-05-19 18:09 UTC — Cycle 68: #485 CLOSED COOLDOWN_POWER=0.5 gate kill — axis fully characterized
 
 ### PR #485 — tanjiro COOLDOWN_POWER=0.5 (sqrt back-loaded cooldown) — KILLED EARLY
