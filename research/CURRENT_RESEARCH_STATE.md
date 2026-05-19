@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~19:30Z (poll #274)
+- **Last updated:** 2026-05-19 ~19:45Z (poll #275)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -30,15 +30,16 @@
 - Mean IS 0.0018 below baseline, but T3 outlier kept gate just out of reach.
 - **Closed at poll #273.** 3 of 4 trials hit ffs=3000 and val<3.266 — mechanism is real but seed variance bit us. Re-test option = fresh n=4 OR n=6 extension. Deferred for now to free edward for new axis.
 
-### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1) — **P2 LIKELY FAILING**
-- **Cell C single-trial:** val=3.266906, ffs=3075 — beat baseline on BOTH metrics
-- **Mechanism:** SOAP precond_freq ramps down (8→64 updates per step). Cross-axis confirmation of "less intensity in cooldown" principle.
-- **P2 n=4 LAUNCHED.** Run `h8g04vyb`. n=3 results:
-  - **T1 TERMINAL:** val=3.2680, ffs=3100 (+0.06σ above baseline mu)
-  - **T2 TERMINAL:** val=3.2680, ffs=3100 (identical to T1)
-  - **T3 TERMINAL:** val=**3.2669**, ffs=**3075** (slight improvement over T1+T2)
-  - **T4 step 77/3250** (warmup phase)
-- **n=3 mu = 3.267633** — fails n=4 gate (3.265948) by 0.001685. T4 must land ≤ **3.260893** to clear gate (well below all 3 observed). Still very likely failing.
+### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: ❌ **P2 n=4 FAILED gate by 0.001696** (CLOSED poll #275)
+- **Mechanism:** SOAP precond_freq ramps down (8→64 updates per step) — "less intensity in cooldown" principle.
+- **P2 n=4 ALL TERMINAL (run `h8g04vyb`):**
+  - **T1:** val=3.268013, ffs=3100 (+0.08σ)
+  - **T2:** val=3.268021, ffs=3100 (+0.09σ)
+  - **T3:** val=3.266902, ffs=3075 (−1.27σ — the lucky seed from P1)
+  - **T4:** val=3.267640, ffs=3100 (−0.37σ)
+- **n=4 mu = 3.267644** vs gate 3.265948 → **FAILS by 0.001696** (statsig 0.000608 ≪ 0.004).
+- Mean only 0.000304 below baseline — well within 1σ noise floor.
+- **Closed at poll #275.** Cell C's −1.27σ was largely seed variance. SOAP cadence scheduling does NOT outperform static PRECOND_FREQ=16. Cadence axis effectively closed.
 
 
 ## Active WIP Portfolio
@@ -51,8 +52,9 @@
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 NEG; C (0.5) val=3.2724 NEG; **D (0.85) TERMINAL val=3.26919 ffs=3100 (+1.18σ — mildly NEG, closer to ctrl than C)**; **E (1.0) step 996 launched** `qj9fynum`. **Trend: ctrl 0.7 still optimal; longer (0.85) mildly worse, shorter (0.3/0.5) catastrophic** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **C (rd, 0.025) TERMINAL val=3.278096 ffs=3225 (+12.3σ NEG)** — wd_aux=0.025 too high; axis trend: 0 ≈ 0.0025 ≫ 0.025 |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ); **B (lr=0.1) TERMINAL val=3.274197 ffs=3150 (+7.59σ NEG — lr=0.1 too low)**; **C `em4ff9ro` (lr=0.6) step 70 warmup**; D (0.05), E (1.0) pending |
-| #437 | askeladd | SOAP precond_freq schedule | **P2 likely failing**: T1=3.2680/3100, T2=3.2680/3100, T3=3.2669/3075; n=3 mu=3.267633 fails n=4 gate by 0.001685; T4 in-trial step ~1880/3250 (~58%) — waiting on T4 terminal to close |
+| **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | **NEW (poll #275)** — P2 confirmation of thorfinn's hottest single-seed (val=3.265531 ffs=3075 −2.94σ). val already below n=4 gate of 3.265948; just need clean n=4 mean to confirm. Runs in parallel with thorfinn sweep + edward LOW |
 | **#496** | **edward** | **NS iter LOW sweep (12 ctrl / 5 / 4 / 3 / 2)** | **PICKED UP (poll #274):** Cell A ns_iter=12 ctrl `6c6ikozf` step 242 running — extends thorfinn ns_iter=6 winner candidate to the uncovered low end |
+| ~~#437~~ | ~~askeladd~~ | ~~SOAP precond_freq schedule~~ | **CLOSED poll #275** — P2 n=4 mu=3.267644 fails gate by 0.001696 (only 0.000304 below baseline) |
 | ~~#422~~ | ~~edward~~ | ~~Muon WD shape variants~~ | **CLOSED poll #273** — P2 n=4 failed gate by 0.000223 |
 
 
@@ -87,9 +89,10 @@
 **SOAP scope ablation (frieren #472 — NEW):** Critical fresh axis — does SOAP on MLP actually help? With `--soap_attn` + trust_threshold=0.0, every 2D weight uses SOAP. Muon NS is never invoked in current best config. Testing MLP-only / ATTN-only / no-SOAP to understand what SOAP actually contributes.
 
 **Active fresh mechanism threads:**
+- **askeladd #497 (NEW poll #275):** P2 n=4 confirmation of ns_iter=6 — the headline experiment of this batch; could become next baseline winner if clean n=4 mean < 3.265948
 - **nezuko #467:** SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8)
-- **thorfinn #461:** NS iteration count (6/8/10/12/14)
-- **edward #496 (NEW):** NS iteration count LOW extension (12 ctrl / 5 / 4 / 3 / 2) — replicate thorfinn hot signal and probe theoretical bf16 saturation floor
+- **thorfinn #461:** NS iteration count (6/8/10/12/14) — broader sweep
+- **edward #496:** NS iteration count LOW extension (12 ctrl / 5 / 4 / 3 / 2) — replicate thorfinn hot signal and probe theoretical bf16 saturation floor
 - **fern #457:** cooldown_frac re-sweep on NEW baseline
 - **alphonse #455:** AdamW aux WD axis (currently WD=0 for embed/lm_head/scalars)
 
