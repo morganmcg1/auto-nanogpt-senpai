@@ -1,5 +1,68 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 03:10 UTC — Cycle 59: #378 CLOSED (NORMUON_BETA2 axis falsified on new base both directions, EMA-family exhaustion across 3 axes); #379 CLOSED (EMBED_INIT_STD=1.15 stack-specific — wins on old, doesn't compose with CONTRA_MUON=0.4); alphonse → #429 NS5 iterations sweep; edward → #430 MUON_LR sweep
+
+### PR #378 — NORMUON_BETA2 fine sweep (Arm A=0.99 new-base re-run) — CLOSED axis-falsified
+
+Branch: `g1r2-alphonse/normuon-beta2-sweep`. Arm A originally screened on old CONTRA_MUON=0.5 stack; sent back 22:54 UTC for re-run on new CONTRA_MUON=0.4 base. Arm B (β₂=0.90) falsified pre-baseline-shift on old stack.
+
+| Phase | Arm | W&B run | val (n=2 mean) | ffs (n=2 mean) | vs new bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|
+| n=2 SCREEN old stack | A (0.99, slower) | (pre-#358) | 3.27509 | 3075 | val MISS +0.00071, ffs MISS +6.25 (close) | sent back for re-run |
+| n=2 SCREEN old stack | B (0.90, faster) | (pre-#358) | 3.27575 | 3087.5 | val MISS +0.00137, ffs MISS +18.75 | falsified |
+| **n=2 SCREEN new base** | A (0.99, slower) | (per terminal post) | **3.27604** | **3087.5** | **val MISS +0.00166, ffs MISS +18.75** | **FALSIFIED** |
+
+**Cross-cycle pattern (decisively confirmed)**: Three independent β₂ sweeps now all falsified on new base:
+- SOAP_BETA2 (PR #223, prior cycle): falsified
+- NORMUON_BETA2 (PR #378, this cycle): falsified on new base both directions
+- ATTN_SOAP_BETA2 (PR #394 nezuko, cycle 58): falsified on new base both directions
+
+**Mechanism takeaway**: The optimizer's EMA-family β₂ values are tightly co-tuned within the SOAP → NS5 → Contra-Muon → NorMuon pipeline. The variance-scaling stack has redundancy (NorMuon row+col + SOAP eigenbasis + Attn-SOAP basis with trust gate) such that slowing any one EMA loses adaptation speed without information gain, and speeding it up adds noise the others can't filter. The β₂=0.90/0.95 defaults are jointly optimal and individually sharp.
+
+**Stack-shift Δ for Arm A (β₂=0.99)**: val regressed +0.00095, ffs regressed +12.5 from old to new base — slower EMA does NOT compose with reduced contra-correction (matches mechanism prediction failing). The contra-correction shift dominates β₂ tuning sensitivity at the lower magnitude.
+
+**Process notes**:
+- Student caught kill-gate mis-spec mid-run and called for Arm A redo (right call — Arm A would have triggered n=4 on old bar).
+- Cross-comparison with #316 dynamic anneal closure was sharp.
+- Symmetry observation re: PR #223 (SOAP_BETA2) added cross-axis confirmation.
+- Process retrospective on kill-gate thresholds actionable for future PRs.
+
+**Reassignment**: → **PR #429 NS5 iterations sweep** (Arm A=10, Arm B=14, default 12). Untouched since NorMuon-clean PR #71 — load-bearing through 5 stack changes. Controls orthogonal-projection quality of Muon update; downstream SOAP/Attn-SOAP/NorMuon all consume NS5 output. Fresh mechanism dial.
+
+---
+
+### PR #379 — EMBED_INIT_STD fine sweep (0.85 / 1.15) — CLOSED axis stack-specific
+
+Branch: `g1r2-edward/embed-init-std-sweep`. Arm A (0.85) falsified pre-baseline-shift; Arm B (1.15) cleared old bar nominally but failed re-test on new CONTRA_MUON=0.4 base.
+
+| Phase | Arm | Stack | W&B run | val (n) | ffs (n) | n | vs new bar | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| n=2 SCREEN old stack | A (0.85, smaller) | OLD CONTRA_MUON=0.5 | (pre-#358) | 3.27530 | 3087.5 | 2 | MISS both | falsified |
+| n=2 SCREEN old stack | B (1.15, larger) | OLD CONTRA_MUON=0.5 | (pre-#358) | **3.27353** | **3062.5** | 2 | CLEARS both ✅ (statsig 0.00915) | wrong stack |
+| **n=2 SCREEN new base** | B (1.15, larger) | **NEW CONTRA_MUON=0.4** | (per terminal post) | **3.27579** (T0 only) | **3100** (T0 only) | **1** (T1 early-term) | **MISS both** | **FALSIFIED on new base** |
+
+**Trial 1 Option B early-termination**: Student executed mathematical foreclosure proof analogous to nezuko #394 — ffs alone forecloses AND-conjunction (trial_1 ffs would need ≤3037.5 which is below 3050 quantization). Saved ~100 min GPU.
+
+**Stack-shift Δ for EMBED_INIT_STD=1.15**: val regressed +0.00226, ffs regressed +37.5 from old to new base. This is a **strong interaction effect** with CONTRA_MUON — the embedding init win does NOT compose additively with reduced contra-correction.
+
+**Mechanism reads (two worth flagging)**:
+
+1. **Direction inversion vs arxiv 2502.05366**: Paper predicts smaller embedding init helps GPT-2-style models; on our SOAP+NS5+Contra-Muon stack at CONTRA_MUON=0.5 the OPPOSITE was true (1.15 wins, 0.85 loses). Real empirical finding, stack-specific. Plausible mediator: logit softcap or SOAP basis rotation sensitivity to embedding magnitude.
+
+2. **Stack-specificity is the more interesting finding**: Embedding init effect VANISHES at CONTRA_MUON=0.4, suggesting the old-stack win was mediated by larger contra-correction magnitude. Mechanism hypothesis chain: CONTRA_MUON=0.5 → larger contra-correction → more aggressive correction against momentum direction → embedding gradients channeled differently through softcap+SOAP → init magnitude differentially affects optimizer trajectory. At CONTRA_MUON=0.4: smaller contra-correction → less basis rotation → embedding init no longer matters.
+
+**Cross-cycle lesson**: Future single-axis sweeps that produce strong margins on old stack should be verified on current stack before being escalated to n=4 confirm. Stack changes (particularly CONTRA_MUON) can erase apparent wins. This discipline already prevented wasted n=4 GPU on this PR.
+
+**Process notes**:
+- Clean smoke + n=2 screen on old stack with all three reproducibility checks (default 200-step bit-identity, 0.85 and 1.15 plumbing checks).
+- Proactive flagging of stack-mismatch when n=4 was launched on old CONTRA_MUON=0.5 — saved n=4 from being wasted.
+- Mathematical foreclosure analysis on early-termination — clean prose, accurate numbers, fast call.
+- Honest analysis section identified the interaction effect AND named the specific mediator hypothesis.
+
+**Reassignment**: → **PR #430 MUON_LR sweep** (Arm A=0.030, Arm B=0.045, default 0.0375). Hardcoded since PR #78 — load-bearing through 4 stack additions (CONTRA_MUON 0.5→0.4, ATTN_SOAP, MU cooldown-only schedule, CONTRA_MUON re-tune). Each downstream change affects effective Muon step magnitude. Public track 3 records mostly use lr=0.018, our 0.0375 is on the high end. Single-line env-var plumbing.
+
+---
+
 ## 2026-05-19 01:10 UTC — Cycle 58: #394 CLOSED (ATTN_SOAP_BETA2 axis falsified both directions on new base, third EMA-family axis exhausted); nezuko → #420 ATTN_SOAP_TRUST_THRESHOLD sweep
 
 ### PR #394 — ATTN_SOAP_BETA2 fine sweep (0.85 / 0.95) — CLOSED axis-falsified
