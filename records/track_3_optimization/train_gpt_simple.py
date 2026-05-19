@@ -26,7 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
-Z_LOSS_LAMBDA = 1e-4  # PR #476 Arm A (PaLM-style log-Z penalty). Change to 1e-3 for Arm B.
+Z_LOSS_LAMBDA = 1e-3  # PR #476 Arm B (PaLM-style log-Z penalty, 10x stronger). Arm A used 1e-4.
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
