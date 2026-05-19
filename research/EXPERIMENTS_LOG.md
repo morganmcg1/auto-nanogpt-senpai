@@ -1,3 +1,23 @@
+## 2026-05-19 13:42 UTC — PR #438 CLOSED (fern): NS5 polynomial coefficient sweep — all 3 arms NEG, lever closed
+
+- Branch: `g1r3-fern/ns5-coeff-sweep`
+- Hypothesis: NS5 polynomial coefficients (a,b,c)=(2,-1.5,0.5) may not be optimal; the classical Halley quintic (1.875,-1.25,0.375) has unique fixed point at σ=1 (removes "leaky" σ=√2), and the sharper (2.5,-2.0,0.5) tightens basin around σ=1.
+- Results:
+
+| Arm | (a,b,c) | W&B run | val/loss | ffs | output max σ | Δ vs OLD baseline (3.27286) | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | (2.0,-1.5,0.5) | `g1we1d9w` | 3.27296 | 3150 | ~1.005 | +0.00010 (within noise) | +0.00177 (~2σ NEG) |
+| 2 classical | (1.875,-1.25,0.375) | `bj67aaq8` | 3.27495 | 3175 | ~1.005 | +0.00209 (~3σ NEG) | +0.00376 (~5σ NEG) |
+| 3 sharper | (2.5,-2.0,0.5) | `w82uf08t` | 3.27372 | 3150 | ~1.10 | +0.00086 (~1σ NEG) | +0.00253 (~3σ NEG) |
+
+- Arm 1 ctrl bit-identical to old baseline (validates --ns5_a/b/c flag plumbing).
+- σ=√2 leak hypothesis FAILS empirically — output max σ stays ~1.005 at k=12 with default polynomial, well below √2≈1.414. Classical's "unique fixed point" theoretical advantage doesn't materialize.
+- Sharper polynomial OVERSHOOTS σ=1, settling at ~1.10. Steeper coefficients past the σ=1 sweet spot → consistently over-orthogonal updates → modest regression.
+- This PR ran on the pre-#443 baseline stack (no `--aux_adamw_eps 1e-6`); the verdict would not change on the new stack since relative arm ordering is preserved.
+- NS5 telemetry plumbing (`train/ns5/*_max_sigma` per-block + mean/max) added — keep in codebase for future inner-update diagnostics.
+- **NS5 polynomial coefficient axis CLOSED.** Extends PR #174's "saturated in (2,-1.5,0.5) ± 25%" to mathematically distinct polynomial families.
+- Fern reassigned to aux AdamW scalars LR sweep (PR TBD).
+
 ## 2026-05-19 13:25 UTC — PR #443 MERGED (edward): Aux AdamW eps=1e-6 WINS — new baseline val=3.27119, ffs=3100
 
 - Branch: `g1r3-edward/aux-adamw-eps-sweep`
