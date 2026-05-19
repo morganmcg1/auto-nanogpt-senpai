@@ -17,6 +17,47 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-19 ~13:25 UTC — PR #443 edward Aux AdamW eps=1e-6.** Increases aux AdamW epsilon from 1e-10 to 1e-6 via new `--aux_adamw_eps` CLI flag. Heavier denominator smoothing on aux params (embed, lm_head, scalars) — reduces noise in Adam's adaptive LR on low-gradient parameters, which slightly speeds early convergence. Single trial; passes n=1 promotion bar (val=3.27119 < 3.27206) and stat rule. Stacks on top of MuLoCo × MuonH-SI + dual AGC + cosine cooldown + LR warmup.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| **Aux AdamW eps** | **`--aux_adamw_eps 1e-6`** (was hardcoded 1e-10) |
+| MuonH inner AGC | `--muonh_agc_clip_ratio 0.05` |
+| MuonH LR warmup | `--muonh_warmup_steps 100` |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| Aux AdamW | `betas=(0.8, 0.95), eps=1e-6, weight_decay=0` + AGC `clip_ratio=0.05` |
+| LR schedule | Cosine cooldown for MuonH (`cooldown_frac=1.0`); linear cooldown for aux (`cooldown_frac=0.4`) |
+| `val/loss` | **3.27119** (n=1 trial; passes n=1 bar < 3.27206) |
+| `speedrun/final_first_step_to_target` | **3100** (n=1; improves over baseline best 3125) |
+| stat margin | `(3.28 - 3.27119) * sqrt(1) = 0.00881` ≥ 0.004 ✓ |
+| Baseline W&B run | `t1coza71` |
+| Baseline PR | [#443](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/443) |
+
+### Reproduce Aux eps=1e-6 + AGC inner + MuonH warmup + cosine cooldown + AGC aux + MuLoCo × MuonH-SI baseline
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 1 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --muonh_cooldown_shape cosine \
+  --muonh_warmup_steps 100 \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05 \
+  --muonh_agc_clip_ratio 0.05 \
+  --aux_adamw_eps 1e-6
+```
+
+---
+
+## Previous baseline — PR #329 askeladd AGC on inner MuonH gradient (2026-05-18 ~18:26 UTC)
+
 **Merged 2026-05-18 ~18:26 UTC — PR #329 askeladd AGC on inner MuonH gradient.** Applies Adaptive Gradient Clipping (`clip_ratio=0.05`) to the MuonH inner gradient path (before NS5 Newton-Schulz orthogonalization), in addition to the existing aux AGC. AGC is active on every block every step from warmup onward; the inner MuonH gradient RMS dwarfs parameter RMS by 2–4 orders of magnitude, making this a heavy but well-targeted intervention. Stacks on top of MuLoCo × MuonH-SI + aux AGC + cosine cooldown + LR warmup. All 4 n=4 trials reached the 3.28 target.
 
 | Field | Value |
