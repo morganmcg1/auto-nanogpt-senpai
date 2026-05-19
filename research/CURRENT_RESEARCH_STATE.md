@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~13:15Z (poll #245)
+- **Last updated:** 2026-05-19 ~13:36Z (poll #247)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -28,11 +28,11 @@
 | #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | **NEW — Cell A (ctrl) first** |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) — code edit + ctrl running | **Cell A `4ggucv59` running ~10%** |
 | #457 | fern | cooldown_frac sweep on WD ramp_down baseline (0.3/0.5/0.7/0.85/1.0) | **Cell A `z4qxld9o` running ~65%** |
-| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | **Cell A `7iniw4rh` running ~53%** |
-| #445 | tanjiro | Muon mu schedule sweep | A −3.67σ ctrl; B +11.29σ NEG; **C `ramp_down_099_090` nudged to launch** |
-| #437 | askeladd | SOAP precond_freq schedule | C TERMINAL −1.27σ WINNER; **P2 n=4 `h8g04vyb` running ~21%** |
-| #428 | frieren | SOAP β₂ static sweep | A–D complete; **Cell E `zj5qoyzq` (β₂=0.98) running ~53%** |
-| #422 | edward | Muon WD shape variants | **P2 n=4 `ob6ek9zt` running ~69%** |
+| #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A TERMINAL −0.90σ ctrl; **Cell B (const tiny WD) chaining** |
+| #445 | tanjiro | Muon mu schedule sweep | A −3.67σ ctrl; B +11.29σ NEG; **C `xqdo8glj` step ~97% imminent terminal** |
+| #437 | askeladd | SOAP precond_freq schedule | C TERMINAL −1.27σ WINNER; **P2 n=4 `h8g04vyb` running ~72%** |
+| #428 | frieren | SOAP β₂ static sweep | A +0.31σ; B −0.24σ; C −0.14σ; D +2.00σ; **E TERMINAL +0.42σ — full sweep complete, axis flat (D outlier)** |
+| #422 | edward | Muon WD shape variants | **P2 n=4 `ob6ek9zt` trial 1 ffs=3000 ✓ better than baseline (3100); trial 2 step 585** |
 
 
 ## Recent Closures (polls #242–245)
@@ -60,7 +60,7 @@
 - **fern #457:** cooldown_frac re-sweep on NEW baseline
 - **alphonse #455:** AdamW aux WD axis (embed/lm_head/scalars currently at WD=0)
 
-**SOAP β₂ axis (frieren #428):** Flat in {0.80..0.90}; 0.95 clearly NEG (+2.00σ). Cell E (0.98) running — if also NEG, axis closes; β₂ scheduling may be queued.
+**SOAP β₂ axis (frieren #428) — SWEEP COMPLETE:** axis appears flat in {0.80, 0.85, 0.90, 0.98} (all within ±1σ noise). Cell D (β₂=0.95) outlier at +2.00σ likely seed noise. Conclusion: SOAP β₂ insensitive in this range; β₂ scheduling not warranted as a follow-up. Axis closes after student posts unified table.
 
 **tanjiro #445 Muon mu schedule:** Cell B `ramp_up_0_1` catastrophic (+11.29σ NEG). Cell C `ramp_down_099_090` nudged to launch — a mild mu ramp-down during training.
 
