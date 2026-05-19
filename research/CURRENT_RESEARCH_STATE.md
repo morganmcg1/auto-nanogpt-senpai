@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~16:47Z (poll #255)
+- **Last updated:** 2026-05-19 ~17:14Z (poll #256)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -16,13 +16,14 @@
   - **Trial 2 (idx 1) running:** step ~3122/3250, current best_val=3.2720 — terminal in ~8 min.
 - **Gate:** mu_p2 ≤ 3.265948. So far so good — trial 1 well below gate, trial 2 hovering near it.
 
-### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1)
-- **Cell C single-trial:** val=3.266906, ffs=3075 — beats baseline on BOTH metrics
-- **Mechanism:** SOAP precond_freq ramps down (8→64 updates per step), less frequent precond during cooldown = better. CROSS-AXIS CONFIRMATION of "less intensity in cooldown" principle.
-- **P2 n=4 LAUNCHED (poll #244).** Run `h8g04vyb`.
-  - **Trial 1 (idx 0) TERMINAL:** val=3.2680, ffs=3100 → −0.06σ on n=1 (essentially baseline mean — single-trial winner regressing).
-  - **Trial 2 (idx 1) running:** step ~1622/3250, current val=3.5333. ~108 min from trial 2 terminal.
-- **Gate:** mu_p2 ≤ 3.265948. Already in trouble — trial 1 lands at mu, leaves ZERO margin. P2 likely fails unless trials 2-4 land well below 3.266.
+### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1) — **P2 LIKELY FAILING**
+- **Cell C single-trial:** val=3.266906, ffs=3075 — beat baseline on BOTH metrics
+- **Mechanism:** SOAP precond_freq ramps down (8→64 updates per step). Cross-axis confirmation of "less intensity in cooldown" principle.
+- **P2 n=4 LAUNCHED.** Run `h8g04vyb`. n=2 results so far identical:
+  - **Trial 1 TERMINAL:** val=3.2680, ffs=3100 (+0.06σ above baseline mu)
+  - **Trial 2 TERMINAL:** val=3.2680, ffs=3100 (identical to trial 1, +0.06σ)
+  - **Trial 3 (idx 2) starting** ~step 63
+- **Gate analysis:** n=2 mean=3.2680 already above mu=3.267948. For n=4 gate (mu_p2 ≤ 3.265948), trials 3+4 must average ≤ 3.2639 — very unlikely given trials 1+2 came in identical at 3.2680. Single-trial Cell C result was likely a positive variance draw.
 
 
 ## Active WIP Portfolio
@@ -30,13 +31,13 @@
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
 | #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | **Cell A `qcycy1e9` running ~42% (smokes passed)** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **`1ufeapa2` at step 866 trust=0 (possibly intentional n=2 ctrl confirm) — Cell B still NOT launched; pod up/healthy; monitoring** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **Cell B `sbroalg6` (trust=0.1) LAUNCHED step 255 — watcher recovered!** (`1ufeapa2` ctrl-dup also still alive at step 875) |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075; **Cell B `mv7ee25g` (ns_iter=6) running step 127** |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 ffs=3225 (+13.4σ NEG); **Cell C `sr1uguv4` (cooldown_frac=0.5) running step 251** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **Cell C `w5gsh5k2` (rd, 0.025) running step 337** |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | **Cell A `74k60vo3` running ~41% (smokes passed)** |
-| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 trial 1 val=3.2680 ffs=3100 at-mu; trial 2 total step 6300, ~31 min from terminal** |
-| #422 | edward | Muon WD shape variants | **P2 trial 1 TERMINAL val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 train/step 1274/3250 (~50 min from terminal)** |
+| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER → **P2 LIKELY FAILING** (T1+T2 both val=3.2680 ffs=3100, n=2 mean=3.2680 above mu); T3 starting |
+| #422 | edward | Muon WD shape variants | **P2 trial 1 val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 train/step 1588/3250 (~30 min from terminal)** |
 
 
 ## Recent Closures (polls #242–248)
