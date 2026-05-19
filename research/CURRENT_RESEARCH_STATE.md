@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 17:53 UTC
+- **Date:** 2026-05-19 18:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -117,9 +117,22 @@ Strictly monotone regression: A=3.27326 (ctrl), B=3.31900 (+0.046), C=3.37495 (+
 
 Init-side: scale `attn.proj` and `mlp.proj` weights at init by s ∈ {1.0, 0.5, 0.2, 0.05}. DeepNet/T-Fixup family. Tests if NS-normalized Muon updates wash out init scaling within first ~100 steps. Arm B running.
 
-### 🔄 nezuko #454 — lm_head and scalar cooldown shape extension [assigned 09:35 UTC]
+### ✅ nezuko #454 — lm_head/scalar cooldown shape extension — CLOSED 18:05 UTC productive-null
 
-Extend embed linear_floor mechanism to lm_head and scalars. Arms: B=lm_head_floor, C=scalar_floor, D=both. Arm B running.
+Arms B/C/D (lm_head_floor, scalar_floor, both): best Δ=−0.00098 (arm B), half the −0.002 threshold. Arm D (stacked) regresses +0.00072 vs A, indicating cross-group interaction at end-of-cooldown. **linear_floor is embed-specific** (sparse-row coverage benefit), not aux-generic. Three prior paired-pod false-positives (#344, #351, #408 AGC) support conservative close. **20th productive-null/negative this cycle.**
+**Follow-up**: nezuko assigned **#490 NAdam (Nesterov-AdamW) scope sweep** — first-moment reformulation, first Adam-family axis we haven't tested.
+
+### 🔄 nezuko #490 — NAdam (Nesterov-AdamW) scope sweep [assigned 18:15 UTC]
+
+**Branch:** `g1r4-nezuko/nadam-aux`
+**Hypothesis**: NAdam replaces AdamW's first-moment bias-corrected estimate `m̂_t` with the Nesterov lookahead `m_nadam = β₁·m̂_t + (1-β₁)·g_t/(1-β₁^t)`. Fills the one gap in the AdamW-internal three-axis ablation: magnitude (#442 NEGATIVE), variance (#474 in-flight), **first-moment (this PR)**. Scope sweep across aux groups to isolate sparse-embed vs dense-lm_head benefit.
+| Arm | NANOGPT_NADAM_SCOPE | Groups using NadamW |
+|---|---|---|
+| A | none (control) | all AdamW |
+| B | embed | adam_embed only |
+| C | lm_head | adam_lm_head only |
+| D | all_aux | embed + lm_head + scalars |
+**ETA full chain:** ~7.3h.
 
 ### 🔄 frieren #470 — NS iterations NORMAL phase sweep [assigned 13:10 UTC]
 
@@ -133,7 +146,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 ## Research theme — current cycle
 
-**18 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**20 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -147,16 +160,16 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 2. Does AdaBelief's variance-of-prediction-error second moment help aux groups? (#474)
 3. Does OrthoGrad (gradient ⊥ to weight) help AdamW aux groups? (#477)
 4. Does block init scaling matter under Muon? (#452)
-5. Does lm_head/scalar cooldown floor generalize from embed? (#454)
-6. Does embed-only LR warmup help sparse-row early training? (#489)
-7. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483 spec corrected)
-8. Are any cooldown-NS merged components now redundant after later merges? (#487)
+5. Does embed-only LR warmup help sparse-row early training? (#489)
+6. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483 spec corrected)
+7. Are any cooldown-NS merged components now redundant after later merges? (#487)
+8. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
 
-**Stack convergence signal**: 18 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
-1. **Regularization REDUCTION**: WD warmup (#483) tests the first deregularization axis this cycle
+**Stack convergence signal**: 20 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+1. **Regularization REDUCTION**: WD warmup (#483) and embed-LR warmup (#489) are the deregularization pair this cycle
 2. **Precision interactions**: NS iteration count during normal phase (#470) is a clean unexplored 1D axis
 3. **Stack simplification** if any pruning (#487) finds redundant components
-4. **Second-moment reformulation**: AdaBelief (#474), atan2 (#442) are last structurally-distinct Adam-family axes
+4. **Adam-family reformulation**: AdaBelief (#474, variance), NAdam (#490, first-moment) complete the three-axis AdamW-internal ablation alongside atan2 (#442 NEGATIVE, magnitude)
 
 ---
 
@@ -164,6 +177,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #454 | nezuko | lm_head/scalar linear_floor cooldown | CLOSED productive-null (best Δ=−0.00098, half threshold; embed-specific mechanism, not aux-generic) |
 | #442 | alphonse | Adam-atan2 b∈{0.3,1.0,3.0} | CLOSED productive-NEGATIVE (D=+0.010 missed 3.28; all worse than ε-based AdamW; magnitude-transform axis closed) |
 | #441 | tanjiro | Logit Z-loss λ∈{1e-5,1e-4,1e-3} | CLOSED productive-NEGATIVE (B=+0.00211/C=+0.00151/D=+0.022 missed 3.28; softcap c=15 already bounds logits, z-loss redundant) |
 | #446 | thorfinn | Label smoothing α∈{0.05,0.1,0.2} | CLOSED productive-NEGATIVE (monotone: +0.046/+0.102/+0.223; stack already well-regularized) |
@@ -200,7 +214,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 - Cooldown frac (global): closed
 - Embed linear_floor: MERGED #235
 - lm_head steeper-decay: harmful (#315)
-- lm_head + scalar floor: in-flight (#454)
+- lm_head + scalar floor: CLOSED productive-null (#454; embed-specific mechanism, not aux-generic)
 - Muon μ schedule: catastrophic; constant μ=0.95 confirmed (#356)
 - Muon LR floor: monotone worse (#335)
 

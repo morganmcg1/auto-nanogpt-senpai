@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 18:05 UTC — PR #454: Aux-group linear_floor cooldown extension (nezuko) — CLOSED productive-null
+
+- Branch: `g1r4-nezuko/aux-floor-cooldown`
+- Hypothesis: The `EMBED_COOLDOWN_SHAPE=linear_floor` mechanism (merged #235) preserves a non-trivial LR floor for the embed group during cooldown. If it helps embed (sparse-row gradients continue getting useful updates through cooldown), analogous benefit should appear for lm_head and scalars. 3-arm scope sweep: embed_only (control), lm_head_floor, scalars_floor, both_aux.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | LM_HEAD | SCALAR | val/loss | Δ vs A | W&B |
+|---|---|---|---:|---:|---|
+| A (control) | linear | linear | 3.27249 | — | `o8tguqr3` |
+| B | linear_floor | linear | 3.27151 | −0.00098 | `m7a5p4xe` |
+| C | linear | linear_floor | 3.27176 | −0.00073 | `b9q1vc5k` |
+| D | linear_floor | linear_floor | 3.27321 | +0.00072 | `k2h8lp7q` |
+
+Drift gate: |val_A − 3.27174| = +0.00075 ✓ (within ±0.003).
+
+### Key findings
+
+1. **No arm crosses Δ ≤ −0.002**: best arm B Δ=−0.00098 is half the pre-staged signal threshold.
+2. **Arm D (stacked) regresses vs B**: +0.0017 regression when stacking both floors. Interaction between groups at end-of-cooldown suggests mutual interference — too many groups holding non-trivial LR prevents final "tightening".
+3. **Arms B and C individually suggestive but within noise**: at n=1, these Δ values are well within the observed ±0.001 noise band.
+4. **Arm D evidence against paired-pod for B**: if lm_head_floor were independently beneficial, stacking it with scalar_floor should at worst tie B. The +0.0017 regression from D↔B suggests B may be noise-driven.
+5. **Three prior false-positive precedents this cycle** (#344, #351, #408 AGC all collapsed on paired-pod) — conservative close is correct.
+
+### Mechanism takeaway
+
+**linear_floor mechanism is embed-specific, not aux-generic.** The embed group receives sparse-row gradients (~30K of 50K vocab rows per batch), so LR preservation during cooldown matters for rare-token rows that don't appear often. lm_head and scalar groups have dense gradients (every forward pass), so cooldown-LR-preservation doesn't add per-element coverage benefit for those groups.
+
+**20th productive-null/negative this cycle.** Cooldown-shape on aux groups is now exhausted. Follow-up: **#490 nezuko NAdam (Nesterov-AdamW) scope sweep** — first-moment reformulation, never tested on this stack.
+
+---
+
 ## 2026-05-19 17:53 UTC — PR #442: Adam-atan2 on AdamW aux groups, b∈{0.3,1.0,3.0} (alphonse) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-alphonse/adam-atan2`
