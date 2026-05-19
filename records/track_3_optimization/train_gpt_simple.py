@@ -69,6 +69,15 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # NS5 Newton-Schulz polynomial coefficients (default = current hardcoded values).
+    # σ_new = σ * (a + b*σ² + c*σ⁴). Default (2, -1.5, 0.5) has fixed points at σ=1 and σ=√2.
+    # Classical NS quintic (1.875, -1.25, 0.375) and sharper (2.5, -2.0, 0.5) both have unique FP at σ=1.
+    parser.add_argument("--ns5_a", type=float, default=float(os.environ.get("NS5_A", "2.0")),
+                        help="NS5 polynomial coefficient a (linear term). Default: 2.0")
+    parser.add_argument("--ns5_b", type=float, default=float(os.environ.get("NS5_B", "-1.5")),
+                        help="NS5 polynomial coefficient b (cubic term). Default: -1.5")
+    parser.add_argument("--ns5_c", type=float, default=float(os.environ.get("NS5_C", "0.5")),
+                        help="NS5 polynomial coefficient c (quintic term). Default: 0.5")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -464,7 +473,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, a: float = 2.0, b: float = -1.5, c: float = 0.5) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -473,7 +482,6 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
     for _ in range(12):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -484,12 +492,32 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True,
+                a: float = 2.0, b: float = -1.5, c: float = 0.5):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, a=a, b=b, c=c)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+
+@torch.no_grad()
+def compute_ns5_sigma_telemetry(grad, momentum, mu, a, b, c, nesterov=True):
+    """Measure max σ before and after NS5 on a single param. Runs on clones so
+    the actual training state is unaffected. Called only at telemetry steps."""
+    m = momentum.clone()
+    g = grad.clone()
+    m.lerp_(g, 1 - mu)
+    update = g.lerp_(m, mu) if nesterov else m
+    X = update.bfloat16()
+    if X.size(-2) > X.size(-1):
+        X = X.mT
+    X_in = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    input_max_sigma = float(torch.linalg.matrix_norm(X_in.float(), ord=2).item())
+    out = zeropower_via_newtonschulz5(update, a=a, b=b, c=c)
+    output_max_sigma = float(torch.linalg.matrix_norm(out.float(), ord=2).item())
+    return input_max_sigma, output_max_sigma
+
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -511,7 +539,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         a=args.ns5_a, b=args.ns5_b, c=args.ns5_c)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -622,7 +651,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         a=args.ns5_a, b=args.ns5_b, c=args.ns5_c)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -763,6 +793,9 @@ if dist.get_rank() == 0:
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
+            "ns5_a": args.ns5_a,
+            "ns5_b": args.ns5_b,
+            "ns5_c": args.ns5_c,
         },
     )
 
@@ -1005,6 +1038,40 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # NS5 input/output max-σ telemetry. Sample the first 5 MuonH params at a
+        # fixed set of steps to compare polynomial behaviour on real gradients.
+        # Must run BEFORE optimizer step because muon_update mutates grad+momentum.
+        ns5_telem_due = (
+            dist.get_rank() == 0
+            and train_step in (100, 500, 1500, 3000, train_steps)
+        )
+        if ns5_telem_due:
+            ns5_telem_metrics = {"trial": trial_idx, "train/step": train_step}
+            ns5_in_vals = []
+            ns5_out_vals = []
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    muonh_params = opt.param_groups[0]["params"]
+                    mu_val = opt.param_groups[0]["mu"]
+                    for pi, p in enumerate(muonh_params[:5]):
+                        if p.grad is None:
+                            continue
+                        state = opt.state[p]
+                        if "momentum" not in state:
+                            continue
+                        in_sig, out_sig = compute_ns5_sigma_telemetry(
+                            p.grad, state["momentum"], mu_val,
+                            args.ns5_a, args.ns5_b, args.ns5_c,
+                        )
+                        ns5_telem_metrics[f"train/ns5/block_{pi}/input_max_sigma"] = in_sig
+                        ns5_telem_metrics[f"train/ns5/block_{pi}/output_max_sigma"] = out_sig
+                        ns5_in_vals.append(in_sig)
+                        ns5_out_vals.append(out_sig)
+            if ns5_in_vals:
+                ns5_telem_metrics["train/ns5/input_max_sigma_mean"] = sum(ns5_in_vals) / len(ns5_in_vals)
+                ns5_telem_metrics["train/ns5/output_max_sigma_mean"] = sum(ns5_out_vals) / len(ns5_out_vals)
+                ns5_telem_metrics["train/ns5/output_max_sigma_max"] = max(ns5_out_vals)
+                wandb.log(ns5_telem_metrics, step=wandb_step)
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
