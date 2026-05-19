@@ -3,6 +3,47 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 13:43 UTC — PR #434: Lookahead optimizer scope sweep (edward) — CLOSED productive-NEGATIVE
+
+- Branch: `edward/lookahead-scope-sweep`
+- Hypothesis: Lookahead (slow/fast weights, k=5, α=0.5) wraps AdamW and/or Muon. Slow-weight blend may smooth optimization in parameter space — orthogonal to AdamW v-EMA (gradient-space second moment) and AdEMAMix (gradient-space slow EMA, #399 productive-null).
+
+### Results — 4-arm scope sweep (n=1 each)
+
+| Arm | scope | val/loss | Δ vs A | first_step_to_target | step_avg (ms) |
+|---|---|---:|---:|---:|---:|
+| A | off (control) | 3.27446 | — | 3275 | 1895.72 |
+| B | adamw | 3.27690 | +0.00244 | 3300 | 1896.70 |
+| C | muon | 3.28550 | +0.01104 | **−1 (failed)** | 1894.90 |
+| D | both | 3.29175 | +0.01729 | **−1 (failed)** | 1898.76 |
+
+W&B runs: s5vvibh9 (A), lzrvfony (B), vlb4v8vk (C), nr7qahb8 (D). Drift gate Arm A: |3.27446 − 3.27200| = 0.00246 ≤ 0.003 PASS.
+
+### Key findings
+
+1. **Clean regression-monotone trajectory** — all 3 Lookahead arms are wrong-sign relative to the −0.002 real-signal threshold. C and D never crossed the 3.28 target at 3350 steps.
+2. **Muon-wrapping hurts ~4.5× more than AdamW-wrapping** (Δ_C/Δ_B ≈ 4.5). Muon owns the geometry-critical late training (NS coef ramp-down #290, NS late_peak #285) — periodic slow-weight blending interferes with the carefully tuned post-NS step trajectory.
+3. **'Both' arm is roughly additive** (Δ_D=+0.01729 ≈ Δ_B + Δ_C = +0.01348). Independent harm mechanisms: AdamW-side and Muon-side Lookahead each interfere with their respective optimizer's cooldown contribution separately.
+4. **Mechanism: cooldown-phase geometric interference.** During cooldown the per-step updates are tiny and signed coherently; Lookahead's α=0.5 blend every k=5 steps drags θ_f halfway back toward a θ_s that lags ~5 steps behind, undoing ~25% of the cooldown signal each cycle.
+5. **Sibling-failure context** — pairs with #436 frieren weight-EMA (also CLOSED productive-NEGATIVE 13:08 UTC). Both demonstrate **parameter-space temporal smoothing fights the cooldown.** Different operators (EMA-averaging vs slow-weight blending), same conclusion: cooldown is load-bearing signal, not noise.
+
+### Mechanism takeaway for the cycle
+
+This is the **15th productive-null/negative on opt-internal / parameter-temporal axes**. The empirical pattern (#399 AdEMAMix, #436 Weight-EMA, #434 Lookahead, plus per-group/AdEMAMix/Cautious explorations) consistently rules out any 'after-the-optimizer' smoothing/blending mechanism on this stack. Useful negative knowledge — temporal smoothing in parameter space is incompatible with the current cooldown design.
+
+### Lookahead overhead
+
+step_avg vs Arm A: B +0.05%, C ≈0%, D +0.16% — Lookahead's cost is in the noise (single clone of param tensors, no extra fwd-bwd).
+
+### Suggested follow-ups (from student, will not be pursued)
+
+- Cooldown-disabled Lookahead (toggle off during NS_COOLDOWN_START_FRAC * train_steps): would isolate the cooldown-interference mechanism from the temporal-smoothing-helps-mid-training hypothesis.
+- Inverse-Lookahead (α=0 during cooldown only): same insight, cheaper.
+
+Mechanism information is sufficient — moving on. Edward will be assigned a structurally distinct axis (not parameter-space temporal smoothing).
+
+---
+
 ## 2026-05-19 13:08 UTC — PR #436: Weight-EMA (Polyak averaging) of weights for val eval (frieren) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-frieren/weight-ema`
