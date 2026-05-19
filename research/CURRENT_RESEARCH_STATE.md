@@ -27,8 +27,9 @@
    - **frieren PR #428**: A (β₂=0.90 ctrl) +0.31σ neutral; B (β₂=0.85) −0.24σ neutral (fails gate); re-launch `hx8kj0ej` crashed step 647 — advised redirect to Cell C (β₂=0.80) / D / E.
    - **askeladd PR #437**: A (constant ctrl) `fy5yw64u` TERMINAL +0.13σ neutral; Cell B `nbupkfcr` (ramp_down_4_32) running step ~29.
 
-4. **TANJIRO PR #432 Muon nesterov ablation**:
-   - A `g04kfqds` −0.87σ neutral; B retry `93s9wz05` (no_muon_nesterov) running ~94% (trending +18σ NEG).
+4. **TANJIRO PR #445 Muon mu schedule sweep (NEW)**:
+   - **PR #432 CLOSED clean-neutral** (nesterov on/off no-op after NS5 orthogonalization; 0.03σ val difference, 25-step ffs within noise)
+   - **PR #445 ASSIGNED**: ramp_up_090_099 / ramp_down_099_090 / cliff_at_cooldown_095_099 — apply "schedule timing" insight to Muon momentum axis.
 
 5. **ALPHONSE PR #418 β corner sweep**:
    - B (β1=0.80, β2=0.98) +1.97σ neutral; C (β1=0.90, β2=0.95) +5.58σ NEG; **D `ilq161pe` (β1=0.90, β2=0.98) running ~31%** (β1 confirmed no-op); E (β1=0.70, β2=0.99) queued.

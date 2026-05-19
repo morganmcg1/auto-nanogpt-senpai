@@ -1254,3 +1254,34 @@ P1 Cell B val=3.269674 (lr_attn=0.025) was a favorable-seed singleton. n=4 confi
 - **Hypothesis:** SOAP β₂ (Gram matrix EMA decay) never swept in r5; default=0.90 may not be optimal for 3250-step budget. Tests 0.80/0.85/0.90/0.95/0.98 with EMA half-lives from 3.1 to 34.3 steps.
 - **Code change:** Add `--soap_beta2` CLI flag; pass to `soap_precondition_momentum` and `soap_update_preconditioner` call sites; update hparams logging.
 - **Status:** In progress — waiting for student to implement code change and launch Cell A
+
+## 2026-05-19 07:31 UTC — PR #432: tanjiro Muon Nesterov ablation — **CLOSED clean-neutral**
+
+- **Student:** g1r5-tanjiro
+- **Hypothesis:** Does nesterov=True matter after NS5 orthogonalization? Test nesterov=False (removing the Nesterov-modified EMA input to NS5) against ctrl.
+- **W&B runs:** `g04kfqds` (Cell A ctrl), `93s9wz05` (Cell B no_nesterov, retry after initial `2l3ewsp6` crashed at step 249)
+
+### Results
+
+| Cell | nesterov | val/loss | ffs | Δσ vs NEW baseline |
+|------|----------|----------|-----|--------------------|
+| A (ctrl) | True (default) | 3.267231 | 3100 | -0.87σ (neutral) |
+| B | False | 3.26726 | 3075 | -0.84σ (neutral) |
+
+### Mechanism interpretation
+
+nesterov on/off is effectively a no-op (val difference = 0.000029, ~0.03σ). The 25-step ffs improvement (3075 vs 3100) is within single-seed noise. **After NS5 orthogonalization dominates the update direction, the nesterov modification of the EMA input is redundant.** Axis closed.
+
+### Conclusion
+
+Closed clean-neutral. Cell A val=3.267231 adds a useful additional NEW-baseline reproduction seed (-0.87σ matches prior ctrl values).
+
+New assignment: PR #445 — Muon mu schedule sweep (ramp_up_090_099 / ramp_down_099_090 / cliff_at_cooldown).
+
+## 2026-05-19 07:31 UTC — PR #445: tanjiro Muon mu schedule sweep — **ASSIGNED**
+
+- **Student:** g1r5-tanjiro
+- **Hypothesis:** Muon momentum mu=0.95 was found optimal in static sweep (PR #382 neutral). "Schedule shape matters" insight (from PR #371 WD win + edward Cell C −1.60σ signal) suggests time-varying mu may unlock further gains. Test ramp_up (0.90→0.99), ramp_down (0.99→0.90), and cliff_at_cooldown (0.95→0.99 step at cooldown start).
+- **Code change:** Add `--muon_mu_schedule` CLI flag; per-step mutate `group["mu"]` in all Muon optimizer param groups; log `opt/muon_mu` to W&B.
+- **Cells:** A ctrl, B ramp_up_090_099, C ramp_down_099_090, D cliff_at_cooldown_095_099 (optional)
+- **Status:** Assigned, waiting for student code implementation
