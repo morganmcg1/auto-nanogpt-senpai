@@ -1,3 +1,16 @@
+## 2026-05-19 07:15 UTC — PR #425 (arm 2): MuonH-SI mu_final=0.70 (moderate mu cooldown) — NEG
+- Branch: `g1r3-frieren/muonh-mu-cooldown-sweep`
+- Hypothesis: Cosine-decaying MuonH inner momentum from 0.95 → mu_final during LR cooldown. Arm 2 = moderate cooling to 0.70.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | Δ vs arm 1 ctrl (3.27325) |
+|---|---|---|---|---|
+| `v7ztc5yx` (mu_final=0.70) | 3.28051 | -1 | +0.00765 (~9σ NEG) | +0.00726 |
+
+- **Clear NEG**: ~9σ, failed 3.28 target (ffs=-1). Cosine-decaying mu during cooldown hurts convergence.
+- Mechanism: same pattern as PR #417 cooldown_frac — the final training phase benefits from *conservative* settings (mu=0.95 maintained). Reducing mu makes the optimizer more responsive at low LR, but what's needed is *stability*. The high-momentum anchor is load-bearing throughout.
+- Arm 3 (mu_final=0.50) will be stronger NEG if run.
+
 ## 2026-05-19 07:05 UTC — PR #417 CLOSED: MuonH inner cooldown_frac sweep (full sweep complete, close_neg)
 - Branch: `g1r3-edward/muonh-inner-cooldown-frac-sweep`
 - Hypothesis: Test whether shortening the MuonH cosine cooldown (cooldown_frac < 1.0) frees up early-mid-training peak-LR steps for productive learning while still leaving enough budget to converge.
