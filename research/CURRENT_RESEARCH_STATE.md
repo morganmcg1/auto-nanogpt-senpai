@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 17:05 UTC
+- **Date:** 2026-05-19 17:53 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -61,9 +61,22 @@ Paired-pod confirmation collapsed pod-0 signal. Final n=3 pooled: mean(val_B)=3.
 
 Loss-side: `loss += λ · Σ_t logsumexp(logits_t)²`. Arm A (control) terminal, B/C/D in progress. λ ∈ {0.0, 1e-5, 1e-4, 1e-3}.
 
-### 🔄 alphonse #442 — Adam-atan2 update rule [rebased 09:42 UTC, arm A terminal, arm B running]
+### ✅ alphonse #442 — Adam-atan2 — CLOSED 17:53 UTC productive-NEGATIVE
 
-Replace AdamW's `m/(√v + ε)` with `atan2(m, b·√v)` on aux groups. Arm A rebased (val=3.27213, drift +0.00039 ✓). Sweep b ∈ {0.0 ctrl, 0.3, 1.0, 3.0}. Arm B running.
+b sweep {0.3, 1.0, 3.0}: all regress vs AdamW (b=0). D (b=3.0) misses 3.28 target (+0.010). Magnitude-transform of AdamW formula fully closed. **19th productive-null/negative this cycle.**
+**Follow-up**: alphonse assigned **#489 embed-only LR warmup**.
+
+### 🔄 alphonse #489 — Embed-only LR warmup [assigned 17:53 UTC]
+
+**Branch:** `g1r4-alphonse/embed-lr-warmup`
+**Hypothesis**: Current stack has no LR warmup. Global warmup was closed (#102 negative: NS stabilizes early Muon body). But that closure doesn't apply to embed AdamW (sparse-row gradients, no NS). Embed-only LR warmup ramps embed LR from 0 → full over first N% while leaving Muon body + lm_head/scalar at full LR from step 0. First per-group LR schedule axis on embed group.
+| Arm | NANOGPT_EMBED_LR_WARMUP_FRAC | Embed warmup window |
+|---|---:|---|
+| A | 0.0 (control) | none |
+| B | 0.02 | ~67 steps |
+| C | 0.05 | ~170 steps |
+| D | 0.10 | ~335 steps |
+**ETA full chain:** ~7.3h.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -135,7 +148,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 3. Does OrthoGrad (gradient ⊥ to weight) help AdamW aux groups? (#477)
 4. Does block init scaling matter under Muon? (#452)
 5. Does lm_head/scalar cooldown floor generalize from embed? (#454)
-6. Is Adam-atan2 better than AdamW on aux? (#442)
+6. Does embed-only LR warmup help sparse-row early training? (#489)
 7. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483 spec corrected)
 8. Are any cooldown-NS merged components now redundant after later merges? (#487)
 
@@ -151,6 +164,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #442 | alphonse | Adam-atan2 b∈{0.3,1.0,3.0} | CLOSED productive-NEGATIVE (D=+0.010 missed 3.28; all worse than ε-based AdamW; magnitude-transform axis closed) |
 | #441 | tanjiro | Logit Z-loss λ∈{1e-5,1e-4,1e-3} | CLOSED productive-NEGATIVE (B=+0.00211/C=+0.00151/D=+0.022 missed 3.28; softcap c=15 already bounds logits, z-loss redundant) |
 | #446 | thorfinn | Label smoothing α∈{0.05,0.1,0.2} | CLOSED productive-NEGATIVE (monotone: +0.046/+0.102/+0.223; stack already well-regularized) |
 | #434 | edward | Lookahead scope sweep | CLOSED productive-NEGATIVE (all arms regression-monotone; Muon wrapping 4.5× worse) |
@@ -173,6 +187,7 @@ Replace AdamW's `v_t = β₂v_{t-1} + (1-β₂)g_t²` with AdaBelief's `s_t = β
 - Lion, Adafactor on aux: closed (prior rounds)
 - LLRD Muon: closed (NS normalizes depth scaling)
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×
+- Adam-atan2 magnitude-transform (b∈{0.3,1.0,3.0}): CLOSED productive-NEGATIVE (#442; ε=1e-8 already optimal)
 
 **NS precision family**:
 - NS_ITERS_COOLDOWN: saturated (#388); pruning ablation in-flight (#487 arm B)

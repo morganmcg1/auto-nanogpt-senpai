@@ -3,6 +3,37 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 17:53 UTC — PR #442: Adam-atan2 on AdamW aux groups, b∈{0.3,1.0,3.0} (alphonse) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-alphonse/adam-atan2`
+- Hypothesis: Replace AdamW's `m/(√v+ε)` with `atan2(m, b·√v)` on aux groups. Produces bounded-magnitude updates independent of b, claimed to be more stable at scale. Scope: embed, lm_head, scalars. b sweep: {0.0 ctrl, 0.3, 1.0, 3.0}. Rebased post-#393 (embed_lr_mult=1.5×).
+
+### Results — 4-arm sweep (n=1 each, post-#393 rebase)
+
+| Arm | b | val/loss | Δ vs A | fs_to_target | W&B |
+|---|---:|---:|---:|---:|---|
+| A (control) | 0.0 | 3.27213 | — | 3225 | `ih2rlkvy` |
+| C | 0.3 | 3.27198 | −0.00015 | 3225 | `p8phjr9x` |
+| B | 1.0 (PaLM default) | 3.27263 | +0.00050 | 3250 | `9tdyz2rd` |
+| D | 3.0 | **3.28255** | +0.01042 | **−1 (failed)** | `tiylmq37` |
+
+W&B group: `g1r4-alphonse/adam-atan2`. Drift gate: |val_A − 3.27174| = 0.00039 ✓.
+
+### Key findings
+
+1. **No arm beats baseline**: C (numerically best) is 3.27198 > baseline 3.27174 by +0.00024. Stat-rule fails on absolute baseline.
+2. **D (b=3.0) fails benchmark contract**: val=3.28255, never crossed 3.28. Catastrophic regression at large b.
+3. **Roughly monotone-worsening with b↑**: large b → large effective denominator → slow convergence. AdamW with ε=1e-8 already at the magnitude-transform sweet spot.
+4. **C (b=0.3) is numerically best but Δ=−0.00015** — well inside n=1 seed noise. Not a real signal.
+
+### Mechanism takeaway
+
+**19th productive-null/negative this cycle.** Closes the AdamW-internal magnitude-transform axis: atan2, Cautious, AdEMAMix, Lookahead all closed. Open AdamW-adjacent tests: AdaBelief (#474, variance-of-prediction second moment) and OrthoGrad (#477, gradient ⊥ to weight).
+
+**Follow-up**: alphonse assigned **#489 embed-only LR warmup** — schedule axis, structurally distinct from global LR warmup (#102 closed negative) because #102 closure rationale applies only to Muon body (NS provides directional stability), not embed AdamW (sparse-row gradients, no NS).
+
+---
+
 ## 2026-05-19 17:00 UTC — PR #441: Logit Z-loss PaLM style λ∈{1e-5,1e-4,1e-3} (tanjiro) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-tanjiro/logit-z-loss`
