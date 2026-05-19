@@ -1,3 +1,7 @@
+## 2026-05-19 08:50 UTC — PR #424 CLOSED + PR #421 CLOSED: Both sweeps close_neg, askeladd → PR #450, nezuko → PR #451
+- PR #424 closed (SENPAI-RESULT posted); new assignment PR #450 (MuonH static mu sweep 0.90/0.95/0.98)
+- PR #421 closed (SENPAI-RESULT posted); new assignment PR #451 (MuonH budget_mult sweep 0.9/1.0/1.1)
+
 ## 2026-05-19 08:45 UTC — PR #421 (arm 3): MuonH inner AGC clip_ratio=0.10 (loose) — baseline-equivalent (sweep complete)
 - Branch: `g1r3-nezuko/muonh-agc-clip-ratio-sweep`
 - Hypothesis: Looser AGC clip ratio (0.10 vs 0.05 baseline) may allow productive gradient magnitudes through that tighter clip suppresses.
