@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 02:20 UTC
+- **Date:** 2026-05-19 04:28 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -145,17 +145,20 @@ All 4 arms terminal. Non-monotone result: arm D (0.60, more extreme) regressed l
 Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, still inside null band). RMSNorm + AdamW β2=0.99 + grad clip absorb embed magnitude — final norms converge to ~77k within 1.8% regardless of 4× init range. Embed init scale axis CLOSED.
 **Follow-up**: edward assigned #399 AdEMAMix on AdamW groups.
 
-### 🔄 edward #399 — AdEMAMix on AdamW groups [just assigned]
-**Branch:** `g1r4-edward/ademamix-adamw`
-**Hypothesis**: Adds slow gradient EMA (beta3=0.9999, ~10000-step memory window) alongside standard AdamW fast EMA. Sweep alpha_max ∈ {0, 2, 5, 8} (α=0 = vanilla AdamW control). Paper: Pagliardini et al. NeurIPS 2024.
-| Arm | alpha_max | Interpretation |
-|---|---|---|
-| A | 0 (vanilla) | Control, drift gate |
-| B | 2.0 | Mild AdEMAMix |
-| C | 5.0 | Paper default |
-| D | 8.0 | Aggressive |
+### ✅ edward #399 — AdEMAMix on AdamW groups — CLOSED 04:24 UTC productive-null (slow-EMA redundant with β2=0.99)
+All 4 arms terminal. Within-pod B-vs-A Δ=−0.00303 consumed by arm-A drift (+0.00276 from baseline). Vs baseline-mean: arm-B at −0.00027 (productive-null band). Monotone B<C<A<D ordering: α=0 sits between α=2 and α=5, and α=5 (paper default) is worse than control. Mechanism: AdEMAMix slow first-moment EMA redundant with β2=0.99's long second-moment memory on post-#290 stack. AdEMAMix axis CLOSED.
+**Follow-up**: edward assigned #434 Lookahead optimizer scope sweep (Zhang 2019).
 
-**Note**: AdEMAMix uses Python loop (no fused=True) → ~10-20% slower step_avg_ms, but metric is first_step_to_target (step count), so comparison is fair.
+### 🔄 edward #434 — Lookahead optimizer scope sweep (Zhang 2019) [assigned 04:25 UTC]
+**Branch:** `g1r4-edward/lookahead`
+**Hypothesis**: Wrap AdamW and/or Muon with Lookahead (Zhang et al. NeurIPS 2019). Maintains slow weights θ_s; after every k=5 inner steps, blend: θ_s = θ_s + α(θ_f − θ_s), reset θ_f = θ_s. Operates in **parameter space** (not gradient/moment space) — orthogonal to AdEMAMix closure. Paper recipe k=5, α=0.5.
+| Arm | SCOPE | k | α | Interpretation |
+|---|---|---|---|---|
+| A | off | — | — | Control / drift gate |
+| B | adamw | 5 | 0.5 | Lookahead on AdamW only |
+| C | muon | 5 | 0.5 | Lookahead on Muon only |
+| D | both | 5 | 0.5 | Lookahead on both (paper default) |
+
 **ETA full chain:** ~7.5h.
 
 ### ✅ fern #380 — lm_head proj init std sweep — CLOSED 22:40 UTC productive-null

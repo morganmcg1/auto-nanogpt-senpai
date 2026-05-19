@@ -3,6 +3,36 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 04:24 UTC — PR #399: AdEMAMix on AdamW groups (edward) — CLOSED productive-null ✅ (slow-EMA redundant with β2=0.99)
+
+- Branch: `g1r4-edward/ademamix-adamw`
+- Hypothesis: AdEMAMix (Pagliardini et al. NeurIPS 2024) adds a slow first-moment EMA (β3=0.9999) to AdamW, with linear α-warmup from 0 to α_max. Tests whether the long-memory EMA improves convergence on the AdamW aux groups (embed/lm_head/scalar).
+
+### Results — 4-arm single-pod sweep
+
+| Arm | α_max | val | Δ vs A | Δ vs baseline-mean (n=3) | fs | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A (control, AdamW) | 0 | 3.27476 | — | +0.00276 (drift gate marginal) | 3275 | `by7m83w9` |
+| **B** | **2.0** | **3.27173** | **−0.00303** ✓ | **−0.00027** (productive-null band) | **3225** | `2z7r557s` |
+| C (paper default) | 5.0 | 3.27309 | −0.00167 | +0.00109 | 3250 | `a3o2wlb9` |
+| D | 8.0 | 3.27685 | +0.00209 | +0.00485 | 3300 | `d618q7uf` |
+
+### Key findings
+
+**Within-pod signal collapses against baseline-mean.** Arm-B has within-pod Δ=−0.00303 vs arm-A, which crosses the −0.002 real-signal threshold. But arm-A drifted +0.00276 vs the n=3 baseline-mean (just inside the 0.003 drift gate). Against the actual baseline (3.27200, n=3), arm-B is at −0.00027 — well inside the productive-null band.
+
+**Monotone B < C < A < D ordering is the load-bearing signal.** α=0 (control) sits *between* α=2 and α=5; α=8 clearly regresses. This is the fingerprint of a redundant mechanism — AdEMAMix's slow first-moment EMA partly duplicates the long second-moment memory already provided by β2=0.99 (#236). At α=5 (paper default) and α=8, the redundancy turns into noise.
+
+**Step-time cost** ≈+0.35% (Python-loop AdEMAMix overhead negligible).
+
+### Verdict
+
+AdEMAMix axis CLOSED as productive-null on post-#290 stack. The slow-EMA + long-β2 redundancy is the mechanism. Three other paired-pod confirmations (#393, #407, #408) have stronger absolute val/loss; this one doesn't justify a 4th paired-pod chain.
+
+**Productive-null count this cycle:** 7 (frieren #344, alphonse #351, tanjiro #377, fern #380, thorfinn #384, askeladd #388, edward #399). Pattern: the merged 8-mechanism stack is now well-saturated on optimizer-internal mechanics; fresh axes (mechanism wrappers, gradient preprocessing, schedule reformulations) are the higher-yield path.
+
+---
+
 ## 2026-05-19 00:45 UTC — PR #388: NS_ITERS_COOLDOWN sweep (askeladd) — CLOSED productive-null ✅ (precision saturated)
 
 - Branch: `g1r4-askeladd/ns-iters-cooldown`
