@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~16:20Z (poll #254)
+- **Last updated:** 2026-05-19 ~16:47Z (poll #255)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -30,13 +30,13 @@
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
 | #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | **Cell A `qcycy1e9` running ~42% (smokes passed)** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **WATCHER STALLED 80+ min — diagnostic comment posted on PR; `1ufeapa2` advancing (step 560) but still trust=0** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **`1ufeapa2` at step 866 trust=0 (possibly intentional n=2 ctrl confirm) — Cell B still NOT launched; pod up/healthy; monitoring** |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075; **Cell B `mv7ee25g` (ns_iter=6) running step 127** |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 ffs=3225 (+13.4σ NEG); **Cell C `sr1uguv4` (cooldown_frac=0.5) running step 251** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **Cell C `w5gsh5k2` (rd, 0.025) running step 337** |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | **Cell A `74k60vo3` running ~41% (smokes passed)** |
-| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 trial 1 val=3.2680 ffs=3100 at-mu; trial 2 train/step 2790/3250 (~42 min from trial 2 terminal)** |
-| #422 | edward | Muon WD shape variants | **P2 trial 1 TERMINAL val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 train/step 999/3250 (~72 min from trial 2 terminal)** |
+| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 trial 1 val=3.2680 ffs=3100 at-mu; trial 2 total step 6300, ~31 min from terminal** |
+| #422 | edward | Muon WD shape variants | **P2 trial 1 TERMINAL val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 train/step 1274/3250 (~50 min from terminal)** |
 
 
 ## Recent Closures (polls #242–248)
