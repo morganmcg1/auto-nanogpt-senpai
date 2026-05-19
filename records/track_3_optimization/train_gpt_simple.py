@@ -46,6 +46,9 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--no_soap_mlp", action="store_true",
+                        help="Disable SOAP on MLP parameters (use plain Muon NS instead). "
+                             "Default OFF = SOAP on MLP, matching current baseline.")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -550,7 +553,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, no_soap_mlp=False):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -563,7 +566,10 @@ class Muon(torch.optim.Optimizer):
             groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu}]
             all_named = named_params
 
-        soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
+        soap_suffixes = (
+            (self.SOAP_MLP_SUFFIXES if not no_soap_mlp else ())
+            + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
+        )
         self.soap_params = {
             p for n, p in all_named
             if any(n.endswith(suf) for suf in soap_suffixes)
@@ -728,13 +734,15 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
-            "soap_enabled": True,
-            "soap_scope": "mlp.fc.weight,mlp.proj.weight" + (
-                ",attn.q.weight,attn.k.weight,attn.v.weight,attn.proj.weight" if args.soap_attn else ""
-            ),
+            "soap_enabled": (not args.no_soap_mlp) or bool(args.soap_attn),
+            "soap_scope": ",".join(
+                (["mlp.fc.weight", "mlp.proj.weight"] if not args.no_soap_mlp else [])
+                + (["attn.q.weight", "attn.k.weight", "attn.v.weight", "attn.proj.weight"] if args.soap_attn else [])
+            ) or "none",
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "soap_attn_enabled": bool(args.soap_attn),
+            "soap_mlp_enabled": not bool(args.no_soap_mlp),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
@@ -788,6 +796,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        no_soap_mlp=args.no_soap_mlp,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
