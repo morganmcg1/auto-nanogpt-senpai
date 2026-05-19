@@ -63,6 +63,9 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--ns_iter", type=int, default=12,
+                        help="Number of Newton-Schulz iterations in Muon orthogonalization. "
+                             "Default 12 (current hardcoded value). Lower = less orthogonal.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -72,6 +75,7 @@ def parse_args():
 
 
 args = parse_args()
+NS_ITER = args.ns_iter  # module-level constant; torch.compile traces it as a constant
 
 
 def clean_metric_name(name: str) -> str:
@@ -469,7 +473,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(NS_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -741,6 +745,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "ns_iter": args.ns_iter,
         },
     )
 
