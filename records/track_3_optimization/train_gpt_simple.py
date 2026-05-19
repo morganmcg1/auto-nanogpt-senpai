@@ -69,6 +69,21 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # QK-Norm: apply RMSNorm to Q/K vectors before RoPE (Llama 3.1 / OLMo 2 convention).
+    # Per advisor clarification on PR #396:
+    #   off       = truly no Q/K normalization (drop the baseline's F.rms_norm)
+    #   fixed     = QKRMSNorm without learnable scale; wraps the same F.rms_norm the
+    #               current baseline uses, so it must be numerically bit-identical to
+    #               baseline at the smoke gate
+    #   learnable = QKRMSNorm with per-element learnable gain initialised to 1.0
+    parser.add_argument("--qk_norm_mode", type=str, default=os.environ.get("QK_NORM_MODE", "fixed"),
+                        choices=["off", "fixed", "learnable"],
+                        help="QK-Norm mode for attention Q/K vectors before RoPE.")
+    # Attention-logit telemetry: log mean |attention logit| (pre-softmax) per layer
+    # at validation events. Off by default so the baseline path stays bit-identical.
+    parser.add_argument("--log_attn_logits", type=int, default=int(os.environ.get("LOG_ATTN_LOGITS", "0")),
+                        help="If 1, log per-layer mean |attention logit| at val events. Adds a small extra "
+                             "Q@K^T over a sampled subset of query positions each forward.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -368,6 +383,25 @@ class RMSNorm(nn.Module):
     def forward(self, x):
         return F.rms_norm(x, (x.size(-1),), weight=self.gains.type_as(x))
 
+class QKRMSNorm(nn.Module):
+    """RMSNorm specialised for Q/K vectors before RoPE.
+
+    learnable=False: pure F.rms_norm — numerically identical to the existing
+    baseline call in CausalSelfAttention. learnable=True: adds per-element
+    learnable gains initialised to 1.0 (Llama 3.1 / OLMo 2 convention).
+    """
+    def __init__(self, dim, learnable=False):
+        super().__init__()
+        if learnable:
+            self.gains = nn.Parameter(torch.ones(dim))
+        else:
+            self.gains = None
+
+    def forward(self, x):
+        if self.gains is not None:
+            return F.rms_norm(x, (x.size(-1),), weight=self.gains.type_as(x))
+        return F.rms_norm(x, (x.size(-1),))
+
 class Linear(nn.Linear):
     def __init__(self, in_features, out_features):
         super().__init__(in_features, out_features, bias=True)
@@ -392,7 +426,7 @@ class Rotary(nn.Module):
         return torch.cat((y1, y2), 3).type_as(x_BTHD)
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, dim: int, head_dim=128):
+    def __init__(self, dim: int, head_dim=128, qk_norm_mode: str = "off", log_attn_logits: bool = False):
         super().__init__()
         self.num_heads = dim // head_dim
         self.head_dim = head_dim
@@ -402,13 +436,40 @@ class CausalSelfAttention(nn.Module):
         self.v = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
         self.rotary = Rotary(head_dim)
+        self.qk_norm_mode = qk_norm_mode
+        if qk_norm_mode == "off":
+            self.q_norm = None
+            self.k_norm = None
+        elif qk_norm_mode == "fixed":
+            self.q_norm = QKRMSNorm(head_dim, learnable=False)
+            self.k_norm = QKRMSNorm(head_dim, learnable=False)
+        elif qk_norm_mode == "learnable":
+            self.q_norm = QKRMSNorm(head_dim, learnable=True)
+            self.k_norm = QKRMSNorm(head_dim, learnable=True)
+        else:
+            raise ValueError(f"unknown qk_norm_mode: {qk_norm_mode}")
+        self.log_attn_logits = log_attn_logits
+        if log_attn_logits:
+            # Last-seen mean |attention logit| (post-scale, pre-softmax) on a sample of
+            # query positions. Updated each forward; read at validation events.
+            self.register_buffer("_last_logit_abs_mean", torch.zeros((), dtype=torch.float32),
+                                 persistent=False)
 
     def forward(self, x: Tensor):
         B, T = x.size(0), x.size(1)
         q = self.q(x).view(B, T, self.num_heads, self.head_dim)
         k = self.k(x).view(B, T, self.num_heads, self.head_dim)
         v = self.v(x).view(B, T, self.num_heads, self.head_dim)
-        q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),))
+        if self.q_norm is not None:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+        if self.log_attn_logits:
+            sample_size = min(64, T)
+            sample_idx = torch.linspace(0, T - 1, sample_size, dtype=torch.long, device=q.device)
+            qt = q.transpose(1, 2)[:, :, sample_idx].float()  # (B, H, S, d)
+            kt = k.transpose(1, 2).float()                     # (B, H, T, d)
+            logits_sample = torch.einsum("bhsd,bhtd->bhst", qt, kt) * 0.12
+            self._last_logit_abs_mean.copy_(logits_sample.abs().mean().detach())
         q, k = self.rotary(q), self.rotary(k)
         y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2),
                                            v.transpose(1, 2), scale=0.12, is_causal=True).transpose(1, 2)
@@ -430,9 +491,9 @@ class MLP(nn.Module):
         return x
 
 class Block(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, qk_norm_mode: str = "off", log_attn_logits: bool = False):
         super().__init__()
-        self.attn = CausalSelfAttention(dim)
+        self.attn = CausalSelfAttention(dim, qk_norm_mode=qk_norm_mode, log_attn_logits=log_attn_logits)
         self.mlp = MLP(dim)
         self.norm1 = RMSNorm(dim)
         self.norm2 = RMSNorm(dim)
@@ -443,10 +504,14 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int,
+                 qk_norm_mode: str = "off", log_attn_logits: bool = False):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
-        self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList([
+            Block(model_dim, qk_norm_mode=qk_norm_mode, log_attn_logits=log_attn_logits)
+            for _ in range(num_layers)
+        ])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
@@ -711,6 +776,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"QK-Norm mode={args.qk_norm_mode} log_attn_logits={bool(args.log_attn_logits)}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -718,7 +784,13 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+# Attention-logit telemetry is gated by an explicit CLI flag so the smoke gate on
+# the `fixed` arm can be run bit-identical to baseline (no extra Q@K^T over a
+# sampled subset). For the full 3-arm experiment set --log_attn_logits 1 on all
+# arms so they share the same forward graph.
+log_attn_logits = bool(args.log_attn_logits)
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768,
+            qk_norm_mode=args.qk_norm_mode, log_attn_logits=log_attn_logits).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -763,6 +835,8 @@ if dist.get_rank() == 0:
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
+            "qk_norm_mode": args.qk_norm_mode,
+            "log_attn_logits": log_attn_logits,
         },
     )
 
@@ -952,6 +1026,32 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if log_attn_logits:
+                    # Mean |attention logit| per layer from last val microbatch.
+                    # Reflects whether QK-Norm is bounding attention scores. Also
+                    # log an aggregate mean across all 12 attention layers for
+                    # convenience.
+                    layer_means = []
+                    for layer_idx, block in enumerate(model.blocks):
+                        layer_mean = float(block.attn._last_logit_abs_mean.item())
+                        metrics[f"val/attn_logit_abs_mean/layer_{layer_idx}"] = layer_mean
+                        layer_means.append(layer_mean)
+                    metrics["val/attn_logit_abs_mean/mean"] = sum(layer_means) / len(layer_means)
+                    metrics["val/attn_logit_abs_mean/max"] = max(layer_means)
+                if args.qk_norm_mode == "learnable":
+                    # Per-layer learnable Q/K gain statistics — at each val event
+                    # so we can watch how the learned scale drifts during training.
+                    for layer_idx, block in enumerate(model.blocks):
+                        q_gains = block.attn.q_norm.gains.detach().float()
+                        k_gains = block.attn.k_norm.gains.detach().float()
+                        metrics[f"val/qk_norm/layer_{layer_idx}/q_gains_mean"] = float(q_gains.mean().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/q_gains_std"] = float(q_gains.std().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/q_gains_min"] = float(q_gains.min().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/q_gains_max"] = float(q_gains.max().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/k_gains_mean"] = float(k_gains.mean().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/k_gains_std"] = float(k_gains.std().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/k_gains_min"] = float(k_gains.min().item())
+                        metrics[f"val/qk_norm/layer_{layer_idx}/k_gains_max"] = float(k_gains.max().item())
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -977,6 +1077,41 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # QK-Norm early-step grad-norm telemetry: per-layer ||grad|| on Q/K
+        # projection weights and (when learnable) on the QKRMSNorm gains.
+        # Logged at steps {0, 100, 200} so we can read off whether the
+        # learnable scale actually moves the Q/K dynamics in early training.
+        # Post-allreduce, pre-AGC: this is the gradient backward produced for
+        # this step, before any clipping. Cheap (12 layers * a few norms).
+        if dist.get_rank() == 0 and step in (0, 100, 200):
+            qk_metrics = {"trial": trial_idx, "train/step": step + 1}
+            q_norms, k_norms = [], []
+            q_gain_norms, k_gain_norms = [], []
+            for layer_idx, block in enumerate(model.blocks):
+                attn = block.attn
+                qg = float(attn.q.weight.grad.detach().float().norm().item())
+                kg = float(attn.k.weight.grad.detach().float().norm().item())
+                qk_metrics[f"train/qk_grad/layer_{layer_idx}/q_weight_norm"] = qg
+                qk_metrics[f"train/qk_grad/layer_{layer_idx}/k_weight_norm"] = kg
+                q_norms.append(qg)
+                k_norms.append(kg)
+                if attn.qk_norm_mode == "learnable":
+                    qg_gain = float(attn.q_norm.gains.grad.detach().float().norm().item())
+                    kg_gain = float(attn.k_norm.gains.grad.detach().float().norm().item())
+                    qk_metrics[f"train/qk_grad/layer_{layer_idx}/q_gains_norm"] = qg_gain
+                    qk_metrics[f"train/qk_grad/layer_{layer_idx}/k_gains_norm"] = kg_gain
+                    q_gain_norms.append(qg_gain)
+                    k_gain_norms.append(kg_gain)
+            qk_metrics["train/qk_grad/q_weight_norm_mean"] = sum(q_norms) / len(q_norms)
+            qk_metrics["train/qk_grad/q_weight_norm_max"] = max(q_norms)
+            qk_metrics["train/qk_grad/k_weight_norm_mean"] = sum(k_norms) / len(k_norms)
+            qk_metrics["train/qk_grad/k_weight_norm_max"] = max(k_norms)
+            if q_gain_norms:
+                qk_metrics["train/qk_grad/q_gains_norm_mean"] = sum(q_gain_norms) / len(q_gain_norms)
+                qk_metrics["train/qk_grad/q_gains_norm_max"] = max(q_gain_norms)
+                qk_metrics["train/qk_grad/k_gains_norm_mean"] = sum(k_gain_norms) / len(k_gain_norms)
+                qk_metrics["train/qk_grad/k_gains_norm_max"] = max(k_gain_norms)
+            wandb.log(qk_metrics, step=trial_idx * (train_steps + 1) + (step + 1))
         # set optimization hyperparameters and take a step
         muonh_warmup_factor = set_hparams(step)
         train_step = step + 1
