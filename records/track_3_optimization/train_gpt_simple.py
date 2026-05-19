@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -759,7 +760,7 @@ for trial_idx in range(args.num_trials):
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            eta = 0.5 * (1 + math.cos(math.pi * cooldown_progress))
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
