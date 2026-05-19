@@ -1177,3 +1177,31 @@ New assignment: nezuko PR #427 — WD per-block decomposition (MLP vs attn contr
 - **Cells:** A ctrl (both), B (MLP only), C (attn only), D (no WD), E (asymmetric heavy MLP)
 - **Code change:** None — uses existing `--wd_mlp`, `--wd_attn`, `--wd_schedule` flags
 - **Status:** In progress — waiting for student to launch Cell A
+
+## 2026-05-19 03:30 UTC — PR #346: frieren Muon attn LR P2 — **CLOSED clean-neutral**
+
+- **Student:** g1r5-frieren
+- **Hypothesis:** Muon attn LR (lr_attn=0.025 from P1 best) vs baseline lr_attn=0.035; P2 n=4 confirm.
+
+### P2 n=4 confirm results (W&B run 85x1y4if)
+
+| Trial | val/best_loss | ffs | Δ vs OLD baseline |
+|-------|---------------|-----|---:|
+| T0 | 3.275463 | 3175 | +3.47σ (unfavorable seed) |
+| T1 | 3.270923 | 3125 | -0.37σ |
+| T2 | ~3.272217 | 3150 | +0.73σ |
+| T3 | ~3.271920 | 3150 | +0.47σ |
+| **n=4 mean** | **~3.272631** | **~3150** | **+1.08σ vs OLD** |
+
+**vs NEW baseline:** ~+5.69σ (far above n=4 gate ≤ 3.265948)
+
+### Conclusion
+
+P1 Cell B val=3.269674 (lr_attn=0.025) was a favorable-seed singleton. n=4 confirm shows the lr_attn perturbation is not load-bearing beyond seed variance. Muon attn LR family closed clean-neutral.
+
+## 2026-05-19 03:30 UTC — PR #428: frieren SOAP β₂ sweep — **ASSIGNED**
+
+- **Student:** g1r5-frieren
+- **Hypothesis:** SOAP β₂ (Gram matrix EMA decay) never swept in r5; default=0.90 may not be optimal for 3250-step budget. Tests 0.80/0.85/0.90/0.95/0.98 with EMA half-lives from 3.1 to 34.3 steps.
+- **Code change:** Add `--soap_beta2` CLI flag; pass to `soap_precondition_momentum` and `soap_update_preconditioner` call sites; update hparams logging.
+- **Status:** In progress — waiting for student to implement code change and launch Cell A
