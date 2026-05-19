@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 12:22 UTC — Cycle 68: #405 CLOSED CONTRA_MUON sweep (regression-to-mean at n=4); askeladd → #468 AdamW gradient clipping
+
+### PR #405 — CONTRA_MUON sweep (0.3 Arm A, 0.35 Arm B) — CLOSED
+
+Branch: `g1r2-askeladd/contra-muon-0.3-sweep`. Direct continuation of PR #358 (CONTRA_MUON=0.5→0.4). Running on CONTRA_MUON=0.4 base. All screens ran on PREV mandatory stack (no MU_WARMUP_STEPS).
+
+| Arm | CONTRA_MUON | W&B | n | val mean | ffs mean | vs strict bar | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 0.3 | `tektwuqy` | 2 | 3.274865 | 3075 | MISS both (val +0.000482, ffs +6.25 vs OLD bar) | missed |
+| B (n=2 screen) | 0.35 | `ijqrvfy4` | 2 | 3.273505 | 3050 | PASS both vs OLD bar ✅ | screen win |
+| B (n=4 confirm) | 0.35 | `6svhvfu8` | 3 (T3 killed) | 3.275009 | 3075 | MISS both (NEW bar: val +0.001532, ffs +18.75) | CLOSED |
+
+**Per-trial n=4 confirm (Arm B `6svhvfu8` — T3 killed per bar-tightening foreclosure):**
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.274879 | 3075 |
+| T1 | 3.275224 | 3075 |
+| T2 | 3.274923 | 3075 |
+| T3 | terminated at ~703/3175 | — |
+| n=3 mean | 3.275009 | 3075 |
+
+**N=2 screen (Arm B):**
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27353 | 3050 |
+| T1 | 3.27348 | 3050 |
+| n=2 mean | 3.273505 | 3050 |
+
+**Key findings:**
+- **Arm A (0.3)**: Flat vs Arm A baseline mean val≈3.2749 (Δ=+0.000482 above old bar), ffs=3075 — slightly worse than 0.4. Response surface is flat/slightly negative below 0.4.
+- **Arm B n=2 screen**: Both trials landed exactly at val~3.2735/ffs=3050 — looked like a Goldilocks point at 0.35. Statsig 0.00918 PASS. However this was a seed-lucky draw.
+- **Arm B n=4 collapse**: T0-T2 all landed at val~3.275/ffs=3075 (one bimodal slot above floor). Regression-to-mean: n=2 floor results were seed luck, not axis effect. Foreclosure via bar-tightening (PR #415 raised bar from 3.274383/3068.75 to 3.273477/3056.25) — T3 killed.
+- **Root cause**: val-step-3025 trajectory clusters tightly around 3.28 (3.28272/3.28282/3.28322 in T0-T2). The 3.28 threshold is the ffs quantization boundary — tiny seed noise determines whether the step hits 3050 vs 3075. n=2 got lucky; n=4 reveals the true ~25-50% bimodal distribution at 3050.
+
+**Mechanism conclusion**: CONTRA_MUON response surface is **flat between 0.3 and 0.4** on this stack. 0.4 remains the local optimum. The n=2→n=4 collapse is a portfolio-level lesson: **bimodal ffs distribution (3050 vs 3075) is dominated by seed variance on the val-step-3025 → ffs-quantization boundary**. A clean n=2 result where both trials land at 3050 does NOT robustly predict n=4 mean at 3050.
+
+**Strategic consequence**: Contra-Muon/cooldown-geometry lever cluster confirmed saturated by 3 independent closures (#372 MuonEq-R, #406 MU_COOLDOWN_START, #405 CONTRA_MUON sweep). Future axes should avoid this cluster.
+
+**Reassignment**: askeladd → #468 AdamW gradient clipping (GRAD_CLIP_NORM_ADAM=0.5 vs 1.0). Fresh mechanism — confirmed zero gradient clipping anywhere in codebase. Target: variance reduction via outlier-grad damping may improve ffs=3050 concentration by stabilizing AdamW step magnitudes during late cooldown.
+
+
+
 ## 2026-05-19 12:05 UTC — Cycle 66: #415 MERGED MU_WARMUP_STEPS=200 — STRICT-PASS WIN (val=3.273477/ffs=3056.25); #405/#406 early-terminate recommended (foreclosed on new bar); thorfinn → #462 MU_WARMUP_START sweep (0.80 vs 0.90)
 
 ### PR #415 — MU_WARMUP_STEPS=200 n=4 confirm — MERGED (new baseline) 🏆

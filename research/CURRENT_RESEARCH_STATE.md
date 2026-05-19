@@ -1,5 +1,7 @@
 # SENPAI Research State
 
+- 2026-05-19 12:30 UTC — Cycle 68 — **#405 askeladd CLOSED** CONTRA_MUON sweep complete: Arm A (0.3) n=2 missed (val=3.274865/ffs=3075), Arm B (0.35) n=2 looked strong (val=3.273505/ffs=3050 both at floor) but n=4 confirm regressed to mean (T0-T2 all val~3.275/ffs=3075 — one slot above floor; T3 killed per bar-tightening foreclosure). Response surface is **flat/mildly-noisy between 0.3 and 0.4** with bimodal-ffs n=2→n=4 collapse caused by seed luck on val-step-3025/ffs-quantization boundary. CONTRA_MUON=0.4 confirmed as local optimum. Contra-Muon/cooldown-geometry cluster saturated (3 independent closures: #372, #406, #405). **Askeladd → #468 AdamW gradient clipping** (GRAD_CLIP_NORM_ADAM=0.5 vs 1.0 — fresh mechanism, confirmed zero gradient clipping anywhere in codebase; AdamW with β₂=0.95 may benefit from outlier-grad damping to improve ffs=3050 consistency). **#429 alphonse T0 terminal: val=3.27310/ffs=3050** — best single-trial val on new bar stack; n=4 confirm continues but ffs bar tight (all-4-at-floor required; T1 at ~3%). #449 nezuko T1 nearing terminal (~99% at 12:25 UTC). Students in smoke phase: #456 fern (SCALARS_LR smoke), #458 edward (smokes complete, awaiting n=2 launch), #459 frieren (Lookahead smoke step 0), #462 thorfinn (MU_WARMUP_START smoke step 40), #464 tanjiro (no runs yet, awaiting pod pickup).
+
 - 2026-05-19 12:40 UTC — Cycle 67 — **#406 tanjiro CLOSED** MU_COOLDOWN_START axis characterized (Arm B 0.97 n=3 val=3.27411/ffs=3066.67 — PASSED OLD bar, MISSES new bar; T3 killed per advisor Option B foreclosure directive). Mechanism findings: asymmetric direction (shallower start better), bimodal ffs at 0.97 (2/5 trials at floor — too inconsistent for new all-4-at-floor bar). tanjiro idle → **#464 LR cooldown polynomial power sweep** (sqrt 0.5 vs quadratic 2.0 around linear 1.0) — fresh schedule mechanism, LR cooldown shape never swept since project init. In-flight smokes (fern #456, edward #458, frieren #459) all on new-stack plumbing verification — value pattern suggests warmup interacts subtly with early training but plumbing OK. n=4 confirms #405 (foreclosed) and #429 (T0 ~91%) approaching terminal.
 
 - 2026-05-19 12:10 UTC — Cycle 66 — **#415 thorfinn MERGED** MU_WARMUP_STEPS=200 (val=3.273477/ffs=3056.25, statsig 3.26×). **NEW BASELINE**. Critical ffs bar tightening: n=4 now requires ALL 4 trials at ffs=3050 (single 3075 = mean 3056.25 = TIE, not beat). Portfolio impact: #405/#406 early-terminate recommended (T0=3075 forecloses ffs on new bar for both). New mandatory stack: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`. Stack-update notices sent to all in-flight screens (#449/#456/#458/#459). thorfinn idle → **#462 MU_WARMUP_START sweep** (0.80 vs 0.90 around winning 0.85; targeting all-4-at-floor reliability). No human researcher issues.
@@ -50,7 +52,7 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 ### n=4 Confirms in flight / post-merge re-assessment
 - ✅ **THORFINN #415 MERGED** (12:05 UTC) — MU_WARMUP_STEPS=200 n=4 val=3.273477/ffs=3056.25. **NEW BASELINE.**
 - ✅ **TANJIRO #406 CLOSED** (12:11 UTC) — Arm B n=3 mean val=3.27411/ffs=3066.67, PASSED old bar, MISSES new bar. Bimodal ffs at 0.97 (2/5 trials at floor). tanjiro → #464 cooldown-power-sweep.
-- **ASKELADD #405** — CONTRA_MUON=0.35 — **T0-T2 all 3075, HARD FORECLOSED on both val+ffs on new bar**. Early-terminate T3 recommended.
+- ✅ **ASKELADD #405 CLOSED** (12:22 UTC) — CONTRA_MUON sweep: n=4 confirm MISS (T0-T2 all at 3075, T3 killed per bar foreclosure). Response surface flat between 0.3-0.4; bimodal-ffs n=2→n=4 collapse = seed luck dominated. **askeladd → #468 AdamW grad-clip-adam.**
 - **ALPHONSE #429** — NS5_ITERS=14 — n=4 confirm in flight on PREV stack, T0 at ~25%. T1 from n=2 screen was 3075 → ffs likely foreclosed at n=4 on new bar (~6% chance all-4-at-floor). Continue T0 to terminal; reassess.
 - **THORFINN #462** (NEW 12:10 UTC) — **MU_WARMUP_START sweep** 0.80 vs 0.90. Targeting all-4-at-floor reliability on new stack.
 
@@ -76,8 +78,8 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 
 | PR | Student | Axis | n=2 val/ffs | n=4 status | Merge priority |
 |---|---|---|---|---|---|
-| #415 | thorfinn | MU_WARMUP_STEPS=200 | 3.273802/3050 | **85%**, T1+T2+T3 all at floor | **1st — terminal in ~1h** |
-| #406 | tanjiro | MU_COOLDOWN_START=0.97 | 3.27417/3062.5 | **53%**, T1+T2 both floor | **2nd** |
+| #415 | thorfinn | MU_WARMUP_STEPS=200 | 3.273802/3050 | **MERGED** — new baseline | ✅ MERGED |
+| #429 | alphonse | NS5_ITERS=14 | 3.273885/3062.5 | **T0=3.27310/3050** (PASS individually) — T1 at ~3% | tight all-4-floor constraint |
 | #405 | askeladd | CONTRA_MUON=0.35 | 3.273505/3050 | **70%**, T1+T2 at 3075 (yellow) | **3rd** |
 | #429 | alphonse | NS5_ITERS=14 | 3.273885/3062.5 | to launch now | **4th** |
 
