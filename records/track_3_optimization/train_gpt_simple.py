@@ -530,6 +530,11 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Annealed Gaussian gradient noise (Neelakantan et al. 2015):
+#   sigma_t = NANOGPT_GRAD_NOISE_SIGMA0 / (1 + t)^NANOGPT_GRAD_NOISE_GAMMA
+# Noise is added post-all_reduce, pre-clip. Disabled when SIGMA0=0.
+NANOGPT_GRAD_NOISE_SIGMA0 = float(os.environ.get("NANOGPT_GRAD_NOISE_SIGMA0", "0"))
+NANOGPT_GRAD_NOISE_GAMMA = float(os.environ.get("NANOGPT_GRAD_NOISE_GAMMA", "0.55"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -799,6 +804,8 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_grad_noise_sigma0": NANOGPT_GRAD_NOISE_SIGMA0,
+            "nanogpt_grad_noise_gamma": NANOGPT_GRAD_NOISE_GAMMA,
         },
     )
 
@@ -963,6 +970,13 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        if NANOGPT_GRAD_NOISE_SIGMA0 > 0.0:
+            grad_noise_sigma_t = NANOGPT_GRAD_NOISE_SIGMA0 / ((1.0 + step) ** NANOGPT_GRAD_NOISE_GAMMA)
+            for p in model.parameters():
+                if p.grad is not None:
+                    p.grad.add_(torch.randn_like(p.grad) * grad_noise_sigma_t)
+        else:
+            grad_noise_sigma_t = 0.0
         if NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
@@ -1068,6 +1082,8 @@ for trial_idx in range(args.num_trials):
             ns_metrics = {
                 "trial": trial_idx,
                 "train/step": train_step,
+                "train/grad_noise/sigma_t": grad_noise_sigma_t,
+                "train/grad_noise/active": int(NANOGPT_GRAD_NOISE_SIGMA0 > 0.0),
                 "train/ns_schedule/iters_this_step": ns_iters_this_step,
                 "train/ns_schedule/iters_avg_last_100_steps": (
                     sum(ns_iters_history) / max(1, len(ns_iters_history))
