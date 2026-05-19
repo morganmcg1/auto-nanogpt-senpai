@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~18:30Z (poll #259)
+- **Last updated:** 2026-05-19 ~18:55Z (poll #260)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -9,12 +9,15 @@
 
 ## ⭐ Active Winner Candidates (P2 in progress)
 
-### #1 EDWARD #422 — Cell C `stable_only` WD: −1.60σ (n=1)
+### #1 EDWARD #422 — Cell C `stable_only` WD: ⭐ **n=2 PASSES, ON TRACK FOR WINNER** ⭐
 - **Mechanism:** WD=0 during entire cooldown phase (cliff at cooldown start). Less cumulative cooldown WD = better val.
-- **P2 n=4 LAUNCHED:** edward running `--num_trials 4 --wd_schedule stable_only`. Run `ob6ek9zt`.
-  - **Trial 1 (idx 0) TERMINAL:** val=3.2658, ffs=3000 → −2.61σ on n=1 (beats baseline on BOTH metrics).
-  - **Trial 2 (idx 1) running:** step ~3122/3250, current best_val=3.2720 — terminal in ~8 min.
-- **Gate:** mu_p2 ≤ 3.265948. So far so good — trial 1 well below gate, trial 2 hovering near it.
+- **P2 n=4 results so far:**
+  - **Trial 1 TERMINAL:** val=**3.265809**, ffs=**3000**
+  - **Trial 2 TERMINAL:** val=**3.265615**, ffs=**3000** ✓ CONFIRMED
+  - **n=2 mean = 3.265712, std = 0.000137 (TIGHT)**, both ffs=3000 (100 steps faster than baseline)
+- **Trial 3 (idx 2) running:** train/step 2618/3250 (81%), ~58 min from terminal
+- **Trial 4 not yet started:** ~6 hr from terminal
+- **Gate:** mu_p2 ≤ 3.265948 (n=4). n=2 mean already passes by 0.000236; trials 3+4 need to avg ≤ 3.266184 — high probability given trials 1+2 came in at 3.2656.
 
 ### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1) — **P2 LIKELY FAILING**
 - **Cell C single-trial:** val=3.266906, ffs=3075 — beat baseline on BOTH metrics
@@ -37,7 +40,7 @@
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **Cell C `w5gsh5k2` (rd, 0.025) running step 337** |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A TERMINAL ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ re-anchor); **Cell B `r41glyh7` (lr=0.1) launched** |
 | #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER → **P2 LIKELY FAILING** (T1+T2 both val=3.2680 ffs=3100, n=2 mean=3.2680 above mu); T3 starting |
-| #422 | edward | Muon WD shape variants | **P2 trial 1 val=3.2656 ffs=3000 ✓ (−2.61σ); trial 2 IMMINENT terminal — key reproducibility check** |
+| #422 | edward | Muon WD shape variants | ⭐ **P2 n=2 PASS** (T1=3.265809, T2=3.265615, both ffs=3000); T3 81% (~58min); T4 ~6hr; **on track for n=4 winner** |
 
 
 ## Recent Closures (polls #242–248)
