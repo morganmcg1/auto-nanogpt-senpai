@@ -428,7 +428,7 @@ class GPT(nn.Module):
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        logits = LOGIT_SOFTCAP_K * logits * (logits.square() + LOGIT_SOFTCAP_K**2).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -447,6 +447,7 @@ MU_END = float(os.environ.get("MU_END", "0.95"))
 MU_COOLDOWN_ENABLED = ("MU_COOLDOWN_START" in os.environ) or ("MU_COOLDOWN_END" in os.environ)
 MU_COOLDOWN_START = float(os.environ.get("MU_COOLDOWN_START", "0.95"))
 MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
+LOGIT_SOFTCAP_K = float(os.environ.get("LOGIT_SOFTCAP_K", "15.0"))
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -851,6 +852,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "model/logit_softcap_k": LOGIT_SOFTCAP_K,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
