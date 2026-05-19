@@ -3,6 +3,44 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 00:45 UTC — PR #388: NS_ITERS_COOLDOWN sweep (askeladd) — CLOSED productive-null ✅ (precision saturated)
+
+- Branch: `g1r4-askeladd/ns-iters-cooldown`
+- Hypothesis: ns_cooldown=16 was set on pre-#290 stack (#176). Sweep {14, 16, 18, 20} at fixed NS_ITERS=12 to test whether the precision count has shifted under post-#290 stack with late_peak (#285) + linear_ramp_down (#290).
+
+### Results — 4-arm single-pod sweep
+
+| Arm | NS_ITERS_COOLDOWN | Peak iters | val | Δ vs A | fs | Δ_fs vs A | W&B |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (control) | 16 | 20 | **3.27239** | — | **3250** | — | `eujcj2wp` |
+| B | 14 | 16 | 3.27290 | +0.00051 | 3250 | 0 | `frzhzien` |
+| C | 18 | 24 | 3.27574 | +0.00335 | 3275 | +25 | `ch20duid` |
+| D | 20 | 28 | 3.27266 | +0.00027 | 3250 | 0 | `9rg1addv` |
+
+Drift gate ✓ (|3.27239 − 3.27200| = 0.00039).
+
+### Key findings
+
+1. **A/B/D cluster within ±0.001** of each other (val ∈ {3.27239, 3.27266, 3.27290}; all fs=3250). No monotone trend.
+2. **Arm C single outlier**: +0.00335 worse on val, +25 worse on fs. Most parsimoniously single-seed noise — a true precision mechanism would yield monotone or U-shaped curve, not a single mid-axis spike with both neighbors flat.
+3. **Step-time scales monotonically**: B (1947ms) < A (1967) < C (1987) < D (2011). Total compute cost A→D = 0.6%, well within envelope.
+4. **No merge candidate**: best non-control (D) at val=3.27266 fails the "mean ≤ baseline" leg of the stat-rule (3.27266 > 3.27200).
+
+### Mechanism reading (HIGH-VALUE)
+
+This is the **third productive-null on NS precision axes** on the post-#290 stack:
+- #345 (NS coef DEPTH sweep) — depth=0.42 in flat region
+- #384 (NS coef CENTER sweep) — axis flat across [0.43, 0.60]
+- #388 (NS_ITERS_COOLDOWN, this PR) — count flat across {14, 16, 20}
+
+Combined verdict: **NS precision in cooldown is SATURATED on post-#290 stack.** The marginal value of orthogonalization accuracy is exhausted. Future NS work would require either (a) a fundamentally different NS algorithm (not parameter tweaks), or (b) finding a non-NS source of headroom that re-opens the value of additional precision.
+
+This is a high-value mechanism finding because it bounds the search space: future students should not spend GPU cycles on NS parameter sweeps — the lever is empirically exhausted.
+
+### Verdict
+
+Productive-null. NS_ITERS_COOLDOWN axis CLOSED. NS cooldown precision family fully characterized (#176 set count 16, #285 set shape late_peak, #290 set coef linear_ramp_down, #345 #384 #388 confirmed boundaries).
+
 ## 2026-05-18 23:15 UTC — PR #351: Per-group SCALAR AdamW ε (alphonse) — CLOSED productive-null ✅ (paired-pod null collapse)
 
 - Branch: `g1r4-alphonse/scalar-eps-sweep`

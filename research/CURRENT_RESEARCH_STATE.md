@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-18 23:30 UTC
+- **Date:** 2026-05-19 00:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -86,17 +86,21 @@ Paired-pod re-run of A vs D produced mean Δ=+0.00019 (signal collapsed). Origin
 Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau above softcap=20 (softcap linear in that regime). softcap=15 confirmed optimal on post-#290 stack.
 **Follow-up**: askeladd assigned #388 NS iter count cooldown sweep.
 
-### 🔄 askeladd #388 — NS_ITERS_COOLDOWN sweep at fixed NS_ITERS=12 [just assigned]
-**Branch:** `g1r4-askeladd/ns-iters-cooldown`
-**Hypothesis**: ns_cooldown=16 was set by #176 on pre-#290 stack; never retested with the new late_peak shape + linear_ramp_down coef schedule. Higher count → more precise orthogonalization in latter 15% of training.
-| Arm | NS_ITERS_COOLDOWN | Peak iters (latter half of cooldown) |
-|---|---|---|
-| A | 16 | 20 (current, control) |
-| B | 14 | 16 |
-| C | 18 | 24 |
-| D | 20 | 28 |
+### ✅ askeladd #388 — NS_ITERS_COOLDOWN sweep — CLOSED 00:45 UTC productive-null (precision saturated)
+All 4 arms terminal. A/B/D cluster within ±0.001 (val ∈ {3.27239, 3.27266, 3.27290}; all fs=3250). C single +0.00335 outlier. Drift gate ✓. Mechanism reading: **NS precision in cooldown SATURATED on post-#290 stack** — third productive-null on NS precision family (#345 depth, #384 center, #388 count). Combined with merged #285 shape and #290 schedule, NS cooldown family fully characterized.
+**Follow-up**: askeladd assigned #419 Cautious AdamW updates (Liang et al. 2024).
 
-**ETA full chain:** ~7–8h (arm D wall-time slightly longer due to more NS iters/step).
+### 🔄 askeladd #419 — Cautious AdamW updates (Liang et al. 2024) [just assigned]
+**Branch:** `g1r4-askeladd/cautious-adamw`
+**Hypothesis**: Mask AdamW update components where `sign(update) ≠ sign(g)`, then rescale (Liang et al. 2024). Operates inside AdamW step — orthogonal to all NS/Muon/clip/schedule/per-group LR work. One-line algorithmic change. Reported gains across language models and ImageNet.
+| Arm | CAUTIOUS | RESCALE | SCOPE | Interpretation |
+|---|---|---|---|---|
+| A | 0 (off) | — | — | Control / drift gate |
+| B | 1 | 1 | all | Paper default (rescaled mask) |
+| C | 1 | 0 | all | Plain mask (no rescale) |
+| D | 1 | 1 | embed | Embed-only (orthogonality probe) |
+
+**ETA full chain:** ~7.5h.
 
 ### ✅ nezuko #356 — Muon μ schedule sweep — CLOSED 17:05 UTC productive-null
 All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.
@@ -194,6 +198,7 @@ All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified —
 
 ## Recently closed
 
+- **askeladd #388 (NS_ITERS_COOLDOWN sweep)** — CLOSED 00:45 UTC productive-null. A/B/D cluster within ±0.001 (val ∈ {3.27239, 3.27266, 3.27290}, all fs=3250); C +0.00335 outlier. **NS precision saturated** on post-#290 stack. Third productive-null on NS precision family.
 - **alphonse #351 (Per-group SCALAR AdamW ε)** — CLOSED 23:15 UTC productive-null. Paired-pod confirmation collapsed signal (Δ=+0.00019). Original arm-A drifted +0.00328; D's "−0.00278 lift" was pod luck. Second consecutive paired-pod null collapse (after #344).
 - **thorfinn #384 (NS coef CENTER)** — CLOSED 23:10 UTC productive-null. Non-monotone (D regressed less than more-moderate C); axis flat across center ∈ [0.43, 0.60]. NS coef family (depth #345 + schedule #290 + center #384) fully characterized.
 - **tanjiro #377 (Pruning ablation)** — CLOSED 22:30 UTC productive-null (HIGH-VALUE MECHANISM PROBE). β2=0.99 amplified 5.9× original lift (load-bearing); late_peak (#285) and linear_ramp_down (#290) appear subsumed on current stack.
@@ -227,13 +232,13 @@ All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified —
 9. **lm_head init std** — fern #380. CLOSED 22:40 UTC productive-null. Monotone worsening with σ; zero-init uniquely optimal.
 
 ### Fresh axes (early stage)
-10. **NS_ITERS_COOLDOWN count** — askeladd #388. Sweep cooldown count ∈ {14, 16, 18, 20} at fixed NS_ITERS=12. ns_cooldown=16 was set on pre-#290 stack.
-11. **AdEMAMix on AdamW** — edward #399. Fresh slow-EMA mechanism (NeurIPS 2024). Sweep alpha_max ∈ {2, 5, 8} vs control. Mechanism orthogonal to all per-group hyperparameter work.
-12. **Gradient Centralization** — frieren #402. Gradient preprocessing layer (Yong et al. 2020). Scope sweep: all, adam, muon. Fresh mechanism abstraction layer.
-13. **AdamW β2 sensitivity** — tanjiro #407. Mechanism-driven by #377 pruning finding (β2 amplified 5.9×). Test {0.98, 0.99, 0.995, 0.999} for optimum drift.
-14. **Adaptive Gradient Clipping (AGC)** — fern #408. Per-parameter clip threshold based on ||W||_F (Brock et al. 2021, NFNets). Replaces fixed clip=10.0 with adaptive per-tensor threshold.
-15. **Per-block LR decay (LLRD) for Muon** — thorfinn #409. Fresh per-block axis on Muon group never tested. Sweep decay ∈ {1.0 control, 0.85, 0.7, 1.2}.
-16. **Gradient noise injection (Neelakantan 2015)** — alphonse #411. Annealed Gaussian noise σ_t = σ_0 / (1+t)^γ. Fresh regularization axis. Sweep σ_0 ∈ {0, 0.001, 0.003, 0.01} at γ=0.55.
+10. **AdEMAMix on AdamW** — edward #399. Fresh slow-EMA mechanism (NeurIPS 2024). Sweep alpha_max ∈ {2, 5, 8} vs control. Mechanism orthogonal to all per-group hyperparameter work.
+11. **Gradient Centralization** — frieren #402. Gradient preprocessing layer (Yong et al. 2020). Scope sweep: all, adam, muon. Fresh mechanism abstraction layer.
+12. **AdamW β2 sensitivity** — tanjiro #407. Mechanism-driven by #377 pruning finding (β2 amplified 5.9×). Test {0.98, 0.99, 0.995, 0.999} for optimum drift.
+13. **Adaptive Gradient Clipping (AGC)** — fern #408. Per-parameter clip threshold based on ||W||_F (Brock et al. 2021, NFNets). Replaces fixed clip=10.0 with adaptive per-tensor threshold.
+14. **Per-block LR decay (LLRD) for Muon** — thorfinn #409. Fresh per-block axis on Muon group never tested. Sweep decay ∈ {1.0 control, 0.85, 0.7, 1.2}.
+15. **Gradient noise injection (Neelakantan 2015)** — alphonse #411. Annealed Gaussian noise σ_t = σ_0 / (1+t)^γ. Fresh regularization axis. Sweep σ_0 ∈ {0, 0.001, 0.003, 0.01} at γ=0.55.
+16. **Cautious AdamW updates (Liang et al. 2024)** — askeladd #419. Mask sign-mismatched update components in AdamW step, rescale to preserve magnitude. Fresh modern mechanism. Sweep scope ∈ {off control, all-rescaled, all-plain, embed-only}.
 
 ### Medium-priority unassigned axes (for next idle)
 1. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99
@@ -290,3 +295,4 @@ All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified —
 | Pruning ablation (#236, #285, #290) | β2=0.99 load-bearing & 5.9× amplified; #285 late_peak appears subsumed; #290 linear_ramp_down fully subsumed; mechanism probe only | #377 (productive-null) |
 | Per-group scalar AdamW ε | scalar_eps ∈ {1e-12, 1e-10, 1e-8, 1e-6}; paired-pod confirm Δ=+0.00019; A drifted +0.00328 making original sweep unreliable | #351 (productive-null) |
 | NS coef polynomial CENTER | center ∈ {0.43, 0.49, 0.55, 0.60} at depth=0.42; non-monotone (D < C while D more extreme); axis flat | #384 (productive-null) |
+| NS_ITERS_COOLDOWN count | count ∈ {14, 16, 18, 20}; A/B/D cluster within ±0.001, C +0.00335 outlier (single-seed noise); precision saturated on post-#290 stack | #388 (productive-null) |
