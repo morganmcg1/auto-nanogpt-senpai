@@ -513,6 +513,13 @@ class GPT(nn.Module):
 NS_ITERS = int(os.environ.get("NANOGPT_NS_ITERS", "12"))
 NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_NS_ITERS_COOLDOWN", "0"))  # 0 => no schedule, use NS_ITERS throughout
 NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", "0.7"))
+# NS-iter warmup: ramp NS up from NS_ITERS_WARMUP_START -> NS_ITERS over the first
+# NS_ITERS_WARMUP_FRAC of training. No-op when frac == 0.0 or start == NS_ITERS.
+NS_ITERS_WARMUP_START = int(os.environ.get("NANOGPT_NS_ITERS_WARMUP_START", str(NS_ITERS)))
+NS_ITERS_WARMUP_FRAC = float(os.environ.get("NANOGPT_NS_ITERS_WARMUP_FRAC", "0.0"))
+assert NS_ITERS_WARMUP_START >= 1, "warmup start must be >= 1 NS iter"
+assert NS_ITERS_WARMUP_START <= NS_ITERS, "warmup start must be <= NS_ITERS (ramps UP to NS_ITERS)"
+assert 0.0 <= NS_ITERS_WARMUP_FRAC <= 0.5, "warmup frac must be in [0, 0.5]"
 # Shape of NS-iter transition during cooldown window. Compute-neutral by design (mean=NS_ITERS_COOLDOWN).
 #   step       -> jump to NS_ITERS_COOLDOWN at cooldown_start (baseline behavior)
 #   two_stage  -> midpoint(base,cooldown) first half of cooldown, midpoint(cooldown,peak) second half
@@ -580,13 +587,27 @@ def get_ns_coef_table(num_iters: int) -> tuple[tuple[float, float, float], ...]:
 
 
 def get_ns_iters(step: int, total_steps: int, ns_base: int, ns_cooldown: int,
-                 start_frac: float, shape: str) -> int:
+                 start_frac: float, shape: str,
+                 ns_warmup_start: int | None = None, warmup_frac: float = 0.0) -> int:
     """Compute the NS-iter count for this step under the configured cooldown shape.
 
-    All non-'step' shapes are compute-neutral with shape='step' (mean iters across
-    the cooldown window equals ns_cooldown). Outside the cooldown window all
-    shapes return ns_base. If ns_cooldown<=0 the schedule is disabled.
+    Warmup phase (optional): if warmup_frac > 0 and ns_warmup_start < ns_base,
+    linearly ramp NS from ns_warmup_start -> ns_base across the first
+    warmup_frac*total_steps. Outside the warmup window the normal/cooldown
+    logic below applies.
+
+    All non-'step' cooldown shapes are compute-neutral with shape='step' (mean iters
+    across the cooldown window equals ns_cooldown). Outside the cooldown window all
+    shapes return ns_base. If ns_cooldown<=0 the cooldown schedule is disabled.
     """
+    # Warmup window: ramps NS up from ns_warmup_start to ns_base. No-op if
+    # warmup_frac==0 or ns_warmup_start>=ns_base.
+    if warmup_frac > 0.0 and ns_warmup_start is not None and ns_warmup_start < ns_base:
+        warmup_steps = int(warmup_frac * total_steps)
+        if step < warmup_steps:
+            progress = step / max(1, warmup_steps)
+            val = ns_warmup_start + progress * (ns_base - ns_warmup_start)
+            return max(1, int(val + 0.5))
     if ns_cooldown <= 0:
         return ns_base
     boost_start = int(start_frac * total_steps)
@@ -751,6 +772,12 @@ if NS_ITERS_COOLDOWN > 0:
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
+if NS_ITERS_WARMUP_FRAC > 0.0 and NS_ITERS_WARMUP_START < NS_ITERS:
+    print0(f"NS_WARMUP: ramp ns_iters {NS_ITERS_WARMUP_START} -> {NS_ITERS} "
+           f"linearly over first {NS_ITERS_WARMUP_FRAC:.3f} of train_steps", console=True)
+else:
+    print0(f"NS_WARMUP: disabled (start={NS_ITERS_WARMUP_START}, frac={NS_ITERS_WARMUP_FRAC})",
+           console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
@@ -801,6 +828,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
+            "nanogpt_ns_iters_warmup_start": NS_ITERS_WARMUP_START,
+            "nanogpt_ns_iters_warmup_frac": NS_ITERS_WARMUP_FRAC,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
@@ -1024,6 +1053,8 @@ for trial_idx in range(args.num_trials):
         ns_iters_this_step = get_ns_iters(
             step, train_steps, NS_ITERS, NS_ITERS_COOLDOWN,
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
+            ns_warmup_start=NS_ITERS_WARMUP_START,
+            warmup_frac=NS_ITERS_WARMUP_FRAC,
         )
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
         if dist.get_rank() == 0:
@@ -1083,6 +1114,11 @@ for trial_idx in range(args.num_trials):
                 "train/ns_schedule/cooldown_start_step": cooldown_start_step,
                 "train/ns_schedule/in_cooldown": int(
                     NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
+                ),
+                "train/ns_schedule/warmup_active": int(
+                    NS_ITERS_WARMUP_FRAC > 0.0
+                    and NS_ITERS_WARMUP_START < NS_ITERS
+                    and step < int(NS_ITERS_WARMUP_FRAC * train_steps)
                 ),
                 "train/ns_schedule/cumulative_iters": ns_cumulative_iters,
             }
