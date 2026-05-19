@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-19 20:55 UTC
+- **Last update:** 2026-05-19 22:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -17,7 +17,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 **Arm A `89lpkhfc`** (MLP-WD=0.05, ATTN-WD=0): sr=2925, val=3.2622 → Δsr=−12.5 ✓, Δval=−0.00208 ✓. **First body-Muon structural partition signal ever.**
 **Seed-2 `qpbwahok` RUNNING step 500/3250** — ETA ~2.5h to terminal. If confirms (sr≤2925, val stat-sig at n=2 threshold 3.277), merge as new baseline.
 
-## Axes CLOSED this cycle (11:48–20:55 UTC)
+## Axes CLOSED this cycle (11:48–22:00 UTC)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
@@ -31,28 +31,29 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#460** | alphonse | scalar_lr fine-scan {0.020,0.030} symmetric +37.5 sr both, Δval +0.0024 both. 0.025 confirmed local optimum. | CLOSED 19:38 UTC |
 | **#463** | askeladd | Embed eps scan {1e-8, 1e-7} clean monotone NULL. eps=1e-10 confirmed optimal. | CLOSED 20:01 UTC |
 | **#466** | edward | Aux WD scan {0.001, 0.01} clean monotone NULL (Δsr +12.5/+37.5, Δval +0.0013/+0.0007). aux WD=0 confirmed. | CLOSED 20:25 UTC |
-| **#465** | fern | Body-Muon lr fine-scan {0.030, 0.040} symmetric NULL (Δsr=+62.5 both, Δval +0.005/+0.003). lr=0.035 confirmed locally optimal. | **CLOSED 20:51 UTC** |
+| **#465** | fern | Body-Muon lr fine-scan {0.030, 0.040} symmetric NULL (Δsr=+62.5 both, Δval +0.005/+0.003). lr=0.035 confirmed locally optimal. | CLOSED 20:51 UTC |
+| **#480** | tanjiro | Attn-scale scan {0.09, 0.15} asymmetric NULL (A: Δsr +87.5/Δval +0.006; B: Δsr +37.5/Δval +0.002 marginal). attn_scale=0.12 confirmed. | **CLOSED 21:59 UTC** |
 
-## Active experiments (8 students, 20:55 UTC)
+## Active experiments (8 students, 22:00 UTC)
 
 | PR | Student | Run | Step | bl | Status |
 |---|---|---|---|---|---|
-| **#505** | **fern** | (awaiting pickup) | — | — | **NEW — Lookahead wrapper on body-Muon k∈{5, 10}, α=0.5. First wrapper-class test on body-Muon.** |
+| **#511** | **tanjiro** | (awaiting pickup) | — | — | **NEW — NS_ITERS scan {10, 14} vs baseline 12. Preconditioner-quality axis, diversifies away from body-Muon partition cluster.** |
+| **#505** | fern | (awaiting pickup) | — | — | Lookahead wrapper on body-Muon k∈{5, 10}, α=0.5 |
 | **#503** | edward | (awaiting pickup) | — | — | Body-Muon WD schedule warmup-25pct vs cooldown-25pct |
 | **#502** | askeladd | (awaiting pickup) | — | — | PMuon body β_cov scan {0.90, 0.99} vs 0.95 |
-| **#499** | alphonse | `vrmveqoe` Arm A | ~775 | 3.73 | Body-Muon LR partition MLP=0.042/ATTN=0.028 |
-| **#486** | nezuko | `u23wjr7m` Arm B | ~575 | 3.84 | Skylight TARGET_UW=0.45 (Arm A fs=3025 NULL) |
-| **#482** | frieren | `qpbwahok` seed-2 | ~875 | 3.68 | n=2 confirmation of Arm A marginal win |
-| **#480** | tanjiro | `mwxt9pc0` Arm B | ~2375 | 3.36 | attn-scale=0.15 trending NULL (Arm A fs=3025 clear NULL) |
-| **#476** | thorfinn | `a6375en7` Arm B | ~2275 | 3.40 | z-loss=1e-3 trending NULL (Arm A fs=2975 marginal NULL) |
+| **#499** | alphonse | `vrmveqoe` Arm A | ~1700 | 3.51 | Body-Muon LR partition MLP=0.042/ATTN=0.028 |
+| **#486** | nezuko | `u23wjr7m` Arm B | ~1525 | 3.57 | Skylight TARGET_UW=0.45 (Arm A fs=3025 NULL) |
+| **#482** | frieren | `qpbwahok` seed-2 | ~1800 | 3.475 | n=2 confirmation of Arm A marginal win (PRIMARY SIGNAL) |
+| **#476** | thorfinn | `a6375en7` Arm B | ~3200 | 3.285, fs=-1 | z-loss=1e-3 trending clear NULL (target not hit). Close-ready in ~3 min. |
 
-## Next terminal events (from 20:55 UTC)
+## Next terminal events (from 22:00 UTC)
 
-1. **tanjiro/thorfinn Arm Bs** — ~10-15 min to terminal (both tracking clear NULL).
-2. **frieren seed-2** — ~2h to terminal (PRIMARY SIGNAL).
-3. **alphonse #499** — ~2h to terminal.
-4. **nezuko Arm B** — ~2.5h to terminal.
-5. **edward #503, askeladd #502, fern #505** — depend on pickup.
+1. **thorfinn `a6375en7`** — step 3200, ~3 min to terminal (target never hit, fs=-1).
+2. **frieren seed-2** — ~1h to terminal (PRIMARY SIGNAL).
+3. **alphonse #499** — ~1.3h to terminal.
+4. **nezuko Arm B** — ~1.5h to terminal.
+5. **edward #503, askeladd #502, fern #505, tanjiro #511** — depend on pickup.
 
 ## Recently merged
 
@@ -61,17 +62,18 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#413** | alphonse | scalar_lr=0.025: n=2 sr=2937.5, val=3.264278 (Δsr=−37.5, Δval=−0.002942) | **MERGED 11:48 UTC** — current baseline. |
 | **#367** | frieren | lm_head_lr=1/160: n=2 sr=2975 val=3.26722 | MERGED — prior baseline. |
 
-## Current research focus (updated 20:55 UTC)
+## Current research focus (updated 22:00 UTC)
 
-**Per-substructure mechanism class is the live frontier.** Frieren #482 Arm A (MLP-WD=0.05 / ATTN-WD=0) crossed sr ≤ 2925 with stat-sig val at n=1. Seed-2 (`qpbwahok`) running step 875/3250. Active orthogonal axes:
+**Per-substructure mechanism class is the live frontier.** Frieren #482 Arm A (MLP-WD=0.05 / ATTN-WD=0) crossed sr ≤ 2925 with stat-sig val at n=1. Seed-2 (`qpbwahok`) running step 1800/3250 (~1h to terminal). Active orthogonal axes:
 
 1. **Body-Muon WD partition** (frieren #482 — seed-2 running)
-2. **Body-Muon LR partition** (alphonse #499 — RUNNING)
+2. **Body-Muon LR partition** (alphonse #499 — running)
 3. **PMuon β_cov scalar scan** (askeladd #502 — awaiting pickup)
 4. **Body-Muon WD schedule** (edward #503 — awaiting pickup)
-5. **Lookahead wrapper on body-Muon** (fern #505 — awaiting pickup, NEW wrapper-class)
+5. **Lookahead wrapper on body-Muon** (fern #505 — awaiting pickup, wrapper-class)
+6. **NS_ITERS scan** (tanjiro #511 — awaiting pickup, preconditioner-quality diversifier)
 
-**Pattern emerging:** scalar axes saturate at inherited defaults. 11 axes closed this cycle: {scalar_lr, NS adaptive threshold, β2-by-group, β1, logit soft-cap, embed init, γ_power, cooldown_frac aux, embed eps, aux WD, body-Muon lr fine}. Aux AdamW scalars fully audited; body-Muon scalars fully audited. **Body-Muon structural+temporal+wrapper mechanisms are the live exploration frontier.**
+**Pattern emerging:** scalar axes saturate at inherited defaults. 12 axes closed this cycle: {scalar_lr, NS adaptive threshold, β2-by-group, β1, logit soft-cap, embed init, γ_power, cooldown_frac aux, embed eps, aux WD, body-Muon lr fine, attn_scale}. Aux AdamW scalars fully audited; body-Muon scalars fully audited; architectural scalars (attn_scale, embed init, logit soft-cap) all at inherited defaults. **Body-Muon structural+temporal+wrapper mechanisms + preconditioner quality are the live exploration frontier.**
 
 ## Open unexplored axes (candidate next assignments)
 
