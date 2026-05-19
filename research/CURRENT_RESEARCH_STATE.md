@@ -14,38 +14,33 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`.
 
 Win conditions: sr<2937.5 (i.e. ≤2925) OR (sr=2925 AND val<3.264278). Marginal (Δsr≤25 OR Δval≤0.001) → n=2 required.
 
-## Active experiments (8 students, full coverage)
+## Active experiments (8 students, full coverage) — 13:40 UTC W&B poll
 
-| PR | Student | Mechanism | Status (13:40 UTC) |
-|---|---|---|---|
-| **#466** | **edward** | Aux AdamW WD scan: {0.001, 0.01} on embed+lm_head matrices (first WD test on aux). Replaces β2-by-group axis (closed) | **Arm A `p9teuxjm` step 75, bl=10.83** — duplicate process flagged (`7byby1lu`). |
-| **#465** | **fern** | Muon LR fine-scan: {0.030, 0.040} vs baseline 0.035 — highest-value unscanned axis. Replaces NS adaptive (closed) | Student polled in at 12:43 UTC; awaiting first launch (no W&B run yet). |
-| **#463** | **askeladd** | Adam embed eps scan: {1e-8, 1e-7} vs baseline 1e-10. Tests sparse-gradient eps interaction | **Arm A `rsl6ijrg` step 225, bl=4.47** — TWO duplicate processes flagged (`8vni726z`, `jdhgubwr`) — step rate degraded ~3-4×. |
-| **#460** | **alphonse** | scalar_lr fine-scan {0.020, 0.030} brackets confirmed 0.025 winner | **Arm A `a7bmaf65` step 625, bl=3.74** — duplicate flagged (`oc9i5l5d`). Step rate degraded ~2×. |
-| **#448** | **nezuko** | Decoupled cooldown_frac: Arm A cf-aux=0.5 NULL (sr=2975 val=3.26521). Arm B cf-aux=0.85 (LONGER aux cooldown) | **Arm B `taremaia` step 250, bl=4.05** — no duplicates but step rate ~17.5s/step (unclear cause). |
-| **#444** | **frieren** | PMuon γ_power phase schedule. **Arm A NULL (sr=2975 val=3.26760, Δval=+0.00038).** Arm B (γ=0.4→0.5 ramp) | **Arm B `894sq3ig` step 900, bl=3.69** — launched at 11:40 UTC, ~5h to terminal at current rate. |
-| **#440** | **tanjiro** | Embed init scale scan. **Arm A NULL (sr=3000 val=3.26878).** Arm B std=2.0 | **Arm B `xt1o5rce` step 1750, bl=3.48** (~2.4h to terminal at 5.8s/step). |
-| **#439** | **thorfinn** | Logit soft-cap scan. **Arm A NULL (c=10 sr=3050 val=3.27316).** Arm B c=30 | **Arm B `3ek9yl3d` step 2100, bl=3.43** (~1.8h to terminal at 5.7s/step). |
+| PR | Student | Run | Step | bl | Rate | ETA term | Status |
+|---|---|---|---|---|---|---|---|
+| **#439** | thorfinn | `3ek9yl3d` Arm B c=30 | 2925 | 3.2883 | 4.17s | **~23 min** | **Cooldown WORKING** — bl trending −0.005/50 steps. Could beat baseline (needs −0.024 more). |
+| **#440** | tanjiro | `xt1o5rce` Arm B std=2.0 | 2625 | 3.3211 | 3.94s | ~41 min | bl=3.32 — likely NULL |
+| **#444** | frieren | `894sq3ig` Arm B γ ramp 0.4→0.5 | 1725 | 3.5004 | 4.15s | ~106 min | Stable progression |
+| **#460** | alphonse | `a7bmaf65` Arm A scalar_lr=0.020 | 1475 | 3.5620 | 4.22s | ~125 min | Stable progression |
+| **#448** | nezuko | `taremaia` Arm B cf-aux=0.85 | 1100 | 3.6476 | 4.19s | ~150 min | Stable progression |
+| **#463** | askeladd | `jdhgubwr` Arm A embed-eps=1e-8 | 875 | 3.6866 | 4.01s | ~159 min | Stable (post-cleanup canonical) |
+| **#465** | fern | `jyizvqdk` Arm A muon-lr=0.030 | 750 | 3.6964 | 4.25s | ~177 min | Stable progression |
+| **#466** | edward | `p9teuxjm` Arm A aux-wd=0.001 | 850 | 3.7204 | 4.49s | ~180 min | Stable progression |
 
-## Operational alert (13:40 UTC)
+**Cluster step rate recovered** to ~4-4.5 s/step — earlier duplicate-process degradation appears resolved (no longer ~36s/step).
 
-Three students have duplicate processes flagged via advisor comment — students need to SIGKILL the duplicates so canonical runs can recover step rate:
-- **alphonse** PR #460: kill `oc9i5l5d` (step 0, stalled)
-- **askeladd** PR #463: kill `8vni726z` and `jdhgubwr` (both step 0/None, stalled)
-- **edward** PR #466: kill `7byby1lu` (step 0, stalled)
+## Next terminal events (from 13:40 UTC W&B heartbeat)
 
-The duplicates appear to be student-side re-launches that didn't kill the original. Canonical runs are progressing but at degraded step rate (~2-4× slower than expected ~5.7s/step). No data loss — duplicates are at step 0.
+1. **thorfinn 3ek9yl3d** (Arm B soft-cap c=30) — **~14:03 UTC** (23 min). bl=3.2883, needs −0.024 more to beat baseline 3.264278. Cooldown is reducing bl 5-7×10⁻³ per 50 steps. **Plausible WIN candidate.**
+2. **tanjiro xt1o5rce** (Arm B embed init std=2.0) — ~14:20 UTC. bl=3.32, trending NULL.
+3. **frieren 894sq3ig** — ~15:25 UTC.
+4. **alphonse a7bmaf65** — ~15:44 UTC.
+5. **nezuko taremaia** — ~16:09 UTC.
+6. **askeladd jdhgubwr** — ~16:18 UTC.
+7. **fern jyizvqdk** — ~16:36 UTC.
+8. **edward p9teuxjm** — ~16:39 UTC.
 
-## Next terminal events (estimates from 13:40 UTC; subject to step-rate recovery after duplicate cleanup)
-
-1. **thorfinn 3ek9yl3d** (Arm B soft-cap c=30) — ~110 min (15:30 UTC) at 5.7s/step
-2. **tanjiro xt1o5rce** (Arm B embed init std=2.0) — ~145 min (16:05 UTC) at 5.8s/step
-3. **alphonse a7bmaf65** (Arm A scalar_lr=0.020) — ~4.4h if degraded persists, ~4h if cleaned
-4. **frieren 894sq3ig** (Arm B γ phase 0.4→0.5) — ~5h (~18:40 UTC) at 7.7s/step
-5. **edward p9teuxjm** (Arm A aux-wd=0.001) — depends on duplicate cleanup
-6. **askeladd rsl6ijrg** (Arm A embed-eps=1e-8) — depends on duplicate cleanup
-7. **nezuko taremaia** (Arm B cf-aux=0.85) — depends on contention resolution
-8. **fern muon-lr-fine-scan Arm A** — pending student launch
+All 8 runs should terminate within next ~3h. Heavy review cycle ahead.
 
 ## Recently merged
 
