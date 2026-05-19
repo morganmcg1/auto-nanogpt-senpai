@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 08:12 UTC — PR #409: Per-block LR decay (LLRD) for Muon (thorfinn) — CLOSED productive-null ✅ (per-block Muon LR axis closed)
+
+- Branch: `g1r4-thorfinn/muon-llrd`
+- Hypothesis: Depth-dependent Muon LR: `lr_i = 0.035 × decay^(i/11)`. Sweep decay ∈ {1.0 control, 0.85, 0.7, 1.2}.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | DECAY | block_0 LR | block_11 LR | val | Δ vs A | Δ vs baseline (3.27200) | fs | W&B |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| A (control) | 1.0 | 0.0350 | 0.0350 | **3.27266** | — | **+0.00066 ✓** (drift) | 3250 | `ge03y1j7` |
+| **B** | 0.85 | 0.0350 | 0.0297 | **3.27228** | **−0.00038** | +0.00028 | **3225** | `9s1oyyxc` |
+| C | 0.7 | 0.0350 | 0.0245 | 3.27395 | +0.00129 | +0.00195 | 3250 | `xdu2egnj` |
+| D | 1.2 | 0.0350 | 0.0420 | 3.27456 | +0.00190 | +0.00256 | 3275 | `2evjf9in` |
+
+### Key findings
+
+1. **Arm B (decay=0.85) best**: Δ=−0.00038 vs A is inside the productive-null band (|Δ| ≤ 0.0015). fs=3225 vs A=3250 is a −25 step nominal improvement, but well within seed variance.
+2. **Non-monotone shape**: B (0.85, mild decay) edges A barely; C (0.7, deeper) reverses; D (1.2, inverse) regresses more. No clean LLRD signal in either direction.
+3. **Mechanism**: Muon's Newton-Schulz orthogonalization already normalizes per-block step magnitudes. The effective update norm is controlled by the NS polynomial, not the raw LR. Depth-dependent LR scaling is largely neutralized by NS normalization — distinct behavior from LLRD in standard Adam-trained transformers where per-layer gradient norms vary systematically.
+4. **Both directions closed**: decay <1 (standard LLRD: later layers get less LR) AND decay >1 (inverse: later layers get more LR) both fail to improve.
+
+### Verdict
+
+Per-block Muon LR axis CLOSED. 12th productive-null this cycle. Per-block hyperparameter axes for Muon appear uniformly absorbed by NS normalization.
+
+---
+
 ## 2026-05-19 07:36 UTC — PR #411: Gradient noise injection (alphonse) — CLOSED productive-null ✅ (noise degrades on all scales)
 
 - Branch: `g1r4-alphonse/gradient-noise-injection`

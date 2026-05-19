@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 07:40 UTC
+- **Date:** 2026-05-19 08:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -138,13 +138,18 @@ All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down
 | Confirm pod0 (original) | orig | B | 3.27026 vs A 3.27242 | −0.00216 |
 | pod1-A | pod1 | A | 3.27362 | — |
 | pod1-B | pod1 | B | 3.27198 | **−0.00164** |
-| pod2-B | pod2 | B | **running (step 2825/3350, 84%, ETA ~07:58 UTC)** | TBD |
-| pod2-A | pod2 | A | queued after pod2-B (~09:50 UTC) | TBD |
+| pod2-B | pod2 | B | **3.27298** (W&B: hckhwnib, FINISHED) | pod2 Δ TBD (pod2-A running) |
+| pod2-A | pod2 | A | **running** (step 325/3350, 7.5%, ETA ~09:45 UTC) — W&B: 4zfxea47 | TBD |
 
-Pooled n=2 W&B verified: mean(A)=3.273018, mean(B)=3.271118, Δ=**−0.001900** (exactly at −0.002 threshold).
-**Pod-2 is decisive**: if pod2-B vs pod2-A Δ ≤ −0.002, final n=3 pooled Δ crosses threshold → MERGE; if Δ > −0.002, productive-null.
+**Updated pooled n=3 (B fully, A at n=2)**:
+- mean(B, n=3) = (3.27026 + 3.27198 + 3.27298) / 3 = **3.27174** ≤ 3.27200 ✓
+- mean(A, n=2) = 3.273018 so far
+- Pod2 Δ will be: 3.27298 − pod2-A. For merge: need final Δ large enough so that n=3 pooled Δ ≤ −0.002.
+
+**Critical analysis**: mean(B,n=3)=3.27174 passes baseline threshold. But Δ gate requires mean(A,n=3) ≥ 3.27374 to achieve mean Δ ≤ −0.002. If pod2-A finishes ≈ 3.272–3.274 (consistent with pod0/pod1), final mean(A,n=3) ≈ 3.273, giving Δ ≈ −0.0015 → **NULL**. Only pod2-A finishing ≥ 3.276 would flip the decision to MERGE.
+
 **Pre-staged decision rule** (n=3 pool): Paired mean Δ_B ≤ −0.002 AND mean(val_B) ≤ 3.27200 → MERGE; else productive-null.
-**ETA full chain:** ~09:50 UTC (pod2-A terminal).
+**ETA full chain:** ~09:45 UTC (pod2-A terminal).
 
 ### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
 All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).
@@ -154,16 +159,27 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 All 4 arms terminal. Non-monotone result: arm D (0.60, more extreme) regressed less than arm C (0.55), indicating C was single-seed outlier. Axis flat across center ∈ [0.43, 0.60]; default 0.49 confirmed within noise. NS coef center family fully characterized; combined with #345 depth and #290 schedule sweep, NS coef polynomial fully mapped.
 **Follow-up**: thorfinn assigned #409 Per-block LR decay (LLRD) for Muon.
 
-### 🔄 thorfinn #409 — Per-block LR decay (LLRD) for Muon — partial results
-**Branch:** `g1r4-thorfinn/muon-llrd`
-Arms A (3.27191, Δ=−0.00009, drift ✓), B (3.27228, Δ=+0.00037 vs baseline), C (3.27395, Δ=+0.00195 vs baseline) terminal. Arm D (decay=1.2) still running.
-| Arm | decay | val | Δ vs baseline | W&B |
+### ✅ thorfinn #409 — Per-block LR decay (LLRD) for Muon — CLOSED 08:12 UTC productive-null ✅
+All 4 arms terminal. Non-monotone: B (decay=0.85) barely edges A (Δ=−0.00038, inside null band), C (0.7) regresses +0.00129, D (1.2 inverse) regresses +0.00190. No arm crosses the ±0.002 real-signal threshold. Arm-B's −25 step fs improvement is within seed noise.
+| Arm | decay | val | Δ vs A | W&B |
 |---|---:|---:|---:|---|
-| A (control) | 1.0 | 3.27191 | −0.00009 ✓ | `j8e9n...` |
-| B | 0.85 | 3.27228 | +0.00028 | `9s1oyyxc` |
-| C | 0.7 | 3.27395 | +0.00195 | `xdu2egnj` |
-| D | 1.2 | pending | — | — |
-Monotone worsening with deeper decay: less decay → worse. Arm-B (mild) and C (moderate) both above baseline. Shaping toward productive-null — lower layers do NOT benefit from higher LR relative to upper layers on this stack. Arm D (inverse: 1.2×) still needed to complete the picture.
+| A (control) | 1.0 | 3.27266 | — | `ge03y1j7` |
+| B | 0.85 | 3.27228 | −0.00038 | `9s1oyyxc` |
+| C | 0.7 | 3.27395 | +0.00129 | `xdu2egnj` |
+| D | 1.2 | 3.27456 | +0.00190 | `2evjf9in` |
+Mechanism: NS orthogonalization normalizes per-block update magnitudes; depth-dependent LR scalar is redundant. **Per-block Muon LR axis CLOSED** (both standard and inverse LLRD).
+**Follow-up**: thorfinn assigned #446 Label smoothing sweep (α∈{0.05,0.1,0.2}).
+
+### 🔄 thorfinn #446 — Label smoothing sweep [assigned 08:14 UTC]
+**Branch:** `g1r4-thorfinn/label-smoothing`
+**Hypothesis**: Replace hard one-hot CE targets with soft distribution: target_smoothed = (1−α)·one_hot + α/V. Penalizes over-confidence, provides implicit regularization. Loss-side mechanism, orthogonal to all optimizer/gradient axes. Training uses smoothed loss; val/loss MUST report un-smoothed CE for fair benchmark comparison.
+| Arm | NANOGPT_LABEL_SMOOTHING | Interpretation |
+|---|---|---|
+| A | 0.0 (control) | Hard targets; drift gate |
+| B | 0.05 | Light smoothing |
+| C | 0.10 | PaLM/T5/LLaMA standard |
+| D | 0.20 | Aggressive |
+**ETA full chain:** ~7.3h.
 
 ### ✅ edward #374 — Embed init scale sweep — CLOSED 19:30 UTC productive-null
 Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, still inside null band). RMSNorm + AdamW β2=0.99 + grad clip absorb embed magnitude — final norms converge to ~77k within 1.8% regardless of 4× init range. Embed init scale axis CLOSED.
@@ -266,8 +282,8 @@ W&B: A=`ftmvjt0j`, B=`2oykn4sw`, C=`hj3eic3y`, D=`2hsm3pp5`.
 ## Potential next research directions
 
 ### Active winner candidates — both in paired-pod confirmation
-1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393 arm-B. Val=3.27026, Δ=−0.00174 vs baseline. **Strongest single-seed winner candidate in portfolio.** Pod-2-B running now (ETA 07:28 UTC); full chain done ~09:19 UTC. Pre-staged rule: mean(B,n=3) ≤ 3.27200 AND mean Δ_B ≤ −0.002 → MERGE. Pod1 shrank Δ to −0.00163 (n=2 pooled Δ=−0.001895). **Pod-2 is critical.**
-2. **Adaptive Gradient Clipping (AGC, λ=0.01)** — fern #408 arm-B. Val=3.27063, Δ=−0.00137 vs baseline. B/C plateau (both λ∈{0.01,0.03} show 99.4% trigger rate). Paired-pod chain launched 06:39 UTC, ETA ~13:40 UTC.
+1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393. mean(B,n=3)=3.27174 ✓, mean(B,n=2)=−0.001900. **Pod-2-A running (ETA 09:45 UTC)** — LAST pod in chain. If pod2-A ≥ 3.276, pooled Δ flips to MERGE; if ~3.272–3.274 (most likely), Δ ≈ −0.0015 → NULL. Signal is REAL but shrinking across pods; outcome uncertain.
+2. **Adaptive Gradient Clipping (AGC, λ=0.01)** — fern #408 arm-B. Val=3.27063, Δ=−0.00137 vs baseline. B/C plateau both passing single-seed threshold. Paired-pod chain in progress, ETA ~13:40 UTC.
 
 ### Shaping toward productive-null
 3. **LLRD Muon** — thorfinn #409. Arms B (Δ=+0.00028) and C (Δ=+0.00195) both above baseline. Monotone worsening with deeper decay. Arm D (1.2× inverse) pending — will determine if inverse direction helps.
