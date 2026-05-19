@@ -3,6 +3,41 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 13:08 UTC — PR #436: Weight-EMA (Polyak averaging) of weights for val eval (frieren) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-frieren/weight-ema`
+- Hypothesis: Maintain an EMA buffer of model weights with a tunable decay; swap EMA→model weights at val eval to smooth out cooldown-phase stochastic fluctuations. Mechanism orthogonal to AdamW v-EMA (second moments), Lookahead (slow weights), and AdEMAMix (EMA in gradient space).
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | decay | half-life (steps) | val/loss EMA | Δ_EMA vs A | val/loss live | Δ_live vs A |
+|---|---|---:|---:|---:|---:|---:|
+| A (control) | 0.0 (off) | — | 3.27449 | (control) | 3.27449 | (control) |
+| B | 0.999 | ~693 | 3.36639 | +0.09190 | 3.27328 | −0.00121 |
+| C | 0.9999 | ~6932 | **4.68248** | **+1.40799** | 3.27262 | −0.00187 |
+| D | 0.99 | ~69 | 3.27918 | +0.00469 | 3.27395 | −0.00054 |
+
+W&B runs: e7qcs27m (A), snny3mnk (B), hnsh02ew (C), pdf5vtjq (D). Group `frieren_weight_ema`.
+
+### Key findings
+
+1. **The cooldown phase is signal, not noise.** Four independent live-weights trajectories (A=3.27449, B-live=3.27328, C-live=3.27262, D-live=3.27395) cluster in a 0.00187 band (consistent seed noise). The damage in B/C/D is entirely the EMA-buffer-vs-live divergence at eval time, not training degradation.
+2. **Damage scales monotonically with averaging-window length.** Even half-life=69 steps (only ~2% of training) lags far enough to hurt eval. By step ~3275, the (live − EMA) gap **flips positive** in arm D — EMA-D is lagging the still-improving cooldown rather than smoothing it. C's plateau at 4.68 is the time-averaged val_loss of the run's trajectory.
+3. **Pre-registered productive-null risk landed in the productive-NEGATIVE direction**: EMA-as-eval is read-out-only (no training effect), so it merely replaces live-final weights with an averaged buffer that is necessarily further from the cooldown-end optimum unless decay→0 (in which case EMA = live trivially).
+4. **Marginal arm A drift gate** (val_A=3.27449 vs new baseline 3.27174: Δ=+0.00275, edge of ±0.003 band). Live-trajectory clustering across all arms suggests the gate is informative; within-pod Δs are interpretable.
+
+### Mechanism takeaway for the cycle
+
+This is now the 13th productive-null/negative on opt-internal/parameter-space axes (cautious AdamW #419, AdEMAMix #399, LLRD #409, β2 sensitivity #407, AdamW ε #322, grad-noise #411, GC #402, Lookahead #434 in flight regression-monotone, weight-EMA #436 closed). Multiple in-flight ideas (NS late_peak #285, NS coef ramp #290, embed linear_floor #235) all point at the cooldown as **load-bearing and precision-sensitive, not noisy**.
+
+### Suggested follow-ups (from student)
+
+- Inversion-point sentinel metric (live − EMA gap flip sign) as diagnostic for any future EMA-of-weights retest
+- Orthogonal-to-cooldown axes (init scaling, attention LR warmup, NS quintic-coef seed) — more likely to find gains than post-hoc smoothing
+- Possibly revisit if cooldown shape ever softens (non-monotonic LR or flat full-LR tail) — currently the stack sharpens late phase, the opposite regime where EMA helps
+
+---
+
 ## 2026-05-19 09:30 UTC — PR #393: Per-group AdamW LR multiplier sweep (nezuko) — MERGED ⭐ (val 3.27200 → 3.27174)
 
 - Branch: `g1r4-nezuko/pergroup-adamw-lr`

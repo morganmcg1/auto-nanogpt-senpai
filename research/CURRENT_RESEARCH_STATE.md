@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 09:42 UTC
+- **Date:** 2026-05-19 13:10 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -60,17 +60,20 @@ Pod-1 Δ=−0.00419 collapsed to n=3 pooled Δ=−0.000877 (79% shrinkage). Sign
 All 4 arms within null band (max |Δ|=0.00111). Faint monotone B(all) > C(adam) > D(muon) ≈ A ordering — GC subtracts useful signal from AdamW aux gradients. NS orthogonalization on Muon side already approximately mean-centers block weight gradients. Post-#290 stack saturated on gradient-preprocessing axes: grad clip, per-group LR, NS spec tightening, β2=0.99 all jointly absorb any remaining mean-subtraction gain.
 **Follow-up**: frieren assigned #436 EMA of weights (Polyak averaging).
 
-### 🔄 frieren #436 — EMA of weights (Polyak averaging) [assigned 04:43 UTC]
-**Branch:** `g1r4-frieren/weight-ema`
-**Hypothesis**: Maintain parallel θ_ema = β·θ_ema + (1−β)·θ accumulator; use θ_ema for val_loss evaluation (not for training). Orthogonal to all closed gradient/moment-space mechanisms (AdEMAMix closed #399 — that was gradient EMA; this is weight EMA). Operating in weight-trajectory space, not gradient space. Sweep decay ∈ {off, 0.999, 0.9999, 0.99}.
-| Arm | decay | Half-life | Interpretation |
-|---|---|---|---|
-| A | 0.0 (off) | — | Control / drift gate |
-| B | 0.999 | ~700 steps | Moderate — averages last ~30% of training |
-| C | 0.9999 | ~7000 steps | Long — near-full-training average |
-| D | 0.99 | ~70 steps | Short — last ~3% of training |
+### ✅ frieren #436 — EMA of weights (Polyak averaging) — CLOSED 13:08 UTC productive-NEGATIVE ✅
+All 4 arms terminated. EMA-eval hurts at every decay; damage scales monotonically with averaging-window length (D=+0.005, B=+0.092, C=+1.408). **Key finding**: cooldown phase is signal, not noise — live trajectories cluster in 0.00187 band across all 4 independent runs (A=3.27449, B-live=3.27328, C-live=3.27262, D-live=3.27395). Even half-life=69 steps is sufficient to lag behind the still-descending cooldown and hurt eval. The (live−EMA) gap flips positive at step ~3275 in arm D — EMA is lagging the cooldown trajectory rather than smoothing noise.
+**Follow-up**: frieren assigned **#470 NS_ITERS normal-phase sweep** (NANOGPT_NS_ITERS ∈ {8, 10, 12, 14}; first time sweeping normal-phase NS precision; cooldown NS unchanged).
 
-**ETA full chain:** ~7.5h.
+### 🔄 frieren #470 — NS iterations NORMAL phase sweep [assigned 13:10 UTC]
+**Branch:** `g1r4-frieren/ns-iters-normal`
+**Hypothesis**: NANOGPT_NS_ITERS=12 during normal (pre-cooldown) phase has been default since boot, never swept. Test precision/compute trade-off: lower NS saves compute (NS=8/10), higher NS tests if precision floor is below current (NS=14). NS_ITERS_COOLDOWN=16 unchanged across all arms.
+| Arm | NS_ITERS (normal) | Rationale |
+|---|---|---|
+| A | 12 (control) | drift gate against baseline 3.27174 |
+| B | 8 | compute-saver — tests if NS=12 past saturation |
+| C | 10 | mild compute-saver |
+| D | 14 | compute-spender — tests if precision floor below 12 |
+**ETA full chain:** ~7.3h. No code changes — pure env-var sweep.
 
 ### ✅ alphonse #411 — Gradient noise injection (Neelakantan 2015) — CLOSED 07:36 UTC productive-null ✅
 All 4 arms terminal. Non-monotone regression: B/C/D all degrade val by +0.0014 to +0.0020 vs control. Noise hurts at any σ. Post-#290 stack fully regularized (β2=0.99 + NS stochasticity + LR schedule); explicit Gaussian gradient noise just removes signal.
