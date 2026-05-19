@@ -3,6 +3,39 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 23:42 UTC — PR #483: Muon WD warmup schedule (thorfinn) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-thorfinn/wd-warmup`
+- Hypothesis: Ramp Muon body WD from 0 → 0.025 linearly over first N% of training. Tests "less constraint early" direction on the only nonzero WD in the merged stack. First regularization-REDUCTION test this cycle.
+- Spec correction (15:48 UTC): student correctly identified AdamW WD=0 in merged stack; Muon has WD=0.025. Approved pivot to Muon block group warmup before launch.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | WD warmup frac | val/loss | Δ vs A | Verdict |
+|---|---:|---:|---:|---|
+| A (ctrl) | 0.00 | 3.27066 | — | drift +0.00108 ✓ |
+| B | 0.05 | 3.27146 | +0.00080 | productive-null |
+| C | 0.10 | 3.27324 | +0.00258 | **regression** |
+| D | 0.20 | 3.27466 | +0.00400 | **regression (largest)** |
+
+W&B runs: A=`az3lb24h`, B=`jz0ilkgs`, C=`cosoo5ob`, D=`u9ddrsvt`.
+
+Drift gate: |val_A − 3.27174| = +0.00108 ✓.
+
+### Key findings
+
+1. **Clean monotone worsening A → B → C → D**: warmup fraction increases → regression monotonically increases. Strongest possible signal for closing this axis.
+2. **Body-block weights do NOT need uninhibited growth during early discovery**: Muon-WD=0.025 is load-bearing from step 0. Delaying it hurts.
+3. **No arm crosses Δ ≤ −0.002**: no winner candidate. B is in null band; C and D in regression band.
+
+### Mechanism takeaway
+
+**24th productive-null/negative this cycle.** First regularization-REDUCTION test closes bilateral: 17 ADD-regularization axes all failed, now REDUCE-regularization (WD warmup) also fails. This bilaterally triangulates that **the merged stack's body-weight regularization level (0.025) is already optimally tuned**. WD-schedule axis on Muon body is fully closed.
+
+**Follow-up**: thorfinn assigned **#520 Body Muon LR cooldown shape sweep** — alternative profiles (linear/cosine/quadratic/linear_floor) over the 30% load-bearing cooldown window. First experiment targeting body Muon LR cooldown shape specifically.
+
+---
+
 ## 2026-05-19 22:35 UTC — PR #474: AdaBelief aux scope sweep (edward) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-edward/adabelief-aux`

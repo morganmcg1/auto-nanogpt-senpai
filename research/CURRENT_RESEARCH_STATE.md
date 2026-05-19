@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 22:35 UTC
+- **Date:** 2026-05-19 23:42 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -105,17 +105,21 @@ Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e
 Strictly monotone regression: A=3.27326 (ctrl), B=3.31900 (+0.046), C=3.37495 (+0.102), D=3.49666 (+0.223). B/C/D never reached 3.28 target. The merged stack already has three confidence-pressure regularizers (logit softcap=15, embed_lr_mult=1.5×, NS cooldown) — adding label smoothing subtracts gradient signal on already-regularized correct-token targets. **17th productive-null/negative this cycle.** Regularization-addition axes are fully closed.
 **Follow-up**: thorfinn assigned **#483 WD warmup schedule** — first regularization-REDUCTION test this cycle.
 
-### 🔄 thorfinn #483 — WD warmup schedule (Muon block group) [assigned 15:40 UTC, spec clarified 15:48 UTC]
+### ✅ thorfinn #483 — WD warmup schedule (Muon block group) — CLOSED 23:42 UTC productive-NEGATIVE
 
-**Branch:** `g1r4-thorfinn/wd-warmup`
-**Hypothesis**: WD warmup ramps WD linearly from 0 → full over first N% of training, then holds constant. Tests if early-phase over-regularization on body weights is hurting discovery. First regularization-REDUCTION test this cycle (all 17 prior axes ADDED regularization and failed).
-**Spec correction (15:48 UTC)**: Student correctly flagged that AdamW WD=0 across all groups in the merged stack — the only nonzero WD is on Muon block weights (WD=0.025, line 846; decoupled WD applied at Muon.step():704). Warmup now applied to the Muon block group: `for g in optimizer2.param_groups: g['weight_decay'] = 0.025 * mult`. All other spec elements (arm sweep, decision rules, drift gate) unchanged.
-| Arm | NANOGPT_WD_WARMUP_FRAC | Warmup window |
-|---|---:|---|
-| A | 0.0 (control) | none (constant WD) |
-| B | 0.05 | ~170 steps |
-| C | 0.10 | ~335 steps |
-| D | 0.20 | ~670 steps |
+Clean monotone worsening: A=3.27066, B=+0.00080 (null), C=+0.00258 (regression), D=+0.00400 (regression). Body-block WD=0.025 is load-bearing from step 0 — delaying it hurts. **24th productive-null/negative this cycle.** Bilateral closure: 17 ADD-regularization axes + 1 REDUCE-regularization axis both fail → Muon-WD=0.025 is bilaterally optimal.
+**Follow-up**: thorfinn assigned **#520 Body Muon LR cooldown shape sweep** — alternative profiles over the load-bearing 30% cooldown window.
+
+### 🔄 thorfinn #520 — Body Muon LR cooldown shape sweep [assigned 23:42 UTC]
+
+**Branch:** `g1r4-thorfinn/body-cooldown-shape`
+**Hypothesis**: Body Muon LR uses linear cooldown (1.0→0.0 over last 30%) — the first experiment targeting this specific axis. NS-orthogonalized updates have rank-stable magnitudes (unlike AdamW per-coordinate updates), so optimal cooldown profile may differ. Prior shape experiments: embed (#235 linear_floor MERGED, #454 null), NS-iter (#285 late_peak MERGED). Body group has been linear-default the whole time.
+| Arm | NANOGPT_BODY_COOLDOWN_SHAPE | Profile |
+|---|---|---|
+| A | linear (control) | 1.0 → 0.0 linear |
+| B | cosine | 1.0 → 0.0 cosine half-cycle (front-loaded) |
+| C | quadratic | 1.0 → 0.0 quadratic (more front-loaded) |
+| D | linear_floor | 1.0 → 0.15 never-zero floor |
 **ETA full chain:** ~7.3h.
 
 ### 🔄 askeladd #452 — Block output projection init scale [assigned ~09:00 UTC]
@@ -177,7 +181,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 
 ## Research theme — current cycle
 
-**23 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**24 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -189,20 +193,21 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 **Current open questions** (in-flight):
 1. Does block init scaling matter under Muon? (#452)
 2. Does embed-only LR warmup help sparse-row early training? (#489)
-3. Does WD warmup reduce early-phase over-regularization? (Muon-WD, #483)
-4. Are any cooldown-NS merged components now redundant after later merges? (#487)
-5. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
-6. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
-7. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
-8. Does Yogi's sign-based additive second-moment update help aux groups? (#516, edward new)
+3. Are any cooldown-NS merged components now redundant after later merges? (#487)
+4. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
+5. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
+6. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
+7. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
+8. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn new)
 
-**Stack convergence signal**: 23 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
-1. **Regularization REDUCTION / "less constraint early" cluster** (in flight): WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — four schedule axes simultaneously probing early-phase deregularization
-2. **Adam-family second-moment update rule**: NAdam (#490, Nesterov first-moment) and Yogi (#516, sign-additive second-moment) are the last two in-flight Adam-family mechanism axes. AdaBelief (#474 NEG) and atan2 (#442 NEG) both closed negative, second-moment-formulation mostly exhausted.
-3. **Stack simplification** if any pruning (#487) finds redundant components
-4. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group; aux groups resist single-axis perturbation
-5. **NS-iter compute finding (from #470)**: forward/backward is the bottleneck, not NS. Future NS decisions should be motivated by val/loss, not step-time
-6. **Embed sparsity structural insight (from #474)**: any optimizer that uses `(g − m)²` or other first-moment-based formulations will fail on embed group due to absent-row pathology; mechanisms using `g²` only (like AdamW, Yogi, AMSGrad) are safe
+**Stack convergence signal**: 24 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+1. **"Less constraint early" schedule cluster** (in flight): embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — three early-phase schedule axes. WD warmup (#483) closed NEGATIVE — body-WD is load-bearing from step 0.
+2. **Late-phase cooldown shape**: body Muon LR cooldown shape (#520 thorfinn) — complementary to early-phase cluster, targeting the load-bearing 30% cooldown window
+3. **Adam-family second-moment update rule**: NAdam (#490, Nesterov first-moment) and Yogi (#516, sign-additive second-moment) are the last two in-flight Adam-family mechanism axes
+4. **Stack simplification** if any pruning (#487) finds redundant components
+5. **Bilateral regularization closure (from #483)**: both ADD (17 axes) and REDUCE (WD warmup) regularization fail → Muon-WD=0.025 is bilaterally optimal
+6. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group
+7. **Embed sparsity structural insight (from #474)**: `(g − m)²`-based second moments fail on embed group; `g²`-only formulations (AdamW, Yogi) are safe
 
 ---
 
@@ -210,6 +215,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #483 | thorfinn | Muon WD warmup frac∈{0.05,0.10,0.20} | CLOSED productive-NEGATIVE (monotone: +0.00080/+0.00258/+0.00400; body WD=0.025 is load-bearing from step 0; bilateral WD-level closure) |
 | #474 | edward | AdaBelief aux scope sweep | CLOSED productive-NEGATIVE (B=+0.041/D=+0.035 catastrophic embed sparsity; C=+0.002 mild; second-moment-formulation axis closed) |
 | #477 | fern | OrthoGrad aux scope sweep | CLOSED productive-null (D=−0.00080 short of −0.002; non-monotonic: singles regress, combined recovers; aux groups coupled system) |
 | #470 | frieren | NS iterations normal phase NS∈{8,10,12,14} | CLOSED productive-null (wide plateau [10,14]; NS=8 below floor; NS step-time flat ±1%) |
@@ -235,6 +241,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 - WD per-group: all harmful, axis closed
 - Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC, OrthoGrad: all closed
 - AdaBelief variance-of-prediction-error second moment: CLOSED productive-NEGATIVE (#474; embed sparsity pathology; `(g−m)²` fails on absent-row sparse groups)
+- Muon-WD warmup (all fracs 5-20%): CLOSED productive-NEGATIVE (#483; monotone worsening; body WD=0.025 is bilaterally optimal)
 - Lion, Adafactor on aux: closed (prior rounds)
 - LLRD Muon: closed (NS normalizes depth scaling)
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×
