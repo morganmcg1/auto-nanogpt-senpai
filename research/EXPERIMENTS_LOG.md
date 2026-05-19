@@ -1,3 +1,19 @@
+## 2026-05-19 05:30 UTC — PR #392 (CLOSED): Logit softsign cap sweep (15/10/30) — all NEG
+- Branch: `g1r3-fern/logit-soft-cap`
+- Hypothesis: Sweep softsign logit cap around hardcoded ±15. Arms: cap=15 (ctrl, bit-identical), cap=10 (tighter), cap=30 (looser).
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) | verdict |
+|---|---|---|---|---|
+| `6hideyt9` (cap=15 ctrl) | 3.27341 | 3150 | +0.00055 | baseline-equiv |
+| `tk0a5wdm` (cap=15 ctrl-v2) | 3.27451 | 3175 | +0.00165 | baseline-equiv |
+| `7ap085t3` (cap=10 tight) | 3.27933 | 3275 | +0.00647 (~10σ) | NEG |
+| `ahgrgeub` (cap=30 loose) | 3.28086 | **-1** | +0.00800 (~11σ) | NEG (failed 3.28 target) |
+
+- **Closed**: cap=15 is the local optimum; both directions worse. Loose cap=30 even fails to reach 3.28 — model can't recover convergence without strong soft-saturation pressure.
+- **Mechanistic read**: cap=15 trains pre_cap → 223 while post_cap pins at 14.97 (full asymptote). cap=30 allows pre_cap to stay at ~50 with post_cap only at ~26 (87% asymptote) — much weaker effective regularization. The model's "logit reach" is shaped by the cap it sees during training.
+- Saturated lever. Logit cap axis closed at this point.
+
 ## 2026-05-19 05:05 UTC — PR #421 (arm 1 ctrl): MuonH AGC clip_ratio=0.05 (control) — baseline-equivalent
 - Branch: `g1r3-nezuko/muonh-agc-clip-ratio-sweep`
 - Hypothesis context: Sweep MuonH inner AGC clip_ratio around merged default 0.05 (PR #329 baseline). Arm 1 ctrl = current production config.
