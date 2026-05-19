@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~00:45Z (poll #181)
+- **Last updated:** 2026-05-19 ~01:00Z (poll #182)
 - **Current baseline:** mu=3.271362, std=0.001181, n=6 (PR #162 merged)
   - ffs_mean=3141.67, ffs_best=3125. Statsig: `(3.271362 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.269362 | n=6: mu ≤ 3.269729 | n=8: mu ≤ 3.269948
@@ -13,10 +13,10 @@
      - **Trial 0 TERMINAL: val=3.267584, ffs=3100** ✅ (W&B step 3250)
      - **Trial 1 TERMINAL: val=3.269173, ffs=3100** ✅ (W&B step 6501)
      - **Trial 2 TERMINAL: val=3.267660, ffs=3100** ✅ (W&B step 9752)
-     - Trial 3 in progress (W&B step ~12156/13000, ~93.5%; relative 2406/3250 in trial 3)
+     - Trial 3 in progress (W&B step ~12628/13000, ~97%; relative 2878/3250 in trial 3)
    - **Running mean (T0+T1+T2)/3 = 3.268139** — well below n=4 gate (3.269362)
    - For n=4 confirm: T3 just needs ≤ 3.273031 (+1.4σ above mu — essentially any baseline-like seed)
-   - **ETA terminal ~15-20 min.** New baseline expected mu ≈ 3.268-3.270 (update pending T3).
+   - **ETA terminal ~10-12 min.** PR #371 still draft/wip; student must post terminal SENPAI-RESULT and mark for review. New baseline expected mu ≈ 3.268-3.270.
 
 2. **FRIEREN PR #346 lr_attn=0.025 P2 — Likely Clean-Neutral Close** ⚠️:
    - Full sweep: A(0.025)=3.2697 ffs=3125 -1.43σ, B/C flat, D/E degrading
@@ -28,7 +28,13 @@
    - Cell E `05xeeiv8` val=3.26932 ffs=3125 — P1 P2 trigger
    - **P2 `899b4f5m`: T0=3.270026 ffs=3125, T1=3.274355 ffs=3175** (running mean 3.272191)
    - For n=4 gate: T2+T3 average ≤ 3.265952 — implausible (~−4.6σ)
-   - Trial 2 in progress. Likely closes clean-neutral.
+   - Trial 2 at step ~2317/3250 (71%). T3 not yet started. Likely closes clean-neutral.
+
+4. **FRIEREN PR #346 T2 observed via W&B** ⚠️:
+   - **T2 ~3.272217** observed via W&B bucket scan (boundary step 9750, awaiting student SENPAI-RESULT confirmation)
+   - Running mean (T0+T1+T2)/3 ≈ 3.272868
+   - For n=4 gate: T3 needs ≤ 3.258844 — IMPOSSIBLE (~-10.5σ)
+   - T3 at step ~1226/3250 (38%). Will close clean-neutral.
 
 
 ## Active WIP Portfolio
