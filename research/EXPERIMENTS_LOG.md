@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-19 05:50 UTC — PR #404 CLOSED: Aux CP extend (CP=1.0 n=2 + CP=0.5 n=1) — both NULL on primary metric, axis closes (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/aux-cooldown-power-extend`
+- Hypothesis: Aux-side decoupled AUX_COOLDOWN_POWER. Arm A confirms PR #366's n=1 marginal val WIN at CP=1.0 with fresh n=2 seed. Arm B extends direction to CP=0.5 (sub-linear sqrt-like aux cooldown).
+
+| Arm | AUX_COOLDOWN_POWER | n | W&B runs | sr_steps | val/loss | vs new baseline (sr=2975 val=3.26722) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 1.0 (n=2 cross-stack) | 2 | `h585go7m` (s1 PR#366), `jv2oi3fv` (s2 this PR) | 3000 | 3.265882 | Δsr=+25 ✗, Δval=-0.00134 ✓ (cross-stack confound, both on lm_head_lr=1/320 not new 1/160) | NULL on primary |
+| B | 0.5 | 1 | `sihwt6g3` | 3050 | 3.26509 | Δsr=+75 ✗, Δval=-0.00213 ✓ (same cross-stack confound) | NULL on primary, also REGRESSES vs Arm A by +50 sr |
+| Baseline (PR #367) | follows body=1.4 | n=2 | `7xub16ua`/`f9nyqjxn` | 2975 | 3.26722 | — | — |
+
+**Mechanistic key:** Lower aux CP than 1.0 over-flattens late-phase aux LR. The val gain at CP=1.0 is real but small (~−0.001) and entirely cross-stack-confounded (both arms ran on lm_head_lr=1/320 pre-PR#367, not on current 1/160). Per the predeclared falsification matrix (Arm B sr ≥ 3000 → close), the lower-CP direction is ruled out.
+
+**Conclusion:** Aux CP extend (lower direction) axis CLOSED. Body Muon CP=1.4 + aux following body cooldown remains optimal. The val-improvement signal at CP=1.0 is potentially worth a clean n=2 re-test on the NEW PR #367 stack (lm_head_lr=1/160) as a future follow-up, but lower-than-1.0 CP is exhausted. Future aux-schedule work should explore different mechanisms (different cooldown_frac for aux, non-power schedule shape, or different cooldown start step). New assignment PR #434 (logit soft-cap value scan).
+
+---
+
 ## 2026-05-19 04:20 UTC — PR #400 CLOSED: AGC on aux AdamW per-row λ ∈ {0.04, 0.10} — both NULL, axis closes (g1r1-edward)
 
 - Branch: `g1r1-edward/agc-aux`
