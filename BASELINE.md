@@ -7,7 +7,29 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-18 23:14 UTC — PR #367: lm_head_lr=1/160 (frieren n=2 WIN) (g1r1-frieren) ← CURRENT BEST
+### 2026-05-19 11:48 UTC — PR #413: scalar_lr=0.025 (alphonse n=2 WIN) (g1r1-alphonse) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2937.5 (n=2 mean — seed-1 sr=2950, seed-2 sr=2925)
+- **val/loss:** 3.264278 (n=2 mean — seed-1 3.265432, seed-2 3.263124)
+- **stat-sig margin:** (3.28 − 3.264278)·√2 = 0.02224 ≥ 0.004 ✓ (5.56×)
+- **Δ vs PR #367 baseline:** −37.5 sr-steps ✅, −0.002942 val ✅
+- **W&B runs:** seed-1 `k7ylyby9`, seed-2 `dm4joozw` (group `g1r1-alphonse/scalar-lr-scan`)
+- **Key config:** cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor + COOLDOWN_POWER=1.4 + Muon lr=0.035, wd=0.025 + aux AdamW embed_lr=0.3, lm_head_lr=1/160, **scalar_lr=0.025** (was 0.01), betas=(0.8, 0.95), eps=1e-10.
+- **Mechanism:** scalar_lr=0.01 was the inherited aux default, never deliberately tuned. RMSNorm gains and biases benefit from 2.5× faster adaptation (scalar_lr=0.025). The response curve peaks at 0.025 (non-monotone: Arm B at 0.05 regresses to sr=2975, Δval=−0.00048). Arm A wins cleanly on both metrics, confirmed across both seeds independently. Mechanistically the gain likely comes from RMSNorm gains converging faster before COOLDOWN_POWER=1.4's sharp LR taper eliminates the adaptation window.
+- **Statistical thresholds:** n=1 win: sr < 2937.5 (i.e. sr ≤ 2925) OR (sr = 2925 AND val < 3.264278). New **n=1 stat-sig threshold: val ≤ 3.276** (unchanged formula). **n=2 marginal win threshold: mean val ≤ 3.264278 AND stat rule ≥ 0.004.**
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --wandb_name "baseline-reproduction-pr413" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** Closes aux LR characterization triplet (embed_lr CLOSED at 0.3, lm_head_lr MERGED at 1/160, scalar_lr now MERGED at 0.025). Follow-up: fine-grid {0.015, 0.020, 0.030, 0.035} around 0.025 to map the response curve peak precisely. Also: joint aux LR re-scan (embed_lr with new joint operating point) and scalar_lr × COOLDOWN_POWER interaction probe.
+
+---
+
+### 2026-05-18 23:14 UTC — PR #367: lm_head_lr=1/160 (frieren n=2 WIN) (g1r1-frieren)
 
 - **speedrun/final_first_step_to_target:** 2975 (n=2 mean — both seeds independently hit 2975)
 - **val/loss:** 3.26722 (n=2 mean: seed-1 3.26774, seed-2 3.26670)
