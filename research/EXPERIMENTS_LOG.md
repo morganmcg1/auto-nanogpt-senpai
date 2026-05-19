@@ -1,3 +1,15 @@
+## 2026-05-19 05:05 UTC — PR #421 (arm 1 ctrl): MuonH AGC clip_ratio=0.05 (control) — baseline-equivalent
+- Branch: `g1r3-nezuko/muonh-agc-clip-ratio-sweep`
+- Hypothesis context: Sweep MuonH inner AGC clip_ratio around merged default 0.05 (PR #329 baseline). Arm 1 ctrl = current production config.
+- Results:
+
+| W&B run | val/loss | ffs | Δ vs baseline (3.27286) |
+|---|---|---|---|
+| `ndt56ttp` (clip=0.05 ctrl) | 3.27522 | 3175 | +0.00236 |
+
+- Baseline reproduction within σ (~0.0006-0.0008). Noisier draw than askeladd arm 2 ctrl (3.27353) and edward arm 1 ctrl (3.27236) but within the n=4 baseline distribution (mean 3.27264).
+- Arm 2 (clip=0.02 tight) `9imntmmb` chaining; arm 3 (clip=0.10 loose) chains after.
+
 ## 2026-05-19 04:59 UTC — PR #424 (arm 2 ctrl): MuLoCo outer Nesterov SGDM mu=0.5 (control) — baseline-equivalent
 - Branch: `g1r3-askeladd/muloco-nesterov-sweep`
 - Hypothesis context: Askeladd's code reading on PR #424 confirmed the current MuLoCo outer update at lines 1093-1095 is **Nesterov SGDM** (not standard SGDM as initially framed). Arm 2 is ctrl with the current (Nesterov) configuration at mu=0.5.
