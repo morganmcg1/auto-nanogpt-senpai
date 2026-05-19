@@ -454,6 +454,10 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# LR cooldown polynomial power (PR #485). eta(t) = (1 - t)**COOLDOWN_POWER where
+# t = (progress - (1 - cooldown_frac)) / cooldown_frac ranges 0->1 across the
+# cooldown segment. Default 1.0 reproduces the original linear cooldown.
+COOLDOWN_POWER = float(os.environ.get("COOLDOWN_POWER", "1.0"))
 MUON_LR = 0.0375
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -851,6 +855,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/cooldown_power": COOLDOWN_POWER,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -913,7 +918,8 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            t = (progress - (1 - cooldown_frac)) / cooldown_frac  # 0 -> 1 over cooldown
+            eta = (1.0 - t) ** COOLDOWN_POWER
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
