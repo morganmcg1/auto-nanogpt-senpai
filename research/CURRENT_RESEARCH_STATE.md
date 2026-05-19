@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~15:00Z (poll #251)
+- **Last updated:** 2026-05-19 ~15:28Z (poll #252)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -30,9 +30,9 @@
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
 | #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | **Cell A `qcycy1e9` running ~42% (smokes passed)** |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | **Cell A `y9fsimjv` step 3211/3250 — terminal in ~3 min** |
-| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075 (re-anchor); **Cell B awaiting watcher launch** |
-| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A TERMINAL val=3.26757 ffs=3100; **B TERMINAL cooldown_frac=0.3 val=3.2790 ffs=3225 (+13.4σ NEG); Cell C awaiting watcher** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A TERMINAL ctrl (t=0.0) val=3.2669 ffs=3075 (re-anchor); **Cell B watcher-stalled — monitor next poll** |
+| #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A TERMINAL ctrl val=3.2662 ffs=3075 (re-anchor); **Cell B watcher-stalled — monitor next poll** |
+| #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 ffs=3225 (+13.4σ NEG); **Cell C `sr1uguv4` (cooldown_frac=0.5) running step 251** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A TERMINAL −0.90σ ctrl; **Cell B `3tm0uy2a` (const tiny 0.0025) running ~77%** |
 | #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | **Cell A `74k60vo3` running ~41% (smokes passed)** |
 | #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER; **P2 trial 1 val=3.2680 ffs=3100 at-mu; trial 2 step ~1622** |
