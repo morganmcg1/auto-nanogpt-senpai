@@ -63,6 +63,16 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--lr_schedule", type=str, default="stable_then_linear",
+                        choices=["stable_then_linear", "linear_throughout",
+                                 "cosine_throughout", "stable_then_cosine",
+                                 "stable_then_sq"],
+                        help="LR schedule shape (default: stable_then_linear). "
+                             "stable_then_linear=1.0 during stable phase, linear decay during cooldown (current default); "
+                             "linear_throughout=linear 1.0->0 from step 0; "
+                             "cosine_throughout=cosine 1.0->0 from step 0; "
+                             "stable_then_cosine=stable then cosine cooldown; "
+                             "stable_then_sq=stable then squared (1-p)^2 cooldown.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -741,6 +751,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "lr_schedule": args.lr_schedule,
         },
     )
 
@@ -813,14 +824,40 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _lr_multiplier(step, total_steps, schedule, cooldown_frac=0.7):
+        p = step / total_steps
+        stable_end = 1.0 - cooldown_frac
+        if schedule == "stable_then_linear":
+            if p < stable_end:
+                return 1.0
+            else:
+                return (1.0 - p) / cooldown_frac
+        elif schedule == "linear_throughout":
+            return 1.0 - p
+        elif schedule == "cosine_throughout":
+            import math
+            return 0.5 * (1.0 + math.cos(math.pi * p))
+        elif schedule == "stable_then_cosine":
+            import math
+            if p < stable_end:
+                return 1.0
+            else:
+                cd_progress = (p - stable_end) / cooldown_frac
+                return 0.5 * (1.0 + math.cos(math.pi * cd_progress))
+        elif schedule == "stable_then_sq":
+            if p < stable_end:
+                return 1.0
+            else:
+                cd_progress = (p - stable_end) / cooldown_frac
+                return (1.0 - cd_progress) ** 2
+        else:
+            raise ValueError(f"Unknown lr_schedule: {schedule}")
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
+        eta = _lr_multiplier(step, train_steps, args.lr_schedule, cooldown_frac=cooldown_frac)
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
