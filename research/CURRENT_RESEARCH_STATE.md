@@ -1,7 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 20:30 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **esc#25 posted at 20:30 UTC 2026-05-19** — ~97h total operator silence. (Earlier loop notes incorrectly stated #25/26/27 were posted; verified gh shows only through #24 at 12:47, so this catch-up is the actual #25.) esc#26 due ~22:30 UTC.
+- **Last updated:** 2026-05-19 21:55 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **escalations posted through esc#27 (18:27 UTC) + duplicate-numbered #25 at 20:21 UTC** — ~97h total operator silence. (My earlier "catch-up" was a duplicate due to API pagination defaulting to 30 items; full per_page=100 confirms #25/26/27 were posted by prior session.) Next escalation is **esc#28 due ~22:30 UTC**.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **NEW BASELINE**.
 - **Confirmation status:** edward n=3 (arms 1+2+3) mean=**3.27224** (vs new baseline 3.27119, +0.00105; vs old n=4 3.27286, **-0.00062** BELOW old baseline). eps=1e-6 effect REAL but smaller than lucky-seed result. Arm 4 pending.
 - **🟢 NEW WIN CANDIDATE:** askeladd PR #478 found **higher embed_lr beats baseline monotonically** (0.2→0.3→0.4 → 3.27527→3.27399→**3.27213**). Extension chain (0.5/0.6/0.7) assigned at 20:14 UTC.
@@ -33,29 +33,29 @@
 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6
 ```
 
-**Note**: n=4 confirmation of eps=1e-6 in progress via PR #471 (edward). **Arms 1+2+3 TERMINAL** (3.27129/3.27331/3.27213). Arm 4 chained.
+**Confirmed**: PR #471 edward n=4 mean=**3.27218** (arms: 3.27129/3.27331/3.27213/3.27197). BELOW old baseline 3.27286 by -0.00068. eps=1e-6 win is REAL. PR will be closed (not merged — already in baseline).
 
-## Active experiments (20:30 UTC 2026-05-19)
+## Active experiments (21:55 UTC 2026-05-19)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#471** | edward | **n=4 confirm eps=1e-6** | arm 1 `7un3lhgi` **3.27129** ffs=3125. arm 2 `nyci0k7j` **3.27331** ffs=3150. arm 3 `r43od98v` **3.27213** ffs=3125 (W&B finished, comment pending). **n=3 mean=3.27224** (below old baseline by -0.00062). arm 4 running, terminal ~21:54 UTC. |
-| **#478** | askeladd | **embed LR — EXTENSION SENT BACK 20:14** | All 3 arms TERMINAL: 0.2→0.3→0.4 = 3.27527→3.27399→**3.27213** ffs=3175/3150/**3125**. Clean monotone. Extension assigned: arms 4/5/6 at 0.5/0.6/0.7. |
-| **#484** | frieren | **cooldown_frac** (0.25/0.4/0.6) | ctrl `e45o2hzp` **3.27400** ffs=3150. arm 2 (0.25) `3hds5b19` **3.27562** ffs=3200 (LOSS Δ=+0.00162 vs ctrl). **arm 3 (0.6) running** as `p26nx98c`, terminal ~21:46 UTC. |
-| **#507** | nezuko | **embed init std** (1.0/0.1/0.02) | **NEWLY ASSIGNED 21:00 UTC** — 3-arm sweep: std=1.0 ctrl / std=0.1 (10× smaller) / std=0.02 (GPT-2 style). Synergy with askeladd embed_lr win direction. |
-| **#501** | fern | **per-group eps decomp** (3 arms) | ctrl `1435u3bd` **running** step 175. arm 2 (embed only reverted to 1e-10) chained. arm 3 (embed+scalars only at 1e-6, lm_head reverted) chained. Full chain ~5.25h. |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~97h** — silicon failure on GPU `g71b0d6`. esc#25 posted 20:30. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~97h** — NaN on GPU `gd125a8`. esc#25 posted 20:30. |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#25 posted 20:30. |
+| **#471** | edward | **n=4 confirm eps=1e-6** | ALL 4 TERMINAL. n=4 mean=**3.27218** (below old 3.27286 by -0.00068). Awaiting student final comment → close. |
+| **#510** | frieren | **Aux NAdam (Nesterov AdamW)** | **NEWLY ASSIGNED 21:55 UTC** — 3 arms: standard AdamW ctrl / NAdam decay=0 / NAdam decay=0.004. |
+| **#478** | askeladd | **embed LR extension** (0.5/0.6/0.7) | Arm 4 (0.5) running, step ~2520. Arms 5/6 chained. |
+| **#501** | fern | **per-group eps decomp** (3 arms) | ctrl running step ~2675. Chain continues. |
+| **#507** | nezuko | **embed init std** (1.0/0.1/0.02) | ctrl running step ~625. Arms 2/3 chained. |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~98h** — silicon failure on GPU `g71b0d6`. esc#28 due ~22:30. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~98h** — NaN on GPU `gd125a8`. esc#28 due ~22:30. |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#28 due ~22:30. |
 
-## Key pattern across aux per-group LR sweeps
+## Key pattern: aux per-group LR sweeps (ALL CLOSED)
 
-Lower-LR arms have all lost vs ctrl across **3 independent groups**:
-- **scalars LR** (fern PR #475 CLOSED): 0.005 vs 0.01 ctrl → +0.00426 (CLEAR LOSS); 0.02 ~tied with ctrl. Axis near-saturated.
-- **embed LR** (askeladd PR #478): 0.2 vs 0.3 ctrl → +0.00128 (LOSS); **0.4 vs 0.3 ctrl → -0.00186 (WIN, monotone)**. 🟢 Direction up.
-- **lm_head LR** (nezuko PR #481): 1/640 vs 1/320 ctrl → +0.00125 (LOSS); 1/160 (doubled) running.
+- **scalars LR** (PR #475 CLOSED): saturated at 0.01.
+- **embed LR** (PR #478 ACTIVE extension): 0.2→0.3→0.4 monotone WIN (-0.00186 vs ctrl). 🟢 Peak likely at 0.5-0.6.
+- **lm_head LR** (PR #481 CLOSED): flat at 1/320 under eps=1e-6.
+- **cooldown_frac** (PR #484 CLOSED): flat at 0.4.
 
-**Direction summary**: aux LRs were NOT too high under eps=1e-6. embed_lr is **actively improving**; scalars_lr saturated; lm_head_lr pending arm 3.
+**Active direction**: embed_lr extension arms 4/5/6 running.
 
 ## Saturated levers (post-PR #443)
 
@@ -100,4 +100,4 @@ Lower-LR arms have all lost vs ctrl across **3 independent groups**:
 - Architectural axes (residual init, NS5 k-count) — blocked on pod replacements
 - **PR #507 nezuko embed init std IN FLIGHT** — removed from pending
 
-**Operator silence Issue #164**: **esc#25 posted 20:30 UTC, ~97h total**. esc#26 due ~22:30 UTC. (Earlier loop incorrectly counted past esc#24 — corrected this round.)
+**Operator silence Issue #164**: **escalations through esc#27 (18:27) + duplicate #25 (20:21), ~97h total**. esc#28 due ~22:30 UTC. (Numbering tracking corrected via per_page=100 API query — prior session had posted #25/26/27 correctly.)

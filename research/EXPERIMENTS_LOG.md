@@ -1,3 +1,17 @@
+## 2026-05-19 21:50 UTC — PR #484 CLOSED (frieren): Aux AdamW cooldown_frac sweep — axis SATURATED at 0.4
+
+- Branch: `g1r3-frieren/aux-cooldown-frac-sweep`
+- Hypothesis: Under eps=1e-6 baseline, the optimal aux cooldown_frac may have shifted. Sweep 0.25 (shorter) / 0.4 ctrl / 0.6 (longer).
+
+| Arm | cooldown_frac | W&B run | val/loss | ffs | reached_target | Δ vs ctrl (3.27400) | Δ vs NEW baseline (3.27119) |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | 0.40 | `e45o2hzp` | **3.27400** | **3150** | yes | (ctrl) | +0.00281 |
+| 2 shorter | 0.25 | `3hds5b19` | 3.27562 | 3200 | yes | **+0.00162 (LOSS)** | +0.00443 |
+| 3 longer | 0.60 | `p26nx98c` | 3.27404 | 3150 | yes | +0.00004 (tied) | +0.00285 |
+
+- **Conclusion**: Asymmetric U-shape — shorter monotonically worse (+0.00162), longer is tied (+0.00004). cooldown_frac=0.40 is local optimum under eps=1e-6. Aux groups well-converged by step ~1995 (60% progress); the extra cooldown duration from 0.6 is wasted budget — neither helps nor hurts. Shorter (0.25) keeps LR too high too late and bites at the tail. The eps=1e-6 floor does not eliminate the need for the aux cooldown taper.
+- Frieren reassigned to **H4 Nesterov AdamW** (mechanism-level: consistency with MuonH/MuLoCo Nesterov, orthogonal to scheduling axes).
+
 ## 2026-05-19 21:00 UTC — PR #481 CLOSED (nezuko): Aux AdamW lm_head LR sweep — axis FLAT/SATURATED, 1/320 local optimum
 
 - Branch: `g1r3-nezuko/aux-lm-head-lr-sweep`
