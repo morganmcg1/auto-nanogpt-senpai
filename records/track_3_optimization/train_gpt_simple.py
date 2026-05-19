@@ -530,6 +530,13 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Weight EMA (Polyak averaging) for val_loss evaluation. 0 disables; >0 runs a
+# parallel EMA accumulator updated post-optimizer-step and swapped in for val.
+# The EMA buffer is initialized lazily at the WARMUP boundary from the live
+# weights (deviating from the PR text which initialized at construction) so
+# random-init weights cannot pollute the EMA — matches the PR's stated intent.
+NANOGPT_WEIGHT_EMA_DECAY = float(os.environ.get("NANOGPT_WEIGHT_EMA_DECAY", "0.0"))
+NANOGPT_WEIGHT_EMA_WARMUP = int(os.environ.get("NANOGPT_WEIGHT_EMA_WARMUP", "100"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -747,6 +754,12 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_WEIGHT_EMA_DECAY > 0.0:
+    _ema_halflife = math.log(0.5) / math.log(NANOGPT_WEIGHT_EMA_DECAY) if NANOGPT_WEIGHT_EMA_DECAY < 1.0 else float("inf")
+    print0(f"WEIGHT_EMA: decay={NANOGPT_WEIGHT_EMA_DECAY} warmup={NANOGPT_WEIGHT_EMA_WARMUP} "
+           f"half_life_steps={_ema_halflife:.1f} (lazy-init at warmup boundary)", console=True)
+else:
+    print0(f"WEIGHT_EMA: disabled (decay=0.0)", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +812,8 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_weight_ema_decay": NANOGPT_WEIGHT_EMA_DECAY,
+            "nanogpt_weight_ema_warmup": NANOGPT_WEIGHT_EMA_WARMUP,
         },
     )
 
@@ -887,6 +902,8 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Weight EMA (Polyak) — lazily initialized at the warmup boundary.
+    weight_ema: dict[str, Tensor] | None = None
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -911,14 +928,41 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
+            # Always compute live (current-weights) val_loss; this is reported
+            # as val/loss_live. If a weight EMA is active and primed, also
+            # compute val_loss with the EMA weights swapped in — that value
+            # becomes the headline val/loss used by speedrun/first_step_to_target.
+            val_loss_live = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
                 for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+                    val_loss_live += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+            dist.all_reduce(val_loss_live, op=dist.ReduceOp.SUM)
+            val_loss_live /= val_tokens
+            val_loss_live_float = float(val_loss_live.item())
+
+            val_loss_ema_float: float | None = None
+            if weight_ema is not None:
+                saved_weights = {name: p.detach().clone() for name, p in model.named_parameters()}
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        p.copy_(weight_ema[name])
+                val_loss_ema = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_ema += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_ema, op=dist.ReduceOp.SUM)
+                val_loss_ema /= val_tokens
+                val_loss_ema_float = float(val_loss_ema.item())
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        p.copy_(saved_weights[name])
+                del saved_weights
+
+            # Headline val_loss is EMA if available, else live.
+            val_loss_float = (
+                val_loss_ema_float if val_loss_ema_float is not None else val_loss_live_float
+            )
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -930,6 +974,7 @@ for trial_idx in range(args.num_trials):
                     "trial": trial_idx,
                     "val/step": step,
                     "val/loss": val_loss_float,
+                    "val/loss_live": val_loss_live_float,
                     "val/best_loss": best_val_loss,
                     "val/best_step": best_val_step,
                     "val/target_margin": TARGET_VAL_LOSS - val_loss_float,
@@ -939,9 +984,17 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if val_loss_ema_float is not None:
+                    metrics["val/loss_ema"] = val_loss_ema_float
+                    metrics["val/ema_vs_live_gap"] = val_loss_live_float - val_loss_ema_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+            ema_tag = (
+                f" val_loss_live:{val_loss_live_float:.5f}"
+                if val_loss_ema_float is not None
+                else ""
+            )
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f}{ema_tag} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
@@ -1025,6 +1078,19 @@ for trial_idx in range(args.num_trials):
             ns_cumulative_iters += ns_iters_this_step
         for opt in optimizers:
             opt.step()
+        # Weight EMA (Polyak): lazily init at the warmup boundary using the
+        # *post-step* live weights so we don't bake random init into the EMA;
+        # then accumulate θ_ema ← decay·θ_ema + (1−decay)·θ each subsequent step.
+        if NANOGPT_WEIGHT_EMA_DECAY > 0.0 and train_step >= NANOGPT_WEIGHT_EMA_WARMUP:
+            if weight_ema is None:
+                with torch.no_grad():
+                    weight_ema = {name: p.detach().clone() for name, p in model.named_parameters()}
+            else:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        weight_ema[name].mul_(NANOGPT_WEIGHT_EMA_DECAY).add_(
+                            p.detach(), alpha=1.0 - NANOGPT_WEIGHT_EMA_DECAY
+                        )
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
