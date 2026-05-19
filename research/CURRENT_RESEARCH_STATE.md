@@ -1,5 +1,7 @@
 # SENPAI Research State
 
+- 2026-05-19 10:55 UTC — Cycle 63 — **#431 fern CLOSED LM_HEAD_LR axis FALSIFIED ±20% (Arm B n=2 val=3.275235/ffs=3087.5 — MISS both; default 1/320 locally optimal); #430 edward CLOSED MUON_LR narrow ffs miss (Arm B n=2 val=3.27413 PASS strict val, ffs=3075 MISS by one slot — not cleanly falsified, soft revisit candidate); #429 alphonse Arm B NS5_ITERS=14 n=2 STRONG WIN (val=3.273885/ffs=3062.5 PASS both strict bars + statsig, T0=3.27263 best single-trial val since project baseline — n=4 predeclared); #449 nezuko CORRECTED: T0=3.27403/3050 PASSES individually (premature Arm B pivot retracted — T1 in flight, Arm A still viable); fern idle → #456 SCALARS_LR sweep (0.0075 vs 0.0125 around 0.01, third AdamW-LR-group leg, completes the triplet characterization).**
+
 - 2026-05-19 08:30 UTC — Cycle 62 — **#420 nezuko CLOSED ATTN_SOAP_TRUST_THRESHOLD axis FALSIFIED on new base (Arm A T=0.70 val=3.27828/ffs=3125 foreclosed at trial 0; Arm B T=0.95 n=2 mean val=3.275415/ffs=3087.5 — MISS both bars by +0.001/+18.75). Excellent mechanistic finding: default T=0.85 sits inside the empirical cos-row distribution (~0.85-0.93) so the gate is selective by construction; Arm A turns gate ~always-open (on_frac=0.977) = "Attn-SOAP without trust filter"; Arm B turns gate ~always-closed (on_frac=0.008) = "Attn-SOAP effectively disabled". Attn-SOAP contributes only ~0.001 val on the new stack.** Reassigned → **#449 EMBED_LR sweep** (0.225 vs 0.375 around hardcoded 0.3) — largest LR in entire optimizer (8× MUON_LR, 96× LM_HEAD_LR), never swept, AdamW-path completion paired with fern #431.
 
 - 2026-05-19 04:30 UTC — Cycle 61 — **#373 frieren CLOSED axis-falsified at n=4 confirm on both baselines (AdaMuon post-NS5 per-element EMA variance scaling: n=4 mean val=3.27665/ffs=3093.75 vs new bar 3.274383/3068.75 — misses every bar across both old and new baselines; T0/T2/T3 at unfavorable ffs=3100 — clean regression to mean from lucky n=2 screen). Critical research finding: **"input-side robust vs output-side fragile" mechanism — pre-NS5 perturbations (MuonEq-R, Contra-Muon, NorMuon row-scaling) tolerate noise because NS5 re-projects to orthogonal manifold; post-NS5 perturbations (AdaMuon, RMS variants) have no downstream re-projection and propagate directly into the update. EMA-family exhaustion now 4-deep: SOAP_BETA2 #223, NORMUON_BETA2 #378, ATTN_SOAP_BETA2 #394, AdaMuon-BETA2 #373.** 7 consecutive misses since PR #358 merged ~8h ago — Plateau Protocol shift activated: output-side and AdamW-path axes now priority. Reassigned → **#435 logit softcap K sweep** (K=10 vs K=22 around default K=15) — pure model-side mechanism, hardcoded since project inception, never swept, implicated as mediator in both edward #379 and fern #372 closure analyses.
@@ -34,29 +36,41 @@ All current WIP experiments ran on CONTRA_MUON=0.5 (old stack). They are now com
 
 Strategy shift: accept that all current in-flight runs will miss the new bar. Let them run to terminal (data informs axis characterization), then reassign to new stacked experiments on CONTRA_MUON=0.4 base. Meanwhile askeladd explores CONTRA_MUON=0.3 as direct continuation.
 
-## 🔬 ACTIVE RESEARCH — CONTRA_MUON=0.4 BASE
+## 🔬 ACTIVE RESEARCH — CONTRA_MUON=0.4 BASE (as of 2026-05-19 11:00 UTC)
 
-- **ASKELADD #405** — CONTRA_MUON=0.3 and 0.35 sweep: does the contra-gradient axis continue below 0.4? Direct follow-up to merged PR #358. Arm A=0.3, Arm B=0.35. T0=3.275554/3075 (trial 1 ETA ~01:30 UTC).
-- **TANJIRO #406** (22:20 UTC) — MU_COOLDOWN_START sweep 0.93/0.97 on new base. START=0.95 has been fixed since PR #288 merge but never swept directly. Schedule-side axis (input-robust win pattern). Pure env-var change.
-- **THORFINN #415** (NEW 00:00 UTC 2026-05-19) — **muon_warmup_steps sweep** 200/400 vs default 300 on new base. Fresh schedule-side axis never swept on r2 — Muon momentum warmup tuned for old CONTRA_MUON=0.5 may be mis-aligned with new CONTRA_MUON=0.4 (lower contra-correction → more natural momentum signal early). Confirmed Option A code addition at 00:21 UTC (MU_WARMUP_STEPS + MU_WARMUP_START env vars added to `set_hparams`); awaiting student smoke test then Arm A=200 launch.
-- **NEZUKO #420** (NEW 01:10 UTC 2026-05-19) — **ATTN_SOAP_TRUST_THRESHOLD sweep** 0.70 vs 0.95 on new base. Default 0.85 unswept since PR #16/#212 introduced Attn-SOAP; stack has shifted 3× (MU schedule + CONTRA_MUON) since then. Pure env-var change, attention-pathway lever, orthogonal to all other in-flight axes. ETA ~6.8h total wall time. Student's #1 follow-up suggestion from her own #394 terminal analysis.
-- **FERN #431** (NEW 03:30 UTC 2026-05-19) — **AdamW lm_head lr sweep** 0.0025 vs 0.00375 around default 0.003125 (=1/320). First AdamW-path axis ever swept on this stack. `proj.weight` is vocab_size × d_model — the largest single parameter — and its LR controls output-side calibration through the softcap. Pure env-var LM_HEAD_LR. Fern's own saturated-lever finding (#372) directly motivates this axis. Orthogonal to all in-flight Muon-side axes.
-- **ALPHONSE #429** (NEW 03:10 UTC 2026-05-19) — **NS5 iterations sweep** 10 vs 14 around default 12 on new base. NS5 iters hardcoded at 12 since NorMuon-clean PR #71 — load-bearing through 5 stack changes (SOAP-MLP, ATTN_SOAP, NorMuon, Contra-Muon, MU schedule, CONTRA_MUON). Controls orthogonal-projection quality of Muon update; downstream SOAP/ATTN-SOAP/NorMuon all consume NS5 output. Adds env-var-controlled `NS5_ITERS`. ~16% Muon-step wall-clock delta per arm — report step-time. Pure code change at single function.
-- **EDWARD #430** (NEW 03:10 UTC 2026-05-19) — **MUON_LR sweep** 0.030 vs 0.045 around default 0.0375 on new base. Hardcoded since PR #78 (~3 days ago) — load-bearing through 4 stack additions (CONTRA_MUON 0.5→0.4, ATTN_SOAP, MU cooldown-only schedule, CONTRA_MUON re-tune). Each downstream change affects effective Muon step magnitude. Public track 3 records mostly use lr=0.018, our 0.0375 is on the high end. Single-line env-var plumbing. ±20% bracket — symmetric and wide enough to detect signal.
-- **FRIEREN #435** (NEW 04:30 UTC 2026-05-19) — **logit softcap K sweep** K=10 vs K=22 around default K=15 on new base. Hardcoded since project inception (line 431: `logits = 15 * logits * (logits.square() + 15**2).rsqrt()`) — load-bearing through ALL cycles, never swept. Pure model-side mechanism, orthogonal to all in-flight optimizer-pipeline axes. Implicated as mechanism mediator in both edward #379 (embed init stack-specificity) and fern #372 (MuonEq-R stack-specificity) closure analyses. K=15 is unusually tight vs public modded-nanogpt K=30 and Gemma K=50. Single-line env-var plumbing (LOGIT_SOFTCAP_K). Strategy-tier shift — first non-optimizer axis this cycle.
-- **NEZUKO #449** (NEW 08:30 UTC 2026-05-19) — **EMBED_LR sweep** 0.225 vs 0.375 around hardcoded 0.3 on new base. AdamW embed group LR is the **largest LR in the entire optimizer** (8× MUON_LR, 96× LM_HEAD_LR) and has never been swept since project inception. Pure env-var (EMBED_LR), orthogonal to all in-flight Muon-side axes. Pairs with fern's #431 (lm_head_lr) and edward's #430 (MUON_LR) to characterize the LR landscape across all three AdamW groups + the Muon path. Sparse-per-step gradient pattern justifies high LR but specific value 0.3 has never been validated empirically.
+### n=4 Confirms in flight (highest priority — merge candidates)
+- **THORFINN #415** — MU_WARMUP_STEPS=200 — n=4 at **85%**, T1+T2+T3 ALL at ffs=3050 floor. T4 in progress. Expected n=4 mean val ~3.2735 / ffs ~3050. **TOP MERGE CANDIDATE**. ETA ~12:10 UTC.
+- **TANJIRO #406** — MU_COOLDOWN_START=0.97 — n=4 at ~53%, T1+T2 both at ffs=3050 (both floor!). T3 in progress ~27%. Strong path if T3,T4 hold floor.
+- **ASKELADD #405** — CONTRA_MUON=0.35 — n=4 at ~70%, T1+T2 both at ffs=3075 (yellow flag — 1 slot above floor). T3 in progress ~23%. Val 3.2752 clears bar; ffs=3075 mean misses bar at n=2 — needs T3+T4 both at ffs=3050 to clear n=4 ffs mean.
+- **ALPHONSE #429** — NS5_ITERS=14 — n=2 WIN (val=3.273885/ffs=3062.5, T0=3.27263 best single-trial ever). n=4 predeclared, launching now. Step-time overhead only +0.8%. **KEY NEW FINDING: tighter polar projection is directly beneficial — falsifies "cooldown-geometry lever saturated" claim.**
 
-## 🔥 STRONG n=4 CONFIRM CLUSTER (NEW)
+### n=2 Screens in flight
+- **NEZUKO #449** — EMBED_LR=0.225 — T0=3.27403/3050 (PASSES individually, strong!). T1 in progress ~5%. Arm A viable — continue to n=2 terminal before judging.
+- **FRIEREN #435** — LOGIT_SOFTCAP_K=22 (Arm B) — T1 at ~87%, val/best=3.3303. Arm A (K=10) crashed at step 3326 (divergence). K=22 direction may be moot if it also misses.
+- **FERN #456** (NEW 10:55 UTC 2026-05-19) — **SCALARS_LR sweep** 0.0075 vs 0.0125 around 0.01. Third leg of AdamW-LR triplet characterization. Smokes then n=2 screens.
 
-**Three concurrent n=4 confirm runs on new base** — first cluster of merge candidates since PR #358 merged ~12h ago. All on schedule/correction-magnitude lever family (Muon-side).
+### Recently Closed (Cycle 63)
+- ✅ **FERN #431 CLOSED** (10:45 UTC): LM_HEAD_LR axis FALSIFIED ±20%. Default 1/320 locally optimal.
+- ✅ **EDWARD #430 CLOSED** (10:55 UTC): MUON_LR narrow ffs miss — Arm B val PASSES strict bar (3.27413), ffs=3075 MISSES by one slot. Not cleanly falsified — soft revisit at +20% if needed.
 
-| PR | Student | Axis | n=2 mean val | n=2 mean ffs | n=4 ETA | Status |
-|---|---|---|---|---|---|---|
-| #415 | thorfinn | MU_WARMUP_STEPS=200, MU_WARMUP_START=0.85 | 3.273802 | 3050 | ~10:30 UTC | n=4 at ~28% (Trial 1 done, cleared bars) |
-| #405 | askeladd | CONTRA_MUON=0.35 | 3.273505 | 3050 | ~12:30 UTC | n=4 launched 05:37 UTC, ~15% |
-| #406 | tanjiro | MU_COOLDOWN_START=0.97 | 3.27417 | 3062.5 | ~13:00 UTC | n=4 launched 06:36 UTC, ~5% |
+## AdamW-LR-Group Characterization Status
+| Group | Default LR | PR | Verdict |
+|---|---|---|---|
+| `adam_embed` | 0.3 | #449 (in flight) | T0 PASSES individually (3.27403/3050) — T1 pending |
+| `adam_lm_head` | 1/320 ≈ 0.003125 | #431 (closed) | FALSIFIED ±20% |
+| `adam_scalars` | 0.01 | #456 (assigned) | TBD |
+| Muon LR | 0.0375 | #430 (closed) | NARROW MISS (val PASS, ffs by one slot) |
 
-**Merge order if multiple pass**: prioritize askeladd #405 (strongest n=2: −0.000878 val / 3050 ffs floor on both trials), then thorfinn #415 (same ffs floor, slightly worse val), then tanjiro #406 (tightest n=2 margin). After first merge, send back the other two for new-base re-test (compounding axes may not stack cleanly — see #372/#373 closure analyses for cross-stack interaction patterns).
+## 🔥 n=4 CONFIRM CLUSTER (Updated 11:00 UTC)
+
+| PR | Student | Axis | n=2 val/ffs | n=4 status | Merge priority |
+|---|---|---|---|---|---|
+| #415 | thorfinn | MU_WARMUP_STEPS=200 | 3.273802/3050 | **85%**, T1+T2+T3 all at floor | **1st — terminal in ~1h** |
+| #406 | tanjiro | MU_COOLDOWN_START=0.97 | 3.27417/3062.5 | **53%**, T1+T2 both floor | **2nd** |
+| #405 | askeladd | CONTRA_MUON=0.35 | 3.273505/3050 | **70%**, T1+T2 at 3075 (yellow) | **3rd** |
+| #429 | alphonse | NS5_ITERS=14 | 3.273885/3062.5 | to launch now | **4th** |
+
+**Merge order strategy**: merge best first, then re-test others on new baseline (per cross-stack interaction finding from #372/#373). MU_WARMUP_STEPS=200 (schedule-side) most likely orthogonal to MU_COOLDOWN_START=0.97 (cooldown-side) and NS5_ITERS=14 (projection-quality). CONTRA_MUON=0.35 (correction-magnitude) may partially substitute with MU_COOLDOWN_START=0.97 — needs new-base re-test after first merge.
 
 **Cross-axis composability concerns**:
 - #405 (CONTRA_MUON 0.4→0.35) and #406 (MU_COOLDOWN_START 0.95→0.97) both directly parameterize the cooldown-stage update geometry — likely partially substitutive per #372 saturated-lever finding

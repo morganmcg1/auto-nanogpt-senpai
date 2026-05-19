@@ -1933,6 +1933,61 @@ Fern reassigned to PR #208: Power-law LR cooldown (LR_POWER=1.5/2.0), targeting 
 
 Askeladd reassigned to PR #213 (per-module weight init scaling — records #4,5,8 ingredient).
 
+## 2026-05-19 10:55 UTC — Cycle 63: #431 CLOSED LM_HEAD_LR axis FALSIFIED; #430 CLOSED MUON_LR narrow ffs miss; #429 alphonse n=2 WIN → n=4 predeclared; #456 fern → SCALARS_LR sweep
+
+### PR #431 — AdamW lm_head_lr sweep (0.0025 vs 0.00375 around 0.003125) — CLOSED axis-falsified
+
+Branch: `g1r2-fern/lm-head-lr-sweep`. Both ±20% arms sweep on new CONTRA_MUON=0.4 base.
+
+| Arm | LM_HEAD_LR | T0 val | T0 ffs | T1 val | T1 ffs | n=2 val mean | n=2 ffs mean | vs new bar | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| A (−20%) | 0.0025 | 3.27597 | 3100 | (foreclosed) | — | — | — | both bars foreclosed | **MISS** |
+| B (+20%) | 0.00375 | 3.27431 | 3075 | 3.27616 | 3100 | **3.275235** | **3087.5** | val +0.000852, ffs +18.75 | **MISS** |
+
+W&B runs: `ibr51w9g` (Arm A), `xb6pszz1` (Arm B)
+
+**Mechanism finding**: Default LM_HEAD_LR=1/320≈0.003125 is at a **local optimum within ±20%** on this benchmark. Bracket sign: higher is better (Arm B less worse than Arm A), but neither clears bar. The lm_head lr controls output-side calibration through the softcap — at the current K=15 softcap, the default 1/320 appears well-tuned. Future: joint MUON_LR × LM_HEAD_LR 2D test would check if the ratio lm_head_lr ≈ MUON_LR/12 is intrinsic.
+
+**AdamW-LR-group characterization progress**: lm_head ✅ FALSIFIED ±20%; embed (nezuko #449 in flight); scalars (fern #456 assigned).
+
+---
+
+### PR #430 — MUON_LR sweep (0.030 vs 0.045 around 0.0375) — CLOSED narrow ffs miss
+
+Branch: `g1r2-edward/muon-lr-sweep`. Both ±20% arms on new CONTRA_MUON=0.4 base.
+
+| Arm | MUON_LR | T0 val | T0 ffs | T1 val | T1 ffs | n=2 val mean | n=2 ffs mean | vs new bar | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| A (−20%) | 0.030 | 3.2821 | -1 | (killed) | — | foreclosed | foreclosed | both bars foreclosed | **MISS** |
+| B (+20%) | 0.045 | 3.27547 | 3100 | 3.27279 | 3050 | **3.27413** | **3075** | val **PASS** −0.000253, ffs MISS +6.25 | **MISS** |
+
+W&B runs: `ca8blz69` (Arm A), `6g1c8dwc` (Arm B)
+
+**Mechanism finding**: Arm A (0.030, −20%) under-steps — never reaches val=3.28 target within 3175-step budget. Arm B (0.045, +20%) has val mean PASSING the strict bar (3.27413 < 3.274383) but ffs mean=3075 is **exactly one quantization slot above bar** (−6.25 to PASS). T1 individual result (3.27279/3050) was exceptional — better than baseline T0. T0 (3.27547/3100) dragged up the mean. **Verdict: axis not cleanly falsified** — the +20% arm has real val signal but bimodal ffs noise produced one unfavorable slot. Default 0.0375 remains the operating point by methodological criterion (n=2 strict bar not cleared). MUON_LR is a "soft revisit" axis worth re-examining if a wider bracket or n=4 is warranted.
+
+**Note for future**: at n=4 with MUON_LR=0.045, if 3/4 trials land at ffs=3050 and 1/4 at 3100 (matching T0/T1 bimodal pattern), mean ffs = (3100+3050+3050+3050)/4 = 3062.5 < 3068.75 — PASS. The underlying mechanism may be stronger than n=2 reveals.
+
+---
+
+### PR #429 — NS5_ITERS sweep (10 vs 14 around default 12) — n=2 Arm B (NS5_ITERS=14) WINS → n=4 PREDECLARED
+
+Branch: `g1r2-alphonse/ns5-iterations-sweep`. Arm A (10) and Arm B (14) screened on new CONTRA_MUON=0.4 base.
+
+| Arm | NS5_ITERS | T0 val | T0 ffs | T1 val | T1 ffs | n=2 val mean | n=2 ffs mean | vs new bar | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| A (fewer) | 10 | 3.27592 | 3100 | 3.27410 | 3050 | **3.27501** | **3075** | val +0.000627, ffs +6.25 | MISS |
+| **B (more)** | **14** | **3.27263** | **3050** | **3.27514** | **3075** | **3.273885** | **3062.5** | val **PASS −0.000498**, ffs **PASS −6.25** | **WIN ✅** |
+
+W&B runs: `beeyzftn` (Arm A), `565i067e` (Arm B)
+
+**Mechanism finding**: NS5_ITERS=14 (vs default 12) → 2 extra polar iterations per Muon step. Tighter orthogonalization of the spectral projection → smoother, more precise Muon update. T0 val=3.27263 is the **best single-trial val on this codebase** since the PR #358 baseline n=2 screen. Arm A (10 iters) misses both bars — bracket sign CONFIRMED: more iterations is better, fewer is worse. Step-time overhead with NS5_ITERS=14 is only **+0.8%** (vs predicted +16%) — NS5 matmuls are not the bottleneck on this hardware.
+
+**This falsifies the "cooldown-geometry lever saturated" finding from #372**: NS5_ITERS sits on the polar-projection accuracy axis, orthogonal to cooldown geometry. The cooldown saturation was specific to the momentum/scale correction family, not to all optimizer axes.
+
+n=4 confirm predeclared: `g1r2-alphonse/ns5-iters-14-confirm-n4`.
+
+---
+
 ## 2026-05-18 20:55 UTC — PR #358: CONTRA_MUON=0.4 — MERGED (new baseline)
 
 - `g1r2-askeladd/contra-muon-sweep`
