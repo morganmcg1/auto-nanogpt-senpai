@@ -63,6 +63,16 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--muon_mu_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up_090_099", "ramp_up_085_098",
+                                 "ramp_down_099_090", "cliff_at_cooldown_095_099"],
+                        help="Muon mu (momentum coefficient) schedule. "
+                             "constant=0.95 throughout; "
+                             "ramp_up_090_099=linear 0.90->0.99; "
+                             "ramp_up_085_098=linear 0.85->0.98; "
+                             "ramp_down_099_090=linear 0.99->0.90; "
+                             "cliff_at_cooldown_095_099=0.95 stable then 0.99 at cooldown start. "
+                             "Applies to all Muon param groups (mlp + attn).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -741,6 +751,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "muon_mu_schedule": args.muon_mu_schedule,
         },
     )
 
@@ -813,6 +824,21 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
+    def _muon_mu_schedule(step, total_steps, cooldown_frac, schedule):
+        if schedule == "constant":
+            return 0.95
+        p = step / max(1, total_steps - 1)
+        if schedule == "ramp_up_090_099":
+            return 0.90 + 0.09 * p
+        if schedule == "ramp_up_085_098":
+            return 0.85 + 0.13 * p
+        if schedule == "ramp_down_099_090":
+            return 0.99 - 0.09 * p
+        if schedule == "cliff_at_cooldown_095_099":
+            cooldown_start = int((1 - cooldown_frac) * total_steps)
+            return 0.99 if step >= cooldown_start else 0.95
+        raise ValueError(f"Unknown muon_mu_schedule: {schedule}")
+
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -822,11 +848,15 @@ for trial_idx in range(args.num_trials):
         else:
             eta = (1 - progress) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
+        mu_now = _muon_mu_schedule(step, train_steps, cooldown_frac, args.muon_mu_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                if group.get("name", "").startswith("muon_"):
+                    group["mu"] = mu_now
+        return mu_now
 
 
     ########################################
@@ -915,7 +945,9 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        mu_now = set_hparams(step)
+        if step == 0 and dist.get_rank() == 0 and trial_idx == 0:
+            print0(f"muon_mu_schedule={args.muon_mu_schedule}, mu@step0={mu_now}", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -961,6 +993,8 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["opt/muon_mu"] = mu_now
+                per_group_metrics["train/muon_mu_now"] = mu_now
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
