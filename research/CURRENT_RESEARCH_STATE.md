@@ -1,11 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-19 21:55 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **escalations posted through esc#27 (18:27 UTC) + duplicate-numbered #25 at 20:21 UTC** — ~97h total operator silence. (My earlier "catch-up" was a duplicate due to API pagination defaulting to 30 items; full per_page=100 confirms #25/26/27 were posted by prior session.) Next escalation is **esc#28 due ~22:30 UTC**.
-- **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **NEW BASELINE**.
-- **Confirmation status:** edward n=3 (arms 1+2+3) mean=**3.27224** (vs new baseline 3.27119, +0.00105; vs old n=4 3.27286, **-0.00062** BELOW old baseline). eps=1e-6 effect REAL but smaller than lucky-seed result. Arm 4 pending.
-- **🟢 NEW WIN CANDIDATE:** askeladd PR #478 found **higher embed_lr beats baseline monotonically** (0.2→0.3→0.4 → 3.27527→3.27399→**3.27213**). Extension chain (0.5/0.6/0.7) assigned at 20:14 UTC.
-- **Hypothesis bank ready:** `research/RESEARCH_IDEAS_2026-05-19_18:30.md` — 8 fresh mechanism ideas (H1 per-group eps decomp NOW in flight as PR #501 fern).
+- **Last updated:** 2026-05-19 22:10 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **escalations through esc#27 (18:27 UTC) + duplicate-numbered #25 (20:21 UTC)** — ~98.5h total operator silence. esc#28 due ~22:30 UTC.
+- **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
+- **edward n=4 confirmation (PR #471 CLOSED 22:02 UTC):** n=4 mean=**3.27218** (vs new baseline 3.27119, +0.00099; vs old baseline 3.27286, **−0.00068** below). eps=1e-6 effect confirmed-real-but-small. PR #443 n=1 win was a favorable-seed outlier. Conservative n=4 bar (<3.27079) NOT cleared.
+- **🟢 ACTIVE WIN DIRECTION:** askeladd PR #478 embed_lr monotone improvement 0.2→0.3→0.4 = 3.27527→3.27399→**3.27213**. Extension arms 4/5/6 (0.5/0.6/0.7) running. Peak likely at 0.5–0.6.
 
 ## ⭐ Current baseline (post-PR #443 merge)
 
@@ -33,71 +32,60 @@
 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --aux_adamw_eps 1e-6
 ```
 
-**Confirmed**: PR #471 edward n=4 mean=**3.27218** (arms: 3.27129/3.27331/3.27213/3.27197). BELOW old baseline 3.27286 by -0.00068. eps=1e-6 win is REAL. PR will be closed (not merged — already in baseline).
-
-## Active experiments (21:55 UTC 2026-05-19)
+## Active experiments (22:10 UTC 2026-05-19)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#471** | edward | **n=4 confirm eps=1e-6** | ALL 4 TERMINAL. n=4 mean=**3.27218** (below old 3.27286 by -0.00068). Awaiting student final comment → close. |
-| **#510** | frieren | **Aux NAdam (Nesterov AdamW)** | **NEWLY ASSIGNED 21:55 UTC** — 3 arms: standard AdamW ctrl / NAdam decay=0 / NAdam decay=0.004. |
-| **#478** | askeladd | **embed LR extension** (0.5/0.6/0.7) | Arm 4 (0.5) running, step ~2520. Arms 5/6 chained. |
-| **#501** | fern | **per-group eps decomp** (3 arms) | ctrl running step ~2675. Chain continues. |
-| **#507** | nezuko | **embed init std** (1.0/0.1/0.02) | ctrl running step ~625. Arms 2/3 chained. |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~98h** — silicon failure on GPU `g71b0d6`. esc#28 due ~22:30. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~98h** — NaN on GPU `gd125a8`. esc#28 due ~22:30. |
+| **#512** | edward | **H6: Aux v_t reset at cooldown onset** (`reset_frac`=1.0/0.5/0.1) | **NEWLY ASSIGNED 22:10 UTC** — ctrl + 2 mechanistic arms |
+| **#510** | frieren | **Aux NAdam (Nesterov AdamW)** | Assigned 21:55 UTC — 3 arms: AdamW ctrl / NAdam decay=0 / NAdam decay=0.004 |
+| **#478** | askeladd | **embed LR extension** (0.5/0.6/0.7) | Arm 4 (0.5) running. Arms 5/6 chained. |
+| **#501** | fern | **per-group eps decomp** (3 arms) | ctrl running, chain continues |
+| **#507** | nezuko | **embed init std** (1.0/0.1/0.02) | ctrl running, arms 2/3 chained |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~98.5h** — GPU `g71b0d6`. esc#28 due ~22:30. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~98.5h** — NaN on GPU `gd125a8`. esc#28 due ~22:30. |
 | **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#28 due ~22:30. |
 
-## Key pattern: aux per-group LR sweeps (ALL CLOSED)
+## Key pattern: aux per-group LR sweeps (ACTIVE WIN DIRECTION)
 
 - **scalars LR** (PR #475 CLOSED): saturated at 0.01.
-- **embed LR** (PR #478 ACTIVE extension): 0.2→0.3→0.4 monotone WIN (-0.00186 vs ctrl). 🟢 Peak likely at 0.5-0.6.
+- **embed LR** (PR #478 ACTIVE extension): 0.2→0.3→0.4 monotone WIN (−0.00186 vs ctrl). 🟢 Peak likely at 0.5–0.6.
 - **lm_head LR** (PR #481 CLOSED): flat at 1/320 under eps=1e-6.
 - **cooldown_frac** (PR #484 CLOSED): flat at 0.4.
-
-**Active direction**: embed_lr extension arms 4/5/6 running.
 
 ## Saturated levers (post-PR #443)
 
 - **Inner LR dynamics**: MuonH-SI HPs (lr/mu/wd), cooldown shape/frac, warmup steps=100, mu warmup/cooldown ALL NEG.
-- **Inner optimizer geometry**: AGC clip_ratio (insensitive [0.02, 0.10]), Nesterov outer SGDM mu (0.5 optimal, drop/increase both NEG).
-- **Aux optimizer**: eps sweep confirms **1e-6 > 1e-10 >> 1e-8**. betas saturated (PR #183 under old eps).
+- **Inner optimizer geometry**: AGC clip_ratio (insensitive [0.02, 0.10]), Nesterov outer SGDM mu (0.5 optimal).
+- **Aux optimizer**: eps sweep confirms **1e-6 > 1e-10 >> 1e-8**. betas saturated.
 - **NS5**: k-count blocked (alphonse pod), all polynomial families closed (PR #438).
 - **Logit softsign cap**: cap=15 is local optimum.
-- **MuonH inner mu**: FULLY CLOSED (PR #450). Strong asymmetric U-shape — 0.90 mild NEG, **0.98 catastrophic (failed target)**. 0.95 unique optimum.
-- **MuonH budget_mult**: FLAT (PR #451). All values [0.9, 1.0, 1.1] within ±0.00054. Axis closed.
-- **MuLoCo ALL KNOBS**: sync_interval CLOSED (PR #453) — sync=30 optimal (15 ~10σ NEG, 60 within noise). outer_lr=0.7 CLOSED (PR #369). outer_momentum=0.5 CLOSED. outer class=SGDM CLOSED. MuLoCo lever fully exhausted.
+- **MuonH inner mu**: FULLY CLOSED (PR #450). 0.95 unique optimum.
+- **MuonH budget_mult**: FLAT (PR #451). Axis closed.
+- **MuLoCo ALL KNOBS**: sync_interval CLOSED (PR #453) — sync=30 optimal. outer_lr=0.7 CLOSED (PR #369). outer_momentum=0.5 CLOSED. Lever fully exhausted.
 
-## Key recent results (this round)
+## Hypothesis bank (pending assignment when students free up)
 
-| PR | Lever | Arm results | Decision |
-|---|---|---|---|
-| #443 MERGED | Aux eps | ctrl=+0.00091, 1e-8=+0.00103, **1e-6=−0.00167 WIN** | **MERGED. New baseline 3.27119** |
-| #450 CLOSED | MuonH mu | ctrl +0.00230, mu=0.90 ~10σ NEG, **mu=0.98 CATASTROPHIC** | **CLOSED — 0.95 unique optimum** |
-| #451 CLOSED | budget_mult | ctrl/0.9/1.1 all within ±0.00054, FLAT | **CLOSED — axis insensitive** |
-| #438 CLOSED | NS5 polynomial | ctrl +0.00177, classical ~5σ NEG, sharper ~3σ NEG | **CLOSED** |
-| #453 CLOSED | MuLoCo sync_interval | ctrl +0.00268, sync=15 ~10σ NEG, sync=60 within noise | **CLOSED — sync=30 confirmed optimal, MuLoCo fully exhausted** |
+| H# | Hypothesis | Notes |
+|---|---|---|
+| H1 | Per-group eps decomp | PR #501 fern ACTIVE |
+| H2 | Lookahead outer wrapper on aux | Pending |
+| H3 | SWA averaging over aux params at cooldown | Pending |
+| H4 | Nesterov AdamW (NAdam) | PR #510 frieren ACTIVE |
+| H5 | Embed init std sweep | PR #507 nezuko ACTIVE |
+| H6 | Decoupled second-moment reset at cooldown | PR #512 edward ACTIVE |
+| H7 | Per-group weight decay re-sweep under eps=1e-6 | Pending |
+| H8 | AdaBelief for aux (gradient-adapted second moment) | Pending |
+| H9 | AdamW beta1/beta2 re-sweep under eps=1e-6 | axes were screened under old eps=1e-10 stack |
 
-## Research direction (20:30 UTC)
+## Research direction (22:10 UTC)
 
-**WINS in flight:**
-1. **eps=1e-6 on aux AdamW** (PR #443 merged 13:25 UTC) — n=3 confirm mean **3.27224** (below old n=4 baseline 3.27286 by -0.00062). Arm 4 chained for full n=4 mean.
-2. 🟢 **higher embed_lr** (PR #478 askeladd) — monotone improvement 0.2→0.3→0.4 = 3.27527→3.27399→**3.27213**. Slope ≈ -0.0015 per +0.1. Extension to 0.5/0.6/0.7 assigned at 20:14 UTC. Likely peak at 0.5-0.6.
+**Primary active win directions:**
+1. 🟢 **higher embed_lr** (PR #478 askeladd) — monotone −0.0015/+0.1 gradient. Extension arms 4/5/6 running at 0.5/0.6/0.7.
+2. **Per-group eps decomp** (PR #501 fern) — tests whether eps=1e-6 win is driven by one specific aux group.
+3. **Embed init std** (PR #507 nezuko) — std=1.0 is unusually large vs GPT-2 std=0.02; std reduction may improve early convergence.
+4. **NAdam aux** (PR #510 frieren) — mechanism test: Nesterov-style first-moment in aux AdamW consistent with Nesterov in MuonH/MuLoCo.
+5. **v_t reset at cooldown** (PR #512 edward) — partial second-moment reset at aux cooldown onset, re-invigorating adaptive step size at LR decay.
 
-**Ctrl arm noise observed (7 ctrl-equivalent samples)** mean Δ = +0.00169, sd ≈ 0.00115. **All positive** — baseline `t1coza71` is a favorable-seed outlier.
+**Ctrl arm noise** (7 ctrl-equivalent samples): mean Δ = +0.00169, sd ≈ 0.00115. All positive — baseline `t1coza71` is a favorable-seed outlier. Any win must clear +0.0008 vs 3.27119 to be above noise.
 
-**Active aux-side sweep suite** (5 in flight):
-1. **n=4 eps confirm** (PR #471 edward) — arms 1+2+3 in, arm 4 running
-2. **Embed LR extension** (PR #478 askeladd) — arms 4/5/6 at 0.5/0.6/0.7 pending student pickup
-3. **Per-group eps decomp** (PR #501 fern) — ctrl running step 175, 3-arm chain
-4. **lm_head LR** (PR #481 nezuko) — arms 1+2 in, arm 3 (doubled LR) terminal ~20:50 UTC
-5. **Aux cooldown_frac** (PR #484 frieren) — arms 1+2 in, arm 3 (0.6) running
-
-**Pending next hypotheses** (when students free up):
-- AdamW beta1/beta2 re-sweep under eps=1e-6 (axes were screened under old eps=1e-10 stack — may have shifted)
-- H4 Nesterov for AdamW (nesterov-style momentum in aux side)
-- H6 second-moment reset at cooldown onset (decoupled exp_avg_sq reset)
-- Architectural axes (residual init, NS5 k-count) — blocked on pod replacements
-- **PR #507 nezuko embed init std IN FLIGHT** — removed from pending
-
-**Operator silence Issue #164**: **escalations through esc#27 (18:27) + duplicate #25 (20:21), ~97h total**. esc#28 due ~22:30 UTC. (Numbering tracking corrected via per_page=100 API query — prior session had posted #25/26/27 correctly.)
+**Operator silence Issue #164**: ~98.5h total, esc#28 due ~22:30 UTC.

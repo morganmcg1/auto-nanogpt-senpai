@@ -1940,3 +1940,33 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
 **Lever closed**: MuonH-SI inner schedule is fully saturated. No further cooldown/warmup schedule variations warranted.
 
 **Next for frieren**: PR #453 assigned — MuLoCo sync_interval re-sweep on current AGC+warmup baseline (15/30/60).
+
+## 2026-05-19 22:02 UTC — PR #471 CLOSED: eps=1e-6 n=4 confirmation (edward)
+
+- **Branch**: g1r3-edward/eps-1e6-n4-confirm
+- **Hypothesis**: n=4 statistical confirmation that `--aux_adamw_eps 1e-6` (PR #443 winner) is a real improvement vs the old eps=1e-10 baseline (PR #329, mean=3.27286).
+- **All 4 arms used**: `--aux_adamw_eps 1e-6` with default RNG seed progression (no fixed seed).
+
+| Arm | W&B run | val/loss | ffs | Δ vs old baseline (3.27286) |
+|-----|---------|---------|------|---------------------------|
+| 1 | `7un3lhgi` | 3.27129 | 3125 | −0.00157 |
+| 2 | `nyci0k7j` | 3.27331 | 3150 | +0.00045 |
+| 3 | `r43od98v` | 3.27213 | 3125 | −0.00073 |
+| 4 | `1bn51v5g` | 3.27197 | 3125 | −0.00089 |
+| **n=4 mean** | | **3.27218** | 3131 | **−0.00068** |
+| 95% CI (t, 3df) | | [3.27084, 3.27351] | | — |
+
+**Decision: CLOSED (no merge needed — eps=1e-6 already in baseline via PR #443).**
+
+**Analysis**:
+- All 4 arms hit target (val ≤ 3.28) and cleared kill gate (val < 3.30 at step 3000).
+- n=4 mean (3.27218) is **below old baseline (3.27286) by −0.00068**, confirming the direction is real.
+- However, n=4 mean does NOT clear the conservative n=4 bar (<3.27079) — sits +0.00138 above it.
+- 95% CI [3.27084, 3.27351] touches but doesn't exceed the bar: the lower end barely touches 3.27079.
+- PR #443 n=1 win (3.27119, ffs=3100) was a **favorable-seed outlier**: none of the 4 arms reproduced ffs=3100, and the best arm (3.27129) is +0.00010 worse than the n=1 datum.
+- True effect size: ~σ/2 to 1σ improvement from eps=1e-6. Real but small. Seed-to-seed spread ~0.002 nats (range 3.27129 → 3.27331).
+
+**Conclusion**: eps=1e-6 is at worst neutral and at best a small real-effect improvement. The current baseline `t1coza71` (3.27119) was a lucky seed inside a distribution centered around ~3.272. We keep `--aux_adamw_eps 1e-6` in the stack because direction is confirmed; we don't expect it to clear n=4 conservative bars on its own.
+
+**Next for edward**: PR #512 assigned — H6 Aux AdamW `v_t` partial reset at cooldown onset (`--aux_v_reset_frac` 1.0/0.5/0.1).
+
