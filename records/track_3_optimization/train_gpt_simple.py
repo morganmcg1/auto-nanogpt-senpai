@@ -520,14 +520,19 @@ NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", 
 #   late_peak  -> NS_ITERS first half of cooldown, peak second half
 NS_COOLDOWN_SHAPE = os.environ.get("NANOGPT_NS_COOLDOWN_SHAPE", "step")
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
-# Per-group embed cooldown shape (applies to adam_embed group only; lm_head/scalars keep linear).
+# Per-group AdamW cooldown shapes (adam_embed, adam_lm_head, adam_scalars).
 # options: "linear" (baseline), "cosine", "linear_floor", "quadratic"
 NANOGPT_EMBED_COOLDOWN_SHAPE = os.environ.get("NANOGPT_EMBED_COOLDOWN_SHAPE", "linear")
-_VALID_EMBED_COOLDOWN_SHAPES = ("linear", "cosine", "linear_floor", "quadratic")
-if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
-    raise ValueError(
-        f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
-    )
+NANOGPT_LM_HEAD_COOLDOWN_SHAPE = os.environ.get("NANOGPT_LM_HEAD_COOLDOWN_SHAPE", "linear")
+NANOGPT_SCALAR_COOLDOWN_SHAPE = os.environ.get("NANOGPT_SCALAR_COOLDOWN_SHAPE", "linear")
+_VALID_COOLDOWN_SHAPES = ("linear", "cosine", "linear_floor", "quadratic")
+for _name, _val in [
+    ("NANOGPT_EMBED_COOLDOWN_SHAPE", NANOGPT_EMBED_COOLDOWN_SHAPE),
+    ("NANOGPT_LM_HEAD_COOLDOWN_SHAPE", NANOGPT_LM_HEAD_COOLDOWN_SHAPE),
+    ("NANOGPT_SCALAR_COOLDOWN_SHAPE", NANOGPT_SCALAR_COOLDOWN_SHAPE),
+]:
+    if _val not in _VALID_COOLDOWN_SHAPES:
+        raise ValueError(f"{_name}={_val!r}, must be one of {_VALID_COOLDOWN_SHAPES}")
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
@@ -738,8 +743,9 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
-print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
-       f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+print0(f"COOLDOWN_SHAPE: embed={NANOGPT_EMBED_COOLDOWN_SHAPE} "
+       f"lm_head={NANOGPT_LM_HEAD_COOLDOWN_SHAPE} "
+       f"scalar={NANOGPT_SCALAR_COOLDOWN_SHAPE}", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
@@ -802,6 +808,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_lm_head_cooldown_shape": NANOGPT_LM_HEAD_COOLDOWN_SHAPE,
+            "nanogpt_scalar_cooldown_shape": NANOGPT_SCALAR_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
@@ -859,31 +867,46 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay.
-    # All groups follow the default linear-to-zero cooldown except the
-    # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    # Per-group cooldown shape routing — adam_embed/adam_lm_head/adam_scalars are
+    # each independently remappable via their NANOGPT_*_COOLDOWN_SHAPE env vars.
+    # All other groups (e.g. muon_blocks) follow the default linear-to-zero
+    # cooldown. When a group's shape is "linear", apply_shape returns eta_default
+    # so the math is bitwise identical to the unmapped default.
+    def apply_shape(shape, eta_default, cooldown_progress):
+        if shape == "linear":
+            return eta_default
+        elif shape == "cosine":
+            return 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
+        elif shape == "linear_floor":
+            return 0.15 + 0.85 * eta_default  # decays from 1.0 to 0.15
+        elif shape == "quadratic":
+            return eta_default ** 2
+        else:
+            raise ValueError(f"unknown shape: {shape}")
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta_default = 1.0
             eta_embed = 1.0
+            eta_lm_head = 1.0
+            eta_scalar = 1.0
         else:
             eta_default = (1 - progress) / cooldown_frac
             cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
-            if NANOGPT_EMBED_COOLDOWN_SHAPE == "linear":
-                eta_embed = eta_default
-            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "cosine":
-                eta_embed = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
-            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "linear_floor":
-                eta_embed = 0.15 + 0.85 * eta_default  # decays from 1.0 to 0.15
-            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "quadratic":
-                eta_embed = eta_default ** 2
-            else:
-                raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+            eta_embed = apply_shape(NANOGPT_EMBED_COOLDOWN_SHAPE, eta_default, cooldown_progress)
+            eta_lm_head = apply_shape(NANOGPT_LM_HEAD_COOLDOWN_SHAPE, eta_default, cooldown_progress)
+            eta_scalar = apply_shape(NANOGPT_SCALAR_COOLDOWN_SHAPE, eta_default, cooldown_progress)
         for opt in optimizers:
             for group in opt.param_groups:
-                if group.get("name") == "adam_embed":
+                name = group.get("name", "")
+                if name == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
+                elif name == "adam_lm_head":
+                    group["lr"] = group["initial_lr"] * eta_lm_head
+                elif name == "adam_scalars":
+                    group["lr"] = group["initial_lr"] * eta_scalar
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
 
