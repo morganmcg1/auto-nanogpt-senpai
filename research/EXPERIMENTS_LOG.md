@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 08:30 UTC — Cycle 62: #420 CLOSED ATTN_SOAP_TRUST_THRESHOLD axis FALSIFIED on new base (clean mechanism ablation finding); nezuko → #449 EMBED_LR sweep (AdamW path completion, largest LR in optimizer)
+
+### PR #420 — ATTN_SOAP_TRUST_THRESHOLD sweep (T=0.70 vs T=0.95 vs default 0.85) — CLOSED axis-falsified
+
+Branch: `g1r2-nezuko/attn-soap-trust-threshold-newbase`. Both arms screened on new CONTRA_MUON=0.4 base.
+
+| Arm | T | W&B | val (n=2 mean) | ffs (n=2 mean) | vs new bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.70 | `g6qlc9o9` | 3.27828 (n=1) | 3125 | val MISS +0.0039 (foreclosed at trial 0), ffs MISS +56.25 | falsified |
+| B | 0.95 | `lqggr47m` | **3.275415** | **3087.5** | val MISS +0.001032, ffs MISS +18.75 | falsified |
+| baseline | 0.85 | `ivvf500c` | 3.274383 | 3068.75 | reference | — |
+
+**Statsig** (3.28 − μ)·√2 = (3.28 − 3.275415)·√2 = 0.00648 ≥ 0.004 → PASS, but BOTH strict bars miss.
+
+**Mechanistic finding — gate behavior via on_fraction time-series**:
+
+| Arm | T | overall on_frac | warmup (<300) | plateau (300-2575) | cooldown (≥2575) | mean cos_row | mean cos_col |
+|---|---|---|---|---|---|---|---|
+| A | 0.70 | **0.977** | 0.869 | 1.000 | 1.000 | 0.861 | 0.915 |
+| B | 0.95 | **0.008** | 0.077 | 0.000 | 0.000 | 0.874 | 0.934 |
+
+Per-weight-type on_fraction is uniform within each arm (k/q/v/proj all match overall), so the trust threshold is not selecting differentially across attention slots.
+
+**Interpretation**:
+- Cosine similarities cluster ~0.85-0.93 (row) and ~0.91-0.95 (col)
+- Default T=0.85 lands inside the empirical row-similarity distribution → gate is selective
+- Arm A T=0.70 → gate ~always-open = **Attn-SOAP without trust filter**
+- Arm B T=0.95 → gate ~always-closed = **Attn-SOAP effectively disabled** (outside warmup)
+- Attn-SOAP itself contributes only ~0.001 val improvement on the new stack (Arm B nearly matches baseline)
+
+**Strategic consequence**: The trust gate at the current default is doing real work because T=0.85 is empirically calibrated to the cos-row distribution. There's no smarter constant threshold to find — the natural follow-up direction is **adaptive thresholds (e.g., mean − σ over running cos_row)** rather than further constant-threshold sweeping.
+
+**Process notes (exemplary)**:
+- Self-driven Option-B foreclosure on Arm A trial 1 (saved ~3.4h GPU)
+- Mechanistic terminal post with on-fraction time-series across warmup/plateau/cooldown phases
+- Four ranked follow-up suggestions, all mechanistically motivated
+- This is the kind of terminal analysis that distinguishes research from hyperparameter sweeping
+
+**Reassignment**: → **PR #449 EMBED_LR sweep** (0.225 vs 0.375 around hardcoded 0.3). Largest LR in entire optimizer (8× MUON_LR, 96× LM_HEAD_LR), never swept. AdamW path completion paired with fern #431 (LM_HEAD_LR).
+
+---
+
 ## 2026-05-19 04:30 UTC — Cycle 61: #373 CLOSED (AdaMuon axis-falsified at n=4 on both baselines; EMA-family exhaustion 4-deep; "input-side robust vs output-side fragile" mechanism finding); frieren → #435 logit softcap K sweep (strategy-tier shift to model-side axes)
 
 ### PR #373 — AdaMuon: post-NS5 per-element EMA variance scaling — CLOSED axis-falsified

@@ -1,5 +1,7 @@
 # SENPAI Research State
 
+- 2026-05-19 08:30 UTC — Cycle 62 — **#420 nezuko CLOSED ATTN_SOAP_TRUST_THRESHOLD axis FALSIFIED on new base (Arm A T=0.70 val=3.27828/ffs=3125 foreclosed at trial 0; Arm B T=0.95 n=2 mean val=3.275415/ffs=3087.5 — MISS both bars by +0.001/+18.75). Excellent mechanistic finding: default T=0.85 sits inside the empirical cos-row distribution (~0.85-0.93) so the gate is selective by construction; Arm A turns gate ~always-open (on_frac=0.977) = "Attn-SOAP without trust filter"; Arm B turns gate ~always-closed (on_frac=0.008) = "Attn-SOAP effectively disabled". Attn-SOAP contributes only ~0.001 val on the new stack.** Reassigned → **#449 EMBED_LR sweep** (0.225 vs 0.375 around hardcoded 0.3) — largest LR in entire optimizer (8× MUON_LR, 96× LM_HEAD_LR), never swept, AdamW-path completion paired with fern #431.
+
 - 2026-05-19 04:30 UTC — Cycle 61 — **#373 frieren CLOSED axis-falsified at n=4 confirm on both baselines (AdaMuon post-NS5 per-element EMA variance scaling: n=4 mean val=3.27665/ffs=3093.75 vs new bar 3.274383/3068.75 — misses every bar across both old and new baselines; T0/T2/T3 at unfavorable ffs=3100 — clean regression to mean from lucky n=2 screen). Critical research finding: **"input-side robust vs output-side fragile" mechanism — pre-NS5 perturbations (MuonEq-R, Contra-Muon, NorMuon row-scaling) tolerate noise because NS5 re-projects to orthogonal manifold; post-NS5 perturbations (AdaMuon, RMS variants) have no downstream re-projection and propagate directly into the update. EMA-family exhaustion now 4-deep: SOAP_BETA2 #223, NORMUON_BETA2 #378, ATTN_SOAP_BETA2 #394, AdaMuon-BETA2 #373.** 7 consecutive misses since PR #358 merged ~8h ago — Plateau Protocol shift activated: output-side and AdamW-path axes now priority. Reassigned → **#435 logit softcap K sweep** (K=10 vs K=22 around default K=15) — pure model-side mechanism, hardcoded since project inception, never swept, implicated as mediator in both edward #379 and fern #372 closure analyses.
 
 - 2026-05-19 03:30 UTC — Cycle 60 — **#372 fern CLOSED axis-falsified on new base (MuonEq-R n=2 mean val=3.27591/ffs=3087.5 vs new bar 3.274383/3068.75 — additivity prediction falsified; key finding: pre-NS5 row-norm and CONTRA_MUON are partially substitutive cooldown-geometry levers; lever is saturated in new baseline). Reassigned → #431 AdamW lm_head_lr sweep (0.0025 vs 0.00375 around default 0.003125 = 1/320) — fresh AdamW-path axis, orthogonal to all in-flight Muon-side experiments.**
@@ -42,6 +44,24 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 - **ALPHONSE #429** (NEW 03:10 UTC 2026-05-19) — **NS5 iterations sweep** 10 vs 14 around default 12 on new base. NS5 iters hardcoded at 12 since NorMuon-clean PR #71 — load-bearing through 5 stack changes (SOAP-MLP, ATTN_SOAP, NorMuon, Contra-Muon, MU schedule, CONTRA_MUON). Controls orthogonal-projection quality of Muon update; downstream SOAP/ATTN-SOAP/NorMuon all consume NS5 output. Adds env-var-controlled `NS5_ITERS`. ~16% Muon-step wall-clock delta per arm — report step-time. Pure code change at single function.
 - **EDWARD #430** (NEW 03:10 UTC 2026-05-19) — **MUON_LR sweep** 0.030 vs 0.045 around default 0.0375 on new base. Hardcoded since PR #78 (~3 days ago) — load-bearing through 4 stack additions (CONTRA_MUON 0.5→0.4, ATTN_SOAP, MU cooldown-only schedule, CONTRA_MUON re-tune). Each downstream change affects effective Muon step magnitude. Public track 3 records mostly use lr=0.018, our 0.0375 is on the high end. Single-line env-var plumbing. ±20% bracket — symmetric and wide enough to detect signal.
 - **FRIEREN #435** (NEW 04:30 UTC 2026-05-19) — **logit softcap K sweep** K=10 vs K=22 around default K=15 on new base. Hardcoded since project inception (line 431: `logits = 15 * logits * (logits.square() + 15**2).rsqrt()`) — load-bearing through ALL cycles, never swept. Pure model-side mechanism, orthogonal to all in-flight optimizer-pipeline axes. Implicated as mechanism mediator in both edward #379 (embed init stack-specificity) and fern #372 (MuonEq-R stack-specificity) closure analyses. K=15 is unusually tight vs public modded-nanogpt K=30 and Gemma K=50. Single-line env-var plumbing (LOGIT_SOFTCAP_K). Strategy-tier shift — first non-optimizer axis this cycle.
+- **NEZUKO #449** (NEW 08:30 UTC 2026-05-19) — **EMBED_LR sweep** 0.225 vs 0.375 around hardcoded 0.3 on new base. AdamW embed group LR is the **largest LR in the entire optimizer** (8× MUON_LR, 96× LM_HEAD_LR) and has never been swept since project inception. Pure env-var (EMBED_LR), orthogonal to all in-flight Muon-side axes. Pairs with fern's #431 (lm_head_lr) and edward's #430 (MUON_LR) to characterize the LR landscape across all three AdamW groups + the Muon path. Sparse-per-step gradient pattern justifies high LR but specific value 0.3 has never been validated empirically.
+
+## 🔥 STRONG n=4 CONFIRM CLUSTER (NEW)
+
+**Three concurrent n=4 confirm runs on new base** — first cluster of merge candidates since PR #358 merged ~12h ago. All on schedule/correction-magnitude lever family (Muon-side).
+
+| PR | Student | Axis | n=2 mean val | n=2 mean ffs | n=4 ETA | Status |
+|---|---|---|---|---|---|---|
+| #415 | thorfinn | MU_WARMUP_STEPS=200, MU_WARMUP_START=0.85 | 3.273802 | 3050 | ~10:30 UTC | n=4 at ~28% (Trial 1 done, cleared bars) |
+| #405 | askeladd | CONTRA_MUON=0.35 | 3.273505 | 3050 | ~12:30 UTC | n=4 launched 05:37 UTC, ~15% |
+| #406 | tanjiro | MU_COOLDOWN_START=0.97 | 3.27417 | 3062.5 | ~13:00 UTC | n=4 launched 06:36 UTC, ~5% |
+
+**Merge order if multiple pass**: prioritize askeladd #405 (strongest n=2: −0.000878 val / 3050 ffs floor on both trials), then thorfinn #415 (same ffs floor, slightly worse val), then tanjiro #406 (tightest n=2 margin). After first merge, send back the other two for new-base re-test (compounding axes may not stack cleanly — see #372/#373 closure analyses for cross-stack interaction patterns).
+
+**Cross-axis composability concerns**:
+- #405 (CONTRA_MUON 0.4→0.35) and #406 (MU_COOLDOWN_START 0.95→0.97) both directly parameterize the cooldown-stage update geometry — likely partially substitutive per #372 saturated-lever finding
+- #415 (MU_WARMUP_STEPS) operates on a different optimizer phase (warmup vs cooldown) — most likely orthogonal to #405/#406
+- If #415 + (one of #405, #406) both pass n=4 confirm, the stacking question becomes critical
 
 ## Previous cycle racing context (now superseded by new bar)
 
