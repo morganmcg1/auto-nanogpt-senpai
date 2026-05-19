@@ -1,5 +1,80 @@
 # SENPAI Research Results
 
+## 2026-05-19 12:30 UTC — PR #433 CLOSED: Aux AdamW β2 by group {0.99, 0.999 on embed+lm_head} — both NULL, axis closes at uniform 0.95 (g1r1-edward)
+
+- Branch: `g1r1-edward/aux-beta2-by-group`
+- Hypothesis: Decouple aux AdamW β2 per parameter group. Embed/lm_head (sparse-token gradients) may benefit from higher β2 (longer 2nd-moment averaging) than scalars (dense LN/bias). Test β2_{embed,lm_head} ∈ {0.99, 0.999} vs scalars β2=0.95.
+
+| Arm | β2_embed | β2_lm_head | β2_scalars | W&B | sr | val/best_loss | Δsr (vs NEW base 2937.5) | Δval (vs NEW base 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | 0.95 | 0.95 | 0.95 | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+| A | 0.99 | 0.99 | 0.95 | `3eweuh3s` | 2975 | 3.26738 | +37.5 ✗ | +0.0031 ✗ | NULL (tied old, NULL new) |
+| B | 0.999 | 0.999 | 0.95 | `2qoyvxmz` | 3050 | 3.27327 | +112.5 ✗ | +0.009 ✗ | NULL (clear regression) |
+
+**Signal: monotone NULL → regression as β2 increases on the matrix groups.** Arm A indistinguishable from baseline (Δval=+0.00017 vs OLD baseline, within seed noise); Arm B clearly worse than baseline (+0.006 val).
+
+**Mechanistic conclusion:** The sparse-vs-dense gradient intuition (high-β2 for noisier signals on rarely-updated tokens like vocab embeddings) is not borne out at this scale/data regime. Uniform β2=0.95 across all aux groups is the empirically-optimal choice. Higher β2 (longer 2nd-moment averaging) is structurally worse — likely because the cooldown schedule already provides enough effective averaging through smaller LRs, and additional momentum in the 2nd moment over-smooths the per-step adaptation just when the model needs to refine direction in late training.
+
+**Operational note:** Student caught a duplicate-process incident on Arm A (two torchrun processes sharing GPU), SIGKILL'd the newer duplicate, preserved the original run cleanly. Good operational discipline.
+
+**Combined-axis closure:** With β1 axis closed at uniform 0.8 (PR #416), β2-by-group now closed at uniform 0.95. **Aux AdamW (β1, β2) axes are both fully characterized — uniform values across all groups are optimal.** Remaining aux AdamW per-group axes: eps (askeladd #463 in flight) and weight_decay (edward #466 newly assigned).
+
+**Next assignment:** PR #466 (aux AdamW WD scan {0.001, 0.01} on embed+lm_head — first WD test on aux matrices).
+
+---
+
+## 2026-05-19 12:25 UTC — PR #447 CLOSED: NS adaptive convergence threshold {0.5, 0.1} — mechanism never engages, axis closes (g1r1-fern)
+
+- Branch: `g1r1-fern/ns-adaptive-threshold`
+- Hypothesis: Replace fixed NS_ITERS=12 with adaptive convergence (data-dependent iter count). Skip remaining iters when polar residual drops below threshold. Arms: threshold=0.5 (Arm A, looser) and threshold=0.1 (Arm B, tighter).
+
+| Arm | threshold | W&B | sr | val/best_loss | Δsr (vs NEW base) | Δval (vs NEW base) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | (fixed iters=12) | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+| A | 0.5 | `7logfkqq` | 3000 | 3.26915 | +62.5 ✗ | +0.0049 ✗ | NULL (mechanism never fires) |
+| B | 0.1 | (not run) | — | — | — | — | skipped per advisor directive |
+
+**Critical mechanism diagnostic (student-provided telemetry):** The adaptive threshold **never engages** under either arm. Polar residual after 12 cubic-Newton NS iterations plateaus at ~6.9 throughout training, one order of magnitude above either threshold (0.5 or 0.1). Both arms would effectively be NS_ITERS=12 + per-step residual-check overhead — indistinguishable from baseline mechanism-wise.
+
+**Residual trajectory (Arm A, single-run):** 27.75 (step 1) → 8.76 (step 25) → 8.30 (step 50) → 7.07 (step 250) → 6.93 (step 425). Log-linear extrapolation to step 3000: residual ≈ 1.5, still 3× above threshold 0.5. The threshold is unreachable in 12-iter ceiling at this operating point.
+
+**Why Arm B was not run:** Saved ~3.5h GPU time. Mechanism guaranteed not to engage; Arm B with tighter threshold (0.1) is structurally identical to Arm A. Student raised this diagnostically and waited for advisor decision.
+
+**Mechanistic conclusion:** The original hypothesis "skip NS iterations once polar projection converges" is **dead at this operating point** because cubic-Newton NS at (a=1.5, b=-0.5, c=0) with 12 iters cannot push the residual below ~6.9. The matrices being orthogonalized are not converging to tight orthogonality with this polynomial.
+
+**Side-finding for program log:** NS convergence quality at the current PMuon operating point is a worthwhile diagnostic axis. Future revisits: (a) higher-tolerance early-exit (threshold ≈ 5-7) as a *different* hypothesis — would test "can we early-exit at moderate convergence and maintain quality?", and (b) revised NS polynomial coefficients (asymmetric c ≠ 0 variants) to push residual lower. Not by reviving this PR.
+
+**Operational note:** Student also caught a duplicate-process incident on Arm A (W&B `3vidmtm1` duplicate alongside canonical `7logfkqq`), killed the duplicate cleanly, step time recovered from ~9s to ~4s. Good operational discipline.
+
+**Next assignment:** PR #465 (Muon LR fine-scan {0.030, 0.040} — highest-value unscanned axis on body optimizer).
+
+---
+
+## 2026-05-19 11:30 UTC — PR #416 CLOSED: Aux AdamW β1 fine-scan {0.75, 0.85} — both NULL after n=2 confirmation, axis closes at 0.8 (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-b1-fine-scan`
+- Hypothesis: Fine-scan β1 around baseline 0.8 for aux AdamW. Test 0.75 (less momentum) and 0.85 (more momentum).
+
+| Arm | β1 | W&B | sr | val/best_loss | Δval (vs NEW base 3.264278) | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | 0.8 | `k7ylyby9`/`dm4joozw` | 2937.5 | 3.264278 | — | — |
+| A | 0.75 | `3kpvr1lq` | 3025 | 3.27201 | +0.0077 ✗ | NULL clear |
+| B (seed-1 n=1) | 0.85 | `bktt5lon` | 2950 | 3.26375 | −0.00053 ✓ | n=1 marginal WIN |
+| B (seed-2 n=2 confirm) | 0.85 | `k7u7pfy5` | 3000 | 3.26911 | +0.00484 ✗ | NULL (falsifies n=1) |
+| **B (n=2 mean)** | **0.85** | — | **2975** | **3.2664** | **+0.0022 ✗** | **NULL** |
+
+**Signal: Arm A clear regression. Arm B n=1 marginal WIN falsified at n=2.** seed-2 produced sr=3000 val=3.26911, Δval=+0.00484 — clearly NULL. n=2 mean val=3.26643, well above baseline.
+
+**Statistical lesson:** This demonstrates the value of the marginal n=2 confirmation rule. Arm B's n=1 was Δval=-0.00053 (within seed noise) — flagged marginal per (3.28-μ)·√n ≥ 0.004 rule. Without n=2 confirmation, we would have merged a non-improvement. n=2 mean reveals the n=1 was on the favorable side of seed noise.
+
+**Mechanistic conclusion:** β1 axis CLOSES at uniform 0.8 across all aux groups. Combined with PR #320 testing β1=0.9 (NULL), the bracket 0.75/0.8/0.85/0.9 is now fully characterized — 0.8 is the local optimum.
+
+**Combined with PR #433 closure (this cycle):** Both β1 AND β2 axes are now closed at their uniform baseline values for aux AdamW. The aux optimizer's first-moment and second-moment hyperparameters are well-tuned at (β1=0.8, β2=0.95). Remaining open axes: eps (per-group, #463 in flight) and weight_decay (per-group, #466 just assigned).
+
+**Next assignment:** PR #463 (aux AdamW eps scan on embed group {1e-8, 1e-7} vs baseline 1e-10).
+
+---
+
 ## 2026-05-19 11:48 UTC — PR #413 MERGED: scalar_lr=0.025 (alphonse n=2 WIN) ← NEW BASELINE
 
 - Branch: `g1r1-alphonse/scalar-lr-scan`
