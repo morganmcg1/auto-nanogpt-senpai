@@ -306,6 +306,64 @@ def log_adamw_step_direction(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_nadamw_step_direction(
+    optimizer: torch.optim.Optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Per-group ||m_nadam / (sqrt(v_hat) + eps)|| for NadamW groups.
+
+    m_nadam = beta1 * m_hat + (1 - beta1) * g / (1 - beta1^t). Logged under the
+    same /optimizer1_step_dir/ prefix so AdamW vs NadamW arms are directly
+    comparable in W&B.
+    """
+    metrics = {"trial": trial_idx, "train/step": step}
+    grand_sq = 0.0
+    grand_n = 0
+    for group in optimizer.param_groups:
+        group_name = group.get("name", "nadam_unknown")
+        beta1, beta2 = group["betas"]
+        eps = group["eps"]
+        sq_sum = 0.0
+        nel = 0
+        max_abs = 0.0
+        for p in group["params"]:
+            st = optimizer.state.get(p, {})
+            if "m" not in st or "v" not in st:
+                continue
+            t = st.get("step", 0)
+            t_val = float(t.item() if torch.is_tensor(t) else t or 0)
+            if t_val <= 0:
+                continue
+            bc1 = 1.0 - beta1 ** t_val
+            bc2 = 1.0 - beta2 ** t_val
+            m_hat = st["m"].to(torch.float32) / bc1
+            v_hat = st["v"].to(torch.float32) / bc2
+            g = p.grad.to(torch.float32) if p.grad is not None else torch.zeros_like(m_hat)
+            m_nadam = beta1 * m_hat + (1 - beta1) * g / bc1
+            step_dir = m_nadam / (v_hat.sqrt() + eps)
+            sq = float((step_dir * step_dir).sum().item())
+            sq_sum += sq
+            nel += step_dir.numel()
+            m_abs = float(step_dir.abs().max().item())
+            if m_abs > max_abs:
+                max_abs = m_abs
+        if nel > 0:
+            norm = sq_sum ** 0.5
+            rms = (sq_sum / nel) ** 0.5
+            metrics[f"train/optimizer1_step_dir/{group_name}_norm"] = norm
+            metrics[f"train/optimizer1_step_dir/{group_name}_rms"] = rms
+            metrics[f"train/optimizer1_step_dir/{group_name}_max_abs"] = max_abs
+            metrics[f"train/optimizer1_step_dir/{group_name}_numel"] = nel
+            grand_sq += sq_sum
+            grand_n += nel
+    if grand_n > 0:
+        metrics["train/optimizer1_step_dir/nadam_all_norm"] = grand_sq ** 0.5
+        metrics["train/optimizer1_step_dir/nadam_all_rms"] = (grand_sq / grand_n) ** 0.5
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_weight_telemetry(
     model: nn.Module,
     module_types: dict[str, str],
@@ -533,6 +591,11 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_NADAM_SCOPE = os.environ.get("NANOGPT_NADAM_SCOPE", "none").lower()
+_VALID_NADAM_SCOPES = ("none", "embed", "lm_head", "all_aux")
+assert NANOGPT_NADAM_SCOPE in _VALID_NADAM_SCOPES, (
+    f"NANOGPT_NADAM_SCOPE must be one of: {_VALID_NADAM_SCOPES} (got: {NANOGPT_NADAM_SCOPE!r})"
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -642,6 +705,53 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+class NadamW(torch.optim.Optimizer):
+    """AdamW with Nesterov-momentum first moment (Dozat 2016).
+
+    Step: m_nadam_t = beta1 * m_hat_t + (1 - beta1) * g_t / (1 - beta1^t)
+          update     = m_nadam_t / (sqrt(v_hat_t) + eps)
+    Decoupled weight-decay path is included for parity even though all aux
+    groups in this stack use weight_decay=0.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.8, 0.99), eps=1e-10, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["v"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                m, v = state["m"], state["v"]
+                state["step"] += 1
+                t = state["step"]
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                m_nadam = beta1 * m_hat + (1 - beta1) * g / bc1
+                denom = v_hat.sqrt().add_(eps)
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.addcdiv_(m_nadam, denom, value=-lr)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -744,6 +854,7 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"NADAM_SCOPE: {NANOGPT_NADAM_SCOPE}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +918,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_nadam_scope": NANOGPT_NADAM_SCOPE,
         },
     )
 
@@ -838,10 +950,30 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    adam_embed_def = dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed")
+    adam_lm_head_def = dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head")
+    adam_scalars_def = dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")
+
+    if NANOGPT_NADAM_SCOPE == "none":
+        nadam_groups, adamw_groups = [], [adam_embed_def, adam_lm_head_def, adam_scalars_def]
+    elif NANOGPT_NADAM_SCOPE == "embed":
+        nadam_groups, adamw_groups = [adam_embed_def], [adam_lm_head_def, adam_scalars_def]
+    elif NANOGPT_NADAM_SCOPE == "lm_head":
+        nadam_groups, adamw_groups = [adam_lm_head_def], [adam_embed_def, adam_scalars_def]
+    elif NANOGPT_NADAM_SCOPE == "all_aux":
+        nadam_groups, adamw_groups = [adam_embed_def, adam_lm_head_def, adam_scalars_def], []
+    else:
+        raise ValueError(f"unknown NANOGPT_NADAM_SCOPE: {NANOGPT_NADAM_SCOPE!r}")
+
+    optimizer1 = AdamW(adamw_groups, betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10,
+                       weight_decay=0, fused=True) if adamw_groups else None
+    optimizer1_nadam = NadamW(nadam_groups, betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10,
+                              weight_decay=0.0) if nadam_groups else None
+
+    if dist.get_rank() == 0 and trial_idx == 0:
+        print0(f"  NadamW groups: {[g['name'] for g in nadam_groups] if nadam_groups else '(none)'}", console=True)
+        print0(f"  AdamW groups:  {[g['name'] for g in adamw_groups] if adamw_groups else '(none)'}", console=True)
+
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -851,7 +983,7 @@ for trial_idx in range(args.num_trials):
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
-    optimizers = [optimizer1, optimizer2]
+    optimizers = [opt for opt in (optimizer1, optimizer1_nadam, optimizer2) if opt is not None]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1039,23 +1171,43 @@ for trial_idx in range(args.num_trials):
         embed_step_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and embed_step_due:
             with torch.no_grad():
-                embed_state = optimizer1.state.get(model.embed.weight, {})
-                if "exp_avg" in embed_state and "exp_avg_sq" in embed_state:
-                    embed_group = next(
-                        g for g in optimizer1.param_groups if g.get("name") == "adam_embed"
-                    )
+                embed_p = model.embed.weight
+                # Locate whichever optimizer holds the embed param.
+                embed_opt = None
+                embed_group = None
+                for _opt in (optimizer1, optimizer1_nadam):
+                    if _opt is None:
+                        continue
+                    for _g in _opt.param_groups:
+                        if any(p is embed_p for p in _g["params"]):
+                            embed_opt = _opt
+                            embed_group = _g
+                            break
+                    if embed_opt is not None:
+                        break
+                if embed_opt is not None and embed_group is not None:
+                    embed_state = embed_opt.state.get(embed_p, {})
                     beta1, beta2 = embed_group["betas"]
                     eps = embed_group["eps"]
                     raw_step = embed_state.get("step", 0)
                     step_count = float(raw_step.item() if torch.is_tensor(raw_step) else raw_step)
-                    if step_count > 0:
+                    has_adamw_state = "exp_avg" in embed_state and "exp_avg_sq" in embed_state
+                    has_nadam_state = "m" in embed_state and "v" in embed_state
+                    if step_count > 0 and (has_adamw_state or has_nadam_state):
                         bias1 = 1.0 - beta1 ** step_count
                         bias2 = 1.0 - beta2 ** step_count
-                        m_hat = embed_state["exp_avg"].to(torch.float32) / bias1
-                        v_hat = embed_state["exp_avg_sq"].to(torch.float32) / bias2
-                        adam_step = m_hat / (v_hat.sqrt() + eps)
-                        embed_step_norm = float(adam_step.norm().item())
-                        embed_step_rms = float(adam_step.square().mean().sqrt().item())
+                        if has_adamw_state:
+                            m_hat = embed_state["exp_avg"].to(torch.float32) / bias1
+                            v_hat = embed_state["exp_avg_sq"].to(torch.float32) / bias2
+                            step_tensor = m_hat / (v_hat.sqrt() + eps)
+                        else:
+                            m_hat = embed_state["m"].to(torch.float32) / bias1
+                            v_hat = embed_state["v"].to(torch.float32) / bias2
+                            g_now = embed_p.grad.to(torch.float32) if embed_p.grad is not None else torch.zeros_like(m_hat)
+                            m_nadam = beta1 * m_hat + (1 - beta1) * g_now / bias1
+                            step_tensor = m_nadam / (v_hat.sqrt() + eps)
+                        embed_step_norm = float(step_tensor.norm().item())
+                        embed_step_rms = float(step_tensor.square().mean().sqrt().item())
                         wandb.log({
                             "trial": trial_idx,
                             "train/step": train_step,
@@ -1066,12 +1218,20 @@ for trial_idx in range(args.num_trials):
                         }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
-            log_adamw_step_direction(
-                optimizer=optimizer1,
-                trial_idx=trial_idx,
-                step=train_step,
-                wandb_step=wandb_step,
-            )
+            if optimizer1 is not None:
+                log_adamw_step_direction(
+                    optimizer=optimizer1,
+                    trial_idx=trial_idx,
+                    step=train_step,
+                    wandb_step=wandb_step,
+                )
+            if optimizer1_nadam is not None:
+                log_nadamw_step_direction(
+                    optimizer=optimizer1_nadam,
+                    trial_idx=trial_idx,
+                    step=train_step,
+                    wandb_step=wandb_step,
+                )
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
