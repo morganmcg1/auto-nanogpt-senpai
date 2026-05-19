@@ -63,6 +63,9 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--cooldown_frac", type=float, default=0.7,
+                        help="Fraction of total training steps spent in LR cooldown phase. "
+                             "Stable phase = (1 - cooldown_frac) × train_steps. Default 0.7.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -814,7 +817,7 @@ for trial_idx in range(args.num_trials):
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
