@@ -1,5 +1,70 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 17:09 UTC — Cycle 68: T0 wave (4 PRs hit step 3175): 2 PASS, 1 MATH-KILL, 2 narrow MISS
+
+### PR #479 — alphonse NS5_ITERS=14 T0 PASS (strict bar both axes)
+
+Branch: `g1r2-alphonse/ns5-iters-14`. Full new mandatory stack.
+
+| Run | T0 step 3175 val | T0 ffs | vs strict bar |
+|---|---|---|---|
+| `1qyzfn8q` | **3.27175** | **3025** | val PASS −0.00173, ffs PASS −31.25 ✅✅ |
+
+- T1 in flight (step ~776 of T1 at 17:08 UTC); terminal ETA ~18:25 UTC
+- n=2 mean math: T1 val < 3.2753 + T1 ffs < 3087.5 → wide path open
+
+### PR #458 — edward WD_AUX=0.001 T0 PASS (strict bar both axes)
+
+Branch: `g1r2-edward/wd-aux-sweep`. Full new mandatory stack.
+
+| Run | T0 step 3175 val | T0 ffs | vs strict bar |
+|---|---|---|---|
+| `uoak0qa8` | **3.27166** | **3025** | val PASS −0.00181, ffs PASS −31.25 ✅✅ |
+
+- T1 in flight (step ~226 of T1 at 17:08 UTC); terminal ETA ~18:43 UTC
+- Slightly better T0 val than alphonse (Δ=−0.00009)
+- n=2 mean math: T1 val < 3.2753 + T1 ffs < 3087.5 → wide path open
+
+### PR #459 — frieren Lookahead-AdamW K=5 T0 MATH KILL
+
+Branch: `g1r2-frieren/lookahead-adamw`. Full new mandatory stack.
+
+| Run | T0 step 3175 val | T0 ffs | vs strict bar |
+|---|---|---|---|
+| `o90qadl2` | 3.27981 | 3175 | val MISS +0.0063, ffs MISS +118.75 ✖✖ |
+
+**Math kill rationale**: For n=2 mean ffs < 3056.25 with T0 ffs=3175, T1 needs ffs < -62.5 (impossible — min feasible ffs ≈ 3025). T1 aborted to save ~50 min GPU.
+
+**Axis verdict**: Lookahead-AdamW K=5 with default slow-weight α=0.5 misses both axes. Mechanism is not getting cooldown-phase boost; possibly interfering with cooldown trajectory. **Reassignment options to consider**: K=10 (longer slow-weight horizon), Lookahead-Muon, OR pivot to entirely different mechanism family.
+
+### PR #468 — askeladd grad-clip-adam=1.0 T0 narrow MISS
+
+Branch: `g1r2-askeladd/grad-clip-adam`. Full new mandatory stack.
+
+| Run | T0 step 3175 val | T0 ffs | vs strict bar |
+|---|---|---|---|
+| `ohvht46b` | 3.27568 | 3075 | val MISS +0.0023, ffs MISS +18.75 |
+
+- T1 in flight; T1 must hit ffs=3025 (minimum feasible) AND val<3.2713 to make n=2 mean pass
+- NOT closed — narrow but mathematically open path
+
+### PR #456 — fern SCALARS_LR=0.0075 (Arm A) T0 narrow MISS
+
+Branch: `g1r2-fern/scalars-lr-sweep`. Full new mandatory stack.
+
+| Run | T0 step 3175 val | T0 ffs | vs strict bar |
+|---|---|---|---|
+| `wa37o6l9` | 3.27491 | 3075 | val MISS +0.0014, ffs MISS +18.75 |
+
+- T1 in flight; T1 must hit ffs=3025 AND val<3.27205 to make n=2 mean pass
+- NOT closed — narrow path open
+
+### Cross-cycle observation
+
+**alphonse and edward T0 both at ffs=3025 (one eval slot better than baseline ffs=3050)** — two orthogonal axes (NS5_ITERS=14 + WD_AUX=0.001) independently shaving the cooldown crossing by 25 steps. If T1s both confirm, these are two independent improvements — and may **compound when stacked** (since one acts on Muon NS5 iterations, the other on AdamW WD applied to embed+lm_head). Stacked test = high-priority follow-up.
+
+---
+
 ## 2026-05-19 16:23 UTC — Cycle 68: #462 thorfinn Arm A n=2 MISS new bar marginally → n=4 confirm continuation
 
 ### PR #462 — MU_WARMUP_START=0.80 (Arm A) n=2 screen on NEW stack — n=4 CONFIRM ASKED
