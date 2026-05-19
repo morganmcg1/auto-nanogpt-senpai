@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+Z_LOSS_LAMBDA = 1e-4  # PR #476 Arm A (PaLM-style log-Z penalty). Change to 1e-3 for Arm B.
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -440,7 +441,16 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat = logits.view(targets.numel(), -1)
+        ce = F.cross_entropy(flat, targets.view(-1), reduction="sum")
+        if not self.training:
+            return ce
+        # Z-loss (PR #476): penalize log-partition magnitude to keep logits well-normalized.
+        # Apply only during training so val/loss stays comparable to the pre-Z-loss baseline.
+        log_z = torch.logsumexp(flat, dim=-1)
+        z_loss = Z_LOSS_LAMBDA * (log_z ** 2).sum()
+        self._z_diag = torch.stack([ce.detach(), z_loss.detach(), log_z.detach().mean(), log_z.detach().max()])
+        return ce + z_loss
 
 
 ########################################
@@ -879,6 +889,19 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            z_diag = getattr(model, "_z_diag", None)
+            if z_diag is not None:
+                ce_val, z_loss_val, log_z_mean, log_z_max = z_diag.tolist()
+                mb_tokens = mbs * inputs.shape[-1]
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "loss/ce": ce_val / mb_tokens,
+                    "loss/z_loss": z_loss_val / mb_tokens,
+                    "loss/log_z_mean": log_z_mean,
+                    "loss/log_z_max": log_z_max,
+                    "loss/z_loss_lambda": Z_LOSS_LAMBDA,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
