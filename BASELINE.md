@@ -8,6 +8,50 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-19 18:39 — PR #479: NS5_ITERS=14 — Newton-Schulz iterations sweep (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | Newton-Schulz iterations increased from 12 (default) → 14. More NS5 iterations tighten the polar projection; combined with `CONTRA_MUON=0.4` (which amplifies projection-error sensitivity), the extra iterations reduce the residual spectral-norm error. Env var: `NS5_ITERS=14`. |
+| Contra-Muon HPs | `CONTRA_MUON=0.4`, `TARGET_UW=0.35`, `MUON_LR=0.0375` |
+| Cooldown μ HPs | `MU_COOLDOWN_START=0.95`, `MU_COOLDOWN_END=0.90` |
+| Warmup μ HPs | `MU_WARMUP_STEPS=200`, `MU_WARMUP_START=0.85` |
+| SOAP HPs | `SOAP_BETA2=0.90`, `SOAP_PRECOND_FREQ=10`; `ATTN_SOAP_TRUST_THRESHOLD=0.85` |
+| NS5 HPs | `NS5_ITERS=14` (default=12) |
+| LR schedule | unified `cooldown_frac=0.7` (linear) |
+| W&B run | `1qyzfn8q` (n=2 screen, both trials in one process) |
+| **n=2 mean val/loss** | **3.273085** |
+| **n=2 statsig margin** | **0.00978** ≥ 0.004 — PASSES (2.45×) |
+| **ffs mean** | **3050** (T0=3025, T1=3075) |
+| **speedup vs PR #415** | val Δ=−0.000392; ffs Δ=−6.25 |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- |--- |
+| T0 | 3.27175 | 3025 |
+| T1 | 3.27442 | 3075 |
+
+**Mechanism insight**: Extra NS5 iterations (12→14) reduce residual spectral-norm error in the polar projection step. With `CONTRA_MUON=0.4` amplifying projection-error sensitivity through the contra-correction term, tightening the polar projection has outsized benefit. T0=3.27175 / ffs=3025 is the lowest single-trial val recorded on the new stack (previous best: 3.27310 from PR #429 Arm B T0).
+
+**New merge bar**: mean val < **3.273085** AND ffs_mean < **3050** (STRICT — both required)
+
+**All new experiments must include**: `NS5_ITERS=14 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+NS5_ITERS=14 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 \
+  MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 \
+  torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'baseline-repro-pr479' \
+  --wandb_group 'baseline-verification'
+```
+
+---
+
 ### 2026-05-19 12:05 — PR #415: MU_WARMUP_STEPS=200 — Muon momentum warmup (squash-merged)
 
 | Field | Value |
