@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 12:05 UTC — Cycle 66: #415 MERGED MU_WARMUP_STEPS=200 — STRICT-PASS WIN (val=3.273477/ffs=3056.25); #405/#406 early-terminate recommended (foreclosed on new bar); thorfinn → #462 MU_WARMUP_START sweep (0.80 vs 0.90)
+
+### PR #415 — MU_WARMUP_STEPS=200 n=4 confirm — MERGED (new baseline) 🏆
+
+Branch: `g1r2-thorfinn/mu-warmup-sweep`. Arm A only (Arm B=400 skipped per advisor advice to accelerate n=4). All runs on new CONTRA_MUON=0.4 base.
+
+| Run | W&B | n | val mean | ffs mean | vs bar | Verdict |
+|---|---|---|---|---|---|---|
+| Smoke (MU_WARMUP_STEPS=0) | `25wu2nvt` | 1 (200 steps) | val=4.178 @ step 200 | — | baseline-equivalent | ✅ |
+| Screen n=2 (warmup=200) | `xi4d6osg` | 2 | 3.273802 | 3050 | PASS ✅ | |
+| **Confirm n=4 (warmup=200)** | **`nh6ge2df`** | **4** | **3.273477** | **3056.25** | **PASS ✅** | **MERGED** |
+
+**Per-trial n=4 confirm** (`nh6ge2df`):
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.272928 | 3050 |
+| T1 | 3.274003 | 3050 |
+| T2 | 3.272357 | 3050 |
+| T3 | 3.274621 | 3075 |
+| **n=4 mean** | **3.273477** | **3056.25** |
+
+**Bar comparison vs old baseline `ivvf500c` (PR #358)**:
+- val: 3.273477 < 3.274383 ✅ PASS by −0.000906
+- ffs: 3056.25 < 3068.75 ✅ PASS by −12.5
+- statsig n=4: (3.28−3.273477)×√4 = 0.013046 ≥ 0.004 ✅ PASS by 3.26×
+
+**Cross-trial val spread: 0.0023** — one of the tightest n=4 spreads observed this cycle.
+
+**Mechanism analysis**: Muon EMA `state["momentum"]` starts at zero; applying `cur_mu=0.95` (high smoothing) while the buffer is still populating produces effectively over-smoothed early updates. With explicit warmup (0.85→0.95 over 200 steps), the optimizer follows the recent-gradient signal more faithfully during the EMA-fill window. Empirical signature: step-125 val ≈4.42 (warmup) vs ≈4.51 (no-warmup baseline) — earlier loss improvement without stability regression. The mechanism is validated by the tighter cross-trial spread.
+
+**New mandatory stack after merge**: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`
+
+**NEW MERGE BAR**: val < **3.273477** AND ffs < **3056.25** (STRICT). Critical implication: n=4 ffs bar now requires **ALL 4 trials at ffs=3050** — any single ffs=3075 gives mean=3056.25 which TIES, not beats.
+
+**Portfolio impact**: All in-flight experiments running on old stack must be re-tested on new stack. PRs #405/#406 early-terminate recommended (both foreclosed on new ffs bar). PRs #456/#458/#459/#462 notified to use new mandatory stack.
+
+**Reassignment**: thorfinn → #462 MU_WARMUP_START sweep (0.80 vs 0.90 around winning 0.85) — natural axis characterization of the warmup parameter, targeting configs that push more trials to ffs=3050 floor.
+
 ## 2026-05-19 11:40 UTC — Cycle 65: #435 CLOSED LOGIT_SOFTCAP_K axis FALSIFIED ±33% (clean output-head mechanism ablation, both arms early-terminated via Option B math foreclosure); frieren → #459 Lookahead-AdamW (fresh optimizer-wrapping mechanism)
 
 ### PR #435 — LOGIT_SOFTCAP_K sweep (K=10 vs K=22 around default K=15) — CLOSED axis-falsified

@@ -1,5 +1,7 @@
 # SENPAI Research State
 
+- 2026-05-19 12:10 UTC — Cycle 66 — **#415 thorfinn MERGED** MU_WARMUP_STEPS=200 (val=3.273477/ffs=3056.25, statsig 3.26×). **NEW BASELINE**. Critical ffs bar tightening: n=4 now requires ALL 4 trials at ffs=3050 (single 3075 = mean 3056.25 = TIE, not beat). Portfolio impact: #405/#406 early-terminate recommended (T0=3075 forecloses ffs on new bar for both). New mandatory stack: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`. Stack-update notices sent to all in-flight screens (#449/#456/#458/#459). thorfinn idle → **#462 MU_WARMUP_START sweep** (0.80 vs 0.90 around winning 0.85; targeting all-4-at-floor reliability). No human researcher issues.
+
 - 2026-05-19 11:40 UTC — Cycle 65 — **#435 frieren CLOSED LOGIT_SOFTCAP_K axis FALSIFIED ±33% (clean output-head mechanism ablation; Arm A K=10 T0=3.28057/3175-no-hit + T1 diverged at step 3326, Arm B K=22 T0=3.276487/3100 + T1 Option B kill at step ~990; flat val response surface around K=15 confirms softcap is non-load-bearing constant, partially weakens softcap-mediator hypothesis from #372/#379)**. Output-head mechanism family now saturated alongside AdamW lm_head_lr (#431), EMBED_INIT_STD (#379), ATTN_SOAP_TRUST_THRESHOLD (#420). **Reassigned frieren → #459 Lookahead-AdamW sweep** (K=5 vs K=10, α=0.5) — fresh optimizer-wrapping mechanism (Zhang et al 2019), never tested. Cleanly orthogonal to in-flight AdamW LR/WD sweeps (#449/#456/#458). **Plateau Protocol bigger-swing strategy active**: 4-deep AdamW-side characterization (LR groups + WD) + Lookahead = mechanism-family exploration mode.
 
 - 2026-05-19 11:20 UTC — Cycle 64 — **edward idle → #458 AdamW WD_AUX sweep assigned (WD_AUX=0.001 vs 0.01 around current 0.0 on embed+lm_head matrices only; scalars stays at 0). Fourth fresh AdamW-path axis — `weight_decay=0` has been hardcoded since project inception, never swept. PyTorch default is 0.01; we use 0. Hypothesis: small WD on aux matrices may improve generalization without disrupting Muon-side dynamics.** All 8 students now have active WIP PRs (zero idle). n=4 confirm cluster status as of 11:16 UTC: thorfinn #415 ~92% (T4 in progress, T1-T3 all at ffs=3050 floor — TOP merge candidate, terminal ~11:48 UTC), tanjiro #406 ~63%, askeladd #405 ~77% (foreclosed on ffs — T1-T3 all at 3075), alphonse #429 ~9% (T0 in flight).
@@ -16,15 +18,16 @@
 
 - 2026-05-19 01:10 UTC — Cycle 58 — **nezuko #394 CLOSED axis-falsified (Arm B 0.95 trial 0 val=3.27734/ffs=3125 on new base, trial 1 mathematically foreclosed and terminated early at step 444). Reassigned to #420 ATTN_SOAP_TRUST_THRESHOLD sweep (0.70 vs 0.95) on new base — pure env-var, fresh attention-pathway axis untouched since PR #16/#212.**
 
-## ⭐ NEW BASELINE — PR #358 MERGED (20:55 UTC)
+## ⭐ NEW BASELINE — PR #415 MERGED (12:05 UTC 2026-05-19)
 
-**CONTRA_MUON=0.4** merged: val=**3.274383**, ffs=**3068.75**
-- Improvement over PR #288: val Δ=−0.000967, ffs Δ=−18.75
-- **NEW MERGE BAR: val < 3.274383 AND ffs_mean < 3068.75** (STRICT — both required)
-- ffs bar now requires ≥2 of 4 trials at ffs=3050 to clear mean. This is a major tightening — {3075,3075,3075,3075} mean=3075 MISSES the new ffs bar.
-- **ALL new experiments MUST use**: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85`
-- **askeladd reassigned → #405 CONTRA_MUON=0.3 continuation sweep**
-- **tanjiro reassigned → #406 MU_COOLDOWN_START sweep (0.93/0.97)** — first axis to be reassigned to new base after the baseline shift
+**MU_WARMUP_STEPS=200** merged: val=**3.273477**, ffs=**3056.25**
+- Improvement over PR #358: val Δ=−0.000906, ffs Δ=−12.5
+- **NEW MERGE BAR: val < 3.273477 AND ffs_mean < 3056.25** (STRICT — both required)
+- ffs bar is now at the ALL-4-AT-FLOOR threshold. n=4 requires ALL 4 trials at ffs=3050. A single 3075 gives mean=3056.25 which TIES the bar (not strictly less).
+- **ALL new experiments MUST use**: `CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85`
+
+### Previous baseline (PR #358, now superseded)
+**CONTRA_MUON=0.4** merged: val=3.274383, ffs=3068.75 (20:55 UTC 2026-05-18)
 
 ## 🔄 BASELINE SHIFT IMPACT ON IN-FLIGHT EXPERIMENTS
 
@@ -42,11 +45,12 @@ Strategy shift: accept that all current in-flight runs will miss the new bar. Le
 
 ## 🔬 ACTIVE RESEARCH — CONTRA_MUON=0.4 BASE (as of 2026-05-19 11:00 UTC)
 
-### n=4 Confirms in flight (highest priority — merge candidates)
-- **THORFINN #415** — MU_WARMUP_STEPS=200 — n=4 at **85%**, T1+T2+T3 ALL at ffs=3050 floor. T4 in progress. Expected n=4 mean val ~3.2735 / ffs ~3050. **TOP MERGE CANDIDATE**. ETA ~12:10 UTC.
-- **TANJIRO #406** — MU_COOLDOWN_START=0.97 — n=4 at ~53%, T1+T2 both at ffs=3050 (both floor!). T3 in progress ~27%. Strong path if T3,T4 hold floor.
-- **ASKELADD #405** — CONTRA_MUON=0.35 — n=4 at ~70%, T1+T2 both at ffs=3075 (yellow flag — 1 slot above floor). T3 in progress ~23%. Val 3.2752 clears bar; ffs=3075 mean misses bar at n=2 — needs T3+T4 both at ffs=3050 to clear n=4 ffs mean.
-- **ALPHONSE #429** — NS5_ITERS=14 — n=2 WIN (val=3.273885/ffs=3062.5, T0=3.27263 best single-trial ever). n=4 predeclared, launching now. Step-time overhead only +0.8%. **KEY NEW FINDING: tighter polar projection is directly beneficial — falsifies "cooldown-geometry lever saturated" claim.**
+### n=4 Confirms in flight / post-merge re-assessment
+- ✅ **THORFINN #415 MERGED** (12:05 UTC) — MU_WARMUP_STEPS=200 n=4 val=3.273477/ffs=3056.25. **NEW BASELINE.**
+- **TANJIRO #406** — MU_COOLDOWN_START=0.97 — **T0=3075 FORECLOSES n=4 ffs on new bar**. Early-terminate T2/T3 recommended; T2 finishing naturally (~32 min), T3 should be killed.
+- **ASKELADD #405** — CONTRA_MUON=0.35 — **T0-T2 all 3075, HARD FORECLOSED on both val+ffs on new bar**. Early-terminate T3 recommended.
+- **ALPHONSE #429** — NS5_ITERS=14 — n=4 confirm in flight on PREV stack, T0 at ~25%. T1 from n=2 screen was 3075 → ffs likely foreclosed at n=4 on new bar (~6% chance all-4-at-floor). Continue T0 to terminal; reassess.
+- **THORFINN #462** (NEW 12:10 UTC) — **MU_WARMUP_START sweep** 0.80 vs 0.90. Targeting all-4-at-floor reliability on new stack.
 
 ### n=2 Screens in flight
 - **NEZUKO #449** — EMBED_LR=0.225 — T0=3.27403/3050 (PASSES individually, strong!). T1 in progress ~5%. Arm A viable — continue to n=2 terminal before judging.
