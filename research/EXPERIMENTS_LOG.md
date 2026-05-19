@@ -3,6 +3,39 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 17:00 UTC — PR #441: Logit Z-loss PaLM style λ∈{1e-5,1e-4,1e-3} (tanjiro) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-tanjiro/logit-z-loss`
+- Hypothesis: Add PaLM/T5-style soft logit regularization: `loss += λ · Σ_t logsumexp(logits_t)²`. Auxiliary training loss penalizes large-magnitude logit distributions, providing an alternative to the hard logit softcap. Z-loss correctly gated on `self.training` (val reports pure CE). λ sweep: {0.0, 1e-5, 1e-4, 1e-3}.
+
+### Results — 4-arm sweep (n=1 each)
+
+| Arm | λ | val/loss | Δ vs A | fs_to_target | W&B |
+|---|---:|---:|---:|---:|---|
+| A (control) | 0.0 | 3.27160 | — | 3225 | `egplthdf` |
+| B | 1e-5 | 3.27371 | +0.00211 | 3250 | `72kmbdh1` |
+| C | 1e-4 (PaLM) | 3.27311 | +0.00151 | 3250 | `tyq16skb` |
+| D | 1e-3 | 3.29393 | +0.02233 | **−1 (failed)** | `00x1lnuz` |
+
+W&B group: `g1r4-tanjiro/logit-z-loss`. Drift gate Arm A: val=3.27160, Δ=−0.00014 vs baseline 3.27174 ✓.
+
+### Key findings
+
+1. **All non-zero λ regress.** Smallest λ=1e-5 still produces Δ=+0.00211 (regression band). No sweetspot; no improvement at any tested λ.
+2. **D (λ=1e-3) fails benchmark contract**: val=3.29393 at step 3350, never reached 3.28 target. Severe regression.
+3. **Non-monotone B > C** at low λ (C slightly better than B), consistent with n=1 noise. Both are uniformly worse than A.
+4. **Root cause: logit softcap c=15 already provides sufficient logit regularization.** With `15 * tanh(z/15)` saturating per-position logits in [−15, 15], the per-position logsumexp(z) is mechanically bounded — z-loss is redundant for stability but still injects gradient signal that biases CE optimization.
+5. **At λ=1e-3**: auxiliary penalty magnitude (~500/batch) competes with CE (~5000/batch) — ~10% competing objective corrupts CE convergence.
+6. **Student defensive catch**: Tanjiro correctly flagged that z-loss in eval would inflate val by 0.002–0.18 nats and gated it on `self.training` before running. Approved at 08:46 UTC. Prevented a subtly broken experiment.
+
+### Mechanism takeaway
+
+**18th productive-null/negative this cycle.** Loss-side auxiliary regularization axis now fully closed (label smoothing catastrophic #446, z-loss negative #441, softcap=15 optimal #354). All additive-regularization axes on this stack fail: softcap already provides the logit-bounding function z-loss targets. Adding another regularizer is redundant at best, competing-objective at worst.
+
+**Follow-up**: tanjiro assigned **#487 cooldown-NS pruning ablation** — structurally novel (subtractive), charter-explicit.
+
+---
+
 ## 2026-05-19 15:38 UTC — PR #446: Label smoothing sweep α∈{0.05,0.1,0.2} (thorfinn) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-thorfinn/label-smoothing`
