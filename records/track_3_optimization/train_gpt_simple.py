@@ -54,6 +54,15 @@ def parse_args():
                         help="Muon learning rate for attention weights (.attn.q/k/v/proj.weight)")
     parser.add_argument("--wd_attn", type=float, default=0.025,
                         help="Muon weight decay for attention weights")
+    parser.add_argument("--wd_schedule", type=str, default="constant",
+                        choices=["constant", "ramp_up", "ramp_down", "triangle", "cosine_updown"],
+                        help="Schedule shape for wd_mlp and wd_attn on the Muon optimizer side. "
+                             "constant=fixed at args.wd_mlp/wd_attn; "
+                             "ramp_up=linear 0->2x over training (average matches constant); "
+                             "ramp_down=linear 2x->0 over training (average matches constant); "
+                             "triangle=linear 0->2x->0 with peak at midpoint; "
+                             "cosine_updown=cosine 0->2x->0 (smooth triangle). "
+                             "Only applies to Muon param groups; AdamW aux is unaffected.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -731,6 +740,7 @@ if dist.get_rank() == 0:
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
+            "wd_schedule": args.wd_schedule,
         },
     )
 
@@ -785,6 +795,23 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+            group["initial_wd"] = group.get("weight_decay", 0.0)
+
+    def _wd_multiplier(step, total_steps, schedule):
+        if schedule == "constant":
+            return 1.0
+        p = step / total_steps
+        if schedule == "ramp_up":
+            return 2.0 * p
+        elif schedule == "ramp_down":
+            return 2.0 * (1.0 - p)
+        elif schedule == "triangle":
+            return 4.0 * p if p < 0.5 else 4.0 * (1.0 - p)
+        elif schedule == "cosine_updown":
+            import math
+            return 1.0 - math.cos(2 * math.pi * p)
+        else:
+            raise ValueError(f"Unknown wd_schedule: {schedule}")
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -794,9 +821,12 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if "initial_wd" in group and group.get("name", "").startswith("muon_"):
+                    group["weight_decay"] = group["initial_wd"] * wd_mu
 
 
     ########################################
@@ -918,12 +948,19 @@ for trial_idx in range(args.num_trials):
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
+            current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
+                           for i, group in enumerate(optimizer2.param_groups)}
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
                     per_group_metrics[f"train/update_norm/{name}"] = mean_norm
                 for name, lr in current_lrs.items():
                     per_group_metrics[f"train/lr/{name}"] = lr
+                for name, wd in current_wds.items():
+                    per_group_metrics[f"train/wd/{name}"] = wd
+                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
+                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
