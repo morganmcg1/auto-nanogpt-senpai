@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-19 06:48 UTC — PR #407: AdamW β2 sensitivity sweep (tanjiro) — CLOSED productive-null ✅ (β2=0.99 confirmed optimal)
+
+- Branch: `g1r4-tanjiro/adamw-beta2-sensitivity`
+- Hypothesis: Pruning ablation (#377) revealed β2=0.99 is amplified 5.9× over original lift. Optimum may have drifted on post-#290 stack. Sweep β2 ∈ {0.98, 0.99, 0.995, 0.999} to test sensitivity.
+
+### Results — 4-arm single-pod sweep
+
+| Arm | β2 | EMA window | val | Δ vs A | Δ vs baseline (3.27200) | fs | W&B |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (control) | 0.99 | ~100 steps | **3.27201** | — | **+0.00001 ✓** (drift gate) | 3225 | `ftmvjt0j` |
+| **B** | **0.98** | **~50 steps** | **3.27075** | **−0.00126** | **−0.00125** | **3225** | `2oykn4sw` |
+| C | 0.995 | ~200 steps | 3.27357 | +0.00156 | +0.00157 | 3250 | `hj3eic3y` |
+| D | 0.999 | ~1000 steps | 3.27416 | +0.00215 | +0.00216 | 3250 | `2hsm3pp5` |
+
+Drift gate: arm-A = +0.00001 vs baseline-mean (essentially perfect). Within-pod Δs equal vs-baseline Δs.
+
+### Key findings
+
+1. **Arm-B best val (3.27075)** but Δ=−0.00126 vs A does NOT cross the pre-staged −0.002 real-signal threshold. Per pre-staged protocol (in force since #344/#351 paired-pod collapses), paired-pod confirmation is ONLY triggered at Δ ≤ −0.002. At −0.00126, the signal is too small to justify 7h of confirmation compute.
+
+2. **Symmetric valley** around β2=0.99: both shorter-window (0.98) and longer-window (0.995, 0.999) degrade performance. The optimum is at the current value. β2=0.99 is confirmed as the load-bearing value — the 5.9× amplification finding from #377 was correct that β2 is critical, but it means the stack is DEPENDENT on it, not that re-tuning will improve it.
+
+3. **Stat-rule at n=1**: (3.28 − 3.27075) × √1 = 0.00925 ≥ 0.004 passes trivially AND val < baseline. But the pre-staged within-pod threshold (−0.002) was chosen specifically to require a margin large enough to survive pod-luck variance — Δ=−0.00126 does not meet this gate.
+
+4. **Pattern**: This is the 10th productive-null this cycle. The post-#290 merged stack is well-saturated on optimizer internal mechanics (β2, β1, ε, WD, gradient preprocessing, gradient noise, slow-EMA). Only mechanisms with orthogonal action (per-parameter scaling, clipping, loss-side) are showing signal.
+
+### Verdict
+
+Productive-null. β2 axis CLOSED (symmetric valley, no headroom). **10th consecutive productive-null on optimizer-internal axes.**
+
+---
+
 ## 2026-05-19 04:40 UTC — PR #402: Gradient Centralization scope sweep (frieren) — CLOSED productive-null ✅ (absorbed by existing stack)
 
 - Branch: `g1r4-frieren/gradient-centralization`

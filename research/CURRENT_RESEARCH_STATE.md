@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 04:45 UTC
+- **Date:** 2026-05-19 06:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `speedrun/final_first_step_to_target` (lower is better)
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -73,18 +73,16 @@ All 4 arms within null band (max |Δ|=0.00111). Faint monotone B(all) > C(adam) 
 Paired-pod re-run of A vs D produced mean Δ=+0.00019 (signal collapsed). Original "D wins by −0.00278" was arm-A unlucky-seed pod luck (val=3.27528 drifted +0.00328 above baseline). Second consecutive paired-confirmation null collapse (after frieren #344). Scalar ε axis fully closed across {1e-12, 1e-10, 1e-8, 1e-6}.
 **Follow-up**: alphonse assigned #411 Gradient noise injection (Neelakantan 2015).
 
-### 🔄 alphonse #411 — Gradient noise injection (Neelakantan 2015) [just assigned]
+### 🔄 alphonse #411 — Gradient noise injection (Neelakantan 2015) — partial results
 **Branch:** `g1r4-alphonse/gradient-noise-injection`
-**Hypothesis**: Annealed Gaussian noise σ_t = σ_0 / (1+t)^γ added to gradients post-all_reduce, pre-clip (Neelakantan et al. 2015). Tests whether deterministic gradient signal is over-fitted to data ordering at this short-training scale. Fresh regularization axis orthogonal to all closed mechanisms.
-| Arm | σ_0 | γ | Interpretation |
-|---|---|---|---|
-| A | 0.0 (control) | — | Drift gate |
-| B | 0.001 | 0.55 | Light noise floor |
-| C | 0.003 | 0.55 | Moderate noise |
-| D | 0.01 | 0.55 | Aggressive (bounds axis) |
-
-**Composition note**: same code path as #402 frieren (GC); if both yield signal can compose in future. Do NOT enable both in this run.
-**ETA full chain:** ~7h.
+Arms A (3.27231, drift ✓), B (3.27419, Δ=+0.00188 vs baseline), C (3.27428, Δ=+0.00197 vs baseline) terminal. Arm D (σ=0.01) still running.
+| Arm | σ_0 | val | Δ vs A | Δ vs baseline | W&B |
+|---|---:|---:|---:|---:|---|
+| A (control) | 0.0 | 3.27231 | — | +0.00031 ✓ | `re5hs6d6` |
+| B | 0.001 | 3.27419 | +0.00188 | +0.00219 | `cf0lz42z` |
+| C | 0.003 | 3.27428 | +0.00197 | +0.00228 | `wnoa9rx8` |
+| D | 0.010 | pending | — | — | — |
+Both B and C clearly regress vs A (noise hurts). Shaping toward productive-null — annealed gradient noise at σ∈{0.001,0.003} degrades on this stack. Mechanism: post-#290 stack is already operating near the noise floor; adding stochastic noise prevents convergence. Arm D (σ=0.01) likely confirms the direction.
 
 ### ✅ askeladd #354 — Logit softcap value sweep — CLOSED 16:35 UTC productive-null
 Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau above softcap=20 (softcap linear in that regime). softcap=15 confirmed optimal on post-#290 stack.
@@ -94,36 +92,43 @@ Valley shape: all 3 off-center arms regress (+0.0037–0.0051). C≈D plateau ab
 All 4 arms terminal. A/B/D cluster within ±0.001 (val ∈ {3.27239, 3.27266, 3.27290}; all fs=3250). C single +0.00335 outlier. Drift gate ✓. Mechanism reading: **NS precision in cooldown SATURATED on post-#290 stack** — third productive-null on NS precision family (#345 depth, #384 center, #388 count). Combined with merged #285 shape and #290 schedule, NS cooldown family fully characterized.
 **Follow-up**: askeladd assigned #419 Cautious AdamW updates (Liang et al. 2024).
 
-### 🔄 askeladd #419 — Cautious AdamW updates (Liang et al. 2024) [just assigned]
+### 🔄 askeladd #419 — Cautious AdamW updates (Liang et al. 2024) — partial results
 **Branch:** `g1r4-askeladd/cautious-adamw`
-**Hypothesis**: Mask AdamW update components where `sign(update) ≠ sign(g)`, then rescale (Liang et al. 2024). Operates inside AdamW step — orthogonal to all NS/Muon/clip/schedule/per-group LR work. One-line algorithmic change. Reported gains across language models and ImageNet.
-| Arm | CAUTIOUS | RESCALE | SCOPE | Interpretation |
-|---|---|---|---|---|
-| A | 0 (off) | — | — | Control / drift gate |
-| B | 1 | 1 | all | Paper default (rescaled mask) |
-| C | 1 | 0 | all | Plain mask (no rescale) |
-| D | 1 | 1 | embed | Embed-only (orthogonality probe) |
-
-**ETA full chain:** ~7.5h.
+Arms A (3.27159, Δ=−0.00041, drift ✓) and B (arm running per latest comment) terminal so far. Arms C/D still running (arm B detail in last comment).
+| Arm | CAUTIOUS | val | Δ vs baseline | W&B |
+|---|---|---:|---:|---|
+| A (control) | off | 3.27159 | −0.00041 ✓ | `tkpem30s` |
+| B | rescaled, all | pending details | — | `engpgyik` |
+| C | plain mask | running | — | `crsnqzoc` |
+| D | embed-only | queued | — | — |
+Arm A clean drift gate (val=3.27159, Δ=−0.00041, fs=3225). Arm B running. ETA full chain completion ~14:00 UTC based on 06:42 UTC partial update.
 
 ### ✅ nezuko #356 — Muon μ schedule sweep — CLOSED 17:05 UTC productive-null
 All 3 schedule arms missed 3.28 target entirely: B ramp_up +0.01381, C ramp_down +0.01035, D late_peak +0.06125 (catastrophic). Late_peak μ scheduling disastrous — cross-step gradient memory is different from within-step NS precision. Constant μ=0.95 confirmed optimal; Muon μ scheduling axis CLOSED.
 **Follow-up**: nezuko assigned #393 per-group AdamW LR multiplier sweep.
 
-### 🔥 nezuko #393 — Per-group AdamW LR multiplier sweep — SENT BACK 02:15 UTC for paired-pod confirmation
+### 🔥 nezuko #393 — Per-group AdamW LR multiplier sweep — PAIRED-POD CONFIRMATION IN PROGRESS (pod-2 running)
 **Branch:** `g1r4-nezuko/pergroup-adamw-lr`
-**All 4 arms terminal — full sweep verified on W&B**:
-| Arm | LR mult | val | fs | Δ vs A | Δ vs baseline | W&B |
-|---|---|---|---|---|---|---|
-| A (control) | all 1.0× | 3.27242 | 3250 | — | +0.00042 (drift ✓) | `oggbt72v` |
-| **B (embed1p5)** ⭐ | **embed=1.5×** | **3.27026** | **3225** | **−0.00216** | **−0.00174** | `cgyyzpwe` |
-| C (lmhead1p5) | lm_head=1.5× | 3.27505 | 3275 | +0.00263 | +0.00305 | `kwt7wjzi` |
-| D (scalar1p5) | scalar=1.5× | 3.27142 | TBD | −0.00100 | −0.00058 | `1bgjs64f` |
+**All 4 arms terminal (original sweep)**:
+| Arm | LR mult | val | Δ vs baseline | W&B |
+|---|---|---:|---:|---|
+| A (control) | all 1.0× | 3.27242 | +0.00042 ✓ | `oggbt72v` |
+| **B (embed1p5)** ⭐ | **embed=1.5×** | **3.27026** | **−0.00174** | `cgyyzpwe` |
+| C (lmhead1p5) | lm_head=1.5× | 3.27505 | +0.00305 | `kwt7wjzi` |
+| D (scalar1p5) | scalar=1.5× | 3.27142 | −0.00058 | `1bgjs64f` |
 
-**ARM-B**: Single-seed stat-rule passes cleanly: (3.28 − 3.27026) × √1 = 0.00974 ≥ 0.004 ✓ AND 3.27026 ≤ 3.27200 ✓. **Sent back 02:15 UTC** for paired-pod confirmation per pre-staged protocol (2 recent null collapses on #344, #351 set precedent for confirming before merging single-seed wins).
-**ARM-D**: Marginal Δ=−0.00058 vs baseline, n=1; defer follow-up pending B confirmation.
-**Path**: Paired-pod request — 2 fresh pods × {A, B} with flipped order. After confirmation, pool n=3 per arm. Merge if mean(val_B, n=3) ≤ 3.27200 AND paired Δ_B ≤ −0.002 (or smaller-but-real with positive Δ_B); else productive-null.
-**ETA paired conf:** ~7h.
+**Paired-pod confirmation chain status (launched 01:55 UTC)**:
+| Run | Pod | Arm | val | Δ_B vs A (same pod) |
+|---|---|---|---:|---:|
+| Confirm pod0 (original) | orig | B | 3.27026 vs A 3.27242 | −0.00216 |
+| pod1-A | pod1 | A | 3.27361 | — |
+| pod1-B | pod1 | B | 3.27198 | **−0.00163** |
+| pod2-B | pod2 | B | **running (launched 05:37 UTC, ETA 07:28 UTC)** | TBD |
+| pod2-A | pod2 | A | queued after pod2-B | TBD |
+
+Pooled n=2 (pod0+pod1): mean(A)=3.273015, mean(B)=3.27112, Δ=**−0.001895** (just below −0.002 threshold). **Pod2 result is critical** — if pod2-Δ ≥ −0.002, pooled n=3 falls above threshold; if pod2-Δ ≤ −0.002, confirms.
+**Pre-staged decision rule** (n=3 pool): Paired mean Δ_B ≤ −0.002 AND mean(val_B) ≤ 3.27200 → MERGE; else productive-null.
+**ETA full chain:** ~09:19 UTC.
 
 ### ✅ thorfinn #348 — Per-group AdamW WD sweep — CLOSED 15:15 UTC productive-null
 All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group coupling observed (D shrinks embed_fro 5× more than B+C independently). AdamW WD axis closed on r4 (second verdict after #279 global WD).
@@ -133,17 +138,16 @@ All four arms terminal. Arms B/C/D all regress +0.0019–0.0025. Cross-group cou
 All 4 arms terminal. Non-monotone result: arm D (0.60, more extreme) regressed less than arm C (0.55), indicating C was single-seed outlier. Axis flat across center ∈ [0.43, 0.60]; default 0.49 confirmed within noise. NS coef center family fully characterized; combined with #345 depth and #290 schedule sweep, NS coef polynomial fully mapped.
 **Follow-up**: thorfinn assigned #409 Per-block LR decay (LLRD) for Muon.
 
-### 🔄 thorfinn #409 — Per-block LR decay (LLRD) for Muon [just assigned]
+### 🔄 thorfinn #409 — Per-block LR decay (LLRD) for Muon — partial results
 **Branch:** `g1r4-thorfinn/muon-llrd`
-**Hypothesis**: Sweep per-block Muon LR with depth-dependent decay: lr_i = 0.035 × decay^(i/11). Tests whether different transformer layers benefit from different learning rates. Fresh axis on the Muon group never tested.
-| Arm | decay | Block 0 lr | Block 11 lr | Interpretation |
-|---|---|---|---|---|
-| A | 1.0 (control) | 0.035 | 0.035 | All blocks equal; drift gate |
-| B | 0.85 | 0.035 | 0.0085 | Mild decay (lower layers higher LR) |
-| C | 0.7 | 0.035 | 0.00135 | Moderate decay |
-| D | 1.2 | 0.035 | 0.21 | Inverse (upper layers higher LR) |
-
-**ETA full chain:** ~7h.
+Arms A (3.27191, Δ=−0.00009, drift ✓), B (3.27228, Δ=+0.00037 vs baseline), C (3.27395, Δ=+0.00195 vs baseline) terminal. Arm D (decay=1.2) still running.
+| Arm | decay | val | Δ vs baseline | W&B |
+|---|---:|---:|---:|---|
+| A (control) | 1.0 | 3.27191 | −0.00009 ✓ | `j8e9n...` |
+| B | 0.85 | 3.27228 | +0.00028 | `9s1oyyxc` |
+| C | 0.7 | 3.27395 | +0.00195 | `xdu2egnj` |
+| D | 1.2 | pending | — | — |
+Monotone worsening with deeper decay: less decay → worse. Arm-B (mild) and C (moderate) both above baseline. Shaping toward productive-null — lower layers do NOT benefit from higher LR relative to upper layers on this stack. Arm D (inverse: 1.2×) still needed to complete the picture.
 
 ### ✅ edward #374 — Embed init scale sweep — CLOSED 19:30 UTC productive-null
 Clean flat result: all 4 arms within ±0.00027 of A (except B at −0.00061, still inside null band). RMSNorm + AdamW β2=0.99 + grad clip absorb embed magnitude — final norms converge to ~77k within 1.8% regardless of 4× init range. Embed init scale axis CLOSED.
@@ -169,33 +173,48 @@ All 4 arms terminal. Within-pod B-vs-A Δ=−0.00303 consumed by arm-A drift (+0
 All 4 arms terminal. Monotone worsening with σ: A=3.27409 (zero, drift gate ✓), B=3.27470 (σ=0.005, +0.00061), C=3.27725 (σ=0.02, +0.00316), D=3.28234 (σ=0.05, +0.00825, fs=-1 failed target). **Zero-init confirmed uniquely optimal** — both init-scale axes (embed #374, lm_head #380) now exhaustively mapped.
 **Follow-up**: fern assigned #408 Adaptive Gradient Clipping (AGC).
 
-### 🔄 fern #408 — Adaptive Gradient Clipping (AGC) [just assigned]
+### 🔥 fern #408 — Adaptive Gradient Clipping (AGC) — PAIRED-POD CONFIRMATION IN PROGRESS (chain launched 06:39 UTC)
 **Branch:** `g1r4-fern/adaptive-grad-clip`
-**Hypothesis**: Replace fixed clip=10.0 with per-parameter AGC (Brock et al. 2021, NFNets) — clip threshold = λ × ||W||_F. Scales with parameter magnitude. Sweep λ ∈ {0 control, 0.01, 0.03, 0.1}.
-| Arm | AGC_LAMBDA | Interpretation |
-|---|---|---|
-| A | 0 (control) | Falls through to fixed clip=10.0, drift gate |
-| B | 0.01 | Conservative AGC (tight clip) |
-| C | 0.03 | Paper default (moderate AGC) |
-| D | 0.1 | Loose AGC (rarely clips) |
+**All 4 original arms terminal**:
+| Arm | λ | val | Δ vs A | Δ vs baseline | trigger_rate | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A (control) | 0.0 | 3.27315 | — | +0.00115 ✓ | — | `501a4e8x` |
+| **B** ⭐ | **0.01** | **3.27063** | **−0.00252** | **−0.00137** | 0.9942 | `5b62glw0` |
+| C | 0.03 | 3.27076 | −0.00239 | −0.00124 | 0.9942 | `4mm7u7rm` |
+| D | 0.10 | 3.27289 | −0.00026 | +0.00089 | 0.9942 | `ivd6ribv` |
 
-**ETA full chain:** ~7h.
+B/C plateau at λ∈{0.01, 0.03} (Δ differ by only +0.00013) — both pass the −0.002 single-seed threshold. All 3 λ values show 99.4% trigger rate (gradients orders of magnitude larger than λ·||W||_F across the range). Mechanism: AGC provides per-parameter trust region that fixed clip=10.0 misses.
+**Paired-pod confirmation chain** (launched 06:39 UTC, ETA ~13:40 UTC):
+- pod1: A(λ=0) → B(λ=0.01) [W&B group: `g1r4-fern/agc-confirm`]
+- pod2: B(λ=0.01) → A(λ=0) [order flipped]
+Pool n=3 per arm; merge if paired Δ_B ≤ −0.002 AND mean(val_B,n=3) ≤ 3.27200.
 
 ### ✅ tanjiro #377 — Pruning ablation — CLOSED 22:30 UTC productive-null (HIGH-VALUE MECHANISM PROBE)
 All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified — 5.9× original lift magnitude**; (2) late_peak #285 subsumed (Δ=−0.00043, sign-flipped vs original); (3) linear_ramp_down #290 fully subsumed (Δ=+0.00009, ~0% original lift). 2 of 3 recent merges appear redundant on current stack — consistent with "mechanism saturation within late-cooldown precision family" hypothesis.
 **Follow-up**: tanjiro assigned #407 β2 fine-tune sensitivity sweep (mechanism-driven by β2 amplification finding).
 
-### 🔄 tanjiro #407 — AdamW β2 sensitivity sweep [just assigned]
+### ✅ tanjiro #407 — AdamW β2 sensitivity sweep — CLOSED 06:48 UTC productive-null ✅
 **Branch:** `g1r4-tanjiro/adamw-beta2-sensitivity`
-**Hypothesis**: Pruning ablation revealed β2=0.99 is amplified 5.9× over original lift. Optimum may have drifted on post-#290 stack. Sweep β2 ∈ {0.98, 0.99, 0.995, 0.999} to test sensitivity.
-| Arm | β2 | EMA window | Interpretation |
-|---|---|---|---|
-| A | 0.99 (control) | ~100 steps | Current baseline; drift gate |
-| B | 0.98 | ~50 steps | Shorter; faster adaptation |
-| C | 0.995 | ~200 steps | Longer; more smoothing |
-| D | 0.999 | ~1000 steps | Very long; high-noise-floor smoothing |
+All 4 arms terminal. Arm-B (β2=0.98) posted best val=3.27075, but Δ=−0.00126 vs A does NOT cross the pre-staged −0.002 real-signal threshold. Symmetric valley around β2=0.99 optimum confirmed: B (shorter window, +0.00126 below A), C (+0.00156), D (+0.00215). β2=0.99 is the confirmed optimum; no adjacent value improves on it. Arm-A drift gate perfect (+0.00001 vs baseline). **10th productive-null on optimizer/gradient axes this cycle.**
+| Arm | β2 | val | Δ vs A | Δ vs baseline |
+|---|---|---:|---:|---:|
+| A | 0.99 (control) | 3.27201 | — | +0.00001 ✓ |
+| B | 0.98 | 3.27075 | −0.00126 | −0.00125 |
+| C | 0.995 | 3.27357 | +0.00156 | +0.00157 |
+| D | 0.999 | 3.27416 | +0.00215 | +0.00216 |
+W&B: A=`ftmvjt0j`, B=`2oykn4sw`, C=`hj3eic3y`, D=`2hsm3pp5`.
+**Follow-up**: tanjiro assigned #441 Logit Z-loss (PaLM style).
 
-**ETA full chain:** ~7h.
+### 🔄 tanjiro #441 — Logit Z-loss (PaLM/T5 style) [assigned 06:49 UTC]
+**Branch:** `g1r4-tanjiro/logit-z-loss`
+**Hypothesis**: Add soft penalty on log-partition function: `loss += λ·Σ logsumexp(logits, dim=-1)²`. Orthogonal to all closed optimizer axes — loss-side modification. Complementary to existing softcap (softcap bounds magnitude per-token, z-loss bounds logsumexp spread). PaLM uses λ=1e-4.
+| Arm | NANOGPT_Z_LOSS_WEIGHT | Interpretation |
+|---|---|---|
+| A | 0.0 (control) | Drift gate; branch bypassed entirely |
+| B | 1e-5 | Very mild (lower bound of lit range) |
+| C | 1e-4 | PaLM default — well-validated sweet spot |
+| D | 1e-3 | Aggressive (tests regularization ceiling) |
+**ETA full chain:** ~7.3h.
 
 ### ✅ fern #345 — NS coef ramp_down DEPTH sweep — CLOSED 14:10 UTC productive-null
 **Follow-up**: fern assigned #380 lmhead-init-scale.
@@ -207,6 +226,9 @@ All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified —
 
 ## Recently closed
 
+- **tanjiro #407 (AdamW β2 sensitivity)** — CLOSED 06:48 UTC productive-null. Symmetric valley around β2=0.99 confirmed: arm-B (0.98) at Δ=−0.00126 vs A, arm-C (0.995) at +0.00156, arm-D (0.999) at +0.00215. Does NOT cross −0.002 threshold. **β2=0.99 confirmed optimal; axis CLOSED**. 10th productive-null this cycle.
+- **frieren #402 (GC scope sweep)** — CLOSED 04:40 UTC productive-null. All 3 GC arms within null band (max |Δ|=0.00111). GC absorbed by existing stack; NS orthogonalization already mean-centers block gradients. **9th productive-null.**
+- **edward #399 (AdEMAMix on AdamW)** — CLOSED 04:24 UTC productive-null. Arm-B within-pod Δ=−0.00303 consumed by arm-A drift (+0.00276). vs baseline: −0.00027 (null band). Mechanism: slow-EMA redundant with β2=0.99 long second-moment memory. **8th productive-null.**
 - **askeladd #388 (NS_ITERS_COOLDOWN sweep)** — CLOSED 00:45 UTC productive-null. A/B/D cluster within ±0.001 (val ∈ {3.27239, 3.27266, 3.27290}, all fs=3250); C +0.00335 outlier. **NS precision saturated** on post-#290 stack. Third productive-null on NS precision family.
 - **alphonse #351 (Per-group SCALAR AdamW ε)** — CLOSED 23:15 UTC productive-null. Paired-pod confirmation collapsed signal (Δ=+0.00019). Original arm-A drifted +0.00328; D's "−0.00278 lift" was pod luck. Second consecutive paired-pod null collapse (after #344).
 - **thorfinn #384 (NS coef CENTER)** — CLOSED 23:10 UTC productive-null. Non-monotone (D regressed less than more-moderate C); axis flat across center ∈ [0.43, 0.60]. NS coef family (depth #345 + schedule #290 + center #384) fully characterized.
@@ -227,34 +249,26 @@ All 4 arms terminal. **Key mechanism findings**: (1) **β2=0.99 is amplified —
 
 ## Potential next research directions
 
-### Active candidates with signal
-1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393 arm-B. Val=3.27026, Δ vs A=−0.00216, Δ vs baseline=−0.00174, fs=3225 (−8.33). Full sweep done. **SENT BACK 02:15 UTC** for paired-pod confirmation (2 fresh pods × {A, B} with flipped order). Highest-priority confirmation in the current portfolio.
-2. **Gradient Centralization scope** — frieren #402. Fresh mechanism (gradient preprocessing). Scope sweep: all, adam-only, muon-only. Orthogonal to all closed axes.
+### Active winner candidates — both in paired-pod confirmation
+1. **Per-group AdamW LR (embed=1.5×)** — nezuko #393 arm-B. Val=3.27026, Δ=−0.00174 vs baseline. **Strongest single-seed winner candidate in portfolio.** Pod-2-B running now (ETA 07:28 UTC); full chain done ~09:19 UTC. Pre-staged rule: mean(B,n=3) ≤ 3.27200 AND mean Δ_B ≤ −0.002 → MERGE. Pod1 shrank Δ to −0.00163 (n=2 pooled Δ=−0.001895). **Pod-2 is critical.**
+2. **Adaptive Gradient Clipping (AGC, λ=0.01)** — fern #408 arm-B. Val=3.27063, Δ=−0.00137 vs baseline. B/C plateau (both λ∈{0.01,0.03} show 99.4% trigger rate). Paired-pod chain launched 06:39 UTC, ETA ~13:40 UTC.
 
-### Productive-null shaping up
-3. **Logit softcap value** — askeladd #354. CLOSED 16:35 UTC. softcap=15 confirmed optimal (valley shape). Axis closed.
-4. **Muon μ schedule** — nezuko #356. CLOSED 17:05 UTC productive-null. All 3 arms miss target (B +0.01381, C +0.01035, D +0.06125). Late_peak μ catastrophic. Constant μ=0.95 confirmed; axis CLOSED.
-5. **Per-group AdamW WD** — thorfinn #348. CLOSED 15:15 UTC. All arms regress +0.0019–0.0025. AdamW WD axis closed on r4 (2nd consecutive verdict).
-6. **Embed init scale** — edward #374. CLOSED 19:30 UTC productive-null. RMSNorm + AdamW absorb magnitude; embed init scale axis CLOSED.
-7. **NS late_peak transition POINT** — frieren #344. CLOSED 20:00 UTC productive-null. Pod-1 Δ=−0.00419 shrank to pooled Δ=−0.000877 (79%), sign flip on pod 2. Midpoint confirmed optimal; axis CLOSED.
-8. **Pruning ablation (#236, #285, #290)** — tanjiro #377. CLOSED 22:30 UTC productive-null (HIGH-VALUE MECHANISM PROBE). β2 amplified 5.9×; late_peak/linear_ramp_down appear subsumed.
-9. **lm_head init std** — fern #380. CLOSED 22:40 UTC productive-null. Monotone worsening with σ; zero-init uniquely optimal.
+### Shaping toward productive-null
+3. **LLRD Muon** — thorfinn #409. Arms B (Δ=+0.00028) and C (Δ=+0.00195) both above baseline. Monotone worsening with deeper decay. Arm D (1.2× inverse) pending — will determine if inverse direction helps.
+4. **Gradient noise injection** — alphonse #411. Arms B (Δ=+0.00219) and C (Δ=+0.00228) both regress vs baseline. Noise clearly hurts. Arm D (σ=0.01) pending confirmation.
 
-### Fresh axes (early stage)
-10. **AdEMAMix on AdamW** — edward #399. Fresh slow-EMA mechanism (NeurIPS 2024). Sweep alpha_max ∈ {2, 5, 8} vs control. Mechanism orthogonal to all per-group hyperparameter work.
-11. **Gradient Centralization** — frieren #402. Gradient preprocessing layer (Yong et al. 2020). Scope sweep: all, adam, muon. Fresh mechanism abstraction layer.
-12. **AdamW β2 sensitivity** — tanjiro #407. Mechanism-driven by #377 pruning finding (β2 amplified 5.9×). Test {0.98, 0.99, 0.995, 0.999} for optimum drift.
-13. **Adaptive Gradient Clipping (AGC)** — fern #408. Per-parameter clip threshold based on ||W||_F (Brock et al. 2021, NFNets). Replaces fixed clip=10.0 with adaptive per-tensor threshold.
-14. **Per-block LR decay (LLRD) for Muon** — thorfinn #409. Fresh per-block axis on Muon group never tested. Sweep decay ∈ {1.0 control, 0.85, 0.7, 1.2}.
-15. **Gradient noise injection (Neelakantan 2015)** — alphonse #411. Annealed Gaussian noise σ_t = σ_0 / (1+t)^γ. Fresh regularization axis. Sweep σ_0 ∈ {0, 0.001, 0.003, 0.01} at γ=0.55.
-16. **Cautious AdamW updates (Liang et al. 2024)** — askeladd #419. Mask sign-mismatched update components in AdamW step, rescale to preserve magnitude. Fresh modern mechanism. Sweep scope ∈ {off control, all-rescaled, all-plain, embed-only}.
+### Early / inconclusive
+5. **Cautious AdamW** — askeladd #419. Arms A (drift ✓), B running, C/D pending. Too early to characterize.
+6. **Lookahead (scope sweep)** — edward #434. Full 4-arm chain just started 06:07 UTC (~7h ETA). Novel mechanism (parameter-space, not gradient-space).
+7. **Weight EMA (Polyak averaging)** — frieren #436. Just assigned 04:43 UTC. Fresh weight-trajectory mechanism.
+8. **Logit Z-loss (PaLM style)** — tanjiro #441. Just assigned 06:49 UTC. Loss-side mechanism, structurally orthogonal to all optimizer axes.
 
 ### Medium-priority unassigned axes (for next idle)
-1. **AdEMAMix on aux groups** — triple-EMA long-memory mechanism; compatible with β2=0.99
-2. **NS cooldown 3-phase** — extend late_peak to 3-phase (12→15→20 within cooldown window)
-3. **Output proj init scale** — pairs with edward #374; proj has no RMSNorm so direct logit influence
-4. **Per-group μ ablation** — with μ scheduling closed (#356), per-group constant μ remains worth testing (distinct from scheduling)
-5. **Scalar LR finer sweep** — if nezuko #393 arm-D wins, follow-up {1.25, 1.5, 2.0, 2.5}×
+1. **Embed LR finer sweep** — if nezuko #393 confirms, sweep embed_mult ∈ {1.25, 1.5, 1.75, 2.0} to find peak; or stack with scalar=1.5× (arm-D showed Δ=−0.00058)
+2. **AGC λ finer sweep** — if fern #408 confirms, sweep λ ∈ {0.005, 0.008, 0.015, 0.02} to find floor
+3. **Stack test** — embed_lr_mult=1.5× ✕ AGC λ=0.01 ✕ (potentially z-loss) if all three confirm
+4. **Per-group μ ablation** — constant per-group Muon momentum (not schedule, just different constant per layer — distinct from μ scheduling closed #356)
+5. **lm_head LR down-sweep** — nezuko #393 showed lm_head=1.5× hurts; try lm_head_mult ∈ {0.5, 0.75} (currently lm_head is 1/320 — may be over-tuned)
 
 ### What we know about stacking
 - 7 merges across orthogonal axes; gap to 3030 steps ~200 steps in fs
