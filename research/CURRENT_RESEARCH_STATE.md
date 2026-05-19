@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~06:38Z (poll #202)
+- **Last updated:** 2026-05-19 ~06:11Z (poll #212)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -10,38 +10,40 @@
 
 ## ⭐ Active Hot Signals
 
-1. **🔥 WD TIMING MECHANISM — 3 PARALLEL DEEP-DIVES IN PROGRESS** 🔥:
-   - **edward PR #422**: WD shape variants (lr_coupled/stable_only/early_dropoff) — Cell A ctrl terminal 3.2692 ffs=3100; Cell B `swyx9211` (lr_coupled) ~62% step 2031
-   - **fern PR #423**: WD peak sensitivity (wd_mlp ∈ {0.0125→0.075}) — Cell A ctrl 3.265555 ffs=3075 (lucky seed); Cell B `onlxdpxd` (wd=0.0125) ~71% step 2339
-   - **nezuko PR #427**: WD per-block decomposition (MLP vs attn) — Cell A ctrl 3.2675 ffs=3100; Cell B `l3a6wcda` (mlp_only) ~22% step 717
+1. **🔥 EMERGING PATTERN: NEW BASELINE IS A SHARP PEAK** 🔥:
+   Across 5 schedule-shape sweeps (edward WD shape, fern WD peak, nezuko WD per-block, thorfinn LR shape, frieren SOAP β₂), Cell B perturbations of the PR #371 merged baseline lose +2σ to +5σ. Implication: ramp_down WD timing may already be near-optimal at this scale on these axes; explore non-schedule mechanisms next.
 
-2. **LR / SOAP SCHEDULE EXPLORATION (3 active)**:
-   - **thorfinn PR #426**: LR schedule shape — Cell A ctrl 3.2682 ffs=3100; Cell B `4ryxmej6` (linear_throughout) ~34% step 1114
-   - **frieren PR #428**: SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) — Cell A `68v002ds` (ctrl β₂=0.90) at ~87% step 2854 — SURVIVING past prior crash point ✓
-   - **askeladd PR #437**: SOAP precond_freq schedule (NEW) — freshly assigned; Cell A ctrl launching
+2. **WD TIMING DEEP-DIVES — Cell B results in, Cell Cs running**:
+   - **edward PR #422**: Cell B `swyx9211` (lr_coupled) TERMINAL +2.96σ NEG. Cell C `2qgw98tq` running step 1441 (44%).
+   - **fern PR #423**: Cell B `onlxdpxd` (wd=0.0125) TERMINAL +5.43σ NEG. Cell C `g3lkfo3o` (wd_mlp=0.0375) running step 1954 (60%).
+   - **nezuko PR #427**: Cell B `l3a6wcda` (mlp_only) TERMINAL +3.42σ NEG. Cell C `8gqb5oav` (attn_only) running step 358 (11%).
 
-3. **TANJIRO PR #432 Muon nesterov ablation**:
-   - Cell A ctrl `g04kfqds` at ~62% step 2032
-   - Cell B `6700r3ry` crashed at step 0 (premature launch attempt while Cell A still running — expected to retry after Cell A terminal)
+3. **LR / SOAP / SCHEDULE EXPLORATION**:
+   - **thorfinn PR #426**: Cell B `4ryxmej6` (linear_throughout) TERMINAL +3.44σ NEG. Cell C `r4tu4c5k` (cosine_throughout) crashed; retry `46k4693a` running step 652 (20%) ✓.
+   - **frieren PR #428**: Cell A `68v002ds` (β₂=0.90 ctrl) TERMINAL +0.31σ neutral. Cell B `sz3rwtrx` (β₂=0.85) running step 2461 (76%). Linear extrapolation projects ~3.263 — WATCH.
+   - **askeladd PR #437**: Cell A `fy5yw64u` (constant ctrl) running step 2129 (65%).
 
-4. **ALPHONSE PR #418 β corner sweep**:
-   - Cell A ctrl: 3.27243 ffs=3150 (OLD regime ctrl)
-   - Cell B `2wut791f` (β1=0.80, β2=0.98) TERMINAL: val=3.269572 ffs=3125 (+1.97σ vs NEW baseline — neutral)
-   - Cell C pending auto-launch from sweep script
+4. **TANJIRO PR #432 Muon nesterov ablation**:
+   - Cell A `g04kfqds` TERMINAL: val=3.267231 (-0.87σ neutral baseline reproduction).
+   - Cell B retry `93s9wz05` (no_muon_nesterov) running step 1273 (39%) — past prior `2l3ewsp6` crash threshold.
+
+5. **ALPHONSE PR #418 β corner sweep**:
+   - Cell B `2wut791f` (β1=0.80, β2=0.98) TERMINAL +1.97σ neutral.
+   - Cell C `l6yui9jh` (β1=0.90, β2=0.95) running step 2606 (80%).
 
 
 ## Active WIP Portfolio
 
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
-| #437 | askeladd | SOAP precond_freq schedule (timing: ramp_down_4_32, ramp_down_8_64) | **NEW** — Cell A ctrl starting |
-| #432 | tanjiro | Muon nesterov ablation (nesterov=True vs False after NS5) | Cell A ctrl ~62%; Cell B pending Cell A terminal |
-| #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) | Cell A `68v002ds` ~87% step 2854 — past crash threshold ✓ |
-| #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn) | Cell A ctrl 3.2675 terminal; Cell B `l3a6wcda` ~22% step 717 |
-| #426 | thorfinn | LR schedule shape sweep | Cell A ctrl 3.2682 terminal; Cell B `4ryxmej6` (linear_throughout) ~34% step 1114 |
-| #423 | fern | WD peak sensitivity (wd_mlp ∈ {0.0125→0.075}) | Cell A ctrl 3.265555 ffs=3075 (lucky n=1); Cell B `onlxdpxd` (wd=0.0125) ~71% step 2339 |
-| #422 | edward | Muon WD shape variants (lr_coupled / stable_only / early_dropoff) | Cell A ctrl 3.2692 terminal; Cell B `swyx9211` (lr_coupled) ~62% step 2031 |
-| #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | Cell B `2wut791f` TERMINAL 3.269572 ffs=3125 (+1.97σ); Cell C auto-launching |
+| #437 | askeladd | SOAP precond_freq schedule (timing: ramp_down_4_32, ramp_down_8_64) | Cell A `fy5yw64u` (constant ctrl) ~65% step 2129 |
+| #432 | tanjiro | Muon nesterov ablation (nesterov=True vs False after NS5) | A `g04kfqds` -0.87σ neutral; Cell B retry `93s9wz05` (no_nesterov) ~39% step 1273 |
+| #428 | frieren | SOAP β₂ static sweep (0.80/0.85/0.90/0.95/0.98) | A `68v002ds` +0.31σ neutral; Cell B `sz3rwtrx` (β₂=0.85) ~76% step 2461 — proj ~3.263 WATCH |
+| #427 | nezuko | Muon WD ramp_down per-block decomp (MLP vs attn) | B `l3a6wcda` +3.42σ NEG; Cell C `8gqb5oav` (attn_only) ~11% step 358 |
+| #426 | thorfinn | LR schedule shape sweep | B `4ryxmej6` +3.44σ NEG; Cell C orig `r4tu4c5k` crashed → retry `46k4693a` ~20% step 652 |
+| #423 | fern | WD peak sensitivity (wd_mlp ∈ {0.0125→0.075}) | B `onlxdpxd` +5.43σ NEG; Cell C `g3lkfo3o` (wd_mlp=0.0375) ~60% step 1954 |
+| #422 | edward | Muon WD shape variants (lr_coupled / stable_only / early_dropoff) | B `swyx9211` +2.96σ NEG; Cell C `2qgw98tq` ~44% step 1441 |
+| #418 | alphonse | AdamW aux (β₁, β₂) joint 2D corner sweep | B `2wut791f` +1.97σ neutral; Cell C `l6yui9jh` (β1=0.90, β2=0.95) ~80% step 2606 |
 
 
 ## Recent Closures
