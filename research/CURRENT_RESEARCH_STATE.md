@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-19 ~17:43Z (poll #264)
+- **Last updated:** 2026-05-19 ~17:48Z (poll #266)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
@@ -30,11 +30,12 @@
 ### #2 ASKELADD #437 — Cell C `ramp_down_8_64` precond_freq: −1.27σ (n=1) — **P2 LIKELY FAILING**
 - **Cell C single-trial:** val=3.266906, ffs=3075 — beat baseline on BOTH metrics
 - **Mechanism:** SOAP precond_freq ramps down (8→64 updates per step). Cross-axis confirmation of "less intensity in cooldown" principle.
-- **P2 n=4 LAUNCHED.** Run `h8g04vyb`. n=2 results so far identical:
-  - **Trial 1 TERMINAL:** val=3.2680, ffs=3100 (+0.06σ above baseline mu)
-  - **Trial 2 TERMINAL:** val=3.2680, ffs=3100 (identical to trial 1, +0.06σ)
-  - **Trial 3 in-trial step 1941/3250 (~60%)**, val=3.46 mid-run
-- **Gate analysis:** n=2 mean=3.2680 already above mu=3.267948. For n=4 gate (mu_p2 ≤ 3.265948), trials 3+4 must average ≤ 3.2639 — very unlikely given trials 1+2 came in identical at 3.2680. Single-trial Cell C result was likely a positive variance draw.
+- **P2 n=4 LAUNCHED.** Run `h8g04vyb`. n=3 results:
+  - **T1 TERMINAL:** val=3.2680, ffs=3100 (+0.06σ above baseline mu)
+  - **T2 TERMINAL:** val=3.2680, ffs=3100 (identical to T1)
+  - **T3 TERMINAL:** val=**3.2669**, ffs=**3075** (slight improvement over T1+T2)
+  - **T4 step 77/3250** (warmup phase)
+- **n=3 mu = 3.267633** — fails n=4 gate (3.265948) by 0.001685. T4 must land ≤ **3.260893** to clear gate (well below all 3 observed). Still very likely failing.
 
 
 ## Active WIP Portfolio
@@ -42,13 +43,13 @@
 | PR # | Student | Hypothesis | Status |
 |------|---------|-----------|--------|
 | #472 | frieren | SOAP scope ablation (MLP+ATTN / MLP-only / ATTN-only / none) | A terminal val=3.2670 ffs=3100 (−1.15σ); A re-launch `2cryitbk` CONFIRMED ZOMBIE (51min no metrics); **B `hpmoe4v4` (MLP-only) step 2225 val=3.42 (~68%)**; C ATTN-only full not yet launched |
-| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **B `sbroalg6` (trust=0.1) step 2897 val=3.31 (~89%, terminal ~10min)** |
+| #467 | nezuko | SOAP trust threshold sweep (0.0/0.1/0.3/0.5/0.8) | A val=3.2669 ffs=3075; **B (trust=0.1) TERMINAL val=3.2678 ffs=3100 (−0.18σ ≈ baseline)**; C (0.3), D (0.5), E (0.8) pending |
 | #461 | thorfinn | NS iteration count sweep (6/8/10/12/14) | A ctrl val=3.2662 ffs=3075; **B (ns_iter=6) TERMINAL val=3.265531 ffs=3075 (−2.94σ NEW BEST SINGLE-SEED)** 🚀; **C `1y798afx` running ns_iter=8 (re-anchor? expected 10) step 405** ⚠; D (12), E (14) pending |
 | #457 | fern | cooldown_frac sweep (0.3/0.5/0.7/0.85/1.0) | A val=3.26757 ffs=3100; B (0.3) val=3.2790 +13.4σ NEG; C (0.5) val=3.2724 ffs=3150 +5.35σ NEG; **D (0.85) `608h20tn` step 831/3250 val=3.70 (~26%)**; E (1.0) pending. **Trend: longer cooldown is better — B,C confirm shorter hurts** |
 | #455 | alphonse | AdamW aux WD sweep (wd_aux=0/0.0025/0.025 × constant/ramp_down) | A (rd, wd_aux=0) val=3.2672 (−0.66σ); B (rd, 0.0025) val=3.2675 ffs=3100 (−0.54σ); **C (rd, 0.025) TERMINAL val=3.278096 ffs=3225 (+12.3σ NEG)** — wd_aux=0.025 too high; axis trend: 0 ≈ 0.0025 ≫ 0.025 |
-| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ); **B (lr=0.1) `r41glyh7` step 2499/3250 val=3.39 (~77%)** |
-| #437 | askeladd | SOAP precond_freq schedule | C −1.27σ WINNER → **P2 LIKELY FAILING** (T1+T2 both val=3.2680 ffs=3100, n=2 mean=3.2680 above mu); **T3 step 2853/3250 (~88%, terminal ~5-10min)** |
-| #422 | edward | Muon WD shape variants | ⚠️ **P2 likely failing**; T1=3.2658/3000, T2=3.2656/3000, T3=3.2678/3025 (regression); **n=3 mu=3.2664 FAILS n=4 gate** by 0.000452; T4 step 1033/3250 (~32%) |
+| #473 | tanjiro | adam_embed LR sweep (0.05/0.1/0.3/0.6/1.0) | A ctrl (0.3) val=3.2664 ffs=3075 (−1.88σ); **B (lr=0.1) `r41glyh7` step 3019 val=3.30 (~93%, val tracking ~3.296 mid-run; NEG vs ctrl)**; C (0.05), D (0.6), E (1.0) pending |
+| #437 | askeladd | SOAP precond_freq schedule | **P2 likely failing**: T1=3.2680/3100, T2=3.2680/3100, T3=**3.2669/3075** (improvement); n=3 mu=3.267633 fails n=4 gate by 0.001685; T4 step 77 warmup |
+| #422 | edward | Muon WD shape variants | ⚠️ **P2 likely failing**; T1=3.2658/3000, T2=3.2656/3000, T3=3.2678/3025; n=3 mu=3.2664 fails n=4 gate by 0.000452; T4 step 1575/3250 (~49%) |
 
 
 ## Recent Closures (polls #242–248)
