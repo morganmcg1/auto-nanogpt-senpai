@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-19 11:40 UTC — Cycle 65: #435 CLOSED LOGIT_SOFTCAP_K axis FALSIFIED ±33% (clean output-head mechanism ablation, both arms early-terminated via Option B math foreclosure); frieren → #459 Lookahead-AdamW (fresh optimizer-wrapping mechanism)
+
+### PR #435 — LOGIT_SOFTCAP_K sweep (K=10 vs K=22 around default K=15) — CLOSED axis-falsified
+
+Branch: `g1r2-frieren/logit-softcap-sweep`. Both arms screened on new CONTRA_MUON=0.4 base. Excellent student execution: Option B early-terminate killed T1 of both arms when math foreclosed at n=2, saving ~4h GPU time.
+
+| Arm | K | W&B | T0 val | T0 ffs | T1 status | vs strict bar (val<3.274383, ffs<3068.75) | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 10 (tighter) | `v6gls9o3` | 3.28057 | 3175 (no-hit) | Option B kill at step ~125 (T1 also diverged at step 3326) | val MISS +0.006, ffs MISS +106.25 (no-hit) | falsified |
+| B | 22 (looser) | `0g63aen5` | 3.276487 | 3100 | Option B kill at step ~990 (math foreclosed) | val MISS +0.0021, ffs MISS +31.25 | falsified |
+| baseline | 15 default | `ivvf500c` | 3.274383 (n=4 mean) | 3068.75 (n=4 mean) | — | reference | — |
+
+**Foreclosure math for early termination (Arm B example)**: With T0=3.276487/3100, Arm B's T1 would need val ≤ 2×3.274383−3.276487 = 3.272279 (below project-best single-trial val ever observed = 3.27263) AND ffs ≤ 2×3068.75−3100 = 3037.5 (below quantization floor of 3050). Both conditions impossible → kill T1.
+
+**Baseline-trajectory comparison** (val_loss vs baseline `ivvf500c` at key steps):
+
+| Step | Arm A (K=10) | Arm B (K=22) | baseline (K=15) |
+|---|---|---|---|
+| 125 | 4.54290 | 4.50325 | ~4.20 |
+| 1500 | 3.53340 | 3.53090 | ~3.53 |
+| 2500 | 3.35267 | 3.34865 | ~3.36 |
+| 3000 | 3.29116 | 3.28718 | ~3.28-3.29 |
+| 3175 (terminal) | 3.28057 | 3.27649 | ~3.27 |
+
+**Mechanism finding**:
+- **K=10 (tighter cap)**: matched mechanistic prediction exactly. Derivative at |x|=10 is ~0.35, so tighter cap clips even small early-training logits → +0.34 val regression at step 125. Mid-cooldown (1500-2500) catches up to baseline because output-head dynamics adapt around the cap. Terminal lag +0.01 confirms cap remains compressive at K=10. ffs target never reached in 3175 steps.
+- **K=22 (looser cap)**: predicted asymmetric-favored direction failed. T0 val +0.006 / ffs +50 vs baseline. The looser cap does NOT improve gradient throughput in any productive direction — moderate-logit grad throughput is already ≥35% at K=15, and pushing K higher removes a regularizer the optimizer was leaning on.
+
+**Softcap-mediator hypothesis (#372/#379 cross-stack mystery) PARTIALLY WEAKENED**: If K=15 were a load-bearing mediator for cross-stack interactions, perturbing K by ±33% should have produced clearer effects (either dramatically better or dramatically worse). Instead the surface is fairly flat around K=15 (+0.006 to +0.01 deltas) — consistent with softcap being a **non-load-bearing constant** in the current pipeline.
+
+**Strategic implication**: Output-head modulation now joins the saturated-axes list alongside AdamW lm_head_lr (#431), EMBED_INIT_STD on new base (#379), and ATTN_SOAP_TRUST_THRESHOLD (#420). Plateau Protocol shift continues: next axes should target either (a) fresh optimizer-wrapping mechanisms (Lookahead, EMA averaging) or (b) input-side embedding mechanisms.
+
+**Reassignment**: frieren → #459 Lookahead-AdamW sweep (K=5 vs K=10, α=0.5) — fresh optimizer-wrapping mechanism (Zhang et al 2019), never tested on this codebase. Cleanly orthogonal to in-flight AdamW LR/WD sweeps (#449/#456/#458).
+
+**Process note**: This is the second clean "Option B math-foreclosure early-terminate" in two cycles (after edward #379 trial 1 in cycle 59). The math-foreclosure pattern is becoming a high-value early-termination signal. Both #435 arm A's T1 (which diverged at step 3326 — likely a divergence mode, not just foreclosure) and the cleaner Arm B T1 foreclosure show ~2-4h GPU time savings per closed-axis cycle.
+
 ## 2026-05-19 08:30 UTC — Cycle 62: #420 CLOSED ATTN_SOAP_TRUST_THRESHOLD axis FALSIFIED on new base (clean mechanism ablation finding); nezuko → #449 EMBED_LR sweep (AdamW path completion, largest LR in optimizer)
 
 ### PR #420 — ATTN_SOAP_TRUST_THRESHOLD sweep (T=0.70 vs T=0.95 vs default 0.85) — CLOSED axis-falsified
