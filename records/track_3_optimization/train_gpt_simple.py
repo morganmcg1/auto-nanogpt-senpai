@@ -530,6 +530,20 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Cautious AdamW (Liang et al. 2024). When enabled, after each AdamW step we
+# mask the per-coordinate update components whose sign disagrees with the
+# current gradient sign. With NANOGPT_CAUTIOUS_RESCALE=1 the un-masked
+# components are scaled so the average per-coordinate update magnitude is
+# preserved (Algorithm 2 of the paper). Scope filter selects which AdamW
+# param groups receive the mask: all / embed / lm_head / scalar(s).
+NANOGPT_CAUTIOUS_ADAMW = int(os.environ.get("NANOGPT_CAUTIOUS_ADAMW", "0"))  # 0=off, 1=on
+NANOGPT_CAUTIOUS_RESCALE = int(os.environ.get("NANOGPT_CAUTIOUS_RESCALE", "1"))  # 1=Liang rescale, 0=plain mask
+NANOGPT_CAUTIOUS_SCOPE = os.environ.get("NANOGPT_CAUTIOUS_SCOPE", "all")  # all|embed|lm_head|scalar
+_VALID_CAUTIOUS_SCOPES = ("all", "embed", "lm_head", "scalar", "scalars")
+if NANOGPT_CAUTIOUS_SCOPE not in _VALID_CAUTIOUS_SCOPES:
+    raise ValueError(
+        f"NANOGPT_CAUTIOUS_SCOPE={NANOGPT_CAUTIOUS_SCOPE!r}, must be one of {_VALID_CAUTIOUS_SCOPES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -703,6 +717,68 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class CautiousAdamW(torch.optim.AdamW):
+    """AdamW with the cautious-update mask of Liang et al. 2024 (arXiv 2411.16085).
+
+    The mask zeros per-coordinate update components whose sign disagrees with
+    the current gradient sign; with rescale=True the surviving components are
+    scaled up so the mean per-coordinate update magnitude is preserved
+    (Algorithm 2 of the paper). The mask is applied as a post-step correction
+    using `pre - post = lr * u_t` (valid when weight_decay == 0 on the cautious
+    group, which is the case for all aux AdamW groups in this stack).
+
+    `cautious_scope_filter(group) -> bool` selects which param groups receive
+    the cautious mask; groups returning False are stepped as normal AdamW.
+    Diagnostic: `last_mask_fraction[group_name]` gives the per-step fraction of
+    parameters whose update was masked (i.e. sign-disagreed with the gradient).
+    """
+
+    def __init__(self, *args, cautious=False, cautious_rescale=True,
+                 cautious_scope_filter=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cautious = cautious
+        self.cautious_rescale = cautious_rescale
+        self.cautious_scope_filter = cautious_scope_filter
+        self.last_mask_fraction: dict[str, float] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if not self.cautious:
+            return super().step(closure)
+        snapshots: list[tuple[torch.nn.Parameter, torch.Tensor, torch.Tensor, dict]] = []
+        for group in self.param_groups:
+            if self.cautious_scope_filter is not None and not self.cautious_scope_filter(group):
+                continue
+            if group.get("weight_decay", 0.0) != 0.0:
+                raise NotImplementedError(
+                    "CautiousAdamW requires weight_decay == 0 on cautious-scoped groups "
+                    f"(got {group.get('weight_decay')} on group {group.get('name')!r}); "
+                    "otherwise pre-post would mix weight decay into the masked direction."
+                )
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                snapshots.append((p, p.detach().clone(), p.grad.detach().clone(), group))
+        loss = super().step(closure)
+        mask_count: dict[str, list[float]] = {}  # name -> [masked_zeros, total]
+        for p, pre, grad, group in snapshots:
+            update = pre - p.detach()  # = lr * (m_hat / (sqrt(v_hat) + eps)) when wd == 0
+            mask = (update.sign() == grad.sign()).to(update.dtype)
+            name = group.get("name", "")
+            entry = mask_count.setdefault(name, [0.0, 0.0])
+            entry[0] += float((1.0 - mask).sum().item())
+            entry[1] += float(mask.numel())
+            if self.cautious_rescale:
+                scale = mask.numel() / mask.sum().clamp_min(1.0)
+                mask = mask * scale
+            p.copy_(pre - mask * update)
+        self.last_mask_fraction = {
+            name: (zeros / total if total > 0 else 0.0)
+            for name, (zeros, total) in mask_count.items()
+        }
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -747,6 +823,11 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(
+    f"CAUTIOUS_ADAMW: enabled={bool(NANOGPT_CAUTIOUS_ADAMW)} "
+    f"rescale={bool(NANOGPT_CAUTIOUS_RESCALE)} scope={NANOGPT_CAUTIOUS_SCOPE}",
+    console=True,
+)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -799,6 +880,9 @@ if dist.get_rank() == 0:
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_cautious_adamw": NANOGPT_CAUTIOUS_ADAMW,
+            "nanogpt_cautious_rescale": NANOGPT_CAUTIOUS_RESCALE,
+            "nanogpt_cautious_scope": NANOGPT_CAUTIOUS_SCOPE,
         },
     )
 
@@ -830,10 +914,21 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    def _cautious_scope_filter(group):
+        if NANOGPT_CAUTIOUS_SCOPE == "all":
+            return True
+        name = group.get("name", "")
+        if NANOGPT_CAUTIOUS_SCOPE in ("scalar", "scalars"):
+            return name == "adam_scalars"
+        return name == f"adam_{NANOGPT_CAUTIOUS_SCOPE}"
+
+    optimizer1 = CautiousAdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True,
+                       cautious=bool(NANOGPT_CAUTIOUS_ADAMW),
+                       cautious_rescale=bool(NANOGPT_CAUTIOUS_RESCALE),
+                       cautious_scope_filter=_cautious_scope_filter if NANOGPT_CAUTIOUS_ADAMW else None)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1064,6 +1159,16 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        if (
+            dist.get_rank() == 0
+            and NANOGPT_CAUTIOUS_ADAMW
+            and telemetry_due
+            and optimizer1.last_mask_fraction
+        ):
+            cautious_metrics = {"trial": trial_idx, "train/step": train_step}
+            for name, frac in optimizer1.last_mask_fraction.items():
+                cautious_metrics[f"train/cautious/{name}/mask_fraction"] = frac
+            wandb.log(cautious_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
