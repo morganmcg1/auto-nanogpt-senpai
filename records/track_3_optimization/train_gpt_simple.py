@@ -63,6 +63,16 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--ema_decay", type=float, default=0.0,
+                        help="EMA decay for eval-only Polyak averaging. 0.0 = disabled (default; "
+                             "ctrl). 0.99 = window ~100 steps, 0.999 = ~1000 steps, "
+                             "0.9999 = ~10000 steps. Does not affect training dynamics; only "
+                             "swaps EMA weights in during val eval, then restores raw weights.")
+    parser.add_argument("--ema_start_step", type=int, default=0,
+                        help="Step at which to begin EMA accumulation (default 0 = full run). "
+                             "EMA state is lazily seeded with current weights when training "
+                             "first reaches this step, so >0 values give cooldown-only-style EMA "
+                             "without pollution from pre-start weights.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -741,6 +751,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "ema_decay": args.ema_decay,
+            "ema_start_step": args.ema_start_step,
         },
     )
 
@@ -753,6 +765,10 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+
+    # Lazy-seeded eval-only EMA / Polyak averaging state.
+    # Stays None when args.ema_decay == 0 or before step reaches ema_start_step.
+    ema_state = None
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -860,6 +876,13 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # Swap EMA weights in for eval (raw weights restored after).
+            raw_state = None
+            if ema_state is not None:
+                with torch.no_grad():
+                    raw_state = {name: p.detach().clone() for name, p in model.named_parameters()}
+                    for name, p in model.named_parameters():
+                        p.copy_(ema_state[name])
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -867,6 +890,12 @@ for trial_idx in range(args.num_trials):
                     val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
+            # Restore raw weights so training continues unaffected by EMA swap.
+            if raw_state is not None:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        p.copy_(raw_state[name])
+                raw_state = None
             val_loss_float = float(val_loss.item())
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -944,6 +973,18 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Update eval-only EMA / Polyak averaging copy of weights.
+        # Lazy-seeded: first crossing of ema_start_step initializes ema_state from
+        # current weights (post opt.step), so cooldown-only EMA isn't polluted by
+        # pre-start weights. Subsequent steps run the standard EMA update in place.
+        if args.ema_decay > 0 and step >= args.ema_start_step:
+            with torch.no_grad():
+                if ema_state is None:
+                    ema_state = {name: p.detach().clone() for name, p in model.named_parameters()}
+                else:
+                    decay = args.ema_decay
+                    for name, p in model.named_parameters():
+                        ema_state[name].mul_(decay).add_(p.detach(), alpha=1.0 - decay)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
