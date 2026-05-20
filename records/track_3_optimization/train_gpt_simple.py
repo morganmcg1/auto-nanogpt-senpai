@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 from torch import Tensor, nn
-from torch.optim import AdamW
+from torch.optim import AdamW, NAdam
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # NAdam (Nesterov Adam, Dozat 2016): use lookahead-style momentum on aux groups.
+    # No fused kernel; expect ~2-3% step-time overhead. weight_decay=0 so the
+    # NAdam-vs-AdamW distinction in decoupled_weight_decay does not matter.
+    parser.add_argument("--aux_nesterov", action="store_true", default=False,
+                        help="Use NAdam (Nesterov Adam) for aux groups instead of AdamW.")
+    parser.add_argument("--aux_nesterov_momentum_decay", type=float, default=0.0,
+                        help="NAdam momentum_decay (default 0.0 = fixed beta1). PyTorch default is 4e-3.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -705,6 +712,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.aux_nesterov:
+    print0(f"Aux optimizer: NAdam (Nesterov Adam) momentum_decay={args.aux_nesterov_momentum_decay}", console=True)
+else:
+    print0("Aux optimizer: AdamW (fused)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,6 +777,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_nesterov": args.aux_nesterov,
+            "aux_nesterov_momentum_decay": args.aux_nesterov_momentum_decay if args.aux_nesterov else None,
         },
     )
 
@@ -812,10 +825,20 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    if args.aux_nesterov:
+        # NAdam: Nesterov-style lookahead momentum. No fused kernel available
+        # (~2-3% step-time overhead). weight_decay=0 so decoupled_weight_decay
+        # default (False, L2 reg) is a no-op here.
+        optimizer1 = NAdam([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0,
+                           momentum_decay=args.aux_nesterov_momentum_decay)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
