@@ -67,6 +67,16 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--tie_embed", action="store_true",
+                        help="Tie input embedding and LM-head projection weights "
+                             "(model.proj.weight = model.embed.weight). "
+                             "When set, single AdamW group at --lr_tied_embed replaces "
+                             "the separate adam_embed (lr=0.3) and adam_lm_head (lr=1/320) groups.")
+    parser.add_argument("--lr_tied_embed", type=float, default=0.1,
+                        help="LR for the tied embedding/lm_head matrix when --tie_embed is set. "
+                             "Geometric mean of current untied LRs (0.3 and 1/320 ~ 0.003) is ~0.03. "
+                             "Default 0.1 (intermediate). Untied behavior is the default when "
+                             "--tie_embed is NOT set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -703,6 +713,16 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+if args.tie_embed:
+    # Tie: lm_head shares the embed's parameter buffer.
+    # Make proj.weight a reference to embed.weight (single param object).
+    model.proj.weight = model.embed.weight
+    if dist.get_rank() == 0:
+        print(f"[tie_embed] tied model.proj.weight to model.embed.weight; "
+              f"id(proj.weight)={id(model.proj.weight)} == id(embed.weight)={id(model.embed.weight)} "
+              f"-> same_obj={model.proj.weight is model.embed.weight}; "
+              f"embed.weight.dtype={model.embed.weight.dtype}, "
+              f"proj.weight.dtype={model.proj.weight.dtype}")
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -747,6 +767,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "tie_embed": bool(args.tie_embed),
+            "lr_tied_embed": args.lr_tied_embed if args.tie_embed else None,
         },
     )
 
@@ -778,10 +800,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.tie_embed:
+        # Single shared param for input embed + lm_head projection
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.lr_tied_embed, name="adam_tied_embed"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
