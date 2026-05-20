@@ -1,5 +1,70 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 17:10 UTC — Cycle 71 mid-11: PR #574 edward Sophia-G CLOSED (Lion failure mode); edward → #598 AdamW LR warmup
+
+### PR #574 — edward Sophia-G CLOSED — Lion failure mode confirmed via clip-fraction telemetry
+
+Branch: `g1r2-edward/sophia-g`. Multiple smoke arms terminal; all FAIL smoke gate.
+
+| Arm | Formula | LR scale | ρ | val @500 | W&B | Verdict |
+|---|---|---|---|---|---|---|
+| Disabled-check | AdamW (baseline) | — | — | 4.10 @200 | 4dsy5mbt | sanity OK |
+| A | `clip(m/h, ±ρ)·lr` (PR spec) | 2.0 | 0.03 | 4.6468 | u3rqgzdn | FAIL — step cap = lr·ρ ≪ AdamW |
+| B | same, half scale | 1.0 | 0.03 | 5.5751 | 1ny2snn1 | FAIL worse |
+| **C trial 1** | corrected formula | 2.0 | 1.0 | 3.8907 | uly75i1s | FAIL smoke gate (>3.85) |
+| **C trial 2** | (same) | 2.0 | 1.0 | 3.8795 | o3be7j7p | FAIL |
+| **C trial 3** | (same) | 2.0 | 1.0 | 3.8880 | u7146d7a | FAIL |
+| D | ref-repo `clip(m/(ρ·bs·h), ±1)·lr` | 1.0 | 0.03 (bs=5120) | 4.53 @450 | h596i622 | FAIL — even slower than Arm C |
+
+### Arm C clip-fraction telemetry — Lion failure mode confirmed
+
+The advisor's predicted Lion-failure mode is exactly what telemetry showed:
+
+| step | val | embed clip | lm_head clip | scalars clip |
+|---|---|---|---|---|
+| 125 | 4.816 | **98.31%** | 35.88% | 6.06% |
+| 250 | 4.223 | **98.02%** | 25.55% | 2.97% |
+| 375 | 3.985 | **97.97%** | 22.72% | 2.38% |
+| 450 | 3.904 | **98.07%** | 21.91% | 2.05% |
+| 500 | 3.879 | **98.14%** | 22.45% | 2.09% |
+
+**98% of embed elements hit the clip cap on every step** → embed updates degenerate to `±lr·sign(m)` → pure Lion behavior on the largest tensor (vocab × d_model). Lion (#538) is already falsified, so Sophia-G degenerates into the same closed mechanism.
+
+### Unit-mismatch argument — why no (lr, ρ) tuning rescues Sophia-G at our scale
+
+- `g_typical ≈ 1e-3` → `h = E[g²] ≈ 1e-6` (β2=0.99 EMA, no sqrt in denominator)
+- `m ≈ g_typical ≈ 1e-3` (AdamW-style EMA, also no sqrt)
+- `m/h ≈ 1e3` per element — 3 orders of magnitude over ρ=1.0 cap
+
+The fundamental issue: **Sophia-G's denominator `E[g²]` (no sqrt) and `m` (no sqrt) cannot land in the same dynamic range at our gradient magnitudes**. Arm D with `ρ·bs·h ≈ 1.5e-4` denominator still leaves `m/(ρ·bs·h) ≈ 6` — still clipping. The bs-scaled formulation doesn't help.
+
+### Closed family expansion — AdamW direction-blend bucket: 5/5 closures
+
+| PR | Mechanism class | Verdict |
+|---|---|---|
+| #538 Lion | sign-of-momentum | FAIL |
+| #523 Cautious AdamW | sign-mask | FAIL |
+| #527 NAdamW | Nesterov lookahead | FAIL |
+| #557 SF-AdamW | cooldown-removal | FAIL |
+| **#574 Sophia-G (now)** | **Hessian-clipped → degenerates to sign-m at our gradient scale** | **FAIL** |
+
+This 5/5 pattern is **strong evidence that AdamW's m/√v ratio with both terms in the same dynamic range is structurally load-bearing on this stack**. Future numerator/denominator interventions must preserve this dynamic-range balance. Implication for in-flight: MARS (#576), AdaBelief (#569), AGC (#580), Adan (#586) all keep the sqrt'd denominator — safe; Sophia-G doesn't, broken.
+
+### PR #598 — edward reassigned: AdamW LR warmup (schedule-side gap)
+
+Edward → schedule axis. The Sophia-G failure showed direction/denominator interventions on AdamW are saturated; pivot to schedule-side intervention.
+
+**Hypothesis**: AdamW has NO LR warmup currently (`group["lr"] = group["initial_lr"] * eta` with eta=1.0 throughout the plateau). Adding linear warmup over 200/500 steps may compound with askeladd's pending embed-init win because both reduce early-step gradient impact on the optimizer state.
+
+| Arm | ADAMW_WARMUP_STEPS | Compares to |
+|---|---|---|
+| A | 200 | matches MU_WARMUP_STEPS=200 |
+| B | 500 | ~15.7% of training |
+
+Closed list: HP scalar sweeps tested embed_lr/lm_head_lr/scalars_lr; schedule shape variants tested cosine/poly cooldown; SF-AdamW tested cooldown-removal. **LR warmup addition is a new schedule axis** — the only mechanism in flight that modifies the time-domain envelope of AdamW LR.
+
+---
+
 ## 2026-05-20 16:10 UTC — Cycle 71 mid-10: PR #561 frieren Lookahead CLOSED (both arms MISS); frieren → #591 ortho-embed-init
 
 ### PR #561 — frieren Lookahead CLOSED — discrete sync incompatible with cooldown horizon

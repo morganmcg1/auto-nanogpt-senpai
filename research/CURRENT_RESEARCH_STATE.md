@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-20 17:10 UTC — PR #574 edward Sophia-G CLOSED (Lion failure mode: 98% embed clip → degenerates to sign-m at our 1e-3 gradient scale); edward → #598 AdamW LR warmup (schedule-side gap).**
 - **2026-05-20 16:10 UTC — PR #561 frieren Lookahead CLOSED (both arms MISS, discrete sync damps cooldown); frieren → #591 ortho-embed-init (decorrelation-side dissection of askeladd's magnitude winner).**
 - **2026-05-20 16:00 UTC — PR #541 askeladd Arm B (EMBED_INIT_STD=0.1) WINNER AT n=1 (val=3.26773, ffs=3000); n=2 confirm authorized; thorfinn #576 MARS Arm A MISS n=1, Arm B running.**
 
@@ -25,7 +26,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 |---|---|---|---|---|
 | **#541 ⭐** | **askeladd** | **Embed init std sweep — Arm B (std=0.1) WINNER n=1: val=3.26773, ffs=3000** | **All 3 arms n=1 done; n=2 confirm authorized 15:58 UTC** | **n=2 ~17:50 UTC** |
 | #576 | thorfinn | MARS (Liu 2024) STORM-style variance-reduced AdamW — paper-faithful c_t | Arm A n=1 MISS (val=3.2748, ffs=3075); Arm B running step 1275 | ~17:00 UTC |
-| #574 | edward | Sophia-G (Liu 2023) Hessian-clipped denominator | Arm C ρ=1.0 smoke + Arm D refrepo bs5120 smoke running | TBD |
+| **#598** | **edward** | **AdamW LR warmup: 200/500-step linear ramp (schedule gap — AdamW currently has NO warmup)** | **Just assigned (#574 Sophia CLOSED — Lion failure mode)** | **TBD (~3.7h n=1 both arms)** |
 | #586 | nezuko | Adan: additive gradient-diff momentum (Xie 2022, NeurIPS) — β1 sweep | Disabled-mode smokes verified; full ENABLED runs not yet launched | TBD |
 | #580 | tanjiro | AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance | Smokes A/B/control all ~3.97 @ 250 (gate passed); full runs not yet launched | TBD |
 | **#591** | **frieren** | **Orthogonal embed init: decorrelation dissection of askeladd magnitude win** | **Just assigned (#561 Lookahead CLOSED)** | **TBD (~3.7h n=1 both arms)** |
@@ -50,7 +51,8 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
   - #541 askeladd EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}: Arm B (std=0.1) ⭐ **WINNER n=1** val=3.26773 ffs=3000, n=2 confirm in flight
   - #591 frieren ORTHO_EMBED_GAIN ∈ {0.1, 1.0}: orthogonal init isolates DECORRELATION effect vs MAGNITUDE effect (2×2 mechanism dissection with askeladd)
 - **EMA schedule** (#587 alphonse): β1 cooldown ramp (0.8 → 0.99 or 0.95) — increased averaging window in cooldown to compress ffs variance
-- **Denominator semantics** (#569 fern + #574 edward): AdaBelief (g−m)² and Sophia-G clip(m/h, ±ρ) — orthogonal to direction-blend cluster
+- **Denominator semantics** (#569 fern): AdaBelief (g−m)² — only remaining denominator variant in flight (Sophia-G #574 CLOSED via Lion failure mode at our gradient scale)
+- **Schedule envelope addition** (#598 edward): AdamW LR warmup 200/500 steps — only mechanism modifying time-domain LR shape; compounds with askeladd's early-step gradient-magnitude finding
 
 ## CLOSED cycle 71 (stack status known)
 
@@ -80,6 +82,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #574 | edward | Sophia-G CLOSED — Lion failure mode confirmed via clip-fraction telemetry (98% embed elements hit clip cap → degenerates to ±lr·sign(m)). Unit-mismatch argument: at g~1e-3, m/h ratio ≈ 1e3 ≫ ρ=1.0 cap; no (lr, ρ) tuning rescues. 5th confirmed failure on AdamW-group direction-blend bucket. |
 | #561 | frieren | Lookahead CLOSED — both arms MISS (Arm A val=3.28039 ffs=−1 never reached; Arm B val=3.27844 ffs=3125); discrete k=5/k=10 sync damps late-cooldown fine-tuning; joins SWA in "weight-averaging variance-reduction on AdamW group falsified" family |
 | #534 | tanjiro | Shampoo lm_head CLOSED — both arms MISS (best: val=3.27190 +0.0016, ffs=3050 +25); less preconditioning=closer baseline; lm_head near-isotropic |
 | #549 | nezuko | Muon-cooldown-frac CLOSED — both directions mildly negative (A: val+0.0027 ffs+25; B: val+0.0016 ffs+25); shared cooldown is local optimum |
@@ -112,7 +115,8 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **TWO closed mechanism families on AdamW group now confirmed**: (1) direction-blend variants (Lion/Cautious/NAdamW) FAIL; (2) cooldown-removal mechanisms (SF-AdamW) FAIL. Fresh AdamW proposals must preserve linear cooldown AND keep first-moment direction intact — only denominator/curvature interventions remain (AdaBelief #569, Sophia #574, AdaFactor [queued]).
 - **BENCHMARK CONTRACT HARD CONSTRAINT**: `target/program.md` prohibits multiple forward-backward passes per optimizer step. This disqualifies SAM, ASAM, full Hutchinson-Sophia-H, and any other 2-pass method. VERIFY contract compliance before assigning.
 - **Gradient-direction DC mode closed**: GC (zero-mean projection) is neutral-to-negative on this stack. WD_AUX + CONTRA_MUON + per-param AdamW scaling already controls the DC mode — stripping it adds noise. Do NOT re-propose GC or gradient-mean modifications.
-- **Variance-reduction family status**: Lookahead (#561), MARS (#576), AGC (#580), Adan (#586), β1-ramp (#587) all in flight. If all fail, cooldown bimodality may be intrinsic to this dataset/loss geometry — escalate to different abstraction (architecture-side, loss-side, or accept the floor).
+- **Variance-reduction family status**: MARS (#576), AGC (#580), Adan (#586), β1-ramp (#587) all in flight (Lookahead #561 CLOSED). If all fail, cooldown bimodality may be intrinsic to this dataset/loss geometry — escalate to different abstraction (architecture-side, loss-side, or accept the floor).
+- **AdamW-group direction-blend bucket — 5/5 closures**: Lion (sign-only), Cautious (sign-mask), NAdamW (Nesterov), SF-AdamW (cooldown-removal), Sophia-G (Lion-equivalent at our scale). **Strong evidence AdamW's m/√v ratio with both terms in the same dynamic range is load-bearing**. Future denominator/numerator interventions must preserve this property (AdaBelief #569 still safe; Adan #586 safe). Sophia-G specifically reveals the unit-mismatch hazard: any denominator without sqrt cannot match m's dynamic range at our gradient magnitudes (~1e-3).
 - **Second-order preconditioner family on lm_head falsified**: right-factor Shampoo BETA2={0.95,0.99} both MISS; telltale shows less preconditioning → closer baseline → preconditioning actively hurts. lm_head column space is near-isotropic. Do NOT re-propose SOAP/Shampoo on lm_head.
 - **⭐ Askeladd #541 Arm B (std=0.1) WINNER at n=1**: val=3.26773 (−0.00256), ffs=3000 (−25), statsig pass. n=2 confirm AUTHORIZED 15:58 UTC; ETA terminal ~17:50 UTC. Arm A (std=0.5) MISS val=3.27245 ffs=3050. Arm C (std=0.02) MISS val=3.27230 ffs=3050. Non-monotonic curve — order-of-magnitude reduction is the sweet spot.
 - **Thorfinn #576 MARS**: 13:48 implementation push; Arm A finished n=1 val=3.2748 ffs=3075 (MISS); Arm B γ=0.1 running step 1275. Acknowledged stale_wip flag with W&B status comment.
