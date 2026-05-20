@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 09:55 UTC — PR #518: thorfinn NS polynomial coefficient sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-thorfinn/ns-coefs-sweep`
+- Student: g1r5-thorfinn
+- Hypothesis: Newton-Schulz quintic coefficient choice affects orthogonalization fidelity → different polynomial families may interact with ns_iter to give net val/loss improvements. Sweeps 3 polynomial families × 2 ns_iter values.
+
+### Results
+
+| Cell | ns_coefs | ns_iter | val_loss | Δσ vs OLD baseline | ffs | W&B run |
+|------|----------|:-------:|---------:|-------------------:|----:|---------|
+| A (ctrl) | 2.0, −1.5, 0.5 | 12 | 3.267355 | −0.72σ | 3100 | `1e5dtrfm` |
+| B | 3.4445, −4.7750, 2.0315 (Muon) | 12 | 3.267031 | −1.11σ | 3075 | `z6nw7fbi` |
+| C | 3.4445, −4.7750, 2.0315 (Muon) | 6 | **3.26684** | **−1.35σ** | **3075** | `cwnzs17z` |
+| D | 1.875, −1.25, 0.375 (analytical quintic) | 12 | 3.267333 | −0.75σ | 3100 | `2102ucw6` |
+| E | 2.0, −1.5, 0.5 (current) | 6 | 3.267297 | −0.79σ | 3100 | `fa0a8uxg` |
+
+### Conclusion
+
+- **Coefficient family is val-neutral at ns_iter=12.** A/B/D within 0.39σ — three very different polynomials saturate to the same val/loss. The current hardcode is fine; axis closed.
+- **ns_iter axis is val-flat 6→12 in both coef families.** A vs E: Δ=0.07σ; B vs C: Δ=0.23σ. Replicates #461 finding. The ns_iter=6 win in PR #497 captures the wall-time benefit at the val level without further coef interaction needed.
+- **Cell C (Muon coefs + ns_iter=6) signal is seed noise, not coef effect.** Cell C absolute val (3.26684) is WORSE than askeladd's P2 cluster (~3.265 mean, individual seeds 3.26493–3.26611) running CURRENT coefs + ns_iter=6. If Muon coefs were genuinely beneficial at low iter, Cell C should land at-or-below askeladd's cluster — it lands above. Decisive evidence that the C vs E +0.55σ gap is within-seed noise.
+- **Vs NEW baseline (mu=3.266120):** Best cell (C, 3.26684) is +0.41σ ABOVE new baseline mean. N=4 P2 gate (3.264120) is +1.6σ above the single-seed value. P2 confirmation NOT warranted.
+- **Net:** NS-internal axis (coefs × iters) fully mapped. Current (2, −1.5, 0.5) + ns_iter=6 is the optimum we can find.
+
+Thorfinn reassigned to fresh structural axis: PR #565 init variance scaling (the hardcoded `0.33` constant at `train_gpt_simple.py:772` — never ablated).
+
 ## 2026-05-20 08:45 UTC — PR #517: tanjiro EMA / Polyak eval (5-cell decay sweep) — **CLOSED — mechanism rejected**
 
 - Branch: `g1r5-tanjiro/ema-eval-sweep`
