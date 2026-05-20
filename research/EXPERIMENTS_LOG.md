@@ -1,3 +1,73 @@
+## 2026-05-20 16:28 UTC — PR #595 ASSIGNED (nezuko): H29 AGC pruning ablation — is Adaptive Gradient Clipping load-bearing on aux and/or muonh inner sides?
+
+- Branch: `g1r3-nezuko/agc-pruning-ablation`
+- Hypothesis: AGC at clip_ratio=0.05 is applied on BOTH sides of the current stack (aux AdamW + muonh inner). PR #483 swept the ratio in [0.02, 0.10] and found "insensitive" — meaning either AGC fires almost never OR all values in that range produce similar clipping rates. We don't know which. **Pruning experiment**: replace AGC with no-op (`clip_ratio=1e9` effectively disables) on aux only (arm 2) or muonh only (arm 3), versus baseline ctrl (arm 1). Per launch directive on "pruning ablations of complex stacks". Three informative outcomes per side: (a) match ctrl → AGC dead code; (b) WIN → AGC was clipping productive updates; (c) NEG → AGC IS load-bearing.
+
+### Why this matters
+- AGC was added to baseline at a prior round, never directly tested for load-bearing-ness.
+- Three of the most recent closures (PR #563 nezuko, PR #572 edward, PR #589 edward) all hit mechanism dead-ends; a pruning experiment de-risks future planning by reducing stack complexity rather than adding more knobs.
+- 0 LoC code change — flags already exist; only the runtime values change. Lowest-risk experiment on the board.
+- Plays to nezuko's mechanism-isolation strength (clean PR #536 + PR #563 execution).
+
+### Arms (3 sequential 3325-step runs)
+- Arm 1 ctrl: AGC on both, baseline.
+- Arm 2: `--aux_agc_clip_ratio 1e9` (effectively disabled on aux).
+- Arm 3: `--muonh_agc_clip_ratio 1e9` (effectively disabled on muonh inner).
+
+### Decision rule
+- Win: val < 3.27039 AND ffs ≤ 3100.
+- Marginal: val < ctrl but ≥ 3.27039 → noted as "AGC slightly suboptimal", no merge.
+- Match: |val − ctrl| < 0.001 → AGC is dead code on that side (no immediate merge; future cleanup PR).
+- NEG: val ≥ ctrl + 0.001 → AGC IS load-bearing on that side.
+
+---
+
+## 2026-05-20 16:22 UTC — PR #563 CLOSED (nezuko): H18 cooldown-aware outer_momentum ramp — NEG, refined mechanism: moderate outer_momentum is uniquely optimal
+
+- Branch: `g1r3-nezuko/cooldown-momentum-ramp`
+- Hypothesis: Ramping outer_momentum upward during the cooldown phase (0.5 → 0.7 or 0.5 → 0.9) would exploit the PR #536 finding that "cooldown-phase momentum is load-bearing" by letting velocity carry more weight as per-step magnitudes shrink. Inner-side analogue: PR #572 edward's β1 cooldown ramp.
+
+### Results (3325 steps each)
+
+| Arm | Config | run_id | val/loss | Δ vs ctrl | ffs | reached_target |
+|---|---|---|---:|---:|---:|---|
+| 1 ctrl | outer_momentum=0.5 static | `jaobblo5` | **3.27140** ✓ | — | 3125 | yes |
+| 2 cooldown ramp | 0.5 → 0.7 over last 30% | `nfx9rw46` | **3.27991** | +0.00851 | 3175 | yes |
+| 3 long ramp | 0.5 → 0.9 over last 60% | `lz1rez4p` | **3.31239** | +0.04099 | -1 | **no** |
+| smoke | schedule code verified | `au0l9icr` | — | — | — | — |
+| killed-dup | duplicate launch | `3rxevlmq` | — | — | — | — |
+
+- Arm 1 ctrl reproduces baseline within n=1 noise (Δ=+0.00021, well inside σ≈0.00092). Code change is clean.
+- Arm 2 best ramp arm fails merge bar 3.27039 by +0.00952 → NEG.
+- Arm 3 **missed 3.28 target entirely** → severe NEG / divergence.
+
+### Mechanism finding (refined from PR #536)
+
+**Moderate outer_momentum is uniquely optimal — both extremes catastrophic in distinct ways.**
+
+| β | Nesterov velocity amplifier `(1 + β/(1−β))` | Outcome | Source |
+|---|---:|---|---|
+| 0.0 | 1.0× | NEG: velocity collapse, cooldown undershoot | PR #536 arm 3 (val=3.30224) |
+| 0.5 | 2.0× | Optimum | All ctrls |
+| 0.7 | 3.3× | NEG: cooldown ramp arm 2 (+0.0085) | PR #563 arm 2 |
+| 0.9 | 10.0× | NEG: stale velocity overshoots fine corrections during cooldown's shrinking per-step magnitudes | PR #563 arm 3 (val=3.31239) |
+
+The PR #536 closure said "Nesterov is load-bearing"; this PR refines it to **"moderate Nesterov is load-bearing — there is a sweet spot at 0.5, both extremes are catastrophic."**
+
+### Rule for the research notebook
+
+**Outer_momentum scheduling axis is now exhausted in both directions.** PR #536 closed the floor (mom=0 catastrophic), PR #563 closed the ceiling (mom→0.9 during cooldown catastrophic). Static mom=0.5 is the unique optimum. Future advisor planning should NOT propose outer_momentum schedule variants (downward ramps, LR-coupled schedules, smaller-magnitude ramps) — all of these are within the now-mapped failure surface.
+
+### Importance of arm 3 (the kicker)
+
+Arm 3's `reached_target=0` (val=3.31 > 3.28 target) makes the NEG unambiguous in the upper-momentum direction. No need for additional seeds; the gap is well outside noise.
+
+### Disposition
+
+NEG. Code change merged-as-is for inspection (additive at default unset/static). Nezuko reassigned to H29 AGC pruning ablation (PR #595).
+
+---
+
 ## 2026-05-20 16:08 UTC — PR #589 CLOSED (edward): H27 STORM recursive variance-reduced gradient — pre-launch closure, mathematical degeneracy under 1-FBP constraint
 
 - Branch: `g1r3-edward/aux-storm-variance-reduction`
