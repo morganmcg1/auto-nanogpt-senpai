@@ -533,6 +533,10 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# 0.0 = disabled (default, embed WD stays at 0 throughout). Positive float = WD value
+# applied to the adam_embed group during the LR cooldown window only (step function:
+# 0 outside cooldown, this value inside). lm_head and scalars stay at WD=0.
+NANOGPT_EMBED_WD_COOLDOWN = float(os.environ.get("NANOGPT_EMBED_WD_COOLDOWN", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -744,6 +748,9 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"EMBED_WD_COOLDOWN: {NANOGPT_EMBED_WD_COOLDOWN} "
+       f"({'ENABLED (adam_embed group only, step transition at cooldown start)' if NANOGPT_EMBED_WD_COOLDOWN > 0 else 'DISABLED'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +814,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_embed_wd_cooldown": NANOGPT_EMBED_WD_COOLDOWN,
         },
     )
 
@@ -864,7 +872,8 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        in_cooldown = progress >= (1 - cooldown_frac)
+        if not in_cooldown:
             eta_default = 1.0
             eta_embed = 1.0
         else:
@@ -880,10 +889,14 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+        # Step-function WD on the adam_embed group: 0 outside cooldown, target inside.
+        # Disabled when NANOGPT_EMBED_WD_COOLDOWN == 0 (baseline path: WD stays 0 throughout).
+        embed_wd = NANOGPT_EMBED_WD_COOLDOWN if (in_cooldown and NANOGPT_EMBED_WD_COOLDOWN > 0) else 0.0
         for opt in optimizers:
             for group in opt.param_groups:
                 if group.get("name") == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
+                    group["weight_decay"] = embed_wd
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
 
@@ -1062,6 +1075,7 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/adam_step_norm": embed_step_norm,
                             "train/embed_schedule/adam_step_rms": embed_step_rms,
                             "train/embed_schedule/lr_embed": embed_group["lr"],
+                            "train/embed_schedule/wd_embed": embed_group["weight_decay"],
                             "train/embed_schedule/adam_steps_taken": step_count,
                         }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
