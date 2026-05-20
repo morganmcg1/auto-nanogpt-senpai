@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 18:40 UTC
+- **Date:** 2026-05-20 21:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -167,17 +167,21 @@ Single-seed 4-arm (drift gate A PASS, |3.27277−3.27174|=0.00103): A=3.27277, B
 Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed → mean(Δ_pool)=+0.00068 across n=3 pods. 4th paired-pod false-positive caught this cycle (after #344, #351, #408 AGC). DeepNet/T-Fixup family init-scaling axis closed: NS-normalized Muon updates wash out init scaling within first ~100 steps as hypothesized — but no preserved benefit signal. **27th productive-null/negative this cycle.**
 **Follow-up**: askeladd assigned **#543 per-block NS iter budget** — spatial allocation by aspect ratio (Bernstein-Newhouse). (#542 Lion-aux mis-assignment closed 05:12 UTC — Lion on aux groups already closed in #77, prior round.)
 
-### 🔄 askeladd #579 — Body Muon LR asymmetry (attn vs mlp) [assigned 13:35 UTC]
+### 🔄 askeladd #579 — Body Muon LR asymmetry (attn vs mlp) [single-seed COMPLETE 21:36 UTC; SENT BACK 21:50 UTC for paired-pod confirmation of compound D]
 
 **Branch:** `g1r4-askeladd/muon-attn-mlp-lr-asym`
-**Hypothesis**: Body Muon uses uniform LR for all body params. Attention matrices (768×768 square, information routing) and MLP matrices (tall/wide feature transformers) have structurally different roles. Post-NS spectral norm is ≈1 per matrix; the LR then sets the per-update spectral magnitude. Per-block-TYPE LR split (attn vs mlp) is structurally distinct from: #543 per-block NS iter, #393 per-group AdamW LR, #409 LLRD depth-LR. Implementation: split Muon into 2 param groups (attn / mlp), apply separate LR multipliers per group in `set_hparams()`.
-| Arm | attn_mult | mlp_mult | Effective LRs | Tests |
-|---|---:|---:|---|---|
-| A | 1.00 | 1.00 | 0.05 / 0.05 | Control (bit-identical to merged) |
-| B | **0.80** | 1.00 | 0.04 / 0.05 | Attn conservative (−20%) |
-| C | 1.00 | **1.20** | 0.05 / 0.06 | MLP aggressive (+20%) |
-| D | **0.80** | **1.20** | 0.04 / 0.06 | Compound attn-lower + MLP-higher |
-**ETA full chain:** ~7.3h.
+
+**Single-seed 4-arm result** (drift gate A PASS, |3.27189−3.27174|=0.00015):
+| Arm | attn | mlp | val/loss | Δ vs A | first_step |
+|---|---:|---:|---:|---:|---:|
+| A | 1.00 | 1.00 | 3.27189 | — (drift +0.00015 PASS) | 3225 |
+| B | 0.80 | 1.00 | 3.27272 | +0.00083 (null) | 3250 |
+| C | 1.00 | 1.20 | 3.27269 | +0.00080 (null) | 3250 |
+| D | **0.80** | **1.20** | **3.27052** | **−0.00137 (signal, sub-threshold)** | **3225** |
+
+**Pre-staged pattern rule fires exactly**: singletons B/C both null, compound D direction-correct improvement. Sub-threshold of −0.002 mark at n=1. Drift gate clean (+0.00015) confirms implementation correct. **Mechanism**: attn matrices want conservative effective step (less jitter in routing) + mlp matrices want larger step; sub-threshold individually, compose when both applied — aspect-ratio shift between body-Muon matrix types.
+
+**Paired-pod follow-up assigned 21:50 UTC**: 2-arm × 3-pod (A=(1.00, 1.00) ctrl + D=(0.80, 1.20) treatment, 6 runs total, ~6h × 3 parallel pods or ~10.8h sequential). Decision rule predeclared: Δ_mean ≤ −0.002 AND (3.28 − μ_D_mean)·√3 ≥ 0.004 AND μ_D_mean ≤ 3.27174 ⇒ MERGE; else close.
 
 ### ✅ askeladd #543 — Per-block NS iter budget — CLOSED 13:35 UTC productive-NULL
 

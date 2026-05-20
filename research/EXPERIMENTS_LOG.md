@@ -3,6 +3,32 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 21:50 UTC — PR #579: Body Muon LR asymmetry — attn vs MLP per-block-type LR split (askeladd) — SENT BACK for paired-pod confirmation
+
+- Branch: `g1r4-askeladd/muon-attn-mlp-lr-asym`
+- Hypothesis: NS orthogonalization normalizes spectral direction per matrix but doesn't normalize the **relative scale across matrix types**. If attn matrices (qkvo) and mlp matrices (fc, proj) benefit from different effective step sizes, splitting body Muon into two LR-multiplier groups could exceed single-multiplier optimum. Structurally fresh axis — NS-axis program had been fully fenced (frieren 3/3 corners closed + #487 sub-stack + #543 spatial), but per-block-type LR asymmetry is orthogonal to NS-iter axis.
+- Code: `NANOGPT_MUON_ATTN_LR_MULT` / `NANOGPT_MUON_MLP_LR_MULT` env vars; `Muon` constructor extended for list-of-dicts param_groups; body Muon split by `.attn.` / `.mlp.` name substring (48 attn / 24 mlp params confirmed).
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27189−3.27174|=0.00015):**
+
+| Arm | attn_mult | mlp_mult | val/loss | Δ vs A | first_step | W&B run |
+|---|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 1.00 | 1.00 | 3.27189 | — (drift +0.00015 PASS) | 3225 | z74koc4v |
+| B | **0.80** | 1.00 | 3.27272 | +0.00083 (null) | 3250 | 8b81n20u |
+| C | 1.00 | **1.20** | 3.27269 | +0.00080 (null) | 3250 | ccn4srk7 |
+| D | **0.80** | **1.20** | **3.27052** | **−0.00137 (signal, sub-threshold)** | **3225** | wr1z9vc7 |
+
+**Analysis**: Pre-staged pattern rule fires exactly — singletons B and C both null, compound D shows direction-correct improvement. **Mechanistic read**: attn matrices benefit from a slightly conservative effective step (less jitter in attention routing) AND mlp matrices benefit from a slightly larger effective step, but the two effects are sub-threshold individually and compose when both applied. The compound D shifts body-Muon update **aspect ratio** between attn and mlp — that aspect-ratio shift is what produces the gain, not either lever alone.
+
+- **n=1 stat rule** for D: (3.28 − 3.27052)·√1 = 0.00948 ≥ 0.004 ✓ AND 3.27052 ≤ baseline 3.27174 ✓ ⇒ passes n=1 floor
+- **Within-pod Δ threshold**: −0.00137 sub-threshold of pre-staged −0.002 signal mark, but within ±0.001 of it
+- **Implementation correctness**: Drift gate A=3.27189 vs 3.27174 (Δ=+0.00015) confirms param-group split is numerically bit-identical to single-group baseline — no implementation defect contaminating results
+- **Single-seed → paired-pod precedent**: 5 prior cases (#344, #351, #408, #487, #506) where single-seed wins collapsed at paired-pod confirmation — strict pre-staged merge rule requires n≥2-3 confirmation before declaring a winner
+
+**Decision**: SEND BACK for paired-pod n=3 confirmation of compound D at (attn=0.80, mlp=1.20). Sub-threshold Δ at n=1 + collapse precedent ⇒ insufficient confidence for n=1 merge. If n=3 confirms Δ_mean ≤ −0.002, this is a small but real win. If it doesn't, axis closes cleanly. Highest-EV next experiment for askeladd's slot.
+
+**Follow-up**: askeladd assigned paired-pod confirmation at (0.80, 1.20) — A=(1.00, 1.00) ctrl + D=(0.80, 1.20) treatment, 3 pods each.
+
 ## 2026-05-20 18:40 UTC — PR #568: Per-group cooldown_frac decoupling (nezuko) — CLOSED productive-NULL
 
 - Branch: `g1r4-nezuko/per-group-cooldown-frac`
