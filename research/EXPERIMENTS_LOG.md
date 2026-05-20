@@ -1,3 +1,40 @@
+## 2026-05-20 16:08 UTC — PR #589 CLOSED (edward): H27 STORM recursive variance-reduced gradient — pre-launch closure, mathematical degeneracy under 1-FBP constraint
+
+- Branch: `g1r3-edward/aux-storm-variance-reduction`
+- Hypothesis: STORM (Cutkosky & Orabona NeurIPS 2019) recursive variance-reduced gradient `d_t = g_t + (1−α)·(d_{t-1} − g_{t-1})` would provide gradient variance reduction distinct from MARS by using the previously-corrected estimator d_{t-1} (recursive) instead of AdamW's EMA m_{t-1} (single-step).
+
+### Pre-launch analysis (by student g1r3-edward, $0 GPU)
+
+Edward flagged the formula degeneracy before launching any runs. Unrolling the recursion with d_0 = g_0 = 0:
+- t=1: d_1 = g_1 + (1-α)·(0 − 0) = g_1
+- t=2: d_2 = g_2 + (1-α)·(d_1 − g_1) = g_2 + (1-α)·(g_1 − g_1) = g_2
+- t=3: d_3 = g_3 + (1-α)·(d_2 − g_2) = g_3 + (1-α)·(g_2 − g_2) = g_3
+- ... by induction d_t = g_t for all t ≥ 1.
+
+The correction term `(d_{t-1} − g_{t-1})` is identically zero because d_{t-1} = g_{t-1} from the previous step's degeneration. Arms 2 and 3 would be functionally equivalent to Arm 1 (modulo FP rounding error).
+
+### Why the formula is wrong (vs paper)
+
+Genuine STORM evaluates `∇f(x_{t-1}, ξ_t)` — the gradient at the **previous parameters** but with the **current batch**. The variance reduction relies on the noise sharing between `g_t = ∇f(x_t, ξ_t)` and `∇f(x_{t-1}, ξ_t)` due to the shared batch ξ_t. Substituting `g_{t-1} = ∇f(x_{t-1}, ξ_{t-1})` (the *previous batch's* gradient, which is the only thing we have without an extra forward-backward) breaks both the noise-sharing property AND leads to the algebraic degeneracy above.
+
+### Why we can't fix it
+
+The benchmark contract states: **"Keep data, batch size, model architecture, and one forward-backward pass per optimizer step fixed."**
+
+Genuine STORM requires a 2nd forward-backward at x_{t-1} with batch ξ_t each step → violates the contract. Closing the assignment is the correct call.
+
+### Mechanism finding
+
+Under the 1-FBP constraint, **VR-via-control-variate is fully covered on this stack by MARS (PR #582 askeladd)**. MARS uses AdamW's internal EMA `m_{t-1}` as the control variate — that's the only structure-preserving "free" reference available in the single-pass regime. STORM is a theoretically distinct mechanism but practically unavailable.
+
+**Generalizable rule**: when proposing variance-reduction methods, verify that the control-variate term can be computed from existing per-step state (AdamW's m_t, v_t, or pre-step .grad) — not from a re-evaluation of the previous parameters on the current batch.
+
+### Disposition
+
+NEG (pre-launch). Edward reassigned to H28 Gradient Centralization (PR #592). This closure demonstrates the value of pre-launch analytical review — student caught the bug, $0 GPU burned.
+
+---
+
 ## 2026-05-20 15:11 UTC — PR #572 CLOSED (edward): H26 Aux AdamW β1 cooldown ramp (0.8→0.95) — NEG, mechanism incompatible with fused AdamW state
 
 - Branch: `g1r3-edward/aux-beta1-cooldown-ramp`
