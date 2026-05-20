@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 07:00 UTC
+- **Date:** 2026-05-20 07:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -132,17 +132,10 @@ Strictly monotone regression: A=3.27326 (ctrl), B=3.31900 (+0.046), C=3.37495 (+
 Clean monotone worsening: A=3.27066, B=+0.00080 (null), C=+0.00258 (regression), D=+0.00400 (regression). Body-block WD=0.025 is load-bearing from step 0 — delaying it hurts. **24th productive-null/negative this cycle.** Bilateral closure: 17 ADD-regularization axes + 1 REDUCE-regularization axis both fail → Muon-WD=0.025 is bilaterally optimal.
 **Follow-up**: thorfinn assigned **#520 Body Muon LR cooldown shape sweep** — alternative profiles over the load-bearing 30% cooldown window.
 
-### 🔄 thorfinn #520 — Body Muon LR cooldown shape sweep [assigned 23:42 UTC]
+### ✅ thorfinn #520 — Body Muon LR cooldown shape sweep — CLOSED 07:55 UTC productive-NEGATIVE
 
-**Branch:** `g1r4-thorfinn/body-cooldown-shape`
-**Hypothesis**: Body Muon LR uses linear cooldown (1.0→0.0 over last 30%) — the first experiment targeting this specific axis. NS-orthogonalized updates have rank-stable magnitudes (unlike AdamW per-coordinate updates), so optimal cooldown profile may differ. Prior shape experiments: embed (#235 linear_floor MERGED, #454 null), NS-iter (#285 late_peak MERGED). Body group has been linear-default the whole time.
-| Arm | NANOGPT_BODY_COOLDOWN_SHAPE | Profile |
-|---|---|---|
-| A | linear (control) | 1.0 → 0.0 linear |
-| B | cosine | 1.0 → 0.0 cosine half-cycle (front-loaded) |
-| C | quadratic | 1.0 → 0.0 quadratic (more front-loaded) |
-| D | linear_floor | 1.0 → 0.15 never-zero floor |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.27261, B cosine=+0.00163 (marginal regression), C quadratic=+0.00864 (strong regression, fst=-1), D linear_floor=+0.01401 (strongest, fst=-1). Monotone with non-linear distortion of the final-window decay. **Mechanism**: body Muon needs (1) decay to ~zero at end, (2) linear shape (not steeper, not slower). NS-orthogonalized updates have rank-stable magnitudes — late-phase convergence requires actual zero LR to land. **Striking per-group cooldown contrast**: embed wins with linear_floor (#235), body LOSES strongest with linear_floor — different update statistics demand different profiles. Per-group cooldown-shape design axis substantially characterized (lm_head #547 in flight completes the matrix). **30th productive-null/negative this cycle.**
+**Follow-up**: thorfinn assigned **#NEW AdamW embed WD cooldown nudge** — adds small positive WD on embed during cooldown only (currently WD=0). Tests whether late-phase implicit regularization on sparse-row embed group helps; structurally distinct from edward #550 (Muon WD REDUCTION, body group, removes existing).
 
 ### ✅ askeladd #452 — Block output projection init scale — CLOSED 05:05 UTC productive-null
 
@@ -233,7 +226,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**29 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**30 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -246,11 +239,11 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 1. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
 2. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — Arm C N=1 winner candidate val=3.27163, but within-pod Δ=−0.00119 directional null)
 3. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko)
-4. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
-5. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
-6. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
-7. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
-8. **NEW**: Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
+4. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
+5. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+6. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
+7. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
+8. **NEW**: Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#NEW, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
 
 **Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
