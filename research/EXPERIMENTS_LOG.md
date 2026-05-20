@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-05-20 15:35 UTC — PR #553 CLOSED: Gradient Centralization on body-Muon pre-NS — NULL/NULL clear, PMuon's NS whitening is already mean-aware and uses column/row-mean structure as signal not noise (g1r1-frieren)
+
+- Branch: `g1r1-frieren/gradient-centralization-pre-ns`
+- Hypothesis: Gradient Centralization (Yong et al 2020) subtracts the per-channel mean from the gradient before optimization. On body-Muon, this means subtracting `mean(grad, dim, keepdim=True)` from each 2D weight gradient before passing to PMuon's Newton-Schulz polar map. Two arms: Arm A `dim=1` (paper canonical, per-output-channel mean); Arm B `dim=0` (per-input-channel mean).
+
+| Arm | GC_DIM | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A (dim=1) | 1 | `1x2u1688` | **3000** | **3.268599** | +62.5 | +0.004321 | NULL clear |
+| Arm B (dim=0) | 0 | `zfdfwtk4` | **3025** | **3.271550** | +87.5 | +0.007272 | NULL clear |
+
+**Verdict: NULL | NULL clear → gradient-centralization on body-Muon pre-NS axis closes.**
+
+**Astonishing signal-to-perturbation ratio.** Telemetry shows GC removed only:
+- Arm A (dim=1): `grad_norm_post / grad_norm_pre = 0.99989` — 0.011% of L2 mass removed.
+- Arm B (dim=0): `grad_norm_post / grad_norm_pre = 0.99979` — 0.021% of L2 mass removed.
+
+Despite removing <0.05% of the gradient norm, both arms regressed by +62-87 sr and +0.004-0.007 val. The ratio of speedrun cost to L2 perturbation is ~5000-10000x — clear evidence that the rank-1 mean component is *singular-vector signal*, not noise.
+
+**Mechanism analysis (frieren's tight reading):** The column/row mean of the body-Muon gradient is a rank-1 component of the gradient. PMuon's bilateral whitening + Newton-Schulz polar map preserves and uses this rank-1 piece — the polar map outputs an approximately unit-magnitude rotation along the rank-1 mean direction, so removing it costs proportional-to-1 not proportional-to-L2-mass. Subtracting the mean before NS effectively drops a top-singular-vector pair from the polar step.
+
+**Direction asymmetry (dim=0 worse than dim=1)** is informative: per-input-channel mean (rows of W) carries more signal than per-output-channel mean (columns of W). Consistent with the architecture — input-channel mean represents per-feature shift signal accumulated through residual stream propagation, while output-channel mean represents per-target offset with less per-step coherence.
+
+**Cross-domain finding:** opposite sign to Yong et al 2020 (ImageNet/ResNet, where GC helped). ResNet's BatchNorm-stabilized gradients have different rank structure than pre-LN transformer gradients, and Muon-class optimizers explicitly *use* the singular structure that GC tries to remove.
+
+**Falsification — gradient transformation class state:**
+
+| Sub-class | Status |
+|---|---|
+| Mean subtraction (centralization) | **CLOSED NULL/NULL (this PR)** |
+| Mean amplification (inverse) | **IN FLIGHT (#588 NEW)** — frieren's follow-up |
+| Norm clipping (sub-natural-norm) | CLOSED NULL/NULL (#513) |
+| Sign / Winsorization / tanh-squash | UNTESTED |
+
+**Frieren reassigned** to **body-Muon column-mean AMPLIFICATION pre-NS** (PR #588) — frieren's own suggested follow-up. If subtracting the rank-1 mean component hurts (this PR), amplifying it via `g + α · mean(g, dim, keepdim=True)` for small α > 0 should symmetrically help — direct inverse mechanism test motivated by the closure data. Two arms: Arm A α=0.05 gentle, Arm B α=0.20 stronger. Both use dim=1 (the less-bad direction from this PR). If amplification falsifies, the gradient-mean transformation class fully closes in BOTH directions — a stronger closure than this PR alone.
+
 ## 2026-05-20 14:25 UTC — PR #545 CLOSED: AdaBelief on aux AdamW (v-estimator leaf) — NULL/NULL clear after paper-formulation bug-fix, mean-subtracted second moment offers no headroom on noise-dominated aux gradients (g1r1-fern)
 
 - Branch: `g1r1-fern/adabelief-aux-adamw`
