@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 11:00 UTC — Cycle 71 mid-3: PR #527 fern NAdamW CLOSED (direction-blend cluster falsified); fern assigned #569 AdaBelief; tanjiro #534 n=1 arms launched
+
+### PR #527 — fern NAdamW CLOSED — direction-blend AdamW cluster now fully falsified
+
+Branch: `g1r2-fern/nadamw`. W&B runs: `o0u0btln` (Arm A, NADAMW=1 β1=0.8), `r1zdk7af` (Arm B, NADAMW=1 β1=0.85).
+
+| Arm | Optimizer | val mean | ffs mean | vs bar | Verdict |
+|---|---|---|---|---|---|
+| A (best) | NAdamW β1=0.8 | 3.273585 | 3050 | OLD +0.0022/+25 | FAIL |
+| B | NAdamW β1=0.85 | 3.274080 | 3062.5 | OLD +0.0027/+37.5 | FAIL |
+| baseline (#458) | AdamW β1=0.8 | 3.271388 | 3025 | reference | — |
+
+Arms A+B run against old bar (both launched before MUON_LR=0.04 merge at 06:43 UTC). Trial-to-trial variance essentially zero (T0/T1 within 0.0002 val) — clean statsig miss, not noise. Statsig (3.28-3.273585)·√2=0.00907 ≥ 0.004 ✓.
+
+**Mechanism verdict**: NAdamW's blend `β1·m̂ + (1−β1)·grad/bc1` puts extra weight on the instantaneous gradient relative to vanilla AdamW (which uses just m̂). During cooldown, when LR has dropped, the smoothed momentum direction is beneficial — the lookahead correction towards instantaneous grad hurts. **Direction-blend AdamW variants are now fully closed**: Lion #538 (sign-of-momentum), Cautious AdamW #523 (sign-mask), NAdamW #527 (Nesterov blend) — all fail. Do NOT re-propose direction-reshaping AdamW updates without a new mechanism angle.
+
+### PR #569 — fern AdaBelief assigned (Zhuang 2020, arxiv 2010.07468)
+
+AdaBelief replaces AdamW's `v ← β2·v + (1−β2)·g²` with `v ← β2·v + (1−β2)·(g−m)²` — denominator semantics change, not direction reshape. When gradient agrees with momentum (g≈m), denominator stays small → larger step; when they diverge (noisy gradient), denominator grows → smaller step. Mechanistically orthogonal to all closed direction-blend variants. 2 arms: Arm A β2=0.95 (matching current AdamW default) and Arm B β2=0.99 (AdaBelief paper default; (g−m)² has higher variance than g², longer averaging helps).
+
+### PR #534 tanjiro — right-factor Shampoo on lm_head — n=1 arms launched 09:40 UTC
+
+Disabled-check (un1v5ud9) and both smokes (uy847d3h β2=0.95, 5o7486jb β2=0.99) all confirmed healthy (~3.697 at step 500). n=1 full screens launched 09:40 UTC. ETA Arm A terminal ~11:15 UTC, Arm B ~12:55 UTC.
+
 ## 2026-05-20 09:52 UTC — Cycle 71 mid-2: PR #533 alphonse CLOSED; alphonse assigned #564 GC; PR #529 frieren CLOSED; frieren assigned #561 Lookahead; thorfinn T0 ffs=3000 BREAKTHROUGH; fern NAdamW foreclosed
 
 ### PR #533 — alphonse Stack pruning ablation — CLOSED stack collectively load-bearing
@@ -47,9 +71,7 @@ T0 terminal (z02q183a): val=3.27290, **ffs=3000** — below baseline floor 3025 
 
 Mechanistic explanation: WINDOW=300 starts SWA accumulation at step 2875 (vs 3025 for Arm A with WINDOW=150). At step 3000 eval, swa_count=126 — substantial averaging. The averaged trajectory crosses 3.28 ~25 steps earlier than the live weights would. T1 launched at 09:21 UTC, ETA terminal ~11:05 UTC. Kill gate NOT triggered (val<3.275 AND ffs<3050). For n=2 mean: need T1 ffs ≤ 3050 (achievable), val < 3.267676 (unlikely). If n=2 ffs passes but val fails strict, will evaluate ffs-improvement-only merge.
 
-### PR #527 fern NAdamW — math-foreclosure pending T1 terminal
-
-Arm A n=2: val 3.273585/ffs 3050 — FAIL old bar. Arm B T0: val 3.27417/ffs 3075 — WORSE than Arm A. T1 at step 750 trailing T0 by +0.006. Foreclosure certain: T1 needs val < 3.268606 to clear old bar from n=2 mean, extremely unlikely. Let T1 complete then drop SENPAI-RESULT, close axis.
+### PR #527 fern NAdamW — CLOSED (see Cycle 71 mid-3 entry above for full results)
 
 ## 2026-05-20 08:30 UTC — Cycle 71: PR #538 Lion closed; edward reassigned #557 SF-AdamW
 
