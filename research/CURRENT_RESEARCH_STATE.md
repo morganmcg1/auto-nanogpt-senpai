@@ -1,7 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 16:52 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/frieren still broken AND **🆕 EDWARD POD ALSO BROKEN** (transition 13:30-14:18 UTC 2026-05-20 confirmed via W&B). **4 of 8 r3 pods broken now**. esc#26 posted 16:35 UTC — ~117h total operator silence. Throughput at 4/8 productive pods (askeladd, fern, nezuko, edward partial→0).
+- **Last updated:** 2026-05-20 19:18 UTC
+- **🆕 esc#27 posted 19:15 UTC** — 5 of 8 r3 pods broken (alphonse, tanjiro, thorfinn-orphaned, frieren, edward). ~118.5h total operator silence on the original 3 broken pods. Throughput at **3/8 productive pods** (askeladd, fern, nezuko). esc#28 due ~21:15 UTC if no rotation.
+- **🆕 PR #582 MARS γ=0.025 TERMINAL 19:14 UTC, noise-neutral (NOT NEG)**: `17xyn9p7` val=**3.27500** ffs=3175 reached_target=1. Δ+0.00120 vs ctrl `ifdm0vqm` (3.27380), well within σ≈0.001. **Earlier 17:08 UTC "trending NEG" call was wrong** — mid-cooldown checkpoint (val=3.4811 at step 2070) misled me; trajectory recovered during cooldown. **Lesson logged**: mid-cooldown trajectory checkpoints are unreliable on this stack; terminal val is the only safe signal. γ=0.1 (`1u732d5z`) running step ~1400/3325 (~40%, ETA ~80 min) — now the informative arm since γ=0.025 didn't actively harm.
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/frieren still broken AND **EDWARD POD ALSO BROKEN** (transition 13:30-14:18 UTC 2026-05-20 confirmed via W&B). **5 of 8 r3 pods broken now**. esc#27 posted 19:15 UTC — ~118.5h total operator silence. Throughput at 3/8 productive pods (askeladd, fern, nezuko).
 - **🆕 PR #572 MECHANISM FINDING DOWNGRADED 16:35 UTC**: Previously attributed β1 ramp NaN to "fused-betas reassignment incompatibility". Cross-referencing edward's pod timeline shows ALL post-13:30 UTC NaN runs (including the β1 ramp arm 2 `zzotocuj` and both smoke-v2 retries `xn2wyuug`/`icqb3em2`) were on a broken pod. The fused-betas-reassignment mechanism finding is now **tentative, untested on healthy hardware**. Rule still followed (don't propose betas mid-training schedule) but for caution, not as proven incompatibility.
 - **🆕 PR #592 edward H28 GC HELD 16:35 UTC**: Smoke `ej68hkb5` NaN was pod failure, not implementation bug. Standing PR down pending pod rotation. Edward's GC implementation may be correct; we cannot verify until pod is healthy.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
@@ -52,18 +54,18 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (16:52 UTC 2026-05-20)
+## Active experiments (19:18 UTC 2026-05-20)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#597** | fern | **H31: MuLoCo outer Nesterov pruning ablation** (NEW 16:52 UTC) | Assigned. ~10 LoC. 2 arms: ctrl (Nesterov on), arm 2 (`--outer_nesterov 0` = vanilla SGD-momentum). Tests whether the PR #563 velocity-amplifier framing is mechanistically real. Pruning ablation per launch directive. |
-| **#595** | nezuko | **H29: AGC pruning ablation (aux + muonh sides)** (16:28 UTC) | Assigned. 0 LoC; runtime flag changes only. 3 arms: ctrl (AGC 0.05 both), arm 2 (`--aux_agc_clip_ratio 1e9`), arm 3 (`--muonh_agc_clip_ratio 1e9`). Per launch directive "pruning ablations of complex stacks". |
-| **#592** | edward | **H28: Gradient Centralization on aux AdamW** (16:13 UTC) | **HELD 16:35 UTC — POD BROKEN.** Smoke `ej68hkb5` NaN with 147.9M nonfinite — pod failure not implementation. Edward's pod broke between 13:30-14:18 UTC. Standing down pending pod rotation. |
-| **#582** | askeladd | **H25: MARS variance-reduced gradient** (14:05 UTC) | mars-ctrl `ifdm0vqm` ~94% (step 3120/3325, ETA ~5 min as of 16:37 UTC). 3 arms: ctrl, γ=0.025, γ=0.1. Terminal pending. |
-| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — fresh post-rotation smoke `pu4hxo61` NaN step 300, nonfinite_count 147.5M. esc#26 posted 16:35 UTC |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD ON OTHER BRANCHES** — W&B confirms thorfinn pod healthy and active on r4/r5/r2; last r3 activity 2026-05-19 01:09 UTC. PR #412 effectively orphaned. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD STILL BROKEN** — `gtzdlnir` NaN step 30, nonfinite_count 147.6M. esc#26 posted 16:35 UTC |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD STILL BROKEN** — `lz9orm12` post-rotation-smoke NaN step 300, nonfinite_count 147.5M. esc#26 posted 16:35 UTC |
+| **#597** | fern | **H31: MuLoCo outer Nesterov pruning ablation** | ctrl `aywshl69` step **2500/3325 (~75%)**, val=3.3717 mid-cooldown. ETA ~30-45 min to terminal. Arm 2 (`--outer_nesterov 0`) launches after ctrl finishes. |
+| **#595** | nezuko | **H29: AGC pruning ablation (aux + muonh sides)** | ctrl `g66n94a2` step **3210/3325 (~96%)**, val=3.2776. ETA ~5 min to terminal. Arms 2+3 (`--aux_agc_clip_ratio 1e9` / `--muonh_agc_clip_ratio 1e9`) launch sequentially after. |
+| **#592** | edward | **H28: Gradient Centralization on aux AdamW** | **HELD 19:12 UTC refresh — POD STILL BROKEN.** Smoke `ej68hkb5` NaN with 147.9M nonfinite — pod failure not implementation. Standing down pending pod rotation per esc#27. |
+| **#582** | askeladd | **H25: MARS variance-reduced gradient** | **γ=0.025 TERMINAL 19:14 UTC: noise-neutral val=3.27500 ffs=3175 (Δ+0.00120 vs ctrl).** γ=0.1 `1u732d5z` running step ~1400/3325 (~40%, ETA ~80 min). Awaiting consolidated terminal SENPAI-RESULT after γ=0.1. |
+| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — esc#27 posted 19:15 UTC. Student touching back at ~30 min cadence. |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD ON OTHER BRANCHES** — last r3 activity 2026-05-19 01:09 UTC. PR #412 effectively orphaned. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD STILL BROKEN** — `gtzdlnir` NaN. esc#27 posted 19:15 UTC. |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD STILL BROKEN** — `lz9orm12` NaN. esc#27 posted 19:15 UTC. |
 
 ## Recently closed PRs
 
