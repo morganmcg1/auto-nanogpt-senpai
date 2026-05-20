@@ -63,6 +63,9 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--muon_mu", type=float, default=0.95,
+                        help="Muon momentum coefficient. Default 0.95 (current hardcoded value). "
+                             "Lower = faster momentum decay; higher = slower.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -741,6 +744,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "muon_mu": args.muon_mu,
         },
     )
 
@@ -787,6 +791,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
+        mu=args.muon_mu,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
     optimizers = [optimizer1, optimizer2]
