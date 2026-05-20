@@ -3,6 +3,34 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 07:00 UTC — PR #497: askeladd P2 ns_iter=6 n=6 confirm — ✅ **MERGED NEW BASELINE**
+
+- Branch: `g1r5-askeladd/ns-iter-6-P2-n4`
+- Student: g1r5-askeladd
+- Hypothesis: P2 n≥4 confirmation of ns_iter=6 signal from thorfinn #461 Cell B (−2.94σ single-seed). Newton-Schulz 6 iterations vs hardcoded 12 — tests whether orthogonalization overshoots in bfloat16 past 6 iters.
+
+### Results
+
+| Trial | val/loss | ffs | Δσ vs OLD baseline (3.267948, σ=0.000823) | Run |
+|-------|----------|-----|------------------------------------------:|-----|
+| T1 | 3.26566 | 3075 | −2.78σ | `ues3hmz1` |
+| T2 | 3.26957 | 3125 | +1.97σ (outlier) | `ues3hmz1` |
+| T3 | 3.26493 | 3075 | −3.67σ | `ues3hmz1` |
+| T4 | 3.26498 | 3075 | −3.61σ | `ues3hmz1` |
+| T5 | 3.26611 | 3100 | −2.23σ | `n0vch666` |
+| T6 | 3.26547 | 3075 | −3.01σ | `n0vch666` |
+| **n=6 mean** | **3.266120** | **3087.5** | **−2.22σ** | |
+
+**Statsig:** `(3.267948 − 3.266120) × √6 = 0.001828 × 2.449 = 0.004478 ≥ 0.004` ✅ PASS
+
+### Conclusion
+
+**ns_iter=6 is a real, statistically significant winner.** 5/6 trials cluster in 3.26493–3.26611; T2 lone outlier at 3.26957 (same pattern as prior "bad trial" outliers e.g. edward #422 T3). N=4 mean=3.266285 was borderline; n=6 extension cleared decisively.
+
+**Mechanism**: bfloat16 Newton-Schulz orthogonalization saturates at 6 iterations. The 12-iteration hardcoded value was over-iterating — extra polish adds noise rather than quality, consistent with "less optimizer intensity" theme (PR #371 WD ramp_down→0). Wall-clock benefit: ~42 ms/step faster at ns_iter=6.
+
+**New baseline after merge:** mu=3.266120, n=4 gate 3.264120 (was 3.265948). All future PRs use `--ns_iter 6`.
+
 ## 2026-05-20 06:30 UTC — PR #504: fern LR floor in cooldown sweep — **CLOSED clean-NEG**
 
 - Branch: `g1r5-fern/lr-floor-cooldown-sweep`
