@@ -184,7 +184,19 @@ Arms B (embed: Δ=−0.00059, mild +), C (lm_head: Δ=+0.00063, mild −), D (al
 ### ✅ nezuko #530 — Nesterov-Muon body scope sweep — CLOSED 10:15 UTC productive-NULL
 
 Single-seed 4-arm (drift gate A PASS, |3.27253−3.27174|=0.00079): A α=0.95=3.27253, B α=0.00 (bypass)=+0.00630 (regression), C α=0.50 (half-mix)=+0.04114 (severe, target NOT reached), D α=0.99 (over-Nesterov)=+0.00060 (null). **Structural finding**: the cliff is on the *low-α* side (NS-stability breakdown when current-grad weight >>0.05); the plateau is on the *high-α* side (Arm D within noise). α=μ=0.95 sits at boundary of safety — the mix is best understood as a tiny anti-staleness injection (~5% current-grad on top of 95% EMA), small enough to stay in NS's well-behaved spectral domain. Heavier current-grad injection pushes the NS input outside the Newton-Schulz polynomial's well-conditioned regime. **5th body-Muon mechanism axis closed** (joins #102 LR warmup, #356 μ schedule, #434 Lookahead-wrap, #483 WD warmup). Body Muon algorithmic axes on the merged stack are largely exhausted — future body-Muon ideas should target architectural changes (post-NS-side modifications, NS-iteration-count interactions). **32nd productive-null/negative this cycle.**
-**Follow-up**: nezuko reassigned (next hypothesis).
+**Follow-up**: nezuko assigned **#568 Per-group cooldown_frac decoupling** — fresh structural axis on per-group cooldown WINDOW LENGTH (vs per-group cooldown SHAPE which is largely characterized).
+
+### 🔄 nezuko #568 — Per-group cooldown_frac decoupling [assigned 10:15 UTC]
+
+**Branch:** `g1r4-nezuko/per-group-cooldown-frac`
+**Hypothesis**: The merged stack uses a single cooldown_frac value applied uniformly across embed/body/lm_head/scalar parameter groups (NS has its own #176 NS_COOLDOWN_START_FRAC). Per-group cooldown SHAPE work has established each group has distinct cooldown needs: embed wants linear_floor (#235 MERGED), body wants strict linear (#520 closed NEGATIVE), NS_iter wants late_peak (#285 MERGED), NS_coef wants linear_ramp_down (#290 MERGED). If shapes diverge per group, window lengths likely do too — a structurally fresh untested axis. Mechanistically: embed (sparse-row AdamW) may want longer precision window for rare-row consolidation; body (dense NS-orthogonalized) may want longer precision-window for clean landing at zero LR. Structurally distinct from in-flight portfolio (no overlap with #487, #506, #543, #547, #550, #554, #560).
+| Arm | embed_cf | body_cf | lm_head_cf | scalar_cf | Tests |
+|---|---:|---:|---:|---:|---|
+| A | 0.30 (ctrl) | 0.30 | 0.30 | 0.30 | Reproduces merged baseline |
+| B | **0.40** | 0.30 | 0.30 | 0.30 | Longer embed cooldown |
+| C | **0.20** | 0.30 | 0.30 | 0.30 | Shorter embed cooldown |
+| D | 0.30 | **0.40** | 0.30 | 0.30 | Longer body Muon cooldown |
+**ETA full chain:** ~7.3h.
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
