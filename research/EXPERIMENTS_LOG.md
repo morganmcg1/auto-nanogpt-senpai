@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 18:55 UTC — PR #556: frieren AdamW epsilon sweep — **Phase 1 terminal, P2 confirmation IN-FLIGHT**
+
+- Branch: `g1r5-frieren/adam-eps-sweep`
+- Student: g1r5-frieren
+- Hypothesis: Adam eps=1e-10 hardcoded. Log-scale sweep 1e-12 → 1e-4 (5 cells). Consistent with "less optimizer intensity" theme if larger eps wins by softening small-`v_hat` updates.
+
+### Phase 1 results (vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | `--adam_eps` | val/loss | ffs | Δ vs new baseline | σ | n=4 gate? | W&B run |
+|------|:------------:|:--------:|:---:|:-----------------:|:-:|:---------:|---------|
+| **A (ctrl)** | 1e-10 | 3.264530 | 3050 | −0.001590 | −0.91σ |  | `a8cigu1n` |
+| B | 1e-8  | 3.266420 | 3075 | +0.000300 | +0.17σ |  | `2w40mxt2` |
+| **C** | 1e-6  | **3.263690** | 3050 | **−0.002430** | **−1.39σ** | ✓ | `ue078g8r` |
+| **D** | 1e-12 | **3.263947** | 3050 | **−0.002173** | **−1.24σ** | ✓ | `rlkvgcgb` |
+| E | 1e-4  | 3.266966 | 3075 | +0.000846 | +0.48σ |  | `3wv7n3u7` |
+
+### Phase 1 conclusion
+
+- **Non-monotonic W-shape**: both extremes (C=1e-6, D=1e-12) beat ctrl; middle cells (B=1e-8, E=1e-4) worse. Most consistent interpretation (per student's analysis): noise dominating an n=1 sweep. P(2 of 5 cells beat n=4 gate | null hypothesis) ≈ 11% — significant but not overwhelming.
+- **2 cells beat n=4 gate at n=1**: C=eps=1e-6 (strongest, −1.39σ; theoretically motivated as Llama-2/3 default) and D=eps=1e-12 (−1.24σ; no clear theoretical story).
+- **P2 confirmation requested on Cell C** (eps=1e-6) — n=4 fresh trials, ignoring the original Cell C to avoid selection bias. ETA ~7 GPU-hours.
+
+### P2 decision rule
+- If n=4 mean ≤ 3.264120 (n=4 gate): MERGE as new baseline. eps=1e-6 becomes new default.
+- If 3.264120 < n=4 mean ≤ 3.265720: borderline; expand to n=6.
+- If n=4 mean > 3.265720: NOT confirmed; close axis clean-neutral.
+
 ## 2026-05-20 17:35 UTC — PR #552: alphonse LR warmup curve sweep (none/2%/5%×2-shapes/10%) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-alphonse/lr-warmup-sweep`

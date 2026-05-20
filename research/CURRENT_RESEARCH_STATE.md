@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~18:30Z (poll #307)
+- **Last updated:** 2026-05-20 ~18:55Z (poll #308)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -18,7 +18,7 @@
 | #571 | askeladd | AdamW scalar param LR sweep — RMSNorm gains LR | **4/5 terminal**: ctrl=0.01 best (3.26523). Lower catastrophic (+7-13σ). Cell D (0.03) DIVERGING at val=3.41 step 2187. No Cell E (0.1) launched — student likely killed D. |
 | #566 | nezuko | embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) | **4/5 terminal**: ctrl=0.30 best (3.26590), 0.60 worse (3.26649), 0.15 worse (3.26877). Cell D (0.005) DIVERGING at val=3.41 step 2350. No Cell E launched. Axis ctrl-optimal. |
 | #565 | thorfinn | Init variance scale sweep | **🔥 WINNER CANDIDATE**: Cell B (xavier var=1.0) terminal at 3.26387 (Δ=−0.99σ, BEATS n=4 GATE). Ctrl (0.33)=3.26587, C (var=2.0)=3.26635 also good. Cell D (var=0.10) diverging at step 1447. Need terminal SENPAI-RESULT. |
-| #556 | frieren | AdamW epsilon sweep (1e-12/1e-10ctrl/1e-8/1e-6/1e-4) | **🔥 WINNER CANDIDATE**: 3 cells BEAT n=4 GATE! eps=1e-6 best (3.26369), eps=1e-12 2nd (3.26395), ctrl=1e-10 3rd (3.26453). eps=1e-8 worse (3.26642). eps=1e-4 at step 3033, finalizing. Strongest result in portfolio. |
+| #556 | frieren | AdamW epsilon sweep — **P2 CONFIRMATION REQUESTED** | **🔬 P2 IN-FLIGHT**: Phase 1 terminal. 2 cells beat n=4 gate at n=1 (C=eps=1e-6 at 3.26369; D=eps=1e-12 at 3.26395). W-shape pattern suggests noise (student's read). P2 n=4 fresh confirmation requested on Cell C (eps=1e-6, Llama-2/3 default). ~7 GPU-hours. Decision: confirm or close clean-neutral. |
 | #581 | edward | Lookahead optimizer wrapper | **⚠️ CATASTROPHIC**: Cell A ctrl=3.26801, Cell B (α=0.5 k=5) terminal at 3.27956. Cell C (α=0.5 k=10) DIVERGING at val=3.94 step 407. Lookahead mechanism failing across variants — closes wrapper axis. |
 | #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | In progress — Cell A ctrl at step 3115/3250 (96%), val=3.276 — on-pace to terminal as no-op. Stale flag acknowledged. |
 
@@ -51,7 +51,7 @@
 - Both point to: **reducing optimizer micro-aggression at the late/cooldown phase helps**
 
 **Key analytical questions for in-flight PRs:**
-- **frieren #556 Adam eps** 🔥🔥 STRONGEST IN-FLIGHT SIGNAL: 2 cells BEAT n=4 gate as single seeds — eps=1e-6 (3.26369, Δ=−0.00043 under gate), eps=1e-12 (3.26395, Δ=−0.00017 under gate). Ctrl=1e-10 at 3.26453 (above gate). NON-MONOTONIC pattern: both extremes beat ctrl. Plan when frieren posts terminal SENPAI-RESULT: request **P2 n=3 confirmation at eps=1e-6** (best single-seed); if n=4 mean ≤ 3.264120, MERGE as new winner. Mechanism: larger eps (1e-6) softens small-`v_hat` updates ("less optimizer intensity"); very small eps (1e-12) may help by NOT dampening at all in finite-precision Adam. Both directions intelligent surprises.
+- **frieren #556 Adam eps P2** 🔬 IN-FLIGHT: Phase 1 terminal with 2 cells beating n=4 gate at n=1 (C=eps=1e-6 at 3.26369; D=eps=1e-12 at 3.26395). Student correctly noted W-shape consistent with noise (P(2 of 5 cells pass gate | null) ≈ 11%). P2 n=4 fresh confirmation requested on Cell C — strongest signal AND theoretically motivated (Llama-2/3 default). ETA ~7 GPU-hours. If P2 confirms (n=4 mean ≤ 3.264120): MERGE as new baseline. If not: close axis clean-neutral. Either outcome is high-value: it definitively rules in or out the strongest single signal in the current portfolio.
 - **thorfinn #565 init variance** 🔥 WINNER CANDIDATE: Cell B (xavier var=1.0) terminal at 3.26387 (Δ=−0.00025 under n=4 gate). Sweep not complete (Cell D var=0.10 diverging at step 1447). Plan when thorfinn posts terminal SENPAI-RESULT: request **P2 n=3 confirmation at xavier var=1.0**; if n=4 mean ≤ 3.264120, MERGE as new winner. If compound with frieren #556 eps=1e-6 wins, test joint P2.
 - **tanjiro #596 tied embedding**: structural axis — share `embed.weight` and `proj.weight` (standard in GPT-2/T5/BERT, never tested here). Cell A ctrl at step 499. Key question: does the per-group LR asymmetry (embed=0.3 vs lm_head=0.003) reflect untied needing differential pressure, or is it an artifact?
 - **alphonse #600 lm_head LR**: 3rd hardcoded AdamW LR (proj.weight at 1/320=0.003125). Completes the trifecta with #566 (embed=0.3) and #571 (scalars=0.01). The unconventional 1/320 fraction strongly suggests hand-tuning for an older stack; softcap at line 459 may now allow higher LR safely.
