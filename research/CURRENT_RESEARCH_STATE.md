@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 21:15 UTC
+- **Last update:** 2026-05-20 21:45 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -49,18 +49,18 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#570** | alphonse | PMuon mu {0.90, 0.97} vs baseline 0.95: BOTH arms sr=3075 Δsr=+137.5 — symmetric sharp local optimum. Arm A val=3.275656, Arm B val=3.272967. mu=0.95 confirmed locally optimal; momentum-horizon axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation on aux AdamW — Arm A (α=2) NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). Arm B (α=5) not launched (student skip endorsed: strong Arm A NULL). m-aggregation (slow-EMA blending) axis closes. | **CLOSED 20:30 UTC — 33rd axis.** |
 
-## Active experiments (8 students, 21:15 UTC)
+## Active experiments (8 students, 21:45 UTC)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#609** | **askeladd** | pending pickup | — | — | **NEW — LAMB trust ratio on aux AdamW. Per-tensor step rescaling: trust_ratio = clip(||w||/||r||, 0, max_trust). ORTHOGONAL to closed update-rule mechanisms. Arm A max_trust=10 (paper default), Arm B max_trust=1 (conservative, no amplification).** |
-| **#607** | alphonse | `u6917ygn` Arm A η_min=0.10 | step ~200 | early | LR floor. Active training with GPU 71 GB. Student iterating after early crash. |
-| **#606** | fern | `kq05a45r` Arm A cf=0.25 | step ~450 | ~3.88 | WSD schedule. Active training. |
-| **#604** | tanjiro | `tsi8kfik` Arm A lr×1/3 v2 | step ~225 | ~4.77 | Lion optimizer. 2 earlier divergent runs; clean v2 now training. GPU 71 GB. |
-| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | step ~500 | ~3.80 | Col-mean amplification Arm B running. Arm A NULL confirmed (sr=2975). |
-| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | step ~375 | ~3.91 | Adamax Arm B early. Arm A DNF NULL confirmed. |
-| **#578** | edward | `gz7ktuqr` Arm B uncorrected v_max | step ~2000 | ~3.43 | ETA terminal ~22:00 UTC. Arm A DNF NULL confirmed. |
-| **#559** | nezuko | `do531bbp` Arm B 12→18 | step ~125 | ~4.47 | NS ramp Arm B launched. Arm A NULL sr=2950 confirmed. |
+| **#578** | edward | `gz7ktuqr` Arm B uncorrected v_max | 2375 | 3.365 | **CLOSEST TO COMPLETION (73%)**. ETA terminal ~22:15 UTC. Arm A DNF NULL confirmed. |
+| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | 875 | 3.684 | Col-mean amplification Arm B running. Arm A NULL confirmed (sr=2975). |
+| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | 750 | 3.734 | Adamax Arm B running. Arm A DNF NULL confirmed. |
+| **#606** | fern | `kq05a45r` Arm A cf=0.25 | 750 | 3.717 | WSD schedule. Active training. |
+| **#559** | nezuko | `do531bbp` Arm B 12→18 | 625 | 3.756 | NS ramp Arm B running. Arm A NULL sr=2950 confirmed. |
+| **#604** | tanjiro | `tsi8kfik` Arm A | 500 | 3.845 | Lion optimizer. 2 earlier divergent runs; v2 now training cleanly. |
+| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 375 | 3.888 | LR floor. Pod self-recovered: `u6917ygn` crashed step 200; `euudw4nc` healthy. |
+| **#609** | askeladd | spinning up | — | — | **LAMB trust ratio on aux AdamW. Picked up 20:43 UTC on branch `g1r1-askeladd/lamb-aux-trust-ratio`. Arm A max_trust=10, Arm B max_trust=1.** |
 
 ## Recently closed (this session)
 
