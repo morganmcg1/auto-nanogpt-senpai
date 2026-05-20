@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 03:40 UTC — Cycle 70: alphonse #533 stack-pruning assigned; tanjiro #534 Shampoo-lmhead assigned; #500 WD_SCALARS CLOSED; #515 AdEMAMix CLOSED; SWA n=2 launched; askeladd T3 running**
+- **2026-05-20 03:55 UTC — Cycle 70 late: #523 Cautious AdamW CLOSED (T0 val=3.286 +1.4% regression); edward #538 Lion (Chen 2023) assigned; askeladd T3 ~04:08 UTC terminal (T3 val forecast 3.274 → n=4 strict fail probable); nezuko T2 step 1925 (45%)**
 
 ## Current baseline ⭐ (PR #458 MERGED 2026-05-19 19:35)
 
@@ -21,40 +21,40 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #534 | **tanjiro** | **Shampoo-lmhead right-factor (2 arms n=1)** | Just assigned | TBD |
-| #533 | **alphonse** | **Stack pruning ablation (3 arms n=1)** | Just assigned | ~08:30 UTC |
-| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Disabled-check run 2 starting | TBD |
-| #527 | fern | NAdamW (Dozat 2016, fresh) | Disabled-check done; awaiting arms | TBD |
+| #538 | **edward** | **Lion optimizer (Chen 2023, AdamW-group swap) 2 arms n=1** | Just assigned (after #523 closed) | TBD |
+| #534 | tanjiro | Shampoo-lmhead right-factor (2 arms n=1) | Just assigned | TBD |
+| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Disabled-check step 125 | ~08:30 UTC |
+| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A embed n=1 step 1050 (val=3.65) | ~05:30 UTC |
+| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A n=2 step 1300 (val=3.587) | ~05:30 UTC |
 | #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 screen launched after smoke (val+0.0015) | ~07:00 UTC |
-| #523 | edward | Cautious AdamW n=2 screen | step 1650, val=3.52 | ~06:00 UTC |
-| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | T2 step 1350 (43%); T3 pending | ~06:00 UTC |
-| #493 | **askeladd** | **ADAM_EPS=1e-8 n=4 confirm** | T3 step 1909/3175 (60%) | ~04:10 UTC |
+| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | T2 step 1925/3175 (61%); T3 pending | ~06:00 UTC |
+| #493 | **askeladd** | **ADAM_EPS=1e-8 n=4 confirm** | T3 ~step 2375/3175 (75%); T2 val=3.27114/ffs=3025 | ~04:08 UTC |
 
 ## Top merge candidates (priority order)
 
-1. **ASKELADD #493 ADAM_EPS=1e-8** ⭐ — T3 step 60%, T2 val=3.27114/ffs=3025. n=4 strict pass needs T3 val ≤ 3.271552 AND T3 ffs ≤ 2999 (3000). Terminal ETA ~04:10 UTC.
-2. **NEZUKO #494 MUON_LR=0.04** ⭐ — n=4 T2 step 43%. T2+T3 need ≥1 ffs=3000 AND mean val < 3.271388. Terminal ETA ~06:00 UTC. **Orthogonal to askeladd — both can merge.**
+1. **ASKELADD #493 ADAM_EPS=1e-8** — T3 step 75%, T2 val=3.27114/ffs=3025. T3 trajectory +0.003 vs T2 at step 2000 → T3 val forecast ~3.274 → **n=4 strict fail probable** (val mean ~3.272 vs bar <3.271388). Terminal ~04:08 UTC. **May need close after terminal.**
+2. **NEZUKO #494 MUON_LR=0.04** ⭐ — n=4 T2 step 61%. T2+T3 need ≥1 ffs=3000 AND mean val < 3.271388. Terminal ETA ~06:00 UTC. Orthogonal mechanism (Muon-group, not AdamW-group).
 
-## Mechanism categories (cycle 70)
+## Mechanism categories (cycle 70 late)
 
-- **2 axes on n=4 confirm path** (MUON_LR=0.04, ADAM_EPS=1e-8): both val=PASS at n=2, ffs ties baseline floor. Orthogonal mechanisms — both can merge if n=4 passes.
-- **2 fresh mechanism screens** (Cautious AdamW n=2, Shampoo-lmhead n=1): both AdamW-group modifications, orthogonal to each other and to Muon stack.
-- **2 fresh mechanism pending pickup** (NAdamW fern, per-group eps frieren): await plumbing/disabled-check phase.
-- **Stack pruning ablation** (alphonse): tests CONTRA_MUON, MU_WARMUP, ATTN_SOAP in isolation. First systematic pruning of mandatory stack.
-- **SWA n=2** (thorfinn): slight regression at smoke (val+0.0015), n=2 needed to confirm/falsify.
-- **CLOSED this cycle**: WD_SCALARS (flat optimal), AdEMAMix (horizon incompatible), SCALARS_LR (flat optimal), β1/β2 sweeps.
+- **2 axes on n=4 confirm path** (MUON_LR=0.04, ADAM_EPS=1e-8): nezuko continues; askeladd T3 trajectory unfavorable (forecast n=4 val ~3.272 vs bar).
+- **4 fresh mechanism arms in flight**: Lion (edward #538, NEW), Shampoo-lmhead (tanjiro #534), NAdamW (fern #527 step 1300), per-group eps (frieren #529 step 1050). All AdamW-group OR preconditioner-level mechanisms, mutually orthogonal.
+- **Stack pruning ablation** (alphonse #533): tests CONTRA_MUON, MU_WARMUP, ATTN_SOAP in isolation. First systematic pruning of mandatory stack.
+- **SWA n=2** (thorfinn #524): slight regression at smoke (val+0.0015), n=2 needed to confirm/falsify.
+- **CLOSED this cycle**: Cautious AdamW (mask discards signal), WD_SCALARS (flat optimal), AdEMAMix (horizon incompatible), SCALARS_LR (flat optimal), β1/β2 sweeps.
 
 ## Recent closures (last 12h)
 
 | PR | Student | Verdict |
 |---|---|---|
+| #523 | edward | Cautious AdamW closed — T0 val=3.286 (+1.4% regression); sign-mask discards useful cooldown signal |
+| #500 | alphonse | WD_SCALARS ±0.0009 closed — flat top of regularization ridge |
+| #515 | tanjiro | AdEMAMix closed — mechanism requires run length ≥3× slow-EMA half-life; structural incompatibility |
 | #495 | thorfinn | COOLDOWN_FRAC ±0.05 closed — default 0.7 locally optimal |
 | #498 | edward | TARGET_UW ±0.07 closed — 0.35 on flat top of asymmetric ridge |
 | #456 | fern | SCALARS_LR ±25% closed — default 0.01 locally optimal |
 | #491 | tanjiro | ADAM_BETA2 ±0.05 closed (math kill, β2=0.95 sharp window) |
 | #459 | frieren | Lookahead-AdamW K=5 closed |
-| #485 | tanjiro | COOLDOWN_POWER=0.5 sqrt closed (gate kill) |
-| #464 | tanjiro | COOLDOWN_POWER=2.0 quadratic closed (math kill) |
 
 ## Live experiment categories (per falsification pattern)
 
