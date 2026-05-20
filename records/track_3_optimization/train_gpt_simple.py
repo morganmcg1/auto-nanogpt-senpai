@@ -466,6 +466,12 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Right-factor Shampoo on lm_head (PR #534): maintain R = beta2*R + (1-beta2)*G^T G,
+# precondition gradient by G_prec = G @ R^{-1/4} (Frobenius-renormalized),
+# updated every SHAMPOO_LMHEAD_FREQ steps.
+SHAMPOO_LMHEAD = int(os.environ.get("SHAMPOO_LMHEAD", "0"))
+SHAMPOO_LMHEAD_BETA2 = float(os.environ.get("SHAMPOO_LMHEAD_BETA2", "0.95"))
+SHAMPOO_LMHEAD_FREQ = int(os.environ.get("SHAMPOO_LMHEAD_FREQ", "10"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -864,6 +870,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/shampoo_lmhead": SHAMPOO_LMHEAD,
+            "optimizer/shampoo_lmhead_beta2": SHAMPOO_LMHEAD_BETA2,
+            "optimizer/shampoo_lmhead_freq": SHAMPOO_LMHEAD_FREQ,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -909,6 +918,13 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Right-factor Shampoo (PR #534) per-trial state for model.proj.weight
+    if SHAMPOO_LMHEAD:
+        _shampoo_d = model.proj.weight.shape[1]  # model_dim, e.g. 768
+        shampoo_R = torch.eye(_shampoo_d, device=device, dtype=torch.float32) * 1e-6
+        shampoo_Rinv4 = torch.eye(_shampoo_d, device=device, dtype=torch.float32)
+        shampoo_step = 0
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1049,6 +1065,20 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Right-factor Shampoo preconditioning on lm_head grad (PR #534).
+        # Runs after all_reduce and before optimizer1.step so AdamW sees the
+        # preconditioned gradient. Only model.proj.weight is touched.
+        if SHAMPOO_LMHEAD and model.proj.weight.grad is not None:
+            G = model.proj.weight.grad.detach().float()
+            shampoo_R.mul_(SHAMPOO_LMHEAD_BETA2).add_(G.T @ G, alpha=1.0 - SHAMPOO_LMHEAD_BETA2)
+            shampoo_step += 1
+            if shampoo_step % SHAMPOO_LMHEAD_FREQ == 0:
+                eigvals, eigvecs = torch.linalg.eigh(shampoo_R)
+                scale = eigvals.clamp_min(1e-8).pow(-0.25)
+                shampoo_Rinv4 = eigvecs @ torch.diag(scale) @ eigvecs.T
+            G_prec = G @ shampoo_Rinv4
+            G_prec.mul_(G.norm() / G_prec.norm().clamp_min(1e-8))
+            model.proj.weight.grad.copy_(G_prec.to(model.proj.weight.grad.dtype))
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
