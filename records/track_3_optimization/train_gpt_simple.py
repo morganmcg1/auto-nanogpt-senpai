@@ -202,12 +202,18 @@ def log_training_telemetry(
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
     weight_stats = aggregate_stats([(name, p.data) for name, p in model.named_parameters()])
+    loop_step = max(0, step - 1)
+    if ADAMW_WARMUP_STEPS > 0 and loop_step < ADAMW_WARMUP_STEPS:
+        adamw_warmup_factor = loop_step / ADAMW_WARMUP_STEPS
+    else:
+        adamw_warmup_factor = 1.0
     metrics = {
         "trial": trial_idx,
         "train/step": step,
         "train/loss": train_loss,
         "speedrun/train_steps": train_steps,
         "speedrun/target_val_loss": TARGET_VAL_LOSS,
+        "optimizer/adamw_warmup_factor": adamw_warmup_factor,
         "train/grad/global_norm": grad_stats.get("norm", 0.0),
         "train/grad/rms": grad_stats.get("rms", 0.0),
         "train/grad/max_abs": grad_stats.get("max_abs", 0.0),
@@ -454,6 +460,12 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 # entirely and exactly reproduces the prior cooldown-only schedule.
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
+# Optional AdamW LR warmup (PR #598): linearly ramp the AdamW LR factor from 0 -> 1
+# over the first ADAMW_WARMUP_STEPS optimizer steps before holding at 1 for the
+# rest of the plateau. Multiplied on top of the existing cooldown eta, so the
+# Muon group is unaffected. ADAMW_WARMUP_STEPS=0 disables the warmup branch
+# entirely and exactly reproduces the prior schedule.
+ADAMW_WARMUP_STEPS = int(os.environ.get("ADAMW_WARMUP_STEPS", "0"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
@@ -853,6 +865,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/adamw_warmup_steps": ADAMW_WARMUP_STEPS,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -911,6 +924,7 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay
+    ADAMW_GROUP_NAMES = {"adam_embed", "adam_lm_head", "adam_scalars"}
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -918,6 +932,10 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+        if ADAMW_WARMUP_STEPS > 0 and step < ADAMW_WARMUP_STEPS:
+            adamw_warmup_factor = step / ADAMW_WARMUP_STEPS
+        else:
+            adamw_warmup_factor = 1.0
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
@@ -931,7 +949,11 @@ for trial_idx in range(args.num_trials):
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                base_lr = group["initial_lr"] * eta
+                if group.get("name") in ADAMW_GROUP_NAMES:
+                    group["lr"] = base_lr * adamw_warmup_factor
+                else:
+                    group["lr"] = base_lr
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
 
