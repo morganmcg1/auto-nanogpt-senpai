@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 14:15 UTC
+- **Date:** 2026-05-20 15:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -238,17 +238,22 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=3.27419, B embed=+0.00386 (regression), C lm_head=+0.00038 (null), D all-aux=+0.00447 (regression). D ≈ B + 0.00061 — embed regression dominates; lm_head and scalars contribute marginally. Mechanism reading: Yogi's faster-additive v_t reaction destabilizes sparse-row embed at β₂=0.99 (regression grows monotonically through cooldown); dense lm_head indistinguishable from AdamW. Independent of AdaBelief mechanism (#474): Yogi accumulates g² same as AdamW. **Closes second-moment-update-rule axis** — joined with #474 AdaBelief, #442 Adam-atan2, #490 NAdam-aux. **29th productive-null/negative this cycle.**
 **Follow-up**: edward assigned **#550 Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 WD warmup which tested early reduction).
 
-### 🔄 edward #550 — Muon WD cooldown reduction [assigned 07:00 UTC]
+### 🚨 edward #550 — Muon WD cooldown reduction [N=1 winner candidate, sent back to paired-pod 15:05 UTC]
 
 **Branch:** `g1r4-edward/muon-wd-cooldown-reduction`
-**Hypothesis**: Muon body uses constant WD=0.025; during cooldown LR shrinks linearly toward 0 while WD friction remains constant — WD/LR ratio grows in relative importance. Reducing Muon WD over the cooldown window (0.025 → lower) removes competing magnitude-shrinkage friction at the precision window. Structurally distinct from #483 (CLOSED NEGATIVE) which tested early-phase WD warmup; this tests late-phase WD reduction. Stacks orthogonally with in-flight #487 NS-cooldown pruning and #506 NS-iter warmup (different mechanism: weight-magnitude friction, not orthogonalization budget).
-| Arm | NANOGPT_MUON_WD_COOLDOWN_FINAL | WD at cooldown start | WD at cooldown end |
-|---|---:|---:|---:|
-| A | -1 (disabled, control) | 0.025 | 0.025 |
-| B | 0.010 | 0.025 | 0.010 |
-| C | 0.005 | 0.025 | 0.005 |
-| D | 0.000 | 0.025 | 0.000 |
-**ETA full chain:** ~7.3h.
+**Hypothesis**: Muon body uses constant WD=0.025; during cooldown LR shrinks linearly toward 0 while WD friction remains constant — WD/LR ratio grows in relative importance. Reducing Muon WD over the cooldown window (0.025 → lower) removes competing magnitude-shrinkage friction at the precision window. Structurally distinct from #483 (CLOSED NEGATIVE early-phase WD warmup); this tests late-phase WD reduction.
+
+**N=1 sweep results (drift gate A PASS, |3.27303−3.27174|=0.00129):**
+| Arm | WD_final | val/loss | Δ vs A | Δ vs baseline | first_step_to_target |
+|---|---:|---:|---:|---:|---:|
+| A | n/a (0.025 constant) | 3.27303 | — | +0.00129 (drift PASS) | 3250 |
+| B | 0.010 | 3.27277 | −0.00026 (null) | +0.00103 | 3225 |
+| C | 0.005 | 3.27308 | +0.00005 (null) | +0.00134 | 3225 |
+| **D** | **0.000** | **3.26966** | **−0.00337** ⭐ | **−0.00208** | **3175** |
+
+**Arm D passes all three merge gates at N=1**: within-pod Δ ≤ −0.002 ✓, val ≤ 3.27174 ✓, stat-rule (3.28−3.26966)×√1=0.01034 ≥ 0.004 ✓. Non-linear response: only full WD cancellation (0.000) extracts gain; B/C partial reductions are null. Mechanism reading: WD≥0.005 still mechanistically tied to early-phase magnitude regularization; only WD=0 removes the late-phase friction term entirely, letting shrinking-LR gradient signal steer the final landing without competing magnitude pressure. Structurally orthogonal to #176/#285/#290 cooldown-NS work (friction vs orthogonalization budget axes).
+
+**Sent back for paired-pod n=3 confirmation (15:05 UTC)**: 3 paired A/D pods with controlled `SENPAI_SEED` per pod (same seed within pod). Identical merge gates to #487 paired-pod protocol. 4th-cycle single-seed→paired-pod collapse precedent (#344, #351, #408, #487) requires this confirmation before merge. ETA ~10h30m for 6 runs.
 
 ---
 
@@ -267,7 +272,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 1. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — pod 0 Δ=+0.00175 REVERSED from N=1, productive-NEGATIVE trajectory)
 2. ~~Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12?~~ **#543 CLOSED productive-NULL** — NS=12 saturation robust to spatial reallocation; codebase has limited surface (only 2-of-6 Muon blocks non-square).
 3. ~~Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear?~~ **#547 CLOSED productive-NULL** — lm_head wants monotonic linear; late_peak doesn't cross-axis transfer from NS.
-4. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
+4. Does Muon WD reduction during cooldown extract precision-window gain? (**#550, edward — N=1 Arm D WD=0 Δ=−0.00337 strong winner candidate; sent back for paired-pod n=3 confirmation, identical protocol to #487; non-linear axis response (only WD=0 extracts gain) is structurally novel; either fresh merge candidate or 5th single-seed→paired-pod collapse**)
 5. Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
 6. Does per-group AdamW β₂ asymmetry extract per-group second-moment time-constant gains? (#560, alphonse — fresh axis motivated by #474/#516 embed-sparsity insights)
 7. Does per-group cooldown WINDOW LENGTH asymmetry around 0.70 baseline extract gains? (#568, nezuko — fresh structural axis paralleling SHAPE work)
