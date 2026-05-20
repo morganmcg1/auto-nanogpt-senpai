@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 17:35 UTC — PR #552: alphonse LR warmup curve sweep (none/2%/5%×2-shapes/10%) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-alphonse/lr-warmup-sweep`
+- Student: g1r5-alphonse
+- Hypothesis: LR warmup may smooth early training dynamics and improve convergence on this benchmark. First ever warmup PR in this run. 5 cells: no warmup ctrl, 2%/5% linear, 5% cosine, 10% linear.
+
+### Results (vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | warmup_frac | shape | val/loss | Δ vs ctrl | Δ vs new baseline | ffs | W&B run |
+|------|:-----------:|:-----:|:--------:|:---------:|:-----------------:|----:|---------|
+| **A (ctrl)** | 0.0 | linear | **3.26861** | — | +1.4σ | 3125 | `ngwjo4bo` |
+| E | 0.02 | linear | 3.27534 | +0.00673 | +5.3σ | 3175 | `0jwb2kyc` |
+| D | 0.05 | cosine | 3.27591 | +0.00730 | +5.6σ | 3175 | `7enpr8we` |
+| B | 0.05 | linear | 3.27714 | +0.00853 | +6.3σ | 3200 | `1xl9ynf1` |
+| C | 0.10 | linear | 3.29216 | +0.02355 | +14.9σ | -1 (missed target) | `otqw0zim` |
+
+### Conclusion
+
+- **Clean monotonic worsening with warmup fraction**: 0.00 → 0.02 → 0.05 → 0.10 val/loss all increase. Even the briefest warmup (2% ≈ 65 steps) costs +0.0067 val/loss and slips ffs by 50 steps.
+- **Cosine shape slightly better than linear at same fraction** (D=3.27591 vs B=3.27714, Δ=−0.00123) — slow-start ramp wastes slightly less budget — but overwhelmed by the fundamental warmup cost.
+- **Mechanism (student analysis confirmed)**: (1) Muon NS orthogonalization caps update magnitude structurally, so warmup provides no safety benefit. (2) SOAP's preconditioner warms naturally; LR warmup buys nothing. (3) At 3250-step horizon every high-LR step is load-bearing — the cooldown cannot recover lost early budget. (4) Cell C (10% warmup) never reached val ≤ 3.28 target.
+- **LR warmup axis closed**: no warmup is optimal for this 3250-step benchmark. Conclusion is scale-specific — would likely invert at 10k+ steps.
+
+Alphonse reassigned to PR #600: LM-head LR sweep (proj.weight lr=1/320 hardcoded, never ablated; 3rd and final hardcoded AdamW group LR; natural complement to #566 embed_lr and #571 scalars_lr).
+
 ## 2026-05-20 16:50 UTC — PR #558: tanjiro Z-loss regularizer sweep (0/1e-5/1e-4/1e-3/1e-2) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-tanjiro/z-loss-sweep`
