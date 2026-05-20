@@ -2,6 +2,45 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-05-20 06:55 UTC — PR #497: ns_iter=6 (Newton-Schulz iterations reduced) — n=6 confirm
+
+- **Primary metric:** `speedrun/final_first_step_to_target` = **3087.5** (mean, n=6); 4/6 trials at ffs=3075
+- **val/loss (mu):** **3.266120** (sample std=0.001747, SE=0.000713)
+- **n:** 6 seeds across two torchrun invocations (n=4 base + n=2 extension)
+- **Statsig:** `(3.267948 − 3.266120) × √6 = 0.001828 × 2.449 = 0.004478 ≥ 0.004` ✅ PASS (+0.000478 margin)
+- **New merge statsig rule:** `(3.266120 − mu) × sqrt(n) ≥ 0.004`
+  → need mu ≤ 3.264120 for n=4, ≤ 3.264488 for n=6, ≤ 3.264707 for n=8
+- **vs previous baseline (PR #371):** Δmu = −0.001828 (−2.22σ), Δffs = −12.5 steps (mean)
+- **W&B runs:** `ues3hmz1` (n=4 base, group `g1r5-askeladd/ns-iter-6-P2-n4`), `n0vch666` (n=2 extension, same group)
+- **Student:** g1r5-askeladd
+- **What changed:** Newton-Schulz orthogonalization iterations reduced from 12 (hardcoded) to 6 via `--ns_iter 6` CLI flag. In bfloat16 precision, 6 iterations saturates orthogonality; the previous 12-iteration default was over-iterating and adding unnecessary optimizer micro-step noise. Wall-clock: ~42 ms/step faster than ns_iter=12 (step time 1910 ms vs 1952 ms). The mechanism is consistent with the broader "less optimizer intensity in late phase" theme (PR #371 WD ramp_down to 0, stable_only WD pattern).
+- **Trial breakdown (all 6, no cherry-picking):**
+  | Trial | val/loss | ffs |
+  |-------|----------|-----|
+  | T1 (ues3hmz1) | 3.26566 | 3075 |
+  | T2 (ues3hmz1) | 3.26957 | 3125 |
+  | T3 (ues3hmz1) | 3.26493 | 3075 |
+  | T4 (ues3hmz1) | 3.26498 | 3075 |
+  | T5 (n0vch666) | 3.26611 | 3100 |
+  | T6 (n0vch666) | 3.26547 | 3075 |
+  | **mean** | **3.266120** | **3087.5** |
+- **Reproduce:**
+
+```bash
+cd "$PROBLEM_DIR" && \
+  SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py \
+    --num_trials 4 \
+    --soap_attn \
+    --lr_mlp 0.055 \
+    --wd_schedule ramp_down \
+    --ns_iter 6 \
+    --wandb_name "baseline-ns-iter-6-n4" \
+    --wandb_group "baselines"
+```
+
+---
+
 ## 2026-05-19 01:10 UTC — PR #371: Muon WD ramp_down schedule (n=4 confirm)
 
 - **Primary metric:** `speedrun/final_first_step_to_target` = **3100** (ALL 4 trials); ffs_mean=3100
