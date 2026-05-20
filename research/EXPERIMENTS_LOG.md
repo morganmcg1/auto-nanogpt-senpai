@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 08:30 UTC — PR #509: frieren lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-frieren/lr-mlp-finescan`
+- Student: g1r5-frieren
+- Hypothesis: SOAP-MLP carries the optimizer lift → `lr_mlp=0.055` may be pessimized → higher lr_mlp wins. Sweeps lr_mlp ∈ {0.050, 0.055, 0.060, 0.065, 0.075}.
+
+### Results
+
+| Cell | lr_mlp | val_loss | Δσ vs OLD baseline (3.267948, σ=0.000823) | Δσ vs NEW baseline (3.266120) | ffs | W&B run |
+|------|:------:|---------:|------------------------------------------:|------------------------------:|----:|---------|
+| A (ctrl) | 0.055 | 3.267302 | −0.79σ | +0.67σ | 3100 | `5ei3brza` |
+| B | 0.050 | **3.267014** | **−1.13σ** | **+0.51σ** | **3075** | `nmw42swj` |
+| C | 0.060 | 3.267256 | −0.84σ | +0.77σ | 3100 | `gvvj59zd` |
+| D | 0.065 | 3.268800 | +1.03σ | +1.53σ | 3100 | `8yxniibg` |
+| E | 0.075 | 3.269880 | +2.35σ | +2.15σ | 3125 | `ds2mctl6` |
+
+### Conclusion
+
+- **Hypothesis REJECTED.** Monotonic degradation from 0.055 upward (C/D/E); the "higher lr_mlp wins" prediction is reversed. SOAP's preconditioner already extracts the available LR headroom at 0.055.
+- **Cell B (0.050) best single-seed** at −1.13σ vs OLD baseline — only cell crossing the n=1 interest gate (−1.0σ). However, vs the NEW baseline (3.266120): +0.51σ above — not a winner. N=4 gate requires mu ≤ 3.264120; single-seed 3.267014 is ~2.9σ above gate. P2 not warranted.
+- **lr_mlp axis closed upward.** Degradation onset at 0.065 (+1.03σ); clear at 0.075 (+2.35σ). The shape is left-skewed: optimum may be near or below 0.050 but single-seed signal is not actionable under new baseline.
+- **Operational note:** Student dealt with multiple pod re-invocation duplicate launches across all 5 cells. Implemented pgrep guard + file-lock + active-process polling chain runner to solve the problem.
+
+Frieren reassigned to fresh axis: PR #556 Adam epsilon sweep (eps=1e-10 hardcoded; new axis).
+
 ## 2026-05-20 07:30 UTC — PR #508: alphonse Muon mu static sweep — **CLOSED clean-neutral**
 
 - Branch: `g1r5-alphonse/muon-mu-static-sweep`
