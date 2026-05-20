@@ -37,6 +37,13 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Gradient centralization on body-Muon (pre-NS) — PR #553.
+# When enabled, subtract per-row (GC_DIM=1) or per-column (GC_DIM=0) mean from each
+# 2D body-Muon gradient before it enters the PMuon whitening + Newton-Schulz pipeline.
+# Yong et al 2020 (https://arxiv.org/abs/2004.01461) — canonical GC uses dim=1 for FC layers.
+GC_ENABLE = True
+GC_DIM = 0
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -539,6 +546,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        gc_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -550,8 +558,19 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    # Gradient centralization (PR #553): subtract per-channel mean from 2D weights
+                    # before they enter the PMuon whitening + Newton-Schulz pipeline.
+                    g = p.grad
+                    if GC_ENABLE and g.dim() == 2:
+                        if "grad_norm_pre" not in gc_diag:
+                            gc_diag["grad_norm_pre"] = float(g.float().norm().item())
+                            gc_diag["sample_rows"] = g.size(0)
+                            gc_diag["sample_cols"] = g.size(1)
+                        g = g - g.mean(dim=GC_DIM, keepdim=True)
+                        if "grad_norm_post" not in gc_diag:
+                            gc_diag["grad_norm_post"] = float(g.float().norm().item())
                     update = pmuon_update(
-                        p.grad,
+                        g,
                         state["momentum"],
                         state["L"],
                         state["R"],
@@ -575,6 +594,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._gc_diag = gc_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,8 +724,12 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "gc_enable": GC_ENABLE,
+            "gc_dim": GC_DIM,
         },
     )
+    wandb.summary["body/gc/active"] = 1.0 if GC_ENABLE else 0.0
+    wandb.summary["body/gc/dim"] = GC_DIM
 
 for trial_idx in range(args.num_trials):
 
@@ -911,6 +935,21 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            gc_diag = getattr(optimizer2, "_gc_diag", None)
+            if gc_diag and "grad_norm_pre" in gc_diag:
+                pre = gc_diag["grad_norm_pre"]
+                post = gc_diag.get("grad_norm_post", pre)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "body/gc/active": 1.0 if GC_ENABLE else 0.0,
+                    "body/gc/dim": GC_DIM,
+                    "body/gc/grad_norm_pre": pre,
+                    "body/gc/grad_norm_post": post,
+                    "body/gc/grad_norm_ratio": (post / pre) if pre > 0 else 1.0,
+                    "body/gc/sample_rows": gc_diag.get("sample_rows", 0),
+                    "body/gc/sample_cols": gc_diag.get("sample_cols", 0),
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
