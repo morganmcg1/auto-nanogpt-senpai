@@ -16,7 +16,6 @@ from pathlib import Path
 
 import torch
 from torch import Tensor, nn
-from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
@@ -52,6 +51,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--aux_ademamix_alpha", type=float, default=5.0,
+                        help="AdEMAMix slow-EMA mixing coefficient (alpha) for aux group.")
+    parser.add_argument("--aux_ademamix_beta1_slow", type=float, default=0.9999,
+                        help="AdEMAMix slow-EMA decay rate (beta1_slow / beta3) for aux group.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -521,6 +524,71 @@ def pmuon_update(
     return update
 
 
+class AdEMAMixAdamW(torch.optim.Optimizer):
+    # AdEMAMix (Pagliardini et al., ICLR 2024, arXiv:2409.03137) — AdamW with two
+    # first-moment EMAs: a fast EMA at beta1_fast (bias-corrected, identical to AdamW)
+    # plus a slow EMA at beta1_slow (NOT bias-corrected per paper Section 3) blended via
+    # `m_used = m_fast_hat + alpha * m_slow`. v-EMA matches AdamW. Weight decay is
+    # decoupled (AdamW-style) per PR #585; aux group runs at wd=0 so the choice is moot.
+    # m_slow MUST be FP32 because BF16 rounds 0.9999 to 1.0 (would freeze m_slow at 0).
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), beta1_slow=0.9999,
+                 alpha=5.0, eps=1e-8, weight_decay=0):
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError(f"beta1_fast must be in [0, 1): {betas[0]}")
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError(f"beta2 must be in [0, 1): {betas[1]}")
+        if not 0.0 <= beta1_slow < 1.0:
+            raise ValueError(f"beta1_slow must be in [0, 1): {beta1_slow}")
+        defaults = dict(lr=lr, betas=betas, beta1_slow=beta1_slow, alpha=alpha,
+                        eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1_fast, beta2 = group["betas"]
+            beta1_slow = group["beta1_slow"]
+            alpha = group["alpha"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m_fast"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["m_slow"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m_fast = state["m_fast"]
+                m_slow = state["m_slow"]
+                v = state["v"]
+                grad_f = grad if grad.dtype == torch.float32 else grad.float()
+                m_fast.mul_(beta1_fast).add_(grad_f, alpha=1.0 - beta1_fast)
+                m_slow.mul_(beta1_slow).add_(grad_f, alpha=1.0 - beta1_slow)
+                v.mul_(beta2).addcmul_(grad_f, grad_f, value=1.0 - beta2)
+                bc1_fast = 1.0 - beta1_fast ** t
+                bc2 = 1.0 - beta2 ** t
+                # m_fast IS bias-corrected, m_slow is NOT (paper Section 3).
+                m_used = m_fast.div(bc1_fast).add_(m_slow, alpha=alpha)
+                denom = v.div(bc2).sqrt_().add_(eps)
+                if weight_decay != 0:
+                    p.data.mul_(1.0 - lr * weight_decay)
+                if p.dtype == torch.float32:
+                    p.data.addcdiv_(m_used, denom, value=-lr)
+                else:
+                    p.data.add_((m_used / denom).to(p.dtype), alpha=-lr)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -704,6 +772,13 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # AdEMAMix (PR #585) aux optimizer hyperparameters.
+            "aux_optimizer": "AdEMAMixAdamW",
+            "aux_betas_fast": (0.8, 0.95),
+            "aux_eps": 1e-10,
+            "aux_weight_decay": 0.0,
+            "aux_ademamix_alpha": args.aux_ademamix_alpha,
+            "aux_ademamix_beta1_slow": args.aux_ademamix_beta1_slow,
         },
     )
 
@@ -735,10 +810,14 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # AdEMAMix (PR #585) replaces aux AdamW. beta1_fast=0.8, beta2=0.95, eps=1e-10, wd=0 unchanged.
+    optimizer1 = AdEMAMixAdamW(
+        [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+        betas=(0.8, 0.95), beta1_slow=args.aux_ademamix_beta1_slow,
+        alpha=args.aux_ademamix_alpha, eps=1e-10, weight_decay=0,
+    )
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
