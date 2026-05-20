@@ -71,7 +71,22 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Per-group eps overrides. If None, fall back to --aux_adamw_eps. Lets us
+    # decompose which of {embed, lm_head, scalars} carries the eps=1e-6 win.
+    parser.add_argument("--aux_embed_eps", type=float, default=None,
+                        help="Per-group eps for embed AdamW. Falls back to --aux_adamw_eps if not set.")
+    parser.add_argument("--aux_lm_head_eps", type=float, default=None,
+                        help="Per-group eps for lm_head AdamW. Falls back to --aux_adamw_eps if not set.")
+    parser.add_argument("--aux_scalars_eps", type=float, default=None,
+                        help="Per-group eps for scalars AdamW. Falls back to --aux_adamw_eps if not set.")
     args = parser.parse_args()
+    # Resolve per-group eps fallbacks now so downstream code reads concrete floats.
+    if args.aux_embed_eps is None:
+        args.aux_embed_eps = args.aux_adamw_eps
+    if args.aux_lm_head_eps is None:
+        args.aux_lm_head_eps = args.aux_adamw_eps
+    if args.aux_scalars_eps is None:
+        args.aux_scalars_eps = args.aux_adamw_eps
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
@@ -766,6 +781,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_embed_eps": args.aux_embed_eps,
+            "aux_lm_head_eps": args.aux_lm_head_eps,
+            "aux_scalars_eps": args.aux_scalars_eps,
         },
     )
 
@@ -812,9 +830,9 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", eps=args.aux_embed_eps),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", eps=args.aux_lm_head_eps),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars", eps=args.aux_scalars_eps)],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
