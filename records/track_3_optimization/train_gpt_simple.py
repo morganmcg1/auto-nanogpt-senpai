@@ -71,6 +71,11 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_v_reset_frac", type=float, default=float(os.environ.get("AUX_V_RESET_FRAC", "1.0")),
+                        help="Fraction to multiply aux AdamW exp_avg_sq (v_t) by at cooldown onset step "
+                             "(1.0 = no reset / baseline; 0.0 = full reset). Also resets the per-param "
+                             "Adam step counter so bias correction restarts. Applies only to optimizer1 "
+                             "(aux AdamW: embed, lm_head, scalars).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +718,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_v_reset_frac < 1.0:
+    print0(f"AUX v_t partial reset ENABLED at cooldown onset: reset_frac={args.aux_v_reset_frac}", console=True)
+else:
+    print0("AUX v_t partial reset DISABLED (reset_frac=1.0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +775,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_v_reset_frac": args.aux_v_reset_frac,
         },
     )
 
@@ -844,6 +854,10 @@ for trial_idx in range(args.num_trials):
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
+    # First step in the aux cooldown phase (linear cooldown begins here).
+    # progress = step/train_steps; aux cooldown branch fires when progress >= 1 - aux_cooldown_frac.
+    aux_cooldown_start_step = int((1.0 - aux_cooldown_frac) * train_steps)
+    aux_v_reset_done = False  # one-shot guard for this trial
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
@@ -1018,6 +1032,45 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # Aux AdamW v_t partial reset at cooldown onset. Multiplies exp_avg_sq by
+        # reset_frac and zeros the per-param step counter so bias correction
+        # restarts. Fires once per trial, BEFORE the optimizer step. No-op
+        # (bit-identical) when reset_frac >= 1.0.
+        if (
+            args.aux_v_reset_frac < 1.0
+            and not aux_v_reset_done
+            and step == aux_cooldown_start_step
+        ):
+            n_params_reset = 0
+            with torch.no_grad():
+                for group in optimizer1.param_groups:
+                    for p in group["params"]:
+                        if p not in optimizer1.state:
+                            continue
+                        st = optimizer1.state[p]
+                        if "exp_avg_sq" not in st:
+                            continue
+                        st["exp_avg_sq"].mul_(args.aux_v_reset_frac)
+                        step_val = st.get("step")
+                        if isinstance(step_val, torch.Tensor):
+                            step_val.zero_()
+                        elif step_val is not None:
+                            st["step"] = 0
+                        n_params_reset += 1
+            aux_v_reset_done = True
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/aux_v_reset/fired": 1,
+                    "train/aux_v_reset/reset_frac": args.aux_v_reset_frac,
+                    "train/aux_v_reset/n_params_reset": n_params_reset,
+                }, step=wandb_step)
+            print0(
+                f"[aux_v_reset] step={step} reset_frac={args.aux_v_reset_frac} "
+                f"n_params_reset={n_params_reset}",
+                console=True,
+            )
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
