@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--aux_beta1", type=float, default=float(os.environ.get("NANOGPT_AUX_BETA1", "0.8")),
+                        help="β1 for the aux NadamW optimizer (PR #575: 0.8=Arm A, 0.85=Arm B)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -521,6 +523,52 @@ def pmuon_update(
     return update
 
 
+class NadamW(torch.optim.Optimizer):
+    """Nesterov-accelerated AdamW (Dozat 2016, decoupled-weight-decay variant).
+
+    Per-step update with constant β1, β2:
+        m_t   = β1·m_{t-1} + (1-β1)·g_t
+        v_t   = β2·v_{t-1} + (1-β2)·g_t²
+        m̂_t   = m_t / (1 - β1^t)
+        v̂_t   = v_t / (1 - β2^t)
+        m_nes = β1·m̂_t + (1-β1)·g_t / (1 - β1^t)
+        p     ← (1 - lr·wd) · p  −  lr · m_nes / (√v̂_t + ε)
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                state["step"] += 1
+                step = state["step"]
+                m, v = state["m"], state["v"]
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bc1 = 1.0 - beta1 ** step
+                bc2 = 1.0 - beta2 ** step
+                # Nesterov lookahead: blend the bias-corrected EMA with the bias-corrected current gradient
+                m_nesterov = m.mul(beta1 / bc1).add_(grad, alpha=(1 - beta1) / bc1)
+                denom = v.div(bc2).sqrt_().add_(eps)
+                if weight_decay != 0:
+                    p.mul_(1 - lr * weight_decay)
+                p.addcdiv_(m_nesterov, denom, value=-lr)
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -689,6 +737,15 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            # Aux NadamW (Nesterov-accelerated AdamW, PR #575) hyperparameters.
+            "aux_optimizer": "NadamW",
+            "aux_beta1": args.aux_beta1,
+            "aux_beta2": 0.95,
+            "aux_eps": 1e-10,
+            "aux_weight_decay": 0,
+            "aux_embed_lr": 0.3,
+            "aux_lm_head_lr": 1/160,
+            "aux_scalar_lr": 0.025,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
@@ -735,10 +792,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # PR #575: NadamW (Nesterov-accelerated AdamW, Dozat 2016) on the aux path.
+    # β1 is configurable via --aux_beta1 (Arm A: 0.8, Arm B: 0.85).
+    optimizer1 = NadamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                        betas=(args.aux_beta1, 0.95), eps=1e-10, weight_decay=0)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
