@@ -3,6 +3,43 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 14:15 UTC — PR #547: lm_head cooldown SHAPE sweep (fern) — CLOSED productive-NULL
+
+- Branch: `g1r4-fern/lm-head-cooldown-shape`
+- Hypothesis: lm_head cooldown SHAPE has been linear-default the entire cycle; #454 tested only linear_floor on lm_head. Per-group SHAPE design ethos predicts different groups want different shapes (embed=linear_floor #235, NS_iter=late_peak #285, NS_coef=linear_ramp_down #290). Test cosine, late_peak, linear_floor variants for lm_head specifically.
+- Code: `NANOGPT_LM_HEAD_COOLDOWN_SHAPE` env var dispatching to existing shape helpers.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27273−3.27174|=0.00099):**
+
+| Arm | shape | val/loss | Δ vs A | first_step | Band |
+|---|---|---:|---:|---:|---|
+| A | linear (ctrl) | 3.27273 | — | 3250 | drift PASS |
+| B | cosine | 3.27285 | +0.00012 | 3225 | productive-null |
+| C | late_peak | 3.27452 | **+0.00179** | 3275 | **regression** |
+| D | linear_floor | 3.27297 | +0.00024 | 3250 | productive-null |
+
+**Analysis:**
+
+- **No arm meets Δ ≤ −0.002 candidate threshold.** No paired-pod confirmation warranted. All three alternative shapes are null or worse than the linear default.
+- **lm_head cooldown SHAPE is not cross-axis transferable from NS.** Arm C (late_peak) was the cross-axis transfer hypothesis: if late_peak benefits NS_iter (#285 MERGED), maybe it transfers to lm_head LR. Result: lm_head's biggest regression (+0.00179). Mechanism reading: NS late_peak benefits from sustained orthogonalization-iter quality through mid-cooldown; lm_head LR is a dense AdamW group with no analogous quality plateau — it wants monotonic decay.
+- **#454 Arm B (lm_head linear_floor) reproduces**: Δ=+0.00024 vs prior Δ≈−0.00098 — same productive-null verdict, deltas differ by ~0.0012 within single-seed pod variance. No setup drift.
+- **Per-group cooldown SHAPE design space substantially characterized:**
+
+| Group | Optimal SHAPE | Source |
+|---|---|---|
+| Embed (AdamW, sparse-row) | linear_floor | #235 MERGED |
+| Body Muon (NS-orth, dense) | linear | #520 NEGATIVE on alternatives |
+| NS_iter (Muon precision) | late_peak | #285 MERGED |
+| NS_coef (polynomial schedule) | linear_ramp_down | #290 MERGED |
+| **lm_head (AdamW dense)** | **linear** | **#547 NEGATIVE on alternatives** |
+| scalar (LayerNorm γ/β) | untested | gap |
+
+- **35th productive-null/negative this cycle.**
+
+**Compute summary**: 4 runs × ~1h47m each ≈ ~7.1h total wall time on RTX PRO 6000 Blackwell.
+
+**Follow-up**: fern assigned **lm_head AdamW LR ratio sweep** — denser sweep around 1.0× on the post-#393 stack (#393 tested 1.5× and rejected lm_head=1.5×, but <1.0× and intermediate >1.0× untested). Mechanistic motivation: joint vocab update budget — embed at 1.5× may predict lm_head < 1.0×, specifically 1/1.5 ≈ 0.67 as theoretical balance point.
+
 ## 2026-05-20 13:35 UTC — PR #543: Per-block NS iter budget (askeladd) — CLOSED productive-NULL
 
 - Branch: `g1r4-askeladd/per-block-ns-iters`
