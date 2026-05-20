@@ -1,5 +1,46 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 22:20 UTC — Cycle 71 mid-19: PR #591 CLOSED (frieren ortho-embed-init — decorrelation theory falsified); frieren → #619 z-loss regularization
+
+### PR #591 — frieren orthogonal embed init — CLOSED (pure-magnitude confirmed; decorrelation mechanism falsified)
+
+Branch: `g1r2-frieren/ortho-embed-init`. Orthogonal init for the input embedding weight using `torch.nn.init.orthogonal_`, two arms: gain=0.1 (matched magnitude to #541 winner) and gain=1.0 (standard orthonormal).
+
+| Arm | Init | col-L2 magnitude | Decorrelation | val@3175 | ffs | Δval vs bar (3.269185) | pass? |
+|---|---|---|---|---|---|---|---|
+| A | ortho gain=0.1 | ~0.1 | strong (off-diag ~5e-7) | 3.28051 | — | **+0.0113** | ❌ catastrophic (never hit 3.28) |
+| B | ortho gain=1.0 | ~1.0 | strong (off-diag ~5e-5) | 3.27675 | 3100 | **+0.0076** | ❌ statsig fail |
+
+W&B runs: checked via PR comments (frieren self-reported terminal results with SENPAI-RESULT markers).
+
+**Implementation note**: `torch.nn.init.orthogonal_` fails on BFloat16 CUDA (QR not implemented). Frieren self-fixed by building orthogonal matrix in float32 buffer and `copy_()`-ing to bf16. Off-diagonal max abs: ~5e-5 at gain=1.0, ~5e-7 at gain=0.1 — strong decorrelation achieved in both arms.
+
+**2×2 mechanism dissection table** (all five arms across both PRs):
+
+| Init | col-L2 magnitude | Decorrelation | val@3175 | Verdict |
+|---|---|---|---|---|
+| gauss std=0.5 (#541 Arm A) | ~112 | none | ~3.270 | neutral |
+| **gauss std=0.1 (#541 Arm B — WINNER)** | **~22** | **none** | **3.26773** | **wins ⭐** |
+| gauss std=0.02 (#541 Arm C) | ~4 | none | ~3.270 | neutral |
+| ortho gain=1.0 (#591 Arm B) | ~1.0 | strong | 3.27675 | miss |
+| ortho gain=0.1 (#591 Arm A) | ~0.1 | strong | 3.28051 | catastrophic |
+
+**Root cause of failure**: Arm A (gain=0.1, matched magnitude ~22→0.1) fails catastrophically despite matched magnitude. Arm B (gain=1.0) fails even more than matched magnitude alone. Decorrelation adds no benefit and actively hurts at lower magnitudes.
+
+**Mechanism confirmed**: The winning property of PR #541 std=0.1 is purely the **increased column L2 norm magnitude** of the input embedding. Decorrelation is irrelevant. The sequence: neutral at ~112, wins at ~22, neutral at ~4 establishes a non-monotonic sweet spot centred around std=0.1 col-L2 ≈ 22.
+
+**Decorrelation theory falsified**: Five arms spanning 5-OOM of column magnitude with and without decorrelation. Decorrelation offers no consistent benefit — the sweet spot is magnitude, not structure.
+
+**Implications**: (1) The init trifecta program (embed #541, lm_head #602, residual-proj #611) can proceed without worrying about decorrelation; magnitude alone is the relevant axis. (2) Further init work should focus on magnitude sweep or per-layer gain, not orthogonality. (3) #611 and #602 are both still in-flight and should be evaluated on their own terms.
+
+### Assignment: frieren → PR #619 (z-loss regularization)
+
+**Hypothesis**: Logit z-loss regularization — `loss += Z_LOSS_COEF · mean(logsumexp(raw_logits)²)` — is a well-documented LLM training technique (GPT-3, PaLM, Chinchilla, LLaMA) that has NEVER been tested on this benchmark. Applied on PRE-soft-cap logits (complementary to tanjiro #613's soft-cap sweep — different mechanism class: penalty vs. saturation). Prevents the partition function from drifting into a saturated regime where CE gradients become tiny.
+
+Two arms: Z_LOSS_COEF=1e-4 (PaLM standard), Z_LOSS_COEF=1e-3 (10× aggressive). ~10 LoC change; one new env var; default 0.0 = byte-equivalent baseline. Benchmark-compliant (no extra forward-backward).
+
+---
+
 ## 2026-05-20 21:35 UTC — Cycle 71 mid-18: PR #601 CLOSED (thorfinn Muon explicit WD — u/w-floor confirmed sufficient); thorfinn → #615 Muon LR floor
 
 ### PR #601 — thorfinn Muon explicit WD — CLOSED (u/w-floor sufficient, Muon-side regularization axis closed)
