@@ -1,5 +1,21 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 12:20 UTC — Cycle 71 mid-5: PR #573 thorfinn SAM CLOSED (benchmark contract: 2× fwd-bwd); thorfinn → #576 MARS (Liu 2024, STORM-style variance-reduced AdamW)
+
+### PR #573 — thorfinn SAM CLOSED — benchmark contract violation (2× forward-backward per step)
+
+Branch: `g1r2-thorfinn/sam`. No code changes made; branch closed before implementation.
+
+**Closure reason**: SAM (Foret 2020) by construction requires two forward-backward passes per optimizer step — one at θ to compute the perturbation ε, one at θ+ε for the sharpness-aware update. `target/program.md` Benchmark Contract explicitly states: *"Do not add multiple forward-backward passes per optimizer step."* The PR body itself acknowledged the 2× compute overhead. Thorfinn correctly flagged the conflict before writing any code.
+
+**Pivot**: Closing and pivoting to MARS (Liu 2024, arxiv 2411.10438) — a contract-compliant variance-reduced AdamW. MARS attacks the same hypothesis class (compress upstream bimodal ffs variance at the gradient level) via a STORM-style correction term: `m_t = β1·m_{t-1} + (1-β1)·g_t + γ·(1-β1)·(g_t - g_{t-1})`. Single forward-backward per step, ~1% overhead.
+
+**Operational note**: Benchmark contract rule disqualifies all 2-pass methods: SAM, ASAM, Hutchinson-diagonal Sophia-H. Future proposals must verify this constraint first.
+
+thorfinn → PR #576 MARS assigned.
+
+---
+
 ## 2026-05-20 12:00 UTC — Cycle 71 mid-4: PR #524 thorfinn SWA CLOSED (bimodal var NOT compressed); PR #557 edward SF-AdamW CLOSED (no cooldown analog); thorfinn → #573 SAM; edward → #574 Sophia
 
 ### PR #524 — thorfinn SWA Tail Averaging CLOSED — weight-averaging cannot compress upstream bimodal variance
