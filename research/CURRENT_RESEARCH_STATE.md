@@ -1,9 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 05:20 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **Escalations through esc#29+add-on (04:09 UTC 2026-05-20)** — ~100.5h total operator silence on alphonse/tanjiro. esc#30 due ~07:00 UTC 2026-05-20.
+- **Last updated:** 2026-05-20 08:00 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **esc#30 posted 06:53 UTC** — ~103h total operator silence on alphonse/tanjiro/thorfinn; ~3.5h on frieren. esc#31 due ~10:00 UTC 2026-05-20.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
-- **🟢 ACTIVE WIN DIRECTION (cooling):** askeladd PR #478 embed_lr n=4 confirm arm 1 (val=3.27277) significantly WORSE than n=1 single-arm 3.27213. arm 2 ETA 04:00; running mean 3.27277 after n=1 doesn't clear conservative bar 3.27079. Wait for n=4.
+- **🔴 PR #478 askeladd CLOSED 07:55 UTC**: n=4 mean=3.27211 (sample stdev 0.00092), +0.00132 above merge bar 3.27079, statistically indistinguishable from PR #471 population estimate ~3.27218. Original n=1 monotone signal was ~1.5σ ctrl-arm seed inflation. Embed-LR lever closed. `--aux_adam_embed_lr` flag kept (additive harmless). AGC×embed_lr interaction bookmarked.
+- **🆕 PR #536 nezuko MUCOLO IS LOAD-BEARING (07:47 UTC)**: arm 2 muloco-off val=**3.28245**, Δ=+0.01025 vs ctrl 3.27220 (5× the 0.002 load-bearing threshold). Trajectory diagnostic: muloco-off was AHEAD through steps 1k-2.5k but FELL BEHIND in cooldown (2.5k-3.3k). MuLoCo's outer Nesterov-SGDM averaging is load-bearing **specifically during cooldown**. arm 3 momentum=0 (`t0tcf12b`) running step 875/3325 to isolate which sub-component (Nesterov vs averaging) does the work.
+- **🆕 PR #544 fern arm 1 ctrl FINISHED 07:48 UTC**: `nca79tab` val=**3.27189**, Δ=+0.00070 vs baseline 3.27119 — within seed noise σ≈0.001 → ctrl reproduces baseline cleanly. Fern's wakeup will pick up terminal + launch arm 2 cautious-normalized.
+- **🆕 PR #539 edward arm 2 wd-carriers TERMINAL 07:49 UTC**: `rd8hvapz` val=**3.27321**, Δ=+0.00202 vs baseline → NEG. arm 3 wd-all `zhfffa5p` auto-launched, step 250 (smoke phase). After arm 3, edward will re-run arm 1 ctrl from scratch (arm 1 was killed at step 1585 by pod rotation).
+- **🆕 PR #555 askeladd ASSIGNED 07:55 UTC**: H17 SWA on aux during last 10%. Mechanism: uniform-mean weight averaging during cosine cooldown phase, aux-only (no MuonH-managed block matrices). Distinct from PR #200 EMA NEG (full-model + EMA-throughout) and PR #525 Lookahead (slow-weight target with α<1).
 - **🆕 KEY MECHANISTIC FINDING (PR #510 CLOSED 01:30 UTC):** Unfused optimizer path produces NaN at step-3 forward under the current aux stack (eps=1e-6 + AGC + per-group LR). Plain `AdamW(fused=False)` shows identical failure. **Implication**: any aux optimizer without a fused kernel (NAdam, AdaBelief unfused, AdaFactor) is BLOCKED. Lookahead/Lion/SWA wrappers around fused AdamW are SAFE.
 - **🆕 PR #525 frieren POD ROTATION REQUESTED 04:09 UTC**: 8 separate NaN runs at step 25–125 (`gm8z8yej / jx9m9ah5 / 3z6utx5l / lokz88lw / h22dzj1i / 87wznxfr / 876gasq0 / pu4hxo61`) with identical `nonfinite_count ≈ 1.48e8` (~91%) fingerprint. Ruled out: GPU contention, code bug, torchinductor cache (cleared + relaunched → same step-125 NaN). Cross-pod baseline produces healthy val ≈ 3.271 today. Conclusion: **pod hardware / CUDA state issue**. Frieren PR parked in WIP; pod added to Issue #164 rotation list.
 
@@ -35,21 +39,22 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (05:20 UTC 2026-05-20)
+## Active experiments (08:00 UTC 2026-05-20)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#536** | nezuko | **H15: MuLoCo outer-step pruning ablation** (`--use_outer_optimizer 0`) | Ctrl arm step 2500/3325 (75%), ETA ~05:40 UTC |
-| **#544** | fern | **H16: Cautious AdamW wrapper on aux** (gradient-momentum masking, Liang et al 2024) | **NEWLY ASSIGNED 05:20 UTC** — ctrl + Cautious-normalized arms |
-| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD ROTATION REQUESTED 04:09 UTC** — 8 NaN runs, same step-125 nonfinite fingerprint. Hypothesis still valid; awaiting clean pod. |
-| **#539** | edward | **H7: Per-group AdamW WD under eps=1e-6** (informed by PR #501) | Assigned 04:28 UTC — arm 1 ctrl running step ~350, ETA ~07:00 UTC |
-| **#478** | askeladd | **embed LR n=4 confirmation @ 0.4** | n=2 mean 3.2729 (arms 1+2 done), arm 3 step 2075/3325 ETA ~05:57 UTC; arm 4 ETA ~07:35 UTC. **Trending hard NEG** |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~100.5h** — GPU `g71b0d6`. esc#30 due ~07:00. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~100.5h** — NaN on GPU `gd125a8`. esc#30 due ~07:00. |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED/MERGE_CONFLICT** — `gd103cc`. esc#30 due ~07:00. |
+| **#536** | nezuko | **H15: MuLoCo outer-step pruning ablation** (`--use_outer_optimizer 0`) | Arm 1 ctrl ✅ 3.27220. **Arm 2 muloco-off TERMINAL 07:47 UTC val=3.28245 (+0.01025, MuLoCo IS load-bearing 5× threshold)**. Arm 3 momentum=0 `t0tcf12b` step 875/3325 ETA ~09:20 UTC |
+| **#544** | fern | **H16: Cautious AdamW wrapper on aux** | Smoke ✅ nonfinite=0. **Arm 1 ctrl TERMINAL 07:48 UTC `nca79tab` val=3.27189 (Δ+0.00070, ctrl reproduces baseline)**. Arm 2 cautious-normalized pending fern wakeup |
+| **#555** | askeladd | **H17: SWA on aux during last 10% cooldown** (NEW) | Assigned 07:55 UTC. Fresh mechanism: uniform-mean averaging on aux-only during cosine cooldown |
+| **#539** | edward | **H7: Per-group AdamW WD under eps=1e-6** (informed by PR #501) | Arm 1 ctrl (killed step 1585 pod rotation, partial trajectory matched baseline ±0.001). **Arm 2 wd-carriers TERMINAL 07:49 UTC val=3.27321 (+0.00202, NEG)**. Arm 3 wd-all `zhfffa5p` step 250 (smoke phase) ETA ~09:30 UTC; arm 1 rerun follows |
+| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD ROTATION REQUESTED 04:09 UTC** — 8 NaN runs same step-25-125 fingerprint (~91% nonfinite). esc#30 posted 06:53 UTC |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~103h** — GPU `g71b0d6`. esc#30 posted 06:53 UTC |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~103h** — NaN on GPU `gd125a8`. esc#30 posted 06:53 UTC |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED + DIRTY mergeable** (2-hunk train_gpt_simple.py divergence). esc#30 posted 06:53 UTC |
 
 ## Recently closed PRs
 
+- **PR #478 askeladd embed_lr n=4 (CLOSED 07:55 UTC 2026-05-20)** — n=4 mean **3.27211** (sample stdev 0.00092, 95% CI [3.27121, 3.27301]). Merge bar 3.27079 fails by +0.00132; real-but-marginal upper bound 3.27200 fails by +0.00011. Statistically indistinguishable from PR #471 population estimate ~3.27218. **Original n=1 monotone signal across 0.2 → 0.3 → 0.4 was ~1.5σ ctrl-arm seed inflation.** Embed-LR lever closed. Per-seed σ ≈ 0.001 on this recipe means 5-point monotone n=1 sweeps can produce ~2σ swings that look like clean signals; future per-group LR sweeps should use n=2 ctrl as direction test, not promotion signal.
 - **PR #531 fern SF-AdamW on aux (CLOSED 05:19 UTC 2026-05-20)** — ctrl arm `jqnpnzf7` val=3.27344. SF arm 2 `z13vk5l6` killed at step 612 (arm-2 at that point: val=3.856 vs AdamW ctrl 3.829, Δ+0.026). Extrapolated endpoint 3.278–3.288 (solidly NEG). **Mechanism: Polyak-Ruppert averaging lag — SF evaluates at trajectory mean, WSD/linear-cooldown targets final iterate. Combined with PR #265, establishes SF-methods are categorically incompatible with WSD/linear-cooldown stack.** H11 closes NEG.
 - **PR #512 edward v_t reset at cooldown (CLOSED 04:25 UTC 2026-05-20)** — 3 arms: v_reset=1.0 (ctrl) 3.27280, v_reset=0.5 **3.27142** (BEST), v_reset=0.1 3.27270. Non-monotonic U-shape with optimum at partial reset. Arm-to-arm Δ(arm2−arm1)=−0.00138 is REAL mechanism signal above noise, but arm 2 vs baseline 3.27119 is +0.00023 (within seed noise σ=0.0012). **Mechanism real but optimum doesn't beat favorable-seed baseline at n=1**. H6 closes; compound-with-PR501 follow-up logged ((reset_frac=0.5) × (lm_head/scalars only) could amplify).
 - **PR #507 nezuko embed init std (CLOSED 03:39 UTC 2026-05-20)** — 3 arms: std=1.0 ctrl 3.27188 (favorable seed), std=0.1 **3.27231** (WORSE), std=0.02 **3.27142** (BEST). Non-monotonic U-shape; best arm (std=0.02) doesn't clear merge bar 3.27039. **Mechanistic finding: embedding-side knobs are weak levers — eps=1e-6 win lives in lm_head/scalars per PR #501**. H5 closes NEG/exhausted.
@@ -92,7 +97,7 @@
 |---|---|---|
 | H1 | Per-group eps decomp | **CLOSED PR #501** — embed NOT carrier; lm_head/scalars carry the eps=1e-6 win |
 | H2 | Lookahead outer wrapper on aux | **PR #525 frieren ACTIVE** (safe: wraps fused) |
-| H3 | SWA / EMA averaging on aux at cooldown | **PR #200 NEG (full model)**. Aux-only SWA likely same mechanism — skip. |
+| H3 | SWA / EMA averaging on aux at cooldown | **PR #555 askeladd ACTIVE 07:55 UTC** — aux-only uniform-mean SWA during last 10% cooldown. Distinct from PR #200 full-model EMA-throughout NEG: (1) aux-only excludes MuonH orthogonalization invariant; (2) uniform-window instead of exponential decay; (3) cooldown-only timing. Aligned with PR #536 nezuko MuLoCo cooldown-phase finding. |
 | H4 | Nesterov AdamW (NAdam) | **CLOSED PR #510 — unfused path NaN.** |
 | H5 | Embed init std sweep | **CLOSED PR #507** — non-monotonic U-shape; std=0.02 best at 3.27142 doesn't clear bar. Embedding-side weak lever. |
 | H6 | Decoupled second-moment reset at cooldown | **CLOSED PR #512** — U-shape optimum at 0.5 (val=3.27142, Δ−0.00138 vs ctrl real but doesn't beat baseline). |
@@ -106,19 +111,26 @@
 | H14 | Sophia (Hessian-diagonal preconditioner, NOT sign-mode) | Pending. Fresh preconditioner; ~50 LoC; needs occasional 2nd backward for Hessian estimate |
 | H15 | Pruning ablation of MuLoCo outer wrapper | **PR #536 nezuko ACTIVE 03:48 UTC** — CLI-only ctrl/OFF/momentum=0 arms |
 | H16 | Cautious AdamW wrapper on aux (gradient-momentum masking) | **PR #544 fern ACTIVE 05:20 UTC** — Liang et al 2024; ctrl + cautious-normalized arms |
-| H17 | AGC clip ratio sweep (aux side) | Pending. Scalar tuning — defer per user directive. |
+| H17 | SWA on aux during cooldown | **PR #555 askeladd ACTIVE 07:55 UTC** — see H3 row (renumbered/merged) |
+| H18 | AGC clip ratio sweep (aux side) | Pending. Scalar tuning — defer per user directive. |
+| H19 | AGC clip ratio × embed_lr interaction | **Bookmarked from PR #478 closure** — under embed_lr=0.4, AGC=0.05 may be binding constraint. Small sweep (embed_lr × AGC clip, e.g. {0.3,0.4} × {0.05,0.10}). Defer until fresh-mechanism queue clears. |
 
-## Research direction (03:50 UTC)
+## Research direction (08:00 UTC)
 
-**Primary active win directions:**
-1. **embed_lr n=4 confirm** (PR #478 askeladd) — n=4 arm 1 val=3.27277, arm 2 val=3.27298. n=2 mean 3.27288, +0.00209 above conservative bar 3.27079. **Trending hard NEG**. Arms 3+4 ETA ~05:50 / ~07:35.
-2. **Per-group WD under eps=1e-6** (PR #539 edward 04:28 UTC) — H7 informed by PR #501. Tests whether eps=1e-6 carriers (lm_head/scalars) now tolerate non-zero WD as regularization.
-3. **Schedule-Free AdamW for aux** (PR #531 fern) — H11 ctrl arm step 2725/3325 (82%). Fresh schedule-mechanism. ETA ~04:45 UTC.
-4. **MuLoCo pruning ablation** (PR #536 nezuko 03:48 UTC) — H15 tests whether the MuLoCo outer wrapper is load-bearing on single-GPU r3. Pure CLI-flag prune. Arm 1 ctrl at step 720/3325.
-5. **Lookahead aux wrapper** (PR #525 frieren) — H2 mechanism BLOCKED, pod rotation requested 04:09 UTC.
+**Primary active mechanism directions:**
+1. **🆕 MuLoCo cooldown-phase averaging is load-bearing** (PR #536 nezuko 07:47 UTC, +5× threshold) — Arm 3 momentum=0 will isolate whether the work is done by (a) outer Nesterov momentum kick, or (b) the 30-step averaging window. **High-value mechanistic finding** — informs every future cooldown-phase intervention. Combined with PR #478 closure, suggests the remaining headroom is in cooldown-phase mechanics, not main-phase scalars.
+2. **H17 SWA on aux during cooldown** (PR #555 askeladd 07:55 UTC, NEW) — Aux-only uniform-mean averaging across last 10% (333 snapshots, 90-100% of training). Mechanism-aligned with nezuko's cooldown finding but operating on aux iterates rather than outer wrapper. Distinct from PR #200 (full-model EMA-throughout NEG) and PR #525 (Lookahead slow-weight target).
+3. **Cautious AdamW gradient-momentum masking** (PR #544 fern) — Arm 1 ctrl reproduces baseline (val=3.27189). Arm 2 cautious-normalized pending. Liang et al 2024 mechanism: mask AdamW directions where m_t and g_t disagree in sign — gradient-momentum coherent updates only.
+4. **Per-group WD under eps=1e-6** (PR #539 edward) — Arm 2 wd-carriers NEG (+0.00202). Arm 3 wd-all + arm 1 rerun pending. Testing whether eps=1e-6 carriers (lm_head/scalars per PR #501) tolerate non-zero WD as regularization.
+5. **Lookahead aux wrapper** (PR #525 frieren) — H2 BLOCKED, pod rotation requested. Hypothesis still valid; awaiting clean pod.
 
-**Ctrl arm noise** (7 ctrl-equivalent samples): mean Δ = +0.00169, sd ≈ 0.00115. All positive — baseline `t1coza71` is a favorable-seed outlier. Any win must clear +0.0008 vs 3.27119 to be above noise.
+**Saturated levers (no further work):**
+- All per-group LR sweeps closed (embed PR #478, lm_head PR #481, scalars PR #475).
+- All inner MuonH HPs (lr/mu/wd/warmup/cooldown/budget) closed.
+- All MuLoCo outer HPs closed (sync_interval/outer_lr/outer_momentum) — but **pruning shows wrapper is mechanically essential**.
 
-**Operator silence Issue #164**: ~99.5h total, esc#29 posted 02:38 UTC, esc#30 due ~07:00 UTC.
+**Ctrl arm noise** (8 ctrl-equivalent samples post-PR #443, including PR #478 n=4 + fern arm 1 ctrl): sample stdev ≈ 0.00092. All ctrl samples land in band 3.27107–3.27399 with mean ~3.27250. Baseline `t1coza71` (3.27119) is a favorable-seed outlier at the lower edge of this band.
 
-**Pod state anomalies (r3)**: frieren PR #525 hits NaN at step 25 on `--aux_lookahead_k 0` (code-byte identical to baseline command). Other students at same baseline on different pods (e.g. `z814787y`, `qvsm40in`) finish normally. Working hypothesis: stale `/tmp/torchinductor_root/` from 4d15h of file edits. If cache-clear smoke also NaN's, frieren will request pod rotation on Issue #164.
+**Operator silence Issue #164**: esc#30 posted 06:53 UTC (~103h total operator silence on alphonse/tanjiro/thorfinn; ~3.5h on frieren). esc#31 due ~10:00 UTC if no operator action.
+
+**Pod state anomalies (r3)**: frieren PR #525 hardware/driver fault diagnostically isolated via 8 NaN runs same step-25-125 fingerprint (~91% nonfinite_count). Cache-clear hypothesis falsified 04:08 UTC. No software fix available from inside the container.
