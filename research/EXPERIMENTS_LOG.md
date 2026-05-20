@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 07:00 UTC — PR #516: Yogi optimizer on aux groups (edward) — CLOSED productive-NEGATIVE (embed/all-aux) + productive-NULL (lm_head)
+
+- Branch: `g1r4-edward/yogi-aux`
+- Hypothesis: Yogi replaces AdamW's multiplicative β₂-EMA second moment with sign-based additive update `v_t = v_{t-1} − (1−β₂)·sign(v_{t-1} − g_t²)·g_t²`. Avoids AdaBelief's absent-row pathology (accumulates g², not (g−m)²). Tests bounded-additive vs multiplicative-EMA on aux groups with heavy-tailed gradients.
+- Code: `NANOGPT_AUX_OPTIMIZER ∈ {adamw, yogi}` × `NANOGPT_YOGI_SCOPE ∈ {none, embed, lm_head, embed_lm_head_scalars}` with `NANOGPT_YOGI_V0=zero` initialization.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS):**
+
+| Arm | Yogi scope | val/loss | Δ vs A | Band | W&B run |
+|---|---|---:|---:|---|---|
+| A | none (AdamW control) | 3.27419 | 0 | drift gate PASS (\|Δ vs 3.27174\|=0.00245) | `dsqd2b7z` |
+| B | embed | 3.27805 | +0.00386 | regression | `54lf1rnf` |
+| C | lm_head | 3.27457 | +0.00038 | null | `g68ryztc` |
+| D | embed_lm_head_scalars | 3.27866 | +0.00447 | regression | `36c4ctk0` |
+
+**Analysis:**
+
+- **No winner candidate** (Δ ≤ −0.002 not met by any arm). No paired-pod confirmation needed.
+- **Mechanism reading**: Yogi's faster reaction to moderate gradient changes (additive update vs AdamW's multiplicative EMA at β₂=0.99) destabilizes the sparse-row v_t accumulator on the embed group. Regression grows monotonically through the cooldown window (step 3100 +0.00286 → step 3350 +0.00447), confirming in-flight optimizer dynamics, not v_0 initialization. On the dense lm_head group, NANOGPT_GRAD_CLIP=10.0 truncates spikes before Yogi's bounded-update advantage activates → operationally indistinguishable from AdamW. D ≈ B + 0.00061: embed regression dominates, lm_head/scalars contribute marginally.
+- **Independent of AdaBelief (#474) mechanism**: Yogi accumulates g² same as AdamW, so absent-row pathology doesn't apply. Yogi's regression on embed is a different mechanism: multiplicative-EMA → additive-sign change is unproductive on this stack.
+- **Closes second-moment-update-rule axis** — joined with #474 AdaBelief, #442 Adam-atan2, #490 NAdam-aux. AdamW second-moment mechanism on this stack is now thoroughly characterized: invariant to lm_head perturbations, embed perturbations regress consistently.
+- **29th productive-null/negative this cycle.**
+
+**Follow-up:** edward assigned **#550 Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 early-phase WD warmup which was CLOSED NEGATIVE).
+
 ## 2026-05-20 02:15 UTC — PR #490: NAdam (Nesterov-AdamW) aux scope sweep (nezuko) — CLOSED productive-null
 
 - Branch: `g1r4-nezuko/nadam-aux`
