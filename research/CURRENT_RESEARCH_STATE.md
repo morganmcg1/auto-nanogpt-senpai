@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~22:50Z (poll #313)
+- **Last updated:** 2026-05-20 ~23:15Z (poll #314)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -9,31 +9,36 @@
 - **Previous baseline (PR #371):** mu=3.267948, std=0.000823 — still used for old Δσ comparisons on in-flight PRs
 
 
-## 🔥🔥 Three gate-beating single-seed signals across orthogonal axes — TWO NOW IN P2
+## 🔥🔥 Three gate-beating single-seed signals across orthogonal axes — ALL THREE NOW IN P2 WITH TRIAL DATA
 
-P2 status across the portfolio:
+P2 status across the portfolio (poll #314 update):
 
-| PR | Cell | Config | val/loss | Δσ_n6 (σ=0.001747) | Margin vs n=4 gate | P2 Status |
+| PR | Cell | Config | val/loss | Δσ_n6 (σ=0.001747) | Margin vs n=4 gate | P2 Status (Trials Done) |
 |----|------|--------|---------:|--------------------:|--------------------:|-----------|
-| #571 | D | lr_scalars=0.03 | **3.262962** | **−1.81σ** | beats gate by **0.001158** 🔥🔥 | **🔬 P2 n=4 IN-FLIGHT** |
-| #565 | B | init_var_scale=1.0 (xavier) | 3.263870 | −1.29σ | beats gate by 0.000250 | **🔬 P2 n=4 IN-FLIGHT** (just sent back) |
-| #556 | C | adam_eps=1e-6 | 3.263690 | −1.39σ | beats gate by 0.000430 | **🔬 P2 n=4 IN-FLIGHT** (Trial 0=3.26770 +0.90σ; Trials 1-3 pending) |
+| #571 | D | lr_scalars=0.03 | **3.262962** | **−1.81σ** | beats gate by **0.001158** 🔥🔥 | **🔬 P2 Trial 0 = 3.26347 (−1.52σ, clears gate by 0.000650)** — Trial 1 running ~step 200. ON TRACK. |
+| #565 | B | init_var_scale=1.0 (xavier) | 3.263870 | −1.29σ | beats gate by 0.000250 | **🔬 P2 Trial 1 running at step 1454**, val trajectory tracks original Cell B exactly. Healthy. |
+| #556 | C | adam_eps=1e-6 | 3.263690 | −1.39σ | beats gate by 0.000430 | **🔬 Trial 0=3.26770 (+0.90σ), Trial 1=3.26788 (+1.01σ), Trial 2 running.** Mean(0,1)=3.26779. For n=4 gate, mean(2,3) must be ≤ 3.26045 — mathematically very unlikely. Likely close clean-neutral. |
 
-Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Across ~30 cells tested in the current portfolio, expected gate-passers under null ≈ 3.8 — so 3 hits is **not surprising under noise alone**. But each lives on a mechanistically distinct axis (eps, init, scalar LR), with theoretical motivation. **All three now have P2 confirmations running concurrently.** Early signal from frieren P2 Trial 0 (3.26770, +0.90σ) suggests its single-seed signal was lucky-side noise — n=4 mean unlikely to clear gate.
+Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Across ~30 cells tested in the current portfolio, expected gate-passers under null ≈ 3.8 — so 3 hits is **not surprising under noise alone**. But each lives on a mechanistically distinct axis (eps, init, scalar LR), with theoretical motivation.
+
+**P2 differential picture emerging:**
+- **askeladd #571 D**: Trial 0 reproduces single-seed signal (−1.52σ vs −1.81σ original); 0.29σ_single seed variation, consistent with real underlying effect. If trials 1-3 maintain similar performance, P2 mean clears gate.
+- **frieren #556 C**: Trial 0+1 both regressing toward baseline mean (+0.96σ avg). The W-shaped Phase 1 profile (C wins, but D=1e-12 also wins; B=1e-8 between them loses) was classic noise pattern; P2 likely confirms axis is flat clean-neutral.
+- **thorfinn #565 B**: Trial 1 in progress, no terminal yet. Margin is the narrowest (0.000250 vs gate), most sensitive to seed variation. Wait for terminal.
 
 
 ## Active WIP Portfolio
 
-| PR # | Student | Hypothesis | Status (poll #310) |
+| PR # | Student | Hypothesis | Status (poll #314) |
 |------|---------|-----------|--------|
-| #600 | alphonse | LM-head AdamW LR sweep (1/640/1/320ctrl/1/160/0.01/0.03) — 3rd hardcoded AdamW LR | **Cell A ctrl terminal at 3.26574** (−0.30σ, within ctrl noise — refactor no-op confirmed). Chain B→E should be running. |
-| #620 | tanjiro | **NEW** Attention softmax scale sweep (0.0884/0.10/0.12ctrl/0.14/0.18) — hardcoded, never ablated | Just assigned (poll #313). SDPA scale=0.12 at line 414; standard 1/√128=0.0884. Tests whether softmax temperature is correctly tuned. |
-| #571 | askeladd | AdamW scalar param LR sweep (RMSNorm gains) | **🔥🔥 ALL 5 CELLS TERMINAL. Cell D (0.03) = 3.262962 = STRONGEST single-seed in portfolio.** Sent back for P2 n=4 confirmation on Cell D. Full hump: A(0.01)=3.26523 −0.51σ, B(0.003)=+7σ, C(0.001)=+13σ DNF, D(0.03)=−1.81σ ✓gate, E(0.1)=+3.38σ. RMSNorm gains were under-tuned at 0.01. |
-| #614 | nezuko | **NEW** Logit softcap value sweep (7.5/10/15ctrl/22.5/30) — hardcoded, never ablated | Just assigned (poll #311). Softcap at line 459 bounds logits to ±15; value untested. "Less intensity" theme predicts looser cap may help. |
-| #565 | thorfinn | Init variance scale sweep — **P2 CONFIRMATION IN-FLIGHT** | All 5 cells terminal. Cell B (xavier var=1.0)=3.26387 beats n=4 gate by 0.000250 (narrowest of 3 P2s). Shape: D(0.10)=+3.31σ catastrophic, A(0.33)=−0.14σ ctrl, E(0.50)=+0.39σ, **B(1.0)=−1.29σ winner**, C(2.0)=+0.13σ. P2 n=4 fresh confirmation requested at var=1.0. |
-| #556 | frieren | AdamW epsilon sweep — **P2 CONFIRMATION IN-FLIGHT** | P2 Trial 0 (`bfq43l07` --num_trials 4) terminal at val=3.26770 (+0.90σ). 3 more trials sequential. For n=4 mean to clear gate, remaining 3 must avg ≤3.26293 — unlikely given Trial 0. ETA terminal Trial 3: ~02:20 UTC May 21. |
-| #581 | edward | Lookahead optimizer wrapper | **⚠️ Cell C terminal at 3.28116 (+8.6σ)** — Lookahead failing across all variants. A ctrl=3.26801, B(α=0.5 k=5)=3.27956 +10.5σ, C(α=0.5 k=10)=3.28116 +8.6σ. Cell D (α=0.3 k=5 gentler) running at ~9%. Pattern: every time-averaging wrapper fails on 3250-step horizon. Likely to close clean-NEG after D/E. |
-| #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | A(ctrl 2.0)=3.26621 no-op, **B(peak_wd=1.0)=3.26874 +0.43σ** (slightly worse, within noise — lower peak WD doesn't help). Cell C (1.5) likely running. |
+| #600 | alphonse | LM-head AdamW LR sweep (1/640/1/320ctrl/1/160/0.01/0.03) — 3rd hardcoded AdamW LR | A(1/320 ctrl)=3.26574 no-op ✓, **B(1/640)=3.26809 +1.13σ** (lower LR hurts). Cell C (1/160=0.00625) running ~step 110/3250. D (0.01) and E (0.03) pending. Pairs with askeladd #571 D win — if upward direction wins here too, AdamW group LR theme strengthens. |
+| #620 | tanjiro | Attention softmax scale sweep (0.0884/0.10/0.12ctrl/0.14/0.18) — hardcoded, never ablated | Assigned poll #313. **0 student comments yet — fresh.** Student should start Cell A (ctrl) for refactor check. |
+| #571 | askeladd | AdamW scalar param LR sweep (RMSNorm gains) — **🔬 P2 IN-FLIGHT** | **P2 Trial 0 = 3.26347 (−1.52σ, clears gate by 0.000650).** Trial 1 running step ~200. ON TRACK — variation between Cell D (−1.81σ) and Trial 0 (−1.52σ) is 0.29σ_single, well within seed noise; real effect tracking. If trials 1-3 maintain, P2 confirms strongest signal in portfolio. |
+| #614 | nezuko | Logit softcap value sweep (7.5/10/15ctrl/22.5/30) — hardcoded, never ablated | Assigned poll #311. **0 student comments yet — fresh, stale_wip flag is mechanical.** Ack'd by advisor. Student should start Cell A ctrl. |
+| #565 | thorfinn | Init variance scale sweep — **🔬 P2 IN-FLIGHT** | P2 Trial 1 (`dp592oyk`) running at step 1454/3250, val trajectory matches original Cell B exactly at every milestone. Healthy. ETA Trial 1 terminal ~23:25 UTC; full P2 terminal ~04:25 UTC May 21. Margin is narrowest (0.000250 vs gate). |
+| #556 | frieren | AdamW epsilon sweep — **🔬 P2 IN-FLIGHT** | **Trial 0=3.26770 (+0.90σ), Trial 1=3.26788 (+1.01σ), Trial 2 running step ~200.** Mean(0,1)=3.26779. For n=4 gate, mean(2,3) must be ≤3.26045 — math gate effectively closed. Likely closes clean-neutral after Trial 3 (ETA ~02:20 UTC May 21). |
+| #581 | edward | Lookahead optimizer wrapper | **Cell E running at step 1500 = 3.52713 (tracking A ctrl).** All 4 prior cells terminal: A ctrl=3.26801, B(α=0.5 k=5)=3.27956 +7.7σ, C(α=0.5 k=10)=3.28116 +8.6σ DNF, D(α=0.3 k=5)=3.30526 +22.4σ catastrophic DNF. Cell E (cooldown_disable) is last chance to salvage; if E lands near A (~3.265-3.270), confirms "sync disrupts cooldown" mechanism but no improvement. ETA terminal ~23:30 UTC. PR will be terminal then. |
+| #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | A(ctrl 2.0)=3.26621 no-op, **B(peak_wd=1.0)=3.26874 +1.45σ** (worse), **C(peak_wd=1.5)=3.26875 +1.45σ** (worse). Cell D (2.5) running ~step 87. Lower peak WD doesn't help; current 2.0 looks robustly tuned. Upper direction (D, E) will close axis. |
 
 
 ## Recent Closures
