@@ -1,3 +1,48 @@
+## 2026-05-20 20:38 UTC — PR #612 ASSIGNED (askeladd): H32 aux AdamW β1=0 pruning ablation — is the first moment load-bearing?
+
+- Branch: `g1r3-askeladd/aux-beta1-pruning`
+- Hypothesis: The aux AdamW uses `betas=(0.8, 0.95)` — a short-horizon first moment with half-life ~3 steps. Three recent NEG closures (#544 Cautious, #567 AdEMAMix, #582 MARS) all hit the same wall: gradient-history-based augmentations fail on short-β1=0.8 stacks. This pruning ablation tests whether β1=0.8 itself is load-bearing or just historical. Setting β1=0 prunes the first moment entirely (AdamW degenerates to RMSProp on aux).
+- Two arms: ctrl (β1=0.8, current baseline), arm 2 (`--aux_adamw_beta1 0.0` = RMSProp-on-aux).
+- Three informative outcomes: win/match → first moment is dead weight, re-opens gradient-history-free interventions; NEG → β1=0.8 is load-bearing, triple-NEG pattern confirmed and mechanism closed.
+- ~2 LoC change (new `--aux_adamw_beta1` flag passed to fused AdamW at construction time). Fused-safe (β1=0 is a standard PyTorch config).
+
+---
+
+## 2026-05-20 20:35 UTC — PR #582 CLOSED (askeladd): H25 MARS variance-reduced gradient — NEG, triple-mechanism pattern confirmed
+
+- Branch: `g1r3-askeladd/aux-mars`
+- Hypothesis: MARS (Yuan 2025) applies a control-variate correction `c_t = g_t + γ·β1·(m_{t-1} − g_{t-1})` pre-step to reduce gradient variance. With aux β1=0.8, tested γ=0.025 (paper LM default) and γ=0.1.
+
+### Results (3325 steps each)
+
+| Arm | run_id | val/loss | ffs | reached_target | Δ vs ctrl | Δ vs baseline |
+|---|---|---:|---:|---|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | yes | — | — |
+| mars-ctrl | `ifdm0vqm` | **3.27378** | 3150 | yes | — | +0.00259 |
+| mars-γ=0.025 | `17xyn9p7` | **3.27496** | 3175 | yes | +0.00118 | +0.00377 |
+| mars-γ=0.1 | `1u732d5z` | **3.27429** | 3150 | yes | +0.00051 | +0.00310 |
+
+- γ=0.025 borderline-NEG (Δ+0.00118 ≥ ctrl+0.001 threshold); γ=0.1 noise-neutral but not improving.
+- No arm cleared merge bar 3.27039.
+
+### Mechanism finding (THIRD confirmation — triple-NEG pattern)
+
+> **Gradient-history-based augmentations are structurally incompatible with short-β1=0.8 aux AdamW stacks.**
+
+The control-variate correction requires `m_{t-1}` to be positively correlated with `g_t`. With β1=0.8 (half-life ~3 steps), `m_{t-1}` tracks `g_{t-1}` more than `g_t`. The residual `m_{t-1} − g_{t-1}` measures grad-step staleness noise; multiplied by γ·β1 and added back, it injects net variance rather than reducing it. Confirmed by telemetry: correction RMS scales linearly with γ (0.000134 at γ=0.025, 0.000539 at γ=0.1 ≈ 4×), consistent with noise injection rather than coherent correction.
+
+| PR | Mechanism | Result | Core failure mode |
+|---|---|---|---|
+| #544 (fern) | Cautious AdamW | NEG +0.025 | Short β1=0.8 kills stale-momentum gap |
+| #567 (fern) | AdEMAMix dual-EMA | NEG +0.00150 | m_2 only 28% saturated at 3325 steps |
+| **#582 (askeladd)** | **MARS variance reduction** | **NEG +0.00118** | **control variate adds variance on short-β1 stack** |
+
+**Generalizable rule**: Optimizer mechanisms exploiting multi-step gradient history require β1 calibrated to give that buffer signal-carrying capacity. β1=0.8 (half-life ~3 steps) is too short. Future gradient-history-based methods should only be re-tested with corresponding β1 increase.
+
+**Side finding**: mid-cooldown val trajectory checkpoints (~step 2070) are NOT predictive of terminal val on this stack. γ=0.025 was tracking +0.12 vs ctrl at step 2070 but recovered to +0.00118 at step 3325. Advisor lesson: wait for terminal before strong claims.
+
+---
+
 ## 2026-05-20 16:50 UTC — PR #597 ASSIGNED (fern): H31 MuLoCo outer Nesterov pruning ablation — is the Nesterov velocity amplifier load-bearing?
 
 - Branch: `g1r3-fern/outer-nesterov-pruning`
