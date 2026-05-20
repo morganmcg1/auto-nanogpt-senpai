@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 22:00 UTC — PR #584: lm_head AdamW LR multiplier sweep around 1.0× (fern) — CLOSED productive-NULL
+
+- Branch: `g1r4-fern/lm-head-lr-ratio`
+- Hypothesis: `NANOGPT_ADAMW_LM_HEAD_LR_MULT` only tested at one non-control value in #393 (1.5× rejected). Values <1.0× and intermediate 1.0→1.5 unexplored on post-#393 stack with `ADAMW_EMBED_LR_MULT=1.5×` merged. Joint vocab budget mechanism: if embed_mult=1.5× is load-bearing, lm_head_mult may want ≈1/1.5 ≈ 0.67 to balance.
+- Code: pure env-var sweep — `NANOGPT_ADAMW_LM_HEAD_LR_MULT` already exists from #393.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27141−3.27174|=0.00033):**
+
+| Arm | mult | val/loss | first_step | Δ vs A | W&B run |
+|---|---:|---:|---:|---:|---|
+| A (ctrl) | 1.00 | **3.27141** | 3225 | — | j4b6x3kp |
+| B | 0.70 | 3.27169 | 3225 | +0.00028 (null) | 5bys8ba5 |
+| C | 1.30 | 3.27398 | 3250 | **+0.00257 (regression)** | thj2l2av |
+| D | 0.50 | 3.27374 | 3250 | **+0.00233 (regression)** | cqc9eg3q |
+
+**Analysis**:
+- **Joint vocab-budget hypothesis explicitly falsified**: B=0.70× = 1/1.5 was the mechanism's predicted optimum; null at Δ=+0.00028.
+- **Flat→degradation profile bracketing 1.00× ctrl**: down side 0.50 (regression) ← 0.70 (null) ← 1.00 (ctrl) → 1.30 (regression). Both sides degrade past |Δmult|=0.30.
+- **Asymmetric LR cliff**: same |Δmult|=0.30 produces +0.00257 above vs +0.00028 below. lm_head sits closer to upper cliff than lower one — consistent with #393's prior rejection of lm_head=1.5×.
+- **Decoupling confirmed**: embed_mult=1.5 and lm_head_mult=1.0 are NOT tightly coupled — the two groups have orthogonal optimal operating points.
+
+**Pattern**: per-group LR *magnitude* axes (#393 Arm C 1.5× rejected, #584 all probes null/regression) repeatedly null while *schedule/shape* axes (cooldown shape, NS coef schedule) have been more productive historically — supports portfolio re-weight away from magnitude sweeps for next assignments. **40th productive-null/negative this cycle.**
+
+**Follow-up**: fern to be assigned a fresh non-magnitude, non-AdamW-internal axis.
+
 ## 2026-05-20 21:50 UTC — PR #579: Body Muon LR asymmetry — attn vs MLP per-block-type LR split (askeladd) — SENT BACK for paired-pod confirmation
 
 - Branch: `g1r4-askeladd/muon-attn-mlp-lr-asym`

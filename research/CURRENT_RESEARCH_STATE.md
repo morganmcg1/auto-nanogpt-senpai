@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 21:50 UTC
+- **Date:** 2026-05-20 22:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -55,17 +55,23 @@ Arms B (embed: +0.00163), C (lm_head: +0.00285) regress; D (embed+lm_head: −0.
 Single-seed 4-arm (drift gate A PASS): A=3.27279, B=+0.00135 (null edge), C=+0.00162 (regression), D=+0.00252 (regression). Monotone-ish worsening with warmup aggressiveness. No arm passes stat-rule. **3rd consecutive "less constraint early" closure**: WD warmup (#483 NEGATIVE) + embed-LR warmup (#489 NEGATIVE) + β₁ warmup (#514 NEGATIVE) — bilateral closure across 3 aux-group AdamW schedule axes. Early-training window is uniformly well-tuned across WD/LR/β₁ at merged settings. **28th productive-null/negative this cycle.**
 **Follow-up**: fern assigned **#547 lm_head cooldown SHAPE sweep** — pivot from temporal (warmup) to shape (cooldown) axes.
 
-### 🔄 fern #584 — lm_head AdamW LR multiplier sweep around 1.0× [assigned 14:15 UTC]
+### ✅ fern #584 — lm_head AdamW LR multiplier sweep around 1.0× — CLOSED 22:00 UTC productive-NULL
 
-**Branch:** `g1r4-fern/lm-head-lr-ratio`
-**Hypothesis**: `NANOGPT_ADAMW_LM_HEAD_LR_MULT` was tested at only one non-control value in #393 (C arm lm_head=1.5×, rejected). Values <1.0× and intermediate values between 1.0× and 1.5× remain unexplored on the post-#393 stack which has `ADAMW_EMBED_LR_MULT=1.5×` merged. Joint vocab update budget mechanism: if embed_mult=1.5× is load-bearing, lm_head_mult may want < 1.0× to balance — specifically 1/1.5 ≈ 0.67. Pure env-var sweep (no code changes; env var already exists from #393). Structurally distinct from #393 (boost-only), #547 (cooldown SHAPE), #454 (cooldown linear_floor).
-| Arm | NANOGPT_ADAMW_LM_HEAD_LR_MULT | Effective lm_head LR | Hypothesis |
-|---|---:|---:|---|
-| A | 1.00 (ctrl) | 1/320 ≈ 0.003125 | Reproduces merged baseline |
-| B | **0.70** | ~0.00219 | Joint vocab budget balance (~1/1.5) |
-| C | **1.30** | ~0.00406 | Intermediate boost (fills #393's 1.0→1.5 gap) |
-| D | **0.50** | ~0.00156 | Deeper LR reduction (locates minimum) |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27141−3.27174|=0.00033): A=3.27141 ctrl, B (0.70×)=+0.00028 (null), C (1.30×)=+0.00257 (regression), D (0.50×)=+0.00233 (regression). Flat→degradation profile bracketing 1.00× ctrl on both sides; no arm beats baseline. **Joint vocab-budget hypothesis falsified** at B=0.70× = 1/1.5. **Asymmetric LR cliff** — same |Δmult|=0.30 produces +0.00257 above vs +0.00028 below; lm_head sits closer to upper cliff. **Decoupling confirmed**: embed_mult=1.5 and lm_head_mult=1.0 have orthogonal optima. **40th productive-null/negative this cycle.**
+**Follow-up**: fern assigned **#618 Muon² for lm_head** — replace AdamW with NS-orthogonalized momentum on the output projection (IDEA 6 from WAVE3, genuinely untested mechanism replacement vs all prior magnitude/formula/schedule/regularization perturbations).
+
+### 🔄 fern #618 — Muon² for lm_head (replace AdamW for output projection) [assigned 22:00 UTC]
+
+**Branch:** `g1r4-fern/muon-lm-head`
+**Hypothesis**: Forty productive-null closures cumulative — within-AdamW-aux mechanism space substantially exhausted (#393 LR mult, #584 LR sweep, #547 cooldown SHAPE, #442 atan2, #474 AdaBelief, #516 Yogi, #490 NAdam, #560 per-group β₂, #554 embed WD addition; plus in-flight #599 per-group β₁, #593 per-group WD). Pivots to **replacing AdamW for lm_head with Muon (NS-orthogonalized momentum)** — structurally fresh per-group optimizer-family change. Block-heterogeneity analysis (Zhang et al., NeurIPS 2024) shows lm_head has distinct Hessian structure; NS may provide spectral-direction conditioning AdamW's `m/√v` cannot. Risk: vocabulary frequency info may be carried by gradient magnitude structure (Zipf distribution) which NS homogenizes.
+
+| Arm | LM_HEAD_OPTIMIZER | MUON_LM_HEAD_LR | NS_ITERS | Mechanism tested |
+|---|---|---:|---:|---|
+| A (ctrl) | adamw | n/a | n/a | Reproduces merged baseline (bit-identical) |
+| B | **muon** | **0.005** | 12 | Conservative Muon LR (~body Muon's effective magnitude) |
+| C | **muon** | **0.010** | 12 | Moderate Muon LR (2× B) |
+| D | **muon** | **0.002** | 12 | Very conservative (matches current AdamW effective ~0.003) |
+**ETA full chain:** ~7.3h. Implementation effort: ~50-80 LOC (param group split, NS transpose trick verification for tall matrices, env var plumbing).
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
