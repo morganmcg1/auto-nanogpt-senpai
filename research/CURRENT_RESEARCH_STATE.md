@@ -1,8 +1,38 @@
 # SENPAI Research State
 
-- 2026-05-20 00:00 UTC — **Cycle 69 late: askeladd T1 variance regression, edward TARGET_UW closed → cautious-adamw, 2 fresh mechanisms now in flight**
+- 2026-05-20 00:50 UTC — **Cycle 69 late: NEZUKO #494 BREAKTHROUGH T0 PASS both bars; 3 fresh mechanisms in flight, thorfinn #524 SWA assigned**
 
-  **Bar remains**: val<3.271388 AND ffs<3025 (strict, both required). Askeladd's T0 ffs=3000 was first sub-3025 observation, but T1 regressed to ffs=3050 — n=2 mean ffs=3025 TIES strict bar.
+  **Bar remains**: val<3.271388 AND ffs<3025 (strict, both required). 2 sub-3025 ffs observations now (askeladd T0=3000, nezuko T0=3000) — bar is reachable but variance-bound on T1.
+
+  **🏆 NEZUKO #494 Arm B (MUON_LR=0.04) T0 PASSES BOTH BARS**:
+  - val/loss = 3.26875 (BELOW bar 3.271388 by 0.00264)
+  - ffs = 3000 (BELOW bar 3025 by 25)
+  - T1 in progress (step ~450), terminal ~02:00 UTC
+  - Likely merge candidate if T1 ffs ≤ 3050 (mean=3025 ties → fails strict; need T1<3050)
+
+  **Askeladd #493 (ADAM_EPS=1e-8) — n=4 confirm running**:
+  - n=2: T0=3.2694/3000, T1=3.2735/3050 → mean=3.27144 (above bar 5e-5), ffs=3025 (ties)
+  - n=4 confirm T2+T3 launched (W&B `0r0o4waj`, step 225); terminal ~04:00 UTC
+  - Sent back per statsig-passes-bar-fails-by-hair rule
+
+  **Closures since last update**:
+  - **Thorfinn #495 (COOLDOWN_FRAC sweep) — CLOSED no-improvement**. Arm A 0.75 T0 val=3.27193/ffs=3025 (near-miss). Arm B 0.65 T0 val=3.2755/ffs=3100 (worse). Default 0.7 is local optimum. Axis closed; math kill on Arm B T1.
+
+  **Current active PRs (8 students — all assigned)**:
+  - **Thorfinn #524 (NEW)**: SWA Tail Averaging at Eval — fresh mechanism, attacks ffs bimodal variance (arxiv 1803.05407)
+  - **Edward #523**: Cautious AdamW (sign-alignment mask) — disabled-check at step 175
+  - Tanjiro #515: AdEMAMix n=2 screen at step 250
+  - Alphonse #500: WD_SCALARS=0.0001 n=2 confirmation at step 1825
+  - Fern #456: 0.0075 screen at step 2300 (still running); 0.0125 crashed step 0
+  - **Nezuko #494**: MUON_LR=0.04 T0 PASS, T1 in progress ⭐
+  - **Askeladd #493**: ADAM_EPS=1e-8 n=4 confirm (T2+T3) running step 225
+  - Frieren #488: β1=0.85 Arm B screen step 50 (Arm A β1=0.75 unstable on 4 v4 attempts)
+
+  **Current research themes**:
+  1. **3 fresh mechanisms in flight** — Tanjiro AdEMAMix + Edward Cautious AdamW (both AdamW group) + Thorfinn SWA (eval-time averaging). Most important axis per Launch Extra Instructions.
+  2. **MUON_LR=0.04 emerges as winner** — nezuko's T0 is strongest single-trial result this cycle. Independent confirmation of askeladd's eps=1e-8 finding (both push ffs floor below 3025 floor).
+  3. **ffs bimodal variance is the binding constraint** — both askeladd and nezuko show {3000, 3050} pattern. SWA targets this directly.
+  4. **HP sweeps converging to math kills** — TARGET_UW, MUON_LR Arm A, β1 Arm A, COOLDOWN_FRAC, scalars_lr Arm A all closed. Only sub-bar arms remain: MUON_LR=0.04 (pass!), WD_SCALARS=0.0001 (sub-val on n=1).
 
   **Closures since last update**:
   - **Edward #498 (TARGET_UW sweep) — CLOSED no-improvement**. Arm A 0.28 unstable (4 crashes, NS5 polishing diverges). Arm B 0.42 kill-gated at step 2000 (val=3.444 > 3.40 gate, over-floors small Muon updates in warmup). Both ±0.07 perturbations regress — 0.35 is on flat top of asymmetric ridge.

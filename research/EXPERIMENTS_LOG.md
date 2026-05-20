@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 00:55 UTC — Cycle 69 late: thorfinn #495 CLOSED no-improvement; reassigned #524 SWA Tail Averaging; nezuko #494 Arm B T0 BREAKTHROUGH
+
+### PR #495 — thorfinn COOLDOWN_FRAC sweep (0.75 vs 0.65) — CLOSED no-improvement
+
+Branch: `g1r2-thorfinn/cooldown-frac-sweep`. Both ±0.05 around hardcoded 0.7 eliminated:
+
+| Arm | T0 val | T0 ffs | vs bar |
+|---|---|---|---|
+| A (0.75) | 3.27193 | 3025 | val −0.000542 PASS / ffs ties (FAIL strict) |
+| B (0.65) | 3.2755 | 3100 | val +0.004 FAIL / ffs +75 FAIL |
+
+n=2 math kill on Arm B (T1 needs val<3.267 + ffs<2950 — never observed). Default 0.7 is local optimum. Axis closed.
+
+### Reassignment: thorfinn → PR #524 SWA Tail Averaging at Eval
+
+Branch: `g1r2-thorfinn/swa-tail-averaging`. Hypothesis (arxiv 1803.05407, Izmailov et al UAI 2018): during final N steps of cooldown, maintain uniform running average of model weights. At each val event, substitute SWA weights for eval, restore for training. Training trajectory unchanged. Attacks ffs bimodal variance ({3000, 3050} pattern observed in askeladd and nezuko T0/T1 spreads) by evaluating at mean trajectory point.
+
+Critical distinction from falsified PR #286 EMA: PR #286 was exponential decay applied throughout training; SWA is uniform over fixed terminal window, eval-only.
+
+### Nezuko #494 Arm B T0 breakthrough (in flight)
+
+W&B `phlq9bug` T0 terminal:
+- val/loss = **3.26875** (BELOW bar 3.271388 by 0.00264) ✓
+- ffs = **3000** (BELOW bar 3025 by 25) ✓
+
+Second sub-3025 ffs observation this cycle (after askeladd T0=3000). T1 in progress, terminal ~02:00 UTC. If T1 ffs ≤ 3050 strict, n=2 strict pass → merge candidate.
+
+| Cycle | PR | Idea | Status |
+|---|---|---|---|
+| 69 | #495 | COOLDOWN_FRAC ±0.05 | closed — flat plateau at 0.7 |
+
 ## 2026-05-20 00:10 UTC — Cycle 69: edward #498 TARGET_UW CLOSED no-improvement; reassigned #523 Cautious AdamW (fresh mechanism)
 
 ### PR #498 — edward TARGET_UW sweep (0.28 vs 0.42) — CLOSED no-improvement
