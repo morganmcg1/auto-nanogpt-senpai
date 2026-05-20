@@ -815,6 +815,8 @@ class SophiaG(torch.optim.Optimizer):
             wd = group["weight_decay"]
             rho = group["rho"]
             eps = group["eps"]
+            n_clipped = 0
+            n_elements = 0
             for p in group["params"]:
                 if p.grad is None:
                     continue
@@ -832,9 +834,34 @@ class SophiaG(torch.optim.Optimizer):
                     h.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
                 if wd != 0:
                     p.mul_(1.0 - lr * wd)
-                ratio = (m / h.clamp(min=eps)).clamp_(-rho, rho)
-                p.add_(ratio, alpha=-lr)
+                raw_ratio = m / h.clamp(min=eps)
+                n_clipped += (raw_ratio.abs() > rho).sum().item()
+                n_elements += p.numel()
+                p.add_(raw_ratio.clamp_(-rho, rho), alpha=-lr)
+            group["_clip_fraction"] = (n_clipped / n_elements) if n_elements > 0 else 0.0
+            group["_n_elements"] = n_elements
         return loss
+
+    def sophia_clip_stats(self):
+        """Fraction of elements that hit the clip cap on the most recent step.
+        Per-group ratio of |m/h| > rho (i.e., elements where the clamp was active)."""
+        out = {}
+        total_clipped = 0.0
+        total_elements = 0
+        for group in self.param_groups:
+            name = group.get("name", "unnamed")
+            cf = group.get("_clip_fraction", None)
+            ne = group.get("_n_elements", 0)
+            if cf is None or ne == 0:
+                continue
+            out[f"{name}/clip_fraction"] = cf
+            out[f"{name}/n_elements"] = ne
+            total_clipped += cf * ne
+            total_elements += ne
+        if total_elements > 0:
+            out["all/clip_fraction"] = total_clipped / total_elements
+            out["all/n_elements"] = total_elements
+        return out
 
 
 ########################################
@@ -1134,6 +1161,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "sophia_clip_stats"):
+                    stats = opt.sophia_clip_stats()
+                    if stats:
+                        wandb.log(prefixed("train/sophia_clip", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
