@@ -22,6 +22,15 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+# Per-block NS iter schedules (#543) produce up to ~7 distinct ns_iters values
+# across ~3 Muon matrix shapes, which means up to ~21 unique torch.compile
+# graph keys for `muon_update`. The default dynamo cache_size_limit is 8, so
+# we raise it to avoid mid-training recompilation eviction. Uniform/baseline
+# stack uses ~6 keys; safely covered.
+torch._dynamo.config.cache_size_limit = max(
+    getattr(torch._dynamo.config, "cache_size_limit", 8), 64
+)
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
@@ -534,6 +543,72 @@ NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_M
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
+# Per-block NS iteration allocation (#543). The PR posits that NS convergence
+# depends on the input singular spectrum, which differs systematically by block
+# shape (tall MLP fc, square attn projections, wide MLP proj). Reallocating the
+# NS budget across blocks may Pareto-improve over a uniform NS=12.
+#   - uniform: every Muon param uses NANOGPT_NS_ITERS (legacy default).
+#   - aspect:  per-param base = clip(round(NS_BASE * aspect**0.3), 8, 16),
+#              aspect = max(m,n)/min(m,n) over the matrix dims.
+#   - manual_typeA: attn.proj=10, attn.{q,k,v}=12, mlp.fc=14, mlp.proj=12.
+#   - manual_typeB: attn.proj=10, attn.{q,k,v}=12, mlp.fc=16, mlp.proj=14.
+# Cooldown iters are scaled by the same per-param ratio, i.e.
+# per_param_cooldown = round(NS_COOLDOWN * per_param_base / NS_BASE).
+NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE = os.environ.get(
+    "NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE", "uniform"
+)
+_VALID_NS_PER_BLOCK_SCHEDULES = ("uniform", "aspect", "manual_typeA", "manual_typeB")
+if NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE not in _VALID_NS_PER_BLOCK_SCHEDULES:
+    raise ValueError(
+        f"NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE={NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE!r}, "
+        f"must be one of {_VALID_NS_PER_BLOCK_SCHEDULES}"
+    )
+
+
+def ns_iters_for_param(name: str, shape: tuple, base: int) -> int:
+    """Per-param NS iter count under NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE.
+
+    `name` is the named-parameter path (e.g. 'blocks.0.attn.q.weight').
+    `shape` is the parameter shape; the last two dims are treated as the matrix
+    dims (this matches `muon_update`'s `grad.size(-2)/grad.size(-1)` usage).
+    `base` is NANOGPT_NS_ITERS or NANOGPT_NS_ITERS_COOLDOWN depending on phase.
+    """
+    sched = NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE
+    if base <= 0:
+        return base
+    if sched == "uniform":
+        return base
+    m, n = shape[-2], shape[-1]
+    aspect = max(m, n) / min(m, n) if min(m, n) > 0 else 1.0
+    if sched == "aspect":
+        return max(8, min(16, round(base * (aspect ** 0.3))))
+    # manual_typeA / manual_typeB: pattern matched on the named-parameter path.
+    # This codebase splits qkv into separate q/k/v linears, all (768,768)
+    # square in GPT-2-small. The PR's manual schedules use the same per-role
+    # iter counts whether attn-input is fused or split, so q/k/v share the
+    # 'qkv' bucket.
+    if sched == "manual_typeA":
+        if "attn.proj" in name:
+            return 10
+        if "attn.q" in name or "attn.k" in name or "attn.v" in name:
+            return 12
+        if "mlp.fc" in name:
+            return 14
+        if "mlp.proj" in name:
+            return 12
+        return base
+    if sched == "manual_typeB":
+        if "attn.proj" in name:
+            return 10
+        if "attn.q" in name or "attn.k" in name or "attn.v" in name:
+            return 12
+        if "mlp.fc" in name:
+            return 16
+        if "mlp.proj" in name:
+            return 14
+        return base
+    return base
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -651,6 +726,11 @@ class Muon(torch.optim.Optimizer):
         # Step-dependent NS iteration count. Set by the training loop before each step()
         # using `set_ns_iters_this_step()`. Defaults to the static NS_ITERS env var.
         self.ns_iters_this_step = NS_ITERS
+        # Optional per-param override (#543). Maps id(param) -> ns_iters for the
+        # current step. Set by the training loop before each step() via
+        # `set_per_param_ns_iters_this_step()`. When None, all params use the
+        # scalar `ns_iters_this_step` (legacy uniform behaviour).
+        self.per_param_ns_iters: dict[int, int] | None = None
         # Optional reference to the parameter whose orthogonalized update we
         # log spectral statistics for (e.g. blocks[0].attn.q.weight). When set,
         # `step()` populates `self.spectral_stats` with svd-based metrics that
@@ -661,11 +741,20 @@ class Muon(torch.optim.Optimizer):
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
 
+    def set_per_param_ns_iters_this_step(self, per_param: dict[int, int] | None) -> None:
+        """Set per-parameter NS iter counts for the next step().
+
+        Pass `None` to revert to the scalar `ns_iters_this_step` for all params.
+        Keys are `id(param)`. Missing params fall back to `ns_iters_this_step`.
+        """
+        self.per_param_ns_iters = per_param
+
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        ns_iters = self.ns_iters_this_step
+        ns_iters_default = self.ns_iters_this_step
+        per_param = self.per_param_ns_iters
         spectral_target = self.spectral_telemetry_param
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
@@ -680,6 +769,11 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    ns_iters = (
+                        per_param.get(id(p), ns_iters_default)
+                        if per_param is not None
+                        else ns_iters_default
+                    )
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
@@ -752,6 +846,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"NS_ITERS_PER_BLOCK_SCHEDULE: {NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE} (base={NS_ITERS}, cooldown={NS_ITERS_COOLDOWN})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +903,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_ns_iters_per_block_schedule": NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE,
         },
     )
 
@@ -851,6 +948,57 @@ for trial_idx in range(args.num_trials):
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
+    # Per-param NS iter base/cooldown precomputation (#543).
+    # Build id(param)->name map restricted to Muon's parameter set, then derive
+    # per-param base and cooldown iter counts under the configured schedule.
+    muon_param_set = {id(p) for g in optimizer2.param_groups for p in g["params"]}
+    muon_param_names = {
+        id(p): n for n, p in model.named_parameters() if id(p) in muon_param_set
+    }
+    muon_param_base_iters: dict[int, int] = {}
+    muon_param_cooldown_iters: dict[int, int] = {}
+    muon_param_shape: dict[int, tuple] = {}
+    # Cooldown iters are scaled by the same per-param ratio as base so the
+    # cooldown boost (NS_ITERS_COOLDOWN / NS_ITERS) is preserved per block.
+    # This matters because the merged stack relies on the NS=16 cooldown for a
+    # significant fraction of its val/loss win; without the ratio scaling the
+    # manual schedules would simply lose that boost.
+    cd_ratio = (NS_ITERS_COOLDOWN / NS_ITERS) if (NS_ITERS_COOLDOWN > 0 and NS_ITERS > 0) else 0.0
+    for group in optimizer2.param_groups:
+        for p in group["params"]:
+            name = muon_param_names.get(id(p), "")
+            shape = tuple(p.shape)
+            muon_param_shape[id(p)] = shape
+            base = ns_iters_for_param(name, shape, NS_ITERS)
+            muon_param_base_iters[id(p)] = base
+            if cd_ratio > 0:
+                muon_param_cooldown_iters[id(p)] = max(1, round(base * cd_ratio))
+            else:
+                muon_param_cooldown_iters[id(p)] = 0
+    if dist.get_rank() == 0:
+        # One-time per-block summary so we can verify name matching and ratios.
+        # Print one example per role; suppress duplicates that share the same
+        # name suffix to keep the log readable for 12-layer models.
+        print0(
+            f"NS_PER_BLOCK assignment for schedule={NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE} "
+            f"(base={NS_ITERS}, cooldown={NS_ITERS_COOLDOWN}):",
+            console=True,
+        )
+        seen_roles: set[str] = set()
+        for group in optimizer2.param_groups:
+            for p in group["params"]:
+                name = muon_param_names.get(id(p), "<unknown>")
+                # Use the last two components as the 'role' (e.g. attn.q.weight).
+                role = ".".join(name.split(".")[-3:]) if name else "<unknown>"
+                if role in seen_roles:
+                    continue
+                seen_roles.add(role)
+                base = muon_param_base_iters[id(p)]
+                cd = muon_param_cooldown_iters[id(p)]
+                print0(
+                    f"  {name} shape={tuple(p.shape)} base_iters={base} cooldown_iters={cd}",
+                    console=True,
+                )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1026,6 +1174,16 @@ for trial_idx in range(args.num_trials):
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
         )
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        # Per-param NS iters under PER_BLOCK_SCHEDULE (#543). For 'uniform' we
+        # still build the dict so logging works consistently; the values just
+        # equal the scalar `ns_iters_this_step`.
+        per_param_iters_this_step: dict[int, int] = {}
+        for pid, base in muon_param_base_iters.items():
+            per_param_iters_this_step[pid] = get_ns_iters(
+                step, train_steps, base, muon_param_cooldown_iters[pid],
+                NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
+            )
+        optimizer2.set_per_param_ns_iters_this_step(per_param_iters_this_step)
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
@@ -1089,6 +1247,29 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Per-block-role NS-iter telemetry (#543). Emit one metric per role
+            # using the first matching named parameter (e.g. blocks.0.attn.q.weight
+            # for attn_q). Also emit min/max/mean across all Muon params for the
+            # overall iter spend.
+            role_patterns = (
+                ("attn_q", lambda n: "attn.q." in n),
+                ("attn_k", lambda n: "attn.k." in n),
+                ("attn_v", lambda n: "attn.v." in n),
+                ("attn_proj", lambda n: "attn.proj." in n),
+                ("mlp_fc", lambda n: "mlp.fc." in n),
+                ("mlp_proj", lambda n: "mlp.proj." in n),
+            )
+            for role, match in role_patterns:
+                for pid, name in muon_param_names.items():
+                    if match(name) and pid in per_param_iters_this_step:
+                        ns_metrics[f"train/ns_schedule/iters_{role}"] = per_param_iters_this_step[pid]
+                        break
+            if per_param_iters_this_step:
+                vals = list(per_param_iters_this_step.values())
+                ns_metrics["train/ns_schedule/iters_per_param_min"] = min(vals)
+                ns_metrics["train/ns_schedule/iters_per_param_max"] = max(vals)
+                ns_metrics["train/ns_schedule/iters_per_param_mean"] = sum(vals) / len(vals)
+                ns_metrics["train/ns_schedule/iters_per_param_sum"] = sum(vals)
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
