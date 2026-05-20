@@ -37,6 +37,13 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Sub-MLP LR partition (PR #535) — partitions body-Muon over MLP c_fc (expansion, dim→4d)
+# vs c_proj (contraction, 4d→dim). Centered geometric mean preserved: sqrt(1.20*0.80)≈0.98.
+# Arm A: MULT_CFC=1.20, MULT_CPROJ=0.80 (c_fc-heavy: expansion gets more LR).
+# Arm B: MULT_CFC=0.80, MULT_CPROJ=1.20 (c_proj-heavy: contraction gets more LR).
+MULT_CFC = 0.80
+MULT_CPROJ = 1.20
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -704,6 +711,10 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # Sub-MLP LR partition (PR #535).
+            "sub_mlp_partition": True,
+            "mult_cfc": MULT_CFC,
+            "mult_cproj": MULT_CPROJ,
         },
     )
 
@@ -739,10 +750,33 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    # Body-Muon partitioned by MLP sub-projection (PR #535).
+    BODY_MUON_LR = 0.035
+    BODY_MUON_WD = 0.025
+    cfc_params, cproj_params, other_body_params = [], [], []
+    for name, p in model.blocks.named_parameters():
+        if p.ndim < 2:
+            continue
+        if ".mlp.fc." in name:
+            cfc_params.append(p)
+        elif ".mlp.proj." in name:
+            cproj_params.append(p)
+        else:
+            other_body_params.append(p)
+    optimizer2_cfc = Muon(cfc_params, lr=BODY_MUON_LR * MULT_CFC, weight_decay=BODY_MUON_WD,
+                          beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_cproj = Muon(cproj_params, lr=BODY_MUON_LR * MULT_CPROJ, weight_decay=BODY_MUON_WD,
+                            beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_other = Muon(other_body_params, lr=BODY_MUON_LR, weight_decay=BODY_MUON_WD,
+                            beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_cfc.param_groups[0]["name"] = "muon_cfc"
+    optimizer2_cproj.param_groups[0]["name"] = "muon_cproj"
+    optimizer2_other.param_groups[0]["name"] = "muon_other"
+    body_muon_optimizers = [optimizer2_cfc, optimizer2_cproj, optimizer2_other]
+    expected_body_muon = {p for p in model.blocks.parameters() if p.ndim >= 2}
+    assert {p for opt in body_muon_optimizers for g in opt.param_groups for p in g["params"]} == expected_body_muon, \
+        "body-Muon partition must cover exactly the original body-Muon param set"
+    optimizers = [optimizer1] + body_muon_optimizers
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -889,18 +923,33 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
-            floor_diag = getattr(optimizer2, "_floor_diag", None)
-            if floor_diag is not None:
-                eligible = floor_diag.get("eligible", 0)
-                fired = floor_diag.get("fired", 0)
-                wandb.log({
-                    "trial": trial_idx,
-                    "train/step": train_step,
-                    "train/uw_floor/eligible": eligible,
-                    "train/uw_floor/fired": fired,
-                    "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
-                }, step=wandb_step)
-            polar_diag = getattr(optimizer2, "_polar_diag", None)
+            # Aggregate floor diagnostics across the three partitioned body-Muon optimizers (PR #535).
+            floor_metrics = {"trial": trial_idx, "train/step": train_step}
+            fired_total = 0
+            eligible_total = 0
+            for label, body_opt in (("cfc", optimizer2_cfc), ("cproj", optimizer2_cproj), ("other", optimizer2_other)):
+                fd = getattr(body_opt, "_floor_diag", None)
+                if fd is None:
+                    continue
+                f = fd.get("fired", 0)
+                e = fd.get("eligible", 0)
+                fired_total += f
+                eligible_total += e
+                floor_metrics[f"train/uw_floor_{label}/eligible"] = e
+                floor_metrics[f"train/uw_floor_{label}/fired"] = f
+                floor_metrics[f"train/uw_floor_{label}/fired_fraction"] = (f / e) if e > 0 else 0.0
+            if eligible_total > 0:
+                floor_metrics["train/uw_floor/eligible"] = eligible_total
+                floor_metrics["train/uw_floor/fired"] = fired_total
+                floor_metrics["train/uw_floor/fired_fraction"] = fired_total / eligible_total
+                wandb.log(floor_metrics, step=wandb_step)
+            # Use first body-Muon optimizer that produced a polar residual this step.
+            polar_diag = None
+            for body_opt in body_muon_optimizers:
+                pd = getattr(body_opt, "_polar_diag", None)
+                if pd and "residual" in pd:
+                    polar_diag = pd
+                    break
             if polar_diag and "residual" in polar_diag:
                 wandb.log({
                     "trial": trial_idx,
@@ -921,11 +970,21 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
-            if spec:
-                spec["trial"] = trial_idx
-                spec["train/step"] = train_step
-                wandb.log(spec, step=wandb_step)
+            # Log spectral diagnostics per partition (PR #535).
+            combined_spec: dict = {}
+            for label, body_opt in (("cfc", optimizer2_cfc), ("cproj", optimizer2_cproj), ("other", optimizer2_other)):
+                spec = pmuon_spectral_diag(body_opt, PMUON_GAMMA)
+                if spec:
+                    for k, v in spec.items():
+                        # Reprefix pmuon/* → pmuon_<label>/*
+                        if k.startswith("pmuon/"):
+                            combined_spec[f"pmuon_{label}/{k[len('pmuon/'):]}"] = v
+                        else:
+                            combined_spec[k] = v
+            if combined_spec:
+                combined_spec["trial"] = trial_idx
+                combined_spec["train/step"] = train_step
+                wandb.log(combined_spec, step=wandb_step)
         if dist.get_rank() == 0 and histogram_due:
             log_histograms(
                 model=model,
