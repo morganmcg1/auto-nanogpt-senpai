@@ -71,6 +71,15 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H16: Cautious AdamW wrapper (Liang et al. 2024, arXiv:2411.16085).
+    # When --aux_cautious=1, the aux AdamW step direction is masked by
+    # gradient/Adam-update sign agreement before being applied.
+    parser.add_argument("--aux_cautious", type=int, default=int(os.environ.get("AUX_CAUTIOUS", "0")),
+                        help="0=standard AdamW (default, no-op), 1=Cautious AdamW wrapper "
+                             "masking updates by sign agreement with current grad.")
+    parser.add_argument("--aux_cautious_normalize", type=int, default=int(os.environ.get("AUX_CAUTIOUS_NORMALIZE", "1")),
+                        help="1=divide masked update by mask.mean() (preserves step magnitude), "
+                             "0=apply raw mask (effective LR shrinks with mask fraction).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +678,80 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class CautiousAdamW(torch.optim.AdamW):
+    """Cautious AdamW wrapper (Liang et al. 2024, arXiv:2411.16085).
+
+    After a standard AdamW step computes delta = -lr * (m_hat / (sqrt(v_hat) + eps)),
+    we mask the delta so it is only applied on coordinates where the Adam direction
+    agrees with the current gradient sign. Sign-agreement condition (gradient
+    descent moves opposite to the gradient):
+
+        mask = (delta * g < 0).to(delta.dtype)
+
+    Equivalently `(exp_avg * g > 0)` if we computed against the un-negated Adam
+    direction. The two are sign-flipped because delta = -lr * exp_avg / denom.
+
+    The mask is renormalised by `mask.mean()` per-parameter so the expected step
+    magnitude is preserved (otherwise the effective LR shrinks with mask fraction).
+    The second moment `exp_avg_sq` updates for ALL coordinates inside super().step()
+    before the mask is applied — only the parameter update is gated, matching
+    the canonical implementation (Liang et al. 2024, kyleliang919/C-Optim, timm).
+
+    Implementation pattern: snapshot params -> super().step() -> compute delta ->
+    compute mask from delta vs g -> restore params -> add_(delta * mask). This
+    requires fused=False (super().step() must be the Python path). Per-step
+    overhead is ~1-3% wall-clock on aux groups (small fraction of total params).
+    """
+
+    def __init__(self, *args, normalize=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.normalize = normalize
+        # Aggregate stats for telemetry: numerator = sum of masked-coordinate
+        # counts across all params; denominator = sum of param numels.
+        self._last_mask_active = 0
+        self._last_mask_total = 0
+        self._last_mask_frac = 0.0
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        # Snapshot gradients and parameters BEFORE super().step() consumes them.
+        # The gradient snapshot must come first because the fused/foreach paths
+        # may modify p.grad in-place (e.g., zero it). We clone to a separate
+        # buffer so the mask sees the un-mutated gradient.
+        snap = []
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is not None:
+                    snap.append((p, p.grad.detach().clone(),
+                                 p.data.detach().clone()))
+
+        loss = super().step(closure)
+
+        active_count = 0
+        total_count = 0
+        for p, g, p_before in snap:
+            delta = p.data - p_before
+            # Sign-agreement: gradient descent moves opposite to gradient, so
+            # `delta * g < 0` means the optimizer's direction agrees with the
+            # current gradient signal — keep that coordinate.
+            mask = (delta * g < 0).to(delta.dtype)
+            active = mask.sum()
+            active_count += int(active.item())
+            total_count += mask.numel()
+            if self.normalize:
+                # Per-tensor normalization. clamp to avoid /0 when mask is all
+                # zeros (degenerate case; in practice mask_frac ~ 0.5).
+                denom = mask.mean().clamp(min=1e-8)
+                mask = mask / denom
+            # Undo the full Adam update then add the masked update.
+            p.data.copy_(p_before).add_(delta * mask)
+        if total_count > 0:
+            self._last_mask_active = active_count
+            self._last_mask_total = total_count
+            self._last_mask_frac = active_count / total_count
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +796,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_cautious:
+    print0(f"Aux optimizer = CAUTIOUS AdamW (Liang 2024) normalize={bool(args.aux_cautious_normalize)} "
+           f"eps={args.aux_adamw_eps}; fused=False due to subclass step override.", console=True)
+else:
+    print0(f"Aux optimizer = standard AdamW eps={args.aux_adamw_eps} fused=True.", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +854,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_cautious": args.aux_cautious,
+            "aux_cautious_normalize": args.aux_cautious_normalize,
         },
     )
 
@@ -812,10 +902,21 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    aux_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                  dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                  dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_cautious:
+        # Cautious wrapper subclasses AdamW and overrides step(); fused=False so
+        # super().step() runs the Python path and p.data updates are observable
+        # for the snapshot/restore mask application.
+        optimizer1 = CautiousAdamW(aux_groups,
+                                   betas=(0.8, 0.95), eps=args.aux_adamw_eps,
+                                   weight_decay=0, fused=False,
+                                   normalize=bool(args.aux_cautious_normalize))
+    else:
+        optimizer1 = AdamW(aux_groups,
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps,
+                           weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1038,6 +1139,14 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                if isinstance(opt, CautiousAdamW) and telemetry_due:
+                    # Mask fraction = unmasked coords / total coords across all aux
+                    # params for the last step. Expected ~0.5 at init (sign agreement
+                    # of two near-random signed tensors); deviations to 0 or 1
+                    # indicate a sign bug or that the mask is degenerate.
+                    muonh_metrics["train/cautious/mask_frac"] = opt._last_mask_frac
+                    muonh_metrics["train/cautious/mask_active_count"] = opt._last_mask_active
+                    muonh_metrics["train/cautious/mask_total_count"] = opt._last_mask_total
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
