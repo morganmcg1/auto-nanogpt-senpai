@@ -467,6 +467,18 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 
+# Sophia-G (Liu et al 2023, arxiv 2305.14342): Hessian-clipped second-order
+# variant of AdamW. Uses Gauss-Newton-Bartlett curvature estimate (h = E[g^2]
+# with longer beta2) and clipped per-element update. When enabled the AdamW
+# group on embed + lm_head + scalars is swapped for SophiaG; Muon block params
+# are unaffected.
+SOPHIA_ENABLED = int(os.environ.get("SOPHIA_ENABLED", "0"))
+SOPHIA_UPDATE_PERIOD = int(os.environ.get("SOPHIA_UPDATE_PERIOD", "10"))
+SOPHIA_RHO = float(os.environ.get("SOPHIA_RHO", "0.03"))
+SOPHIA_LR_SCALE = float(os.environ.get("SOPHIA_LR_SCALE", "2.0"))
+SOPHIA_BETA1 = float(os.environ.get("SOPHIA_BETA1", "0.965"))
+SOPHIA_BETA2 = float(os.environ.get("SOPHIA_BETA2", "0.99"))
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -775,6 +787,56 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class SophiaG(torch.optim.Optimizer):
+    """Sophia-G (Liu et al 2023, arxiv 2305.14342).
+
+    Second-order AdamW variant: keeps the m-direction unchanged but replaces
+    the v-denominator with a slow EMA of g^2 (Gauss-Newton-Bartlett curvature
+    estimate) and clamps the per-element ratio m / max(h, eps) to [-rho, +rho]
+    before applying lr. h is refreshed only every ``update_period`` steps to
+    keep step-time overhead minimal.
+    """
+
+    def __init__(self, params, lr=1e-4, betas=(0.965, 0.99), rho=0.03,
+                 weight_decay=0.0, update_period=10, eps=1e-12):
+        defaults = dict(lr=lr, betas=betas, rho=rho, weight_decay=weight_decay,
+                        update_period=update_period, eps=eps)
+        super().__init__(params, defaults)
+        self._global_step = 0
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        self._global_step += 1
+        do_hessian_update = (self._global_step % self.param_groups[0]["update_period"] == 0)
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            rho = group["rho"]
+            eps = group["eps"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["hessian"] = torch.zeros_like(p)
+                state["step"] += 1
+                m = state["exp_avg"]
+                h = state["hessian"]
+                m.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                if do_hessian_update:
+                    h.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                ratio = (m / h.clamp(min=eps)).clamp_(-rho, rho)
+                p.add_(ratio, alpha=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -864,7 +926,13 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
-            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "optimizer/sophia_enabled": SOPHIA_ENABLED,
+            "optimizer/sophia_update_period": SOPHIA_UPDATE_PERIOD,
+            "optimizer/sophia_rho": SOPHIA_RHO,
+            "optimizer/sophia_lr_scale": SOPHIA_LR_SCALE,
+            "optimizer/sophia_beta1": SOPHIA_BETA1,
+            "optimizer/sophia_beta2": SOPHIA_BETA2,
+            "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)" + (" + sophia-g" if SOPHIA_ENABLED else ""),
         },
     )
 
@@ -896,10 +964,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if SOPHIA_ENABLED:
+        optimizer1 = SophiaG(
+            [dict(params=[model.embed.weight], lr=0.3 * SOPHIA_LR_SCALE, name="adam_embed", weight_decay=WD_AUX),
+             dict(params=[model.proj.weight], lr=(1/320) * SOPHIA_LR_SCALE, name="adam_lm_head", weight_decay=WD_AUX),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * SOPHIA_LR_SCALE, name="adam_scalars")],
+            betas=(SOPHIA_BETA1, SOPHIA_BETA2), rho=SOPHIA_RHO, weight_decay=0,
+            update_period=SOPHIA_UPDATE_PERIOD,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
