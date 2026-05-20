@@ -3,6 +3,55 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 13:05 UTC — PR #487: Cooldown-NS pruning ablation (tanjiro) — CLOSED productive-NULL [paired-pod n=3 confirmed]
+
+- Branch: `g1r4-tanjiro/cooldown-ns-pruning`
+- Hypothesis: At least one of the three NS-cooldown sub-stack components (NS_ITERS_COOLDOWN=16 from #176, NS_COOLDOWN_SHAPE=late_peak from #285, NS_COEF_SCHEDULE=linear_ramp_down from #290) is now redundant given the later merges. Drop one per arm (revert to compiled-in default), testing if any is now redundant. First *subtractive* experiment this cycle.
+- Code: no changes; pure env-var overrides reverting to compiled-in defaults.
+
+**Sweep N=1 results (drift gate A PASS):**
+
+| Arm | Drop | val | Δ vs A |
+|---|---|---:|---:|
+| A | none (control) | 3.27198 | 0.0 |
+| **B** | **NS_ITERS_COOLDOWN** | **3.26813** | **−0.00385** ⭐ |
+| C | NS_COOLDOWN_SHAPE | 3.27278 | +0.00080 (null) |
+| D | NS_COEF_SCHEDULE | 3.27264 | +0.00066 (null) |
+
+Arm B's N=1 Δ=−0.00385 was the first sub-baseline winner candidate in many cycles → paired-pod confirmation requested.
+
+**Paired-pod n=3 results (per-pod controlled SENPAI_SEED via commit f347bfa):**
+
+| Pod / seed | Arm A val | Arm B val | Δ_pod (B−A) | W&B A | W&B B |
+|---|---:|---:|---:|---|---|
+| pod 0 / seed 0 | 3.27398 | 3.27338 | −0.00060 | `cemln9ol` | `c0bx4u33` |
+| pod 1 / seed 1 | 3.27240 | 3.27269 | +0.00029 | `8op366oc` | `w6izn6c0` |
+| pod 2 / seed 2 | 3.27129 | 3.27170 | +0.00041 | `x919vhei` | `ayth9jzs` |
+| **n=3 mean** | **3.27256** | **3.27259** | **+0.00003** | — | — |
+
+**Merge-gate verdict (pre-staged advisor 01:05 UTC):**
+
+| Gate | Threshold | Observed | Pass? |
+|---|---|---|---|
+| 1. mean(Δ) ≤ −0.002 | ≤ −0.002 | +0.00003 | ❌ FAIL |
+| 2. mean(val_B) ≤ 3.27174 | ≤ 3.27174 | 3.27259 (+0.00085) | ❌ FAIL |
+| 3. (3.28 − mean) × √3 ≥ 0.004 | ≥ 0.004 | 0.01283 | ✅ PASS |
+
+**Two of three gates fail. CLOSED productive-NULL** per pre-staged rules.
+
+**Analysis:**
+
+- **N=1 Δ=−0.00385 was between-seed noise.** Sweep used unset/default seed initialization for each arm; paired-pod with controlled `SENPAI_SEED` per pod (each pod uses the same seed for both Arm A and Arm B) reveals within-seed Δ split 1−/2+ around mean(Δ)=+0.00003. Magnitude in all three pods ≤ 0.00060, all in productive-null/redundant band.
+- **NS_ITERS_COOLDOWN=16 classification: REDUNDANT** (not improved, not harmful, not load-bearing) at n=3 paired-pod. Same classification as Arms C and D from the sweep (which already landed in productive-null at N=1).
+- **The entire NS-cooldown sub-stack appears individually redundant** when each component is dropped solo. But joint-drop interactions are untested — that's the follow-up.
+- **Mechanism hypothesis falsified**: the "NS_ITERS_COOLDOWN=16 over-orthogonalizes during late-phase low-LR steps and actively harms" prediction predicted a consistent within-pod improvement on drop. Observed: sign-split centered at zero. Mechanism is not operative.
+- **4th cycle precedent for single-seed → paired-pod collapse**: joins #344 (askeladd dual-LR), #351 (askeladd-fern post-cooldown WD), #408 (fern AGC). Pattern is now sufficiently documented that all N=1 wins ≤ ~−0.005 should be paired-pod confirmed regardless of stat-rule status.
+- **33rd productive-null/negative this cycle.**
+
+**Compute summary**: 4 sweep + 6 paired-pod runs × ~1h45m each ≈ ~17h30m total wall time on RTX PRO 6000 Blackwell. No OOMs, no crashes.
+
+**Follow-up**: tanjiro assigned **NS-cooldown joint-pruning ablation** — test whether the *sub-stack as a whole* is load-bearing, even though each component is individually redundant.
+
 ## 2026-05-20 10:15 UTC — PR #530: Nesterov-Muon weight sweep (nezuko) — CLOSED productive-NULL
 
 - Branch: `g1r4-nezuko/nesterov-muon`
