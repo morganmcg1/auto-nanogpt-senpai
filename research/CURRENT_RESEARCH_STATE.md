@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 05:15 UTC
+- **Date:** 2026-05-20 06:20 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -50,16 +50,21 @@ Paired-pod confirmation collapsed pod-0 signal. Final n=3 pooled: mean(val_B)=3.
 Arms B (embed: +0.00163), C (lm_head: +0.00285) regress; D (embed+lm_head: −0.00080) recovers. Non-monotonic: single-group breaks embed/lm_head magnitude balance; combined restores it. D Δ=−0.00080 passes stat-rule on absolute baseline but well short of −0.002 within-pod threshold — productive-null. **22nd productive-null/negative this cycle.** Key finding: aux groups co-evolve as a coupled system, resist single-axis gradient intervention.
 **Follow-up**: fern assigned **#514 β₁ warmup on aux AdamW groups** — first-moment smoothing-rate schedule axis.
 
-### 🔄 fern #514 — AdamW β₁ warmup on aux groups [assigned 21:35 UTC]
+### ✅ fern #514 — AdamW β₁ warmup on aux groups — CLOSED 06:15 UTC productive-NEGATIVE
 
-**Branch:** `g1r4-fern/beta1-warmup`
-**Hypothesis**: Ramp β₁ from a low starting value → 0.8 over first N% of training for all 3 aux AdamW groups (embed, lm_head, scalars). Lower β₁ early = slower first-moment accumulation = less smoothing = more responsive to noisy early gradients. Pairs with WD warmup (#483), embed-LR warmup (#489), NS-iter warmup (#506) — "less constraint early" cluster. First-moment smoothing rate is the one AdamW schedule axis not yet varied dynamically.
-| Arm | NANOGPT_ADAMW_BETA1_WARMUP_START | NANOGPT_ADAMW_BETA1_WARMUP_FRAC | Profile |
-|---|---:|---:|---|
-| A | 0.8 | 0.0 | flat β₁=0.8 (control) |
-| B | 0.6 | 0.05 | β₁ 0.6→0.8 over 167 steps |
-| C | 0.4 | 0.05 | β₁ 0.4→0.8 over 167 steps |
-| D | 0.6 | 0.10 | β₁ 0.6→0.8 over 335 steps |
+Single-seed 4-arm (drift gate A PASS): A=3.27279, B=+0.00135 (null edge), C=+0.00162 (regression), D=+0.00252 (regression). Monotone-ish worsening with warmup aggressiveness. No arm passes stat-rule. **3rd consecutive "less constraint early" closure**: WD warmup (#483 NEGATIVE) + embed-LR warmup (#489 NEGATIVE) + β₁ warmup (#514 NEGATIVE) — bilateral closure across 3 aux-group AdamW schedule axes. Early-training window is uniformly well-tuned across WD/LR/β₁ at merged settings. **28th productive-null/negative this cycle.**
+**Follow-up**: fern assigned **#547 lm_head cooldown SHAPE sweep** — pivot from temporal (warmup) to shape (cooldown) axes.
+
+### 🔄 fern #547 — lm_head cooldown SHAPE sweep [assigned 06:20 UTC]
+
+**Branch:** `g1r4-fern/lm-head-cooldown-shape`
+**Hypothesis**: lm_head cooldown shape has been linear-default the entire cycle; #454 tested only floor variants. Other cooldown shapes (cosine, late_peak, linear_floor) are untested for lm_head specifically. Hypothesis parallels merged shape work: different parameter groups benefit from different cooldown shapes — embed=linear_floor (#235), NS_iter=late_peak (#285), NS_coef=linear_ramp_down (#290). Arm D re-tests #454 Arm B (lm_head linear_floor) as a sweep-internal sanity arm.
+| Arm | NANOGPT_LM_HEAD_COOLDOWN_SHAPE | Profile |
+|---|---|---|
+| A | linear (control) | current baseline |
+| B | cosine | smooth concave decay |
+| C | late_peak | mirrors merged NS shape (flat→sharp drop) |
+| D | linear_floor | floor=0.15 (re-tests #454 Arm B) |
 **ETA full chain:** ~7.3h.
 
 ### 🔄 tanjiro #441 — Logit Z-loss (PaLM style) [assigned 06:49 UTC]
@@ -223,7 +228,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 
 ## Research theme — current cycle
 
-**27 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**28 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -236,13 +241,13 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 1. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
 2. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — Arm C N=1 winner candidate val=3.27163, but within-pod Δ=−0.00119 directional null)
 3. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko)
-4. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
-5. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
-6. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
-7. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
-8. **NEW**: Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+4. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
+5. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
+6. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
+7. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+8. **NEW**: Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
 
-**Stack convergence signal**: 27 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+**Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
 2. **Late-phase cooldown shape**: body Muon LR cooldown shape (#520 thorfinn) — targeting the load-bearing 30% cooldown window.
 3. **Stack simplification** — #487 Arm B (drop NS_ITERS_COOLDOWN) N=1 Δ=−0.00385 first winner candidate in many cycles; paired-pod confirmation in flight. If confirmed, removes #176 from merged stack as redundant under #285/#290.
