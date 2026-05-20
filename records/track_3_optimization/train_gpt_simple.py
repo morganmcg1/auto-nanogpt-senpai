@@ -54,6 +54,12 @@ def parse_args():
     parser.add_argument("--use_outer_optimizer", type=int, default=int(os.environ.get("USE_OUTER_OPTIMIZER", "1")))
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
+    parser.add_argument("--outer_momentum_end", type=float, default=None,
+                        help="If set, linearly ramp outer_momentum from --outer_momentum to this value over the last "
+                             "(1 - outer_momentum_ramp_start_frac) of OUTER steps. Default None = no ramp.")
+    parser.add_argument("--outer_momentum_ramp_start_frac", type=float, default=0.0,
+                        help="Outer-step fraction (0.0-1.0) at which to begin the momentum ramp. Default 0.0 = ramp "
+                             "through entire training. Ignored if --outer_momentum_end is None.")
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
@@ -760,6 +766,8 @@ if dist.get_rank() == 0:
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
+            "muloco_outer_momentum_end": args.outer_momentum_end,
+            "muloco_outer_momentum_ramp_start_frac": args.outer_momentum_ramp_start_frac,
             "muloco_sync_interval": args.sync_interval,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
@@ -1086,6 +1094,21 @@ for trial_idx in range(args.num_trials):
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
+            # Compute schedule-aware outer momentum if ramp configured. The outer step
+            # being applied right now is (outer_applied_steps + 1) since outer_applied_steps
+            # is the count of previously-applied outer steps.
+            current_outer_step_idx = outer_applied_steps + 1
+            total_outer_steps = args.train_steps // args.sync_interval
+            if args.outer_momentum_end is not None:
+                ramp_start_outer = int(total_outer_steps * args.outer_momentum_ramp_start_frac)
+                if current_outer_step_idx <= ramp_start_outer:
+                    scheduled_outer_momentum = args.outer_momentum
+                else:
+                    progress = (current_outer_step_idx - ramp_start_outer) / max(1, total_outer_steps - ramp_start_outer)
+                    progress = min(1.0, max(0.0, progress))
+                    scheduled_outer_momentum = args.outer_momentum + (args.outer_momentum_end - args.outer_momentum) * progress
+            else:
+                scheduled_outer_momentum = args.outer_momentum
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
@@ -1093,9 +1116,9 @@ for trial_idx in range(args.num_trials):
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                    outer_velocity[n].mul_(scheduled_outer_momentum).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                                 (scheduled_outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
@@ -1111,6 +1134,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/scheduled_outer_momentum": float(scheduled_outer_momentum),
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
