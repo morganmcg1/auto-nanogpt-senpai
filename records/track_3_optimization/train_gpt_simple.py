@@ -71,11 +71,25 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # SWA on aux AdamW groups (embed, lm_head, scalars): take a running uniform
+    # mean of params over the last (1 - aux_swa_start_frac) of training. Terminal
+    # val/loss is reported at the SWA-averaged weights when SWA is active.
+    # 0.0 disables (no-op, bit-identical baseline). MuonH-managed block params
+    # are NOT averaged — averaging orthogonalized weights does not preserve
+    # orthogonality.
+    parser.add_argument("--aux_swa_start_frac", type=float, default=float(os.environ.get("AUX_SWA_START_FRAC", "0.0")),
+                        help="Fraction of training at which to start SWA averaging on aux groups. 0=off, 0.9=last 10%%.")
+    parser.add_argument("--aux_swa_every", type=int, default=int(os.environ.get("AUX_SWA_EVERY", "1")),
+                        help="Take SWA snapshot every N optimizer steps once the SWA window starts.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not (0.0 <= args.aux_swa_start_frac < 1.0):
+        raise ValueError(f"--aux_swa_start_frac must be in [0, 1), got {args.aux_swa_start_frac}")
+    if args.aux_swa_every < 1:
+        raise ValueError(f"--aux_swa_every must be >= 1, got {args.aux_swa_every}")
     return args
 
 
@@ -713,6 +727,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_swa_start_frac > 0:
+    print0(f"SWA ENABLED on aux AdamW groups: start_frac={args.aux_swa_start_frac} every={args.aux_swa_every}", console=True)
+else:
+    print0("SWA DISABLED on aux AdamW groups (start_frac=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +784,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_swa_start_frac": args.aux_swa_start_frac,
+            "aux_swa_every": args.aux_swa_every,
         },
     )
 
@@ -902,6 +922,18 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # SWA (Stochastic Weight Averaging, Izmailov et al. 2018) on aux AdamW groups.
+    # Snapshot the aux params (embed, lm_head, scalars) into a running uniform mean
+    # every aux_swa_every steps, starting at train_step = int(train_steps * frac).
+    # First snapshot initializes swa_state from current aux weights (swa_count=1);
+    # subsequent snapshots use incremental mean x_n = x_{n-1} + (p - x_{n-1}) / n.
+    # State held in fp32 (~309 MB for embed+lm_head) to avoid bf16 averaging bias.
+    # Disabled (no-op) when aux_swa_start_frac == 0.
+    swa_enabled = args.aux_swa_start_frac > 0.0
+    swa_start_step = int(train_steps * args.aux_swa_start_frac) if swa_enabled else None
+    swa_state: dict[int, torch.Tensor] = {}
+    swa_count = 0
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -926,14 +958,54 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
-            val_loss = torch.zeros((), device=device)
-            with torch.no_grad():
-                assert len(val_inputs) % mbs == 0
-                for i in range(len(val_inputs) // mbs):
-                    val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
-            dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
-            val_loss /= val_tokens
-            val_loss_float = float(val_loss.item())
+
+            def _run_val_pass() -> float:
+                vl = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        vl += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(vl, op=dist.ReduceOp.SUM)
+                vl /= val_tokens
+                return float(vl.item())
+
+            # Terminal SWA evaluation: swap aux weights to SWA-averaged before the
+            # primary val pass so the reported val/loss reflects the SWA estimator.
+            # Also compute iterate-weight val as a diagnostic (val/iterate_loss)
+            # and the SWA-vs-iterate L2 distance to sanity-check the SWA window.
+            swa_terminal = (step == train_steps and swa_enabled and swa_count >= 1)
+            iterate_backup: dict[int, torch.Tensor] = {}
+            swa_iterate_rms = None
+            if swa_terminal:
+                for group in optimizer1.param_groups:
+                    for p in group["params"]:
+                        iterate_backup[id(p)] = p.detach().clone()
+                # Compute SWA-vs-iterate RMS distance (fp32) before swapping.
+                with torch.no_grad():
+                    diff_sq_sum = 0.0
+                    diff_count = 0
+                    for group in optimizer1.param_groups:
+                        for p in group["params"]:
+                            d = swa_state[id(p)] - iterate_backup[id(p)].float()
+                            diff_sq_sum += float(d.square().sum().item())
+                            diff_count += d.numel()
+                    swa_iterate_rms = (diff_sq_sum / max(1, diff_count)) ** 0.5
+                with torch.no_grad():
+                    for group in optimizer1.param_groups:
+                        for p in group["params"]:
+                            p.data.copy_(swa_state[id(p)])
+
+            val_loss_float = _run_val_pass()
+
+            iterate_val_float = None
+            if swa_terminal:
+                # Restore iterate weights for the diagnostic pass.
+                with torch.no_grad():
+                    for group in optimizer1.param_groups:
+                        for p in group["params"]:
+                            p.data.copy_(iterate_backup[id(p)])
+                iterate_val_float = _run_val_pass()
+
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -954,10 +1026,24 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if swa_terminal:
+                    metrics["val/swa_loss"] = val_loss_float
+                    metrics["val/iterate_loss"] = iterate_val_float
+                    metrics["val/swa_count_final"] = swa_count
+                    metrics["val/swa_minus_iterate_rms"] = swa_iterate_rms
+                    metrics["val/swa_minus_iterate_loss"] = val_loss_float - iterate_val_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            if swa_terminal:
+                print0(f"step:{step}/{train_steps} val_loss(swa):{val_loss_float:.5f}"
+                       f" val_loss(iterate):{iterate_val_float:.5f}"
+                       f" swa_count:{swa_count} swa_minus_iterate_rms:{swa_iterate_rms:.6e}"
+                       f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms",
+                       console=True)
+            else:
+                print0(f"step:{step}/{train_steps} val_loss:{val_loss_float:.5f}"
+                       f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms",
+                       console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1111,6 +1197,32 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                }, step=wandb_step)
+
+        # SWA snapshot on aux AdamW params. Placed AFTER the MuLoCo outer step so
+        # the snapshot reflects the state next-iter validation will see (MuLoCo
+        # touches aux params too). Snapshot at train_step >= swa_start_step every
+        # aux_swa_every inner steps. First snapshot initializes swa_state from
+        # current weights (swa_count=1); subsequent snapshots use the incremental
+        # running mean. fp32 storage avoids the bf16-averaging bias on embed.
+        if swa_enabled and train_step >= swa_start_step and (train_step - swa_start_step) % args.aux_swa_every == 0:
+            swa_count += 1
+            with torch.no_grad():
+                if swa_count == 1:
+                    for group in optimizer1.param_groups:
+                        for p in group["params"]:
+                            swa_state[id(p)] = p.detach().float().clone()
+                else:
+                    factor = 1.0 / swa_count
+                    for group in optimizer1.param_groups:
+                        for p in group["params"]:
+                            swa_state[id(p)].add_(p.detach().float() - swa_state[id(p)], alpha=factor)
+            if dist.get_rank() == 0 and (telemetry_due or train_step == train_steps):
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/swa/count": swa_count,
+                    "train/swa/window_started": int(True),
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
