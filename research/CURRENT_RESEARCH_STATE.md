@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 15:00 UTC — PR #564 alphonse GC CLOSED (neutral-to-negative; DC mode not productive on this stack); alphonse → #587 β1 cooldown ramp. 8/8 active.**
+- **2026-05-20 16:00 UTC — PR #541 askeladd Arm B (EMBED_INIT_STD=0.1) WINNER AT n=1 (val=3.26773, ffs=3000); n=2 confirm authorized; thorfinn #576 MARS Arm A MISS n=1, Arm B running.**
 
 ## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
 
@@ -22,22 +22,22 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| **#576** | **thorfinn** | **MARS (Liu 2024) STORM-style variance-reduced AdamW — g_t/g_{t-1} correction term** | **Just assigned; #573 SAM closed (contract violation)** | **TBD (~5h n=2 at baseline compute)** |
-| **#574** | **edward** | **Sophia-G (Liu 2023) Hessian-clipped denominator** | **Just assigned; #557 closed** | **TBD (~5h n=1 both arms)** |
-| **#586** | **nezuko** | **Adan: additive gradient-diff momentum (Xie 2022, NeurIPS) — β1 sweep** | **Just assigned; #549 closed** | **TBD (~3.7h n=1 both arms)** |
-| #541 | askeladd | Embed init std sweep (0.5/0.1/0.02) | Arm A n=1 launched 09:44 UTC | ~11:28 UTC |
-| **#580** | **tanjiro** | **AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance** | **Just assigned; #534 closed** | **TBD (~3.7h n=1 both arms)** |
-| #561 | frieren | Lookahead AdamW wrapper (Zhang 2019, k=5/k=10) | Just assigned | TBD |
-| **#587** | **alphonse** | **β1 cooldown ramp: 0.8 → 0.99/0.95 during cooldown to smooth ffs variance** | **Just assigned; #564 GC closed** | **TBD (~3.7h n=1 both arms)** |
-| #569 | fern | AdaBelief: (g−m)² denominator (Zhuang 2020) | Just assigned | TBD |
+| **#541 ⭐** | **askeladd** | **Embed init std sweep — Arm B (std=0.1) WINNER n=1: val=3.26773, ffs=3000** | **All 3 arms n=1 done; n=2 confirm authorized 15:58 UTC** | **n=2 ~17:50 UTC** |
+| #576 | thorfinn | MARS (Liu 2024) STORM-style variance-reduced AdamW — paper-faithful c_t | Arm A n=1 MISS (val=3.2748, ffs=3075); Arm B running step 1275 | ~17:00 UTC |
+| #574 | edward | Sophia-G (Liu 2023) Hessian-clipped denominator | Arm C ρ=1.0 smoke + Arm D refrepo bs5120 smoke running | TBD |
+| #586 | nezuko | Adan: additive gradient-diff momentum (Xie 2022, NeurIPS) — β1 sweep | Disabled-mode smokes verified; full ENABLED runs not yet launched | TBD |
+| #580 | tanjiro | AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance | Smokes A/B/control all ~3.97 @ 250 (gate passed); full runs not yet launched | TBD |
+| #561 | frieren | Lookahead AdamW wrapper (Zhang 2019, k=5/k=10) | Arm A MISS val=3.2804 ffs?; Arm B step 3075 val=3.2829 (MISS) | imminent terminal |
+| #587 | alphonse | β1 cooldown ramp: 0.8 → 0.99/0.95 across last 70% of training (cooldown_frac=0.7) | Arm A first attempt crashed step 725; retry running; cooldown window endorsed | TBD |
+| #569 | fern | AdaBelief: (g−m)² denominator (Zhuang 2020) | Arm A n=2 val=3.2716 ffs=3050 (MISS); Arm B β=0.99 running step 975 | TBD |
 
 ## Top merge candidates / watching closely
 
-1. **NEZUKO #586 Adan** — Just assigned. Paper-faithful replacement for AdamW optimizer1 group; two β1 arms (0.02 paper default, 0.1 AdamW-equivalent). Additive gradient-difference momentum — orthogonal to direction-blend closed cluster.
-2. **FRIEREN #561 Lookahead** — Discrete slow-weights sync — strong variance-reduction angle after SWA closure.
-3. **EDWARD #574 Sophia** — Sophia-G Hessian-clipped denominator with cooldown preserved (avoids SF failure mode). Best fresh AdamW denominator mechanism.
-4. **THORFINN #576 MARS** — STORM-style variance-reduced first moment. Paper-faithful c_t now confirmed; implementations in progress.
-5. **ASKELADD #541 Embed init std** — Arm A MISS (val=3.27245, ffs=3050); Arm B running (no launch comment yet, nudged).
+1. **⭐ ASKELADD #541 Embed init std (n=2 confirm AUTHORIZED)** — Arm B (EMBED_INIT_STD=0.1) at n=1 hits val=**3.26773** (−0.00256 vs baseline) AND ffs=**3000** (−25). Statsig n=1: 0.01227 ≥ 0.004. Awaiting n=2 mean. If n=2 holds val_mean ≤ 3.27717 AND ffs_mean ≤ 3025, MERGE-eligible. Non-monotonic curve: both std=0.5 and std=0.02 land near baseline (within 0.0002 of each other), only std=0.1 crosses bar. Mechanism story: order-of-magnitude reduction balances early-step gradient signal vs representational capacity at init.
+2. **THORFINN #576 MARS** — Arm A n=1 MISS (val=3.2748 +0.0045, ffs=3075 +50). Arm B (γ=0.1, ~4× more aggressive look-back) currently step 1275 val=3.604 — on baseline trajectory through main phase; cooldown is where MARS variance reduction should bite. Awaiting terminal.
+3. **NEZUKO #586 Adan** — Disabled smoke verified; ENABLED arms not yet launched. Paper-faithful Adan with two β1 arms (0.02 / 0.1).
+4. **FRIEREN #561 Lookahead** — Both arms MISS (Arm A val=3.2804; Arm B running step 3075 val=3.2829). Likely closure candidate at terminal.
+5. **FERN #569 AdaBelief** — Arm A β=0.95 n=2 MISS (val=3.2716, ffs=3050). Arm B β=0.99 running step 975 — denominator (g-m)² is the most theoretically motivated of the in-flight denominator changes.
 
 ## Mechanism categories (cycle 71 active)
 
@@ -111,4 +111,6 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **Gradient-direction DC mode closed**: GC (zero-mean projection) is neutral-to-negative on this stack. WD_AUX + CONTRA_MUON + per-param AdamW scaling already controls the DC mode — stripping it adds noise. Do NOT re-propose GC or gradient-mean modifications.
 - **Variance-reduction family status**: Lookahead (#561), MARS (#576), AGC (#580), Adan (#586), β1-ramp (#587) all in flight. If all fail, cooldown bimodality may be intrinsic to this dataset/loss geometry — escalate to different abstraction (architecture-side, loss-side, or accept the floor).
 - **Second-order preconditioner family on lm_head falsified**: right-factor Shampoo BETA2={0.95,0.99} both MISS; telltale shows less preconditioning → closer baseline → preconditioning actively hurts. lm_head column space is near-isotropic. Do NOT re-propose SOAP/Shampoo on lm_head.
-- **Askeladd #541 Arm B status**: launch comment not posted; nudged at ~13:35 UTC. Arm A MISS (val=3.27245, ffs=3050).
+- **⭐ Askeladd #541 Arm B (std=0.1) WINNER at n=1**: val=3.26773 (−0.00256), ffs=3000 (−25), statsig pass. n=2 confirm AUTHORIZED 15:58 UTC; ETA terminal ~17:50 UTC. Arm A (std=0.5) MISS val=3.27245 ffs=3050. Arm C (std=0.02) MISS val=3.27230 ffs=3050. Non-monotonic curve — order-of-magnitude reduction is the sweet spot.
+- **Thorfinn #576 MARS**: 13:48 implementation push; Arm A finished n=1 val=3.2748 ffs=3075 (MISS); Arm B γ=0.1 running step 1275. Acknowledged stale_wip flag with W&B status comment.
+- **Alphonse #587 β1-ramp cooldown window**: student correctly interpreted `cooldown_frac=0.7` as last 70% of training (steps 952→3175), not last 30%. Endorsed; first Arm A attempt crashed at step 725 (environmental, not divergence), retry running.

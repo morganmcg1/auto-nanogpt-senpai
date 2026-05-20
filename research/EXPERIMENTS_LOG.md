@@ -1,5 +1,78 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 16:00 UTC — Cycle 71 mid-9: PR #541 askeladd Arm B (std=0.1) WINNER at n=1; n=2 confirm authorized
+
+### PR #541 — askeladd EMBED_INIT_STD sweep, 3 arms n=1 all terminal — Arm B clears merge bar at n=1
+
+Branch: `g1r2-askeladd/embed-init-std`. All 3 arms n=1 finished.
+
+| Arm | EMBED_INIT_STD | W&B | val @ 3175 | ffs | Δ val | Δ ffs | n=1 bar |
+|---|---|---|---|---|---|---|---|
+| A | 0.5  | llqwjy0t | 3.27245 | 3050 | +0.00216 | +25 | MISS (val+, ffs+) |
+| **B** | **0.1**  | **ooph39ox** | **3.26773** | **3000** | **−0.00256** | **−25** | **✅ PASS (both bars)** |
+| C | 0.02 | 4v7x7t30 | 3.27230 | 3050 | +0.00201 | +25 | MISS (val+, ffs+) |
+| Baseline | 1.0 (default) | uoak0qa8 | 3.270288 | 3025 (n=4) | — | — | — |
+
+**Statsig at n=1 (Arm B)**: `(3.28 − 3.26773) × √1 = 0.01227 ≥ 0.004` ✅
+
+**Non-monotonic curve — mechanism reading**:
+
+| step | A (std=0.5) | B (std=0.1) | C (std=0.02) | C vs A | C vs B |
+|---|---|---|---|---|---|
+| 1000 | 3.66694 | 3.66258 | 3.66694 | 0.000 | +0.0044 |
+| 1500 | 3.53424 | 3.53036 | 3.53329 | −0.0010 | +0.0029 |
+| 2000 | 3.43192 | 3.42674 | 3.43169 | −0.0002 | +0.0050 |
+| 2125 | 3.40995 | 3.40508 | 3.40976 | −0.0002 | +0.0047 |
+| 3000 | 3.28367 | 3.27892 | (similar) | — | — |
+| 3175 | 3.27245 | 3.26773 | 3.27230 | — | — |
+
+Arms A and C are essentially tied (Δval=−0.00015) and both ~0.005 worse than Arm B at terminal. This is consistent with a **sweet-spot picture**: embed std=0.1 minimizes a tradeoff between (a) gradient signal magnitude in early steps (std=1.0 too big, breaks attention conditioning) vs (b) representational capacity at init (std=0.02 too small, embeds need many steps to spread out). Order-of-magnitude reduction is correct; further reduction loses the benefit.
+
+**Decision**: n=2 confirm AUTHORIZED for Arm B at 15:58 UTC.
+
+```bash
+EMBED_INIT_STD=0.1 \
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 \
+MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 \
+ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 2 \
+  --wandb_name 'g1r2-askeladd/embed-init-B-std01-n2-confirm' \
+  --wandb_group 'g1r2-askeladd/embed-init-confirm'
+```
+
+**n=2 decision rules**:
+- val_mean < 3.270288 AND ffs_mean ≤ 3025 AND `(3.28 − val_mean)·√2 ≥ 0.004` (val_mean ≤ 3.27717) → **MERGE-eligible**
+- Bars pass but statsig fails → extend to n=4
+- Either bar misses → close without merge (Arm B was lucky at n=1)
+
+ETA terminal ~17:50 UTC.
+
+### PR #576 — thorfinn MARS, Arm A n=1 MISS, Arm B running
+
+Branch: `g1r2-thorfinn/mars`. Paper-faithful c_t implementation pushed at 13:48.
+
+| Arm | Config | W&B | val @ 3175 | ffs | Result |
+|---|---|---|---|---|---|
+| disabled-check | MARS_ENABLED=0, 200 steps | s5w1jrnm | 4.097 | — | sanity OK |
+| A-smoke | γ=0.025, 500 steps | t4lchpaj | 3.7037 | — | smoke gate pass |
+| B-smoke | γ=0.1, 500 steps | ybzoxc58 | 3.7106 | — | smoke gate pass |
+| **A** | **γ=0.025, 3175 steps** | **2aeqkob2** | **3.2748** | **3075** | **MISS** (val+0.0045, ffs+50) |
+| B | γ=0.1, 3175 steps | x16ch6df | running step 1275 (val=3.604) | — | in flight |
+
+Arm A miss at n=1 means STORM correction with paper-default γ=0.025 isn't strong enough — or the c_t norm-clip at 1 is suppressing the correction in the cooldown window where it would most help. Awaiting Arm B (γ=0.1, ~4× more aggressive look-back coefficient inside c_t).
+
+### PR #587 — alphonse β1 cooldown ramp — cooldown window interpretation endorsed
+
+Student correctly diagnosed that `cooldown_frac=0.7` in the existing `set_hparams` is the **last 70%** of training (steps 952 → 3175 for 3175-step run), not the last 30%. My PR body's "step ≥ 2222 = 0.7·3175" was a misread. Student is ramping β1 over progress ∈ [0.3, 1.0], aligning with the LR cooldown timing as the PR intent specified.
+
+Per-step β1 growth: 8.5e-5 (vs my assumed 2.0e-4 short-window version) — gentler ramp, smoother moment transition. Endorsed.
+
+Arm A first attempt crashed at step 725 (val=3.754, BETTER than baseline at that step → environmental, not divergence). Retry running.
+
+---
+
 ## 2026-05-20 15:00 UTC — Cycle 71 mid-8: PR #564 alphonse GC CLOSED (neutral/negative); alphonse → #587 β1 cooldown ramp
 
 ### PR #564 — alphonse Gradient Centralization CLOSED — mechanism neutral-to-negative at our floor
