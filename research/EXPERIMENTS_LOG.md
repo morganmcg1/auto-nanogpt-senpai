@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 08:45 UTC — PR #517: tanjiro EMA / Polyak eval (5-cell decay sweep) — **CLOSED — mechanism rejected**
+
+- Branch: `g1r5-tanjiro/ema-eval-sweep`
+- Student: g1r5-tanjiro
+- Hypothesis: Polyak/EMA weight averaging at eval reduces noise-floor of validation loss. Sweeps decay ∈ {0, 0.99, 0.999, 0.9999} with start_step=0, plus cooldown-only variant (decay=0.999 start=2275).
+
+### Results
+
+| Cell | decay | start_step | val_loss | Δσ vs OLD baseline (3.267948) | ffs | W&B run |
+|------|------:|-----------:|---------:|------------------------------:|----:|---------|
+| A (ctrl)    | 0.0     | 0    | 3.26776  | −0.23σ ✓ refactor no-op | 3100 | `zr2z0l5r` |
+| B (fast)    | 0.99    | 0    | 3.27528  | +8.91σ | 3125 | `i20ukefc` |
+| C (med)     | 0.999   | 0    | 3.34507  | +93.71σ catastrophic | -1 (never reached target) | `qevbalwz` |
+| D (slow)    | 0.9999  | 0    | 7.20331  | +4781.73σ catastrophic | -1 | `0ubzvo4t` |
+| E (cooldown) | 0.999  | 2275 | 3.30210  | +41.50σ catastrophic | -1 | `yo3bdfuc` |
+
+### Conclusion
+
+- **EMA mechanism decisively rejected** for this 3250-step Muon+WD-ramp_down regime. Monotone response: longer EMA windows = strictly worse.
+- **Cell A (decay=0)** matches ctrl exactly — refactor is provably no-op. EMA load-swap-restore plumbing verified clean.
+- **Core mechanistic insight (student analysis):** the Muon+WD-ramp_down cooldown is already sharply convergent — by step 3250 raw step magnitudes are near-zero, so terminal raw weights ARE effectively averaged. EMA drags eval weights *backward* toward larger noisier earlier checkpoints. The noise-floor-reduction intuition that motivates EMA in long LM training (where raw step size stays meaningful at the end) does not apply once cooldown has shrunk steps to ~0.
+- **Even Cell E (cooldown-only, start=2275, theoretically most defensible):** EMA progression 4.65 @ step 2300 → 3.61 @ 2500 → 3.36 @ 2800 → 3.302 @ 3250 — never caught up to the raw trajectory.
+- **Closes post-hoc-eval-averaging axis** for this run length. Student noted potential at 10k+ step runs (out of scope here).
+
+Tanjiro reassigned to fresh-mechanism axis: PR #558 Z-loss regularizer (softmax partition-function penalty — fresh mechanism, never tested).
+
 ## 2026-05-20 08:30 UTC — PR #509: frieren lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) — **CLOSED clean-neutral**
 
 - Branch: `g1r5-frieren/lr-mlp-finescan`
