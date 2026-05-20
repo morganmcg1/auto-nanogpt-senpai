@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 09:52 UTC — Cycle 71 mid-2: PR #533 alphonse CLOSED; alphonse assigned #564 GC; PR #529 frieren CLOSED; frieren assigned #561 Lookahead; thorfinn T0 ffs=3000 BREAKTHROUGH; fern NAdamW foreclosed
+
+### PR #533 — alphonse Stack pruning ablation — CLOSED stack collectively load-bearing
+
+Branch: `g1r2-alphonse/stack-pruning-ablation`. W&B runs: `pu1atoys` (Arm A), `zq1i7wom` (Arm B), `0t4xljsn` (Arm C).
+
+| Arm | Disabled element | val | ffs | vs bar | Verdict |
+|---|---|---|---|---|---|
+| A | CONTRA_MUON=0 | 3.27296 | 3050 | OLD +0.00157/+25 | BOUNDARY |
+| B | MU_WARMUP_STEPS=0 | 3.27385 | 3050 | OLD +0.00247/+25 | BOUNDARY |
+| C | ATTN_SOAP_TRUST_THRESHOLD=1.0 | 3.27213 | 3050 | NEW +0.00184/+25 | BOUNDARY |
+
+Striking symmetry: every arm costs exactly +25 ffs and +0.0016–0.0025 val. Stack is **not** over-engineered (no element soft-redundant), but also no element is catastrophically load-bearing (all regressions < 5e-3 val). Conservative call: keep all three elements in mandatory stack. Closure rationale: no free wins to remove, and further ablation would cost GPU without changing trajectory.
+
+### PR #564 — alphonse Gradient Centralization assigned
+
+GC (Yong 2020, arxiv 2004.01461) mean-centers gradients over output dim before AdamW step: `g ← g − g.mean(dim=0, keepdim=True)`. ~10 LoC, zero compute overhead. Removes "shift all output rows by same delta per input column" mode from gradient. Applied to 2D AdamW params (embed + lm_head), skip 1D scalars. 2 arms: Arm A (all 2D AdamW params) and Arm B (lm_head only).
+
 ## 2026-05-20 09:30 UTC — Cycle 71 mid: PR #529 frieren CLOSED; frieren assigned #561 Lookahead; thorfinn T0 ffs=3000 BREAKTHROUGH; fern NAdamW foreclosed
 
 ### PR #529 — frieren Per-group AdamW eps decomposition — CLOSED all 3 groups falsified
