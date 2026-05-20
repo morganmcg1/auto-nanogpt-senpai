@@ -3,6 +3,36 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 15:35 UTC — PR #554: AdamW embed WD cooldown nudge (thorfinn) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-thorfinn/embed-wd-cooldown-nudge`
+- Hypothesis: Add small positive WD on AdamW embed group during cooldown only (currently WD=0 throughout). Tests whether late-phase implicit regularization in the precision window helps embed representations. Mechanism: with `EMBED_COOLDOWN_SHAPE=linear_floor` (#235) holding embed LR at 15% floor through cooldown, a WD nudge could shrink magnitudes to prevent late-noise drift.
+- Code: `NANOGPT_EMBED_WD_COOLDOWN` env var, step-function transition at cooldown start.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27277−3.27174|=0.00103):**
+
+| Arm | WD | val/loss | Δ vs A | Δ vs baseline | first_step | W&B run |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.0 (ctrl) | 3.27277 | — | +0.00103 (drift PASS) | 3250 | `bnfz3umv` |
+| B | 0.001 | 3.27242 | −0.00035 (null) | +0.00068 | 3250 | `fd8u711l` |
+| C | 0.005 | 3.27934 | +0.00657 (regression) | +0.00760 | 3350 | `oanb7jam` |
+| D | 0.010 | 3.28848 | **+0.01571 (regression)** | +0.01674 | **−1 (FAILED)** | `dgbetby2` |
+
+**Analysis:**
+
+- **Clean monotone regression across the WD axis on the embed group.** Even smallest nudge B (0.001) fails baseline parity (+0.00068 vs baseline 3.27174). Arm D (0.010) fails the 3.28 benchmark entirely.
+- **The B→C jump is large** (+0.00692 for a 5× WD increase from a null point): the regression band is narrow and steep. The largest swing on this axis is B→D = +0.01606.
+- **Mechanism reading (student analysis, accepted):** With `EMBED_COOLDOWN_SHAPE=linear_floor` holding embed LR at 15% floor through cooldown, embed updates are already small. Adding WD on top uniformly shrinks all embed rows — including rarely-updated rare-token rows whose representations depend on *accumulated information* rather than late-training noise. WD overrides accumulation rather than denoising it.
+- **Bilateral asymmetry on WD-cooldown axis (paired with #550 winner candidate):**
+  - **Embed group**: adding WD during cooldown is harmful (#554 NEGATIVE) — sparse-row representations don't tolerate magnitude shrinkage
+  - **Body Muon group**: reducing WD during cooldown may be beneficial (#550 N=1 Δ=−0.00337 winner candidate, paired-pod in flight)
+  - Both findings point toward: "do not constrain rare/sparse representations during cooldown precision window"
+- **36th productive-null/negative this cycle.**
+
+**Compute summary**: 4 runs × ~1h44m each ≈ ~7h total wall time on RTX PRO 6000 Blackwell. No OOMs, no crashes (chain PID 747067 ran cleanly).
+
+**Follow-up**: thorfinn assigned **NS-cooldown START_FRAC sweep** — fresh structurally untested axis (NS_COOLDOWN_START_FRAC=0.7 was bundled at #176 merge, never independently swept on merged stack).
+
 ## 2026-05-20 14:15 UTC — PR #547: lm_head cooldown SHAPE sweep (fern) — CLOSED productive-NULL
 
 - Branch: `g1r4-fern/lm-head-cooldown-shape`
