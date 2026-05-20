@@ -3,6 +3,35 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 18:40 UTC — PR #568: Per-group cooldown_frac decoupling (nezuko) — CLOSED productive-NULL
+
+- Branch: `g1r4-nezuko/per-group-cooldown-frac`
+- Hypothesis: Per-group cooldown SHAPE wins (#235/#285/#290/#520) imply per-group cooldown WINDOW LENGTH might also asymmetrically tune. Test ±0.10 perturbations of embed_cf and body_cf around the merged global cooldown_frac=0.70 (set via `set_hparams(step, cooldown_frac=0.7)` at line 864). Structurally fresh axis on cooldown timing.
+- Code: `NANOGPT_EMBED_COOLDOWN_FRAC` / `NANOGPT_BODY_COOLDOWN_FRAC` / `NANOGPT_LM_HEAD_COOLDOWN_FRAC` / `NANOGPT_SCALAR_COOLDOWN_FRAC` env vars; per-group cf lookup in `set_hparams`.
+
+**Methodological note**: Original PR body conflated `cooldown_frac=0.7` (LR cooldown spans last 70%) with `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (NS-iter timing). Student g1r4-nezuko caught the error at 10:25 UTC. Re-anchored arms around true 0.70 baseline at 10:30 UTC. Final execution used corrected values.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27134−3.27174|=0.00040):**
+
+| Arm | embed_cf | body_cf | lm_head_cf | scalar_cf | val/loss | Δ vs A | first_step | W&B run |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 0.70 | 0.70 | 0.70 | 0.70 | 3.27134 | — | 3225 | `yee9pqql` |
+| B | **0.80** | 0.70 | 0.70 | 0.70 | 3.27120 | −0.00014 (null) | 3225 | `aaz7to57` |
+| C | **0.60** | 0.70 | 0.70 | 0.70 | 3.27376 | **+0.00242 (regression)** | 3250 | `wxo93x4h` |
+| D | 0.70 | **0.80** | 0.70 | 0.70 | **3.27067** | −0.00067 (null, best arm) | 3200 | `cirscwub` |
+
+**Analysis:**
+
+- **No arm crosses Δ ≤ −0.002 signal threshold.** Best arm D passes single-seed stat-rule ((3.28−3.27067)×√1=0.00933 ≥ 0.004) AND beats baseline (val 3.27067 ≤ 3.27174), BUT within-pod Δ_D=−0.00067 falls short of pre-staged −0.002 paired-pod gate. No paired-pod confirmation requested.
+- **Embed direction asymmetric-monotonic with floor at 0.70**: shorter (0.60) regresses +0.00242 (5× threshold); longer (0.80) gives only −0.00014. The merged global 0.70 sits approximately at the floor of the embed cooldown-frac axis — pushing shorter eats into the precision window for sparse-row consolidation (consistent with #235 embed_floor mechanism). Pushing longer yields sub-threshold benefit at this seed budget.
+- **Body direction mildly positive, sub-threshold**: Δ_D=−0.00067 is the most favorable non-A reading. NS-orthogonalized body landing benefits *mildly* from longer precision-window — but signal doesn't clear noise floor at n=1 with ±0.10 perturbation.
+- **The SHAPE→FRAC analogy fails at this perturbation scale.** Per-group cooldown SHAPE matters (embed=linear_floor, body=linear, NS=late_peak, NS_coef=linear_ramp_down — real per-group asymmetries). Per-group cooldown WINDOW LENGTH does NOT show the same asymmetric structure within ±0.10 around 0.70 — at least not at the seed budget tested.
+- **39th productive-null/negative this cycle.**
+
+**Compute summary**: 4 runs × ~1h45m each ≈ ~7h total wall time. No crashes, all 4 arms reached 3.28 target cleanly (3200-3250 step range).
+
+**Follow-up**: nezuko pivoted off per-group cooldown_frac onto structurally fresh **AdamW second-moment warmstart via ghost steps** axis — addressing the cold-start direction problem in `exp_avg_sq` that bias correction (magnitude rescaling) explicitly does NOT solve. Untested in this run, distinct from any closed optimizer-family axis. Direct mechanistic motivation: v_t requires ~1/(1−β₂)=100 steps at β₂=0.99 to reach stationary directional state; during that window NS-orthogonalized aux-group updates operate on under-informed second-moment estimates.
+
 ## 2026-05-20 17:15 UTC — PR #560: Per-group AdamW β₂ asymmetric sweep (alphonse) — CLOSED productive-NULL/NEGATIVE
 
 - Branch: `g1r4-alphonse/aux-beta2-per-group`
