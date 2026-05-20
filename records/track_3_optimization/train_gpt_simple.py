@@ -533,6 +533,35 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_AUX_OPTIMIZER = os.environ.get("NANOGPT_AUX_OPTIMIZER", "adamw").lower()
+_VALID_AUX_OPTIMIZERS = ("adamw", "yogi")
+if NANOGPT_AUX_OPTIMIZER not in _VALID_AUX_OPTIMIZERS:
+    raise ValueError(
+        f"NANOGPT_AUX_OPTIMIZER={NANOGPT_AUX_OPTIMIZER!r}, must be one of {_VALID_AUX_OPTIMIZERS}"
+    )
+NANOGPT_YOGI_SCOPE = os.environ.get("NANOGPT_YOGI_SCOPE", "none").lower()
+# Map scope keyword -> set of AdamW group names that should use the Yogi rule.
+_YOGI_SCOPE_MAP = {
+    "none": set(),
+    "embed": {"adam_embed"},
+    "lm_head": {"adam_lm_head"},
+    "scalars": {"adam_scalars"},
+    "embed_lm_head": {"adam_embed", "adam_lm_head"},
+    "embed_lm_head_scalars": {"adam_embed", "adam_lm_head", "adam_scalars"},
+}
+if NANOGPT_YOGI_SCOPE not in _YOGI_SCOPE_MAP:
+    raise ValueError(
+        f"NANOGPT_YOGI_SCOPE={NANOGPT_YOGI_SCOPE!r}, must be one of {tuple(_YOGI_SCOPE_MAP)}"
+    )
+NANOGPT_YOGI_GROUPS: set[str] = (
+    _YOGI_SCOPE_MAP[NANOGPT_YOGI_SCOPE] if NANOGPT_AUX_OPTIMIZER == "yogi" else set()
+)
+# Yogi v_0 initialization: "zero" matches AdamW (default), "g_sq" sets v_0 = g_0^2
+# (the option called out by Zaheer et al.). Logged to W&B config either way.
+NANOGPT_YOGI_V0 = os.environ.get("NANOGPT_YOGI_V0", "zero").lower()
+_VALID_YOGI_V0 = ("zero", "g_sq")
+if NANOGPT_YOGI_V0 not in _VALID_YOGI_V0:
+    raise ValueError(f"NANOGPT_YOGI_V0={NANOGPT_YOGI_V0!r}, must be one of {_VALID_YOGI_V0}")
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -706,6 +735,77 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class YogiW(torch.optim.Optimizer):
+    """AdamW + per-group choice of second-moment update rule.
+
+    Each param group sets `update_rule` to either "adamw" or "yogi":
+
+      AdamW second moment: v_t = β2 · v_{t-1} + (1 − β2) · g_t²
+      Yogi  second moment: v_t = v_{t-1} − (1 − β2) · sign(v_{t-1} − g_t²) · g_t²
+
+    Everything else (first-moment EMA, bias correction, decoupled weight decay,
+    outer ε in the denominator) matches PyTorch's AdamW. State keys are
+    `exp_avg`, `exp_avg_sq`, and `step` so the existing AdamW step-direction
+    telemetry (`log_adamw_step_direction`) works without modification.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, v0_init: str = "zero"):
+        if v0_init not in ("zero", "g_sq"):
+            raise ValueError(f"v0_init must be 'zero' or 'g_sq', got {v0_init!r}")
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        update_rule="adamw", v0_init=v0_init)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            update_rule = group.get("update_rule", "adamw")
+            v0_init = group.get("v0_init", "zero")
+            one_minus_b1 = 1.0 - beta1
+            one_minus_b2 = 1.0 - beta2
+            # All params in a group are stepped together, so they share a step count.
+            # Read it once per group to avoid per-param CUDA syncs from .item().
+            step_val = None
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    if update_rule == "yogi" and v0_init == "g_sq":
+                        state["exp_avg_sq"].addcmul_(g, g, value=1.0)
+                state["step"] += 1
+                if step_val is None:
+                    step_val = float(state["step"].item())
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                # First moment EMA (identical for both rules)
+                m.mul_(beta1).add_(g, alpha=one_minus_b1)
+                # Second moment update
+                if update_rule == "yogi":
+                    g_sq = g * g
+                    # v <- v - (1-β2) · sign(v - g²) · g²
+                    # sign(0) = 0 yields v unchanged when v == g²; no eps needed.
+                    v.sub_(torch.sign(v - g_sq).mul_(g_sq), alpha=one_minus_b2)
+                else:
+                    v.mul_(beta2).addcmul_(g, g, value=one_minus_b2)
+                # Bias-corrected AdamW-style update.
+                bias1 = 1.0 - beta1 ** step_val
+                bias2 = 1.0 - beta2 ** step_val
+                step_size = lr / bias1
+                denom = (v.sqrt() / math.sqrt(bias2)).add_(eps)
+                p.mul_(1 - lr * weight_decay)
+                p.addcdiv_(m, denom, value=-step_size)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -744,6 +844,7 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"AUX_OPTIMIZER: {NANOGPT_AUX_OPTIMIZER}, YOGI_SCOPE: {NANOGPT_YOGI_SCOPE} (Yogi groups: {sorted(NANOGPT_YOGI_GROUPS) or 'none'}), YOGI_V0: {NANOGPT_YOGI_V0}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +908,10 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_aux_optimizer": NANOGPT_AUX_OPTIMIZER,
+            "nanogpt_yogi_scope": NANOGPT_YOGI_SCOPE,
+            "nanogpt_yogi_groups": sorted(NANOGPT_YOGI_GROUPS),
+            "nanogpt_yogi_v0": NANOGPT_YOGI_V0,
         },
     )
 
@@ -838,10 +943,21 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars"),
+    ]
+    if NANOGPT_AUX_OPTIMIZER == "yogi":
+        # Replace fused AdamW with YogiW; mark per-group update rule based on YOGI_SCOPE.
+        for g in aux_param_groups:
+            g["update_rule"] = "yogi" if g["name"] in NANOGPT_YOGI_GROUPS else "adamw"
+        optimizer1 = YogiW(aux_param_groups,
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0,
+                           v0_init=NANOGPT_YOGI_V0)
+    else:
+        optimizer1 = AdamW(aux_param_groups,
+                           betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
