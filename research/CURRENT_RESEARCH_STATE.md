@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 04:43 UTC
+- **Date:** 2026-05-20 05:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -139,9 +139,22 @@ Clean monotone worsening: A=3.27066, B=+0.00080 (null), C=+0.00258 (regression),
 | D | linear_floor | 1.0 → 0.15 never-zero floor |
 **ETA full chain:** ~7.3h.
 
-### 🔄 askeladd #452 — Block output projection init scale [assigned ~09:00 UTC]
+### ✅ askeladd #452 — Block output projection init scale — CLOSED 05:05 UTC productive-null
 
-Init-side: scale `attn.proj` and `mlp.proj` weights at init by s ∈ {1.0, 0.5, 0.2, 0.05}. DeepNet/T-Fixup family. Tests if NS-normalized Muon updates wash out init scaling within first ~100 steps. Arm B running.
+Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed → mean(Δ_pool)=+0.00068 across n=3 pods. 4th paired-pod false-positive caught this cycle (after #344, #351, #408 AGC). DeepNet/T-Fixup family init-scaling axis closed: NS-normalized Muon updates wash out init scaling within first ~100 steps as hypothesized — but no preserved benefit signal. **27th productive-null/negative this cycle.**
+**Follow-up**: askeladd assigned **#543 per-block NS iter budget** — spatial allocation by aspect ratio (Bernstein-Newhouse). (#542 Lion-aux mis-assignment closed 05:12 UTC — Lion on aux groups already closed in #77, prior round.)
+
+### 🔄 askeladd #543 — Per-block NS iter budget [assigned 05:15 UTC]
+
+**Branch:** `g1r4-askeladd/per-block-ns-iters`
+**Hypothesis**: Allocate NS iteration count per-block based on weight matrix aspect ratio rather than uniformly NS=12. Bernstein-Newhouse (2024, "Old Optimizer, New Norm") show NS convergence depends on initial spectral distribution: tall/narrow matrices need more iters than square. GPT-2 block shapes: `attn.proj` square (1.0 aspect, may over-invest), `qkv` tall (3.0), `mlp.c_fc` tallest (4.0), `mlp.c_proj` widest. **Spatial allocation axis** — structurally distinct from NS_ITERS (#470 closed), NS-iter warmup (#506 temporal), NS_ITERS_COOLDOWN (#487, in flight), LLRD (#409 closed; that was LR not NS).
+| Arm | NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE | Effect |
+|---|---|---|
+| A | uniform (control) | NS=12 all blocks |
+| B | aspect (data-driven) | NS_iters = round(12 * aspect^0.3), clamped [8,16] |
+| C | manual_typeA | attn.proj=10, qkv=12, mlp.c_fc=14, mlp.c_proj=12 (net same) |
+| D | manual_typeB | attn.proj=10, qkv=12, mlp.c_fc=16, mlp.c_proj=14 (small compute+) |
+**ETA full chain:** ~7.3h.
 
 ### ✅ nezuko #454 — lm_head/scalar cooldown shape extension — CLOSED 18:05 UTC productive-null
 
@@ -210,7 +223,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 
 ## Research theme — current cycle
 
-**26 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**27 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -220,17 +233,16 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 3. **Additive regularization always fails on this stack.** AGC, GC, gradient noise, label smoothing, z-loss — all hurt.
 
 **Current open questions** (in-flight):
-1. Does block init scaling matter under Muon? (#452)
-2. Does embed-only LR warmup help sparse-row early training? (#489)
-3. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
-4. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko new — replaces just-closed #490 NAdam null/regress)
-5. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
-6. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
-7. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
-8. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
-9. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
+1. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
+2. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — Arm C N=1 winner candidate val=3.27163, but within-pod Δ=−0.00119 directional null)
+3. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko)
+4. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
+5. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
+6. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
+7. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
+8. **NEW**: Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
 
-**Stack convergence signal**: 26 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+**Stack convergence signal**: 27 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
 2. **Late-phase cooldown shape**: body Muon LR cooldown shape (#520 thorfinn) — targeting the load-bearing 30% cooldown window.
 3. **Stack simplification** — #487 Arm B (drop NS_ITERS_COOLDOWN) N=1 Δ=−0.00385 first winner candidate in many cycles; paired-pod confirmation in flight. If confirmed, removes #176 from merged stack as redundant under #285/#290.
