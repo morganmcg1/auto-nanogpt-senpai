@@ -533,6 +533,11 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# -1 = disabled (default, constant Muon WD=0.025). Positive float = final WD value
+# at end of cooldown; WD interpolates linearly from 0.025 at cooldown start to this
+# value at the final step, only during the LR-cooldown window in set_hparams.
+NANOGPT_MUON_WD_COOLDOWN_FINAL = float(os.environ.get("NANOGPT_MUON_WD_COOLDOWN_FINAL", "-1"))
+NANOGPT_MUON_WD_INITIAL = 0.025
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -752,6 +757,11 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_MUON_WD_COOLDOWN_FINAL >= 0:
+    print0(f"MUON_WD_COOLDOWN: enabled — WD={NANOGPT_MUON_WD_INITIAL} -> {NANOGPT_MUON_WD_COOLDOWN_FINAL} "
+           f"linearly over the LR-cooldown window", console=True)
+else:
+    print0(f"MUON_WD_COOLDOWN: disabled (constant WD={NANOGPT_MUON_WD_INITIAL})", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +817,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_wd_cooldown_final": NANOGPT_MUON_WD_COOLDOWN_FINAL,
+            "nanogpt_muon_wd_initial": NANOGPT_MUON_WD_INITIAL,
         },
     )
 
@@ -864,9 +876,11 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        in_cooldown = progress >= 1 - cooldown_frac
+        if not in_cooldown:
             eta_default = 1.0
             eta_embed = 1.0
+            cooldown_progress = 0.0
         else:
             eta_default = (1 - progress) / cooldown_frac
             cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
@@ -886,6 +900,13 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+
+        if NANOGPT_MUON_WD_COOLDOWN_FINAL >= 0 and in_cooldown:
+            muon_wd = NANOGPT_MUON_WD_INITIAL - (NANOGPT_MUON_WD_INITIAL - NANOGPT_MUON_WD_COOLDOWN_FINAL) * cooldown_progress
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if group.get("name") == "muon_blocks":
+                        group["weight_decay"] = muon_wd
 
 
     ########################################
@@ -989,6 +1010,11 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # Sample-step Muon WD schedule sanity print (cooldown starts at 30%).
+        if step in (0, int(train_steps * 0.30), int(train_steps * 0.65), int(train_steps * 0.99)):
+            muon_wd_now = next((g["weight_decay"] for opt in optimizers for g in opt.param_groups
+                                if g.get("name") == "muon_blocks"), None)
+            print0(f"step={step}/{train_steps} muon_wd={muon_wd_now}", console=True)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
