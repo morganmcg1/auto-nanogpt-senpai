@@ -71,6 +71,8 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--embed_init_std", type=float, default=1.0,
+                        help="Init std for embed.weight. Default 1.0 = current torch default normal_().")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,6 +768,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "embed_init_std": args.embed_init_std,
         },
     )
 
@@ -789,7 +792,7 @@ for trial_idx in range(args.num_trials):
             if name == "proj.weight":
                 w.zero_()  # LM head: keep zero like starter
             elif name == "embed.weight":
-                w.normal_()  # token embedding: default torch init
+                w.normal_(std=args.embed_init_std)  # token embedding
             elif "attn.proj" in name:
                 w.normal_(std=0.026)
             elif "mlp.proj" in name:
