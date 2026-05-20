@@ -1,5 +1,31 @@
 # SENPAI Research Results
 
+## 2026-05-20 04:28 UTC — PR #503 CLOSED: Body-Muon WD schedule (warmup-25pct vs cooldown-25pct) — NULL/NULL, first temporal schedule on body-Muon closes (g1r1-edward)
+
+- Branch: `g1r1-edward/body-muon-wd-schedule`
+- Hypothesis: Test first temporal schedule on body-Muon WD. Two mechanistic priors: (warmup) early stochastic weights need free growth before WD tightening; (cooldown) shrinking LR during cooldown means constant WD over-shrinks late-emergent features. Orthogonal to #482 (per-type WD partition NULL) and #499 (per-type LR partition NULL).
+
+| Arm | Schedule | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | constant WD=0.025 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | warmup-25pct (0 → 0.025 over first 813 steps) | `vcc1mty6` | 2950 | 3.26475 | +12.5 (marginal-worse) | +0.000472 (within marginal band) | NULL marginal |
+| Arm B | cooldown-25pct (0.025 → 0 over last 813 steps) | `bu075bqm` | 2975 | 3.26681 | +37.5 (clear-worse) | +0.002532 (outside marginal band) | NULL clear |
+
+**Verdict: NULL | NULL → temporal schedule axis closes at constant uniform WD=0.025.**
+
+Asymmetric loss curve (cooldown loses ~5× more val-loss than warmup) is mechanistically informative:
+- **Warmup** is essentially indistinguishable from baseline. Early-phase WD overhang is not a real problem at this baseline — starting WD at zero and ramping in costs nothing but gains nothing.
+- **Cooldown** loses cleanly. Removing WD during cooldown lets late-emergent features drift/amplify noise. WD's implicit norm-control is **load-bearing** during the cooldown phase, not redundant with LR cooldown. The student's mechanistic read in the SENPAI-RESULT comment is correct.
+
+Body-Muon WD is now exhaustively tested:
+- **Partition axis:** #482 frieren MLP-vs-ATTN NULL marginal
+- **Schedule axis:** #503 edward warmup/cooldown NULL/NULL clear (this PR)
+Constant uniform WD=0.025 is the local optimum across both granularities. Schedule-level levers should NOT be layered on top of partition-level winners.
+
+Student's suggested follow-ups (triangle schedule, shorter 5% warmup, composition with lower constant-WD floor) all judged low-leverage given the cooldown arm's clear regression dominates and the warmup arm is already in the marginal band.
+
+Edward reassigned to PR #540: NS coefficient (a,b,c) joint scan — published quintic vs aggressive-cubic at NS_ITERS=12 fixed.
+
 ## 2026-05-20 03:40 UTC — PR #499 CLOSED: Body-Muon LR per-type partition (MLP vs ATTN) — both arms clear NULL/regress, partition family fully closes (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/body-muon-lr-partition`
