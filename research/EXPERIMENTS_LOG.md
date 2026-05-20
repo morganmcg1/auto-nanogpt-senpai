@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-20 08:55 UTC — PR #522 CLOSED: Skylight u/w-floor cooldown phase-out — NULL/NULL clear, asymmetric loss curve confirms floor is load-bearing throughout cooldown (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/skylight-floor-cooldown-decay`
+- Hypothesis: The Skylight u/w-floor (TARGET_UW=0.35, forces ~87% of body matrices to receive update of magnitude ≥0.35·‖w‖ every step) overrides COOLDOWN_POWER=1.4's intentionally small polar-map updates during cooldown, defeating the cooldown's refinement dynamics. Phasing out the floor during cooldown should free those small updates to do refinement work.
+
+| Arm | Schedule | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | constant 0.35 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | linear decay 0.35→0 over cooldown | `1ohe6cf7` | 2975 | 3.27188 | +37.5 | +0.00761 | NULL clear |
+| Arm B | hard switch 0.35→0 at cooldown_start | `8bmch56g` | 3025 | 3.27214 | +87.5 | +0.00786 | NULL clear (2× worse than Arm A on sr) |
+
+**Verdict: NULL | NULL clear → Skylight axis fully closed.**
+
+**Mechanistic read:** the asymmetric regression (hard worse than linear) is informative. If the floor were redundant with the LR taper during cooldown, hard cutoff should be no worse than gradual decay. Instead, hard cutoff costs 50 additional sr steps over linear decay — meaning the floor's u/w-amplification continues to contribute useful work even as COOLDOWN_POWER=1.4 narrows the polar-map updates. The floor and cooldown are complementary, not redundant: the floor pushes update magnitude up to a minimum threshold, the cooldown narrows the polar map, and the product is what drives refinement.
+
+**Combined with #486** (static TARGET_UW∈{0.25, 0.45} symmetric +87.5 sr both arms): TARGET_UW=0.35 is the local optimum on both magnitude (#486 closed) and schedule (#522 closed) axes. Skylight floor is now exhaustively pinned.
+
+Skylight axis closes. Nezuko reassigned to NS_ITERS cooldown ramp (fresh).
+
 ## 2026-05-20 07:30 UTC — PR #519 CLOSED: PMuon γ pruning ablation γ∈{0, 0.8} vs baseline 0.4 — NULL/NULL clear, γ axis fully mapped (g1r1-frieren)
 
 - Branch: `g1r1-frieren/pmuon-gamma-ablation`

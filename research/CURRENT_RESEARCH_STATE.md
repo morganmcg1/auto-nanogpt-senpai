@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 08:30 UTC
+- **Last update:** 2026-05-20 09:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -37,6 +37,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#505** | fern | Lookahead wrapper k∈{5, 10}, α=0.5: Arm A fs=-1 val=3.28420 DNF (Δval=+0.020 clear regression), Arm B fs=-1 val=3.28618 DNF (Δval=+0.022 clear regression). Both arms DNF with monotone regression — milder k=10 is NOT better than aggressive k=5. **Wrapper-class axis closes on body-Muon.** Layered averaging on top of already-tuned PMuon stack becomes net-harmful interference. | **CLOSED 05:32 UTC** |
 | **#513** | thorfinn | Body-Muon gradient clipping at {1.0, 0.5}: Arm A clip=1.0 fs=3000 val=3.27024 (clear NULL Δsr=+62.5 Δval=+0.006), Arm B clip=0.5 fs=3000 val=3.27108 (clear NULL Δsr=+62.5 Δval=+0.007). Both arms clip-activated 99.97% — natural body-grad norm ~3e4 vs proposed thresholds {0.5, 1.0} (4-5 orders too low). Uniform 30,000× downscale costs only ~2% sr regression — **PMuon's spectral whitening confirmed approximately scale-invariant.** Student suggested re-test at natural-norm regime {3e4, 1e5, 3e5}; DEFERRED — pipeline NS iter-count extension instead. | **CLOSED 06:08 UTC** |
 | **#519** | frieren | PMuon γ pruning γ∈{0, 0.8} vs baseline 0.4: Arm A γ=0 val=3.282615 DNF (Δval=+0.0183 clear regression), Arm B γ=0.8 val=3.313878 DNF (Δval=+0.0496 clear regression, 2.7× Arm A damage). **γ=0.4 load-bearing AND near-optimal.** Asymmetric damage curve (over-correction worse than ablation) consistent with WD #482/#503 and LR #499 patterns — local optimum pinned by cooldown-phase preconditioner-quality demand. γ axis fully closed: {0, 0.4, 0.8} mapped, plus #444 ramp NULL. | **CLOSED 07:30 UTC** |
+| **#522** | nezuko | Skylight u/w-floor cooldown phase-out: Arm A linear decay 0.35→0 fs=2975 val=3.27188 (clear NULL Δsr=+37.5 Δval=+0.0076), Arm B hard switch at cooldown_start fs=3025 val=3.27214 (clear NULL Δsr=+87.5 Δval=+0.0079, 2× Arm A regression). **Asymmetric regression** (hard worse than linear) confirms u/w-amplification continues to contribute useful work as COOLDOWN_POWER=1.4 narrows polar-map updates — floor and cooldown are complementary, not redundant. Combined with #486 (static {0.25, 0.45} NULL +87.5 both), TARGET_UW=0.35 is the local optimum on BOTH magnitude AND schedule axes. Skylight floor exhaustively pinned. | **CLOSED 08:55 UTC** |
 
 ## Active experiments (8 students, 08:30 UTC)
 
@@ -46,7 +47,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#540** | edward | Arm A `y46v2liq` TERMINAL fs=2975 val=3.268 (NULL Δsr=+37.5); Arm B `zuk9fkdm` aggressive-cubic running | ~50 | 10.8 | Arm A clean NULL. Student-poller transitioned to Arm B at 08:23. ~3h to Arm B terminal. |
 | **#535** | alphonse | Arm A `3twtlh18` c_fc-heavy TERMINAL fs=3025 NULL; Arm B `g8dy2zhk` c_proj-heavy running | ~625 | 3.748 | Sub-MLP LR partition. ~2.5h to Arm B terminal. |
 | **#532** | askeladd | Arm A `oj9miqwf` early-fast TERMINAL fs=3025 NULL; `vx9owxmj` (duplicate Arm A) CRASHED; Arm B `i6tfv7ry` late-fast running | ~300 | 4.05 | Body-Muon per-block LR (depth-based). Redirect to Arm B worked. ~3h to Arm B terminal. |
-| **#522** | nezuko | Arm A `1ohe6cf7` TERMINAL fs=2975 NULL; Arm B `8bmch56g` TERMINAL fs=3025 NULL; `0516jnmb` duplicate Arm B running | — | — | **BOTH ARMS NULL/NULL CLEAR.** Linear decay (fs=2975) better than hard-switch (fs=3025). **Floor IS load-bearing during cooldown — not redundant with COOLDOWN_POWER taper.** Advisor comment posted 08:25 UTC asking student to kill duplicate `0516jnmb` and post terminal SENPAI-RESULT. Awaiting student response. |
+| **#559** | **nezuko** | (awaiting pickup) | — | — | **NEW — NS_ITERS cooldown ramp 12→{16,18} over last 30%. Tests sharper hypothesis than constant NS_ITERS: that marginal value of extra NS iters is concentrated in cooldown when polar-map updates are small. Orthogonal to tanjiro #511 (constant NS=14), thorfinn #546 (constant NS={16,18}), edward #540 (NS coef at NS=12 fixed), and frieren r4 #506 (NS warmup early). Only PR testing scheduled NS LATE.** |
 | **#553** | frieren | Arm A `1x2u1688` dim=1 (paper default) running | ~625 | 3.742 | Gradient centralization pre-NS. ~2.5h to terminal. |
 | **#546** | thorfinn | Arm A `bqm06i25` NS_ITERS=16 running | ~1850 | 3.474 | NS_ITERS extension pipeline {16, 18}. ~1.4h to Arm A terminal. |
 | **#511** | tanjiro | Arm B seed-1 `ldezjd0y` TERMINAL marginal n=1 win fs=2925 val=3.2639; seed-2 `ciusvhzo` NS=14 confirmation running | ~2325 | 3.377 | **🚨 MARGINAL WIN — fs=2925 (Δsr=−12.5 vs baseline 2937.5). seed-2 in cooldown phase. ~37 min to terminal.** |
@@ -58,7 +59,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 3. **fern #545 AdaBelief Arm A `p3ryt23e`** — step 1700 bl=3.502, ~1.6h to terminal.
 4. **alphonse #535 Arm B `g8dy2zhk`, frieren #553 Arm A `1x2u1688`** — step 625 each, ~2.5h to terminal.
 5. **askeladd #532 Arm B `i6tfv7ry`, edward #540 Arm B `zuk9fkdm`** — step 300/50, ~3h to terminal each.
-6. **nezuko #522** — awaiting student SENPAI-RESULT marker + duplicate kill; reassignable after close.
+6. **nezuko #559 NS_ITERS cooldown ramp** — newly assigned, will pick up at next polling cycle.
 
 ## Recently merged
 
@@ -72,7 +73,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 **Pipelining strategy:** while tanjiro confirms NS=14 at seed-2, thorfinn #546 explores NS={16, 18} in parallel. Two independent n=1 wins at different NS values would corroborate the trend even if tanjiro lands sr ≈ 2950 — much stronger evidence than a single n=2 confirmation.
 
-**21 scalar/mechanism axes closed** at inherited defaults (now incl. #503 body-WD schedule NULL/NULL clear, #505 Lookahead wrapper NULL/NULL clear, #513 body-Muon grad clipping NULL/NULL clear, #519 PMuon γ pruning {0, 0.8} NULL/NULL clear). Active families:
+**22 scalar/mechanism axes closed** at inherited defaults (now incl. #503 body-WD schedule NULL/NULL clear, #505 Lookahead wrapper NULL/NULL clear, #513 body-Muon grad clipping NULL/NULL clear, #519 PMuon γ pruning {0, 0.8} NULL/NULL clear, #522 Skylight floor cooldown phase-out NULL/NULL clear). Active families:
 
 1. **AdaBelief variance update on aux AdamW** (fern #545 — relaunched after self-diagnosed step-1 degeneracy, now using raw m per Algorithm 2): fresh mechanism-class change to second-moment estimator.
 2. **NS coefficient (polynomial degree + within-cubic strength)** (edward #540): tests quintic vs aggressive-cubic at NS_ITERS=12 fixed.
@@ -80,7 +81,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 4. **LR partition by depth** (askeladd #532 — Arm A `oj9miqwf` fs=3025 NULL terminal, Arm B awaiting launch).
 5. **NS preconditioner quality — iteration count axis** (tanjiro #511 marginal-win awaiting n=2 confirmation via ciusvhzo; thorfinn #546 NS={16,18} pipeline): possible new baseline.
 6. **Gradient centralization on body-Muon pre-NS** (frieren #553 NEW — gradient TRANSFORMATION class, orthogonal to all preconditioning/wrapping/partition work).
-7. **Skylight floor schedule** (nezuko #522 — Arm A linear decay marginal NULL, Arm B hard switch mid-flight): cooldown↔floor interaction.
+7. **NS_ITERS cooldown ramp** (nezuko #559 NEW — scheduled preconditioner quality during effective cooldown phase, distinct from constant-NS tests and early-NS-warmup).
 
 **Body-Muon WD exhaustively tested:** partition (#482 NULL), schedule (#503 NULL/NULL clear). Constant uniform WD=0.025 confirmed locally optimal. **Wrapper-class on body-Muon closed** (#505 Lookahead NULL/NULL clear). **Body-Muon damping/clipping closed at tested thresholds** (#513 NULL/NULL — but thresholds {0.5, 1.0} were 4-5 orders below natural-norm regime ~3e4; PMuon's whitening confirmed approximately scale-invariant). **PMuon γ axis fully mapped:** {0 (#519 Arm A, +0.018), 0.4 (baseline), 0.8 (#519 Arm B, +0.050), ramp #444 NULL} — γ=0.4 load-bearing and near-optimal.
 
