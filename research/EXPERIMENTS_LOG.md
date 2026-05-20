@@ -3,6 +3,35 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 23:50 UTC — PR #590: NS-cooldown START_FRAC sweep (thorfinn) — CLOSED productive-NULL
+
+- Branch: `g1r4-thorfinn/ns-cooldown-start-frac`
+- Hypothesis: `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (the timing of when the NS=12→16 cooldown ramp begins) bundled at #176 merge with NS_ITERS_COOLDOWN=16 was a heuristic, not an optimized value. Other NS-cooldown axes saturated (magnitude #176, shape #285, coef #290) but the TIMING axis was unexplored on the merged stack.
+- Code: pure env-var sweep — `NANOGPT_NS_COOLDOWN_START_FRAC` reads at line 515, used at line 851 and inside `get_ns_iters()` at line 1024.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27089−3.27174|=0.00085):**
+
+| Arm | START_FRAC | NS=16 starts at | val/loss | first_step | Δ vs A | Δ vs baseline | W&B run |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 0.70 | step 2345 | **3.27089** | 3225 | — | −0.00085 | uplbpr20 |
+| B | 0.50 | step 1675 | 3.27276 | 3250 | **+0.00187 (regression)** | +0.00102 | 402vh9zw |
+| C | 0.85 | step 2848 | 3.27221 | 3225 | +0.00132 (null) | +0.00047 | dqslav0j |
+| D | 0.60 | step 2010 | **3.27048** | 3225 | −0.00041 (null sub-thr) | −0.00126 | b73haw1s |
+
+**Decision**: D's apparent baseline improvement (−0.00126) is largely **favorable A-drift inflation**: pod-A landed at 3.27089 (−0.00085 below baseline). Within-pod Δ_vs_A=−0.00041 is the correct signal measure and is **far below** the −0.002 candidate threshold. 5+ prior precedents (#344, #351, #408, #487, #506) show single-seed Δ's of even −0.001 to −0.0015 routinely collapse to ~0 under paired-pod n=3. Expected yield on paired-pod confirmation negligible (~22h compute).
+
+**Interpretation**: FRAC axis is **bilaterally concave at 0.70** with flat 0.60-0.70 shoulder. NS=16 only pays off in the final ~25-30% of training; extending the window earlier (B) wastes compute on mid-phase steps that don't benefit from tighter orthogonalization (the gradients there are noisier and benefit less from precision; the additional matmul cost is a net loss), shortening (C) loses late-phase precision gain. The default 0.70 sits at the optimum-or-shoulder of an asymmetric curve: easier to break by going earlier than later. 0.60-0.70 range is statistically indistinguishable at n=1.
+
+**Closure implications**:
+- NS-cooldown timing axis is now sampled at 4 points (0.50, 0.60, 0.70, 0.85) — no single arm clears the candidate gate
+- Closes off "extended precision window" follow-ups (0.40, 0.30 predicted-negative)
+- Closes off "concentrated late NS=16 burst" follow-ups (Arm C at 0.85 already null; tighter bursts predicted-negative)
+- Full NS-cooldown sub-stack: magnitude=#176 (MERGED), shape=#285 (MERGED), coef=#290 (MERGED), timing=#590 (CLOSED). #577 substack-pruning (paired-pod in flight) is the last NS-cooldown axis open.
+
+**41st productive-null/negative this cycle.** AdamW-internal + Muon-internal magnitude/formula/schedule/regularization space substantially exhausted. Pivot to structurally distinct mechanism replacements (Muon-for-lm_head #618, ghost-step warmstart #603) and loss-formulation axes (spectral norm #624 just queued).
+
+**Follow-up**: thorfinn assigned **#624 spectral norm penalty (WAVE3 IDEA 8)** — first loss-side weight-regularization experiment in this entire cycle. After 41 productive-NULLs on optimizer-state and update-direction axes, testing whether *the weights themselves* need explicit conditioning (and whether NS implicitly provides enough) is a structurally orthogonal question.
+
 ## 2026-05-20 22:00 UTC — PR #584: lm_head AdamW LR multiplier sweep around 1.0× (fern) — CLOSED productive-NULL
 
 - Branch: `g1r4-fern/lm-head-lr-ratio`

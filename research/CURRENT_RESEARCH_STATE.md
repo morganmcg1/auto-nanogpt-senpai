@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 22:05 UTC
+- **Date:** 2026-05-20 23:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -151,17 +151,22 @@ Clean monotone worsening: A=3.27066, B=+0.00080 (null), C=+0.00258 (regression),
 Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.27261, B cosine=+0.00163 (marginal regression), C quadratic=+0.00864 (strong regression, fst=-1), D linear_floor=+0.01401 (strongest, fst=-1). Monotone with non-linear distortion of the final-window decay. **Mechanism**: body Muon needs (1) decay to ~zero at end, (2) linear shape (not steeper, not slower). NS-orthogonalized updates have rank-stable magnitudes — late-phase convergence requires actual zero LR to land. **Striking per-group cooldown contrast**: embed wins with linear_floor (#235), body LOSES strongest with linear_floor — different update statistics demand different profiles. Per-group cooldown-shape design axis substantially characterized (lm_head #547 in flight completes the matrix). **30th productive-null/negative this cycle.**
 **Follow-up**: thorfinn assigned **#554 AdamW embed WD cooldown nudge** — adds small positive WD on embed during cooldown only (currently WD=0). Tests whether late-phase implicit regularization on sparse-row embed group helps; structurally distinct from edward #550 (Muon WD REDUCTION, body group, removes existing).
 
-### 🔄 thorfinn #590 — NS-cooldown START_FRAC sweep [assigned 15:35 UTC]
+### ✅ thorfinn #590 — NS-cooldown START_FRAC sweep — CLOSED 23:50 UTC productive-NULL
 
-**Branch:** `g1r4-thorfinn/ns-cooldown-start-frac`
-**Hypothesis**: `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (NS=12→16 ramp start point) has never been independently swept on the merged stack — bundled at #176 merge with NS_ITERS_COOLDOWN=16 as a heuristic, not an optimized value. Other NS-cooldown axes saturated (#176 mag=16, #285 shape=late_peak, #290 coef=linear_ramp_down) but the TIMING of when the precision window begins is unexplored. Pure env-var sweep. Structurally distinct from #506 (NS-iter warmup at start of training), #487/#577 (sub-stack pruning), #543 (per-block NS spatial), #520 (LR cooldown not NS).
-| Arm | NANOGPT_NS_COOLDOWN_START_FRAC | NS=16 ramp starts at | Window length | Tests |
-|---|---:|---:|---|---|
-| A | 0.70 (ctrl) | step 2345 | 30% (1005 steps) | Reproduces merged baseline |
-| B | **0.50** | step 1675 | **50% (1675 steps)** | Longer precision window (more NS=16 compute) |
-| C | **0.85** | step 2848 | **15% (502 steps)** | Shorter precision window (concentrated late NS=16) |
-| D | **0.60** | step 2010 | 40% (1340 steps) | Intermediate longer (B/A split) |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27089−3.27174|=0.00085): A=3.27089, B (0.50)=+0.00187 (regression), C (0.85)=+0.00132 (null), D (0.60)=−0.00041 (null sub-threshold). FRAC axis is **bilaterally concave at 0.70** with flat 0.60-0.70 shoulder. Mechanism reading: NS=16 only pays off in final ~25-30% of training; extending the window earlier (B) wastes compute on mid-phase steps that don't benefit from tighter orthogonalization, shortening (C) loses late-phase precision gain. The favorable A-drift (−0.00085) inflates D's apparent baseline improvement; within-pod Δ_vs_A=−0.00041 is far below the −0.002 candidate threshold. Closes off both "extended precision window" and "concentrated late NS=16 burst" follow-up directions. Full NS-cooldown sub-stack: magnitude=#176 (MERGED), shape=#285 (MERGED), coef=#290 (MERGED), timing=#590 (CLOSED). **41st productive-null/negative this cycle.**
+**Follow-up**: thorfinn assigned **#624 spectral norm penalty (WAVE3 IDEA 8)** — loss-side weight conditioning regularizer, structurally fresh axis no prior experiment has touched. After 41 productive-NULLs on optimizer-state and update-direction axes, pivot to loss-formulation axis.
+
+### 🔄 thorfinn #624 — Spectral norm penalty (loss-side weight conditioning) [assigned 23:55 UTC]
+
+**Branch:** `g1r4-thorfinn/spectral-norm-penalty`
+**Hypothesis**: WAVE3 IDEA 8, held until NS-saturation evidence (now established with 4/4 NS-cooldown axes closed/merged). Adds `λ * Σ_layers σ_max(W)²` penalty to loss on body Muon 2D weight matrices. Power iteration estimate of σ_max with persistent v across steps (SN-GAN-style, ~3-5% overhead). Mechanism reading: NS conditions the *update direction* but not the *weight itself*; weights may drift toward singular-value concentration during training. The penalty is the loss-side dual of NS — a complementary pull toward well-conditioned weights. **Orthogonal to all 8 currently in-flight experiments and all 41 closed nulls** (closest priors: WD = L2 = ||W||_F² penalizing all singular values uniformly; spectral norm = σ_max² penalizes only dominant — substantively different).
+| Arm | NANOGPT_SPECTRAL_LAMBDA | NANOGPT_SPECTRAL_SCOPE | Tests |
+|---|---:|---|---|
+| A | 0.0 (ctrl) | n/a | Reproduces merged baseline |
+| B | **1e-5** | all | Mild penalty on all attn+mlp body matrices |
+| C | **5e-5** | all | 5× stronger — tests dose-response |
+| D | **1e-5** | attn_only | Targeted (head-locking on high-freq tokens mechanism) |
+**ETA full chain:** ~7.6h. Implementation: ~30-50 LOC (env var plumbing + spectral_params list build + compute_spectral_penalty function + loss-add hook + W&B logging).
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
