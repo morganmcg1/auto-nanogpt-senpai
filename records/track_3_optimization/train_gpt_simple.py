@@ -67,6 +67,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--init_var_scale", type=float, default=0.33,
+                        help="Variance scaling constant for block weight init. "
+                             "Current 0.33 -> std = sqrt(0.33/d_in). "
+                             "Xavier ~= 1.0, He ~= 2.0. Affects only block weights "
+                             "(attn Q/K/V, mlp.fc); embed/proj/bias unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +752,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "init_var_scale": args.init_var_scale,
         },
     )
 
@@ -769,7 +775,7 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=args.init_var_scale**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
