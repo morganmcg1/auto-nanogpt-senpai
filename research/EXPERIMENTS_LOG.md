@@ -1970,3 +1970,35 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
 
 **Next for edward**: PR #512 assigned — H6 Aux AdamW `v_t` partial reset at cooldown onset (`--aux_v_reset_frac` 1.0/0.5/0.1).
 
+## 2026-05-20 01:30 UTC — PR #510 CLOSED: Aux NAdam — unfused optimizer path incompatible with eps=1e-6 + AGC stack (frieren)
+
+- Branch: `g1r3-frieren/aux-adamw-nesterov`
+- Hypothesis: NAdam (Nesterov AdamW) on aux groups mirrors Nesterov used in MuonH-SI/MuLoCo; lookahead term may improve convergence under eps=1e-6.
+
+| Arm | W&B run | val/loss | Δ vs baseline 3.27119 | Notes |
+|---|---|---|---|---|
+| 1 ctrl (fused AdamW) | `otpucdbo` | 3.27222 | +0.00103 | baseline-equivalent (n=1 noise) |
+| 2 NAdam fixed-beta (decay=0) | `p96pfx9b` | NaN @ step 3 forward | — | smoke-gate killed |
+| 3 NAdam decay-beta (decay=0.004) | — | not run | — | skipped after diagnosis |
+| diagnostic AdamW(fused=False) | `9playthp` | NaN @ step 3 forward | — | identical failure |
+| diagnostic NAdam 30-step probe | `16hobbah` | NaN @ step 3 | — | telemetry_interval=1 |
+
+**Decision: CLOSED (NAdam arms worse than ctrl per decision tree; mechanistic value preserved).**
+
+**Mechanistic finding (HIGH VALUE)**:
+- NaN does NOT originate in NAdam update math. Step-1 NAdam state is fully zero for zero-grad biases (no-op); non-zero-grad params get ~10%-larger update magnitude (consistent with Nesterov lookahead term).
+- NaN appears in step-2 forward pass: 8 of 768 entries in attn proj bias gradient go NaN.
+- Plain `AdamW(fused=False)` with identical hyperparameters (lr, betas, eps=1e-6, AGC clip=0.05) shows identical step-3 NaN.
+- **Root cause**: eps=1e-6 + AGC + per-group LR aux stack depends on fused AdamW's internal FP32 accumulation. PyTorch's NAdam has no fused kernel, so it inherits the unfused path and the same instability.
+
+**Implications for hypothesis bank**:
+- **H8 AdaBelief**: BLOCKED unless fused implementation provided or aux stack rebuilt.
+- **H2 Lookahead**: SAFE (wraps fused AdamW; slow-weights step is post-update).
+- **Lion**: SAFE (sign-based update has bounded magnitude regardless of fusion).
+- **H3 SWA at cooldown**: SAFE (averaging is post-update, doesn't enter the divergent path).
+- **Schedule-Free AdamW**: needs verification.
+
+**Conclusion**: Closing PR #510. The unfused-path incompatibility is recorded as a global constraint on future aux optimizer assignments. Excellent diagnostic work from frieren — mechanistic insight more valuable than a +0.001 numeric improvement would have been.
+
+**Next for frieren**: PR #5XX assigned — Lookahead aux wrapper (H2) at k=5, α=0.5 vs α=0.8.
+
