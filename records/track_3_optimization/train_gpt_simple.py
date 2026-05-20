@@ -37,6 +37,12 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# AdaBelief variance update for aux AdamW group (embed, lm_head, scalars). PR #545.
+# v ← β2·v + (1-β2)·(g - m_hat)² + eps  (Algorithm 2 in Zhuang et al. 2020)
+# AUX_BELIEF_EPS controls both the eps-inside-v term and the denom add-eps.
+# Arm A: 1e-10 (current baseline aux AdamW eps); Arm B: 1e-8 (AdaBelief paper recommendation).
+AUX_BELIEF_EPS = 1e-8
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -577,6 +583,86 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class AdamWBelief(torch.optim.Optimizer):
+    """AdamW with AdaBelief variance update: v ← β2·v + (1-β2)·(g - m)² + eps.
+
+    State (m, v) is held in fp32 even for bf16 params (embed.weight is bf16).
+    Belief uses the raw EMA m (not bias-corrected m_hat) inside (g - m)², matching
+    Algorithm 2 of Zhuang et al. 2020. Using m_hat would force (g - m_hat) = 0 at
+    step 1 (since m_hat = (1-β1)·g / (1-β1) = g identically), driving v to eps,
+    denom to √(20·eps), and the first update to ~6700·|g|·lr — divergent.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        diag = {"v_sum": 0.0, "v_count": 0, "m_norm_sq": 0.0, "belief_sum": 0.0, "g_sq_sum": 0.0}
+        per_group_diag: dict[str, dict[str, float]] = {}
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "adam_belief")
+            g_diag = per_group_diag.setdefault(group_name,
+                                               {"v_sum": 0.0, "v_count": 0, "m_norm_sq": 0.0,
+                                                "belief_sum": 0.0, "g_sq_sum": 0.0})
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m = state["m"]
+                v = state["v"]
+                g32 = g.float()
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                # First moment (standard EMA on raw gradient)
+                m.mul_(b1).add_(g32, alpha=1.0 - b1)
+                # AdaBelief variance per paper Alg 2: uses RAW m (not bias-corrected m_hat).
+                # Using m_hat creates a step-1 degeneracy where (g - m_hat) == 0 identically.
+                belief = (g32 - m).pow(2)
+                v.mul_(b2).add_(belief, alpha=1.0 - b2).add_(eps)
+                bias1 = 1.0 - b1 ** t
+                bias2 = 1.0 - b2 ** t
+                m_hat = m / bias1
+                v_hat = v / bias2
+                denom = v_hat.sqrt().add_(eps)
+                p.addcdiv_(m_hat.to(p.dtype), denom.to(p.dtype), value=-lr)
+                # Diagnostics (cheap aggregate stats, no per-param tensor allocation beyond reductions)
+                with torch.no_grad():
+                    v_mean_val = float(v.mean().item())
+                    m_norm_sq_val = float(m.pow(2).sum().item())
+                    belief_mean_val = float(belief.mean().item())
+                    g_sq_mean_val = float(g32.pow(2).mean().item())
+                count = v.numel()
+                diag["v_sum"] += v_mean_val * count
+                diag["v_count"] += count
+                diag["m_norm_sq"] += m_norm_sq_val
+                diag["belief_sum"] += belief_mean_val * count
+                diag["g_sq_sum"] += g_sq_mean_val * count
+                g_diag["v_sum"] += v_mean_val * count
+                g_diag["v_count"] += count
+                g_diag["m_norm_sq"] += m_norm_sq_val
+                g_diag["belief_sum"] += belief_mean_val * count
+                g_diag["g_sq_sum"] += g_sq_mean_val * count
+        self._belief_diag = diag
+        self._belief_diag_per_group = per_group_diag
+        return loss
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -704,6 +790,10 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #545 AdaBelief on aux AdamW group
+            "aux_optimizer": "AdamWBelief",
+            "aux_belief_eps": AUX_BELIEF_EPS,
+            "aux_betas": (0.8, 0.95),
         },
     )
 
@@ -735,10 +825,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # PR #545: aux AdamW replaced with AdamWBelief (variance = (g - m_hat)^2 instead of g^2).
+    # Keep all other aux hyperparameters identical: per-group LRs, betas=(0.8, 0.95), wd=0.
+    optimizer1 = AdamWBelief([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                              dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                              dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                             betas=(0.8, 0.95), eps=AUX_BELIEF_EPS, weight_decay=0.0)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -920,6 +1012,28 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            belief_diag = getattr(optimizer1, "_belief_diag", None)
+            if belief_diag is not None and belief_diag.get("v_count", 0) > 0:
+                vc = belief_diag["v_count"]
+                metrics_belief = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "aux/v_belief_mean": belief_diag["v_sum"] / vc,
+                    "aux/belief_term_mean": belief_diag["belief_sum"] / vc,
+                    "aux/g_sq_mean": belief_diag["g_sq_sum"] / vc,
+                    "aux/m_norm": belief_diag["m_norm_sq"] ** 0.5,
+                    "aux/belief_to_gsq_ratio": (belief_diag["belief_sum"] / max(belief_diag["g_sq_sum"], 1e-30)),
+                }
+                per_group = getattr(optimizer1, "_belief_diag_per_group", {}) or {}
+                for gname, gd in per_group.items():
+                    if gd.get("v_count", 0) == 0:
+                        continue
+                    gc = gd["v_count"]
+                    metrics_belief[f"aux/{gname}/v_belief_mean"] = gd["v_sum"] / gc
+                    metrics_belief[f"aux/{gname}/belief_term_mean"] = gd["belief_sum"] / gc
+                    metrics_belief[f"aux/{gname}/g_sq_mean"] = gd["g_sq_sum"] / gc
+                    metrics_belief[f"aux/{gname}/m_norm"] = gd["m_norm_sq"] ** 0.5
+                wandb.log(metrics_belief, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
