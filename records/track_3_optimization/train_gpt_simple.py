@@ -455,7 +455,7 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
-MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
+MUON_WEIGHT_DECAY = float(os.environ.get("MUON_WEIGHT_DECAY", "0.0"))  # default 0 = u/w-floor only (current); positive value enables decoupled WD in Muon.step
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
@@ -707,7 +707,9 @@ class Muon(torch.optim.Optimizer):
                     cur_uw = u_fro / p_fro
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
-                    # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
+                    # Decoupled weight decay (orthogonal to u/w-floor; disabled by default).
+                    if group["weight_decay"] > 0:
+                        p.mul_(1.0 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
