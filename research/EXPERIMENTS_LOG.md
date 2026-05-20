@@ -2627,3 +2627,16 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 - **Hypothesis:** z-loss penalty `Z_LOSS_COEF · sum(logsumexp(logits)²)` added to cross-entropy. PaLM/Chinchilla/Mamba standard regularizer. Never tested. Orthogonal to existing soft-clamp (constrains per-logit magnitude, not partition function mean).
 - Arm A: Z_LOSS_COEF=1e-4 (PaLM-scale standard)
 - Arm B: Z_LOSS_COEF=1e-3 (10× stronger, in case soft-clamp buffers the low-coef effect)
+
+## 2026-05-20 19:11 UTC — PR #562 CLOSED: PMuon ε floor scan {1e-10, 1e-14} — NULL/NULL, ε=1e-12 baseline confirmed optimal across ±2 OOM (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-eps-floor-scan`
+- Hypothesis: eigenvalue clamp ε in `matrix_neg_power` may be load-bearing at near-rank-deficient early training or cooldown saturation. Test ε=1e-10 (10× looser) and ε=1e-14 (100× tighter) vs baseline 1e-12.
+
+| Arm | ε | W&B run | fs | val | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 1e-10 | `log2c4fj` | 2950 | 3.265632 | +12.5 (marginal) | +0.001354 (marginal) | NULL n=2 not needed (already on NULL side) |
+| B | 1e-14 | `169fd498` | 2975 | 3.265954 | +37.5 (clear) | +0.001676 | NULL clear |
+| Baseline | 1e-12 | `k7ylyby9`+`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
+
+**Verdict: NULL/NULL — PMuon ε floor axis closes.** Asymmetric (Arm B worse): tighter clamp amplifies noise on rank-deficient directions. Effect subthreshold — optimum sits slightly above 1e-12 but within noise across the 4 OOM range. PMuon scalar audit now COMPLETE: γ_power (#519), β_cov (#502), NS_ITERS (#511+#546), ε floor (#562) — all NULL within natural ranges.

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 15:40 UTC
+- **Last update:** 2026-05-20 19:18 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -46,26 +46,27 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#545** | fern | AdaBelief on aux AdamW v-estimator: both NULL clear (paper-formulation after step-1 bug-fix). v_belief/g² ≈ 0.70 confirms mechanism works as designed; aux gradients noise-dominated so Var(g) preconditioner is informationally equivalent to E[g²]. v-estimator axis closes at standard AdamW raw \|g\|². | **CLOSED 14:25 UTC** |
 | **#553** | frieren | Gradient Centralization on body-Muon pre-NS (Yong et al 2020): both NULL clear. Arm A dim=1 fs=3000 val=3.268599 Δsr=+62.5 Δval=+0.0043; Arm B dim=0 fs=3025 val=3.271550 Δsr=+87.5 Δval=+0.0073. **Astonishing 5000-10000× signal-to-perturbation ratio**: removed 0.011-0.021% of L2 norm, regressed 62-87 sr. PMuon's NS whitening preserves and uses the rank-1 column/row-mean as singular-vector signal — subtracting it drops a top-singular-vector pair from the polar step. **Opposite-sign finding from Yong et al 2020 (ImageNet/ResNet)** — Muon-class optimizers use singular structure that GC removes. dim=0 (per-input-channel) carries more signal than dim=1 (per-output-channel). | **CLOSED 15:35 UTC** |
 
-## Active experiments (8 students, 15:40 UTC)
+## Active experiments (8 students, 19:18 UTC)
 
-| PR | Student | Run | Step/3250 | bl | Status |
+| PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#588** | **frieren** | (awaiting pickup after #553 close) | — | — | **NEW — body-Muon column-mean AMPLIFICATION pre-NS. Inverse mechanism of #553 GC: `g + α · mean(g, dim, keepdim=True)`. Arm A α=0.05, Arm B α=0.20, both dim=1 (less-bad from #553). Falsifies symmetrically — if amplification helps, GC closure has interesting mirror; if NULL/NULL, gradient-mean transformation class fully closes BOTH directions.** |
-| **#585** | fern | `nei7hw2p` AdEMAMix Arm A α=2 running | ~step 225 | ~4.48 | Launched 14:32 UTC. ~3h to Arm A terminal. |
-| **#583** | thorfinn | `z5bs938o` Adamax Arm A β2=0.95 running | ~step 225 | ~4.50 | Launched 14:22 UTC. ~3h to Arm A terminal. |
-| **#578** | edward | `d6qh9eie` AMSGrad Arm A bias-corrected v_max running | ~step 850 | ~3.71 | Launched 13:35 UTC. ~2h to Arm A terminal. |
-| **#570** | alphonse | `3pk3lm8w` PMuon mu=0.90 Arm A running | ~step 3125 (sr=3075 set) | ~3.28 | NULL clear in flight (Δsr=+137.5). Arm B mu=0.97 pending Arm A terminal. ~5 min to terminal. |
-| **#575** | askeladd | `ppotks3f` NadamW Arm A β1=0.8 running | ~step 1900 | ~3.45 | Launched 12:54 UTC. ~1.5h to Arm A terminal. |
-| **#559** | nezuko | `9im5cuxw` NS_ITERS cooldown ramp running | ~step 2000 | ~3.42 | Launched 11:46 UTC. ~1.5h to Arm A terminal. |
-| **#562** | tanjiro | `5hpunkl3` PMuon eps Arm A running | ~step 200 | ~4.48 | Fresh launch ~14:30 UTC after recovery. ~3h to Arm A terminal. |
+| **#604** | **tanjiro** | pending pickup | — | — | **NEW — Lion optimizer replacing aux AdamW. Sign-of-momentum mechanism class (Chen et al 2023). No v-state. Arm A lr×1/3 (embed=0.10, lm_head=1/480, scalar=0.00833); Arm B lr×1/10 (embed=0.03, lm_head=1/1600, scalar=0.0025). Both β1=0.9 β2=0.99 FP32 m-state.** |
+| **#588** | frieren | `ix493rgk` Arm A α=0.05 dim=1 | step 2525 | 3.3374 | Body-Muon column-mean amplification. Arm B (α=0.20) not yet started. ~2h to Arm A terminal. |
+| **#585** | fern | Arm A `nei7hw2p` FINISHED NULL. Arm B pending. | 3250 | **3.2756** | Arm A TERMINAL NULL fs=3100 Δsr=+162.5 Δval=+0.011. Arm B (α=5) deferred — student to confirm skip/run. |
+| **#583** | thorfinn | `n3usxhni` Adamax Arm A β2=0.95 | step 2375 | 3.3748 | ~1.5h to Arm A terminal. No Arm B started. |
+| **#578** | edward | Arm A `d6qh9eie` DNF NULL. Arm B `gz7ktuqr` running. | step 675 | 3.7476 | Arm B uncorrected v_max early. ~3.5h to terminal. |
+| **#570** | alphonse | Arm A `3pk3lm8w` NULL fs=3075 val=3.27566. Arm B `id2inkbe` mu=0.97. | step 2975 | 3.2889 | Arm A clear NULL Δsr=+137.5. Arm B approaching target, likely DNF or NULL. |
+| **#575** | askeladd | Arm A `ppotks3f` NULL fs=2975 val=3.26587. Arm B `bpadxpdy`. | step ~1900 | ~3.47 | Arm A clear NULL confirmed. Arm B ~60min to terminal. |
+| **#559** | nezuko | `jb6mjgmf` NS_ITERS 12→16 Arm A (4th attempt, healthy) | step 2275 | 3.3751 | Arm B (12→18) not started. ~1.5h to Arm A terminal. |
 
-## Next terminal events (from 15:40 UTC)
+## Terminals since 15:40 UTC (this session)
 
-1. **alphonse #570 Arm A `3pk3lm8w`** — step 3125/3250 sr=3075 NULL clear locked in, ~5-10 min to final terminal SENPAI-RESULT. Arm B mu=0.97 follows immediately.
-2. **askeladd #575 NadamW Arm A `ppotks3f`** — step ~1900/3250, ~1.5h to terminal.
-3. **nezuko #559 NS cooldown ramp `9im5cuxw`** — step ~2000/3250, ~1.5h to terminal.
-4. **edward #578 AMSGrad Arm A `d6qh9eie`** — step ~850/3250, ~2h to terminal.
-5. **fern #585 AdEMAMix, thorfinn #583 Adamax, tanjiro #562 PMuon eps, frieren #588 amplification** — early/just-launched, ~3h each.
+| PR | Student | Result | Decision |
+|---|---|---|---|
+| **#562** | tanjiro | PMuon ε floor NULL/NULL (Arm A fs=2950 val=3.26563 marginal; Arm B fs=2975 val=3.2660 clear). ε=1e-12 baseline confirmed optimal across ±2 OOM. | **CLOSED 19:11 UTC — 30th axis.** |
+| **#585 Arm A** | fern | AdEMAMix α=2 NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). | Arm B pending student decision. |
+| **#575 Arm A** | askeladd | NadamW β1=0.8 NULL clear fs=2975 val=3.26587 (Δsr=+37.5 Δval=+0.001592). | Arm B running. |
+| **#570 Arm A** | alphonse | PMuon mu=0.90 NULL clear fs=3075 val=3.27566 (Δsr=+137.5). | Arm B running (~terminal <30min). |
 
 ## Recently merged
 
@@ -91,7 +92,7 @@ This is a complete mechanism-class audit of aux AdamW's update equation. By desi
 3. **PMuon ε floor (eigenvalue clamp in spectral whitening)** (#562 tanjiro — closes scalar audit of full PMuon stack at ε ∈ {1e-10, 1e-14} vs baseline 1e-12).
 4. **PMuon mu (body-Muon momentum EMA)** (#570 alphonse — Arm A mu=0.90 NULL clear in flight at sr=3075; temporal smoothing axis on raw gradient buffer feeding NS polar map).
 
-**Closed axes summary (29 total):**
+**Closed axes summary (30 total):**
 
 *Body-Muon LR partition family FULLY CLOSED:* #499 per-type (MLP vs ATTN), #535 sub-MLP (c_fc vs c_proj), #532 depth-based (early-fast vs late-fast). All three coarse partitionings NULL/NULL — PMuon's per-matrix bilateral whitening neutralizes LR multipliers by construction.
 
@@ -120,11 +121,11 @@ This is a complete mechanism-class audit of aux AdamW's update equation. By desi
 - **NadamW Nesterov m-step on aux AdamW** — **IN FLIGHT (#575 askeladd)**
 - **PMuon mu (body-Muon momentum EMA)** — **IN FLIGHT (#570 alphonse)**
 - **NS_ITERS cooldown ramp 12 → {16, 18}** — **IN FLIGHT (#559 nezuko)**
-- **PMuon ε floor (matrix_neg_power eigenvalue clamp)** — **IN FLIGHT (#562 tanjiro)**
+- **PMuon ε floor (matrix_neg_power eigenvalue clamp)** — **CLOSED (#562 tanjiro NULL/NULL; ε=1e-12 baseline confirmed optimal ±2 OOM)**
 - **Gradient centralization on body-Muon pre-NS** — **CLOSED (#553 NULL/NULL clear; rank-1 mean carries singular-vector signal at 5000-10000× signal-to-perturbation ratio)**
 - **Body-Muon column-mean AMPLIFICATION pre-NS** — **IN FLIGHT (#588 frieren NEW)** — inverse of #553 GC; tests `g + α · mean(g, dim, keepdim=True)` at α ∈ {0.05, 0.20}, dim=1
 - **LAMB/LARS layerwise trust ratio on aux** — UNTESTED — per-tensor rescale, orthogonal to per-coordinate update-rule mechanism class (fern's suggestion, queued)
-- **Lion (sign-momentum) on aux** — UNTESTED — completely different family from Adam (no v-state, sign-based update)
+- **Lion (sign-momentum) on aux** — **IN FLIGHT (#604 tanjiro NEW)** — sign-of-momentum mechanism class (Chen et al 2023); no v-state; Arm A lr×1/3, Arm B lr×1/10
 - **RAdam variance rectification** — UNTESTED — first-moment warmup compensation
 - **Sophia-style scalar Hessian on aux AdamW** — UNTESTED — second-order aux update
 - **Skip-connection LR multiplier** — UNTESTED
