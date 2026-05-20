@@ -67,6 +67,14 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.0,
+                        help="Lookahead interpolation factor alpha. Default 0.0 = Lookahead OFF (no-op). "
+                             "Typical: 0.5 (Zhang et al. 2019). Range 0.0-1.0.")
+    parser.add_argument("--lookahead_k", type=int, default=5,
+                        help="Lookahead sync interval in optimizer steps. Default 5. Typical: 5-10.")
+    parser.add_argument("--lookahead_cooldown_disable", action="store_true",
+                        help="Disable Lookahead during the last 20%% of training steps. "
+                             "When enabled, Lookahead syncs only in steps 0..int(0.8*train_steps).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +755,10 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_cooldown_disable": bool(args.lookahead_cooldown_disable),
+            "lookahead_enabled": args.lookahead_alpha > 0.0,
         },
     )
 
@@ -842,6 +854,22 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # Lookahead slow-weight snapshot (Zhang et al. 2019, NeurIPS).
+    # Outer-loop wraps Muon + SOAP + AdamW; sync happens after opt.step() at the
+    # k-th inner step. Snapshot taken AFTER broadcast so all ranks share state.
+    lookahead_enabled = args.lookahead_alpha > 0.0
+    lookahead_cooldown_cutoff = int(0.8 * train_steps)
+    lookahead_slow: dict[str, Tensor] = {}
+    if lookahead_enabled:
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                lookahead_slow[name] = p.data.detach().clone()
+        print0(f"[Lookahead] alpha={args.lookahead_alpha} k={args.lookahead_k} "
+               f"cooldown_disable={args.lookahead_cooldown_disable} "
+               f"cooldown_cutoff_step={lookahead_cooldown_cutoff} "
+               f"slow_params={len(lookahead_slow)}", console=True)
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -950,6 +978,34 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+
+        # Lookahead sync: slow ← slow + α(fast - slow); fast ← slow.
+        # Sync only at multiples of k (after opt.step), and optionally skip the
+        # last 20% of training to avoid pulling weights backward in cooldown.
+        lookahead_sync_now = (
+            lookahead_enabled
+            and step > 0
+            and step % args.lookahead_k == 0
+            and (not args.lookahead_cooldown_disable or step <= lookahead_cooldown_cutoff)
+        )
+        if lookahead_sync_now:
+            lookahead_fast_slow_sqsum = torch.zeros((), device=device, dtype=torch.float32)
+            for name, p in model.named_parameters():
+                slow = lookahead_slow.get(name)
+                if slow is None:
+                    continue
+                if dist.get_rank() == 0:
+                    lookahead_fast_slow_sqsum += (p.data.float() - slow.float()).pow(2).sum()
+                slow.lerp_(p.data, args.lookahead_alpha)
+                p.data.copy_(slow)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lookahead/sync_event": 1,
+                    "lookahead/fast_slow_l2": float(lookahead_fast_slow_sqsum.sqrt().item()),
+                }, step=wandb_step)
+
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
