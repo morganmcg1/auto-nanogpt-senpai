@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 02:15 UTC
+- **Date:** 2026-05-20 03:36 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -110,6 +110,12 @@ Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e
 
 **Paired-pod confirmation chain** (sent back to draft at 01:05 UTC): 3 paired A/B pods to control for seed/pod-variance. Arms C and D held — single false-positive arm B replication takes priority. Merge gate: mean(Δ) ≤ −0.002 AND mean(val_B) ≤ 3.27174 AND `(3.28 − mean) × √3 ≥ 0.004`. ETA ~11.4h (3 paired chains).
 **Precedent**: 3 false-positives this cycle (#344, #351, #408 AGC) on single-pod Δ ≤ −0.002 signals → paired-pod is mandatory.
+
+**03:36 UTC W&B status (1 of 6 runs complete):**
+- pod0 arm A: val=3.27398 (drift +0.00224 vs new baseline 3.27174 — within ±0.003 band ✓)
+- pod0 arm B: running at step 275/3350 (8.2%, ~10 min elapsed)
+- pods 1, 2: not started yet (sequential chain)
+- Comment requested per-arm SENPAI-RESULT progress reports.
 
 ### ✅ thorfinn #446 — Label smoothing sweep — CLOSED 15:38 UTC productive-NEGATIVE
 
