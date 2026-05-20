@@ -467,6 +467,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+RESIDUAL_PROJ_INIT_STD = float(os.environ.get("RESIDUAL_PROJ_INIT_STD", "0.0"))  # 0 = zero-init (current); >0 = N(0, std) for residual projections (NOT lm_head)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -884,7 +885,14 @@ for trial_idx in range(args.num_trials):
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                if name == "proj.weight":
+                    # lm_head: always zero-init (nezuko #602 tests lm_head separately)
+                    w.zero_()
+                elif RESIDUAL_PROJ_INIT_STD > 0:
+                    # residual projections (blocks.N.attn.proj.weight, blocks.N.mlp.proj.weight)
+                    w.normal_(std=RESIDUAL_PROJ_INIT_STD)
+                else:
+                    w.zero_()  # default: current zero-init for residual projections
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
