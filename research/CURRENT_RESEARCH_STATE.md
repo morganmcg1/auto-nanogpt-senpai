@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~21:35Z (poll #311)
+- **Last updated:** 2026-05-20 ~21:45Z (poll #312)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -15,11 +15,11 @@ P2 status across the portfolio:
 
 | PR | Cell | Config | val/loss | Δσ_n6 (σ=0.001747) | Margin vs n=4 gate | P2 Status |
 |----|------|--------|---------:|--------------------:|--------------------:|-----------|
-| #571 | D | lr_scalars=0.03 | **3.262962** | **−1.81σ** | beats gate by **0.001158** 🔥🔥 | **🔬 P2 n=4 IN-FLIGHT** (just sent back) |
-| #565 | B | init_var_scale=1.0 (xavier) | 3.263870 | −1.29σ | beats gate by 0.000250 | pending (Cell E running, await terminal) |
-| #556 | C | adam_eps=1e-6 | 3.263690 | −1.39σ | beats gate by 0.000430 | **🔬 P2 n=4 in-flight** (Run 1 ~90%) |
+| #571 | D | lr_scalars=0.03 | **3.262962** | **−1.81σ** | beats gate by **0.001158** 🔥🔥 | **🔬 P2 n=4 IN-FLIGHT** |
+| #565 | B | init_var_scale=1.0 (xavier) | 3.263870 | −1.29σ | beats gate by 0.000250 | **🔬 P2 n=4 IN-FLIGHT** (just sent back) |
+| #556 | C | adam_eps=1e-6 | 3.263690 | −1.39σ | beats gate by 0.000430 | **🔬 P2 n=4 IN-FLIGHT** (Trial 0=3.26770 +0.90σ; Trials 1-3 pending) |
 
-Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Across ~30 cells tested in the current portfolio, expected gate-passers under null ≈ 3.8 — so 3 hits is **not surprising under noise alone**. But each lives on a mechanistically distinct axis (eps, init, scalar LR), with theoretical motivation. Two of three now have P2 confirmations running.
+Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Across ~30 cells tested in the current portfolio, expected gate-passers under null ≈ 3.8 — so 3 hits is **not surprising under noise alone**. But each lives on a mechanistically distinct axis (eps, init, scalar LR), with theoretical motivation. **All three now have P2 confirmations running concurrently.** Early signal from frieren P2 Trial 0 (3.26770, +0.90σ) suggests its single-seed signal was lucky-side noise — n=4 mean unlikely to clear gate.
 
 
 ## Active WIP Portfolio
@@ -27,11 +27,11 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 | PR # | Student | Hypothesis | Status (poll #310) |
 |------|---------|-----------|--------|
 | #600 | alphonse | LM-head AdamW LR sweep (1/640/1/320ctrl/1/160/0.01/0.03) — 3rd hardcoded AdamW LR | **Cell A ctrl terminal at 3.26574** (−0.30σ, within ctrl noise — refactor no-op confirmed). Chain B→E should be running. |
-| #596 | tanjiro | Tied input/output embedding sweep | **Cell A untied ctrl terminal at 3.26719** (+0.61σ, no-op confirmed). **Cell B (tied lr=0.3) KILLED at val=3.567 step 1612** — too aggressive on tied matrix (input+output gradients flowing into one). Cell C (tied lr=0.1) launching. Tied with high LR is unstable. |
+| #596 | tanjiro | Tied input/output embedding sweep | A untied ctrl=3.26719 (no-op). **B (lr=0.3) KILLED** at val=3.567 step 1612. **C (lr=0.1) KILLED** at val=3.558 step 1500. Cells D (0.03) and E (0.01) pending. Tied with LR≥0.1 has ~3.55 floor at step 1500 — structural ceiling regardless of LR. Likely tied will fail at lower LRs too. |
 | #571 | askeladd | AdamW scalar param LR sweep (RMSNorm gains) | **🔥🔥 ALL 5 CELLS TERMINAL. Cell D (0.03) = 3.262962 = STRONGEST single-seed in portfolio.** Sent back for P2 n=4 confirmation on Cell D. Full hump: A(0.01)=3.26523 −0.51σ, B(0.003)=+7σ, C(0.001)=+13σ DNF, D(0.03)=−1.81σ ✓gate, E(0.1)=+3.38σ. RMSNorm gains were under-tuned at 0.01. |
 | #614 | nezuko | **NEW** Logit softcap value sweep (7.5/10/15ctrl/22.5/30) — hardcoded, never ablated | Just assigned (poll #311). Softcap at line 459 bounds logits to ±15; value untested. "Less intensity" theme predicts looser cap may help. |
-| #565 | thorfinn | Init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0) | 4/5 terminal: A(0.33)=3.26587 −0.14σ, **B(1.0)=3.26387 BEATS n=4 GATE**, C(2.0)=3.26635 +0.13σ, D(0.10)=3.27190 +3.31σ. Cell E (var=0.5) at step 968/3250 (30%), tracks closest to Cell B trajectory. |
-| #556 | frieren | AdamW epsilon sweep — **P2 CONFIRMATION IN-FLIGHT** | P2 Run 1 (`bfq43l07`) at step 2938/3250 (~90%), val=3.299 healthy (cooldown will bring to 3.265 band). Run 0 (`bhptvg5u`) crashed at step 624 — pod preempt. 1-GPU sequential means n=4 total ~7.3 hrs. Stale_wip ack'd this poll. |
+| #565 | thorfinn | Init variance scale sweep — **P2 CONFIRMATION IN-FLIGHT** | All 5 cells terminal. Cell B (xavier var=1.0)=3.26387 beats n=4 gate by 0.000250 (narrowest of 3 P2s). Shape: D(0.10)=+3.31σ catastrophic, A(0.33)=−0.14σ ctrl, E(0.50)=+0.39σ, **B(1.0)=−1.29σ winner**, C(2.0)=+0.13σ. P2 n=4 fresh confirmation requested at var=1.0. |
+| #556 | frieren | AdamW epsilon sweep — **P2 CONFIRMATION IN-FLIGHT** | P2 Trial 0 (`bfq43l07` --num_trials 4) terminal at val=3.26770 (+0.90σ). 3 more trials sequential. For n=4 mean to clear gate, remaining 3 must avg ≤3.26293 — unlikely given Trial 0. ETA terminal Trial 3: ~02:20 UTC May 21. |
 | #581 | edward | Lookahead optimizer wrapper | **⚠️ Cell C terminal at 3.28116 (+8.6σ)** — Lookahead failing across all variants. A ctrl=3.26801, B(α=0.5 k=5)=3.27956 +10.5σ, C(α=0.5 k=10)=3.28116 +8.6σ. Cell D (α=0.3 k=5 gentler) running at ~9%. Pattern: every time-averaging wrapper fails on 3250-step horizon. Likely to close clean-NEG after D/E. |
 | #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | A(ctrl 2.0)=3.26621 no-op, **B(peak_wd=1.0)=3.26874 +0.43σ** (slightly worse, within noise — lower peak WD doesn't help). Cell C (1.5) likely running. |
 
@@ -69,12 +69,12 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 
 **Key analytical questions for in-flight PRs:**
 - **askeladd #571 scalar LR** 🔥🔥 **P2 IN-FLIGHT** (just sent back): Cell D (lr_scalars=0.03) at 3.262962 (Δ=−1.81σ, beats n=4 gate by 0.001158). All 5 cells terminal; P2 n=4 fresh confirmation requested on Cell D. 7.3 GPU-hours wall. Mechanism: RMSNorm gain LR was under-tuned at 0.01 → 3× higher allows gains to find optimal per-layer output scale faster. If P2 confirms: this would be the strongest single-axis improvement on the new baseline since the merge.
-- **frieren #556 Adam eps P2** 🔬 IN-FLIGHT: P2 Run 1 (`bfq43l07`) at step 2938/3250 (~90%, will terminal ~21:00Z). Trajectory healthy (3.818→3.506→3.299). Run 0 (`bhptvg5u`) crashed step 624 (pod preempt — superseded). 1-GPU sequential = n=4 total ~7.3 hrs. Stale_wip ack'd; student asked to post per-trial heartbeats.
-- **thorfinn #565 init variance** 🔥 GATE-BEATING: Cell B (xavier var=1.0) terminal at 3.26387 (Δ=−1.29σ). Cell E (var=0.5) at 30%, tracks closest to Cell B trajectory. When E terminal: request **P2 n=4 fresh confirmation at xavier var=1.0**.
-- **tanjiro #596 tied embedding**: Cell A untied ctrl confirmed (3.26719 no-op). **Cell B (tied lr=0.3) KILLED at val=3.567 step 1612** — embed-LR pressure on a tied matrix (input+output gradients merged) is too aggressive. Cell C (tied lr=0.1) launching. Open question: does any LR make tied competitive with untied?
+- **frieren #556 Adam eps P2** 🔬 IN-FLIGHT: P2 Trial 0 terminal at val=3.26770 (+0.90σ above baseline — NOT a strong showing). 3 remaining trials sequential within same `bfq43l07` (--num_trials 4). For n=4 mean to clear gate, trials 1-3 must average ≤3.26293; given Trial 0 was lucky-side of baseline rather than tracking the original Phase 1 Cell C (3.26369), full P2 likely falsifies the gate. Expected terminal: ~02:20 UTC May 21.
+- **thorfinn #565 init variance** 🔬 P2 IN-FLIGHT: All 5 cells terminal; Cell B (xavier var=1.0) at 3.26387 passes gate by 0.000250 (narrowest margin). P2 n=4 confirmation requested. Lower bound D(0.10)=+3.31σ catastrophic firmly closes < 0.2.
+- **tanjiro #596 tied embedding**: A untied ctrl confirmed (3.26719 no-op). **Cells B (lr=0.3) AND C (lr=0.1) BOTH KILLED** — tied embedding has structural ceiling around val=3.55 at step 1500 regardless of LR. The shared matrix (input+output gradients merged) creates fundamentally different dynamics. Cells D (0.03), E (0.01) pending — likely also fail. Tied embedding axis closing clean-NEG.
 - **alphonse #600 lm_head LR**: Cell A ctrl terminal at 3.26574 (refactor no-op). Cells B-E chain (1/640, 1/160, 0.01, 0.03). **Pairs naturally with askeladd #571 Cell D win**: if scalar LR wants 3× more, lm_head LR may also benefit from 3-10× more.
 - **nezuko #614 logit softcap** NEW: 5-cell sweep of softcap value (hardcoded 15 at line 459, never ablated). Tests "less optimizer-side intensity" (looser cap = more gradient signal at confident predictions) vs stability. Assigned poll #311. PR #614.
-- **edward #581 Lookahead**: ⚠️ Cell C terminal at 3.28116 (+8.6σ). Lookahead failing across all variants. Cell D (α=0.3 k=5 gentler) running. Pattern continuing: every time-averaging mechanism (#517 EMA, #581 Lookahead) fails on 3250-step speedrun. Likely close clean-NEG after D/E.
+- **edward #581 Lookahead**: ⚠️ Failing across all variants. A ctrl=3.26801, B(α=0.5 k=5)=3.27956 +10.5σ, C(α=0.5 k=10)=3.28116 +8.6σ. Cell D (α=0.3 k=5) at step 1500 val=3.56 (clearly worse than ctrl at same point). Time-averaging mechanism axis closing clean-NEG.
 - **fern #594 peak-WD**: A(2.0 ctrl)=3.26621, B(1.0)=3.26874 (+0.43σ slightly worse, within noise — lower peak WD doesn't help). Cell C (1.5) likely running. Axis looks ctrl-optimal so far.
 
 **Emerging cross-PR insight — three orthogonal axes hitting the gate at n=1:**

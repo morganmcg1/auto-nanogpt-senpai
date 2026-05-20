@@ -3,6 +3,34 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 21:35 UTC — PR #565: thorfinn init variance scale sweep — **Phase 1 terminal, P2 confirmation IN-FLIGHT**
+
+- Branch: `g1r5-thorfinn/init-var-scale-sweep`
+- Student: g1r5-thorfinn
+- Hypothesis: Initialization variance scale is `0.33` hardcoded (unconventional vs standard heuristics). Sweep 0.1/0.33ctrl/0.5/1.0/2.0 — tests whether Xavier-equivalent (1.0) or He (2.0) outperforms the hardcoded value.
+
+### Phase 1 results (n=1 each, vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | `--init_var_scale` | val/loss | ffs | Δ vs new baseline | σ_single | n=4 gate? | W&B run |
+|------|:------------------:|:--------:|:---:|:-----------------:|:--------:|:---------:|---------|
+| D (tight) | 0.10 | 3.271900 | 3125 | +0.005780 | +3.31σ |  | `f9jbansb` |
+| A (ctrl) | 0.33 | 3.265867 | 3075 | −0.000253 | −0.14σ |  | `7tm3hu20` |
+| E (mid)  | 0.50 | 3.266796 | 3075 | +0.000676 | +0.39σ |  | `4m7m44dr` |
+| **B (Xavier)** | **1.00** | **3.263870** | 3075 | **−0.002250** | **−1.29σ** | **✓ (beats by 0.000250)** | `rle5qnsu` |
+| C (He) | 2.00 | 3.266345 | 3125 | +0.000225 | +0.13σ |  | `biwno0xw` |
+
+### Phase 1 conclusion
+
+- **Monotonic improvement 0.1 → 0.33 → 1.0, flat plateau 1.0 ↔ 2.0**. Mechanism: SOAP+Muon preconditioner needs non-tiny early gradient signal; Xavier (1.0) is well-motivated standard for residual depths.
+- **Hardcoded 0.33 is NOT special** — appears below the optimum.
+- **Cell B (var=1.0) passes the n=4 gate by 0.000250** — the narrowest of three concurrent gate-beating signals (askeladd D 0.001158; frieren C 0.000430; thorfinn B 0.000250).
+- **Lower bound firmly closed**: var=0.10 catastrophic; do not probe below 0.2 in follow-ups.
+- **P2 confirmation requested on Cell B** (var=1.0) — n=4 fresh seeds, ~6.8 GPU-hours. Group `g1r5-thorfinn/init-var-P2-b-confirm`.
+
+### P2 decision rule
+- **MERGE candidate** if n=4 mean ≤ 3.264120 (statsig threshold). Margin tight; one outlier could flip.
+- **CLOSE clean-neutral** if n=4 mean > 3.264120. Lower bound (D) finding stays useful.
+
 ## 2026-05-20 21:25 UTC — PR #566: nezuko embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) — **CLOSED clean-neutral**
 
 - Branch: `g1r5-nezuko/embed-lr-sweep`
