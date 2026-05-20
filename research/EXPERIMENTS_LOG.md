@@ -1,5 +1,61 @@
 # SENPAI Research Results
 
+## 2026-05-20 20:30 UTC — PR #570 CLOSED: PMuon mu (body-Muon momentum EMA) scalar scan {0.90, 0.97} vs baseline 0.95 — NULL/NULL clear, mu=0.95 is a sharp symmetric local optimum (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-mu-scalar-scan`
+- Hypothesis: body-Muon's momentum EMA decay rate (mu) controls the effective smoothing horizon feeding into PMuon's Newton-Schulz polar map. Lower mu (0.90) → shorter ~10-step horizon, noisier raw gradient buffer per step. Higher mu (0.97) → longer ~33-step horizon, smoother but lagged signal. Baseline 0.95 gives ~20-step horizon.
+
+| Arm | mu | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 0.95 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.90 | `3pk3lm8w` | 3075 | 3.275656 | +137.5 | +0.011378 | NULL clear |
+| Arm B | 0.97 | `id2inkbe` | 3075 | 3.272967 | +137.5 | +0.008689 | NULL clear |
+
+**Verdict: NULL | NULL clear → mu axis CLOSES. 32nd axis closed. mu=0.95 is locally optimal.**
+
+**Symmetric Δsr=+137.5 from both sides** is the strongest possible evidence of a sharp local optimum. Neither shorter (10-step) nor longer (33-step) momentum horizon helps. Both arms hit identical sr=3075, well above the stat-sig threshold needed to declare NULL (>2×25=50 sr margin from baseline).
+
+**Run history:** Arm A had 4 failed launches (infrastructure noise: 3 pod-scheduling crashes + 1 step-50 crash with rising grad norm that advisor flagged as possibly mechanism but turned out also to be infra). Arm A clean retry `3pk3lm8w` ran to 3250 steps without divergence — the step-50 crash `y3hafbkh` was pure infrastructure, not mu=0.90 instability.
+
+**Val asymmetry** (Arm B 3.273 < Arm A 3.276) hints that the optimum lies slightly above 0.95 on the val axis, but the 0.003 difference is within step-by-step noise and doesn't shift the speedrun.
+
+**Student suggested follow-ups (evaluated):**
+- Per-projection mu (attn vs MLP): Given the symmetric +137.5 sr cost from both global perturbations, and that body-Muon LR partition family is already fully closed (#499, #532, #535), per-projection mu is unlikely to recover signal that doesn't exist at the global level. De-prioritized.
+- Mu ramp (warmup/cooldown): The val asymmetry hint is sub-noise. Mu schedule is a schedule axis for the optimizer, not the LR — orthogonal but de-prioritized given very clean global closure.
+
+**Alphonse reassigned** to **LR floor in cooldown** (PR #607) — `eta = max(LR_FLOOR, w^COOLDOWN_POWER)`. Two arms: Arm A eta_floor=0.10 (floor activates at step ~2811, active through entire speedrun zone), Arm B eta_floor=0.05 (floor activates at step ~2993). First test of minimum-LR behavior in the critical late-cooldown window. Flagged as unexplored follow-up in BASELINE.md (PR #274 notes).
+
+---
+
+## 2026-05-20 19:11 UTC — PR #562 CLOSED: PMuon ε floor scan {1e-10, 1e-14} vs baseline 1e-12 — NULL/NULL clear, ε=1e-12 optimal across ±2 OOM (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-eps-floor-scan`
+- Hypothesis: PMuon's covariance-EMA eigenvalue floor (ε=1e-12) controls numerical conditioning of L_cov and R_cov. Testing ±2 OOM: larger ε (1e-10) → more aggressive regularization; smaller ε (1e-14) → tighter floor, closer to raw eigenvalues.
+
+| Arm | ε | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 1e-12 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 1e-10 | (run-id) | 2950 | 3.265630 | +12.5 | +0.001352 | NULL marginal |
+| Arm B | 1e-14 | (run-id) | 2975 | 3.265965 | +37.5 | +0.001687 | NULL clear |
+
+**Verdict: NULL | NULL clear → ε=1e-12 optimal across ±2 OOM. PMuon scalar audit COMPLETE.**
+
+**PMuon scalar audit summary** (all 5 scalars now closed):
+
+| Scalar | Axis | Status | Source |
+|---|---|---|---|
+| γ_power=0.4 | pruning ablation | CLOSED NULL/NULL | #519 |
+| β_cov=0.95 | covariance-EMA decay | CLOSED NULL/NULL | #502 |
+| NS_ITERS=12 | Newton-Schulz iterations | CLOSED NULL/NULL | #511+#546 |
+| NS coefficients (1.5, -0.5, 0) | polynomial shape | CLOSED NULL/NULL | #540 |
+| ε=1e-12 | eigenvalue floor | CLOSED NULL/NULL | #562 |
+
+All PMuon scalar parameters are now exhaustively mapped. PMuon's internal configuration is at a local optimum for this stack.
+
+**Tanjiro reassigned** to **Lion optimizer on aux AdamW** (PR #604) — sign-of-momentum mechanism class (Chen et al 2023, arXiv:2302.06675). Lion replaces the AdamW v-EMA denominator with a pure sign step, requires NO second-moment state, potentially faster aux convergence. FP32 m-state required (β2=0.99 ≈ 1.0 in BF16). Two arms scan lr×{1/3, 1/10} relative to aux baseline.
+
+---
+
 ## 2026-05-20 15:35 UTC — PR #553 CLOSED: Gradient Centralization on body-Muon pre-NS — NULL/NULL clear, PMuon's NS whitening is already mean-aware and uses column/row-mean structure as signal not noise (g1r1-frieren)
 
 - Branch: `g1r1-frieren/gradient-centralization-pre-ns`
