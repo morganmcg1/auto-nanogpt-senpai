@@ -152,6 +152,18 @@ Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.2
 Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed → mean(Δ_pool)=+0.00068 across n=3 pods. 4th paired-pod false-positive caught this cycle (after #344, #351, #408 AGC). DeepNet/T-Fixup family init-scaling axis closed: NS-normalized Muon updates wash out init scaling within first ~100 steps as hypothesized — but no preserved benefit signal. **27th productive-null/negative this cycle.**
 **Follow-up**: askeladd assigned **#543 per-block NS iter budget** — spatial allocation by aspect ratio (Bernstein-Newhouse). (#542 Lion-aux mis-assignment closed 05:12 UTC — Lion on aux groups already closed in #77, prior round.)
 
+### 🔄 askeladd #579 — Body Muon LR asymmetry (attn vs mlp) [assigned 13:35 UTC]
+
+**Branch:** `g1r4-askeladd/muon-attn-mlp-lr-asym`
+**Hypothesis**: Body Muon uses uniform LR for all body params. Attention matrices (768×768 square, information routing) and MLP matrices (tall/wide feature transformers) have structurally different roles. Post-NS spectral norm is ≈1 per matrix; the LR then sets the per-update spectral magnitude. Per-block-TYPE LR split (attn vs mlp) is structurally distinct from: #543 per-block NS iter, #393 per-group AdamW LR, #409 LLRD depth-LR. Implementation: split Muon into 2 param groups (attn / mlp), apply separate LR multipliers per group in `set_hparams()`.
+| Arm | attn_mult | mlp_mult | Effective LRs | Tests |
+|---|---:|---:|---|---|
+| A | 1.00 | 1.00 | 0.05 / 0.05 | Control (bit-identical to merged) |
+| B | **0.80** | 1.00 | 0.04 / 0.05 | Attn conservative (−20%) |
+| C | 1.00 | **1.20** | 0.05 / 0.06 | MLP aggressive (+20%) |
+| D | **0.80** | **1.20** | 0.04 / 0.06 | Compound attn-lower + MLP-higher |
+**ETA full chain:** ~7.3h.
+
 ### ✅ askeladd #543 — Per-block NS iter budget — CLOSED 13:35 UTC productive-NULL
 
 Single-seed 4-arm sweep (drift gate A PASS, |3.27243−3.27174|=0.00069): A uniform=3.27243, B aspect=+0.00077 (null), C manual_typeA=−0.00017 (null, best), D manual_typeB=+0.00056 (null). All 3 reallocation arms in productive-null band [−0.002, +0.0015]. NS=12 saturation **robust to spatial reallocation** — combined with #470 uniform escalation finding, NS-iter count is genuinely saturated at this budget. Architectural finding (student-documented): codebase uses split-qkv naming (`attn.q`/`attn.k`/`attn.v` all 768×768 square) — only 2-of-6 Muon blocks (`mlp.fc`, `mlp.proj`) have aspect > 1.0, limiting the spatial reallocation surface. **34th productive-null/negative this cycle.**
