@@ -71,6 +71,12 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_gc_enabled", type=int, default=int(os.environ.get("AUX_GC_ENABLED", "0")),
+                        help="Apply Gradient Centralization to aux AdamW groups (embed, lm_head). "
+                             "0=disabled (default), 1=enabled. "
+                             "GC: subtract mean of gradient along non-output dims before optimizer.step(). "
+                             "Skipped for 1D tensors (scalars). "
+                             "Paper: Yong et al CVPR 2020, arXiv:2004.01461.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +719,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_gc_enabled:
+    print0("GC ENABLED on aux AdamW groups (embed, lm_head): pre-step mean subtraction along non-output dims", console=True)
+else:
+    print0("GC DISABLED on aux AdamW groups (aux_gc_enabled=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +776,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_gc_enabled": bool(args.aux_gc_enabled),
         },
     )
 
@@ -1018,6 +1029,25 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # Gradient Centralization (Yong et al CVPR 2020, arXiv:2004.01461) on aux
+        # AdamW groups: subtract the mean of the gradient along all non-output dims
+        # before optimizer.step(). 1D tensors are skipped (no axes to project).
+        # Applied AFTER AGC so AdamW sees the AGC-clipped, then centered gradient.
+        # GC preserves L2 norm of gradient (mean component is orthogonal to remainder).
+        gc_tensor_rms_sum = 0.0
+        gc_tensor_count = 0
+        if args.aux_gc_enabled:
+            log_gc = (dist.get_rank() == 0 and telemetry_due)
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p.grad is None or p.grad.dim() < 2:
+                        continue
+                    reduce_dims = tuple(range(1, p.grad.dim()))
+                    mean = p.grad.mean(dim=reduce_dims, keepdim=True)
+                    if log_gc:
+                        gc_tensor_rms_sum += float(mean.float().pow(2).mean().sqrt().item())
+                        gc_tensor_count += 1
+                    p.grad.sub_(mean)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1054,6 +1084,9 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_gc_enabled and gc_tensor_count > 0:
+                muonh_metrics["train/gc/centering_rms"] = gc_tensor_rms_sum / gc_tensor_count
+                muonh_metrics["train/gc/centered_tensor_count"] = gc_tensor_count
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
