@@ -467,6 +467,15 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 
+# Adan (Xie et al 2022, arxiv 2208.06677). When ADAN_ENABLED=1, replaces the
+# AdamW optimizer for embed/lm_head/scalars with Adan. Betas follow the paper
+# convention where beta1 is the update-weight on the new gradient (paper
+# beta1=0.02 == standard convention keep-weight 0.98).
+ADAN_ENABLED = int(os.environ.get("ADAN_ENABLED", "0"))
+ADAN_BETA1 = float(os.environ.get("ADAN_BETA1", "0.02"))  # paper default
+ADAN_BETA2 = float(os.environ.get("ADAN_BETA2", "0.08"))  # paper default
+ADAN_BETA3 = float(os.environ.get("ADAN_BETA3", "0.01"))  # paper default
+
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
@@ -622,6 +631,134 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class Adan(torch.optim.Optimizer):
+    """Adan (Xie et al 2022, arxiv 2208.06677) -- Adaptive Nesterov Momentum.
+
+    Paper-faithful per Algorithm 1, decoupled (linearized) weight decay. Beta
+    convention follows the paper: each beta is the update-weight on the new
+    gradient (paper beta1=0.02 corresponds to standard-convention keep-weight
+    0.98). Update rule:
+
+        m_t = (1 - b1) m_{t-1} + b1 * g_t
+        v_t = (1 - b2) v_{t-1} + b2 * (g_t - g_{t-1})
+        n_t = (1 - b3) n_{t-1} + b3 * (g_t + (1 - b2)(g_t - g_{t-1}))^2
+        update = (m_hat + (1 - b2) v_hat) / (sqrt(n_hat) + eps)
+        theta = (1 - lr * wd) theta - lr * update
+
+    Bias correction uses bc_k = 1 - (1 - b_k)^t, matching paper convention.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.02, 0.08, 0.01), eps=1e-8,
+                 weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._last_stats: dict[str, float] = {}
+        self._compute_telemetry = False  # set True by training loop on telemetry steps
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        compute_telem = self._compute_telemetry
+        # Accumulate squared-norm components as device tensors so we only sync
+        # at the end (one .item() per stat per group, not per parameter).
+        if compute_telem:
+            agg: dict[str, Tensor | None] = {"m_sq": None, "v_sq": None, "n_sq": None,
+                                             "diff_term_sq": None, "update_num_sq": None}
+            per_group: dict[str, dict[str, Tensor | None]] = {}
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            eps_g, lr, wd = group["eps"], group["lr"], group["weight_decay"]
+            gname = group.get("name", "default")
+            if compute_telem:
+                gstats = per_group.setdefault(gname, {"m_sq": None, "v_sq": None,
+                                                      "n_sq": None, "diff_term_sq": None,
+                                                      "update_num_sq": None})
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)        # m
+                    state["exp_avg_diff"] = torch.zeros_like(p)   # v (grad diff)
+                    state["exp_avg_sq"] = torch.zeros_like(p)     # n (corrected^2)
+                    state["prev_grad"] = grad.clone()             # so step-1 diff = 0
+                state["step"] += 1
+                t = state["step"]
+                m, v, n, g_prev = (state["exp_avg"], state["exp_avg_diff"],
+                                   state["exp_avg_sq"], state["prev_grad"])
+
+                diff = grad - g_prev                              # g_t - g_{t-1}
+                corrected = grad + (1.0 - beta2) * diff           # g_t + (1-b2) diff
+
+                m.mul_(1.0 - beta1).add_(grad, alpha=beta1)
+                v.mul_(1.0 - beta2).add_(diff, alpha=beta2)
+                n.mul_(1.0 - beta3).addcmul_(corrected, corrected, value=beta3)
+
+                g_prev.copy_(grad)
+
+                bc1 = 1.0 - (1.0 - beta1) ** t
+                bc2 = 1.0 - (1.0 - beta2) ** t
+                bc3 = 1.0 - (1.0 - beta3) ** t
+
+                m_hat = m / bc1
+                v_hat = v / bc2
+                n_hat = n / bc3
+
+                diff_term = (1.0 - beta2) * v_hat
+                update_num = m_hat + diff_term
+                denom = n_hat.sqrt().add_(eps_g)
+                update = update_num / denom
+
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+
+                if compute_telem:
+                    # Per-param squared norms as device tensors (no sync).
+                    contribs = {
+                        "m_sq": m.detach().float().pow(2).sum(),
+                        "v_sq": v.detach().float().pow(2).sum(),
+                        "n_sq": n.detach().float().pow(2).sum(),
+                        "diff_term_sq": diff_term.detach().float().pow(2).sum(),
+                        "update_num_sq": update_num.detach().float().pow(2).sum(),
+                    }
+                    for key, val in contribs.items():
+                        agg[key] = val if agg[key] is None else agg[key] + val
+                        gstats[key] = val if gstats[key] is None else gstats[key] + val
+
+        if compute_telem:
+            def _stats_from(d: dict[str, Tensor | None]) -> dict[str, float]:
+                if any(v is None for v in d.values()):
+                    return {}
+                # One sync per stat (not per param).
+                m_norm = float(d["m_sq"].sqrt().item())
+                v_norm = float(d["v_sq"].sqrt().item())
+                n_norm = float(d["n_sq"].sqrt().item())
+                diff_norm = float(d["diff_term_sq"].sqrt().item())
+                upd_norm = float(d["update_num_sq"].sqrt().item())
+                return {
+                    "m_norm": m_norm,
+                    "v_norm": v_norm,
+                    "n_norm": n_norm,
+                    "diff_contribution": (diff_norm / upd_norm) if upd_norm > 0 else 0.0,
+                }
+            stats: dict[str, float] = {}
+            stats.update(_stats_from(agg))
+            for gname, gd in per_group.items():
+                for k, val in _stats_from(gd).items():
+                    stats[f"{gname}/{k}"] = val
+            self._last_stats = stats
+        return loss
+
+    def set_compute_telemetry(self, enabled: bool) -> None:
+        self._compute_telemetry = bool(enabled)
+
+    def step_stats(self) -> dict[str, float]:
+        return dict(self._last_stats)
 
 
 class Muon(torch.optim.Optimizer):
@@ -864,6 +1001,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/adan_enabled": ADAN_ENABLED,
+            "optimizer/adan_beta1": ADAN_BETA1,
+            "optimizer/adan_beta2": ADAN_BETA2,
+            "optimizer/adan_beta3": ADAN_BETA3,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -896,10 +1037,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if ADAN_ENABLED:
+        # Adan replaces AdamW on embed/lm_head/scalars. Per-group lr/wd kept
+        # identical to the AdamW configuration so we are testing the mechanism,
+        # not retuning. Betas/eps come from the optimizer-level defaults below.
+        optimizer1 = Adan([dict(params=[model.embed.weight], lr=0.3, name="adan_embed", weight_decay=WD_AUX),
+                           dict(params=[model.proj.weight], lr=1/320, name="adan_lm_head", weight_decay=WD_AUX),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adan_scalars")],
+                          betas=(ADAN_BETA1, ADAN_BETA2, ADAN_BETA3), eps=1e-10, weight_decay=0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1050,6 +1200,8 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
+            if hasattr(opt, "set_compute_telemetry"):
+                opt.set_compute_telemetry(telemetry_due and dist.get_rank() == 0)
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
@@ -1057,6 +1209,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "step_stats"):
+                    adan_stats = opt.step_stats()
+                    if adan_stats:
+                        wandb.log(prefixed("train/adan", adan_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
