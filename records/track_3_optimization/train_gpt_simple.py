@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# SWA tail averaging at eval (PR #524, Izmailov et al, arxiv 1803.05407): uniform
+# running average of model weights across the final SWA_WINDOW training steps,
+# substituted into the model at val time only. Training trajectory unchanged.
+SWA_EVAL = int(os.environ.get("SWA_EVAL", "0"))  # 0 = disabled, 1 = enabled
+SWA_WINDOW = int(os.environ.get("SWA_WINDOW", "150"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -864,6 +869,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/swa_eval": SWA_EVAL,
+            "optimizer/swa_window": SWA_WINDOW,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -953,6 +960,9 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    swa_start_step = train_steps - SWA_WINDOW if SWA_EVAL else None
+    swa_buffer: dict[str, Tensor] = {}
+    swa_count = 0
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -966,6 +976,15 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # SWA: substitute averaged weights for eval, save training weights for restore
+            swa_used_for_eval = bool(SWA_EVAL and swa_count > 0)
+            saved_weights: dict[str, Tensor] = {}
+            if swa_used_for_eval:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        if p.requires_grad and name in swa_buffer:
+                            saved_weights[name] = p.detach().clone()
+                            p.data.copy_(swa_buffer[name].to(p.dtype))
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -975,6 +994,12 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            if swa_used_for_eval:
+                with torch.no_grad():
+                    for name, p in model.named_parameters():
+                        if name in saved_weights:
+                            p.data.copy_(saved_weights[name])
+                saved_weights.clear()
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -994,6 +1019,8 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "optimizer/swa_used_for_eval": int(swa_used_for_eval),
+                    "optimizer/swa_count": swa_count,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
@@ -1051,6 +1078,18 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # SWA tail accumulation: uniform running mean of post-update weights
+        # over the final SWA_WINDOW training steps. Write-only during training.
+        if SWA_EVAL and step >= swa_start_step:
+            swa_count += 1
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    if not p.requires_grad:
+                        continue
+                    if name not in swa_buffer:
+                        swa_buffer[name] = p.detach().float().clone()
+                    else:
+                        swa_buffer[name].mul_(1.0 - 1.0/swa_count).add_(p.detach().float(), alpha=1.0/swa_count)
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
