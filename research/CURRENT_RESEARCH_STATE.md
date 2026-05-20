@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~16:20Z (poll #303)
+- **Last updated:** 2026-05-20 ~16:50Z (poll #305)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -11,21 +11,22 @@
 
 ## Active WIP Portfolio
 
-| PR # | Student | Hypothesis | Status (poll #299) |
+| PR # | Student | Hypothesis | Status (poll #305) |
 |------|---------|-----------|--------|
-| **#571** | **askeladd** | **AdamW scalar param LR sweep (0.001/0.003/0.01ctrl/0.03/0.1) — RMSNorm gains LR** | **NEW assignment** — awaiting first heartbeat |
-| #566 | nezuko | embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) — fresh AdamW axis | Launched — awaiting first cell results |
-| #565 | thorfinn | Init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0) | Cell A ctrl running |
-| #558 | tanjiro | Z-loss regularizer sweep | Cell A ctrl running |
-| #556 | frieren | AdamW epsilon sweep | In progress |
-| **#581** | **edward** | **Lookahead optimizer wrapper (α=0.0ctrl/0.3/0.5 × k=5/10) — fresh mechanism** | **NEW assignment** — awaiting first heartbeat |
-| #552 | alphonse | LR warmup curve sweep | Cell A ctrl: val=3.2686 (+0.27σ — refactor no-op ✓). Cell B (linear-005) running |
-| **#594** | **fern** | **Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0)** | **NEW assignment** — extends PR #548 wd_floor code; peak=2.0 hardcoded never ablated |
+| **#596** | **tanjiro** | **Tied input/output embedding sweep (untied ctrl/tied lr=0.3/0.1/0.03/0.01) — structural axis, never tested** | **NEW assignment** — fresh structural pivot after 3× NEG regularization closures |
+| #571 | askeladd | AdamW scalar param LR sweep (0.001/0.003/0.01ctrl/0.03/0.1) — RMSNorm gains LR | In progress — cells running |
+| #566 | nezuko | embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) — fresh AdamW axis | In progress — cells running |
+| #565 | thorfinn | Init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0) | In progress — interim: Cell B (xavier=1.0) at 3.26387 (-0.99σ, watch) |
+| #556 | frieren | AdamW epsilon sweep (1e-12/1e-10ctrl/1e-8/1e-6/1e-4) | In progress — interim: Cell C (eps=1e-6) at 3.26369 (-1.09σ, watch) |
+| #581 | edward | Lookahead optimizer wrapper (α=0.0ctrl/0.3/0.5 × k=5/10) — fresh mechanism | In progress — Cell B (standard Lookahead α=0.5 k=5) running |
+| #552 | alphonse | LR warmup curve sweep | In progress — Cell D running |
+| #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | In progress — cells running |
 
 
 ## Recent Closures
 
-- **🆕 #548 fern WD floor in cooldown** — CLOSED clean-neutral (poll #303). WD floor=0 NOT load-bearing (B/C/D within ctrl noise; E=+2.60σ mild at 0.50 floor). Cross-axis: LR-floor=0.20 is +29.46σ catastrophic; WD-floor=0.20 is +0.95σ — WD axis 30× more forgiving. Mechanism: LR=0 terminal is structurally load-bearing; WD=0 is incidental. Closes one half of cooldown mechanism (LR=0 critical, WD=0 incidental).
+- **🆕 #558 tanjiro Z-loss regularizer sweep** — CLOSED clean-NEG (poll #305). Monotonic worsening across 3 decades (1e-5 → 1e-4 → diverged). Mechanism: existing logit softcap (`15 * logits * (logits.square() + 15**2).rsqrt()`) already bounds logits to ±15, making z-loss fully redundant — stacks suppression on top of softcap, over-regularizes output distribution. Z-loss axis closed. **Tanjiro has now closed 3× on regularization/loss axis (#473, #517, #558) — pivoting to structural axis.**
+- **#548 fern WD floor in cooldown** — CLOSED clean-neutral (poll #303). WD floor=0 NOT load-bearing (B/C/D within ctrl noise; E=+2.60σ mild at 0.50 floor). Cross-axis: LR-floor=0.20 is +29.46σ catastrophic; WD-floor=0.20 is +0.95σ — WD axis 30× more forgiving. Mechanism: LR=0 terminal is structurally load-bearing; WD=0 is incidental. Closes one half of cooldown mechanism (LR=0 critical, WD=0 incidental).
 - **#537 edward Adam β1/β2 sweep** — CLOSED clean-neutral (poll #302). U-shaped response: A=(0.8,0.95) ctrl is locally optimal; both directions worse. Canonical AdamW (0.95,0.999) catastrophic (+8.86σ vs OLD — ~1000-step β2 window too slow for 3250-step run). β1=0.8 (5-step window) and β2=0.95 (20-step window) confirmed optimal. Adam β axis closed.
 - **#551 askeladd Muon nesterov toggle** — CLOSED clean-NEG (poll #299). Cell B (nesterov=False) = 3.273293 (+4.10σ vs NEW baseline). The `grad.lerp_(momentum, mu)` correction (~5% current grad + 95% EMA before NS orthogonalization) is load-bearing — orthogonalizing pure EMA discards informative current-step delta, leaves NS with stale direction. Theme clarification: "less intensity" does NOT mean removing gradient correction. nesterov=True axis closed.
 - **#521 nezuko gradient clipping** — CLOSED clean-NEG (poll #298). Monotonic worsening: tighter clip = strictly worse. A (no clip) = 3.26439 BEST; B (400K) = 3.26635; C (200K) = 3.26712; D (100K) = 3.26927; E (50K) much worse. A→E span ≈ +10σ_single. Mechanism: NS orthogonalization is scale-invariant on Muon path, so clipping damage falls entirely on Adam path (embed/lm_head/scalars) where it kills useful gradient magnitude. No-clip remains the right default. Grad-clip axis closed.
@@ -49,23 +50,20 @@
 - Both point to: **reducing optimizer micro-aggression at the late/cooldown phase helps**
 
 **Key analytical questions for in-flight PRs:**
-- **nezuko #566 embed_lr sweep**: fresh AdamW axis (PR #162 touched Muon LR only). 5 cells: 0.05/0.15/0.3ctrl/0.6/1.0; lm_head_lr held at 1/320. embed.weight (38M params) is the biggest single Adam-managed param. If 0.15 wins: "less optimizer intensity" theme extends to embed; if 0.6 wins: rare-token gradients need more push.
-- **edward #581 Lookahead**: fresh mechanism wrapper — slow/fast param sync every k steps. Cells: ctrl (off), α=0.5 k=5 (standard), α=0.5 k=10, α=0.3 k=5, α=0.5 k=5 cooldown-disabled. Cooldown-aware Cell E tests the tanjiro-#517 risk factor. Awaiting first heartbeat.
-- **askeladd #571 scalar LR**: fresh AdamW axis — lr=0.01 for RMSNorm gains never ablated. 5 cells ±1 decade. Awaiting first heartbeat.
-- **frieren #556 Adam eps**: fresh log-scale sweep (1e-12→1e-4); ctrl 1e-10. Consistent with "less intensity" theme if larger eps (1e-8/1e-6) helps by softening small-`v` updates.
-- **alphonse #552 LR warmup**: first ever warmup PR. 5 curve shapes tested. Cell A at step ~2488 (~76%).
-- **fern #594 peak-WD**: fresh schedule axis — peak multiplier 2.0 hardcoded, never ablated. Follow-up to #548 finding (WD floor=0 is incidental; real lever is peak/mean WD profile shape). 5 cells: 1.0/1.5/2.0ctrl/2.5/3.0.
-- **tanjiro #558 Z-loss regularizer**: fresh mechanism — softmax partition-function penalty. Cell A ctrl just started.
-- **thorfinn #565 init variance scale**: fresh structural axis — the 0.33 constant at init has never been ablated.
+- **tanjiro #596 tied embedding**: structural axis — share `embed.weight` and `proj.weight` (standard in GPT-2/T5/BERT, never tested here). 5 cells: untied ctrl + tied at lr∈{0.3, 0.1, 0.03, 0.01}. Key question: does the per-group LR asymmetry (embed=0.3 vs lm_head=0.003) reflect untied needing differential pressure, or is it an arbitrary artifact? Winner candidate if correct LR found.
+- **nezuko #566 embed_lr sweep**: fresh AdamW axis. 5 cells: 0.05/0.15/0.3ctrl/0.6/1.0. embed.weight (38M params) is the biggest single Adam-managed param. If 0.15 wins: "less optimizer intensity" extends to embed; if 0.6 wins: rare-token gradients need more push.
+- **edward #581 Lookahead**: fresh mechanism wrapper — slow/fast param sync every k steps. Cells: ctrl (off), α=0.5 k=5 (standard), α=0.5 k=10, α=0.3 k=5, α=0.5 k=5 cooldown-disabled. Cell B (standard Lookahead) running. Risk: EMA-like behavior at cooldown (cf. tanjiro #517); Cell E tests cooldown-disable workaround.
+- **askeladd #571 scalar LR**: fresh AdamW axis — lr=0.01 for RMSNorm gains never ablated. 5 cells ±1 decade. Cells running.
+- **frieren #556 Adam eps**: WATCH — Cell C (eps=1e-6) interim at 3.26369 (−1.09σ vs OLD baseline), ~step 2600/3250. If terminal ≤ 3.264120 → P2 gate hit. eps-axis: larger eps softens small-`v` updates ("less intensity" theme connection).
+- **thorfinn #565 init variance scale**: WATCH — Cell B (xavier=1.0 scale, no depth adjustment) interim at 3.26387 (−0.99σ vs OLD baseline), ~step 3225/3250 — near terminal. If terminal ≤ 3.264120 → P2 gate hit. Fresh structural axis.
+- **alphonse #552 LR warmup**: first ever warmup PR. Cell D running. 5 curve shapes tested.
+- **fern #594 peak-WD**: fresh schedule axis — peak multiplier 2.0 hardcoded, never ablated. 5 cells: 1.0/1.5/2.0ctrl/2.5/3.0. Follow-up to #548 (WD floor=0 incidental; real lever is peak/mean WD profile).
 
 **What comes after current in-flight:**
-- **lm_head LR sweep** — pair to nezuko #566 (embed_lr) and askeladd #571 (scalars); proj lr=1/320 hardcoded, never swept independently
-- **Peak-WD sweep** — now in flight as fern #594
-- **Lookahead optimizer wrapper** — now in flight as edward #581
+- **lm_head LR sweep** — pair to nezuko #566 (embed_lr) and askeladd #571 (scalars); proj lr=1/320 hardcoded, never swept independently. Now especially relevant as counterpart to tanjiro #596 tied embedding.
 - **Muon momentum warmup** — separate from current mu=0.95 (ramp from 0 across run)
-- **Tied vs untied embedding** — model.embed and model.proj are independent; tying could be a structural ablation
-- **Scalar param LR** — RMSNorm gains at lr=0.01, never swept
 - **Depth-aware init (μP-style)** — extends thorfinn #565 init axis if global constant matters
+- **Tied embedding follow-up** — if tanjiro #596 finds a sweet spot LR, refine with finer scan and test interaction with embed_lr findings
 - **NS axis is closed** (PR #518 mapped it) — current (2, −1.5, 0.5) + ns_iter=6 ✓; don't return here
 
 **Key insights:**

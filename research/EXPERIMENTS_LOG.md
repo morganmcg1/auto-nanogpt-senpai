@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 16:50 UTC — PR #558: tanjiro Z-loss regularizer sweep (0/1e-5/1e-4/1e-3/1e-2) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-tanjiro/z-loss-sweep`
+- Student: g1r5-tanjiro
+- Hypothesis: Z-loss regularizer (PaLM 2, Google 2023) penalizes log-partition-function `log Z` of the softmax, discouraging large-logit growth during training. Never tested in this run. Cells sweep coefficient ∈ {0.0, 1e-5, 1e-4, 1e-3, 1e-2}. Cell D (1e-3) skipped by student — tanjiro observed catastrophic divergence at 1e-4 and correctly inferred 1e-3 would be worse.
+
+### Results (vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | z_loss_coef | val_loss | Δ vs NEW baseline | ffs | W&B run |
+|------|:-----------:|:--------:|:-----------------:|----:|---------|
+| **A (ctrl)** | 0.0 | **3.26661** | **+0.03σ** | 3100 | (ctrl) |
+| E | 1e-5 | 3.26907 | +1.57σ | 3125 | (cell E) |
+| B | 1e-4 | 3.27618 | +5.72σ | — | (cell B) |
+| C | 1e-3 | ~3.44 (killed) | catastrophic | — | (cell C, killed at step ~1500) |
+| D | 1e-2 | — | skipped by student | — | (skipped) |
+
+### Conclusion
+
+- **Monotonic worsening across 3 orders of magnitude**: even the smallest tested coefficient (1e-5) costs +1.57σ. The 1e-3 cell diverged catastrophically by step 1500.
+- **Mechanism**: the existing logit softcap at `train_gpt_simple.py:459` (`15 * logits * (logits.square() + 15**2).rsqrt()`) already bounds logits to ±15, providing the exact stability that z-loss is designed to deliver. Z-loss stacks **redundant** logit suppression on top of the softcap, over-regularizing the output distribution and preventing meaningful token discrimination.
+- **Student Cell D skip**: tanjiro correctly applied the kill rule after observing monotonic catastrophic worsening — Cell D (1e-2) was skipped, an appropriate experimental judgment.
+- **Z-loss axis closed**: the existing softcap already handles logit stability; z-loss adds no net value in this architecture.
+
+Tanjiro reassigned to PR #596: tied input/output embedding sweep (structural axis — never tested in this run; standard in GPT-2/T5/BERT but codebase is currently untied).
+
 ## 2026-05-20 16:20 UTC — PR #548: fern WD floor in cooldown sweep (0/0.05/0.10/0.20/0.50) — **CLOSED clean-neutral**
 
 - Branch: `g1r5-fern/wd-floor-cooldown-sweep`
