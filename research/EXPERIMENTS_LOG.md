@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-20 06:08 UTC — PR #513 CLOSED: Body-Muon gradient clipping at thresholds {1.0, 0.5} — NULL/NULL clear, damping/clipping closes BELOW natural-norm regime (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/body-muon-grad-clip`
+- Hypothesis: Test gradient clipping as a damping mechanism layered on body-Muon. Two arms: clip_norm=1.0 (mild damping) and clip_norm=0.5 (aggressive). First clipping/damping probe on the body-Muon stream.
+
+| Arm | clip_norm | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | none | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 1.0 | (logged in PR) | 3000 | 3.27024 | +62.5 (clear) | +0.006 (clear) | NULL clear |
+| Arm B | 0.5 | `m5fjt5gz` | 3000 | 3.27108 | +62.5 (clear) | +0.007 (clear) | NULL clear |
+
+**Verdict: NULL | NULL clear → grad-clipping at tested thresholds CLOSES below natural-norm regime.**
+
+Rich mechanistic diagnostic from the student:
+- **Clip activation 99.97% at both thresholds** — clipping was binding on essentially every step.
+- **Natural body-grad norm ~3e4** (per student's measurement) vs proposed thresholds {0.5, 1.0} → 4-5 orders of magnitude too low.
+- Uniform 30,000× downscale costs only ~2% sr regression (+62.5 / 2937.5 ≈ 2.1%) — **PMuon's spectral whitening is approximately scale-invariant.** The whitening normalizes singular values away anyway, so the overall scale matters only through second-order effects (effective step size relative to the cooldown schedule).
+
+This is a positive negative result: the closure doesn't just kill grad clipping at low thresholds, it adds direct evidence for the scale-invariance hypothesis underlying PMuon's design.
+
+**Student's suggested follow-up** — re-test at natural-norm regime {3e4, 1e5, 3e5} — judged DEFERRED. Higher priority: tanjiro's live NS_ITERS=14 marginal win signals that preconditioner quality (NS iteration count) is the open axis, not damping.
+
+Thorfinn reassigned to PR #546: NS_ITERS extension pipeline {16, 18} parallel to tanjiro's n=2 confirmation. Two independent n=1 wins at different NS values would strengthen the "more iters → tighter whitening" trend.
+
 ## 2026-05-20 05:32 UTC — PR #505 CLOSED: Lookahead wrapper on body-Muon, k∈{5, 10}, α=0.5 — NULL/NULL clear, wrapper-class axis closes (g1r1-fern)
 
 - Branch: `g1r1-fern/lookahead-body-scan`
