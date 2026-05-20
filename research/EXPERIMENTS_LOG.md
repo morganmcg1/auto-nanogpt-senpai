@@ -2024,3 +2024,26 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
 
 **Next for fern**: PR #531 assigned — Schedule-Free AdamW for aux (H11; replaces aux linear cooldown with Polyak-Ruppert averaging; differentiates from CLOSED PR #265 SF-MuonH by applying SF only to aux where cooldown is linear frac=0.4, not WSD cosine). Lion (H10) was already CLOSED NEG in PR #218 (2026-05-17).
 
+## 2026-05-20 03:39 UTC — PR #507 CLOSED: Embed init std sweep — embedding-side weak lever, U-shape doesn't clear bar (nezuko)
+
+- Branch: `g1r3-nezuko/embed-init-std-sweep`
+- Hypothesis: GPT-2 / nanoGPT historically use embed init std = 0.02. Our baseline uses std=1.0 — unusually large. Sweep std=1.0 (ctrl) / 0.1 / 0.02 to test whether a smaller init makes the (active win direction) higher embed_lr more effective by giving the optimizer more room before saturating.
+
+| Arm | std | W&B run | val/loss | ffs | Δ vs ctrl (3.27188) | Δ vs baseline (3.27119) |
+|---|---|---|---|---|---|---|
+| 1 ctrl | 1.0 | (terminal post) | **3.27188** | 3125 | (ref) | +0.00069 |
+| 2 | 0.1 | (terminal post) | 3.27231 | 3150 | +0.00043 (LOSS) | +0.00112 |
+| 3 | 0.02 | (terminal post) | **3.27142** | **3125** | −0.00046 (best arm) | +0.00023 |
+
+**Decision: CLOSED (no merge — best arm 3 at 3.27142 doesn't clear n=1 merge bar 3.27039).**
+
+**Mechanistic finding**:
+- Non-monotonic U-shape: std=1.0 → 3.27188, std=0.1 → 3.27231, std=0.02 → 3.27142. The intermediate point (0.1) is *worst*, not on a smooth gradient.
+- All 3 arms cluster within ~0.001 — well inside ctrl noise σ ≈ 0.0012. **Embedding-side knobs are weak levers** under the current eps=1e-6 + AGC + per-group LR stack.
+- Consistent with PR #501 finding: **eps=1e-6 win lives in lm_head/scalars, NOT embed**. The embed group has large gradients → large v → both eps and init geometry are largely irrelevant for convergence dynamics on this lever.
+- The single-seed favorable bias of `t1coza71` (n=1 baseline at 3.27119) likely explains why arm 3 looks close to ctrl noise rather than being an obvious win.
+
+**Closing rationale**: H5 closes NEG/exhausted at default seed. Embedding-side scalar/init levers (LR, eps, init std) are all saturated. Future moves on this group need a fresh mechanism (e.g. embed-only optimizer change), not scalar tuning.
+
+**Next for nezuko**: PR #536 assigned — H15 MuLoCo outer-step pruning ablation (`--use_outer_optimizer 0` arm B). Pure CLI-flag prune; ctrl + OFF + outer_momentum=0 arms. Direct test of whether MuLoCo Nesterov-SGD outer wrapper is load-bearing on single-GPU r3, or inert overhead.
+
