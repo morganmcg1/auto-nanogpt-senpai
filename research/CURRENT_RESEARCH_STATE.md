@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 10:15 UTC
+- **Date:** 2026-05-20 10:30 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -186,16 +186,19 @@ Arms B (embed: Δ=−0.00059, mild +), C (lm_head: Δ=+0.00063, mild −), D (al
 Single-seed 4-arm (drift gate A PASS, |3.27253−3.27174|=0.00079): A α=0.95=3.27253, B α=0.00 (bypass)=+0.00630 (regression), C α=0.50 (half-mix)=+0.04114 (severe, target NOT reached), D α=0.99 (over-Nesterov)=+0.00060 (null). **Structural finding**: the cliff is on the *low-α* side (NS-stability breakdown when current-grad weight >>0.05); the plateau is on the *high-α* side (Arm D within noise). α=μ=0.95 sits at boundary of safety — the mix is best understood as a tiny anti-staleness injection (~5% current-grad on top of 95% EMA), small enough to stay in NS's well-behaved spectral domain. Heavier current-grad injection pushes the NS input outside the Newton-Schulz polynomial's well-conditioned regime. **5th body-Muon mechanism axis closed** (joins #102 LR warmup, #356 μ schedule, #434 Lookahead-wrap, #483 WD warmup). Body Muon algorithmic axes on the merged stack are largely exhausted — future body-Muon ideas should target architectural changes (post-NS-side modifications, NS-iteration-count interactions). **32nd productive-null/negative this cycle.**
 **Follow-up**: nezuko assigned **#568 Per-group cooldown_frac decoupling** — fresh structural axis on per-group cooldown WINDOW LENGTH (vs per-group cooldown SHAPE which is largely characterized).
 
-### 🔄 nezuko #568 — Per-group cooldown_frac decoupling [assigned 10:15 UTC]
+### 🔄 nezuko #568 — Per-group cooldown_frac decoupling [assigned 10:15 UTC; arm values corrected 10:30 UTC]
 
 **Branch:** `g1r4-nezuko/per-group-cooldown-frac`
 **Hypothesis**: The merged stack uses a single cooldown_frac value applied uniformly across embed/body/lm_head/scalar parameter groups (NS has its own #176 NS_COOLDOWN_START_FRAC). Per-group cooldown SHAPE work has established each group has distinct cooldown needs: embed wants linear_floor (#235 MERGED), body wants strict linear (#520 closed NEGATIVE), NS_iter wants late_peak (#285 MERGED), NS_coef wants linear_ramp_down (#290 MERGED). If shapes diverge per group, window lengths likely do too — a structurally fresh untested axis. Mechanistically: embed (sparse-row AdamW) may want longer precision window for rare-row consolidation; body (dense NS-orthogonalized) may want longer precision-window for clean landing at zero LR. Structurally distinct from in-flight portfolio (no overlap with #487, #506, #543, #547, #550, #554, #560).
+
+**Original PR body conflated `cooldown_frac=0.7` (actual code default, LR cooldown spans last 70% from step 1005) with `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (NS-iter timing only). Student g1r4-nezuko caught the error 10:25 UTC. Arms re-anchored around true 0.70 baseline 10:30 UTC — hypothesis and mechanism unchanged.**
+
 | Arm | embed_cf | body_cf | lm_head_cf | scalar_cf | Tests |
 |---|---:|---:|---:|---:|---|
-| A | 0.30 (ctrl) | 0.30 | 0.30 | 0.30 | Reproduces merged baseline |
-| B | **0.40** | 0.30 | 0.30 | 0.30 | Longer embed cooldown |
-| C | **0.20** | 0.30 | 0.30 | 0.30 | Shorter embed cooldown |
-| D | 0.30 | **0.40** | 0.30 | 0.30 | Longer body Muon cooldown |
+| A | 0.70 (ctrl) | 0.70 | 0.70 | 0.70 | Reproduces merged baseline (cooldown steps 1005→3350) |
+| B | **0.80** | 0.70 | 0.70 | 0.70 | Longer embed cooldown (embed enters cd at 670) |
+| C | **0.60** | 0.70 | 0.70 | 0.70 | Shorter embed cooldown (embed enters cd at 1340) |
+| D | 0.70 | **0.80** | 0.70 | 0.70 | Longer body Muon cooldown (body enters cd at 670) |
 **ETA full chain:** ~7.3h.
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
