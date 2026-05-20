@@ -67,6 +67,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--muon_nesterov", type=lambda x: x.lower() not in ('false', '0', 'no'),
+                        default=True,
+                        help="Use Nesterov-style momentum in Muon (default: True = current behavior). "
+                             "False: orthogonalize the pure EMA momentum, skip the grad.lerp correction. "
+                             "Applies to both the plain Muon and SOAP paths so they stay consistent.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -619,7 +624,10 @@ class Muon(torch.optim.Optimizer):
                             state["soap_step"] = 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        if args.muon_nesterov:
+                            raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        else:
+                            raw_nesterov = state["momentum"]
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -633,7 +641,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], nesterov=args.muon_nesterov)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -740,6 +748,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "muon_nesterov": bool(args.muon_nesterov),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
