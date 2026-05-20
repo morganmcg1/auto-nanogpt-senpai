@@ -135,7 +135,19 @@ Clean monotone worsening: A=3.27066, B=+0.00080 (null), C=+0.00258 (regression),
 ### ✅ thorfinn #520 — Body Muon LR cooldown shape sweep — CLOSED 07:55 UTC productive-NEGATIVE
 
 Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.27261, B cosine=+0.00163 (marginal regression), C quadratic=+0.00864 (strong regression, fst=-1), D linear_floor=+0.01401 (strongest, fst=-1). Monotone with non-linear distortion of the final-window decay. **Mechanism**: body Muon needs (1) decay to ~zero at end, (2) linear shape (not steeper, not slower). NS-orthogonalized updates have rank-stable magnitudes — late-phase convergence requires actual zero LR to land. **Striking per-group cooldown contrast**: embed wins with linear_floor (#235), body LOSES strongest with linear_floor — different update statistics demand different profiles. Per-group cooldown-shape design axis substantially characterized (lm_head #547 in flight completes the matrix). **30th productive-null/negative this cycle.**
-**Follow-up**: thorfinn assigned **#NEW AdamW embed WD cooldown nudge** — adds small positive WD on embed during cooldown only (currently WD=0). Tests whether late-phase implicit regularization on sparse-row embed group helps; structurally distinct from edward #550 (Muon WD REDUCTION, body group, removes existing).
+**Follow-up**: thorfinn assigned **#554 AdamW embed WD cooldown nudge** — adds small positive WD on embed during cooldown only (currently WD=0). Tests whether late-phase implicit regularization on sparse-row embed group helps; structurally distinct from edward #550 (Muon WD REDUCTION, body group, removes existing).
+
+### 🔄 thorfinn #554 — AdamW embed WD cooldown nudge [assigned 07:55 UTC]
+
+**Branch:** `g1r4-thorfinn/embed-wd-cooldown-nudge`
+**Hypothesis**: Add a small positive WD on AdamW embed group during cooldown only (currently WD=0 throughout). Tests whether late-phase implicit regularization in the precision window helps embed representations. Mechanism: with EMBED_COOLDOWN_SHAPE=linear_floor (#235 merged) embed continues receiving non-trivial updates through cooldown — a small WD nudge during this window could gently shrink magnitudes to prevent late-noise drift. Structurally distinct from #483 (early-phase Muon WD warmup, CLOSED NEGATIVE — wrong group + wrong window) and #550 edward (Muon WD REDUCTION on body group — opposite direction + different group). Together with #550, provides bilateral coverage of the WD-cooldown axis.
+| Arm | NANOGPT_EMBED_WD_COOLDOWN | Embed WD during cooldown |
+|---|---:|---:|
+| A | 0.0 (disabled, control) | 0.0 |
+| B | 0.001 | 0.001 (~4% Muon scale) |
+| C | 0.005 | 0.005 (~20% Muon scale) |
+| D | 0.010 | 0.010 (~40% Muon scale) |
+**ETA full chain:** ~7.3h.
 
 ### ✅ askeladd #452 — Block output projection init scale — CLOSED 05:05 UTC productive-null
 
@@ -243,7 +255,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 5. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
 6. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
 7. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
-8. **NEW**: Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#NEW, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
+8. **NEW**: Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
 
 **Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.

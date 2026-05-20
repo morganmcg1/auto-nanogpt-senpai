@@ -3,6 +3,35 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 07:55 UTC — PR #520: Body Muon LR cooldown shape sweep (thorfinn) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-thorfinn/body-cooldown-shape`
+- Hypothesis: The body Muon LR cooldown has been linear-default the entire cycle. NS-orthogonalized updates have rank-stable magnitudes (unlike AdamW per-coordinate); optimal cooldown profile may differ. Tested cosine, quadratic, linear_floor as alternatives.
+- Code: `NANOGPT_BODY_COOLDOWN_SHAPE ∈ {linear, cosine, quadratic, linear_floor}` with new `eta_body` branch in `set_hparams()`, applied via Muon optimizer identity.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS):**
+
+| Arm | Shape | val/loss | fst | Δ vs A | Band | W&B run |
+|---|---|---:|---:|---:|---|---|
+| A | linear (control) | 3.27261 | 3250 | 0 | drift gate PASS (\|Δ\|=0.00087) | `nfmarwyh` |
+| B | cosine | 3.27424 | 3150 | +0.00163 | regression (marginal) | `ls42rldq` |
+| C | quadratic | 3.28125 | -1 | +0.00864 | strong regression | `ju0fchro` |
+| D | linear_floor | 3.28662 | -1 | +0.01401 | strongest regression | `cqn6df5s` |
+
+**Analysis:**
+
+- **No winner candidate.** Monotone regression with magnitude of distortion to final-window decay.
+- **Mechanism**: body Muon needs (1) decay to ~zero at end (rules out linear_floor at 15% floor — strongest regression, fst=-1), (2) linear shape (not steeper — rules out quadratic which collapses to 1.8e-7 in last 5%, fst=-1; not slower — cosine front-loads, lands +0.00163 above linear). NS-orthogonalized updates have rank-stable magnitudes — final convergence requires actual zero LR for clean landing.
+- **Striking per-group cooldown contrast established:**
+  - Embed (#235): linear_floor WINS (sparse-row group benefits from floored LR — most rows updated infrequently)
+  - Body Muon (#520): linear_floor LOSES strongest (NS-stable updates demand zero LR at end)
+  - NS-iter (#285): late_peak WINS (interior cooldown structure)
+  - NS-coef (#290): linear_ramp_down WINS (high-precision early, standard late)
+- **Per-group cooldown-shape design axis substantially closed** — lm_head shape (#547 fern, in flight) completes the matrix.
+- **30th productive-null/negative this cycle.**
+
+**Follow-up:** thorfinn assigned **#554 AdamW embed WD cooldown nudge** — fresh axis structurally distinct from #483 (Muon WD warmup early-phase) and #550 (Muon WD reduction body). Paired with #550 to characterize WD-cooldown axis bilaterally.
+
 ## 2026-05-20 07:00 UTC — PR #516: Yogi optimizer on aux groups (edward) — CLOSED productive-NEGATIVE (embed/all-aux) + productive-NULL (lm_head)
 
 - Branch: `g1r4-edward/yogi-aux`
