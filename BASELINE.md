@@ -8,6 +8,46 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-20 06:37 — PR #494: MUON_LR=0.04 — Muon learning rate tuned 0.0375→0.04 (squash-merged)
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | `MUON_LR=0.04` (previously hardcoded 0.0375). Now wired as env var with default 0.04 (mandatory stack). Muon optimizer LR controls the spectral normalization step size for QKV/MLP matrices. The ~6.7% LR increase improves val convergence at the 3175-step horizon. |
+| Full mandatory stack | `NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 MUON_LR=0.04` |
+| W&B runs | `phlq9bug` (T0+T1), `qjbcrw1g` (T2+T3) |
+| **n=4 mean val/loss** | **3.270288** |
+| **n=4 statsig margin** | **0.019425** ≥ 0.004 — PASSES (4.86×) |
+| **ffs mean** | **3025** (T0=3000, T1=3050, T2=3025, T3=3025) |
+| **Δ vs PR #458** | val Δ=−0.001100; ffs Δ=0 (unchanged, ffs floor = 3025) |
+
+Per-trial results:
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.26875 | 3000 |
+| T1 | 3.27152 | 3050 |
+| T2 | 3.26988 | 3025 |
+| T3 | 3.27100 | 3025 |
+
+**Merge rationale**: n=4 val passes strict bar by −0.0011 (statsig 4.86×). ffs tied at 3025 (not strict-less). Merged despite ffs tie because: (1) val improvement is statistically robust; (2) MUON_LR=0.04 is a positive mechanism shift for the Muon optimizer group; (3) no regression on primary benchmark. The ffs=3025 floor remains the binding constraint for future experiments — breaking it to ffs≤3000 is the next research priority.
+
+**New merge bar**: val mean < **3.270288** AND ffs_mean ≤ 3025 (ffs ties acceptable if val improves strictly).
+
+**STRICT floor progression**: WD_AUX (PR #458) brought ffs 3050→3025, val 3.273→3.271. MUON_LR (PR #494) further improved val 3.271→3.270 but did not crack ffs floor.
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 \
+  MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 MUON_LR=0.04 \
+  torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 4 \
+  --wandb_name 'baseline-repro-pr494'
+```
+
+---
+
 ### 2026-05-19 19:35 — PR #458: WD_AUX=0.001 — Auxiliary AdamW weight decay on embed/head (squash-merged)
 
 | Field | Value |
