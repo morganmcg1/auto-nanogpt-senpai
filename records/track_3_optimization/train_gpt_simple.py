@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Per-group weight decay for the three AdamW aux groups (embed, lm_head, scalars).
+    # Defaults 0.0 preserve bit-identical baseline. Motivated by PR #501 eps decomposition:
+    # under eps=1e-6, lm_head/scalars carry the eps win; WD>0 on those groups may now act
+    # as proper regularization rather than dominating dynamics.
+    parser.add_argument("--aux_embed_wd", type=float, default=float(os.environ.get("AUX_EMBED_WD", "0.0")))
+    parser.add_argument("--aux_lm_head_wd", type=float, default=float(os.environ.get("AUX_LM_HEAD_WD", "0.0")))
+    parser.add_argument("--aux_scalars_wd", type=float, default=float(os.environ.get("AUX_SCALARS_WD", "0.0")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,6 +773,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_embed_wd": args.aux_embed_wd,
+            "aux_lm_head_wd": args.aux_lm_head_wd,
+            "aux_scalars_wd": args.aux_scalars_wd,
         },
     )
 
@@ -812,10 +822,23 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                             weight_decay=args.aux_embed_wd),
+                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                             weight_decay=args.aux_lm_head_wd),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2],
+                             lr=0.01, name="adam_scalars",
+                             weight_decay=args.aux_scalars_wd)],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    # Sanity-check that fused AdamW preserves the per-group weight_decay values we
+    # passed in (rather than silently overriding from the top-level). PR #539 needs
+    # this to be correct or the whole sweep is invalid.
+    assert optimizer1.param_groups[0]["weight_decay"] == args.aux_embed_wd, \
+        f"adam_embed wd mismatch: {optimizer1.param_groups[0]['weight_decay']} vs {args.aux_embed_wd}"
+    assert optimizer1.param_groups[1]["weight_decay"] == args.aux_lm_head_wd, \
+        f"adam_lm_head wd mismatch: {optimizer1.param_groups[1]['weight_decay']} vs {args.aux_lm_head_wd}"
+    assert optimizer1.param_groups[2]["weight_decay"] == args.aux_scalars_wd, \
+        f"adam_scalars wd mismatch: {optimizer1.param_groups[2]['weight_decay']} vs {args.aux_scalars_wd}"
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
