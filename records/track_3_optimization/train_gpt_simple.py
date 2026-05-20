@@ -532,6 +532,10 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+NANOGPT_ADAMW_BETA1_WARMUP_START = float(os.environ.get("NANOGPT_ADAMW_BETA1_WARMUP_START", "0.8"))
+NANOGPT_ADAMW_BETA1_WARMUP_FRAC = float(os.environ.get("NANOGPT_ADAMW_BETA1_WARMUP_FRAC", "0.0"))
+assert 0.0 <= NANOGPT_ADAMW_BETA1_WARMUP_START <= 0.8, "NANOGPT_ADAMW_BETA1_WARMUP_START must be in [0.0, 0.8]"
+assert 0.0 <= NANOGPT_ADAMW_BETA1_WARMUP_FRAC <= 0.5, "NANOGPT_ADAMW_BETA1_WARMUP_FRAC must be in [0, 0.5]"
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -744,6 +748,8 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"ADAMW_BETA1_WARMUP_START: {NANOGPT_ADAMW_BETA1_WARMUP_START}", console=True)
+print0(f"ADAMW_BETA1_WARMUP_FRAC:  {NANOGPT_ADAMW_BETA1_WARMUP_FRAC}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -806,6 +812,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
+            "nanogpt_adamw_beta1_warmup_start": NANOGPT_ADAMW_BETA1_WARMUP_START,
+            "nanogpt_adamw_beta1_warmup_frac": NANOGPT_ADAMW_BETA1_WARMUP_FRAC,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -861,6 +869,20 @@ for trial_idx in range(args.num_trials):
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
     # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    def beta1_warmup_value(step, total_steps, start, frac, target=0.8):
+        if frac <= 0.0 or start >= target:
+            return target
+        warmup_steps = int(frac * total_steps)
+        if warmup_steps <= 0 or step >= warmup_steps:
+            return target
+        progress = step / warmup_steps
+        return start + progress * (target - start)
+
+    if NANOGPT_ADAMW_BETA1_WARMUP_FRAC > 0 and NANOGPT_ADAMW_BETA1_WARMUP_START < 0.8:
+        _warmup_steps_preview = int(NANOGPT_ADAMW_BETA1_WARMUP_FRAC * train_steps)
+        print0(f"  β₁ warmup: {NANOGPT_ADAMW_BETA1_WARMUP_START} → 0.8 linearly over first {_warmup_steps_preview} steps",
+               console=True)
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -886,6 +908,15 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        beta1_now = beta1_warmup_value(
+            step, train_steps,
+            NANOGPT_ADAMW_BETA1_WARMUP_START,
+            NANOGPT_ADAMW_BETA1_WARMUP_FRAC,
+            target=0.8,
+        )
+        for group in optimizer1.param_groups:
+            group["betas"] = (beta1_now, NANOGPT_ADAMW_BETA2)
+        return beta1_now
 
 
     ########################################
@@ -988,7 +1019,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        adamw_beta1_now = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1117,6 +1148,7 @@ for trial_idx in range(args.num_trials):
                     "gentle_to_aggressive": 2,
                     "linear_ramp_down": 3,
                 }.get(NS_COEF_SCHEDULE, -1),
+                "train/adamw_beta1_now": adamw_beta1_now,
             })
             wandb.log(ns_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
