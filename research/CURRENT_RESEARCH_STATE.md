@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-20 20:10 UTC — PR #587 alphonse β1 cooldown ramp CLOSED (both arms MISS: Arm A β1→0.99 val=3.27252 ffs=3050; Arm B β1→0.95 val=3.27164 ffs=3025 TIE but val leg miss; β1 schedule does NOT compress bimodal ffs variance — arm-internal contrast (A worse than B) shows longer EMA in cooldown over-smooths late-cooldown response); **VARIANCE-REDUCTION CLUSTER NOW 7/7 CLOSURES** (β1 schedule joins COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586); bimodal ffs is virtually confirmed intrinsic to data/loss geometry, not optimizer-addressable; alphonse → #608 Muon LR warmup (Muon LR currently has no warmup but MU does — fresh Muon-side schedule axis, symmetric to edward #598).**
 - **2026-05-20 19:42 UTC — PR #569 fern AdaBelief CLOSED (Arm A β2=0.95 n=2 val=3.27270 ffs=3062.5 clear MISS; Arm B β2=0.99 n=2 val_mean=3.27037 ffs_mean=3025 NEUTRAL — fails val bar by +8.2e-5, indistinguishable population mean); denominator-semantics class on AdamW group likely closed (combined with #574 Sophia-G unit-mismatch); fern → #605 Muon heavy-ball ablation (Muon.step Nesterov re-blend pruning — effective β=μ²=0.9025 vs heavy-ball β=μ=0.95).**
 - **2026-05-20 17:35 UTC — PR #586 nezuko Adan CLOSED (both arms killed step-500 gate, stable +0.12 val gap; corrected n_t denominator inflates variance vs AdamW's g_t² at our LR/WD); 6/6 variance-reduction + 7/7 AdamW-direction-blend closures; nezuko → #602 lm_head non-zero init sweep (output-projection magnitude axis, never ablated; complements askeladd's input-embed winner).**
 - **2026-05-20 17:30 UTC — PR #576 thorfinn MARS CLOSED (both arms MISS, monotonic dose-response: γ=0.025 val=3.27478/ffs=3075, γ=0.1 val=3.27873/ffs=3150); thorfinn → #601 Muon explicit WD reintroduction (Muon-side fresh axis, never ablated since u/w-floor added).**
@@ -33,7 +34,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | **#602** | **nezuko** | **lm_head non-zero init sweep — std=0.02 / std=0.1 (output-projection magnitude, never ablated; zero-init is GPT-2 convention)** | **Just assigned (#586 Adan CLOSED — both arms killed step-500)** | **TBD (~3.5h n=1 both arms)** |
 | #580 | tanjiro | AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance | Smokes A/B/control all ~3.97 @ 250 (gate passed); full runs not yet launched | TBD |
 | **#591** | **frieren** | **Orthogonal embed init: decorrelation dissection of askeladd magnitude win** | **Just assigned (#561 Lookahead CLOSED)** | **TBD (~3.7h n=1 both arms)** |
-| #587 | alphonse | β1 cooldown ramp: 0.8 → 0.99/0.95 across last 70% of training (cooldown_frac=0.7) | Arm A first attempt crashed step 725; retry running; cooldown window endorsed | TBD |
+| **#608** | **alphonse** | **Muon LR warmup — MUON_LR_WARMUP_STEPS ∈ {100, 300}; symmetric to edward #598 (AdamW LR warmup). MU has warmup but LR doesn't** | **Just assigned (#587 β1 ramp CLOSED — 7/7 variance-reduction cluster)** | **TBD (~3.7h n=1 both arms)** |
 | **#605** | **fern** | **Muon heavy-ball ablation — drop the Nesterov-style re-blend on line 694 (current effective β=μ²=0.9025 → heavy-ball β=μ=0.95). Two arms: (A) MUON_HEAVY_BALL=1 MU=0.95 longer memory; (B) MU=0.9025 matched effective β** | **Just assigned (#569 AdaBelief CLOSED — neutral on Arm B, denominator-class likely closed)** | **TBD (~3.7h n=1 both arms)** |
 
 ## Top merge candidates / watching closely
@@ -45,7 +46,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ## Mechanism categories (cycle 71 active)
 
-- **Variance reduction / ffs floor attack** (6/6 closures — bucket exhausted with #586 Adan close): closure cluster includes COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586. No remaining in-flight arms on this axis.
+- **Variance reduction / ffs floor attack** (7/7 closures — bucket exhausted with #587 β1 ramp close): closure cluster includes COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586, β1 ramp #587. No remaining in-flight arms on this axis. **Bimodal ffs is virtually confirmed intrinsic to data/loss geometry** — wins must come from MODEL/REPRESENTATION/INITIALIZATION side.
 - **Muon-side regularization** (#601 thorfinn): explicit decoupled WD reintroduction; tests whether u/w-floor is complete (record #14 omitted explicit WD) or whether mild WD on top adds headroom. First Muon-side experiment in cycle 71.
 - **Muon update-rule pruning** (NEW — #605 fern): Muon Nesterov-style re-blend (line 694) ablation. Re-blend creates effective β=μ²=0.9025 vs plain heavy-ball β=μ=0.95 (memory-shortening). Two arms isolate mechanism (re-blend itself) vs memory length (μ value). Second Muon-side axis; orthogonal to #601 regularization axis.
 - **Output-projection magnitude** (NEW — #602 nezuko): lm_head non-zero init sweep — tests if zero-init is a "GPT-2 convention" that leaves headroom on the output side, complementary to askeladd's pending input-side winner.
@@ -53,7 +54,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **Initialization sweep** (#541 askeladd + #591 frieren):
   - #541 askeladd EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}: Arm B (std=0.1) ⭐ **WINNER n=1** val=3.26773 ffs=3000, n=2 confirm in flight
   - #591 frieren ORTHO_EMBED_GAIN ∈ {0.1, 1.0}: orthogonal init isolates DECORRELATION effect vs MAGNITUDE effect (2×2 mechanism dissection with askeladd)
-- **EMA schedule** (#587 alphonse): β1 cooldown ramp (0.8 → 0.99 or 0.95) — increased averaging window in cooldown to compress ffs variance
+- **Muon LR schedule** (NEW — #608 alphonse): Muon LR warmup (MUON_LR_WARMUP_STEPS ∈ {100, 300}) — symmetric to edward #598 (AdamW LR warmup). MU has warmup (200 steps) but LR doesn't.
 - **Denominator semantics** (CLOSED — class likely exhausted): #569 AdaBelief Arm B neutral (val_mean=3.27037, +8.2e-5 over baseline); #574 Sophia-G FAIL (Lion mode at our gradient scale). 2/2 closures — AdamW group's vanilla `g_t²` denominator with sqrt appears to be at local optimum for this stack.
 - **Schedule envelope addition** (#598 edward): AdamW LR warmup 200/500 steps — only mechanism modifying time-domain LR shape; compounds with askeladd's early-step gradient-magnitude finding
 
@@ -85,6 +86,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #587 | alphonse | β1 cooldown ramp CLOSED — both arms MISS (Arm A β1→0.99: val=3.27252 ffs=3050; Arm B β1→0.95: val=3.27164 ffs=3025 TIE but val leg miss by +0.00135). Arm-internal contrast shows longer EMA window in cooldown over-smooths late-cooldown response. **7th variance-reduction cluster closure** — joins COOLDOWN_FRAC/SWA/SAM/Lookahead/MARS/Adan. Seven orthogonal mechanism classes (LR-schedule, weight-trajectory, sharpness-penalty, slow-sync, gradient-correction, denominator-blend, β1-schedule) all fail to compress bimodal ffs variance → intrinsic data/loss geometry, not optimizer-addressable. |
 | #569 | fern | AdaBelief CLOSED — Arm A β2=0.95 n=2 val=3.27270 ffs=3062.5 clear MISS; Arm B β2=0.99 n=2 val_mean=3.27037 (+8.2e-5 vs baseline 3.270288) ffs_mean=3025 (TIE) — NEUTRAL but fails strict val bar. Statsig PASS on neutral result (0.01362 ≥ 0.004 at n=2) — distinguishable from "worse than baseline" but not improvement. Mechanism saturation at β2=0.99: (g−m)² noise term ≈ ε during cooldown when m≈g, so pushing β2 higher won't change dynamics. Joins #574 Sophia-G in closing the denominator-semantics class on AdamW group. |
 | #586 | nezuko | Adan CLOSED — both arms killed at step-500 gate with stable +0.12 val gap (Arm A β1=0.02 val=3.82062; Arm B β1=0.10 val=3.81666). DC=0.77 vs DC=0.39 produced identical val curves → cost is corrected n_t denominator (variance ~0.85× larger than AdamW's g_t²), not v_hat blend. 7th AdamW direction/correction closure (Lion/Cautious/NAdamW/SF-AdamW/Sophia-G/MARS/Adan). |
 | #576 | thorfinn | MARS CLOSED — both arms MISS, monotonic dose-response (γ=0.025: val=3.27478 ffs=3075; γ=0.1: val=3.27873 ffs=3150). 4× more look-back strength → 2× more val regression, 2.5× more ffs regression. No interior γ-optimum exists. Adds to closed variance-reduction cluster (now 6/6: COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586). |

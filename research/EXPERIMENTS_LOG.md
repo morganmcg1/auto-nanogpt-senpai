@@ -1,5 +1,69 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 20:10 UTC — Cycle 71 mid-15: PR #587 alphonse β1 ramp CLOSED (both arms MISS, 7/7 variance-reduction cluster); alphonse → #608 Muon LR warmup
+
+### PR #587 — alphonse β1 cooldown ramp CLOSED — both arms MISS, EMA schedule fails to compress ffs variance
+
+Branch: `g1r2-alphonse/beta1-cooldown-ramp`. Linear ramp of AdamW β1 from 0.8 (cooldown start, progress=0.3) to a higher value (cooldown end, progress=1.0). Hypothesis: longer EMA averaging in cooldown damps single-batch noise that pushes seeds into ffs={3000, 3050} bimodal distribution.
+
+| Arm | β1 cooldown end | n=1 val | n=1 ffs | Δval | Δffs | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.99 (~100-step window at terminal) | 3.27252 | 3050 | +0.00223 | +25 | Clear regression on both legs |
+| **B** | **0.95 (~20-step window at terminal)** | **3.27164** | **3025 (TIE)** | **+0.00135** | **0** | **val leg MISS; ffs ties but val not strictly better** |
+| Baseline (n=4) | static β1=0.8 | 3.270288 | 3025 | — | — | — |
+
+**Statsig honesty pass** on both arms (`(3.28−val)·√1 ≥ 0.004`): Arm A 0.00748 ✓, Arm B 0.00836 ✓ — runs are honest, just not improvements.
+
+### Mechanism analysis: why the ramp didn't compress ffs
+
+1. **Arm A worse than Arm B** is the key contrast. If longer-EMA-in-cooldown helped, the more aggressive Arm A (β1→0.99, ~100-step window) should beat the milder Arm B (β1→0.95, ~20-step window). Instead Arm A is worse on BOTH val (+0.00223 vs +0.00135) and ffs (+25 vs 0). **Longer EMA over-smooths late-cooldown** — the rapidly-decaying LR needs an update direction that's responsive to current gradient, not lagged by 100 prior steps.
+
+2. **Arm B ffs=3025 is a single-seed lower-mode draw, not population-level shift**. n=1 ffs can land on any of {3000, 3025, 3050, 3075} per the baseline bimodal distribution. ffs=3025 here is consistent with no effect on the underlying distribution — no statistical claim about ffs compression can be made from a single trial.
+
+3. **Generalization to closed cluster**: 7th orthogonal variance-reduction mechanism class to fail. β1 schedule is a "first-moment averaging-window schedule" — distinct from prior failures at LR-time-envelope (COOLDOWN_FRAC), weight-trajectory (SWA), sharpness-penalty (SAM), slow-sync (Lookahead), gradient-correction (MARS), and denominator-blend (Adan).
+
+### Closed family expansion — Variance-reduction mechanism cluster: 7/7 closures
+
+| PR | Mechanism class | Mechanism level |
+|---|---|---|
+| #495 COOLDOWN_FRAC | schedule shape | LR-time-envelope |
+| #524 SWA tail averaging | weight trajectory | post-step parameter avg |
+| #573 SAM | sharpness penalization | 2×fwd-bwd (contract violation) |
+| #561 Lookahead | slow-weights sync | post-step parameter sync |
+| #576 MARS | STORM gradient correction | pre-EMA gradient level |
+| #586 Adan | variance-reduced m + corrected n_t | EMA + denominator level |
+| **#587 β1 ramp (now)** | **first-moment averaging window schedule** | **β1 schedule level** |
+
+**Overwhelming evidence**: seven orthogonal mechanism classes at every level of single-pass optimizer design — schedule shape, weight trajectory, sharpness penalty, slow sync, gradient correction, denominator blend, averaging-window schedule — all fail to compress bimodal ffs variance. **Bimodal ffs at the floor is virtually confirmed as intrinsic to data/loss geometry at our model size + step budget.** Future variance-reduction proposals on the optimizer side are STRONGLY de-prioritized. Wins must come from MODEL/REPRESENTATION/INITIALIZATION side (askeladd #541 EMBED_INIT_STD=0.1 n=2 confirm imminent is the canonical instance).
+
+### PR #608 — alphonse reassigned: Muon LR warmup
+
+Alphonse → **first Muon LR schedule ablation in cycle 71**. The current Muon optimizer has NO LR warmup — Muon LR=0.04 is applied at full strength from step 0:
+
+```python
+optimizer2 = Muon([...], lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)  # full LR from step 0
+...
+def set_hparams(step, cooldown_frac=0.7):
+    progress = step / train_steps
+    if progress < 1 - cooldown_frac:
+        eta = 1.0  # stable phase: no warmup
+    else:
+        eta = (1 - progress) / cooldown_frac  # linear cooldown
+    group["lr"] = group["initial_lr"] * eta
+```
+
+**Asymmetry**: Muon momentum DOES have warmup (`MU_WARMUP_STEPS=200` ramps μ from 0.85 → 0.95 over the first 200 steps), but Muon LR does not. **Has never been ablated.**
+
+**Two arms**:
+- **Arm A**: MUON_LR_WARMUP_STEPS=100 (brief warmup, AdamW convention)
+- **Arm B**: MUON_LR_WARMUP_STEPS=300 (longer warmup, matches MU warmup scale)
+
+**Symmetric to edward #598** (AdamW LR warmup with 200/500-step arms). If LR warmup helps AdamW, the natural complement is testing whether it also helps Muon. If they compound, both wins stack. If they're asymmetric, that's a clean mechanism finding.
+
+Branch `g1r2-alphonse/muon-lr-warmup` pushed; PR #608 opened with full kill-gate table and decision tree.
+
+---
+
 ## 2026-05-20 19:45 UTC — Cycle 71 mid-14: PR #569 fern AdaBelief CLOSED (Arm A regression, Arm B neutral); fern → #605 Muon heavy-ball ablation
 
 ### PR #569 — fern AdaBelief CLOSED — Arm A miss, Arm B neutral; denominator-semantics class likely closed
