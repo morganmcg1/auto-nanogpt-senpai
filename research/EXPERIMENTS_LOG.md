@@ -3,6 +3,39 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 03:00 UTC — PR #496: edward NS iter LOW sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-edward/ns-iter-low-sweep`
+- Student: g1r5-edward
+- Hypothesis: Probe ns_iter values BELOW the previously tested {6,8,10,12,14} range. Tests whether the thorfinn #461 Cell B (ns_iter=6) signal of −2.94σ continues to improve as iterations drop, or hits a bf16-convergence floor.
+
+### Results
+
+| Cell | ns_iter | val/loss | ffs | Δσ vs baseline (3.267948) | W&B run |
+|------|--------:|---------:|----:|---------------------------:|---------|
+| A (ctrl) | 12 | 3.26793 | 3100 | −0.19σ (ctrl refactor ok) | `g4j2hqty` |
+| B | 5 | 3.26754 | 3075 | −0.49σ (weak) | (run id in PR) |
+| C | 4 | 3.27342 | 3150 | **+6.65σ** (bf16 saturation) | `9j2ds62b` |
+| D | 3 | 3.27949 | 3200 | **+14.03σ** (deep saturation) | (run id in PR) |
+| E (dropped) | 2 | — | — | — | not run (clear trajectory) |
+
+### Conclusion
+
+ns_iter axis fully characterized after combining edward #496 with thorfinn #461:
+
+| ns | 3 | 4 | 5 | 6 | 8 | 10 | 12 | 14 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Δσ | +14.03 | +6.65 | −0.50 | −2.94 (n=1) | +1.08 | +1.04 | (ctrl) | +1.12 |
+
+- **Hard cliff below ns_iter=5**: bf16 Newton-Schulz orthogonalization does not converge in <5 iters
+- **ns_iter=5–6 weakly favored over baseline** but magnitude ≤ σ
+- **ns_iter=6 mechanism in P2 confirmation** (askeladd #497) — also reproducible 25-step ffs reduction
+- **Going BELOW ns=5 is decisively WORSE**; the "less optimizer intensity" principle does not extend monotonically here
+
+Cell E (ns_iter=2) dropped per advisor suggestion: with D already at +14σ, E would be deep noise with no informational value.
+
+Next: edward assigned PR #537 — first ever Adam β1/β2 sweep (fresh axis).
+
 ## 2026-05-19 06:38 UTC — PR #398: AdamW aux ε schedule sweep — **CLOSED clean-NEG**
 
 - Branch: `askeladd/eps-aux-schedule`
