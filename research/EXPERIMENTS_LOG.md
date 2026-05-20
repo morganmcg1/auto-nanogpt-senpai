@@ -1,3 +1,53 @@
+## 2026-05-20 09:45 UTC — PR #536 CLOSED (nezuko): MuLoCo outer-step ablation — Nesterov momentum is the load-bearing component, NOT averaging
+
+- Branch: `g1r3-nezuko/muloco-outer-step-ablation`
+- Hypothesis: Is MuLoCo wrapper load-bearing on single-GPU r3? Is the momentum component the active ingredient (vs the periodic averaging)?
+
+### Three-arm 3325-step results
+
+| Arm | Config | W&B run | val/loss | ffs | reached_target | Δ vs ctrl |
+|---|---|---|---:|---:|:---:|---:|
+| **1 (ctrl)** | full MuLoCo: lr=0.7, mom=0.5, sync=30 | `zs31qtwl` | **3.27220** | **3125** | ✓ | — |
+| 2 (off) | `--use_outer_optimizer 0` | `yi474ar1` | 3.28245 | -1 | ✗ | +0.01025 |
+| 3 (mom0) | lr=0.7, **mom=0.0**, sync=30 | `t0tcf12b` | 3.30224 | -1 | ✗ | **+0.03005** |
+
+### Mechanism finding (THE result of this PR)
+
+- **MuLoCo wrapper is load-bearing**: Removing it (arm 2) costs +0.01025 vs ctrl, **5× the 0.002 threshold**. Wrapper is not dead weight on n=1 single-GPU.
+- **Nesterov momentum is the active component, NOT averaging**: Removing only `outer_momentum` (keeping the periodic sync + outer_lr=0.7) costs +0.03005, **3× worse than removing the entire wrapper**.
+- **Mechanism: cooldown-phase coherent kicks**, NOT distributed Polyak averaging.
+  - Arm 1 `velocity_rms=0.0137` (2.2× delta_rms=0.0063) — momentum compounds 30 inner deltas into one coherent push.
+  - Arm 3 `velocity_rms == delta_rms = 0.0086` — mathematically expected when `v ← 0·v + δ`, no compounding.
+
+### Trajectory evidence — momentum's marginal value INCREASES during cooldown
+
+| step | Arm 1 ctrl | Arm 2 off | Arm 3 mom0 | leader |
+|---:|---:|---:|---:|:---:|
+| 750 | 3.82579 | 3.78962 | **3.73542** | mom0 |
+| 1500 | 3.62071 | 3.58636 | **3.53863** | mom0 (by 0.083!) |
+| 2000 | 3.47988 | **3.47549** | 3.48391 | off |
+| 2500 | 3.37107 | **3.36772** | 3.37623 | off |
+| 3000 | **3.29088** | 3.29796 | 3.31401 | ctrl |
+| 3325 | **3.27220** | 3.28245 | 3.30224 | ctrl |
+
+Arm 3 (mom=0) leads ctrl through step 1750 by 0.083, then collapses to last place during cosine cooldown. Without momentum compounding, the periodic anchor-snap becomes a regressive 30%-revert of the last 30 inner steps' net change — precisely when inner LR×grad is small and needs help.
+
+### Decision: CLOSED — pure ablation, no code change, mechanism finding is the deliverable
+
+No merge (PR was pure CLI-flag ablation). Baseline configuration stands. Mental model updated: MuLoCo on single-GPU is "accumulated outer Nesterov momentum on top of the inner stack," NOT periodic Polyak averaging.
+
+### Follow-up assigned
+
+Nezuko reassigned to **H18: cooldown-aware outer_momentum ramp** (PR #563). Tests `outer_momentum` schedule 0.5→0.9 during cooldown phase, directly exploits the marginal-value-increases-in-cooldown pattern from this PR. 3 arms: ctrl static 0.5, cooldown-only ramp (start at 87% of training), long ramp (start at 60%).
+
+### Bookmarked (NOT assigned now)
+
+1. outer_momentum static sweep 0.5→0.95 (scalar HP — revisit if H18 schedule loses).
+2. sync_interval × outer_lr joint (expensive).
+3. SlowMo-default safety check `outer_lr=0.7, outer_momentum=0.7`.
+
+---
+
 ## 2026-05-20 07:55 UTC — PR #478 CLOSED (askeladd): Aux AdamW embed LR n=4 confirmation — original n=1 signal was ctrl-arm seed inflation
 
 - Branch: `g1r3-askeladd/aux-embed-lr-sweep`
