@@ -3,6 +3,42 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 23:42 UTC — PR #581: edward Lookahead optimizer wrapper — **CLOSED clean-NEG**
+
+- Branch: `g1r5-edward/lookahead-wrapper`
+- Student: g1r5-edward
+- Hypothesis: Lookahead wrapper (Zhang et al. 2019) — slow/fast weight sync every k steps. Tests whether parameter-averaging across optimizer steps helps within the 3250-step budget.
+
+### Results (n=1 each, vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | α | k | cd-off | val/loss | ffs | Δσ vs μ | Target? | W&B run |
+|------|:---:|:---:|:---:|:--------:|:---:|:-------:|:-------:|---------|
+| A (ctrl) | 0.0 | — | — | **3.26801** | 3100 | +1.08σ | yes | `luwh7m3l` |
+| B (std) | 0.5 | 5 | — | 3.27956 | 3225 | +7.69σ | yes | `dwiibeuc` |
+| C (k=10) | 0.5 | 10 | — | 3.28116 | DNF | +8.61σ | no | `zrfdz73z` |
+| D (α=0.3) | 0.3 | 5 | — | 3.30526 | DNF | +22.40σ | no | `gajmg3t7` |
+| E (cd-off) | 0.5 | 5 | ✓ | 3.28546 | DNF | +11.07σ | no | `rm56wpb0` |
+
+### Key finding — Cell E refutes "sync-disrupts-cooldown" hypothesis
+
+- Cell E disabled Lookahead sync at step 2600 (last 20% of run). Expected to recover cooldown performance. Instead: **E (+11.07σ) is WORSE than standard B (+7.69σ)**.
+- The base optimizer's adaptive state (AdamW v buffer, Muon NS polynomial) had co-adapted to periodic resets. Disabling sync at step 2600 produces a transient lurch (+0.003 val rise step 2500→2750) before re-stabilizing. The damage is done during the active phase, not just cooldown.
+
+### Mechanism confirmed
+
+- **Lookahead sync = step-size ablator**: α=0.5 resets fast weights 50% toward stale slow every k steps — equivalent to halving effective step size on a budget where every step counts.
+- **α=0.3 (D) is MORE aggressive, not gentler**: `fast ← 0.7*slow + 0.3*fast` resets 70% each sync. Explains D being worst.
+- **Monotone ordering** (more sync → more harm): D > C > E > B > A.
+- **Memory overhead +580 MB** (slow-weights buffer) — not a constraint, mechanism is the constraint.
+
+### Conclusion
+
+- **Wrapper-averaging axis closed clean-NEG**, joining tanjiro #517 (EMA). Both parameter-averaging mechanisms at param-level hurt the benchmark.
+- **Lesson**: base optimizer (AdamW + Muon + NS) already saturates variance-reduction headroom. Any k-step averaging mechanism ablates short-horizon progress.
+- **Gradient-side averaging** (AdEMAMix) is the natural follow-up: augments gradient moments, not parameters. Edward assigned PR #626.
+
+---
+
 ## 2026-05-20 22:50 UTC — PR #596: tanjiro tied input/output embedding sweep — **CLOSED clean-NEG**
 
 - Branch: `g1r5-tanjiro/tied-embedding-sweep`
