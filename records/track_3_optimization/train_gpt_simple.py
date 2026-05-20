@@ -534,6 +534,25 @@ NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_M
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
+# Per-group LR cooldown window length (cooldown_frac). Default 0.7 matches the
+# baseline single uniform window (set_hparams default). Each group's cooldown
+# window is computed independently, so groups can enter/exit cooldown at
+# different steps. Range constrained to (0, 1].
+NANOGPT_COOLDOWN_FRAC_GLOBAL = float(os.environ.get("NANOGPT_COOLDOWN_FRAC", "0.7"))
+NANOGPT_EMBED_COOLDOWN_FRAC = float(os.environ.get("NANOGPT_EMBED_COOLDOWN_FRAC", str(NANOGPT_COOLDOWN_FRAC_GLOBAL)))
+NANOGPT_BODY_COOLDOWN_FRAC = float(os.environ.get("NANOGPT_BODY_COOLDOWN_FRAC", str(NANOGPT_COOLDOWN_FRAC_GLOBAL)))
+NANOGPT_LM_HEAD_COOLDOWN_FRAC = float(os.environ.get("NANOGPT_LM_HEAD_COOLDOWN_FRAC", str(NANOGPT_COOLDOWN_FRAC_GLOBAL)))
+NANOGPT_SCALAR_COOLDOWN_FRAC = float(os.environ.get("NANOGPT_SCALAR_COOLDOWN_FRAC", str(NANOGPT_COOLDOWN_FRAC_GLOBAL)))
+for _name, _cf in (
+    ("NANOGPT_COOLDOWN_FRAC", NANOGPT_COOLDOWN_FRAC_GLOBAL),
+    ("NANOGPT_EMBED_COOLDOWN_FRAC", NANOGPT_EMBED_COOLDOWN_FRAC),
+    ("NANOGPT_BODY_COOLDOWN_FRAC", NANOGPT_BODY_COOLDOWN_FRAC),
+    ("NANOGPT_LM_HEAD_COOLDOWN_FRAC", NANOGPT_LM_HEAD_COOLDOWN_FRAC),
+    ("NANOGPT_SCALAR_COOLDOWN_FRAC", NANOGPT_SCALAR_COOLDOWN_FRAC),
+):
+    if not (0.0 < _cf <= 1.0):
+        raise ValueError(f"{_name}={_cf} must satisfy 0 < cf <= 1")
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -740,6 +759,29 @@ print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLI
        console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+_train_steps_for_print = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
+print0(
+    f"COOLDOWN_FRAC: global={NANOGPT_COOLDOWN_FRAC_GLOBAL} "
+    f"embed={NANOGPT_EMBED_COOLDOWN_FRAC} body={NANOGPT_BODY_COOLDOWN_FRAC} "
+    f"lm_head={NANOGPT_LM_HEAD_COOLDOWN_FRAC} scalar={NANOGPT_SCALAR_COOLDOWN_FRAC}",
+    console=True,
+)
+print0(
+    f"  embed enters cooldown at step {int((1 - NANOGPT_EMBED_COOLDOWN_FRAC) * _train_steps_for_print)} / {_train_steps_for_print}",
+    console=True,
+)
+print0(
+    f"  body  enters cooldown at step {int((1 - NANOGPT_BODY_COOLDOWN_FRAC) * _train_steps_for_print)} / {_train_steps_for_print}",
+    console=True,
+)
+print0(
+    f"  lm_head enters cooldown at step {int((1 - NANOGPT_LM_HEAD_COOLDOWN_FRAC) * _train_steps_for_print)} / {_train_steps_for_print}",
+    console=True,
+)
+print0(
+    f"  scalar enters cooldown at step {int((1 - NANOGPT_SCALAR_COOLDOWN_FRAC) * _train_steps_for_print)} / {_train_steps_for_print}",
+    console=True,
+)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
@@ -802,6 +844,11 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_cooldown_frac_global": NANOGPT_COOLDOWN_FRAC_GLOBAL,
+            "nanogpt_cooldown_frac_embed": NANOGPT_EMBED_COOLDOWN_FRAC,
+            "nanogpt_cooldown_frac_body": NANOGPT_BODY_COOLDOWN_FRAC,
+            "nanogpt_cooldown_frac_lm_head": NANOGPT_LM_HEAD_COOLDOWN_FRAC,
+            "nanogpt_cooldown_frac_scalar": NANOGPT_SCALAR_COOLDOWN_FRAC,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
@@ -859,33 +906,46 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay.
-    # All groups follow the default linear-to-zero cooldown except the
-    # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
-    def set_hparams(step, cooldown_frac=0.7):
+    # Each parameter group has its own cooldown_frac (window length): embed,
+    # body (muon_blocks), lm_head, scalars. Within a group's cooldown window,
+    # the embed group additionally remaps eta via NANOGPT_EMBED_COOLDOWN_SHAPE;
+    # other groups follow linear-to-zero.
+    _group_cf = {
+        "adam_embed": NANOGPT_EMBED_COOLDOWN_FRAC,
+        "muon_blocks": NANOGPT_BODY_COOLDOWN_FRAC,
+        "adam_lm_head": NANOGPT_LM_HEAD_COOLDOWN_FRAC,
+        "adam_scalars": NANOGPT_SCALAR_COOLDOWN_FRAC,
+    }
+
+    def _eta_for(progress, cf, is_embed):
+        # Default linear-to-zero outside cooldown is 1.0; inside cooldown is
+        # eta_default = (1 - progress) / cf. The embed shape overrides only the
+        # embed group's eta inside its own cooldown window.
+        if progress < 1 - cf:
+            return 1.0
+        eta_default = (1 - progress) / cf
+        if not is_embed:
+            return eta_default
+        cooldown_progress = 1.0 - eta_default
+        if NANOGPT_EMBED_COOLDOWN_SHAPE == "linear":
+            return eta_default
+        if NANOGPT_EMBED_COOLDOWN_SHAPE == "cosine":
+            return 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
+        if NANOGPT_EMBED_COOLDOWN_SHAPE == "linear_floor":
+            return 0.15 + 0.85 * eta_default
+        if NANOGPT_EMBED_COOLDOWN_SHAPE == "quadratic":
+            return eta_default ** 2
+        raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta_default = 1.0
-            eta_embed = 1.0
-        else:
-            eta_default = (1 - progress) / cooldown_frac
-            cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
-            if NANOGPT_EMBED_COOLDOWN_SHAPE == "linear":
-                eta_embed = eta_default
-            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "cosine":
-                eta_embed = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
-            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "linear_floor":
-                eta_embed = 0.15 + 0.85 * eta_default  # decays from 1.0 to 0.15
-            elif NANOGPT_EMBED_COOLDOWN_SHAPE == "quadratic":
-                eta_embed = eta_default ** 2
-            else:
-                raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
         for opt in optimizers:
             for group in opt.param_groups:
-                if group.get("name") == "adam_embed":
-                    group["lr"] = group["initial_lr"] * eta_embed
-                else:
-                    group["lr"] = group["initial_lr"] * eta_default
+                name = group.get("name", "")
+                cf = _group_cf.get(name, NANOGPT_COOLDOWN_FRAC_GLOBAL)
+                eta = _eta_for(progress, cf, is_embed=(name == "adam_embed"))
+                group["lr"] = group["initial_lr"] * eta
 
 
     ########################################
