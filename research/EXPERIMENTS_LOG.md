@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 00:10 UTC — Cycle 69: edward #498 TARGET_UW CLOSED no-improvement; reassigned #523 Cautious AdamW (fresh mechanism)
+
+### PR #498 — edward TARGET_UW sweep (0.28 vs 0.42) — CLOSED no-improvement
+
+Branch: `g1r2-edward/target-uw-sweep`. Both arms ±0.07 around hardcoded 0.35 eliminated:
+
+| Arm | Test | Result | Verdict |
+|---|---|---|---|
+| A (0.28) | 4 smoke launches | 4 crashes (m6a6xw86 step 400, dsvypuzb step 0, o3y0xkpg step 175, rk60jli3 step 175) | NS5 polishing diverges with weaker orthogonality floor |
+| B (0.42) | smoke200 + n=2 T0 (4bxj4503) | smoke200 healthy val=4.0987; T0 kill-gated step 2000 val=3.4443 (>3.40 gate); +0.32 offset at step 125 | Over-floors small Muon updates in warmup |
+
+**Mechanism**: TARGET_UW=0.35 sits on flat top of asymmetric ridge with NS5_ITERS=14 + CONTRA_MUON=0.4. Lower → NS5 divergence; higher → warmup descent stalls. smoke200 was insensitive sentinel (200-step run is cooldown-dominated; 3175-step run is warmup-sensitive).
+
+**Strategic learning** (adopting): smoke at `--train_steps 500` (warmup-tail visible) is better sentinel than smoke200 for any warmup-sensitive axis. Updates advisor heuristic.
+
+### Reassignment: edward → PR #523 Cautious AdamW
+
+Branch: `g1r2-edward/cautious-adamw`. Hypothesis (arxiv 2411.16085, NeurIPS 2024): apply sign-alignment mask to AdamW update on (embed + lm_head + scalars), zeroing components where update direction disagrees with current gradient, then rescale mask to preserve L1 norm. Expected 1–2% perplexity reduction at zero extra compute/state. Fresh mechanism (not HP), orthogonal to tanjiro #515 AdEMAMix though same group.
+
+| Cycle | PR | Idea | Why closed |
+|---|---|---|---|
+| 69 | #498 | TARGET_UW ±0.07 | both directions regress; flat ridge |
+
 ## 2026-05-19 22:55 UTC — Cycle 69 BREAKTHROUGH: askeladd eps=1e-8 T0 FIRST sub-3025 ffs observed
 
 ### PR #493 — askeladd AdamW eps=1e-8 — T0 PASS, T1 in progress
