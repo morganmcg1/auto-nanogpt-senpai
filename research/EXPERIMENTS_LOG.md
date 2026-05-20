@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 09:30 UTC — Cycle 71 mid: PR #529 frieren CLOSED; frieren assigned #561 Lookahead; thorfinn T0 ffs=3000 BREAKTHROUGH; fern NAdamW foreclosed
+
+### PR #529 — frieren Per-group AdamW eps decomposition — CLOSED all 3 groups falsified
+
+Branch: `g1r2-frieren/aux-eps-per-group`. W&B runs: `dffq1mxp` (Arm A embed), `4cw7dvkr` (Arm B lm_head), `c5sv4q69` (Arm C scalars NEW stack).
+
+| Arm | Group | val | ffs | vs NEW bar | Stack |
+|---|---|---|---|---|---|
+| A | embed (50304×768) | 3.27219 | 3050 | n/a (old MUON_LR) | OLD 0.0375 |
+| B | lm_head (50304×768) | 3.27242 | 3050 | n/a (old MUON_LR) | OLD 0.0375 |
+| C | scalars (bias/LN) | **3.27161** | **3050** | FAIL (+1.3e-3, +25) | NEW 0.04 |
+
+All 3 arms land at ffs=3050, vals cluster in tight 8e-4 band. Combined with askeladd #493 n=4 global closure: AdamW ε family fully falsified across all groups. Mechanism: ε ∈ [1e-10, 1e-8] doesn't materially perturb √v̂ denominator in post-warmup/cooldown regime at our LR/WD scales. Per-group eps plumbing retained in code for potential future use.
+
+### PR #561 — frieren Lookahead AdamW wrapper assigned
+
+Lookahead (Zhang et al 2019) wraps existing AdamW with periodic slow-weights sync: every k steps, `w_slow ← w_slow + α(w_fast − w_slow)`, then `w_fast ← w_slow`. ~30 LoC wrapper, zero compute overhead, attacks within-trajectory gradient noise. Mechanistically distinct from SWA (tail-only), Schedule-Free (continuous Polyak), and Muon-cooldown-frac (per-group schedule). 2 arms: k=5 α=0.5 (paper defaults) and k=10 α=0.5 (longer sync window).
+
+### PR #524 thorfinn — SWA WINDOW=300 Arm B T0 ffs=3000 POTENTIAL BREAKTHROUGH
+
+T0 terminal (z02q183a): val=3.27290, **ffs=3000** — below baseline floor 3025 by 25 steps.
+
+| Metric | T0 | Baseline | Δ |
+|---|---|---|---|
+| val | 3.27290 | 3.270288 | +0.0026 (FAIL val bar) |
+| **ffs** | **3000** | **3025** | **−25 (PASS ffs target!)** |
+
+Mechanistic explanation: WINDOW=300 starts SWA accumulation at step 2875 (vs 3025 for Arm A with WINDOW=150). At step 3000 eval, swa_count=126 — substantial averaging. The averaged trajectory crosses 3.28 ~25 steps earlier than the live weights would. T1 launched at 09:21 UTC, ETA terminal ~11:05 UTC. Kill gate NOT triggered (val<3.275 AND ffs<3050). For n=2 mean: need T1 ffs ≤ 3050 (achievable), val < 3.267676 (unlikely). If n=2 ffs passes but val fails strict, will evaluate ffs-improvement-only merge.
+
+### PR #527 fern NAdamW — math-foreclosure pending T1 terminal
+
+Arm A n=2: val 3.273585/ffs 3050 — FAIL old bar. Arm B T0: val 3.27417/ffs 3075 — WORSE than Arm A. T1 at step 750 trailing T0 by +0.006. Foreclosure certain: T1 needs val < 3.268606 to clear old bar from n=2 mean, extremely unlikely. Let T1 complete then drop SENPAI-RESULT, close axis.
+
 ## 2026-05-20 08:30 UTC — Cycle 71: PR #538 Lion closed; edward reassigned #557 SF-AdamW
 
 ### PR #538 — edward Lion optimizer (Chen 2023) on AdamW group — CLOSED structurally worse

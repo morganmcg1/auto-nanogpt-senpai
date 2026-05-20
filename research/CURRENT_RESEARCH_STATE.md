@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 08:35 UTC — Cycle 71: Lion #538 CLOSED (val+0.024, third sign-family failure on AdamW group); edward reassigned #557 Schedule-Free AdamW (Defazio 2024, Polyak avg). 8 PRs active.**
+- **2026-05-20 09:35 UTC — Cycle 71 mid: frieren #529 per-group eps CLOSED (3/3 groups falsified); frieren reassigned #561 Lookahead AdamW; thorfinn #524 T0 ffs=3000 BREAKTHROUGH (SWA WINDOW=300) — T1 running ETA 11:05 UTC. 8/8 students active.**
 
 ## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
 
@@ -22,21 +22,21 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #557 | **edward** | **Schedule-Free AdamW (Defazio 2024, Polyak avg, no cooldown) 2 arms n=1** | Just assigned; Lion #538 closed | TBD |
-| #549 | nezuko | Muon decoupled cooldown (MUON_COOLDOWN_FRAC 0.8/0.6) 2 arms n=1 | Just assigned post-#494 merge | TBD |
-| #541 | askeladd | Embed init std sweep (3 arms: 0.5/0.1/0.02) | Smoke expected | TBD |
-| #534 | tanjiro | Right-factor Shampoo on lm_head (2 arms n=1) | Smoke expected | TBD |
-| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Arm A CONTRA_MUON=0 FAIL; Arm B MU_WARMUP=0 FAIL; Arm C ATTN_SOAP=1.0 in flight (~09:30 UTC) | ~09:30 UTC |
-| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A+B embed/lm_head FAIL; Arm C scalars in flight with MUON_LR=0.04 | ~10:00 UTC |
-| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A T0+T1 running; Arm B at step 522 | T0 ~08:25 UTC |
-| #524 | thorfinn | SWA tail averaging WINDOW=300 n=2 | Arm B v2 at step 1508; ETA T0 terminal ~09:20 UTC | ~09:20 UTC |
+| **#524** | **thorfinn** | **SWA tail averaging WINDOW=300 n=2** | **T0 ffs=3000 BREAKTHROUGH; T1 running at step 125** | **~11:05 UTC** |
+| #557 | edward | Schedule-Free AdamW (Defazio 2024, Polyak avg) 2 arms | Just assigned; impl in progress | TBD |
+| #561 | frieren | Lookahead AdamW wrapper (Zhang 2019, k=5/k=10) | Just assigned; #529 closed | TBD |
+| #549 | nezuko | Muon decoupled cooldown (MUON_COOLDOWN_FRAC 0.8/0.6) | Disabled-check ✅; Arm A smoke in flight | TBD |
+| #541 | askeladd | Embed init std sweep (0.5/0.1/0.02) | All 3 smokes healthy (~3.697@500); n=1 full runs authorized | ~12:00 UTC |
+| #534 | tanjiro | Right-factor Shampoo on lm_head | 2nd nudge; still no disabled-check posted | TBD |
+| #533 | alphonse | Stack pruning (3 arms: CONTRA_MUON=0 FAIL, MU_WARMUP=0 FAIL, Arm C ATTN_SOAP=1.0) | Arm C in flight | ~10:30 UTC |
+| #527 | fern | NAdamW (Dozat 2016) | Arm A n=2 FAIL; Arm B T0 val=3.274/ffs=3075 WORSE; T1 foreclosed; await terminal SENPAI-RESULT | ~10:15 UTC |
 
-## Top merge candidates (priority order)
+## Top merge candidates / watching closely
 
-1. **NEZUKO #549 Muon-cooldown-frac** — directly targets ffs=3025 floor via per-group Muon LR in final convergence window. Primary research priority axis.
-2. **FERN #527 NAdamW** — Arm A T0/T1 running (ETA terminal ~08:25 UTC); Nesterov first-moment is orthogonal to all closed axes. Good probability of improvement.
-3. **EDWARD #557 Schedule-Free AdamW** — Polyak averaging eliminates LR cooldown timing stochasticity. Fresh mechanism attack on bimodal ffs variance.
-4. **FRIEREN #529 Arm C scalars** — Arms A (embed) + B (lm_head) both FAIL. Arm C (scalars) running on NEW MUON_LR=0.04 stack. Low probability but last arm standing.
+1. **THORFINN #524 T1** — T0 hit ffs=3000 (BREAKTHROUGH vs 3025 baseline). T1 running, ETA 11:05 UTC. If T1 also ffs≤3025 → n=2 mean ffs breaks floor. Watch closely for n=2 merge decision.
+2. **NEZUKO #549 Muon-cooldown-frac** — Arm A smoke in flight. Directly targets ffs floor via Muon-group LR in final convergence window. Primary targeted mechanism.
+3. **EDWARD #557 Schedule-Free AdamW** — Just assigned. Polyak averaging eliminates LR cooldown timing dependence. Strong theoretical attack on bimodal ffs variance.
+4. **FRIEREN #561 Lookahead AdamW** — Just assigned. Periodic slow-weights sync. ~30 LoC wrapper, different variance-reduction angle from SWA/SF.
 
 ## Mechanism categories (post-#494 merge)
 
@@ -53,6 +53,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #529 | frieren | Per-group AdamW eps CLOSED — 3/3 groups (embed, lm_head, scalars) falsified; eps ∈ [1e-10, 1e-8] insensitive at our LR/WD scale |
 | #538 | edward | Lion optimizer closed — val+0.024 regression, ffs=-1; sign-only update incompatible (3rd sign-family failure) |
 | #493 | askeladd | ADAM_EPS=1e-8 n=4 closed — val FAIL +5e-4, ffs FAIL +6.25; T0=3000 was outlier, T1-T3 cluster at noise floor |
 | #523 | edward | Cautious AdamW closed — T0 val=3.286 (+1.4% regression); sign-mask discards useful cooldown signal |
