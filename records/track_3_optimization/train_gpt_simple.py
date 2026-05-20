@@ -466,6 +466,10 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# MARS (Liu et al 2024, arxiv 2411.10438) — paper-faithful STORM-style variance-reduced AdamW
+# variant. Wraps the AdamW (optimizer1) group; Muon is untouched. One forward-backward per step.
+MARS_ENABLED = int(os.environ.get("MARS_ENABLED", "0"))  # 0=AdamW (default), 1=MARS
+MARS_GAMMA = float(os.environ.get("MARS_GAMMA", "0.025"))  # STORM variance-reduction weight (paper default)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -775,6 +779,63 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class MARS(torch.optim.Optimizer):
+    """
+    MARS (Liu et al 2024, arxiv 2411.10438) — Scaled Stochastic Recursive Momentum for AdamW.
+    Paper-faithful: c_t corrected gradient with gamma*beta1/(1-beta1) look-back coefficient,
+    c_t norm-clip at 1, c_t fed into both m and v updates. Single forward-backward per step.
+    Mirrors the official mars-adamw reference implementation at
+    https://github.com/AGI-Arena/MARS/blob/main/MARS/optimizers/mars.py
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0, gamma=0.025):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, gamma=gamma)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group['betas']
+            eps, lr, wd, gamma = group['eps'], group['lr'], group['weight_decay'], group['gamma']
+            scale = gamma * beta1 / (1.0 - beta1)
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = 0
+                    state['exp_avg'] = torch.zeros_like(p)
+                    state['exp_avg_sq'] = torch.zeros_like(p)
+                    state['prev_grad'] = torch.zeros_like(p)
+                state['step'] += 1
+                t = state['step']
+                m, v, g_prev = state['exp_avg'], state['exp_avg_sq'], state['prev_grad']
+
+                # MARS corrected gradient c_t = g_t + (gamma*beta1/(1-beta1)) * (g_t - g_{t-1})
+                c_t = grad + (grad - g_prev).mul(scale)
+                c_t_norm = torch.norm(c_t)
+                if c_t_norm > 1.0:
+                    c_t = c_t / c_t_norm
+
+                # Both m and v use c_t (not raw g) — paper-faithful
+                m.mul_(beta1).add_(c_t, alpha=1.0 - beta1)
+                v.mul_(beta2).addcmul_(c_t, c_t, value=1.0 - beta2)
+
+                # Stash raw grad for next step's look-back
+                g_prev.copy_(grad)
+
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                denom = v_hat.sqrt().add_(eps)
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.addcdiv_(m_hat, denom, value=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -864,6 +925,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/mars_enabled": bool(MARS_ENABLED),
+            "optimizer/mars_gamma": MARS_GAMMA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -896,10 +959,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if MARS_ENABLED:
+        optimizer1 = MARS([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                          dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                          dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                         betas=(0.8, 0.95), eps=1e-10, weight_decay=0, gamma=MARS_GAMMA)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
