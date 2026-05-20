@@ -865,6 +865,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "init/embed_init_std": EMBED_INIT_STD,
+            "init/ortho_embed_enabled": int(os.environ.get('ORTHO_EMBED_INIT', 0)),
+            "init/ortho_embed_gain": float(os.environ.get('ORTHO_EMBED_GAIN', 1.0)),
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -880,13 +883,23 @@ for trial_idx in range(args.num_trials):
     train_steps = args.train_steps if args.train_steps is not None else 3175
 
     # initialize model parameters
+    ORTHO_EMBED = int(os.environ.get('ORTHO_EMBED_INIT', 0))
+    ORTHO_GAIN = float(os.environ.get('ORTHO_EMBED_GAIN', 1.0))
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
                 w.zero_()
             elif "embed" in name:
-                w.normal_(std=EMBED_INIT_STD)
+                if ORTHO_EMBED:
+                    # torch.linalg.qr (used by orthogonal_) is not implemented for
+                    # BFloat16 on CUDA, so build the orthogonal init in float32 and
+                    # cast back to the embed dtype.
+                    tmp = torch.empty_like(w, dtype=torch.float32)
+                    torch.nn.init.orthogonal_(tmp, gain=ORTHO_GAIN)
+                    w.copy_(tmp)
+                else:
+                    w.normal_(std=EMBED_INIT_STD)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
