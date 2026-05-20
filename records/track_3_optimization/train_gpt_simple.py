@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+TARGET_UW = 0.35  # Skylight u/w-floor target (PR #486 scan closed axis; baseline retained)
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -535,7 +536,6 @@ class Muon(torch.optim.Optimizer):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
@@ -699,8 +699,8 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
-            "target_uw_floor": 0.35,
-            "target_uw": 0.35,
+            "target_uw_floor": TARGET_UW,
+            "target_uw": TARGET_UW,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
