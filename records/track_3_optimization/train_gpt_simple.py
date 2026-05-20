@@ -467,6 +467,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+MUON_LR_WARMUP_STEPS = int(os.environ.get("MUON_LR_WARMUP_STEPS", "0"))  # 0 disables; >0 enables linear warmup of Muon group LR from 0 to MUON_LR over this many steps
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -932,7 +933,11 @@ for trial_idx in range(args.num_trials):
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                if group.get("name") == "muon_blocks" and MUON_LR_WARMUP_STEPS > 0 and step < MUON_LR_WARMUP_STEPS:
+                    muon_warmup_w = step / MUON_LR_WARMUP_STEPS
+                    group["lr"] = group["initial_lr"] * eta * muon_warmup_w
+                else:
+                    group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
 
