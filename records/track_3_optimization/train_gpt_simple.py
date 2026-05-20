@@ -758,6 +758,14 @@ for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else N
     _avg_c = sum(t[2] for t in _table) / len(_table)
     print0(f"  ns_iters={_probe_iters}: c=[{','.join(map(str, _c_vals))}] avg_c={_avg_c:.4f}",
            console=True)
+_senpai_seed_env = os.environ.get("SENPAI_SEED", "")
+SENPAI_SEED = int(_senpai_seed_env) if _senpai_seed_env != "" else None
+if SENPAI_SEED is not None:
+    torch.manual_seed(SENPAI_SEED)
+    torch.cuda.manual_seed_all(SENPAI_SEED)
+    print0(f"SENPAI_SEED: {SENPAI_SEED} (torch.manual_seed + cuda.manual_seed_all)", console=True)
+else:
+    print0("SENPAI_SEED: unset (default non-deterministic init)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -808,6 +816,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "ablation_dropped": os.environ.get("SENPAI_ABLATION_DROPPED", "none"),
+            "senpai_seed": SENPAI_SEED,
         },
     )
 
@@ -822,6 +831,9 @@ for trial_idx in range(args.num_trials):
     train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
 
     # initialize model parameters
+    if SENPAI_SEED is not None:
+        torch.manual_seed(SENPAI_SEED + trial_idx)
+        torch.cuda.manual_seed_all(SENPAI_SEED + trial_idx)
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
