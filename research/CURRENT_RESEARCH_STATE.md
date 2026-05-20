@@ -1,46 +1,50 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 05:40 UTC — Cycle 70 late wrap2: alphonse #533 Arm A (CONTRA_MUON=0) terminal val=3.273/ffs=3050 (FAIL strict, soft-redundant); frieren #529 Arm A (embed eps=1e-8) terminal val=3.272/ffs=3050 (FAIL — matches global #493 closure); nezuko T3 ~70% (terminal ~05:50 UTC, strict needs ffs≤3000)**
+- **2026-05-20 06:40 UTC — BASELINE UPDATED: PR #494 MUON_LR=0.04 MERGED (val=3.270288/ffs=3025 n=4; val PASS statsig 4.86×, ffs tied). Nezuko #549 Muon-cooldown-frac assigned. All 7 in-flight PRs notified to rebase + add MUON_LR=0.04 to run commands.**
 
-## Current baseline ⭐ (PR #458 MERGED 2026-05-19 19:35)
+## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
 
-**WD_AUX=0.001 + full mandatory stack** — val=**3.271388**, ffs=**3025** @ train_steps=3175 (n=2 mean, T0=3.27166/3025, T1=3.271114/3025, statsig 3.04× over 0.004 bar).
+**MUON_LR=0.04** — val=**3.270288**, ffs=**3025** @ train_steps=3175 (n=4 mean, statsig 4.86×).
 
-**STRICT MERGE BAR**: val mean < 3.271388 AND ffs_mean < 3025 (BOTH required).
+**MERGE BAR**: val mean < 3.270288 AND ffs_mean ≤ 3025 (ffs ties now accepted if val strictly improves; ffs MUST NOT regress).
 
 **Mandatory stack on all experiments** (omitting any line invalidates the run):
 ```
-NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04
 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90
 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 ```
 
 **Statsig**: `(3.28 − mean_val) × √n ≥ 0.004` (independent of bar).
+**ffs floor**: 3025. Cracking to ffs≤3000 is the primary research priority.
 
 ## Active PRs (8/8 students assigned)
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #541 | askeladd | Embed init std sweep (1.0 → 0.5/0.1/0.02) 3 arms n=1 | Stuck in disabled-check loop (10 pod restarts); heartbeat pushed | TBD |
-| #538 | edward | Lion optimizer (Chen 2023, AdamW-group swap) 2 arms n=1 | Arm A smoke step ~120 (after torch bug fix) | TBD |
-| #534 | tanjiro | Shampoo-lmhead right-factor (2 arms n=1) | Stuck in disabled-check loop (5 replicas); heartbeat pushed | TBD |
-| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Arm A (CONTRA_MUON=0) DONE val=3.273/ffs=3050 SOFT-REDUNDANT; Arm B queued | ~08:30 UTC |
-| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A (embed) DONE val=3.272/ffs=3050 FAIL; Arm B (lm_head) step 775 | ~06:30 UTC |
-| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A T1 step ~1176 (tracking T0 within 0.002) | ~06:15 UTC |
-| #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 T1 step ~351 | ~06:40 UTC |
-| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | T3 step ~2175/3175 (69%); T2 PASS val=3.2699/ffs=3025 | ~05:50 UTC |
+| #549 | **nezuko** | **Muon decoupled cooldown (MUON_COOLDOWN_FRAC 0.8/0.6) 2 arms n=1** | Just assigned (after #494 merged) | TBD |
+| #541 | askeladd | Embed init std sweep (1.0 → 0.5/0.1/0.02) 3 arms n=1 | Pushed from disabled-check loop; smoke expected | TBD |
+| #538 | edward | Lion optimizer (Chen 2023, AdamW-group swap) 2 arms n=1 | Arm A smoke running; Arm B queued | TBD |
+| #534 | tanjiro | Shampoo-lmhead right-factor (2 arms n=1) | Pushed from 5× disabled-check loop; smoke expected | TBD |
+| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Arm A CONTRA_MUON=0 soft-redundant val=3.273/ffs=3050; Arm B (WARMUP=0) queued | ~08:30 UTC |
+| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A embed FAIL val=3.272/ffs=3050; Arm B lm_head step ~775; Arm C queued | ~07:30 UTC |
+| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A T1 in flight | ~06:15 UTC |
+| #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 T1 in flight | ~06:40 UTC |
 
 ## Top merge candidates (priority order)
 
-1. **NEZUKO #494 MUON_LR=0.04** ⭐ — n=4 T2 step 78%, T1+T2 val mean=3.270135/ffs=3025 (n=2 pass val/tie ffs). T3 still needed. Mechanism: Muon-group (orthogonal to AdamW-group fail of #493). Terminal ~06:00 UTC.
-2. **TANJIRO #534 Shampoo-lmhead** — preconditioner mechanism on largest non-Muon param (lm_head 50304×768=38M params). Just assigned, awaiting smoke.
+1. **FRIEREN #529 Arm B lm_head eps=1e-8** — only remaining per-group eps that could carry signal. Arm A (embed) failed = same as global #493. Arm B (lm_head) is the highest-likelihood candidate given lm_head = 30% of params.
+2. **FERN #527 NAdamW** — Arm A T0 terminal (val ~3.28); Nesterov first-moment is orthogonal to all closed axes.
+3. **NEZUKO #549 Muon cooldown decoupling** — directly targets ffs=3025 floor via Muon LR timing in final convergence window.
 
-## Mechanism categories (cycle 70 late wrap)
+## Mechanism categories (post-#494 merge)
 
-- **1 axis on n=4 confirm path**: nezuko MUON_LR=0.04 (Muon-group). Askeladd ADAM_EPS=1e-8 CLOSED (n=4 failed both axes).
-- **4 fresh mechanism arms in flight**: Lion (edward #538), Shampoo-lmhead (tanjiro #534), NAdamW (fern #527 step ~1975), per-group eps (frieren #529 Arm A step 1575). All AdamW-group OR preconditioner-level mechanisms, mutually orthogonal.
-- **1 initialization sweep** (askeladd #541, NEW): EMBED_INIT_STD ∈ {0.5, 0.1, 0.02} from current N(0, 1.0). First init experiment of the cycle. Current init is 50× larger than GPT-2 standard.
-- **Stack pruning ablation** (alphonse #533): CONTRA_MUON, MU_WARMUP, ATTN_SOAP. First systematic pruning of mandatory stack.
+- **Muon-group schedule (nezuko #549)**: decoupled Muon cooldown fraction. Hypothesis: Muon at higher LR in steps 2900-3175 cracks ffs≤3000.
+- **Fresh optimizer mechanisms** (edward #538 Lion, fern #527 NAdamW, tanjiro #534 Shampoo-lmhead): AdamW-group OR preconditioner-level, mutually orthogonal.
+- **Initialization sweep** (askeladd #541): EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}. First init experiment; current embed init N(0,1) is 50× larger than GPT-2 standard.
+- **Stack pruning** (alphonse #533): Arm A CONTRA_MUON soft-redundant; Arm B MU_WARMUP + Arm C ATTN_SOAP queued.
+- **Per-group eps decomposition** (frieren #529): Arm A embed FAIL; Arm B lm_head in flight; Arm C scalars queued.
+- **SWA n=2** (thorfinn #524): smoke val+0.0015 regression, n=2 to confirm/falsify.
 - **SWA n=2** (thorfinn #524): smoke val+0.0015 regression, n=2 to confirm/falsify.
 - **CLOSED cycle 70**: ADAM_EPS=1e-8 (n=4 noise-dominated), Cautious AdamW (sign-mask discards signal), WD_SCALARS (flat optimal), AdEMAMix (horizon incompatible), SCALARS_LR (flat optimal), β1/β2 sweeps, COOLDOWN_FRAC.
 

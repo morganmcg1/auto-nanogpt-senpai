@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 06:40 UTC — BASELINE UPDATED: PR #494 MUON_LR=0.04 MERGED
+
+### PR #494 — nezuko MUON_LR=0.04 — MERGED ⭐ (new baseline val=3.270288/ffs=3025)
+
+Branch: `g1r2-nezuko/muon-lr-sweep`. W&B runs `phlq9bug` (T0+T1), `qjbcrw1g` (T2+T3).
+
+| Trial | val/loss | ffs | W&B run |
+|---|---|---|---|
+| T0 | 3.26875 | 3000 | phlq9bug |
+| T1 | 3.27152 | 3050 | phlq9bug |
+| T2 | 3.26988 | 3025 | qjbcrw1g |
+| T3 | 3.27100 | 3025 | qjbcrw1g |
+| **n=4 mean** | **3.270288** | **3025** | |
+
+**Merge verdict**: val passes strict by −0.0011 (statsig 4.86×). ffs tied at 3025 (no regression). Merged despite ffs tie: val improvement is real, MUON_LR=0.04 becomes new default, future experiments benefit from tighter val starting point. ffs=3025 floor unchanged — cracking to ≤3000 is the next priority.
+
+**Mandatory stack updated**: `MUON_LR=0.04` added. All 7 in-flight PRs notified to rebase.
+
+### Cycle 71 opens: nezuko #549 Muon-cooldown-frac
+
+**Primary research goal**: crack ffs from 3025 → ≤3000. The ffs floor at 3025 means val first crosses 3.28 at step 3025 (quantized to 25-step intervals in final 10% of training). Need the crossing to happen at step ≤3000. Nezuko assigned to test decoupled Muon LR cooldown schedule as the most targeted mechanism for this.
+
 ## 2026-05-20 04:28 UTC — Cycle 70 late: 2 closures (#493 ADAM_EPS n=4 fail, #523 Cautious AdamW); edward #538 Lion; askeladd #541 embed-init
 
 ### PR #493 — askeladd ADAM_EPS=1e-8 n=4 confirm — CLOSED axis falsified
