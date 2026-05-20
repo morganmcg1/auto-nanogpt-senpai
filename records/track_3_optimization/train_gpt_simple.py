@@ -34,7 +34,7 @@ PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 
 NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
-NS_ITERS = 12
+NS_ITERS = 16
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
