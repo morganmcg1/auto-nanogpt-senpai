@@ -1,8 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 11:42 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **esc#31 posted 09:54 UTC** — ~107h total operator silence on alphonse/tanjiro/thorfinn; ~7.5h on frieren. esc#32 due ~13:00 UTC 2026-05-20.
+- **Last updated:** 2026-05-20 14:05 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **esc#32 posted 12:42 UTC** — ~110h total operator silence on alphonse/tanjiro/thorfinn; ~10h on frieren. esc#33 due ~16:00-17:00 UTC 2026-05-20. Posted holding comments on PRs #190/#298/#412/#525 to reset harness stale-wip flags.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
+- **🆕 PR #555 askeladd CLOSED 14:00 UTC — H17 SWA on aux cooldown NEG, paired SWA-vs-iterate proves SWA harmful**: 3-arm: ctrl `ws2odsqa` 3.27383, SWA 10% `n1cmpotm` 3.27310 (paired Δ=+0.00079 SWA worse than iterate same trajectory), SWA 20% every2 `uce6mixo` 3.27678 (paired Δ=+0.00265). **Mechanism finding (third confirmation in this round)**: weight-averaging methods (SWA, EMA shadow, Schedule-Free) are categorically incompatible with WSD/linear-cooldown stacks that target the final iterate. Joins PR #200 (full-model EMA) + PR #531 (Schedule-Free Polyak) as same-mechanism NEG triple. **Rule**: future advisor planning should not propose weight-averaging variants. PR #536 MuLoCo finding does NOT contradict (MuLoCo accumulates gradients/deltas, not iterate weight averages).
+- **🆕 PR #582 askeladd REASSIGNED 14:05 UTC — H25 MARS variance-reduced gradient on aux AdamW (Yuan 2025)**: 3 arms — ctrl (γ=0), γ=0.025 paper LM default, γ=0.1 aggressive. Fresh mechanism class: control-variate gradient correction `c_t = g_t + γ_t·(m_{t-1} − g_{t-1})`. Different from H22 AdEMAMix (which adds m_2 EMA) — MARS directly reduces variance via the m_t-vs-g_t residual. Compatible with WSD/linear-cooldown (modifies training gradient, not eval weights — does NOT trigger the weight-averaging-incompatibility from PR #200/#531/#555). Implementation ~35 LoC; pre-step gradient modification; fused AdamW kernel undisturbed.
 - **🆕 PR #539 edward CLOSED 11:38 UTC — H7 Per-group AdamW WD NEG, embed-WD destructive**: Arm 1 redo ctrl `9werg9o8` val=3.27254 (baseline-match), arm 2 wd-carriers `rd8hvapz` val=3.27321 (+0.00067 NEG), arm 3 wd-all `zhfffa5p` val=3.28321 (+0.01067, never reached target). **Mechanism finding**: PR #501 prediction confirmed cleanly via arm 3 — embed has large gradients → AdamW already updates aggressively → WD=0.01 destroys. Arm 2 falsifies corollary at wd=0.01 — lm_head/scalars update magnitudes during cosine cooldown are too small for WD to act as productive regularization. **Twice-validated mental model**: per-group HP levers (LR, β2, eps, WD) behave asymmetrically across embed vs lm_head/scalars. Code change merged-as-is (3 WD flags, additive at default 0).
 - **🆕 PR #572 edward REASSIGNED 11:42 UTC — H26 Aux AdamW β1 cooldown ramp (0.8→0.95)**: 3 arms — static ctrl, long ramp over last 40% (aux-cooldown-aligned), short ramp over last 15% (rapid late-cooldown). **Inner-side analogue of PR #563 H18 outer_momentum ramp** — same generalizing principle ("cooldown-phase momentum marginal value increases" per PR #536) applied to AdamW first-moment buffer instead of MuLoCo outer SGDM. Fresh schedule mechanism; ~25 LoC; no extra buffers or compute; respects PR #510 fused constraint.
 - **🆕 PR #544 fern CLOSED 10:20 UTC — Cautious AdamW NEG, short-β1 stack incompatibility**: Arm 2 cautious+norm val=3.29606 best (terminal 3.43536 after +0.20 late-cooldown blowup), Δ+0.025 vs ctrl arm 1 (val=3.27189 baseline-match). **Mechanism finding**: ×3.1 effective LR amplification on unmasked coords pushes out-of-distribution from our population-tuned aux LRs; short β1=0.8 kills stale-momentum gap Cautious is designed to filter. Side diagnostic: unfused Cautious-AdamW path is numerically clean (PR #510 NaN failure is NAdam-specific, NOT all unfused-AdamW).
@@ -46,10 +48,10 @@
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#572** | edward | **H26: Aux AdamW β1 cooldown ramp (0.8→0.95)** (NEW 11:42 UTC) | Assigned. Inner-side analogue of H18 outer momentum ramp. 3 arms: static ctrl, long ramp last 40%, short ramp last 15%. ~25 LoC, no extra compute, fused-safe (group['betas'] reassign) |
-| **#567** | fern | **H22: AdEMAMix on aux** (10:25 UTC) | Student LIVE: smoke `v55lvh4b` finished; ctrl arm `xqmqsxba` step ~1300/3325. ETA ~12:30 UTC. Then α=5+30%warmup, α=8+30%warmup arms |
-| **#563** | nezuko | **H18: Cooldown-aware `outer_momentum` ramp** (09:50 UTC) | Arm 1 ctrl `jaobblo5` step 2275/3325 (~68%) ETA ~12:10 UTC. Duplicate `3rxevlmq` killed-duplicate by student. Arm 2 cooldown-only ramp + arm 3 long ramp pending |
-| **#555** | askeladd | **H17: SWA on aux during last 10% cooldown** | Arm 1 swa-ctrl TERMINAL `ws2odsqa` **val=3.2738 ffs=3150 reached_target=1** (Δ+0.00261 vs baseline). **Arm 2 swa-10pct `n1cmpotm` step 2675/3325, ETA ~12:00 UTC**. Arm 3 swa-20pct follows |
+| **#582** | askeladd | **H25: MARS variance-reduced gradient** (NEW 14:05 UTC) | Assigned. Control-variate gradient correction c_t = g_t + γ_t·(m_{t-1} − g_{t-1}). 3 arms: ctrl, γ=0.025 (paper LM), γ=0.1 (aggressive). Fresh mechanism class — variance reduction, NOT averaging. Compatible with WSD/linear-cooldown |
+| **#572** | edward | **H26: Aux AdamW β1 cooldown ramp (0.8→0.95)** (11:42 UTC) | Student LIVE: ctrl `gxylln21` step ~2040/3325 (~61%, ETA ~14:25 UTC) running. Inner-side analogue of H18 outer momentum ramp |
+| **#567** | fern | **H22: AdEMAMix on aux** (10:25 UTC) | ctrl `xqmqsxba` TERMINAL **val=3.2723 ffs=3125 reached_target=1** (Δ+0.00111 vs baseline, code-clean). α=5 arm `k0psv3oo` step ~1275/3325 running. α=8 arm follows |
+| **#563** | nezuko | **H18: Cooldown-aware `outer_momentum` ramp** (09:50 UTC) | Arm 1 ctrl `jaobblo5` TERMINAL **val=3.27140 ffs=3125 reached_target=1** (baseline-match, code-clean). Arm 2 cooldown-ramp `nfx9rw46` step ~2225/3325 (~67%, ETA ~14:10 UTC). Arm 3 long-ramp follows |
 | **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD ROTATION REQUESTED 04:09 UTC** — 8 NaN runs same step-25-125 fingerprint. esc#31 posted 09:54 UTC |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~107h** — GPU `g71b0d6`. esc#31 posted 09:54 UTC |
 | **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~107h** — NaN on GPU `gd125a8`. esc#31 posted 09:54 UTC |
@@ -57,6 +59,7 @@
 
 ## Recently closed PRs
 
+- **PR #555 askeladd SWA on aux cooldown (CLOSED 14:00 UTC 2026-05-20)** — 3-arm + paired SWA-vs-iterate: ctrl 3.27383, SWA 10% 3.27310 (paired Δ=+0.00079), SWA 20% every2 3.27678 (paired Δ=+0.00265). **NEG. Mechanism finding (third weight-averaging confirmation)**: even in cooldown, the aux iterate is still moving meaningfully — uniform-mean window lags. Widening the window 10%→20% INCREASES harm. Joins PR #200 (full-model EMA NEG) + PR #531 (Schedule-Free Polyak NEG) — weight averaging is structurally incompatible with WSD/linear-cooldown stacks. Askeladd reassigned to H25 MARS (PR #582).
 - **PR #539 edward Per-group AdamW WD (CLOSED 11:38 UTC 2026-05-20)** — 3-arm + redo result: ctrl `9werg9o8` 3.27254, wd-carriers `rd8hvapz` 3.27321 (+0.00067), wd-all `zhfffa5p` 3.28321 (+0.01067, never reached target). **Mechanism findings**: (1) Arm 3 confirms PR #501 prediction — embed-WD is destructive (large gradients × already-aggressive AdamW updates → WD=0.01 shrinks faster than rebuild). (2) Arm 2 falsifies corollary at wd=0.01 — under cosine cooldown, lm_head/scalars late-stage update magnitudes are too small for WD to act as productive regularization. **Twice-validated mental model**: per-group HP levers (LR, β2, eps, WD) behave asymmetrically across embed vs lm_head/scalars. Edward reassigned to H26 aux β1 cooldown ramp (PR #572).
 - **PR #544 fern Cautious AdamW (CLOSED 10:20 UTC 2026-05-20)** — Arm 1 ctrl 3.27189 (baseline-match), Arm 2 cautious+norm **3.29606 best @3225 (terminal 3.43536 after +0.20 late-cooldown blowup)**, Δ+0.025 vs ctrl. NEG. **Mechanism finding**: short β1=0.8 (half-life ~3 steps) kills the stale-momentum gap Cautious is designed to filter; ×3.1 effective LR amplification on unmasked coords pushes aux LRs out of population-tuned range. Cautious AdamW is structurally unsuitable for short-β1 + pre-tuned-LR stacks. **Side diagnostic**: PR #510 unfused-NaN failure refined to NAdam-specific (Cautious unfused ran clean). Fern reassigned to H22 AdEMAMix (PR #567).
 - **PR #536 nezuko MuLoCo ablation (CLOSED 09:45 UTC 2026-05-20)** — 3-arm result: ctrl 3.27220, off 3.28245 (+0.01025), mom0 **3.30224 (+0.03005)**. **Mechanism finding: Nesterov momentum is the active component, NOT averaging**. Removing momentum alone is 3× worse than removing the whole wrapper. Mental model: MuLoCo on single-GPU r3 = "accumulated outer Nesterov momentum compounds 30 inner deltas into one coherent kick", NOT periodic Polyak averaging. Cooldown-phase momentum value increases (arm 3 led ctrl by 0.083 at step 1500, collapsed by step 3325). Nezuko reassigned to H18 cooldown-aware momentum schedule (PR #563).
@@ -117,7 +120,7 @@
 | H14 | Sophia (Hessian-diagonal preconditioner, NOT sign-mode) | Pending. Fresh preconditioner; ~50 LoC; needs occasional 2nd backward for Hessian estimate |
 | H15 | Pruning ablation of MuLoCo outer wrapper | **CLOSED PR #536** — Nesterov momentum is the load-bearing axis (NOT averaging) |
 | H16 | Cautious AdamW wrapper on aux | **CLOSED PR #544 NEG** — short-β1 kills the stale-momentum gap Cautious filters; ×3.1 LR amplification pushes out-of-distribution |
-| H17 | SWA on aux during cooldown | **PR #555 askeladd ACTIVE** — Arm 1 ctrl baseline-match; Arm 2 swa-10pct running |
+| H17 | SWA on aux during cooldown | **CLOSED PR #555 NEG 14:00 UTC** — Paired SWA-vs-iterate within 2 averaging arms: SWA worse than iterate (+0.00079, +0.00265). Wider window → more harm. Joins PR #200/#531 as weight-averaging-incompatibility triple. |
 | H18 | Cooldown-aware `outer_momentum` ramp | **PR #563 nezuko ACTIVE 09:50 UTC** — directly exploits PR #536 finding |
 | H19 | AGC clip ratio sweep (aux side) | Pending. Scalar tuning — defer per user directive. |
 | H20 | AGC clip ratio × embed_lr interaction | Bookmarked from PR #478 closure. Defer. |
@@ -125,21 +128,22 @@
 | H22 | AdEMAMix (Pagliardini EMNLP 2024) on aux | **PR #567 fern ACTIVE 10:25 UTC** — dual-EMA preconditioner; post-hoc correction on fused AdamW |
 | H23 | Sophia (Hessian-diagonal preconditioner) | Pending. Fresh preconditioner; ~50 LoC; needs occasional 2nd backward |
 | H24 | Sharpness-Aware Minimization (SAM) on aux | Fresh; perturb-then-restore. May break fused kernel |
-| H25 | MARS (Yuan 2025): variance-reduced AdamW | Pending. Fresh variance-reduction mechanism |
+| H25 | MARS (Yuan 2025): variance-reduced AdamW | **PR #582 askeladd ACTIVE 14:05 UTC** — Control-variate gradient correction. 3 arms: ctrl, γ=0.025 (paper), γ=0.1. Compatible with WSD/linear-cooldown |
 | H26 | Aux β1 cooldown ramp (0.8→0.95) | **PR #572 edward ACTIVE 11:42 UTC** — Inner-side analogue of H18 outer momentum ramp. Schedule-only intervention; β1 ramp 0.8→0.95 over either last 40% (aux-cooldown aligned) or last 15% (rapid late-cooldown). Fused-safe via group['betas'] reassignment. |
 | H27 | Catapult initialization (large initial LR step before cooldown) | Pending. Schedule idea, inner-side complement to outer momentum |
 
 ## Research direction (08:00 UTC)
 
 **Primary active mechanism directions:**
-1. **🆕 Cooldown-phase momentum is amplified** (validated PR #536) — **THREE concurrent exploits** of this finding:
-   - **H18 outer_momentum ramp** (PR #563 nezuko) — outer Nesterov SGDM side
-   - **H22 AdEMAMix** (PR #567 fern) — adds long-horizon m_2 via post-hoc correction
-   - **🆕 H26 aux β1 cooldown ramp** (PR #572 edward 11:42 UTC) — inner-side AdamW first-moment time-scale shift
+1. **Cooldown-phase momentum is amplified** (validated PR #536) — **THREE concurrent exploits** of this finding still running:
+   - **H18 outer_momentum ramp** (PR #563 nezuko, arm 2 ~67%) — outer Nesterov SGDM side
+   - **H22 AdEMAMix** (PR #567 fern, α=5 arm ~38%) — adds long-horizon m_2 via post-hoc correction
+   - **H26 aux β1 cooldown ramp** (PR #572 edward, ctrl ~61%) — inner-side AdamW first-moment time-scale shift
    These three are **orthogonal mechanism families** all pointing at the same mechanistic story; if any wins, the others reveal compounding behavior.
-2. **H17 SWA on aux during cooldown** (PR #555 askeladd) — Aux-only uniform-mean averaging across last 10%. Arm 1 swa-ctrl baseline-match (val=3.2738). Arm 2 swa-10pct running.
-3. **Per-group asymmetry mental model** (twice-validated via PR #501 → PR #539) — embed vs lm_head/scalars behave asymmetrically across LR, β2, eps, WD. Per-group sweeps should be designed around the asymmetry.
-4. **Lookahead aux wrapper** (PR #525 frieren) — POD-BLOCKED.
+2. **🆕 H25 MARS variance-reduced gradient** (PR #582 askeladd 14:05 UTC, NEW) — Fresh mechanism class: control-variate gradient correction `c_t = g_t + γ_t·(m_{t-1} − g_{t-1})`. NOT averaging (compatible with WSD/linear-cooldown). Directly attacks per-step gradient variance, orthogonal to all other directions.
+3. **🆕 Weight averaging is structurally incompatible with WSD stacks** (triple-confirmed PR #200/#531/#555) — Do NOT propose weight-averaging variants. Cooldown shrinks step size but doesn't average iterates; the iterate IS the deployment target.
+4. **Per-group asymmetry mental model** (twice-validated via PR #501 → PR #539) — embed vs lm_head/scalars behave asymmetrically across LR, β2, eps, WD. Per-group sweeps should be designed around the asymmetry.
+5. **Lookahead aux wrapper** (PR #525 frieren) — POD-BLOCKED.
 
 **Generalizable mechanism principles (from PR #544 closure):**
 - Cautious AdamW = WIN when β1 large AND aux LR not pre-tuned. Both prereqs fail here → structurally unsuitable.

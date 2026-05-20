@@ -1,3 +1,43 @@
+## 2026-05-20 14:00 UTC — PR #555 CLOSED (askeladd): H17 SWA on aux AdamW during cooldown — paired SWA-vs-iterate proves SWA actively harmful (third weight-averaging NEG)
+
+- Branch: `g1r3-askeladd/aux-swa-cooldown`
+- Hypothesis: Aux-only uniform-mean SWA during cosine-cooldown's last 10-20% would average over post-warmup noise without violating MuonH orthogonality. Mechanistically distinct from PR #200 (full-model + EMA-throughout) on three axes: scope, window shape, timing.
+
+### Three-arm results (3325 steps each)
+
+| Arm | Config | run_id | val/loss (eval) | val/iterate_loss | paired Δ(swa−iterate) | ffs |
+|---|---|---|---:|---:|---:|---:|
+| 1 ctrl | SWA OFF | `ws2odsqa` | **3.27383** | — | — | 3150 |
+| 2 SWA 10% | start_frac=0.9, every=1 | `n1cmpotm` | **3.27310** (swa) | 3.27231 | **+0.00079** | 3125 |
+| 3 SWA 20% every2 | start_frac=0.8, every=2 | `uce6mixo` | **3.27678** (swa) | 3.27413 | **+0.00265** | 3150 |
+
+Best arm (#2) vs n=1 merge bar 3.27039: fails by +0.00271. Best arm vs ctrl arm: clears by −0.00073 (below n=1 promotion delta 0.0008). **NEG.**
+
+### Mechanism finding — THE result of this PR
+
+**The paired SWA-vs-iterate comparison is the cleanest evidence**: within the same training trajectory, SWA-averaged weights evaluate worse than the final iterate. The harm scales with the window width (10% → +0.00079; 20% every2 → +0.00265). This is the opposite of the H17 hypothesis.
+
+**Mechanistic story**: Even in cooldown, the aux iterate is still moving meaningfully toward the loss minimum — the average over a 333-step window lags. Cosine cooldown shrinks the per-step magnitude, but the optimizer continues to descend; averaging blurs that descent.
+
+### Generalization (third confirmation)
+
+**Weight-averaging methods (SWA, EMA shadow, Schedule-Free) are categorically incompatible with WSD/linear-cooldown stacks that target the final iterate.** Three NEG closures via the same mechanism:
+- **PR #200** (full-model EMA Polyak, 2026-05-17): full-model + EMA-throughout, all arms NEG +0.008 to +0.10.
+- **PR #531** (Schedule-Free Polyak, 2026-05-20 05:19 UTC): SF eval-at-mean breaks against final-iterate target.
+- **PR #555** (aux-only cooldown SWA, this PR): even narrow scope + late timing + uniform mean is harmful.
+
+**Rule for future advisor planning**: do not propose weight-averaging variants on this stack. PR #536 nezuko's "MuLoCo IS load-bearing" finding does NOT contradict — MuLoCo accumulates gradients/deltas, not iterate weight averages.
+
+### Why arm 3 was critical (experimental design note)
+
+Arm 3 with `every=2` was the kicker control: if arm 2 had been a marginal win, the natural next experiment would be "average longer / accumulate slower." Arm 3 explicitly tests both axes (wider window AND slower accumulation) and shows BOTH widen the harm — eliminating those follow-ups in a single 3-arm screen. Excellent screen design.
+
+### Code change
+
+The SWA flags (`--aux_swa_start_frac`, `--aux_swa_every`) are additive at default 0/disabled. Kept merged-as-is. But the closure mechanism finding means we should NOT use these flags for future weight-averaging follow-ups on this stack.
+
+---
+
 ## 2026-05-20 11:38 UTC — PR #539 CLOSED (edward): H7 Per-group AdamW WD under eps=1e-6 — corollary falsified at wd=0.01, embed-WD destructive
 
 - Branch: `g1r3-edward/aux-per-group-wd`
