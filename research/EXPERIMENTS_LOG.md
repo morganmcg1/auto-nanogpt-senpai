@@ -1,5 +1,80 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 17:30 UTC — Cycle 71 mid-12: PR #576 thorfinn MARS CLOSED (5/5 variance-reduction closures); thorfinn → #601 Muon WD reintroduction
+
+### PR #576 — thorfinn MARS CLOSED — both arms MISS, monotonic dose-response
+
+Branch: `g1r2-thorfinn/mars`. Paper-faithful MARS-AdamW (Liu 2024) terminal both arms.
+
+| Arm | γ | W&B | val @ 3175 | ffs | Δ val | Δ ffs | Verdict |
+|---|---|---|---|---|---|---|---|
+| Disabled-check | — | s5w1jrnm | 4.0971 @ 200 | — | — | — | sanity OK |
+| Smoke A | 0.025 | t4lchpaj | 3.7037 @ 500 | — | — | — | smoke gate pass |
+| Smoke B | 0.1 | ybzoxc58 | 3.7106 @ 500 | — | — | — | smoke gate pass |
+| **A n=1** | **0.025** | **2aeqkob2** | **3.27478** | **3075** | **+0.00449** | **+50** | **MISS** |
+| **B n=1** | **0.1** | **x16ch6df** | **3.27873** | **3150** | **+0.00844** | **+125** | **MISS** |
+| Baseline | — | — | 3.270288 | 3025 | — | — | — |
+
+### Kill-gate trajectory (both arms cleanly pass all screening, regression localized at terminal)
+
+| step | gate | A val | B val |
+|---|---|---|---|
+| 1500 | <3.55 | 3.535 ✓ | 3.539 ✓ |
+| 2500 | <3.40 | 3.349 ✓ | 3.353 ✓ |
+| 3000 | <3.32 | 3.286 ✓ | 3.290 ✓ |
+| 3175 | val ≤ 3.270 OR ffs ≤ 3025 | **MISS** | **MISS** |
+
+### Monotonic dose-response — no interior γ-optimum
+
+| metric | γ=0.025 (Arm A) | γ=0.1 (Arm B) | Δ (B−A) |
+|---|---|---|---|
+| val | 3.27478 | 3.27873 | +0.00395 |
+| ffs | 3075 | 3150 | +75 |
+| Effective look-back coeff `γ·β1/(1−β1)` | 0.1 | 0.4 | — |
+
+4× more look-back strength → 2× more val regression, 2.5× more ffs regression. **Monotonic** — no γ in the explored range matches baseline. Closing the axis without refinement: there is no interior optimum to find.
+
+### Variance-reduction mechanism cluster — now 5/5 closures
+
+| PR | Mechanism class | Mechanism level | Verdict |
+|---|---|---|---|
+| #495 COOLDOWN_FRAC | schedule shape | LR-time-envelope | CLOSED |
+| #524 SWA tail averaging | weight trajectory | post-step parameter avg | CLOSED |
+| #573 SAM | sharpness penalization | 2×fwd-bwd (contract violation) | CLOSED |
+| #561 Lookahead | slow-weights sync | post-step parameter sync | CLOSED |
+| **#576 MARS (now)** | **STORM gradient correction** | **pre-EMA gradient level** | **CLOSED** |
+
+Five orthogonal mechanism classes — schedule / weight trajectory / sharpness / slow-weights / gradient STORM — all fail to compress bimodal ffs variance at our floor. The mechanisms span every reasonable level at which a single-pass optimizer could compress variance.
+
+**Implication**: bimodal ffs at ~3025/3050 is **intrinsic to the data/loss geometry at our model size and step budget**, not a tractable optimizer-side variance problem. Future wins must come from:
+1. **Model side** (e.g. askeladd #541 EMBED_INIT — candidate winner). When optimizer-side knobs saturate, mechanism wins flow from representational changes.
+2. **Muon side** (#601 thorfinn now testing). Muon group is comparatively under-explored at the update-rule and regularization level.
+3. **Architecture side** (tied embed #596, future depth/width changes).
+
+Late-cooldown widening of the MARS val gap (Arm A: step-2500 Δ=+0.004 → step-3175 Δ=+0.005; Arm B: matched widening) is a secondary signal: the c_t norm-clip at 1 is likely active too frequently during high-gradient phases, damping useful EMA signal. Student suggested diagnostic-only telemetry but with the closure decision already monotonic, no further compute is warranted.
+
+### PR #601 — thorfinn reassigned: Muon explicit weight decay reintroduction
+
+Thorfinn → first Muon-side experiment in cycle 71. The AdamW direction-blend bucket (5/5) and the variance-reduction cluster (5/5) are both fully closed; the natural next axis is mechanisms on the Muon group, which has been comparatively unprobed at the regularization level.
+
+**Hypothesis**: `Muon.step()` intentionally omits explicit weight decay (line 709 comment: "matches record #14; u/w-floor replaces wd"). The `MUON_WEIGHT_DECAY = 0.025` constant exists but is never read by the update path. This has **never been ablated** since u/w-floor was added. Test whether u/w-floor is **complete** as a regularizer or whether mild decoupled WD on top adds headroom.
+
+| Arm | MUON_WEIGHT_DECAY | Effective per-step decay (lr=0.04) | Comparable to |
+|---|---|---|---|
+| A | 2.5e-3 | 1e-4 | AdamW lr=1e-3, wd=0.1 (mild) |
+| B | 2.5e-2 | 1e-3 | Original code-intent strength |
+
+**Code change**: 1-line in `Muon.step` (before the spectral update):
+```python
+if group["weight_decay"] > 0:
+    p.mul_(1.0 - group["lr"] * group["weight_decay"])
+p.add_(update, alpha=-group["lr"])
+```
+
+Mathematically orthogonal to u/w-floor (which scales updates, doesn't shrink weights). Disabled by default; env-var-gated.
+
+---
+
 ## 2026-05-20 17:10 UTC — Cycle 71 mid-11: PR #574 edward Sophia-G CLOSED (Lion failure mode); edward → #598 AdamW LR warmup
 
 ### PR #574 — edward Sophia-G CLOSED — Lion failure mode confirmed via clip-fraction telemetry
