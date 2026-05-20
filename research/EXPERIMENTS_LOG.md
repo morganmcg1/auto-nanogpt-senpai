@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 UTC — Cycle 71 mid-20: PR #605 CLOSED (fern Muon heavy-ball — Nesterov re-blend IS load-bearing); fern → #625 AdamW β2 sweep; alphonse #608 Arm A terminal (val=3.2712, ffs=3025 — narrow miss both axes; Arm B pending)
+
+### PR #605 — fern Muon heavy-ball ablation — CLOSED (Nesterov re-blend confirmed load-bearing; 9th variance-reduction closure)
+
+Branch: `g1r2-fern/muon-heavy-ball`. Tests whether the Nesterov-style re-blend in Muon.step (line 694) is load-bearing or can be replaced by plain heavy-ball momentum.
+
+| Arm | Config | kill gate | val@3175 | ffs | Verdict |
+|---|---|---|---|---|---|
+| A | MUON_HEAVY_BALL=1, MU_COOLDOWN_START=0.95 (β=0.95 > β_eff=0.9025) | killed step 1500 (val=3.55996 vs gate ≤ 3.55) | — | — | ❌ killed |
+| B | MUON_HEAVY_BALL=1, fully-matched β_eff schedule (μ_warmup=0.7225, μ_plateau=0.9025, μ_cooldown_end=0.81) | passed all gates | 3.28014 | −1 (never crossed target) | ❌ MISS +0.011 |
+
+W&B runs: vg3c634r (disabled-check), s69t9nsb (Arm A smoke), dcjfkn8h (Arm A n1 killed step 1500), a6xy4k4f (Arm B smoke), lt797uyu (Arm B n1 terminal).
+
+**Mechanism analysis (from student)**:
+
+Both re-blend and heavy-ball at matched β=μ² have identical *current-step* gradient weight (1-μ²), but differ in the historical-gradient weighting profile inside m_{t-1}:
+- Re-blend m_{t-1}: EMA at rate μ (slower decay, ≈1/(1-μ) effective steps memory)
+- Heavy-ball matched m_{t-1}: EMA at rate μ² (faster decay, ≈1/(1-μ²) effective steps memory)
+
+At MU_COOLDOWN_END=0.90 (re-blend) / 0.81 (matched HB): re-blend integrates ~10 effective past steps; heavy-ball integrates ~5.3. Arm B's crossover pattern (better in plateau where recent gradients carry useful signal, worse in cooldown where noise dominates) confirms the re-blend's **longer integration window is specifically beneficial in late cooldown**.
+
+**Conclusion**: The Nesterov re-blend is NOT a notational equivalence. It implements a distinct historical-gradient weighting profile tuned to the schedule. This is a NON-OBVIOUS mechanism, likely unintentional from the implementation perspective, but it IS load-bearing. Closing axis.
+
+**This is the 9th variance-reduction/momentum closure**: joins COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586, β1 ramp #587, AGC #580.
+
+### Assignment: fern → PR #625 (AdamW β2 sweep)
+
+**Hypothesis**: AdamW β2=0.95 (current) is unusually short. Modern LLMs use β2=0.95-0.999. With EMBED_INIT_STD=0.1 in the mandatory stack, the initial gradient magnitudes on embed/lm_head have shifted — optimal β2 may have shifted. Single env var ADAMW_BETA2, two arms: 0.99 (mid-point, 100-step effective memory) vs 0.999 (LLaMA/PaLM standard, 1000-step effective memory). Fresh EMA-timescale axis on AdamW second moment.
+
+### alphonse #608 Arm A mid-cycle (waiting for SENPAI-RESULT)
+
+Run e8mr7a46 (MUON_LR_WARMUP_STEPS=100) finished at step 3175: val=3.2712, ffs=3025, reached_target=1. Both bars narrowly missed: val +0.002 over baseline (3.269185), ffs +12.5 over baseline floor (3012.5). Arm B (MUON_LR_WARMUP_STEPS=300) status unknown — poke sent. Interesting direction: closest n=1 result to the bar since PR #541 merged.
+
 ## 2026-05-20 22:20 UTC — Cycle 71 mid-19: PR #591 CLOSED (frieren ortho-embed-init — decorrelation theory falsified); frieren → #619 z-loss regularization
 
 ### PR #591 — frieren orthogonal embed init — CLOSED (pure-magnitude confirmed; decorrelation mechanism falsified)
