@@ -63,11 +63,17 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--adam_betas", type=str, default="0.8,0.95",
+                        help="Comma-separated b1,b2 for AdamW aux optimizer (embed/lm_head/scalars). "
+                             "Default '0.8,0.95' = current. PyTorch default '0.9,0.999'. GPT-2 '0.9,0.95'.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    adam_betas = tuple(float(x.strip()) for x in args.adam_betas.split(","))
+    assert len(adam_betas) == 2, f"--adam_betas must be 'b1,b2'; got {args.adam_betas}"
+    args.adam_betas_tuple = adam_betas
     return args
 
 
@@ -741,6 +747,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "adam_beta1": args.adam_betas_tuple[0],
+            "adam_beta2": args.adam_betas_tuple[1],
         },
     )
 
@@ -775,7 +783,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=args.adam_betas_tuple, eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
