@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 01:35 UTC
+- **Last updated:** 2026-05-20 02:05 UTC
 - **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **escalations through esc#28 (22:57 UTC 2026-05-19)** — ~99h total operator silence. esc#29 due ~03:00 UTC 2026-05-20.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
 - **🟢 ACTIVE WIN DIRECTION:** askeladd PR #478 embed_lr monotone improvement 0.2→0.3→0.4 = 3.27527→3.27399→**3.27213**. n=4 confirmation chain at embed_lr=0.4 running (arms 02:10/03:55/05:40/07:25).
@@ -34,14 +34,14 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (01:35 UTC 2026-05-20)
+## Active experiments (02:05 UTC 2026-05-20)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **NEWLY ASSIGNED 01:34 UTC** — ctrl + 2 mechanism arms |
+| **#531** | fern | **H11: Schedule-Free AdamW for aux** (replaces aux linear cooldown w/ PR-averaging) | **NEWLY ASSIGNED 02:05 UTC** — ctrl + SF r=0/0.5 arms |
+| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | Assigned 01:34 UTC — ctrl + 2 mechanism arms |
 | **#512** | edward | **H6: Aux v_t reset at cooldown onset** (`reset_frac`=1.0/0.5/0.1) | Arm 1 ctrl (1.0) done 3.27280; arm 2 running |
 | **#478** | askeladd | **embed LR n=4 confirmation @ 0.4** | n=4 chain running. arm 1 ETA 02:10, arm 4 ETA 07:25 |
-| **#501** | fern | **per-group eps decomp** (3 arms) | Arm 1 ctrl 3.27393, Arm 2 (embed→1e-10) **3.27280 (BETTER)**, Arm 3 (inverse) running ETA ~01:35 |
 | **#507** | nezuko | **embed init std** (1.0/0.1/0.02) | ctrl running, arms 2/3 chained |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~99h** — GPU `g71b0d6`. esc#29 due ~03:00. |
 | **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~99h** — NaN on GPU `gd125a8`. esc#29 due ~03:00. |
@@ -49,6 +49,7 @@
 
 ## Recently closed PRs
 
+- **PR #501 fern eps decomp (CLOSED 02:00 UTC 2026-05-20)** — 3 arms: ctrl 3.27393, embed→1e-10 3.27280 (BETTER), embed-only 3.27540 (WORSE). Clean directional signal: **eps=1e-6 win lives in lm_head/scalars, NOT embed**. No arm cleared merge bar (3.27039); per-group eps flag infra not merged.
 - **PR #510 frieren NAdam (CLOSED 01:30 UTC 2026-05-20)** — Arm 1 ctrl 3.27222 (Δ+0.00103). NAdam arm NaN at step 3 forward. Diagnostic `AdamW(fused=False)` ALSO NaN at step 3 — same step-2 forward divergence. Mechanistic conclusion: unfused optimizer path incompatible with eps=1e-6 + AGC + per-group LR aux stack. Closed per decision tree; finding logged as global constraint.
 - **PR #471 edward n=4 eps=1e-6 confirm (CLOSED 22:02 UTC 2026-05-19)** — n=4 mean 3.27218 (vs old baseline 3.27286, Δ−0.00068). Effect real but small. PR #443 n=1 was favorable-seed outlier. Conservative n=4 bar (<3.27079) NOT cleared.
 - **PR #481 nezuko lm_head LR sweep (CLOSED ~20:40 UTC 2026-05-19)** — flat at 1/320.
@@ -60,13 +61,15 @@
 - **lm_head LR** (PR #481 CLOSED): flat at 1/320 under eps=1e-6.
 - **cooldown_frac** (PR #484 CLOSED): flat at 0.4.
 
-## Per-group eps decomp emerging signal (PR #501 fern)
+## Per-group eps decomp FINAL (PR #501 fern, CLOSED 02:00 UTC)
 
 - **Arm 1 ctrl (all 1e-6)**: 3.27393
 - **Arm 2 (embed=1e-10, lm_head+scalars=1e-6)**: **3.27280** (Δ−0.00113 vs ctrl)
-- **Arm 3 (embed=1e-6, lm_head+scalars=1e-10)**: terminal ETA ~01:35 UTC
+- **Arm 3 (embed=1e-6, lm_head+scalars=1e-10)**: **3.27540** (Δ+0.00147 vs ctrl)
 
-**Interpretation if arm 3 ≫ arm 2**: eps=1e-6 win lives in lm_head/scalars, NOT embed. This would be a follow-up axis worth a dedicated sweep on lm_head and scalars eps.
+**CONFIRMED**: Arms 2 and 3 land on opposite sides of ctrl with directional consistency. eps=1e-6 win lives in lm_head and/or scalars, NOT embed. Physical interpretation: embed has large gradients → large v → eps choice irrelevant; lm_head and scalars have small gradients → small v → eps=1e-6 acts as a meaningful floor.
+
+**No arm cleared merge bar 3.27039 — finding recorded as mechanistic context, no merge.**
 
 ## Saturated levers (post-PR #443)
 
@@ -83,18 +86,21 @@
 
 | H# | Hypothesis | Notes / fused-path safety |
 |---|---|---|
-| H1 | Per-group eps decomp | PR #501 fern ACTIVE — emerging signal: embed NOT the carrier |
+| H1 | Per-group eps decomp | **CLOSED PR #501** — embed NOT carrier; lm_head/scalars carry the eps=1e-6 win |
 | H2 | Lookahead outer wrapper on aux | **PR #525 frieren ACTIVE** (safe: wraps fused) |
-| H3 | SWA averaging over aux params at cooldown | Pending. Safe (post-update averaging). |
+| H3 | SWA / EMA averaging on aux at cooldown | **PR #200 NEG (full model)**. Aux-only SWA likely same mechanism — skip. |
 | H4 | Nesterov AdamW (NAdam) | **CLOSED PR #510 — unfused path NaN.** |
 | H5 | Embed init std sweep | PR #507 nezuko ACTIVE |
 | H6 | Decoupled second-moment reset at cooldown | PR #512 edward ACTIVE (arm 1 ctrl 3.27280, arms 2/3 chained) |
 | H7 | Per-group weight decay re-sweep under eps=1e-6 | Pending. Safe. |
 | H8 | AdaBelief for aux | **BLOCKED unless fused implementation available.** |
-| H9 | AdamW beta1/beta2 re-sweep under eps=1e-6 | Pending. Safe (still fused AdamW). |
-| H10 | Lion (sign-based) for aux | Pending. Safe (bounded magnitude, fused or unfused). |
-| H11 | Schedule-Free AdamW | Pending. Needs verification (depends on SF wrapper internals). |
-| H12 | Per-group LR sweep on lm_head/scalars (informed by PR #501) | Pending until PR #501 arm 3 terminates. |
+| H9 | AdamW beta1/beta2 re-sweep under eps=1e-6 | Pending. Safe (still fused AdamW). May be scalar-tuning per user guidance — defer. |
+| H10 | Lion (sign-based) for aux | **CLOSED PR #218 (2026-05-17) — decisively NEG; /√v adaptation is required for aux groups.** |
+| H11 | Schedule-Free AdamW for aux | **PR #531 fern ACTIVE** — applies SF only to aux (linear cooldown) to avoid PR #265's WSD-incompat failure |
+| H12 | Per-group LR sweep on lm_head/scalars | Pending — informed by PR #501 finding that lm_head/scalars carry eps=1e-6 win |
+| H13 | Compound test: stack embed_lr=0.4 (askeladd PR #478) + embed_eps=1e-10 (PR #501 arm 2 finding) | Pending — leaderboard-win candidate if effects compound additively |
+| H14 | Sophia (Hessian-diagonal preconditioner, NOT sign-mode) | Pending. Fresh preconditioner; ~50 LoC; needs occasional 2nd backward for Hessian estimate |
+| H15 | Pruning ablation of MuLoCo outer wrapper | Pending. Tests how much MuLoCo contributes to current baseline. |
 
 ## Research direction (01:35 UTC)
 

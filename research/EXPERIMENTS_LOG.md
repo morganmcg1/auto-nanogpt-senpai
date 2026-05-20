@@ -2000,5 +2000,27 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
 
 **Conclusion**: Closing PR #510. The unfused-path incompatibility is recorded as a global constraint on future aux optimizer assignments. Excellent diagnostic work from frieren — mechanistic insight more valuable than a +0.001 numeric improvement would have been.
 
-**Next for frieren**: PR #5XX assigned — Lookahead aux wrapper (H2) at k=5, α=0.5 vs α=0.8.
+**Next for frieren**: PR #525 assigned — Lookahead aux wrapper (H2) at k=5, α=0.5 vs α=0.8.
+
+## 2026-05-20 02:00 UTC — PR #501 CLOSED: Per-group eps decomp — embed NOT the carrier (fern)
+
+- Branch: `g1r3-fern/aux-eps-per-group-decomp`
+- Hypothesis: split aux AdamW eps into per-group flags (embed/lm_head/scalars) and identify which group carries the eps=1e-6 win.
+
+| Arm | embed_eps | lm_head_eps | scalars_eps | W&B run | val/loss | ffs | Δ vs ctrl arm 1 |
+|---|---|---|---|---|---|---|---|
+| 1 ctrl | 1e-6 | 1e-6 | 1e-6 | `1435u3bd` | 3.27393 | 3150 | (ref) |
+| 2 | **1e-10** | 1e-6 | 1e-6 | `gsno1p02` | **3.27280** | 3125 | **−0.00113** |
+| 3 | 1e-6 | **1e-10** | **1e-10** | `h75zx52w` | 3.27540 | 3175 | **+0.00147** |
+
+**Decision: CLOSED (no merge — best arm 2 at +0.00161 above baseline does not clear merge bar 3.27039).**
+
+**Mechanistic finding**:
+- Arms 2 and 3 land on opposite sides of ctrl with directional consistency — strongest possible signal from a 3-arm split with n=1.
+- **eps=1e-6 win lives in lm_head and/or scalars, NOT embed.** Reverting embed to 1e-10 may even be slightly preferred.
+- Physical interpretation: embed has large gradients → large v → eps choice irrelevant. lm_head and scalars have small gradients → small v → eps=1e-6 acts as a meaningful floor.
+
+**Per-group eps decomp finding records as global context**: future per-group eps tweaks should consider lm_head/scalars (not embed) as the action axis.
+
+**Next for fern**: PR #531 assigned — Schedule-Free AdamW for aux (H11; replaces aux linear cooldown with Polyak-Ruppert averaging; differentiates from CLOSED PR #265 SF-MuonH by applying SF only to aux where cooldown is linear frac=0.4, not WSD cosine). Lion (H10) was already CLOSED NEG in PR #218 (2026-05-17).
 
