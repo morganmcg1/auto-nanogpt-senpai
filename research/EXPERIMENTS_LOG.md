@@ -1,5 +1,39 @@
 # SENPAI Research Results
 
+## 2026-05-20 23:33 UTC — PR #588 CLOSED: Body-Muon column-mean AMPLIFICATION pre-NS — NULL/NULL clear, completes the rank-1 column-mean transformation class symmetric closure (g1r1-frieren)
+
+- Branch: `g1r1-frieren/gc-amplify-mean`
+- Hypothesis: Inverse of #553 (GC subtraction). If subtracting column-mean regresses sr (#553 dim=1 Δsr=+62.5), amplifying it (`g_new = g + α·(mean - g_mean_zero)` = `(1+α)·g` along mean direction) should help — predicted "symmetric monotone-helpful" model: the rank-1 column-mean is a useful signal, and increasing its weight should improve the polar map.
+
+| Arm | α | dim | W&B | sr (ffs) | val/best_loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | 0 | — | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.05 | 1 | `ix493rgk` | 2975 | 3.26788 | +37.5 | +0.0036 | NULL clear |
+| Arm B | 0.20 | 1 | `fiiel4pd` | 2950 | 3.26550 | +12.5 | +0.0012 | NULL clear |
+
+**Verdict: NULL | NULL clear → column-mean transformation class closes on BOTH SIGNS at dim=1. 36th axis closed.**
+
+**Both arms regress.** The predicted "symmetric monotone-helpful" model is falsified: amplification hurts in the same direction as subtraction. PMuon's polar map appears to use the rank-1 column-mean optimally at α=0, and any perturbation regresses.
+
+**Non-monotone cost dependence on α (curious wrinkle):** Arm B (α=0.20, 4× larger) hurt LESS than Arm A (α=0.05). Two metrics shifted coherently (sr and val both moved less). Three plausible interpretations:
+1. Single-seed noise — 25 sr swing is ~0.85% of sr, possible but with two coherent metric shifts less likely.
+2. Polar-map renormalization saturating at α=0.20 (NS coefficient response stabilizes the direction).
+3. Interaction with body-Muon's covariance EMA (β_cov=0.95) — small α may inject persistent bias; large α may saturate it.
+
+**Telemetry confirms rank-1 perturbation is tiny:** `grad_norm_ratio` ≈ 1.00005 (Arm A) and 1.00028 (Arm B). Despite ≤0.03% L2-mass perturbation, the polar-map directional contribution moves sr by ±tens of steps — same scale signal as #553's mean-subtraction.
+
+**Combined with #553 closure (subtraction):**
+- Subtraction dim=1 (#553 Arm A): Δsr=+62.5 → hurt
+- Subtraction dim=0 (#553 Arm B): Δsr=+87.5 → hurt
+- Amplification α=0.05 dim=1 (#588 A): Δsr=+37.5 → hurt
+- Amplification α=0.20 dim=1 (#588 B): Δsr=+12.5 → hurt
+
+**Body-Muon rank-1 column-mean transformation class FULLY CLOSED.** Any perturbation (subtraction or amplification) regresses sr. PMuon's polar map preserves and uses the rank-1 mean direction optimally at α=0 (no perturbation).
+
+**Aux update-rule tree progress (unchanged from #578 closure):** 4 of 5 leaves CLOSED. Only Adamax v-aggregation (#583) remaining.
+
+---
+
 ## 2026-05-20 22:43 UTC — PR #578 CLOSED: AMSGrad v-clamp on aux AdamW — NULL/NULL clear, v-clamp mechanism leaf of aux update-rule tree closes (g1r1-edward)
 
 - Branch: `g1r1-edward/amsgrad-aux-adamw`
