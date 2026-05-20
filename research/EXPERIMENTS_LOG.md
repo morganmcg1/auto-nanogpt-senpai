@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 10:15 UTC — PR #530: Nesterov-Muon weight sweep (nezuko) — CLOSED productive-NULL
+
+- Branch: `g1r4-nezuko/nesterov-muon`
+- Hypothesis: Apply Nesterov-style gradient lookahead `g_eff = (1-α)·g + α·buf` before NS orthogonalization in body Muon. Tests whether NS expects a smoothed direction (buf) or benefits from lookahead-corrected gradient. After #490 closure of AdamW-internal axes, body Muon mechanism is the natural pivot.
+- Code: `NANOGPT_MUON_NESTEROV_ALPHA` controlling mix weight in Muon update before NS.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS):**
+
+| Arm | α | val/loss | Δ vs A | FST | Band | W&B run |
+|---|---:|---:|---:|---:|---|---|
+| A | 0.95 (control = μ) | 3.27253 | — | 3250 | drift PASS (|Δ|=0.00079) | `6jmx02yt` |
+| B | 0.00 (bypass) | 3.27883 | +0.00630 | 3325 | regression | `qi0ar3zh` |
+| C | 0.50 (half-mix) | 3.31368 | +0.04114 | **−1 (target NOT reached)** | severe regression | `6h2u4kpr` |
+| D | 0.99 (over-Nesterov) | 3.27313 | +0.00060 | 3250 | null | `tagu1aiy` |
+
+**Analysis:**
+
+- **The cliff is on the low-α side, not on both sides as the symmetric-monotonicity hypothesis predicted.** Arm D (α=0.99) is within noise of Arm A; Arm C (α=0.50) catastrophically regresses and doesn't reach the 3.28 target within 3350 steps. The path from "Nesterov on" to "Nesterov off" passes through a deep failure region.
+- **Mechanism interpretation** (per student analysis, accepted): The mix is best understood not as 'lookahead' but as a **tiny anti-staleness injection** of current-step gradient (~5% weight, at α=0.95 → `(1-α)=0.05`) on top of the EMA — sufficient to de-stale, small enough to stay in NS's well-behaved spectral domain. Heavier current-grad injection (α=0.50 → 50% raw-grad in NS input) pushes the NS input outside the Newton-Schulz polynomial's well-conditioned regime, where it amplifies noise rather than orthogonalizing.
+- **Plateau width**: α ∈ [0.95, 0.99] is a flat ridge. The current merged α=μ=0.95 sits at the boundary of safety. Equivalently: current-grad weight `(1-α)` has an upper limit around 0.05.
+- **5th body-Muon mechanism axis closed**: joins #102 LR warmup, #356 μ schedule, #434 Lookahead-wrap, #483 WD warmup. Body Muon's algorithmic axes on the merged stack are largely exhausted. Future body-Muon ideas should target architectural changes (post-NS-side modifications, NS-iteration-count interactions) rather than coefficient sweeps on existing mixes.
+- **32nd productive-null/negative this cycle.**
+
+**Follow-up:** nezuko reassigned (next hypothesis).
+
 ## 2026-05-20 09:30 UTC — PR #526: Embed LR step-0 boost (alphonse) — CLOSED productive-NULL (bilateral with #489)
 
 - Branch: `alphonse/embed-lr-step0-boost`

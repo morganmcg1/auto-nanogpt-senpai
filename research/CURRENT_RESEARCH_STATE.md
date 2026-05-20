@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 09:30 UTC
+- **Date:** 2026-05-20 10:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -181,17 +181,10 @@ Arms B/C/D (lm_head_floor, scalar_floor, both): best Δ=−0.00098 (arm B), half
 Arms B (embed: Δ=−0.00059, mild +), C (lm_head: Δ=+0.00063, mild −), D (all_aux: Δ=+0.00275, regression). Best arm B well within null band (need ≤−0.002); D's compounded regression suggests scalar group is bad actor under NAdam (aggressive direction-change due to normalization layers). **26th productive-null/negative this cycle.** Closes the first-moment axis of the AdamW-internal three-axis ablation (magnitude #442 NEGATIVE, first-moment #490 null/regress, second-moment #474 NEGATIVE) — **AdamW-internal axis family substantially exhausted on merged stack**.
 **Follow-up**: nezuko assigned **#530 Nesterov-Muon body scope sweep** — structurally parallel test on Muon body momentum (lookahead before NS).
 
-### 🔄 nezuko #530 — Nesterov-Muon body scope sweep [assigned 02:15 UTC]
+### ✅ nezuko #530 — Nesterov-Muon body scope sweep — CLOSED 10:15 UTC productive-NULL
 
-**Branch:** `g1r4-nezuko/nesterov-muon`
-**Hypothesis**: Apply Nesterov-style gradient lookahead `g_eff = α·buf + g` before NS orthogonalization in body Muon. After #490 closure of AdamW-internal axes, body Muon mechanism is the natural pivot. Structurally distinct from #434 (Lookahead-wrap CLOSED), #356 (μ schedule CLOSED), #102 (LR warmup CLOSED), #483 (WD warmup CLOSED). Tests whether NS expects a smoothed direction (buf) or benefits from lookahead-corrected gradient. Body Muon mechanism axis is underrepresented in merged stack.
-| Arm | NANOGPT_MUON_NESTEROV_ALPHA | Formulation |
-|---|---:|---|
-| A | 0.0 (control) | NS(buf) — standard Muon |
-| B | 0.3 | NS(0.3·buf + g) — weak lookahead |
-| C | 0.6 | NS(0.6·buf + g) — moderate lookahead |
-| D | 0.95 | NS(μ·buf + g) — classical Nesterov |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27253−3.27174|=0.00079): A α=0.95=3.27253, B α=0.00 (bypass)=+0.00630 (regression), C α=0.50 (half-mix)=+0.04114 (severe, target NOT reached), D α=0.99 (over-Nesterov)=+0.00060 (null). **Structural finding**: the cliff is on the *low-α* side (NS-stability breakdown when current-grad weight >>0.05); the plateau is on the *high-α* side (Arm D within noise). α=μ=0.95 sits at boundary of safety — the mix is best understood as a tiny anti-staleness injection (~5% current-grad on top of 95% EMA), small enough to stay in NS's well-behaved spectral domain. Heavier current-grad injection pushes the NS input outside the Newton-Schulz polynomial's well-conditioned regime. **5th body-Muon mechanism axis closed** (joins #102 LR warmup, #356 μ schedule, #434 Lookahead-wrap, #483 WD warmup). Body Muon algorithmic axes on the merged stack are largely exhausted — future body-Muon ideas should target architectural changes (post-NS-side modifications, NS-iteration-count interactions). **32nd productive-null/negative this cycle.**
+**Follow-up**: nezuko reassigned (next hypothesis).
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
@@ -243,7 +236,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**31 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**32 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -255,11 +248,11 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 **Current open questions** (in-flight):
 1. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
 2. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — Arm C N=1 winner candidate val=3.27163, but within-pod Δ=−0.00119 directional null)
-3. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko)
-4. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
-5. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
-6. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
-7. Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
+3. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+4. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
+5. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
+6. Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
+7. Does per-group AdamW β₂ asymmetry extract per-group second-moment time-constant gains? (#560, alphonse — fresh axis motivated by #474/#516 embed-sparsity insights)
 
 **Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
@@ -308,6 +301,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×
 - Adam-atan2 magnitude-transform (b∈{0.3,1.0,3.0}): CLOSED productive-NEGATIVE (#442; ε=1e-8 already optimal)
 - NAdam (Nesterov-AdamW) aux scope sweep: CLOSED productive-null (#490; best arm B Δ=−0.00059 within null, joint D Δ=+0.00275 regression — scalars likely bad actor)
+- Nesterov-Muon body weight sweep α∈{0.0, 0.50, 0.99}: CLOSED productive-NULL (#530; cliff on low-α side: α=0.50 catastrophic +0.04114 fst=-1, α=0.99 plateau null +0.00060; existing α=μ=0.95 is load-bearing AND optimally weighted; mechanism: tiny anti-staleness injection on top of NS-stable EMA; 5th body-Muon mechanism closure; 32nd null this cycle)
 
 **NS precision family**:
 - NS_ITERS_COOLDOWN: saturated (#388); **#487 Arm B (drop) N=1 Δ=−0.00385 winner candidate** — paired-pod confirmation in flight
