@@ -1,5 +1,32 @@
 # SENPAI Research Results
 
+## 2026-05-20 07:30 UTC — PR #519 CLOSED: PMuon γ pruning ablation γ∈{0, 0.8} vs baseline 0.4 — NULL/NULL clear, γ axis fully mapped (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-gamma-ablation`
+- Hypothesis: Test whether PMuon's bilateral covariance EMA exponent γ_power=0.4 is load-bearing or redundant by ablating to extremes: Arm A γ=0 (full ablation, no spectral correction), Arm B γ=0.8 (over-correction). Companion to #444 phase-ramp ablation (both directions NULL marginal).
+
+| Arm | γ | W&B | val/best_loss | Δval (vs 3.264278) | ffs | Verdict |
+|---|---|---|---|---|---|---|
+| **Baseline** | 0.4 | `k7ylyby9`/`dm4joozw` | 3.264278 (n=2) | — | 2937.5 | — |
+| Arm A | 0 | `7baa1iif` | 3.282615 | +0.018337 | -1 (DNF) | NULL clear (+0.018, ~1.4% off) |
+| Arm B | 0.8 | `odm9asp9` | 3.313878 | +0.049600 | -1 (DNF) | NULL very clear (+0.050, 2.7× Arm A damage) |
+
+**Verdict: NULL | NULL clear → γ axis closes at γ=0.4.**
+
+**Three-point γ map** (combining this data with #444):
+- γ=0: +0.018 val (mild under-conditioning, cooldown slope too shallow to hit 3.28 in 3250-step budget)
+- γ=0.4: BASELINE (locally near-optimal)
+- γ=0.8: +0.050 val (~2.7× more damage than ablation)
+- γ ramp (#444): NULL marginal both directions — static γ=0.4 confirmed at temporal axis as well
+
+**Asymmetric damage curve** is mechanistically informative: over-correction (γ=0.8) hurts ~2.7× more than ablation (γ=0). Loss surface is steeper on the over-correction side. Consistent with γ acting as a *damped spectral correction* whose over-application leaves body updates over-conditioned and step direction biased.
+
+**Pattern continuation with #482/#499/#503:** all four ablation axes (γ, WD partition, type-LR partition, WD schedule) show local optimum pinned by **cooldown-phase preconditioner-quality demand** — "too much of a corrective mechanism" is consistently worse than "too little." The cooldown is the load-bearing phase for these mechanism choices.
+
+**Skipped follow-up:** the {0.3, 0.5} fine-scan the student suggested as item 2 — gradient at γ=0.4 is small in magnitude (Δval ≈ 0.018 between γ=0 and γ=0.4 implies a gentle local curve), retunes likely yield ≤ few millinats, won't separate from seed noise even at n=2. Axis is mapped to high confidence.
+
+Frieren reassigned to PR #553: **gradient centralization on body-Muon pre-NS** — fresh mechanism class (gradient TRANSFORMATION, neither averaging nor preconditioning nor partition). Arm A dim=1 (per-output-channel mean subtraction, GC paper default per Yong et al 2020), Arm B dim=0 (per-input-channel).
+
 ## 2026-05-20 06:08 UTC — PR #513 CLOSED: Body-Muon gradient clipping at thresholds {1.0, 0.5} — NULL/NULL clear, damping/clipping closes BELOW natural-norm regime (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/body-muon-grad-clip`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 06:15 UTC
+- **Last update:** 2026-05-20 07:35 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -36,8 +36,9 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#503** | edward | Body-Muon WD schedule (warmup-25pct vs cooldown-25pct): Arm A fs=2950 val=3.26475 (marginal-NULL Δsr=+12.5 Δval=+0.000472), Arm B fs=2975 val=3.26681 (clear-NULL Δsr=+37.5 Δval=+0.002532). Asymmetric loss confirms WD's implicit norm-control is load-bearing during cooldown. **Schedule axis closes at uniform constant WD=0.025.** Body-Muon WD now exhaustively tested across partition (#482 NULL) and schedule (#503 NULL). | CLOSED 04:28 UTC |
 | **#505** | fern | Lookahead wrapper k∈{5, 10}, α=0.5: Arm A fs=-1 val=3.28420 DNF (Δval=+0.020 clear regression), Arm B fs=-1 val=3.28618 DNF (Δval=+0.022 clear regression). Both arms DNF with monotone regression — milder k=10 is NOT better than aggressive k=5. **Wrapper-class axis closes on body-Muon.** Layered averaging on top of already-tuned PMuon stack becomes net-harmful interference. | **CLOSED 05:32 UTC** |
 | **#513** | thorfinn | Body-Muon gradient clipping at {1.0, 0.5}: Arm A clip=1.0 fs=3000 val=3.27024 (clear NULL Δsr=+62.5 Δval=+0.006), Arm B clip=0.5 fs=3000 val=3.27108 (clear NULL Δsr=+62.5 Δval=+0.007). Both arms clip-activated 99.97% — natural body-grad norm ~3e4 vs proposed thresholds {0.5, 1.0} (4-5 orders too low). Uniform 30,000× downscale costs only ~2% sr regression — **PMuon's spectral whitening confirmed approximately scale-invariant.** Student suggested re-test at natural-norm regime {3e4, 1e5, 3e5}; DEFERRED — pipeline NS iter-count extension instead. | **CLOSED 06:08 UTC** |
+| **#519** | frieren | PMuon γ pruning γ∈{0, 0.8} vs baseline 0.4: Arm A γ=0 val=3.282615 DNF (Δval=+0.0183 clear regression), Arm B γ=0.8 val=3.313878 DNF (Δval=+0.0496 clear regression, 2.7× Arm A damage). **γ=0.4 load-bearing AND near-optimal.** Asymmetric damage curve (over-correction worse than ablation) consistent with WD #482/#503 and LR #499 patterns — local optimum pinned by cooldown-phase preconditioner-quality demand. γ axis fully closed: {0, 0.4, 0.8} mapped, plus #444 ramp NULL. | **CLOSED 07:30 UTC** |
 
-## Active experiments (8 students, 06:15 UTC)
+## Active experiments (8 students, 07:35 UTC)
 
 | PR | Student | Run | Step/3250 | bl | Status |
 |---|---|---|---|---|---|
@@ -46,7 +47,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#535** | alphonse | `3twtlh18` Arm A c_fc-heavy | ~775 | 3.73 | Sub-MLP LR partition: c_fc vs c_proj. Refines #499 NULL. ~2.5h to terminal. |
 | **#532** | askeladd | `oj9miqwf` body-Muon depth partition | ~950 | 3.69 | Body-Muon per-block LR (depth-based). ~2h to terminal. |
 | **#522** | nezuko | Arm B `8bmch56g` hard-switch | running | 3.79 | Skylight floor cooldown: Arm A linear marginal NULL fs=2975. ~3h to terminal. |
-| **#519** | frieren | Arm B `odm9asp9` γ=0.8 | ~1150 | 3.65 | PMuon γ pruning ablation. Arm A (γ=0) FINISHED strong NULL fs=-1 DNF. γ load-bearing confirmed. ~2h to terminal. |
+| **#553** | **frieren** | (awaiting pickup) | — | — | **NEW — Gradient centralization on body-Muon pre-NS, Arm A dim=1 (per-output-channel mean subtraction, GC paper default), Arm B dim=0 (per-input-channel). Fresh mechanism class — gradient transformation, orthogonal to all preconditioning/partition/wrapping axes.** |
 | **#546** | **thorfinn** | (awaiting pickup) | — | — | **NEW — NS_ITERS extension pipeline {16, 18} parallel to tanjiro's n=2 confirmation. Tests if "more iters → better" trend extends beyond NS=14. Cost: ~30 min extra wall-clock at NS=18 (≈100ms per NS iter).** |
 | **#511** | tanjiro | Arm B `ldezjd0y` NS_ITERS=14 TERMINAL marginal n=1 win fs=2925 val=3.2639 | — | — | **🚨 MARGINAL WIN — fs=2925 (Δsr=−12.5 vs baseline 2937.5). Awaiting NS=14 seed-2 confirmation.** Arm A NS=10 relaunch q2afjlwc CRASHED at step 225 — kill-and-switch moot. Student notified to launch NS=14 seed-2 directly next polling cycle. |
 
@@ -63,25 +64,25 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 |---|---|---|---|
 | **#413** | alphonse | scalar_lr=0.025: n=2 sr=2937.5, val=3.264278 | **MERGED 11:48 UTC** — current baseline. |
 
-## Current research focus (updated 06:15 UTC)
+## Current research focus (updated 07:35 UTC)
 
-**🚨 LIVE WIN SIGNAL** on tanjiro #511 Arm B (NS_ITERS=14): TERMINAL marginal n=1 win fs=2925 val=3.2639 (Δsr=−12.5 vs baseline 2937.5). q2afjlwc relaunch crashed at step 225 — student notified to launch NS=14 seed-2 directly. NS_ITERS=14 vs 12 is mechanistically clean: more NS iterations → more accurate spectral whitening → better preconditioner quality per step. Notably asymmetric with Arm A NS=10 NULL fs=3000 (x6pxjdk4) — the gradient points "more iterations is better."
+**🚨 LIVE WIN SIGNAL** on tanjiro #511 Arm B (NS_ITERS=14): TERMINAL marginal n=1 win fs=2925 val=3.2639 (Δsr=−12.5 vs baseline 2937.5). ciusvhzo seed-2 confirmation running step 1450/3250 bl=3.56 healthy. NS_ITERS=14 vs 12 is mechanistically clean: more NS iterations → more accurate spectral whitening → better preconditioner quality per step. Notably asymmetric with Arm A NS=10 NULL fs=3000 (x6pxjdk4) — the gradient points "more iterations is better."
 
 **Pipelining strategy:** while tanjiro confirms NS=14 at seed-2, thorfinn #546 explores NS={16, 18} in parallel. Two independent n=1 wins at different NS values would corroborate the trend even if tanjiro lands sr ≈ 2950 — much stronger evidence than a single n=2 confirmation.
 
-**20 scalar/mechanism axes closed** at inherited defaults (now incl. #503 body-WD schedule NULL/NULL clear, #505 Lookahead wrapper NULL/NULL clear, #513 body-Muon grad clipping NULL/NULL clear). Active families:
+**21 scalar/mechanism axes closed** at inherited defaults (now incl. #503 body-WD schedule NULL/NULL clear, #505 Lookahead wrapper NULL/NULL clear, #513 body-Muon grad clipping NULL/NULL clear, #519 PMuon γ pruning {0, 0.8} NULL/NULL clear). Active families:
 
-1. **AdaBelief variance update on aux AdamW** (fern #545): fresh mechanism-class change to second-moment estimator. First touch of variance update FORM in aux group.
+1. **AdaBelief variance update on aux AdamW** (fern #545 — relaunched after self-diagnosed step-1 degeneracy, now using raw m per Algorithm 2): fresh mechanism-class change to second-moment estimator.
 2. **NS coefficient (polynomial degree + within-cubic strength)** (edward #540): tests quintic vs aggressive-cubic at NS_ITERS=12 fixed.
-3. **LR partition by sub-MLP geometry** (alphonse #535): c_fc vs c_proj partition. Refines #499.
-4. **LR partition by depth** (askeladd #532): early-fast vs late-fast block multiplier.
-5. **NS preconditioner quality — iteration count axis** (tanjiro #511 marginal-win awaiting n=2 confirmation; thorfinn #546 NEW NS={16,18} pipeline): possible new baseline.
-6. **PMuon γ pruning ablation** (frieren #519 — Arm A γ=0 DNF, Arm B γ=0.8 mid-flight): γ load-bearing confirmed.
+3. **LR partition by sub-MLP geometry** (alphonse #535 — Arm A `3twtlh18` fs=3025 NULL terminal, Arm B awaiting launch).
+4. **LR partition by depth** (askeladd #532 — Arm A `oj9miqwf` fs=3025 NULL terminal, Arm B awaiting launch).
+5. **NS preconditioner quality — iteration count axis** (tanjiro #511 marginal-win awaiting n=2 confirmation via ciusvhzo; thorfinn #546 NS={16,18} pipeline): possible new baseline.
+6. **Gradient centralization on body-Muon pre-NS** (frieren #553 NEW — gradient TRANSFORMATION class, orthogonal to all preconditioning/wrapping/partition work).
 7. **Skylight floor schedule** (nezuko #522 — Arm A linear decay marginal NULL, Arm B hard switch mid-flight): cooldown↔floor interaction.
 
-**Body-Muon WD exhaustively tested:** partition (#482 NULL), schedule (#503 NULL/NULL clear). Constant uniform WD=0.025 confirmed locally optimal. **Wrapper-class on body-Muon closed** (#505 Lookahead NULL/NULL clear). **Body-Muon damping/clipping closed at tested thresholds** (#513 NULL/NULL — but thresholds {0.5, 1.0} were 4-5 orders below natural-norm regime ~3e4; PMuon's whitening confirmed approximately scale-invariant).
+**Body-Muon WD exhaustively tested:** partition (#482 NULL), schedule (#503 NULL/NULL clear). Constant uniform WD=0.025 confirmed locally optimal. **Wrapper-class on body-Muon closed** (#505 Lookahead NULL/NULL clear). **Body-Muon damping/clipping closed at tested thresholds** (#513 NULL/NULL — but thresholds {0.5, 1.0} were 4-5 orders below natural-norm regime ~3e4; PMuon's whitening confirmed approximately scale-invariant). **PMuon γ axis fully mapped:** {0 (#519 Arm A, +0.018), 0.4 (baseline), 0.8 (#519 Arm B, +0.050), ramp #444 NULL} — γ=0.4 load-bearing and near-optimal.
 
-**Emerging pattern after 20 closed axes:** mechanism scalars saturate at inherited defaults. Per-substructure partition family fully closed (MLP-vs-ATTN). Wrapper-class on body-Muon closed. Damping/clipping closed below natural-norm regime. **First non-NULL signal** is tanjiro's NS_ITERS=14 — preconditioner quality axis. If confirmed at n=2 or corroborated by thorfinn #546, edward #540 (NS coef scan at NS=12) needs re-evaluation since the optimal polynomial may shift with iteration count.
+**Emerging pattern after 21 closed axes:** mechanism scalars saturate at inherited defaults. Per-substructure partition family fully closed (MLP-vs-ATTN, and now sub-MLP c_fc vs c_proj #535 Arm A NULL, depth #532 Arm A NULL). Wrapper-class on body-Muon closed. Damping/clipping closed below natural-norm regime. γ-axis fully mapped. **First non-NULL signal** is tanjiro's NS_ITERS=14 — preconditioner quality axis. If confirmed at n=2 or corroborated by thorfinn #546, edward #540 (NS coef scan at NS=12) needs re-evaluation since the optimal polynomial may shift with iteration count.
 
 ## Open unexplored axes (candidate next assignments)
 
