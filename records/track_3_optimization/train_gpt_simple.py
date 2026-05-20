@@ -27,6 +27,16 @@ SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
 
+# Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
+# TARGET_UW_SCHEDULE controls how TARGET_UW evolves across training:
+#   "constant" - legacy behaviour, TARGET_UW held at TARGET_UW throughout (PR #94/#486 baseline).
+#   "linear"   - hold TARGET_UW during stable phase, then linearly decay to 0 across the LR cooldown window.
+#   "hard"     - hold TARGET_UW during stable phase, then drop to 0 immediately when cooldown begins.
+# Cooldown window is aligned with the LR schedule's cooldown_frac so that the floor decay tracks the actual
+# LR taper rather than a separate window (PR #522).
+TARGET_UW = 0.35
+TARGET_UW_SCHEDULE = "linear"
+
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
 # Arm A (Jordan-optimized): (3.4445, -4.7750, 2.0315) — aggressive contraction from Muon paper.
@@ -36,6 +46,24 @@ NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+
+
+def target_uw_schedule(step, total_steps, cooldown_frac=0.7, schedule=TARGET_UW_SCHEDULE,
+                       base_target_uw=TARGET_UW):
+    # Returns the floor magnitude to enforce at this step. The LR schedule starts cooling
+    # at step `(1 - cooldown_frac) * total_steps`; we mirror that boundary so the floor
+    # decays in lock-step with the LR cooldown rather than at a different point.
+    cooldown_start = int(total_steps * (1.0 - cooldown_frac))
+    cooldown_len = max(1, total_steps - cooldown_start)
+    if schedule == "constant" or step < cooldown_start:
+        return base_target_uw
+    if schedule == "linear":
+        frac = (step - cooldown_start) / cooldown_len
+        frac = min(1.0, max(0.0, frac))
+        return base_target_uw * (1.0 - frac)
+    if schedule == "hard":
+        return 0.0
+    raise ValueError(f"Unknown TARGET_UW_SCHEDULE: {schedule!r}")
 
 
 def parse_args():
@@ -534,12 +562,16 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
+        # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= target_uw per parameter.
+        # target_uw is read from each param group so the training loop can vary it across
+        # the cooldown window (PR #522); falls back to module-level TARGET_UW.
         floor_fired_count = 0
         floor_eligible_count = 0
+        target_uw_seen = None
         polar_diag: dict = {}
         for group in self.param_groups:
+            target_uw = float(group.get("target_uw", TARGET_UW))
+            target_uw_seen = target_uw if target_uw_seen is None else target_uw_seen
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -565,15 +597,19 @@ class Muon(torch.optim.Optimizer):
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
-                    if w_norm > 0:
+                    if w_norm > 0 and target_uw > 0:
                         ratio = update.norm() / w_norm
-                        if 0 < ratio < TARGET_UW:
+                        if 0 < ratio < target_uw:
                             floor_fired_count += 1
-                            update.mul_(TARGET_UW / ratio)
+                            update.mul_(target_uw / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._floor_diag = {
+            "fired": floor_fired_count,
+            "eligible": floor_eligible_count,
+            "target_uw": target_uw_seen if target_uw_seen is not None else TARGET_UW,
+        }
         self._polar_diag = polar_diag
 
 
@@ -699,8 +735,9 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
-            "target_uw_floor": 0.35,
-            "target_uw": 0.35,
+            "target_uw_floor": TARGET_UW,
+            "target_uw": TARGET_UW,
+            "target_uw_schedule": TARGET_UW_SCHEDULE,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
@@ -853,6 +890,10 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        current_target_uw = target_uw_schedule(step, train_steps, cooldown_frac=0.7,
+                                               schedule=TARGET_UW_SCHEDULE, base_target_uw=TARGET_UW)
+        for pg in optimizer2.param_groups:
+            pg["target_uw"] = current_target_uw
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -899,6 +940,8 @@ for trial_idx in range(args.num_trials):
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/uw_floor/current_target_uw": float(floor_diag.get("target_uw", current_target_uw)),
+                    "skylight/current_target_uw": current_target_uw,
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
