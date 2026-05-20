@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~17:35Z (poll #306)
+- **Last updated:** 2026-05-20 ~18:30Z (poll #307)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -13,14 +13,14 @@
 
 | PR # | Student | Hypothesis | Status (poll #306) |
 |------|---------|-----------|--------|
-| **#600** | **alphonse** | **LM-head AdamW LR sweep (1/640/1/320ctrl/1/160/0.01/0.03) — 3rd hardcoded AdamW LR, never ablated** | **NEW assignment** — completes AdamW LR trifecta with #566 and #571 |
-| #596 | tanjiro | Tied input/output embedding sweep (untied ctrl/tied lr=0.3/0.1/0.03/0.01) | Launched — Cell A ctrl at step 499/3250 |
-| #571 | askeladd | AdamW scalar param LR sweep — RMSNorm gains LR | **WATCH**: lower scalar LR catastrophic (+7-13σ). Cell D (0.03) running. Ctrl=0.01 currently best. |
-| #566 | nezuko | embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) | **Near-terminal**: ctrl=0.30 best (3.26590), 0.60 slightly worse (3.26649), 0.15 worse. Cell D (0.05) running. Axis may be ctrl-optimal. |
-| #565 | thorfinn | Init variance scale sweep | **WATCH 🔥**: Cell B (3.26387, Δ=−0.99σ vs NEW baseline) terminal but above n=4 gate. Need full sweep to complete. |
-| #556 | frieren | AdamW epsilon sweep (1e-12/1e-10ctrl/1e-8/1e-6/1e-4) | **WATCH 🔥**: Non-monotonic pattern! eps=1e-6 best (3.26369, −1.09σ), eps=1e-12 2nd (3.26395, −0.99σ), ctrl 3rd (3.26453). eps=1e-4 cell diverging. 4/5 cells terminal. |
-| #581 | edward | Lookahead optimizer wrapper (α=0.0ctrl/0.3/0.5 × k=5/10) | **⚠️ CATASTROPHIC**: Cell B (standard Lookahead α=0.5 k=5) val=3.413 at step 2210 — catastrophic, kill signal sent. Cell A ctrl=3.26801. |
-| #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | In progress — Cell A ctrl at step 1624/3250 |
+| #600 | alphonse | LM-head AdamW LR sweep (1/640/1/320ctrl/1/160/0.01/0.03) — 3rd hardcoded AdamW LR | Picked up — ctrl 1/320 at step 1150/3250, val=3.62 (verify on-pace at terminal). Smoke done. |
+| #596 | tanjiro | Tied input/output embedding sweep (untied ctrl/tied lr=0.3/0.1/0.03/0.01) | In progress — Cell A untied ctrl at step 2019/3250, val=3.44 (verify on-pace at terminal). Smoke healthy (val 10.83→4.50→4.17). |
+| #571 | askeladd | AdamW scalar param LR sweep — RMSNorm gains LR | **4/5 terminal**: ctrl=0.01 best (3.26523). Lower catastrophic (+7-13σ). Cell D (0.03) DIVERGING at val=3.41 step 2187. No Cell E (0.1) launched — student likely killed D. |
+| #566 | nezuko | embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) | **4/5 terminal**: ctrl=0.30 best (3.26590), 0.60 worse (3.26649), 0.15 worse (3.26877). Cell D (0.005) DIVERGING at val=3.41 step 2350. No Cell E launched. Axis ctrl-optimal. |
+| #565 | thorfinn | Init variance scale sweep | **🔥 WINNER CANDIDATE**: Cell B (xavier var=1.0) terminal at 3.26387 (Δ=−0.99σ, BEATS n=4 GATE). Ctrl (0.33)=3.26587, C (var=2.0)=3.26635 also good. Cell D (var=0.10) diverging at step 1447. Need terminal SENPAI-RESULT. |
+| #556 | frieren | AdamW epsilon sweep (1e-12/1e-10ctrl/1e-8/1e-6/1e-4) | **🔥 WINNER CANDIDATE**: 3 cells BEAT n=4 GATE! eps=1e-6 best (3.26369), eps=1e-12 2nd (3.26395), ctrl=1e-10 3rd (3.26453). eps=1e-8 worse (3.26642). eps=1e-4 at step 3033, finalizing. Strongest result in portfolio. |
+| #581 | edward | Lookahead optimizer wrapper | **⚠️ CATASTROPHIC**: Cell A ctrl=3.26801, Cell B (α=0.5 k=5) terminal at 3.27956. Cell C (α=0.5 k=10) DIVERGING at val=3.94 step 407. Lookahead mechanism failing across variants — closes wrapper axis. |
+| #594 | fern | Peak WD multiplier sweep (1.0/1.5/2.0ctrl/2.5/3.0) | In progress — Cell A ctrl at step 3115/3250 (96%), val=3.276 — on-pace to terminal as no-op. Stale flag acknowledged. |
 
 
 ## Recent Closures
@@ -51,8 +51,8 @@
 - Both point to: **reducing optimizer micro-aggression at the late/cooldown phase helps**
 
 **Key analytical questions for in-flight PRs:**
-- **frieren #556 Adam eps**: 🔥 NON-MONOTONIC PATTERN. eps=1e-6 best (3.26369 terminal), eps=1e-12 2nd (3.26395 terminal), ctrl=1e-10 3rd (3.26453 terminal), eps=1e-8 worse (3.26642), eps=1e-4 DIVERGING. Neither best cell hits n=4 gate (3.264120) as single seeds, but both are ~1-1.1σ below NEW baseline mean. The non-monotonic shape is interesting: both extremes beat ctrl. Await frieren's terminal SENPAI-RESULT; if eps=1e-6 confirms in P2, this is a winner. Mechanism if eps=1e-6 wins: larger eps softens small-`v_hat` updates in Adam, reducing optimizer "intensity" on rare/small-gradient params — consistent with theme.
-- **thorfinn #565 init variance**: 🔥 Cell B (xavier=1.0) terminal at 3.26387 (−0.99σ vs NEW baseline). Sweep not complete. Need other cells before assessing. If the final pattern shows xavier=1.0 consistently best, this closes a fresh structural axis.
+- **frieren #556 Adam eps** 🔥🔥 STRONGEST IN-FLIGHT SIGNAL: 2 cells BEAT n=4 gate as single seeds — eps=1e-6 (3.26369, Δ=−0.00043 under gate), eps=1e-12 (3.26395, Δ=−0.00017 under gate). Ctrl=1e-10 at 3.26453 (above gate). NON-MONOTONIC pattern: both extremes beat ctrl. Plan when frieren posts terminal SENPAI-RESULT: request **P2 n=3 confirmation at eps=1e-6** (best single-seed); if n=4 mean ≤ 3.264120, MERGE as new winner. Mechanism: larger eps (1e-6) softens small-`v_hat` updates ("less optimizer intensity"); very small eps (1e-12) may help by NOT dampening at all in finite-precision Adam. Both directions intelligent surprises.
+- **thorfinn #565 init variance** 🔥 WINNER CANDIDATE: Cell B (xavier var=1.0) terminal at 3.26387 (Δ=−0.00025 under n=4 gate). Sweep not complete (Cell D var=0.10 diverging at step 1447). Plan when thorfinn posts terminal SENPAI-RESULT: request **P2 n=3 confirmation at xavier var=1.0**; if n=4 mean ≤ 3.264120, MERGE as new winner. If compound with frieren #556 eps=1e-6 wins, test joint P2.
 - **tanjiro #596 tied embedding**: structural axis — share `embed.weight` and `proj.weight` (standard in GPT-2/T5/BERT, never tested here). Cell A ctrl at step 499. Key question: does the per-group LR asymmetry (embed=0.3 vs lm_head=0.003) reflect untied needing differential pressure, or is it an artifact?
 - **alphonse #600 lm_head LR**: 3rd hardcoded AdamW LR (proj.weight at 1/320=0.003125). Completes the trifecta with #566 (embed=0.3) and #571 (scalars=0.01). The unconventional 1/320 fraction strongly suggests hand-tuning for an older stack; softcap at line 459 may now allow higher LR safely.
 - **askeladd #571 scalar LR**: Lower values catastrophic (+7-13σ): 0.001 and 0.003 are strongly bad. ctrl=0.01 or higher will win. RMSNorm gains NEED their current LR — "less optimizer intensity" does NOT apply here. Cell D (0.03) running to see if slightly higher helps.
