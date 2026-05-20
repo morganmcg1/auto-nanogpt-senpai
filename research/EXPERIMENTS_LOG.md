@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 21:25 UTC — PR #566: nezuko embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-nezuko/embed-lr-sweep`
+- Student: g1r5-nezuko
+- Hypothesis: embed_lr=0.3 hardcoded in AdamW (Adam embed group). Sweep 0.05/0.15/0.3ctrl/0.6/1.0 to test if sparse-gradient bias warrants higher LR or if ctrl is optimal.
+
+### Results (n=1 each, vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | `--lr_embed` | val/loss | ffs | Δ vs baseline | σ_single | n=4 gate? | W&B run |
+|------|:------------:|:--------:|:---:|:-------------:|:--------:|:---------:|---------|
+| A (ctrl) | 0.3  | 3.26590 | 3075 | −0.00022 | −0.13σ |  | `jzx21wtp` |
+| B | 0.15 | 3.26877 | 3100 | +0.00265 | +1.52σ |  | `gounuskg` |
+| C | 0.6  | 3.26649 | 3075 | +0.00037 | +0.21σ |  | `dfqe8l2p` |
+| D | 0.05 | 3.28031 | DNF  | +0.01419 | +8.12σ |  | `sa8k5vvn` |
+| **E** | **1.0** | **3.26503** | 3075 | **−0.00109** | **−0.62σ (−0.5σ flag)** |  | `gm2evbtv` |
+
+### Conclusion
+
+- **Lower direction decisively closed**: D(0.05) catastrophic (+8.1σ), B(0.15) +1.5σ worse. Sparse-gradient hypothesis confirmed: rare-token embeddings starve when LR reduced.
+- **Upper direction flat plateau (0.3 → 1.0)**: A, C, E all within ±0.6σ_single. No clear winner emerging.
+- **Cell E (1.0) best at −0.62σ** — crosses −0.5σ flag threshold but NOT n=4 gate (gap of +0.52σ_single from gate).
+- **Closed clean-neutral**: flat plateau confirms embed_lr ctrl=0.3 is robustly tuned. P2 not warranted (3 stronger P2 candidates already in flight; ~15% prior probability Cell E clears gate at n=4).
+- **Cross-PR insight noted**: askeladd #571 Cell D (lr_scalars 3× higher wins) + this Cell E (lr_embed 3.3× higher hint) both suggest historical AdamW group LRs were conservative. If askeladd P2 confirms, compound (3× scalars + 3× embed) worth a joint screen.
+
 ## 2026-05-20 20:55 UTC — PR #571: askeladd AdamW scalar LR sweep — **Phase 1 terminal, P2 confirmation IN-FLIGHT** 🔥🔥
 
 - Branch: `g1r5-askeladd/scalar-lr-sweep`

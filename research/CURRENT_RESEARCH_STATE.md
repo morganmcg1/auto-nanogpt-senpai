@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~20:55Z (poll #310)
+- **Last updated:** 2026-05-20 ~21:35Z (poll #311)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -29,7 +29,7 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 | #600 | alphonse | LM-head AdamW LR sweep (1/640/1/320ctrl/1/160/0.01/0.03) — 3rd hardcoded AdamW LR | **Cell A ctrl terminal at 3.26574** (−0.30σ, within ctrl noise — refactor no-op confirmed). Chain B→E should be running. |
 | #596 | tanjiro | Tied input/output embedding sweep | **Cell A untied ctrl terminal at 3.26719** (+0.61σ, no-op confirmed). **Cell B (tied lr=0.3) KILLED at val=3.567 step 1612** — too aggressive on tied matrix (input+output gradients flowing into one). Cell C (tied lr=0.1) launching. Tied with high LR is unstable. |
 | #571 | askeladd | AdamW scalar param LR sweep (RMSNorm gains) | **🔥🔥 ALL 5 CELLS TERMINAL. Cell D (0.03) = 3.262962 = STRONGEST single-seed in portfolio.** Sent back for P2 n=4 confirmation on Cell D. Full hump: A(0.01)=3.26523 −0.51σ, B(0.003)=+7σ, C(0.001)=+13σ DNF, D(0.03)=−1.81σ ✓gate, E(0.1)=+3.38σ. RMSNorm gains were under-tuned at 0.01. |
-| #566 | nezuko | embed_lr sweep (0.05/0.15/0.3ctrl/0.6/1.0) | Cell E (1.0, 3.3× boundary probe) at step 2732/3250 (84%), still healthy. Mid-trajectory val tracking *slightly better than ctrl* — possibly an upward winner emerging. Will terminal in ~15-20 min. |
+| #614 | nezuko | **NEW** Logit softcap value sweep (7.5/10/15ctrl/22.5/30) — hardcoded, never ablated | Just assigned (poll #311). Softcap at line 459 bounds logits to ±15; value untested. "Less intensity" theme predicts looser cap may help. |
 | #565 | thorfinn | Init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0) | 4/5 terminal: A(0.33)=3.26587 −0.14σ, **B(1.0)=3.26387 BEATS n=4 GATE**, C(2.0)=3.26635 +0.13σ, D(0.10)=3.27190 +3.31σ. Cell E (var=0.5) at step 968/3250 (30%), tracks closest to Cell B trajectory. |
 | #556 | frieren | AdamW epsilon sweep — **P2 CONFIRMATION IN-FLIGHT** | P2 Run 1 (`bfq43l07`) at step 2938/3250 (~90%), val=3.299 healthy (cooldown will bring to 3.265 band). Run 0 (`bhptvg5u`) crashed at step 624 — pod preempt. 1-GPU sequential means n=4 total ~7.3 hrs. Stale_wip ack'd this poll. |
 | #581 | edward | Lookahead optimizer wrapper | **⚠️ Cell C terminal at 3.28116 (+8.6σ)** — Lookahead failing across all variants. A ctrl=3.26801, B(α=0.5 k=5)=3.27956 +10.5σ, C(α=0.5 k=10)=3.28116 +8.6σ. Cell D (α=0.3 k=5 gentler) running at ~9%. Pattern: every time-averaging wrapper fails on 3250-step horizon. Likely to close clean-NEG after D/E. |
@@ -38,6 +38,7 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 
 ## Recent Closures
 
+- **#566 nezuko embed_lr sweep** — CLOSED clean-neutral (poll #311). Cell E (1.0) at −0.62σ doesn't beat n=4 gate; plateau 0.3→1.0 is flat. Lower direction (0.05) catastrophic (+8.1σ), confirming sparse-gradient hypothesis for lower bound. embed_lr ctrl=0.3 confirmed robustly tuned. Cross-PR insight: askeladd #571 (scalars 3×) + this (embed hint 3.3×) both suggest AdamW group LRs slightly conservative; compound test post P2.
 - **#552 alphonse LR warmup sweep** — CLOSED clean-NEG (poll #306). Monotonic worsening: even 2% warmup (~65 steps) costs +5.3σ vs new baseline. ffs slips 50 steps. Mechanism: Muon NS orthogonalization structurally caps update magnitude so warmup provides no safety; 3250-step horizon makes every early high-LR step load-bearing. LR-warmup axis closed.
 - **#558 tanjiro Z-loss regularizer sweep** — CLOSED clean-NEG (poll #305). Monotonic worsening across 3 decades (1e-5 → 1e-4 → diverged). Mechanism: existing logit softcap already bounds logits to ±15, making z-loss fully redundant. Z-loss axis closed.
 - **#548 fern WD floor in cooldown** — CLOSED clean-neutral (poll #303). WD floor=0 NOT load-bearing. LR=0 terminal is structurally load-bearing; WD=0 is incidental.
@@ -72,7 +73,7 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 - **thorfinn #565 init variance** 🔥 GATE-BEATING: Cell B (xavier var=1.0) terminal at 3.26387 (Δ=−1.29σ). Cell E (var=0.5) at 30%, tracks closest to Cell B trajectory. When E terminal: request **P2 n=4 fresh confirmation at xavier var=1.0**.
 - **tanjiro #596 tied embedding**: Cell A untied ctrl confirmed (3.26719 no-op). **Cell B (tied lr=0.3) KILLED at val=3.567 step 1612** — embed-LR pressure on a tied matrix (input+output gradients merged) is too aggressive. Cell C (tied lr=0.1) launching. Open question: does any LR make tied competitive with untied?
 - **alphonse #600 lm_head LR**: Cell A ctrl terminal at 3.26574 (refactor no-op). Cells B-E chain (1/640, 1/160, 0.01, 0.03). **Pairs naturally with askeladd #571 Cell D win**: if scalar LR wants 3× more, lm_head LR may also benefit from 3-10× more.
-- **nezuko #566 embed_lr**: Cell E (1.0, 3.3× boundary probe) at 84%, mid-trajectory slightly better than ctrl. Will terminal in ~15-20 min. If E wins: third AdamW group LR all under-tuned, supporting "historical AdamW group LR config was conservative" theme.
+- **nezuko #614 logit softcap** NEW: 5-cell sweep of softcap value (hardcoded 15 at line 459, never ablated). Tests "less optimizer-side intensity" (looser cap = more gradient signal at confident predictions) vs stability. Assigned poll #311. PR #614.
 - **edward #581 Lookahead**: ⚠️ Cell C terminal at 3.28116 (+8.6σ). Lookahead failing across all variants. Cell D (α=0.3 k=5 gentler) running. Pattern continuing: every time-averaging mechanism (#517 EMA, #581 Lookahead) fails on 3250-step speedrun. Likely close clean-NEG after D/E.
 - **fern #594 peak-WD**: A(2.0 ctrl)=3.26621, B(1.0)=3.26874 (+0.43σ slightly worse, within noise — lower peak WD doesn't help). Cell C (1.5) likely running. Axis looks ctrl-optimal so far.
 
