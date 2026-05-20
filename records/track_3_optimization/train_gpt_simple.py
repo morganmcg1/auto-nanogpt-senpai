@@ -46,6 +46,9 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--grad_clip", type=float, default=0.0,
+                        help="Global gradient L2 norm clip threshold. 0.0 = disabled (default; "
+                             "current behavior). Typical LM values: 0.5, 1.0, 2.0.")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -741,6 +744,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "grad_clip": args.grad_clip,
         },
     )
 
@@ -914,13 +918,43 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
-        # set optimization hyperparameters and take a step
-        set_hparams(step)
+        # Compute telemetry timing first so per-group grad norm logging can be conditional.
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # Per-param-group grad norms — captured pre-clip so we can see the natural distribution
+        # and how clipping reshapes each Adam/Muon group.
+        per_group_grad_norms_pre_clip = {}
+        if telemetry_due and dist.get_rank() == 0:
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    g_name = group.get("name", "unknown")
+                    g_params = [p for _, p in group["named_params"]] if "named_params" in group else group["params"]
+                    g_grads = [p.grad for p in g_params if p.grad is not None]
+                    if g_grads:
+                        sq = torch.stack([g.detach().pow(2).sum() for g in g_grads]).sum()
+                        per_group_grad_norms_pre_clip[g_name] = float(sq.sqrt().item())
+        # Gradient clipping (applied to combined Muon + Adam param groups)
+        grad_norm_pre_clip = None
+        if args.grad_clip > 0:
+            grad_norm_pre_clip = torch.nn.utils.clip_grad_norm_(
+                model.parameters(), max_norm=args.grad_clip
+            )
+        # Per-group POST-clip norms — confirms whether a group was effectively frozen by the clip.
+        per_group_grad_norms_post_clip = {}
+        if telemetry_due and dist.get_rank() == 0 and args.grad_clip > 0:
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    g_name = group.get("name", "unknown")
+                    g_params = [p for _, p in group["named_params"]] if "named_params" in group else group["params"]
+                    g_grads = [p.grad for p in g_params if p.grad is not None]
+                    if g_grads:
+                        sq = torch.stack([g.detach().pow(2).sum() for g in g_grads]).sum()
+                        per_group_grad_norms_post_clip[g_name] = float(sq.sqrt().item())
+        # set optimization hyperparameters and take a step
+        set_hparams(step)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -962,6 +996,21 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+                # Per-group grad norms — always logged at telemetry intervals (pre-clip first).
+                if per_group_grad_norms_pre_clip:
+                    grad_norm_metrics = {"trial": trial_idx, "train/step": train_step}
+                    for g_name, g_norm in per_group_grad_norms_pre_clip.items():
+                        grad_norm_metrics[f"train/grad_norm_pre_clip/{g_name}"] = g_norm
+                    for g_name, g_norm in per_group_grad_norms_post_clip.items():
+                        grad_norm_metrics[f"train/grad_norm_post_clip/{g_name}"] = g_norm
+                    wandb.log(grad_norm_metrics, step=wandb_step)
+                if args.grad_clip > 0 and grad_norm_pre_clip is not None:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/grad_norm_pre_clip": float(grad_norm_pre_clip),
+                        "train/grad_clip_active": float(float(grad_norm_pre_clip) > args.grad_clip),
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
