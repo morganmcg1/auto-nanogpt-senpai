@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 04:28 UTC — Cycle 70 late: 2 closures (#493 ADAM_EPS n=4 fail, #523 Cautious AdamW); edward #538 Lion; askeladd #541 embed-init
+
+### PR #493 — askeladd ADAM_EPS=1e-8 n=4 confirm — CLOSED axis falsified
+
+Branch: `g1r2-askeladd/adam-eps-sweep`. W&B runs `ef8iatgn` (T0+T1) + `0r0o4waj` (T2+T3).
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.26937 | 3000 |
+| T1 | 3.27351 | 3050 |
+| T2 | 3.27114 | 3025 |
+| T3 | 3.27367 | 3050 |
+| **n=4 mean** | **3.271923** | **3031.25** |
+
+**Strict bar verdict**: val +0.000535 FAIL, ffs +6.25 FAIL. Both axes miss. T0's ffs=3000 (first sub-3025 of cycle) was a fortunate trial outlier — remaining 3 trials cluster near baseline noise floor. **Effect size dominated by per-trial variance.** Axis closed; AdamW global eps is locally insensitive at 1e-10 under our mandatory stack. Per-group decomposition continues in frieren #529.
+
+### PR #523 — edward Cautious AdamW (Liang 2024) — CLOSED math-kill regression
+
+Branch: `g1r2-edward/cautious-adamw`. W&B run `s8ywcvks` (T0 only — T1 math-killed).
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.2861 | -1 (never reached 3.28) |
+
+Predeclared kill gate triggered: T0 val > 3.276 → math-kill T1 (n=2 mean foreclosed). **+1.4% regression** vs baseline.
+
+**Mechanism verdict**: sign-alignment mask discards useful gradient signal during cooldown — opposite of the paper's claim. The +0.0042 noise at step 500 cascaded to +0.015 by step 3175. Mechanism structurally incompatible with our compressed 3175-step horizon under mandatory stack.
+
+### New assignments: edward #538 (Lion) + askeladd #541 (embed-init-std)
+
+- **#538 edward**: Lion optimizer (Chen et al 2023, arxiv 2302.06675) as AdamW-group swap. ~15 LoC inline class. Update direction = sign(β1·m + (1-β1)·g) — FULL sign update (not mask). Different mechanism from Cautious AdamW failure: no signal discarded, just magnitude compressed. 2 arms: LION_LR_SCALE=0.33 (Chen std) and LION_LR_SCALE=0.10 (aggressive).
+
+- **#541 askeladd**: Embed init std sweep — explicit "initialization ideas" axis from launch directive, currently zero init experiments in flight. Current embed init is `w.normal_()` = N(0, 1) — **50× larger** than GPT-2 standard (std=0.02). Per-row L2 norm at init ≈ 27.7 vs ≈ 0.55. 3 arms n=1: EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}.
+
 ## 2026-05-20 03:40 UTC — Cycle 70 mid: 3 closures; alphonse #533 stack-pruning; tanjiro #534 Shampoo-lmhead
 
 ### PR #500 — alphonse WD_SCALARS=0.0001 sweep — CLOSED no-improvement
