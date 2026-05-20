@@ -538,6 +538,12 @@ NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # value at the final step, only during the LR-cooldown window in set_hparams.
 NANOGPT_MUON_WD_COOLDOWN_FINAL = float(os.environ.get("NANOGPT_MUON_WD_COOLDOWN_FINAL", "-1"))
 NANOGPT_MUON_WD_INITIAL = 0.025
+# Per-pod paired-seed controller. Unset = no explicit seed (CUDA non-determinism
+# governs init/forward variance). Positive int = call torch.manual_seed and
+# torch.cuda.manual_seed_all so paired Arm A/Arm D runs with the same SENPAI_SEED
+# share initial weights, isolating the WD-cooldown effect from seed variance.
+_SENPAI_SEED_RAW = os.environ.get("SENPAI_SEED")
+SENPAI_SEED: int | None = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW not in (None, "") else None
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -723,6 +729,10 @@ dist.barrier()
 # this code can be run equivalently with 1, 2, 4, or 8 gpus.
 assert 8 % dist.get_world_size() == 0
 
+if SENPAI_SEED is not None:
+    torch.manual_seed(SENPAI_SEED)
+    torch.cuda.manual_seed_all(SENPAI_SEED)
+
 # logging setup
 if dist.get_rank() == 0:
     os.makedirs("logs", exist_ok=True)
@@ -762,6 +772,10 @@ if NANOGPT_MUON_WD_COOLDOWN_FINAL >= 0:
            f"linearly over the LR-cooldown window", console=True)
 else:
     print0(f"MUON_WD_COOLDOWN: disabled (constant WD={NANOGPT_MUON_WD_INITIAL})", console=True)
+if SENPAI_SEED is not None:
+    print0(f"SENPAI_SEED: {SENPAI_SEED} (torch.manual_seed + cuda.manual_seed_all)", console=True)
+else:
+    print0("SENPAI_SEED: unset (CUDA non-determinism governs init/forward variance)", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -819,6 +833,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_muon_wd_cooldown_final": NANOGPT_MUON_WD_COOLDOWN_FINAL,
             "nanogpt_muon_wd_initial": NANOGPT_MUON_WD_INITIAL,
+            "senpai_seed": SENPAI_SEED if SENPAI_SEED is not None else -1,
         },
     )
 
@@ -831,6 +846,10 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
+
+    if SENPAI_SEED is not None:
+        torch.manual_seed(SENPAI_SEED + trial_idx)
+        torch.cuda.manual_seed_all(SENPAI_SEED + trial_idx)
 
     # initialize model parameters
     for name, p in model.named_parameters():
