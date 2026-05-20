@@ -1,3 +1,37 @@
+## 2026-05-20 11:38 UTC — PR #539 CLOSED (edward): H7 Per-group AdamW WD under eps=1e-6 — corollary falsified at wd=0.01, embed-WD destructive
+
+- Branch: `g1r3-edward/aux-per-group-wd`
+- Hypothesis: Under eps=1e-6 (PR #443 baseline), small positive WD on the eps-carrier groups (lm_head, scalars) would unlock new regularization headroom that was unreachable under eps=1e-10. PR #501 corollary: embed has large gradients → WD-insensitive; lm_head/scalars have small gradients × eps=1e-6 floor → would tolerate small WD.
+
+### Three-arm results (3325 steps each + arm 1 redo)
+
+| Arm | Config | W&B run | val/loss | ffs | reached | Δ vs ctrl |
+|---|---|---|---:|---:|:---:|---:|
+| 1 redo (ctrl) | all aux wd=0 | `9werg9o8` | **3.27254** | 3125 | ✓ | (anchor) |
+| 2 wd-carriers | embed wd=0, lm_head/scalars wd=0.01 | `rd8hvapz` | **3.27321** | 3150 | ✓ | +0.00067 |
+| 3 wd-all | embed/lm_head/scalars wd=0.01 | `zhfffa5p` | **3.28321** | -1 | ✗ | +0.01067 |
+
+Δ(arm 1 redo − baseline t1coza71 3.27119) = +0.00135 → ctrl reproduces baseline within seed noise (code-path verifier passes; per-group WD plumbing assertion fired clean).
+
+### Mechanism findings
+
+**Arm 3 confirms PR #501 prediction (embed-WD is destructive)**: Trajectory diverges from baseline starting step ~500–1000 and stays ~0.03 worse through to step 3325. Embed has large gradients → AdamW produces aggressive updates → WD=0.01 brute-force shrinks embed faster than the optimizer can rebuild. The cleanest signal in the screen.
+
+**Arm 2 falsifies the corollary at wd=0.01**: WD on the eps=1e-6 carriers is noise-neutral, NOT "regularizing-and-helpful". Trajectory tracks ctrl essentially exactly. Likely interpretation: under cosine cooldown, late-stage lm_head/scalars update magnitude shrinks proportionally to the LR schedule, so even though eps=1e-6 enlarges mid-run updates, the late-run updates that WD would compete against are small. WD has no signal to regularize against.
+
+**Generalizable mental model (twice-validated via PR #501 → PR #539)**: **Per-group hyperparameter levers behave asymmetrically across embed vs lm_head/scalars under eps=1e-6**: embed is operating optimally (eps-invariant, WD-sensitive); lm_head/scalars are eps-sensitive but WD-insensitive at 0.01. Per-group LR, β2, eps, and WD all share this asymmetry — future per-group sweeps should be designed around it.
+
+### Decision rule trigger
+
+Arm 2 val=3.27321 ≥ 3.27200 → close H7 as exhausted at wd=0.01. Probability mass for smaller WD (0.001–0.005) is low given direction (slightly worse, not slightly better).
+
+### Operational notes
+
+- Code change (`--aux_embed_wd`, `--aux_lm_head_wd`, `--aux_scalars_wd` flags) is additive at default 0/0/0 — kept merged for future per-group WD work with different ε or lr/β2 settings.
+- Arm 1 was redone from scratch (`9werg9o8`) after a pod-rotation interruption killed the original at step 1585 (`z304ccxs`); the redo confirms code-clean and was used as the anchor.
+
+---
+
 ## 2026-05-20 10:20 UTC — PR #544 CLOSED (fern): H16 Cautious AdamW on aux — short-β1 stack has no stale-momentum gap to filter
 
 - Branch: `g1r3-fern/aux-cautious-adamw`
