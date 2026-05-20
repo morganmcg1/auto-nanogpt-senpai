@@ -3,6 +3,29 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 22:50 UTC — PR #596: tanjiro tied input/output embedding sweep — **CLOSED clean-NEG**
+
+- Branch: `g1r5-tanjiro/tied-embedding-sweep`
+- Student: g1r5-tanjiro
+- Hypothesis: Share `embed.weight` and `proj.weight` (standard in GPT-2/T5/BERT, never tested). Sweep 5 cells: untied ctrl + tied at lr ∈ {0.3, 0.1, 0.03, 0.01}.
+
+### Results (vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | Tied | lr_tied | val@step1500 | val@step3250 | ffs | Status |
+|------|:----:|:-------:|:------------:|:------------:|:---:|:------:|
+| A (ctrl) | off | n/a | 3.531 | **3.26719** | 3075 | ✅ complete |
+| B | on | 0.3 | 3.567 | — | — | ❌ killed step 1612 |
+| C | on | 0.1 | 3.558 | — | — | ❌ killed step 1624 |
+| D | on | 0.03 | 3.590 | — | — | ❌ killed step 1584 |
+| E | on | 0.01 | 3.689 | — | — | ❌ killed step 1707 |
+
+### Conclusion
+
+- **All 4 tied cells killed** across 3 decades of LR (0.3 → 0.01). Step-1500 val spans ≈ 0.13 — LR sweep makes minimal difference.
+- **Root cause: initialization mismatch**, not LR. Tied uses embed's `normal_(std=1)` init for LM head → step-0 val ≈ 23. Untied uses `proj.zero_()` → step-0 val ≈ 10.8. The LM head never recovers from the ~23 start in 3250 steps.
+- **Tied embedding axis closed clean-NEG** at 3250-step budget under current init. Would require redesigned init (e.g., `embed.normal_(std=0.02)`, or a warmup pre-pass) to be viable.
+- **Cross-PR confirmation**: per-group LR design (embed=0.3, lm_head=1/320) is load-bearing for a reason — the two matrices do different jobs.
+
 ## 2026-05-20 21:35 UTC — PR #565: thorfinn init variance scale sweep — **Phase 1 terminal, P2 confirmation IN-FLIGHT**
 
 - Branch: `g1r5-thorfinn/init-var-scale-sweep`
