@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 16:20 UTC — PR #548: fern WD floor in cooldown sweep (0/0.05/0.10/0.20/0.50) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-fern/wd-floor-cooldown-sweep`
+- Student: g1r5-fern
+- Hypothesis: WD ramp_down lands at 0 — but is that terminal condition load-bearing? Sweeps wd_floor ∈ {0.0, 0.05, 0.10, 0.20, 0.50}. Dual of LR-floor finding (PR #504 which showed LR=0 is catastrophically load-bearing).
+
+### Results (vs OLD baseline mu=3.267948, σ=0.000823)
+
+| Cell | wd_floor | val_loss | Δσ vs OLD baseline | ffs | W&B run |
+|------|:--------:|:--------:|:------------------:|----:|---------|
+| **A (ctrl)** | 0.0 | **3.26709** | **−1.04σ** | 3100 | `9qibkkxi` |
+| B | 0.05 | 3.26735 | −0.73σ | 3100 | `e4w1fuzx` |
+| C | 0.10 | 3.26730 | −0.79σ | 3100 | `gq4brp6c` |
+| D | 0.20 | 3.26873 | +0.95σ | 3100 | `866sb9dj` |
+| E | 0.50 | 3.27009 | +2.60σ | 3125 | `oa4n4288` |
+
+### Conclusion
+
+- **WD floor=0 is NOT load-bearing**: B/C within ctrl noise; D=+0.95σ is ctrl-edge; E=+2.60σ moderate worsening. Flat-floor then mild-incline shape (vs LR-floor's catastrophic monotonic worsening).
+- **Critical cross-axis comparison (vs PR #504 LR-floor)**: LR-floor=0.20 = +29.46σ catastrophic; WD-floor=0.20 = +0.95σ ≈ ctrl edge. WD axis is ~30× more forgiving than LR axis at same fractional value.
+- **Mechanism**: LR=0 terminal is structurally load-bearing (quiescent final phase enables consolidation); WD=0 terminal is incidental (regularization-direction movement doesn't matter at cooldown end).
+- **Implication for PR #371**: the WD ramp_down win is about **peak/mean WD profile shape**, not the landing-at-zero terminal condition.
+- **Closes one half of cooldown mechanism**: combined with #504, cooldown is now understood as "LR=0 critical, WD=0 incidental."
+
+Fern reassigned to PR #594: peak-wd-sweep (hardcoded peak=2.0 never ablated; directly motivated by this finding).
+
 ## 2026-05-20 13:50 UTC — PR #537: edward Adam β1/β2 sweep (5 cells) — **CLOSED clean-neutral**
 
 - Branch: `g1r5-edward/adam-betas-sweep`
