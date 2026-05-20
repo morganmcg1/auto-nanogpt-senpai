@@ -103,6 +103,18 @@ Single-seed 4-arm (drift gate A PASS, |3.27226−3.27174|=0.00052): A=3.27226, B
 Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e-3) fails benchmark (val=3.29393 > 3.28). Root cause: logit softcap c=15 already provides sufficient logit regularization — z-loss is redundant and competes at high λ. **18th productive-null/negative this cycle.** Loss-side auxiliary regularization axis fully closed.
 **Follow-up**: tanjiro assigned **#487 cooldown-NS pruning ablation**.
 
+### 🔄 tanjiro #577 — NS-cooldown joint-pruning — interaction test [assigned 13:05 UTC]
+
+**Branch:** `g1r4-tanjiro/ns-cooldown-joint-pruning`
+**Hypothesis**: All three NS-cooldown sub-stack components (NS_ITERS_COOLDOWN=16, NS_COOLDOWN_SHAPE=late_peak, NS_COEF_SCHEDULE=linear_ramp_down) were individually classified as redundant in #487 (all single-drop Δ in productive-null band; B confirmed at paired-pod n=3). But joint-drop interactions are untested. This 4-arm ablation tests whether the sub-stack is load-bearing *as a unit*: if joint-drop (Arm B) ≈ baseline → 3-axis stack simplification; if Arm B regresses → system interacts nonlinearly (individually redundant but jointly necessary). Arms C and D decompose the interaction.
+| Arm | NS_ITERS_COOLDOWN | NS_COOLDOWN_SHAPE | NS_COEF_SCHEDULE | Tests |
+|---|---|---|---|---|
+| A | 16 (ctrl) | late_peak | linear_ramp_down | Full merged stack control |
+| B | **0** | step (inert) | **constant** | Full joint drop of all 3 |
+| C | **0** | late_peak (inert) | linear_ramp_down | ITER-only drop (re-validates #487 paired-pod) |
+| D | 16 | **step** | **constant** | SHAPE+COEF drop, ITER kept |
+**Phase 1** (N=1 sweep ~7.3h) → **Phase 2** paired-pod confirmation if Arm B Δ ∈ null band or Δ ≤ −0.002. If Arm B Δ ≥ +0.005, Phase 1 is sufficient to close (sub-stack load-bearing at N=1).
+
 ### ✅ tanjiro #487 — Cooldown-NS pruning ablation — CLOSED 13:05 UTC productive-NULL [paired-pod n=3]
 
 Sweep N=1 Arm B (drop NS_ITERS_COOLDOWN) Δ=−0.00385 winner candidate failed paired-pod confirmation: per-pod Δ split 1−/2+ around mean(Δ)=+0.00003, all three pods in productive-null/redundant band [−0.002, +0.0015]. Merge gates 1 (mean Δ) and 2 (mean val_B) fail; only stat-rule (gate 3) passes. **4th cycle precedent for single-seed → paired-pod collapse** (joining #344, #351, #408 AGC). Mechanism hypothesis (NS_ITERS_COOLDOWN over-orthogonalizes late-phase) falsified — within-pod effect is essentially zero. The N=1 winner was between-seed noise. **33rd productive-null this cycle.** All three NS-cooldown sub-stack components are now individually classified as redundant (B=redundant at n=3 paired-pod, C/D=null at N=1 sweep).
