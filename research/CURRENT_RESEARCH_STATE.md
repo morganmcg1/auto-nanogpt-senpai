@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 02:35 UTC — Cycle 70: Nezuko #494 n=2 MUON_LR=0.04 val=3.270135/ffs=3025.0 TIES ffs strict → n=4 confirm; Askeladd #493 T2 val=3.27114/ffs=3025 (n=3 partial val PASS by 9e-5), T3 in flight; both axes on n=4 path**
+- **2026-05-20 03:40 UTC — Cycle 70: alphonse #533 stack-pruning assigned; tanjiro #534 Shampoo-lmhead assigned; #500 WD_SCALARS CLOSED; #515 AdEMAMix CLOSED; SWA n=2 launched; askeladd T3 running**
 
 ## Current baseline ⭐ (PR #458 MERGED 2026-05-19 19:35)
 
@@ -21,27 +21,28 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #529 | frieren | Per-group AdamW eps decomp (3 single-arm n=1) | Pod alive, awaiting pickup | TBD |
-| #527 | fern | NAdamW (Dozat 2016, fresh) | disabled-check step 250, val=3.99 | After check launches arms |
-| #524 | thorfinn | SWA tail averaging (Izmailov, fresh) | window150-smoke step 1000, val=3.65 | After smoke |
-| #523 | edward | Cautious AdamW (Liang, fresh) | n=2 screen step 475, val=3.89 | ~05:30 UTC |
-| #515 | tanjiro | AdEMAMix β_slow=0.999 + alpha=2 + T_warmup=1500 | smoke step 575, val=3.79 healthy | After smoke |
-| #500 | alphonse | WD_SCALARS=0.0001 n=2 | T0 fails strict (3.2727/3050); T1 step 955 | ~03:30 UTC |
-| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | n=2 val PASS/ffs TIE; T2+T3 to launch | ~06:00 UTC |
-| #493 | **askeladd** | **ADAM_EPS=1e-8 n=4 confirm** | T2=3.27114/3025; T3 step 226 | ~04:10 UTC |
+| #534 | **tanjiro** | **Shampoo-lmhead right-factor (2 arms n=1)** | Just assigned | TBD |
+| #533 | **alphonse** | **Stack pruning ablation (3 arms n=1)** | Just assigned | ~08:30 UTC |
+| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Disabled-check run 2 starting | TBD |
+| #527 | fern | NAdamW (Dozat 2016, fresh) | Disabled-check done; awaiting arms | TBD |
+| #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 screen launched after smoke (val+0.0015) | ~07:00 UTC |
+| #523 | edward | Cautious AdamW n=2 screen | step 1650, val=3.52 | ~06:00 UTC |
+| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | T2 step 1350 (43%); T3 pending | ~06:00 UTC |
+| #493 | **askeladd** | **ADAM_EPS=1e-8 n=4 confirm** | T3 step 1909/3175 (60%) | ~04:10 UTC |
 
 ## Top merge candidates (priority order)
 
-1. **NEZUKO #494 MUON_LR=0.04** ⭐ — n=2 val=3.270135 (PASS by 1.25e-3), ffs=3025 (TIES — fails strict). Sent for n=4 confirm. T3 needs ffs<3025 (i.e. 3000) AND T2+T3 val sum < 6.542551.
-2. **ASKELADD #493 ADAM_EPS=1e-8** — T0+T1+T2 mean val=3.2713/ffs=3025; n=3 partial. T3 needs val ≤ 3.271552 AND ffs ≤ 2999. **MERGE ORTHOGONAL** to MUON_LR=0.04.
+1. **ASKELADD #493 ADAM_EPS=1e-8** ⭐ — T3 step 60%, T2 val=3.27114/ffs=3025. n=4 strict pass needs T3 val ≤ 3.271552 AND T3 ffs ≤ 2999 (3000). Terminal ETA ~04:10 UTC.
+2. **NEZUKO #494 MUON_LR=0.04** ⭐ — n=4 T2 step 43%. T2+T3 need ≥1 ffs=3000 AND mean val < 3.271388. Terminal ETA ~06:00 UTC. **Orthogonal to askeladd — both can merge.**
 
 ## Mechanism categories (cycle 70)
 
-- **2 axes on n=4 confirm path** (MUON_LR=0.04, ADAM_EPS=1e-8): both ffs=tie at n=2; both val=PASS at n=2. n=4 makes ffs strict pass possible if one trial hits 3000. Orthogonal mechanisms — both can merge.
-- **3 fresh mechanisms in flight**: Edward Cautious AdamW (running n=2), Thorfinn SWA (smoke), Fern NAdamW (disabled-check). All AdamW-path or eval-time, orthogonal.
-- **Frieren per-group eps** — decomposes askeladd's win if confirmed (Arm A embed, Arm B lm_head, Arm C scalars).
-- **ffs bimodal variance is the binding constraint** — both winning axes show {3000, 3050} pattern at n=2. SWA targets this directly.
-- **Tanjiro AdEMAMix at β_slow=0.9999 BROKEN** (both alpha=5 and alpha=2 diverged); pivot to β_slow=0.999 + alpha=2 + T_warmup=1500 (paper-safe cell) running.
+- **2 axes on n=4 confirm path** (MUON_LR=0.04, ADAM_EPS=1e-8): both val=PASS at n=2, ffs ties baseline floor. Orthogonal mechanisms — both can merge if n=4 passes.
+- **2 fresh mechanism screens** (Cautious AdamW n=2, Shampoo-lmhead n=1): both AdamW-group modifications, orthogonal to each other and to Muon stack.
+- **2 fresh mechanism pending pickup** (NAdamW fern, per-group eps frieren): await plumbing/disabled-check phase.
+- **Stack pruning ablation** (alphonse): tests CONTRA_MUON, MU_WARMUP, ATTN_SOAP in isolation. First systematic pruning of mandatory stack.
+- **SWA n=2** (thorfinn): slight regression at smoke (val+0.0015), n=2 needed to confirm/falsify.
+- **CLOSED this cycle**: WD_SCALARS (flat optimal), AdEMAMix (horizon incompatible), SCALARS_LR (flat optimal), β1/β2 sweeps.
 
 ## Recent closures (last 12h)
 

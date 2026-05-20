@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 03:40 UTC — Cycle 70 mid: 3 closures; alphonse #533 stack-pruning; tanjiro #534 Shampoo-lmhead
+
+### PR #500 — alphonse WD_SCALARS=0.0001 sweep — CLOSED no-improvement
+
+Branch: `g1r2-alphonse/wd-scalars-sweep`. W&B run `spd3jmcl`.
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27267 | 3050 |
+| T1 | 3.27177 | 3025 |
+| **n=2 mean** | **3.272220** | **3037.5** |
+
+Both axes fail strict bar (val +0.000832, ffs +12.5). Smoke at WD_SCALARS=0.001 also failed (3.27289). **Axis falsified**: AdamW scalars group (bias + LN params, ~70K params) is flat-optimal at WD=0 (default). Combined with fern #456 scalars-LR closure, the entire AdamW scalars group is flat-optimal under its current HPs.
+
+### PR #515 — tanjiro AdEMAMix β_slow pivot — CLOSED mechanism incompatible
+
+Branch: `g1r2-tanjiro/ademamix`. W&B smoke run `p1lns29e` (β_slow=0.999, alpha=2, T_warmup=1500).
+
+| Run | Config | Terminal val | ffs | Verdict |
+|---|---|---|---|---|
+| 2vlfw2y9 | β_slow=0.9999, alpha=5 | 10.997 (div) | — | Diverged step 875 |
+| o574gkh2 | β_slow=0.9999, alpha=2 | 10.96 (div) | — | Diverged step 625 |
+| p1lns29e | β_slow=0.999, alpha=2, T=1500 | **3.293** | **-1 (never hits 3.28)** | CLOSED |
+
+**Root cause**: AdEMAMix requires run length ≥ 3× slow-EMA half-life for mechanism to help. At β_slow=0.999, half-life = 693 steps = 22% of 3175 training steps. Slow EMA never reaches steady state. **Mechanism structurally incompatible with our 3175-step horizon.**
+
+### PR #524 — thorfinn SWA window150-smoke VERDICT
+
+W&B run `vrp96qfy`. val=3.272897, ffs=3025 at step 3175.
+
+Regression vs baseline: val +0.001509, ffs tied. SWA window=150 slightly hurts val at n=1. Sent for n=2 confirm (val < 3.28 criterion met). Arm A n=2 in progress. Arm B (WINDOW=300) queued if compute permits.
+
+### New assignments: alphonse #533 (stack-pruning) + tanjiro #534 (Shampoo-lmhead)
+
+- **#533 alphonse**: Stack pruning ablation — 3 arms each disabling one mandatory-stack element: CONTRA_MUON=0 (Arm A), MU_WARMUP_STEPS=0 (Arm B), ATTN_SOAP_TRUST_THRESHOLD=1.0 i.e. disable ATTN_SOAP (Arm C). Each n=1. Verdict per arm: val regression < 5e-3 + ffs < 25 → soft-redundant; val ≥ 1e-2 or ffs ≥ 50 → load-bearing.
+
+- **#534 tanjiro**: One-sided Shampoo on lm_head (right factor only). Arm A BETA2=0.95, Arm B BETA2=0.99. Shampoo captures 768-dim column-space covariance of lm_head gradient, applies R^{-1/4} preconditioning. Mechanism is orthogonal to all existing stack elements. ~20 LoC implementation.
+
 ## 2026-05-20 02:35 UTC — Cycle 70: nezuko #494 MUON_LR=0.04 n=2 val PASS / ffs TIES → n=4 confirm
 
 ### PR #494 — nezuko MUON_LR=0.04 vs default 0.0375 (n=2 screen result)
