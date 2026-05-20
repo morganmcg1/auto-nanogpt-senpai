@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-20 03:40 UTC — PR #499 CLOSED: Body-Muon LR per-type partition (MLP vs ATTN) — both arms clear NULL/regress, partition family fully closes (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/body-muon-lr-partition`
+- Hypothesis: Per-type LR partition (MLP vs ATTN) — LR companion to frieren's WD partition #482 (which was NULL marginal). ±20% multiplicative asymmetry around inherited body_lr=0.035, centered geometric mean preserved (sqrt(MLP × ATTN) = 0.0343 ≈ 0.035), so this is a redistribution test not a scale test.
+
+| Arm | MLP_LR | ATTN_LR | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline** | 0.035 | 0.035 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| A (MLP-heavy) | 0.042 | 0.028 | `vrmveqoe` | 3025 | 3.27040 | +87.5 ✗ | +0.0061 ✗ | clear NULL |
+| B (ATTN-heavy) | 0.028 | 0.042 | `tdw0diir` | 3000 | 3.27015 | +62.5 ✗ | +0.0059 ✗ | clear NULL |
+
+**Signal: NULL × NULL with both directions regressing by similar magnitude (~Δval=+0.006).** Asymmetry between Arm A and Arm B is Δval=+0.00025 — well inside seed noise (n=1).
+
+**Mechanistic conclusion (student's analysis, accepted):** PMuon's spectral normalization already equalizes per-matrix whitened gradient geometry across MLP and ATTN. Hand-imposed LR asymmetry on top of PMuon's preconditioning destroys the equalization PMuon was getting right. The split itself hurts (not the effective LR — geomean preserved).
+
+**Strategic implication:** **Per-substructure (MLP-vs-ATTN) partition family fully closed.** Both WD (#482 NULL n=2 marginal) and LR (#499 NULL/NULL clear) tested and exhausted. Alphonse reassigned to **sub-MLP LR partition c_fc vs c_proj (#535)** — student-suggested follow-up on a finer grain where PMuon's per-matrix whitening cannot equalize (c_fc and c_proj are *different* matrices).
+
+---
+
 ## 2026-05-20 03:25 UTC — PR #502 CLOSED: PMuon body β_cov scan — both arms NULL, β_cov axis CLOSES (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/pmuon-beta-cov-scan`
