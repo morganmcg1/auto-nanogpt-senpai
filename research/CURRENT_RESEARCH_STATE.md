@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 22:45 UTC
+- **Last update:** 2026-05-20 23:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -49,18 +49,18 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#570** | alphonse | PMuon mu {0.90, 0.97} vs baseline 0.95: BOTH arms sr=3075 Δsr=+137.5 — symmetric sharp local optimum. Arm A val=3.275656, Arm B val=3.272967. mu=0.95 confirmed locally optimal; momentum-horizon axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation on aux AdamW — Arm A (α=2) NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). Arm B (α=5) not launched (student skip endorsed: strong Arm A NULL). m-aggregation (slow-EMA blending) axis closes. | **CLOSED 20:30 UTC — 33rd axis.** |
 
-## Active experiments (8 students, 22:45 UTC)
+## Active experiments (8 students, 23:00 UTC)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#617** | **edward** | pending pickup | — | — | **NEW — Lookahead wrapper on aux AdamW only — k={5,10}, α=0.5. Orthogonal class to update-rule tree. Body-Muon Lookahead #505 NULL DNF; bet is aux's noise-dominated gradients benefit from averaging where body-Muon's spectral steps don't.** |
-| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | 1775 | 3.472 | Col-mean amplification Arm B mid-cooldown. Arm A NULL confirmed (sr=2975). |
-| **#606** | fern | `kq05a45r` Arm A cf=0.25 | 1650 | 3.597 | WSD schedule. Active training. |
-| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | 1600 | 3.545 | Adamax Arm B running. Arm A DNF NULL confirmed. |
-| **#559** | nezuko | `do531bbp` Arm B 12→18 | 1525 | 3.529 | NS ramp Arm B running. Arm A NULL sr=2950 confirmed. |
-| **#604** | tanjiro | `tsi8kfik` Arm A | 1175 | 3.646 | Lion optimizer running cleanly. |
-| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 1100 | 3.659 | LR floor. Pod self-recovered: `u6917ygn` crashed step 200; `euudw4nc` healthy. |
-| **#609** | askeladd | `qb21izi9` Arm A max_trust=10 | 775 | 3.861 | LAMB trust ratio on aux AdamW. Active training. |
+| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | 2850 (88%) | 3.300 | Col-mean amplification Arm B late cooldown — CLOSEST to terminal (~25 min). Arm A NULL sr=2975 confirmed. |
+| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | 2700 (83%) | 3.336 | Adamax Arm B mid-cooldown. Arm A DNF NULL confirmed. |
+| **#559** | nezuko | `do531bbp` Arm B 12→18 | 2700 (83%) | 3.317 | NS ramp Arm B mid-cooldown. Arm A NULL sr=2950 (Δsr=+12.5 marginal NULL) confirmed. |
+| **#606** | fern | `kq05a45r` Arm A cf=0.25 | 2625 (81%) | 3.486 | WSD schedule — val trajectory above baseline, likely NULL. |
+| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 1875 (58%) | 3.447 | LR floor. Pod self-recovered from earlier `u6917ygn` crash. |
+| **#609** | askeladd | `qb21izi9` Arm A max_trust=10 | 1875 (58%) | 3.536 | LAMB trust ratio on aux AdamW. Active training. |
+| **#604** | tanjiro | `p67n6bxz` Arm A | 925 (28%) | 3.704 | Lion optimizer — stabilized after 5 crash-recovery cycles (`tsi8kfik`/`cxd9kcn3`/`u65icd7n`/`u2st747x`/`xz199ixi`). |
+| **#617** | edward | `yu2ob60m` Lookahead k=? | 200 (6%) | 4.51 | RECOVERED — Lookahead wrapper on aux AdamW only. Prior `gugyvphw` crashed step 400 val=3.88; `xiic1sws` and others also failed. Fresh `yu2ob60m` healthy at step 200. |
 
 ## Recently closed (this session)
 
