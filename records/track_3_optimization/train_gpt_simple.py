@@ -35,7 +35,13 @@ NS_A = 1.5
 NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
-MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+# PR #559 (nezuko): late-cooldown NS_ITERS ramp.
+# Linearly ramp NS iterations from NS_ITERS up to NS_ITERS_COOLDOWN_FINAL over
+# the final NS_COOLDOWN_RAMP_FRAC fraction of training (effective cooldown phase).
+# Arm A: NS_ITERS_COOLDOWN_FINAL=16; Arm B: NS_ITERS_COOLDOWN_FINAL=18.
+NS_ITERS_COOLDOWN_FINAL = 18
+NS_COOLDOWN_RAMP_FRAC = 0.3
+MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4-ns-iters-cool-ramp"
 
 
 def parse_args():
@@ -447,6 +453,21 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+def ns_iters_schedule(
+    step: int,
+    total_steps: int,
+    cooldown_frac: float = NS_COOLDOWN_RAMP_FRAC,
+    final_iters: int = NS_ITERS_COOLDOWN_FINAL,
+) -> int:
+    # Linear ramp of NS iterations from NS_ITERS (stable phase) up to final_iters
+    # over the last cooldown_frac fraction of training.
+    cooldown_start = int(total_steps * (1 - cooldown_frac))
+    if step < cooldown_start:
+        return NS_ITERS
+    progress = (step - cooldown_start) / max(1, total_steps - cooldown_start)
+    return int(round(NS_ITERS + progress * (final_iters - NS_ITERS)))
+
+
 def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -487,6 +508,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_iters: int = NS_ITERS,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -501,7 +523,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=ns_iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -523,11 +545,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, ns_iters=NS_ITERS):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, ns_iters=ns_iters)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -561,6 +583,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_iters=group["ns_iters"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -696,6 +719,8 @@ if dist.get_rank() == 0:
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
+            "ns_iters_cooldown_final": NS_ITERS_COOLDOWN_FINAL,
+            "ns_cooldown_ramp_frac": NS_COOLDOWN_RAMP_FRAC,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
@@ -853,6 +878,9 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        current_ns_iters = ns_iters_schedule(step, train_steps)
+        for pg in optimizer2.param_groups:
+            pg["ns_iters"] = current_ns_iters
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -919,6 +947,7 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "muon/ns_iters_current": current_ns_iters,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
