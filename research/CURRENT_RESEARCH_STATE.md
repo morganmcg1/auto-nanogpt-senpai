@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 01:47 UTC
+- **Date:** 2026-05-20 02:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -142,16 +142,21 @@ Init-side: scale `attn.proj` and `mlp.proj` weights at init by s ∈ {1.0, 0.5, 
 Arms B/C/D (lm_head_floor, scalar_floor, both): best Δ=−0.00098 (arm B), half the −0.002 threshold. Arm D (stacked) regresses +0.00072 vs A, indicating cross-group interaction at end-of-cooldown. **linear_floor is embed-specific** (sparse-row coverage benefit), not aux-generic. Three prior paired-pod false-positives (#344, #351, #408 AGC) support conservative close. **20th productive-null/negative this cycle.**
 **Follow-up**: nezuko assigned **#490 NAdam (Nesterov-AdamW) scope sweep** — first-moment reformulation, first Adam-family axis we haven't tested.
 
-### 🔄 nezuko #490 — NAdam (Nesterov-AdamW) scope sweep [assigned 18:15 UTC]
+### ✅ nezuko #490 — NAdam (Nesterov-AdamW) scope sweep — CLOSED 02:15 UTC productive-null
 
-**Branch:** `g1r4-nezuko/nadam-aux`
-**Hypothesis**: NAdam replaces AdamW's first-moment bias-corrected estimate `m̂_t` with the Nesterov lookahead `m_nadam = β₁·m̂_t + (1-β₁)·g_t/(1-β₁^t)`. Fills the one gap in the AdamW-internal three-axis ablation: magnitude (#442 NEGATIVE), variance (#474 in-flight), **first-moment (this PR)**. Scope sweep across aux groups to isolate sparse-embed vs dense-lm_head benefit.
-| Arm | NANOGPT_NADAM_SCOPE | Groups using NadamW |
-|---|---|---|
-| A | none (control) | all AdamW |
-| B | embed | adam_embed only |
-| C | lm_head | adam_lm_head only |
-| D | all_aux | embed + lm_head + scalars |
+Arms B (embed: Δ=−0.00059, mild +), C (lm_head: Δ=+0.00063, mild −), D (all_aux: Δ=+0.00275, regression). Best arm B well within null band (need ≤−0.002); D's compounded regression suggests scalar group is bad actor under NAdam (aggressive direction-change due to normalization layers). **26th productive-null/negative this cycle.** Closes the first-moment axis of the AdamW-internal three-axis ablation (magnitude #442 NEGATIVE, first-moment #490 null/regress, second-moment #474 NEGATIVE) — **AdamW-internal axis family substantially exhausted on merged stack**.
+**Follow-up**: nezuko assigned **#530 Nesterov-Muon body scope sweep** — structurally parallel test on Muon body momentum (lookahead before NS).
+
+### 🔄 nezuko #530 — Nesterov-Muon body scope sweep [assigned 02:15 UTC]
+
+**Branch:** `g1r4-nezuko/nesterov-muon`
+**Hypothesis**: Apply Nesterov-style gradient lookahead `g_eff = α·buf + g` before NS orthogonalization in body Muon. After #490 closure of AdamW-internal axes, body Muon mechanism is the natural pivot. Structurally distinct from #434 (Lookahead-wrap CLOSED), #356 (μ schedule CLOSED), #102 (LR warmup CLOSED), #483 (WD warmup CLOSED). Tests whether NS expects a smoothed direction (buf) or benefits from lookahead-corrected gradient. Body Muon mechanism axis is underrepresented in merged stack.
+| Arm | NANOGPT_MUON_NESTEROV_ALPHA | Formulation |
+|---|---:|---|
+| A | 0.0 (control) | NS(buf) — standard Muon |
+| B | 0.3 | NS(0.3·buf + g) — weak lookahead |
+| C | 0.6 | NS(0.6·buf + g) — moderate lookahead |
+| D | 0.95 | NS(μ·buf + g) — classical Nesterov |
 **ETA full chain:** ~7.3h.
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
@@ -192,7 +197,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 
 ## Research theme — current cycle
 
-**25 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**26 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -205,21 +210,21 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 1. Does block init scaling matter under Muon? (#452)
 2. Does embed-only LR warmup help sparse-row early training? (#489)
 3. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
-4. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
+4. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko new — replaces just-closed #490 NAdam null/regress)
 5. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
 6. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
 7. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
 8. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
 9. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
 
-**Stack convergence signal**: 24 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
-1. **"Less constraint early" schedule cluster** (in flight): embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — three early-phase schedule axes. WD warmup (#483) closed NEGATIVE — body-WD is load-bearing from step 0.
-2. **Late-phase cooldown shape**: body Muon LR cooldown shape (#520 thorfinn) — complementary to early-phase cluster, targeting the load-bearing 30% cooldown window
-3. **Adam-family second-moment update rule**: NAdam (#490, Nesterov first-moment) and Yogi (#516, sign-additive second-moment) are the last two in-flight Adam-family mechanism axes
-4. **Stack simplification** — #487 Arm B (drop NS_ITERS_COOLDOWN) N=1 Δ=−0.00385 first winner candidate in many cycles; paired-pod confirmation in flight. If confirmed, removes #176 from merged stack as redundant under #285/#290.
-5. **Bilateral regularization closure (from #483)**: both ADD (17 axes) and REDUCE (WD warmup) regularization fail → Muon-WD=0.025 is bilaterally optimal
-6. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group
-7. **Embed sparsity structural insight (from #474)**: `(g − m)²`-based second moments fail on embed group; `g²`-only formulations (AdamW, Yogi) are safe
+**Stack convergence signal**: 26 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
+1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
+2. **Late-phase cooldown shape**: body Muon LR cooldown shape (#520 thorfinn) — targeting the load-bearing 30% cooldown window.
+3. **Stack simplification** — #487 Arm B (drop NS_ITERS_COOLDOWN) N=1 Δ=−0.00385 first winner candidate in many cycles; paired-pod confirmation in flight. If confirmed, removes #176 from merged stack as redundant under #285/#290.
+4. **Non-AdamW body-Muon mechanism axis** — Nesterov-Muon (#530, nezuko new) targets lookahead-before-NS, complementing pre-stage NS scheduling (#506) and shape (#520). The AdamW-internal three-axis ablation is closing (#442 NEGATIVE + #474 NEGATIVE + #490 null = body-side is the natural pivot).
+5. **Bilateral regularization closure (from #483 + #489)**: both ADD (17 axes) and REDUCE-by-warmup (Muon-WD, embed-LR) regularization fail → early-training window is bilaterally well-tuned.
+6. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope; single-group regresses.
+7. **Embed sparsity structural insight (from #474)**: `(g − m)²`-based second moments fail on embed group; `g²`-only formulations (AdamW, Yogi) are safe.
 
 ---
 
@@ -258,6 +263,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 - LLRD Muon: closed (NS normalizes depth scaling)
 - AdamW LR per-group (embed=1.5× MERGED #393): embed_mult swept, scalar/lm_head confirmed optimal at 1.0×
 - Adam-atan2 magnitude-transform (b∈{0.3,1.0,3.0}): CLOSED productive-NEGATIVE (#442; ε=1e-8 already optimal)
+- NAdam (Nesterov-AdamW) aux scope sweep: CLOSED productive-null (#490; best arm B Δ=−0.00059 within null, joint D Δ=+0.00275 regression — scalars likely bad actor)
 
 **NS precision family**:
 - NS_ITERS_COOLDOWN: saturated (#388); **#487 Arm B (drop) N=1 Δ=−0.00385 winner candidate** — paired-pod confirmation in flight

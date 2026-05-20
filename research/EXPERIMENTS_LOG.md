@@ -3,6 +3,36 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 02:15 UTC — PR #490: NAdam (Nesterov-AdamW) aux scope sweep (nezuko) — CLOSED productive-null
+
+- Branch: `g1r4-nezuko/nadam-aux`
+- Hypothesis: Replace AdamW's first-moment update with Nesterov-style lookahead `m_nadam = β₁·m̂_t + (1-β₁)·g_t/(1-β₁^t)`. Scope sweep across aux groups to isolate sparse-embed vs dense-lm_head benefit. Fills the first-moment axis of the AdamW-internal three-axis ablation (magnitude #442 atan2, variance #474 AdaBelief).
+- Code: env var `NANOGPT_NADAM_SCOPE ∈ {none, embed, lm_head, all_aux}`; NadamW optimizer class wraps AdamW with Nesterov lookahead.
+
+| Arm | scope | W&B | val/loss | Δ vs A | first_step | Band |
+|---|---|---|---:|---:|---:|---|
+| A (control) | none | [p7q6fdmi](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/p7q6fdmi) | 3.27211 | — | 3225 | drift PASS |
+| B | embed | [ja3vpi21](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/ja3vpi21) | **3.27152** | **−0.00059** | 3225 | productive-null (mild +) |
+| C | lm_head | [06440zwb](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/06440zwb) | 3.27274 | +0.00063 | 3250 | productive-null (mild −) |
+| D | all_aux | [i5cpblzf](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/i5cpblzf) | 3.27486 | **+0.00275** | 3275 | **regression** |
+
+**Drift gate:** Δ_A=+0.00037 vs baseline 3.27174 → PASS.
+**Decision:** Arm B is best (−0.00059) but well within productive-null band (need ≤−0.002 for signal); no paired-pod follow-up. Closes productive-null overall.
+
+**Analysis:**
+1. **Single-group NAdam is neutral.** Both embed-isolated and lm_head-isolated NAdam produce ~10⁻³ effects well below threshold.
+2. **Joint NAdam regresses (+0.00275 in arm D).** Compounded across embed + lm_head + scalars, the Nesterov lookahead degrades terminal loss — student's interpretation: scalar group (aggressive per-step direction changes due to normalization-layer effects) is likely the bad actor under NAdam's lookahead.
+3. **NadamW overhead negligible** (~0.4% wall-clock).
+
+**Joint structural insight (combined with #442 atan2 NEGATIVE and #474 AdaBelief NEGATIVE):**
+- Magnitude axis (#442 atan2): NEGATIVE
+- First-moment axis (#490 NAdam): null with joint regression
+- Second-moment axis (#474 AdaBelief): NEGATIVE (embed sparsity pathology)
+
+**The AdamW-internal three-axis ablation is substantially exhausted** on the merged stack post-#393. Future optimizer-mechanism experiments should target non-AdamW directions: Muon body variants (Nesterov-Muon, μ schedules already closed #356), NS-iter scheduling, or non-Muon body optimizers.
+
+**Follow-up**: nezuko assigned **#530 Nesterov-Muon body scope sweep** — parallel structural test on Muon body momentum (apply Nesterov lookahead to gradient passed to NS orthogonalization).
+
 ## 2026-05-20 01:25 UTC — PR #489: Embed-only LR warmup (alphonse) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-alphonse/embed-lr-warmup`
