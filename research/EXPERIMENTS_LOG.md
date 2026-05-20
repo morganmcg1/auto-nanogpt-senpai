@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 13:35 UTC — PR #543: Per-block NS iter budget (askeladd) — CLOSED productive-NULL
+
+- Branch: `g1r4-askeladd/per-block-ns-iters`
+- Hypothesis: Allocate NS iteration count per-block by aspect ratio (Bernstein-Newhouse 2024 "Old Optimizer, New Norm"). Tall/narrow matrices need more iters; square matrices saturate quickly. Spatial axis, structurally distinct from NS_ITERS (#470), NS-iter warmup (#506 temporal), NS_ITERS_COOLDOWN (#487).
+- Code: `NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE` env var + `ns_iters_for_param` helper.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS):**
+
+| Arm | schedule | val/loss | Δ vs A | step_avg (ms) | W&B run |
+|---|---|---:|---:|---:|---|
+| A | uniform (NS=12 all blocks) | 3.27243 | — (control, drift +0.00069 vs baseline) | 1967.98 | `s8b68xvo` |
+| B | aspect (data-driven NS_iters = round(12 * aspect^0.3), clamped [8,16]) | 3.27320 | +0.00077 (null) | 1938.10 | `eebas8ax` |
+| C | manual_typeA (attn.proj=10, qkv=12, mlp.fc=14, mlp.proj=12) | **3.27226** | **−0.00017 (null, best)** | 1970.19 | `4p5l7al5` |
+| D | manual_typeB (attn.proj=10, qkv=12, mlp.fc=16, mlp.proj=14) | 3.27299 | +0.00056 (null) | 1978.23 | `kyg3r4fe` |
+
+**Analysis:**
+
+- **All three reallocation arms in productive-null band [−0.002, +0.0015].** No arm meets the Δ ≤ −0.002 candidate threshold. No merge candidate.
+- **NS=12 saturation robust to spatial reallocation**: Combined with #470 (uniform escalation: NS ∈ [10, 14] plateau), per-block aspect-weighted allocation also fails to extract gains. The merged NS coefficient schedule (`linear_ramp_down`) plus 12 iters appears sufficient for near-orthogonal projection on tall matrices at this budget.
+- **Architectural insight (student-documented)**: This nanoGPT codebase uses `mlp.fc`/`mlp.proj` (not fused-qkv naming) and splits attention qkv into 3 separate 768×768 linears, leaving only 2-of-6 Muon blocks (`mlp.fc`, `mlp.proj`) with aspect > 1.0. The spatial reallocation surface is structurally limited. A fused-qkv refactor would unlock a richer version of this hypothesis but is out of scope (architecture is fixed per program.md).
+- **Arm B mechanism reading**: doubles MLP NS compute (base 12→16, cooldown 16→21 on both MLP matrices). Net +25% NS work on MLP. Result: +0.00077 (null) — extra iters past the saturation point are wasted work, consistent with the orthogonal-projection-already-achieved interpretation.
+- **34th productive-null/negative this cycle.**
+
+**Compute summary**: 4 runs × ~1h47m each ≈ ~7.1h total wall time on RTX PRO 6000 Blackwell. Step_avg variation across arms inside noise (1938–1978 ms).
+
+**Follow-up**: askeladd assigned **Body Muon LR asymmetry (attn vs mlp split)** — per-block-type LR axis, structurally distinct from #543 (NS iter spatial), #393 (AdamW per-group LR), #409 (LLRD depth-LR).
+
 ## 2026-05-20 13:05 UTC — PR #487: Cooldown-NS pruning ablation (tanjiro) — CLOSED productive-NULL [paired-pod n=3 confirmed]
 
 - Branch: `g1r4-tanjiro/cooldown-ns-pruning`

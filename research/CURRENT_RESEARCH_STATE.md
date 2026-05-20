@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 13:05 UTC
+- **Date:** 2026-05-20 13:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -152,17 +152,10 @@ Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.2
 Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed → mean(Δ_pool)=+0.00068 across n=3 pods. 4th paired-pod false-positive caught this cycle (after #344, #351, #408 AGC). DeepNet/T-Fixup family init-scaling axis closed: NS-normalized Muon updates wash out init scaling within first ~100 steps as hypothesized — but no preserved benefit signal. **27th productive-null/negative this cycle.**
 **Follow-up**: askeladd assigned **#543 per-block NS iter budget** — spatial allocation by aspect ratio (Bernstein-Newhouse). (#542 Lion-aux mis-assignment closed 05:12 UTC — Lion on aux groups already closed in #77, prior round.)
 
-### 🔄 askeladd #543 — Per-block NS iter budget [assigned 05:15 UTC]
+### ✅ askeladd #543 — Per-block NS iter budget — CLOSED 13:35 UTC productive-NULL
 
-**Branch:** `g1r4-askeladd/per-block-ns-iters`
-**Hypothesis**: Allocate NS iteration count per-block based on weight matrix aspect ratio rather than uniformly NS=12. Bernstein-Newhouse (2024, "Old Optimizer, New Norm") show NS convergence depends on initial spectral distribution: tall/narrow matrices need more iters than square. GPT-2 block shapes: `attn.proj` square (1.0 aspect, may over-invest), `qkv` tall (3.0), `mlp.c_fc` tallest (4.0), `mlp.c_proj` widest. **Spatial allocation axis** — structurally distinct from NS_ITERS (#470 closed), NS-iter warmup (#506 temporal), NS_ITERS_COOLDOWN (#487, in flight), LLRD (#409 closed; that was LR not NS).
-| Arm | NANOGPT_NS_ITERS_PER_BLOCK_SCHEDULE | Effect |
-|---|---|---|
-| A | uniform (control) | NS=12 all blocks |
-| B | aspect (data-driven) | NS_iters = round(12 * aspect^0.3), clamped [8,16] |
-| C | manual_typeA | attn.proj=10, qkv=12, mlp.c_fc=14, mlp.c_proj=12 (net same) |
-| D | manual_typeB | attn.proj=10, qkv=12, mlp.c_fc=16, mlp.c_proj=14 (small compute+) |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm sweep (drift gate A PASS, |3.27243−3.27174|=0.00069): A uniform=3.27243, B aspect=+0.00077 (null), C manual_typeA=−0.00017 (null, best), D manual_typeB=+0.00056 (null). All 3 reallocation arms in productive-null band [−0.002, +0.0015]. NS=12 saturation **robust to spatial reallocation** — combined with #470 uniform escalation finding, NS-iter count is genuinely saturated at this budget. Architectural finding (student-documented): codebase uses split-qkv naming (`attn.q`/`attn.k`/`attn.v` all 768×768 square) — only 2-of-6 Muon blocks (`mlp.fc`, `mlp.proj`) have aspect > 1.0, limiting the spatial reallocation surface. **34th productive-null/negative this cycle.**
+**Follow-up**: askeladd assigned **Body Muon LR asymmetry (attn vs mlp split)** — per-block-TYPE LR axis (vs #543 per-block iter), structurally distinct from #393 (AdamW per-group LR) and #409 (LLRD depth-LR).
 
 ### ✅ nezuko #454 — lm_head/scalar cooldown shape extension — CLOSED 18:05 UTC productive-null
 
@@ -244,7 +237,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**33 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**34 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -255,7 +248,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 **Current open questions** (in-flight):
 1. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — pod 0 Δ=+0.00175 REVERSED from N=1, productive-NEGATIVE trajectory)
-2. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+2. ~~Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12?~~ **#543 CLOSED productive-NULL** — NS=12 saturation robust to spatial reallocation; codebase has limited surface (only 2-of-6 Muon blocks non-square).
 3. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
 4. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
 5. Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
@@ -316,7 +309,8 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 - NS_ITERS_COOLDOWN: saturated (#388); **#487 Arm B (drop) at paired-pod n=3: mean(Δ)=+0.00003 — CLASSIFIED REDUNDANT** (not load-bearing, not improved); 4th cycle precedent for N=1 → paired-pod collapse
 - NS cooldown SHAPE=late_peak: MERGED #285; #487 Arm C drop = +0.00080 null at N=1
 - NS coef schedule=linear_ramp_down: MERGED #290; #487 Arm D drop = +0.00066 null at N=1
-- **Joint-drop of NS-cooldown sub-stack: untested** (tanjiro follow-up in-flight)
+- **Joint-drop of NS-cooldown sub-stack: in-flight** (tanjiro #577, joint-pruning interaction test)
+- **Per-block NS-iter spatial allocation (aspect ratio)**: CLOSED productive-NULL (#543; NS=12 saturated to spatial reallocation; codebase has only 2 non-square Muon blocks limiting surface)
 - NS coef depth/center: saturated (#345, #384)
 - NS=12 normal phase: CLOSED productive-null (#470; wide plateau NS ∈ [10,14]; NS=8 below floor; NS step-time flat ±1%)
 - NS-iter warmup: in-flight (#506)
