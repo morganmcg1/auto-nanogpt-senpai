@@ -71,6 +71,17 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_ademamix_alpha", type=float,
+                        default=float(os.environ.get("AUX_ADEMAMIX_ALPHA", "0.0")),
+                        help="AdEMAMix slow-EMA mixing coefficient on aux groups. "
+                             "Default 0 = disabled (standard AdamW). Paper uses 5-10.")
+    parser.add_argument("--aux_ademamix_beta3", type=float,
+                        default=float(os.environ.get("AUX_ADEMAMIX_BETA3", "0.9999")),
+                        help="AdEMAMix slow-EMA decay rate. Paper canonical is 0.9999.")
+    parser.add_argument("--aux_ademamix_alpha_warmup_frac", type=float,
+                        default=float(os.environ.get("AUX_ADEMAMIX_ALPHA_WARMUP_FRAC", "0.3")),
+                        help="Fraction of train_steps over which to linearly ramp alpha "
+                             "from 0 to --aux_ademamix_alpha. 0 = no warmup (constant alpha).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +724,13 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_ademamix_alpha > 0:
+    print0(f"AdEMAMix ENABLED on aux groups: alpha={args.aux_ademamix_alpha} "
+           f"beta3={args.aux_ademamix_beta3} "
+           f"alpha_warmup_frac={args.aux_ademamix_alpha_warmup_frac} "
+           f"(no m2 bias correction, per paper Algorithm 1 line 46)", console=True)
+else:
+    print0("AdEMAMix DISABLED on aux groups (alpha=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +784,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_ademamix_alpha": args.aux_ademamix_alpha,
+            "aux_ademamix_beta3": args.aux_ademamix_beta3,
+            "aux_ademamix_alpha_warmup_frac": args.aux_ademamix_alpha_warmup_frac,
         },
     )
 
@@ -825,6 +846,18 @@ for trial_idx in range(args.num_trials):
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    # AdEMAMix slow EMA buffers (m_2). One per aux param. Initialised to zero;
+    # paper deliberately does NOT bias-correct m_2 (line 46 of Algorithm 1) so
+    # m_2 grows from zero at rate (1 - beta3) per step.
+    ademamix_enabled = args.aux_ademamix_alpha > 0.0
+    if ademamix_enabled:
+        ademamix_m2 = {id(p): torch.zeros_like(p) for p in aux_params_for_agc}
+        ademamix_alpha_warmup_steps = max(
+            1, int(args.train_steps * args.aux_ademamix_alpha_warmup_frac)
+        )
+    else:
+        ademamix_m2 = None
+        ademamix_alpha_warmup_steps = 0
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
@@ -1018,8 +1051,49 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # AdEMAMix: update slow EMA m_2 BEFORE optimizer.step() so the fused AdamW
+        # pass is undisturbed (m_2 update reads p.grad after AGC, same path as fused
+        # AdamW's m_1 / v reads). Post-paper Algorithm 1 line 57: m2 = beta3*m2 + (1-beta3)*g
+        if ademamix_enabled:
+            beta3 = args.aux_ademamix_beta3
+            with torch.no_grad():
+                for p in aux_params_for_agc:
+                    if p.grad is not None:
+                        ademamix_m2[id(p)].mul_(beta3).add_(p.grad, alpha=(1.0 - beta3))
         for opt in optimizers:
             opt.step()
+        # AdEMAMix post-hoc correction: layered on top of fused AdamW step. The
+        # fused step applied p -= lr * m1_hat / denom; here we add the slow-EMA
+        # contribution p -= lr * alpha * m2 / denom, where denom matches what
+        # AdamW used internally (denom = sqrt(v) / sqrt(1-beta2^t) + eps).
+        # Paper Algorithm 1 (Pagliardini et al. 2024, line 46): m_2 is NOT bias
+        # corrected by design; only m_1 and v are. Alpha is linearly ramped from
+        # 0 -> aux_ademamix_alpha over the first aux_ademamix_alpha_warmup_frac
+        # of train_steps so m_2 has time to build up before contributing.
+        if ademamix_enabled:
+            t = train_step  # 1-indexed step counter, matches fused AdamW's internal
+            if t <= ademamix_alpha_warmup_steps:
+                scheduled_alpha = args.aux_ademamix_alpha * (t / ademamix_alpha_warmup_steps)
+            else:
+                scheduled_alpha = args.aux_ademamix_alpha
+            with torch.no_grad():
+                for group in optimizer1.param_groups:
+                    group_lr = group["lr"]
+                    eps = group.get("eps", args.aux_adamw_eps)
+                    beta2 = group["betas"][1]
+                    bias_correction2_sqrt = math.sqrt(1.0 - beta2 ** t)
+                    for p in group["params"]:
+                        if p.grad is None:
+                            continue
+                        state = optimizer1.state[p]
+                        if "exp_avg_sq" not in state:
+                            continue
+                        v = state["exp_avg_sq"]
+                        # denom matches paper: sqrt(v) / sqrt(1-beta2^t) + eps
+                        denom = v.sqrt().div(bias_correction2_sqrt).add_(eps)
+                        m2 = ademamix_m2[id(p)]
+                        # p -= lr * alpha * m2 / denom (m2 NOT bias-corrected per paper)
+                        p.data.addcdiv_(m2, denom, value=-group_lr * scheduled_alpha)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1045,6 +1119,25 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/agc/max_ratio"] = agc_stats["agc_max_ratio"]
                 muonh_metrics["train/agc/scale_min"] = agc_stats["agc_scale_min"]
                 muonh_metrics["train/agc/scale_mean"] = agc_stats["agc_scale_mean"]
+            if ademamix_enabled and telemetry_due:
+                t = train_step
+                if t <= ademamix_alpha_warmup_steps:
+                    cur_alpha = args.aux_ademamix_alpha * (t / ademamix_alpha_warmup_steps)
+                else:
+                    cur_alpha = args.aux_ademamix_alpha
+                m2_rms_vals = [
+                    float(m2.float().square().mean().sqrt().item())
+                    for m2 in ademamix_m2.values()
+                ]
+                m2_rms_mean = sum(m2_rms_vals) / len(m2_rms_vals) if m2_rms_vals else 0.0
+                muonh_metrics["train/ademamix/scheduled_alpha"] = float(cur_alpha)
+                muonh_metrics["train/ademamix/m2_rms_mean"] = float(m2_rms_mean)
+                muonh_metrics["train/ademamix/m2_rms_max"] = float(max(m2_rms_vals)) if m2_rms_vals else 0.0
+                # Theoretical fill fraction of m_2: 1 - beta3^t. Useful for understanding
+                # how saturated the slow EMA is at any point in the run.
+                muonh_metrics["train/ademamix/m2_fill_fraction"] = float(
+                    1.0 - args.aux_ademamix_beta3 ** t
+                )
             if args.muonh_agc_clip_ratio > 0 and muonh_agc_stats["agc_total"] > 0:
                 muonh_metrics["train/muonh/agc/fraction_active"] = (
                     muonh_agc_stats["agc_clipped"] / muonh_agc_stats["agc_total"]
