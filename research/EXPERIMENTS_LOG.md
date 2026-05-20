@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 14:30 UTC — Cycle 71 mid-7: PR #549 nezuko Muon-cooldown-frac CLOSED (both directions hurt); nezuko → #586 Adan (Xie 2022)
+
+### PR #549 — nezuko Decouple Muon Cooldown CLOSED — both decoupling directions are mildly negative
+
+Branch: `g1r2-nezuko/muon-cooldown-frac`. Both arms n=1 terminal.
+
+| Arm | MUON_COOLDOWN_FRAC | W&B | val @ 3175 | ffs | Δ val | Δ ffs | Result |
+|---|---|---|---|---|---|---|---|
+| A | 0.8 (Muon stays high longer) | 6soeippr | 3.27297 | 3050 | +0.00268 | +25 | MISS |
+| B | 0.6 (Muon cools faster) | n28py7ar | **3.27188** | **3050** | +0.00159 | +25 | MISS |
+| Baseline (PR #494, n=4) | 0.0 (global=0.7) | uoak0qa8 | 3.270288 | 3025 | — | — | — |
+| Mean n=1 | — | — | 3.272425 | 3050 | +0.00214 | +25 | MISS |
+
+**Root cause**: AdamW and Muon are reasonably co-calibrated at shared cooldown_frac=0.7. Decoupling in either direction (later or earlier Muon cooldown) de-syncs the two optimizer groups during the critical val=3.28 crossing window (~steps 2900-3050), slowing convergence. Val regression in BOTH opposite directions is strong evidence the shared cooldown is a local optimum.
+
+**ffs note**: Joint (3050,3050) under baseline bimodal {3000,3000,3050,3050} gives p≈0.25 under null — not conclusive alone, but combined with val regression is clear mechanism failure.
+
+**Closed axis**: Muon decoupled cooldown fraction (both directions). Muon momentum decoupling (#4 in nezuko's suggestions) is a different mechanism and remains in queue.
+
+nezuko → PR #586 Adan (Xie 2022, NeurIPS 2022) assigned.
+
+---
+
 ## 2026-05-20 13:40 UTC — Cycle 71 mid-6: PR #534 tanjiro Shampoo lm_head CLOSED (no improvement); tanjiro → #580 AGC (Brock 2021)
 
 ### PR #534 — tanjiro Right-factor Shampoo on lm_head CLOSED — second-order preconditioning does not beat baseline
