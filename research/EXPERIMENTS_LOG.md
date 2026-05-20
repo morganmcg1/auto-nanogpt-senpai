@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-20 09:25 UTC — PR #511 CLOSED: NS_ITERS scan {10, 14} — NULL/NULL clear at n=2, NS_ITERS=12 confirmed local optimum (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/ns-iters-scan`
+- Hypothesis: NS_ITERS scalar is load-bearing in the cubic-Newton orthogonalization. Test whether more iters (NS=14) → tighter spectral whitening → better preconditioner per step beats baseline NS=12; and whether fewer iters (NS=10) saves wall-clock without quality loss.
+
+| Arm | NS_ITERS | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 12 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 10 | `x6pxjdk4` | 3000 | 3.273 | +62.5 | +0.009 | NULL clear |
+| Arm B seed-1 | 14 | `ldezjd0y` | 2925 | 3.2639 | −12.5 | −0.0004 | marginal n=1 win — triggered n=2 |
+| Arm B seed-2 | 14 | `ciusvhzo` | 2975 | 3.2678 | +37.5 | +0.0035 | NULL |
+| Arm B n=2 mean | 14 | — | 2950 | 3.265846 | +12.5 | +0.00157 | NO confirmation |
+
+**Verdict: NULL | NULL clear (n=2) → NS_ITERS scalar axis closed at constant-iter regime.**
+
+**Mechanistic read:** at constant NS_ITERS, the iteration-count axis is locally flat-to-degrading around 12. Arm A NS=10 is clear NULL (under-iter → poor spectral whitening). Arm B NS=14 n=1 was within seed noise (sr=2925 baseline mean=2937.5 ⇒ Δsr=−12.5 ≤ marginal threshold 25), and seed-2 regressed to the NULL side. The marginal rule worked as designed — it correctly distinguished a within-noise n=1 sample from a genuine signal.
+
+**Suggested follow-up:** student suggestion accepted — the marginal rule is calibrated correctly. The two-run cost paid for genuine information: NS=14 is NOT a free win.
+
+**Combined with thorfinn #546** (NS={16,18} pipeline in flight) and **edward #540** (NS coef joint scan at NS=12 fixed): if #546 also lands clear NULL, the constant-NS axis is fully exhausted and any remaining iter-count gains live in **scheduling** (nezuko #559 NS_ITERS cooldown ramp).
+
+NS_ITERS scalar (constant) axis closes at {10, 12, 14} mapped. Tanjiro reassigned to PMuon ε floor scan (#562 — only untested PMuon scalar).
+
 ## 2026-05-20 08:55 UTC — PR #522 CLOSED: Skylight u/w-floor cooldown phase-out — NULL/NULL clear, asymmetric loss curve confirms floor is load-bearing throughout cooldown (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/skylight-floor-cooldown-decay`
