@@ -3,6 +3,32 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 09:30 UTC — PR #526: Embed LR step-0 boost (alphonse) — CLOSED productive-NULL (bilateral with #489)
+
+- Branch: `alphonse/embed-lr-step0-boost`
+- Hypothesis: Symmetric inverse of #489 closure. If reducing embed LR early hurts monotonically (frac=0.10 → +0.02316), does boosting embed LR temporarily at step 0 (decaying back to merged 1.5× over first 3–6% of training) help? Mechanism: common-token rows updated every step may benefit from larger initial updates to escape initialization quickly.
+- Code: `NANOGPT_EMBED_LR_BOOST_MULT` (multiplicative on top of 1.5× constant mult) × `NANOGPT_EMBED_LR_BOOST_FRAC` (linear-decay window length), applied to `eta_embed` in `set_hparams()` for `name == "adam_embed"`.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS):**
+
+| Arm | BOOST_MULT | BOOST_FRAC | Effective @step 0 | val/loss | Δ vs A | Δ vs baseline | W&B run |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A | 1.0 (control) | 0.0 | 1.5× | 3.27226 | 0 | +0.00052 (drift PASS) | `2k9k3u4g` |
+| B | 2.0 | 0.03 | 3.0× | 3.27146 | −0.00080 | −0.00028 | `i05fom6u` |
+| C | 2.5 | 0.03 | 3.75× | 3.27145 | −0.00081 | −0.00029 | `bd9rmd2w` |
+| D | 2.0 | 0.06 | 3.0× | 3.27261 | +0.00035 | +0.00087 | `v6r6wqzf` |
+
+**Analysis:**
+
+- **No paired-pod confirmation triggered.** All test arms fall within productive-null band (−0.002 < Δ_vs_A < +0.0015). Best arm (C) Δ_vs_A = −0.00081 is far short of the pre-staged −0.002 confirmation threshold.
+- **Mechanism reading**: B vs C plateau at virtually identical val (3.27146 vs 3.27145) → boost magnitude saturates by 2.0× in the 3%-window regime. D (longer 6% window, same 2.0× magnitude) regresses to +0.00035 → longer boost window is mildly worse. The "common-token rows benefit from temporarily higher LR" hypothesis is directionally consistent with B/C improvement but the effect is inside per-pod noise floor — the n=1 stat rule passes mathematically (Arm C: (3.28−3.27145)×√1 = 0.00855 ≥ 0.004) but is partly Arm-A drift artifact (+0.00052).
+- **`first_step_to_target` invariant**: A/B/C all 3225, D=3250. The boost doesn't materially change *when* the target is first hit — only the terminal step value.
+- **Bilateral closure with #489 (CLOSED NEGATIVE on reduce direction)**: Combined evidence establishes that **embed step-0 LR at 1.5× is bilaterally optimal**. Neither boosting (this PR) nor reducing (#489) the early embed LR yields actionable improvement. The embed step-0 LR magnitude axis is closed.
+- **Closes embed step-0 LR magnitude axis** — joined with #489. Future "early-window embed LR shape" axes would need a stronger prior than this experiment provides.
+- **31st productive-null/negative this cycle.**
+
+**Follow-up:** alphonse reassigned (next hypothesis).
+
 ## 2026-05-20 07:55 UTC — PR #520: Body Muon LR cooldown shape sweep (thorfinn) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-thorfinn/body-cooldown-shape`

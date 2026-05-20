@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 07:55 UTC
+- **Date:** 2026-05-20 09:30 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -81,17 +81,10 @@ b sweep {0.3, 1.0, 3.0}: all regress vs AdamW (b=0). D (b=3.0) misses 3.28 targe
 Monotone catastrophic worsening: A=3.27054, B=+0.01026 (frac=0.02), C=+0.01554 (frac=0.05), D=+0.02316 (frac=0.10). All 3 warmup arms fail benchmark (none reach 3.28 target). Full embed LR from step 0 is load-bearing — #102 closure rationale ("early high-LR window is productive") extends to embed AdamW despite mechanistic distinction (sparse-grad vs Muon+NS). **25th productive-null/negative this cycle.** Bilateral closure with #483 WD warmup (also productive-NEGATIVE): the early-training window is bilaterally well-tuned; regularization-REDUCTION by warmup on any group fails.
 **Follow-up**: alphonse assigned **#526 embed LR step-0 boost** — inverse direction (boost above 1.5× at step 0, decay to merged 1.5×).
 
-### 🔄 alphonse #526 — Embed LR step-0 boost [assigned 01:47 UTC]
+### ✅ alphonse #526 — Embed LR step-0 boost — CLOSED 09:30 UTC productive-NULL (bilateral with #489)
 
-**Branch:** `alphonse/embed-lr-step0-boost`
-**Hypothesis**: Symmetric inverse of #489 closure. If reducing embed LR early hurts Δ=+0.01, does boosting embed LR above 1.5× at step 0 (then decaying to merged 1.5×) help? Tests whether the embed group benefits from temporarily-higher early LR. Structurally distinct from #393 (constant mult retune — we're testing a temporal boost-then-decay profile not a constant).
-| Arm | BOOST_MULT | BOOST_FRAC | Effective embed LR @step 0 | Decay window |
-|---|---:|---:|---:|---|
-| A | 1.0 (control) | 0.0 | 1.5× | none |
-| B | 2.0 | 0.03 | **3.0×** | ~100 steps |
-| C | 2.5 | 0.03 | **3.75×** | ~100 steps |
-| D | 2.0 | 0.06 | **3.0×** | ~200 steps |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27226−3.27174|=0.00052): A=3.27226, B (2.0×, 3%)=−0.00080 (null), C (2.5×, 3%)=−0.00081 (null), D (2.0×, 6%)=+0.00035 (null). B/C plateau identically (boost magnitude saturates by 2.0×); D regresses (longer 6% window mildly worse). Best arm (C) Δ_vs_A=−0.00081 far short of pre-staged −0.002 paired-pod threshold; the n=1 stat-rule "baseline beat" is partly Arm-A drift artifact. `first_step_to_target` invariant across A/B/C=3225. **Bilateral closure with #489**: combined evidence establishes embed step-0 LR at 1.5× is bilaterally optimal — neither boosting (this PR) nor reducing (#489 NEGATIVE) the early embed LR yields actionable improvement. **31st productive-null/negative this cycle.**
+**Follow-up**: alphonse reassigned (next hypothesis).
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -238,7 +231,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**30 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**31 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -251,11 +244,10 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 1. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
 2. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — Arm C N=1 winner candidate val=3.27163, but within-pod Δ=−0.00119 directional null)
 3. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko)
-4. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
-5. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
-6. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
-7. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
-8. **NEW**: Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
+4. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+5. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
+6. Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
+7. Does adding small WD on AdamW embed during cooldown (regularization-add at precision phase) help? (#554, thorfinn — paired with edward #550 to characterize WD-cooldown axis bilaterally across body/embed groups)
 
 **Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
@@ -321,7 +313,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 - Muon μ schedule: catastrophic; constant μ=0.95 confirmed (#356)
 - Muon LR floor: monotone worse (#335)
 - Embed-only LR warmup (frac∈{0.02, 0.05, 0.10}): CLOSED productive-NEGATIVE (#489; monotone catastrophic worsening; full embed LR from step 0 is load-bearing; 25th null this cycle)
-- Embed LR step-0 boost (decay to 1.5×): in-flight (#526)
+- Embed LR step-0 boost (decay to 1.5×): CLOSED productive-NULL (#526; B/C plateau at Δ≈−0.0008 within noise floor; D longer window mildly worse; bilateral closure with #489; 31st null this cycle — embed step-0 LR=1.5× is bilaterally optimal)
 
 **Init**:
 - Embed init scale: null (#374)
