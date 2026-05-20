@@ -1,5 +1,54 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 16:10 UTC — Cycle 71 mid-10: PR #561 frieren Lookahead CLOSED (both arms MISS); frieren → #591 ortho-embed-init
+
+### PR #561 — frieren Lookahead CLOSED — discrete sync incompatible with cooldown horizon
+
+Branch: `g1r2-frieren/lookahead-adamw`. Both arms n=1 terminal with full SENPAI-RESULT marker.
+
+| Arm | k | α | W&B | val @ 3175 | ffs | Δ val | Δ ffs | Result |
+|---|---|---|---|---|---|---|---|---|
+| disabled | — | — | imtfy2i8 | 4.0944 @ 200 | — | — | — | sanity OK |
+| smoke A | 5 | 0.5 | c26z9f9c | 3.7343 @ 500 | — | — | — | smoke gate pass |
+| smoke B | 10 | 0.5 | 398dfkmh | 3.7316 @ 500 | — | — | — | smoke gate pass |
+| A | 5 | 0.5 | 8id6gbok | 3.28039 | −1 (never reached) | +0.0101 | +∞ | MISS clearly |
+| B | 10 | 0.5 | pbay3atj | 3.27844 | 3125 | +0.0082 | +100 | MISS clearly |
+| Baseline | — | — | uoak0qa8 | 3.270288 | 3025 | — | — | — |
+
+**Kill-gate trajectory** (both arms pass all screening gates; failure is concentrated at terminal):
+
+| step | gate | A val | B val |
+|---|---|---|---|
+| 1500 | <3.55 | 3.53862 ✓ | 3.53686 ✓ |
+| 2500 | <3.40 | 3.35459 ✓ | 3.35349 ✓ |
+| 3000 | <3.32 | 3.29145 ✓ | 3.29089 ✓ |
+| 3175 | ≤3.270 OR ffs≤3025 | **MISS** | **MISS** |
+
+**Mechanism**: discrete slow-weights sync at k=5/k=10 overwrites the fine-grained late-cooldown updates that the AdamW group is supposed to deliver. Both arms track baseline within ~1σ through the screening phases, then land high at the cooldown terminal. The val gap of +0.01 at step 3175 is ~3× the per-seed σ.
+
+**Closed family expansion**: joins SWA, Polyak, and SF-AdamW as the third weight/schedule-modifying intervention on the AdamW group that fails because it disrupts the cooldown landing. **Discrete-sync schedule modifications on AdamW group FAIL** is now a confirmed class result.
+
+**Implication for the in-flight variance-reduction PRs (MARS, AGC, Adan, β1-ramp)**: these all attack at the **gradient or EMA** level (before the optimizer step), not at the **post-step parameter** level (where SWA/Lookahead operate). This is mechanistically the right level — the bimodal-ffs variance comes from a few specific late-cooldown gradient magnitudes/directions, not from aggregate trajectory noise that averaging could damp.
+
+### PR #591 — frieren reassigned: orthogonal embed init (decorrelation-side dissection of askeladd's win)
+
+New hypothesis: orthogonal embed initialization isolates the DECORRELATION effect vs. askeladd's MAGNITUDE effect.
+
+| Arm | Init | gain | Mechanism tested |
+|---|---|---|---|
+| A | torch.nn.init.orthogonal_(embed.weight, gain=0.1) | 0.1 | magnitude AND decorrelation |
+| B | torch.nn.init.orthogonal_(embed.weight, gain=1.0) | 1.0 | decorrelation, small magnitude reduction |
+
+**Compound prediction** (frieren vs askeladd):
+
+- If askeladd's win is pure magnitude: frieren Arm A ≈ askeladd Arm B (tie), frieren Arm B ≈ baseline
+- If askeladd's win is decorrelation: frieren Arm A > askeladd Arm B (best of both), frieren Arm B > baseline
+- If combined: frieren Arm A > askeladd Arm B, frieren Arm B between
+
+Saxe et al 2013 ("Exact solutions to nonlinear dynamics of learning in deep linear networks") motivates orthogonal init. Standard in CNN training, untested in this LM codebase.
+
+---
+
 ## 2026-05-20 16:00 UTC — Cycle 71 mid-9: PR #541 askeladd Arm B (std=0.1) WINNER at n=1; n=2 confirm authorized
 
 ### PR #541 — askeladd EMBED_INIT_STD sweep, 3 arms n=1 all terminal — Arm B clears merge bar at n=1

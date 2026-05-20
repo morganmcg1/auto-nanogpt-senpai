@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-20 16:10 UTC — PR #561 frieren Lookahead CLOSED (both arms MISS, discrete sync damps cooldown); frieren → #591 ortho-embed-init (decorrelation-side dissection of askeladd's magnitude winner).**
 - **2026-05-20 16:00 UTC — PR #541 askeladd Arm B (EMBED_INIT_STD=0.1) WINNER AT n=1 (val=3.26773, ffs=3000); n=2 confirm authorized; thorfinn #576 MARS Arm A MISS n=1, Arm B running.**
 
 ## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
@@ -27,7 +28,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | #574 | edward | Sophia-G (Liu 2023) Hessian-clipped denominator | Arm C ρ=1.0 smoke + Arm D refrepo bs5120 smoke running | TBD |
 | #586 | nezuko | Adan: additive gradient-diff momentum (Xie 2022, NeurIPS) — β1 sweep | Disabled-mode smokes verified; full ENABLED runs not yet launched | TBD |
 | #580 | tanjiro | AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance | Smokes A/B/control all ~3.97 @ 250 (gate passed); full runs not yet launched | TBD |
-| #561 | frieren | Lookahead AdamW wrapper (Zhang 2019, k=5/k=10) | Arm A MISS val=3.2804 ffs?; Arm B step 3075 val=3.2829 (MISS) | imminent terminal |
+| **#591** | **frieren** | **Orthogonal embed init: decorrelation dissection of askeladd magnitude win** | **Just assigned (#561 Lookahead CLOSED)** | **TBD (~3.7h n=1 both arms)** |
 | #587 | alphonse | β1 cooldown ramp: 0.8 → 0.99/0.95 across last 70% of training (cooldown_frac=0.7) | Arm A first attempt crashed step 725; retry running; cooldown window endorsed | TBD |
 | #569 | fern | AdaBelief: (g−m)² denominator (Zhuang 2020) | Arm A n=2 val=3.2716 ffs=3050 (MISS); Arm B β=0.99 running step 975 | TBD |
 
@@ -42,11 +43,12 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 ## Mechanism categories (cycle 71 active)
 
 - **Variance reduction / ffs floor attack** (primary priority):
-  - #561 frieren: Lookahead AdamW wrapper — discrete slow-weights sync k=5/10
   - #586 nezuko: Adan — additive v_t (gradient-diff momentum) + corrected n_t denominator
   - #576 thorfinn: MARS — STORM g_t/g_{t-1} variance-reduced first moment (Liu 2024, contract-compliant)
 - **Gradient-magnitude control** (#580 tanjiro): AGC — per-tensor grad clipping by param/grad norm ratio (λ=0.01/0.1)
-- **Initialization sweep** (#541 askeladd): EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}; Arm A MISS (3.27245), Arm B running
+- **Initialization sweep** (#541 askeladd + #591 frieren):
+  - #541 askeladd EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}: Arm B (std=0.1) ⭐ **WINNER n=1** val=3.26773 ffs=3000, n=2 confirm in flight
+  - #591 frieren ORTHO_EMBED_GAIN ∈ {0.1, 1.0}: orthogonal init isolates DECORRELATION effect vs MAGNITUDE effect (2×2 mechanism dissection with askeladd)
 - **EMA schedule** (#587 alphonse): β1 cooldown ramp (0.8 → 0.99 or 0.95) — increased averaging window in cooldown to compress ffs variance
 - **Denominator semantics** (#569 fern + #574 edward): AdaBelief (g−m)² and Sophia-G clip(m/h, ±ρ) — orthogonal to direction-blend cluster
 
@@ -78,6 +80,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #561 | frieren | Lookahead CLOSED — both arms MISS (Arm A val=3.28039 ffs=−1 never reached; Arm B val=3.27844 ffs=3125); discrete k=5/k=10 sync damps late-cooldown fine-tuning; joins SWA in "weight-averaging variance-reduction on AdamW group falsified" family |
 | #534 | tanjiro | Shampoo lm_head CLOSED — both arms MISS (best: val=3.27190 +0.0016, ffs=3050 +25); less preconditioning=closer baseline; lm_head near-isotropic |
 | #549 | nezuko | Muon-cooldown-frac CLOSED — both directions mildly negative (A: val+0.0027 ffs+25; B: val+0.0016 ffs+25); shared cooldown is local optimum |
 | #564 | alphonse | GC CLOSED — neutral-to-negative; DC mode not productive (WD_AUX + existing stack already controls it); best arm val=3.27137 (+0.001) ffs TIE |
