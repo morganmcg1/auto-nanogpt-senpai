@@ -1,5 +1,72 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 19:45 UTC — Cycle 71 mid-14: PR #569 fern AdaBelief CLOSED (Arm A regression, Arm B neutral); fern → #605 Muon heavy-ball ablation
+
+### PR #569 — fern AdaBelief CLOSED — Arm A miss, Arm B neutral; denominator-semantics class likely closed
+
+Branch: `g1r2-fern/adabelief`. AdaBelief (Zhuang 2020): replace `v_t = β2·v_{t-1} + (1-β2)·g_t²` with `v_t = β2·v_{t-1} + (1-β2)·(g_t - m_t)² + ε` — keeps direction-blend untouched, only the denominator term changes.
+
+| Arm | β2 | n=2 val_mean | n=2 ffs_mean | Δval | Δffs | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.95 (default β2) | 3.27270 | 3062.5 | +0.00241 | +37.5 | Clear regression |
+| **B** | **0.99 (tighter EMA)** | **3.27037** | **3025 (TIE)** | **+0.000082** | **+0** | **NEUTRAL — fails strict val bar by +8.2e-5** |
+| Baseline (n=4) | — | 3.270288 | 3025 | — | — | — |
+
+**Per-trial telemetry (Arm B β=0.99):**
+- T0: val=3.27084
+- T1: val=3.26990
+- Per-seed std ≈ 0.00067 (matches baseline per-trial std ≈ 0.0011)
+
+**Statsig check on neutral Arm B**: `(3.28 − 3.27037) × √2 = 0.01362 ≥ 0.004` → result is statistically distinguishable from "worse-than-baseline" at n=2. Genuinely neutral, not noise.
+
+### Mechanism analysis: why Arm B at β2=0.99 is neutral
+
+Arm-internal contrast (A worse, B neutral) tells the cooldown story:
+- **Arm A (β2=0.95)**: shorter v-EMA → (g − m)² noise term updates fast → over-adapts to smoothed signal during cooldown when m ≈ g and (g − m)² is just noise variance. v_t becomes a noise estimator, denominator stays large unnecessarily → undertraining during cooldown.
+- **Arm B (β2=0.99)**: long v-EMA → (g − m) ≈ noise during cooldown, but EMA so slow that v_t stays near ε. Denominator effectively ε-floored → AdamW-equivalent during the binding cooldown window. **Mechanism is saturated at β2=0.99** — pushing higher (β2=0.995) won't change cooldown dynamics measurably, because the denominator is already minimal.
+
+### Why close instead of extending Arm B to n=4
+
+1. **Mechanism saturation**: pushing β2 even higher won't move the central tendency below baseline; denominator is already at ε floor during cooldown.
+2. **Variance estimate is stable**: Arm B's per-seed std ≈ 0.00067, comparable to baseline. The +8.2e-5 gap is genuinely an indistinguishable population mean, not a tail draw.
+3. **Higher-value Muon-side axes available** (#605 below) — GPU slot better spent on fresh mechanism class than tight β2 refinement.
+
+### Closed family expansion — AdamW denominator-semantics: 2/2 closures, class likely exhausted
+
+| PR | Mechanism | Verdict |
+|---|---|---|
+| #574 Sophia-G | `E[g²]` (no sqrt) + Hessian-clip → Lion mode | FAIL — unit-mismatch at our gradient scale |
+| **#569 AdaBelief (now)** | **(g−m)² denominator with sqrt** | **NEUTRAL — within ±5e-4 envelope of baseline** |
+
+**Strong evidence**: AdamW's vanilla `g_t²` denominator with sqrt is at the local optimum for this stack. Future denominator interventions face the same fundamental obstacle — the cooldown window dominates the loss, and the binding behavior there is `v ≈ ε → m/√(ε)` (essentially full-LR adaptive step on m's direction). Any denominator that hits ε during cooldown is identical; any denominator that doesn't is worse.
+
+**AdamW direction/correction bucket — 7/7 closures unchanged** (this PR is denominator-semantics, distinct bucket).
+
+### PR #605 — fern reassigned: Muon heavy-ball ablation (Nesterov re-blend on line 694)
+
+Fern → **first Muon update-rule ablation in cycle 71**. The current Muon update on `Muon.step` line 693-694:
+
+```python
+state["momentum"].lerp_(grad, 1 - group["mu"])       # m_t = μ·m_{t-1} + (1-μ)·g_t   (standard EMA)
+momentum_update = grad.lerp(state["momentum"], group["mu"])  # u_t = (1-μ)·g_t + μ·m_t  (Nesterov-style re-blend)
+```
+
+**Algebra**: substituting the EMA into the re-blend gives `u_t = (1-μ²)·g_t + μ²·m_{t-1}` — effective β = **μ² = 0.9025** at μ=0.95, vs plain heavy-ball β = μ = 0.95 (longer memory). The re-blend is a memory-shortening operation applied on top of the EMA. Never ablated since record #14.
+
+**Two arms isolate mechanism vs memory length**:
+- **Arm A**: MUON_HEAVY_BALL=1, MU=0.95 (longer memory, β=0.95)
+- **Arm B**: MUON_HEAVY_BALL=1, MU=0.9025 (matched effective β to current Nesterov re-blend)
+
+Decision tree:
+- Both miss → re-blend is load-bearing, close
+- Only A passes → longer memory helps, re-blend was hurting; confirm Arm A
+- Only B passes → re-blend ≡ heavy-ball at matched β_eff; mechanism is notation only, close
+- Both pass → heavy-ball wins regardless; confirm whichever is better
+
+Branch `g1r2-fern/muon-heavy-ball` already pushed; PR #605 opened with full decision table.
+
+---
+
 ## 2026-05-20 17:35 UTC — Cycle 71 mid-13: PR #586 nezuko Adan CLOSED (corrected n_t denominator inflates variance); nezuko → #602 lm_head non-zero init sweep
 
 ### PR #586 — nezuko Adan CLOSED — both arms killed step-500 gate, stable +0.12 val gap

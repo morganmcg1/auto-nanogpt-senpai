@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-20 19:42 UTC — PR #569 fern AdaBelief CLOSED (Arm A β2=0.95 n=2 val=3.27270 ffs=3062.5 clear MISS; Arm B β2=0.99 n=2 val_mean=3.27037 ffs_mean=3025 NEUTRAL — fails val bar by +8.2e-5, indistinguishable population mean); denominator-semantics class on AdamW group likely closed (combined with #574 Sophia-G unit-mismatch); fern → #605 Muon heavy-ball ablation (Muon.step Nesterov re-blend pruning — effective β=μ²=0.9025 vs heavy-ball β=μ=0.95).**
 - **2026-05-20 17:35 UTC — PR #586 nezuko Adan CLOSED (both arms killed step-500 gate, stable +0.12 val gap; corrected n_t denominator inflates variance vs AdamW's g_t² at our LR/WD); 6/6 variance-reduction + 7/7 AdamW-direction-blend closures; nezuko → #602 lm_head non-zero init sweep (output-projection magnitude axis, never ablated; complements askeladd's input-embed winner).**
 - **2026-05-20 17:30 UTC — PR #576 thorfinn MARS CLOSED (both arms MISS, monotonic dose-response: γ=0.025 val=3.27478/ffs=3075, γ=0.1 val=3.27873/ffs=3150); thorfinn → #601 Muon explicit WD reintroduction (Muon-side fresh axis, never ablated since u/w-floor added).**
 - **2026-05-20 17:10 UTC — PR #574 edward Sophia-G CLOSED (Lion failure mode: 98% embed clip → degenerates to sign-m at our 1e-3 gradient scale); edward → #598 AdamW LR warmup (schedule-side gap).**
@@ -33,26 +34,27 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | #580 | tanjiro | AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance | Smokes A/B/control all ~3.97 @ 250 (gate passed); full runs not yet launched | TBD |
 | **#591** | **frieren** | **Orthogonal embed init: decorrelation dissection of askeladd magnitude win** | **Just assigned (#561 Lookahead CLOSED)** | **TBD (~3.7h n=1 both arms)** |
 | #587 | alphonse | β1 cooldown ramp: 0.8 → 0.99/0.95 across last 70% of training (cooldown_frac=0.7) | Arm A first attempt crashed step 725; retry running; cooldown window endorsed | TBD |
-| #569 | fern | AdaBelief: (g−m)² denominator (Zhuang 2020) | Arm A n=2 val=3.2716 ffs=3050 (MISS); Arm B β=0.99 running step 975 | TBD |
+| **#605** | **fern** | **Muon heavy-ball ablation — drop the Nesterov-style re-blend on line 694 (current effective β=μ²=0.9025 → heavy-ball β=μ=0.95). Two arms: (A) MUON_HEAVY_BALL=1 MU=0.95 longer memory; (B) MU=0.9025 matched effective β** | **Just assigned (#569 AdaBelief CLOSED — neutral on Arm B, denominator-class likely closed)** | **TBD (~3.7h n=1 both arms)** |
 
 ## Top merge candidates / watching closely
 
-1. **⭐ ASKELADD #541 Embed init std (n=2 confirm RUNNING)** — Arm B (EMBED_INIT_STD=0.1) at n=1 hits val=**3.26773** (−0.00256 vs baseline) AND ffs=**3000** (−25). Statsig n=1: 0.01227 ≥ 0.004. n=2 launched 16:19 UTC (run iygnlznr), ETA ~18:14 UTC. If n=2 holds val_mean ≤ 3.27717 AND ffs_mean ≤ 3025, MERGE-eligible. Non-monotonic curve: both std=0.5 and std=0.02 land near baseline (within 0.0002 of each other), only std=0.1 crosses bar.
-2. **FERN #569 AdaBelief** — Arm A β=0.95 n=2 MISS (val=3.2716, ffs=3050). Arm B β=0.99 running step 975 — denominator (g-m)² is the most theoretically motivated of the in-flight denominator changes.
-3. **THORFINN #601 Muon WD reintroduction (JUST ASSIGNED)** — first Muon-side experiment in the wave; tests whether u/w-floor is complete or whether mild explicit decoupled WD on top adds headroom. Two arms (wd=2.5e-3, 2.5e-2).
-4. **NEZUKO #602 lm_head non-zero init (JUST ASSIGNED)** — complements askeladd's input-embed-magnitude finding by testing output-projection magnitude. Two arms (std=0.02 GPT-2, std=0.1 matching askeladd). Cleanly orthogonal to in-flight axes; no prior PR has modified lm_head init.
+1. **⭐ ASKELADD #541 Embed init std (n=2 confirm — T0 PASSES BAR, T1 ~step 2500+)** — Arm B (EMBED_INIT_STD=0.1): T0 of n=2 confirm finished val=**3.268489** (−0.00180 vs baseline) AND ffs=**3000** (−25). T1 running tightly on T0 trajectory (val@2500=3.34599, gate passed). Statsig n=1: 0.01227 ≥ 0.004. If T1 lands val ≤ 3.27717 AND ffs ≤ 3025, MERGE-eligible. Non-monotonic curve: both std=0.5 and std=0.02 land near baseline (within 0.0002 of each other), only std=0.1 crosses bar. **HIGH likelihood of merge today.**
+2. **THORFINN #601 Muon WD reintroduction (Arm A in flight @ step 2550)** — Arm A (MUON_WEIGHT_DECAY=0.0025) running at step 2550, val=3.3467 (~baseline trajectory). Disabled-check (WD=0) confirmed sanity. Heartbeat-push posted (code on pod, not pushed — stale_wip risk).
+3. **NEZUKO #602 lm_head non-zero init (JUST ASSIGNED)** — complements askeladd's input-embed-magnitude finding by testing output-projection magnitude. Two arms (std=0.02 GPT-2, std=0.1 matching askeladd). Cleanly orthogonal to in-flight axes; no prior PR has modified lm_head init.
+4. **FERN #605 Muon heavy-ball ablation (JUST ASSIGNED)** — pruning ablation of the Nesterov-style re-blend on line 694. Algebra: `u_t = (1-μ)·g_t + μ·m_t` after EMA already computed expands to `u_t = (1-μ²)·g_t + μ²·m_{t-1}` → effective β = μ² = 0.9025 at μ=0.95 (shorter memory than plain heavy-ball β=μ=0.95). Never ablated since record #14. Two arms isolate mechanism vs memory length: Arm A (MU=0.95 longer memory) vs Arm B (MU=0.9025 matched effective β).
 
 ## Mechanism categories (cycle 71 active)
 
 - **Variance reduction / ffs floor attack** (6/6 closures — bucket exhausted with #586 Adan close): closure cluster includes COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586. No remaining in-flight arms on this axis.
-- **Muon-side regularization** (NEW — #601 thorfinn): explicit decoupled WD reintroduction; tests whether u/w-floor is complete (record #14 omitted explicit WD) or whether mild WD on top adds headroom. First Muon-side experiment in cycle 71.
+- **Muon-side regularization** (#601 thorfinn): explicit decoupled WD reintroduction; tests whether u/w-floor is complete (record #14 omitted explicit WD) or whether mild WD on top adds headroom. First Muon-side experiment in cycle 71.
+- **Muon update-rule pruning** (NEW — #605 fern): Muon Nesterov-style re-blend (line 694) ablation. Re-blend creates effective β=μ²=0.9025 vs plain heavy-ball β=μ=0.95 (memory-shortening). Two arms isolate mechanism (re-blend itself) vs memory length (μ value). Second Muon-side axis; orthogonal to #601 regularization axis.
 - **Output-projection magnitude** (NEW — #602 nezuko): lm_head non-zero init sweep — tests if zero-init is a "GPT-2 convention" that leaves headroom on the output side, complementary to askeladd's pending input-side winner.
 - **Gradient-magnitude control** (#580 tanjiro): AGC — per-tensor grad clipping by param/grad norm ratio (λ=0.01/0.1)
 - **Initialization sweep** (#541 askeladd + #591 frieren):
   - #541 askeladd EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}: Arm B (std=0.1) ⭐ **WINNER n=1** val=3.26773 ffs=3000, n=2 confirm in flight
   - #591 frieren ORTHO_EMBED_GAIN ∈ {0.1, 1.0}: orthogonal init isolates DECORRELATION effect vs MAGNITUDE effect (2×2 mechanism dissection with askeladd)
 - **EMA schedule** (#587 alphonse): β1 cooldown ramp (0.8 → 0.99 or 0.95) — increased averaging window in cooldown to compress ffs variance
-- **Denominator semantics** (#569 fern): AdaBelief (g−m)² — only remaining denominator variant in flight (Sophia-G #574 CLOSED via Lion failure mode at our gradient scale)
+- **Denominator semantics** (CLOSED — class likely exhausted): #569 AdaBelief Arm B neutral (val_mean=3.27037, +8.2e-5 over baseline); #574 Sophia-G FAIL (Lion mode at our gradient scale). 2/2 closures — AdamW group's vanilla `g_t²` denominator with sqrt appears to be at local optimum for this stack.
 - **Schedule envelope addition** (#598 edward): AdamW LR warmup 200/500 steps — only mechanism modifying time-domain LR shape; compounds with askeladd's early-step gradient-magnitude finding
 
 ## CLOSED cycle 71 (stack status known)
@@ -83,6 +85,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #569 | fern | AdaBelief CLOSED — Arm A β2=0.95 n=2 val=3.27270 ffs=3062.5 clear MISS; Arm B β2=0.99 n=2 val_mean=3.27037 (+8.2e-5 vs baseline 3.270288) ffs_mean=3025 (TIE) — NEUTRAL but fails strict val bar. Statsig PASS on neutral result (0.01362 ≥ 0.004 at n=2) — distinguishable from "worse than baseline" but not improvement. Mechanism saturation at β2=0.99: (g−m)² noise term ≈ ε during cooldown when m≈g, so pushing β2 higher won't change dynamics. Joins #574 Sophia-G in closing the denominator-semantics class on AdamW group. |
 | #586 | nezuko | Adan CLOSED — both arms killed at step-500 gate with stable +0.12 val gap (Arm A β1=0.02 val=3.82062; Arm B β1=0.10 val=3.81666). DC=0.77 vs DC=0.39 produced identical val curves → cost is corrected n_t denominator (variance ~0.85× larger than AdamW's g_t²), not v_hat blend. 7th AdamW direction/correction closure (Lion/Cautious/NAdamW/SF-AdamW/Sophia-G/MARS/Adan). |
 | #576 | thorfinn | MARS CLOSED — both arms MISS, monotonic dose-response (γ=0.025: val=3.27478 ffs=3075; γ=0.1: val=3.27873 ffs=3150). 4× more look-back strength → 2× more val regression, 2.5× more ffs regression. No interior γ-optimum exists. Adds to closed variance-reduction cluster (now 6/6: COOLDOWN_FRAC #495, SWA #524, SAM #573, Lookahead #561, MARS #576, Adan #586). |
 | #574 | edward | Sophia-G CLOSED — Lion failure mode confirmed via clip-fraction telemetry (98% embed elements hit clip cap → degenerates to ±lr·sign(m)). Unit-mismatch argument: at g~1e-3, m/h ratio ≈ 1e3 ≫ ρ=1.0 cap; no (lr, ρ) tuning rescues. 5th confirmed failure on AdamW-group direction-blend bucket. |
