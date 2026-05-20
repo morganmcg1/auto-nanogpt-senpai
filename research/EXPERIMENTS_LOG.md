@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 17:15 UTC — PR #560: Per-group AdamW β₂ asymmetric sweep (alphonse) — CLOSED productive-NULL/NEGATIVE
+
+- Branch: `g1r4-alphonse/aux-beta2-per-group`
+- Hypothesis: β₂=0.99 uniform across embed/lm_head/scalar AdamW (set by #236) may be suboptimal because the three groups have different gradient statistics: embed sparse rows (~30K of 50K updated per batch, high per-row variance), lm_head dense rows (every row every step), scalar (LayerNorm gains, low variance). Motivated by #474 AdaBelief and #516 Yogi closures — both failed via embed-sparsity pathology in *alternative* second-moment formulations; the natural untested question is whether the *standard* AdamW second-moment formula wants a different *time constant* per group.
+- Code: `NANOGPT_ADAMW_BETA2_EMBED` / `NANOGPT_ADAMW_BETA2_LM_HEAD` / `NANOGPT_ADAMW_BETA2_SCALAR` env vars; per-group `betas` patched after optimizer construction by matching `group["name"] in {"adam_embed", "adam_lm_head", "adam_scalars"}`.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27121−3.27174|=0.00053):**
+
+| Arm | β₂_embed | β₂_lm_head | β₂_scalar | val/loss | Δ vs A | first_step | W&B run |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A | 0.99 (ctrl) | 0.99 | 0.99 | **3.27121** | — (drift PASS) | 3225 | `dhlwmiaf` |
+| B | **0.95** | 0.99 | 0.99 | 3.27210 | +0.00089 (null) | 3225 | `g6kfcv6a` |
+| C | **0.999** | 0.99 | 0.99 | 3.27480 | **+0.00359 (regression)** | 3275 | `312jcl7b` |
+| D | 0.95 | **0.999** | 0.99 | 3.27218 | +0.00097 (null) | 3225 | `mwhb33bc` |
+
+**Analysis:**
+
+- **No arm beats merged baseline 3.27174 within-pod.** Arm C (β₂_embed=0.999, longer memory) is the only clear regression (Δ=+0.00359 > +0.0015 threshold); B and D sit indistinguishably in the null band.
+- **B vs C asymmetry is mechanistically informative.** Longer embed memory (β₂=0.999, half-life ~700 steps in a 3350-step run) is clearly harmful — v_t stays anchored to early-training gradient statistics for too long, underweighting recent gradient signal in late phases. Shorter embed memory (β₂=0.95, half-life ~14 steps) is null — the hypothesized sparse-row v_t reset benefit doesn't materialize.
+- **D ≈ B within ±0.0001** → lm_head β₂=0.999 has no measurable effect on top of shorter embed memory. Only embed β₂ matters and even that effect is essentially flat in the null direction.
+- **AdamW-internal axis family substantially exhausted on merged stack**: per-group β₂ joins #442 (magnitude transform, NEGATIVE), #474 (AdaBelief second-moment formulation, NEGATIVE), #516 (Yogi second-moment update rule, NEGATIVE), #490 (NAdam first-moment lookahead, NULL). The mechanistic hypothesis from #474/#516 — embed sparsity wants different time constant — is **disconfirmed**: embed sparse-row gradient statistics on this benchmark are well-served by the same β₂ as dense groups, at least in the 0.95–0.999 range.
+- **38th productive-null/negative this cycle.**
+
+**Compute summary**: 4 runs × ~1h44m each ≈ ~7h total wall time on RTX PRO 6000 Blackwell. Zero crashes, all 4 arms reached 3.28 target cleanly (best step counts 3225/3225/3275/3225).
+
+**Follow-up**: alphonse assigned **per-group AdamW β₁ time-constant sweep** — natural extension to first-moment time constant. Motivated by sparse-row update magnitude analysis: at β₁=0.8 with embed rows seen every ~50 steps, `0.8^50 ≈ 0` means sparse-row momentum effectively resets between visits, scaling step magnitude down vs dense groups by factor ~0.2. ADAMW_EMBED_LR_MULT=1.5 (merged #393) partially compensates via LR; per-group β₁ tests whether lowering β₁_embed restores sparse-row update magnitude more principally.
+
 ## 2026-05-20 16:15 UTC — PR #506: NS-iter warmup schedule (frieren) — CLOSED productive-NEGATIVE [paired-pod n=3]
 
 - Branch: `g1r4-frieren/ns-warmup`

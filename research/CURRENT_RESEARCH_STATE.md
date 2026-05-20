@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 16:15 UTC
+- **Date:** 2026-05-20 17:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -91,16 +91,21 @@ Monotone catastrophic worsening: A=3.27054, B=+0.01026 (frac=0.02), C=+0.01554 (
 Single-seed 4-arm (drift gate A PASS, |3.27226−3.27174|=0.00052): A=3.27226, B (2.0×, 3%)=−0.00080 (null), C (2.5×, 3%)=−0.00081 (null), D (2.0×, 6%)=+0.00035 (null). B/C plateau identically (boost magnitude saturates by 2.0×); D regresses (longer 6% window mildly worse). Best arm (C) Δ_vs_A=−0.00081 far short of pre-staged −0.002 paired-pod threshold; the n=1 stat-rule "baseline beat" is partly Arm-A drift artifact. `first_step_to_target` invariant across A/B/C=3225. **Bilateral closure with #489**: combined evidence establishes embed step-0 LR at 1.5× is bilaterally optimal — neither boosting (this PR) nor reducing (#489 NEGATIVE) the early embed LR yields actionable improvement. **31st productive-null/negative this cycle.**
 **Follow-up**: alphonse assigned **#560 Per-group AdamW β₂ asymmetric sweep** — fresh axis on second-moment time constant (per-group cut of uniform-β₂=0.99 merged setting); motivated by embed-sparsity insights from #474 AdaBelief and #516 Yogi closures.
 
-### 🔄 alphonse #560 — Per-group AdamW β₂ asymmetric sweep [assigned 09:30 UTC]
+### ✅ alphonse #560 — Per-group AdamW β₂ asymmetric sweep — CLOSED 17:15 UTC productive-NULL/NEGATIVE
 
-**Branch:** `g1r4-alphonse/aux-beta2-per-group`
-**Hypothesis**: β₂=0.99 was set uniformly across embed/lm_head/scalar AdamW groups (#236). Embed (sparse rows, ~30K of 50K updated per batch, high per-row variance) has very different second-moment dynamics than lm_head (dense, every row every step) and scalar (LayerNorm gains/biases, low variance, small param count). Per-group β₂ has never been tested. Motivated by #474 AdaBelief and #516 Yogi closures — both showed embed sparsity creates pathological dynamics with alternative second-moment formulations; the natural untested question is whether standard AdamW's second-moment formula wants a different *time constant* per group. Structurally distinct from #236 (uniform sweep, MERGED), #474 (replaces formula), #516 (replaces formula), #490 (first-moment lookahead), #442 (magnitude transform).
-| Arm | β₂_embed | β₂_lm_head | β₂_scalar | Hypothesis |
-|---|---:|---:|---:|---|
-| A | 0.99 (control) | 0.99 | 0.99 | Reproduces merged baseline |
-| B | **0.95** | 0.99 | 0.99 | Shorter embed memory (sparse-row v_t reset between visits) |
-| C | **0.999** | 0.99 | 0.99 | Longer embed memory (longer-window v_t averaging) |
-| D | 0.95 | **0.999** | 0.99 | Combined: embed short + lm_head long |
+Single-seed 4-arm (drift gate A PASS, |3.27121−3.27174|=0.00053): A=3.27121, B (β₂_embed=0.95)=+0.00089 (null), C (β₂_embed=0.999)=+0.00359 (regression), D (B + β₂_lm_head=0.999)=+0.00097 (null). No arm beats merged baseline within-pod. Longer embed memory clearly harmful (v_t anchors to early-training stats for ~700-step half-life in 3350-step run); shorter embed memory null (hypothesized sparse-row v_t reset benefit doesn't materialize). D ≈ B within ±0.0001 — lm_head β₂=0.999 inert. **AdamW-internal axis family substantially exhausted**: per-group β₂ joins #442 (magnitude), #474 (AdaBelief formulation), #516 (Yogi update rule), #490 (NAdam first-moment lookahead) as closed. Embed sparse-row gradient statistics on this benchmark are well-served by uniform β₂=0.99 in the 0.95–0.999 range. **38th productive-null/negative this cycle.**
+**Follow-up**: alphonse assigned **per-group AdamW β₁ time-constant sweep** — first-moment time constant, structurally distinct from this PR's second-moment axis. Mechanism: at β₁=0.8 with sparse embed rows, momentum decays to near-zero between visits (`0.8^50 ≈ 0`), effectively scaling sparse-row step magnitude down by ~0.2 vs dense groups; ADAMW_EMBED_LR_MULT=1.5 partially compensates via LR; lowering β₁_embed tests whether it's a more principled magnitude restorer.
+
+### 🔄 alphonse #XXX — Per-group AdamW β₁ time-constant sweep [assigned 17:15 UTC — pending PR creation]
+
+**Branch:** `g1r4-alphonse/adamw-beta1-per-group`
+**Hypothesis**: β₁=0.8 uniform across embed/lm_head/scalar (`betas=(0.8, β₂)` hardcoded at line 844). For sparse embed rows seen every ~50 steps, momentum decays `0.8^50 ≈ 1.4e-5` between visits — so m_t at the second visit ≈ `0.2 · g_visit2`, effectively 5× smaller than a dense-group update. Lower β₁_embed restores full sparse-row update magnitude (β₁=0.0 → `m_t = g_visit`, 5× larger than current); higher β₁_embed extends momentum across visits. Untested. Mechanistic complement to #560 (second-moment time constant — disconfirmed) on the first-moment axis.
+| Arm | β₁_embed | β₁_lm_head | β₁_scalar | Effective step magnitude on sparse row | Hypothesis |
+|---|---:|---:|---:|---|---|
+| A | 0.80 (ctrl) | 0.80 | 0.80 | ~0.2·g (current) | Reproduces merged baseline |
+| B | **0.50** | 0.80 | 0.80 | ~0.5·g (2.5× boost) | Less smoothing, larger sparse-row updates |
+| C | **0.00** | 0.80 | 0.80 | 1.0·g (5× boost) | No momentum — direct gradient step on each visit |
+| D | **0.90** | 0.80 | 0.80 | ~0.1·g (0.5× of A) | More smoothing — extend momentum across visits (opposite direction) |
 **ETA full chain:** ~7.3h.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
@@ -264,7 +269,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**37 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**38 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -279,7 +284,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 3. ~~Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear?~~ **#547 CLOSED productive-NULL** — lm_head wants monotonic linear; late_peak doesn't cross-axis transfer from NS.
 4. Does Muon WD reduction during cooldown extract precision-window gain? (**#550, edward — N=1 Arm D WD=0 Δ=−0.00337 strong winner candidate; sent back for paired-pod n=3 confirmation, identical protocol to #487; non-linear axis response (only WD=0 extracts gain) is structurally novel; either fresh merge candidate or 5th single-seed→paired-pod collapse**)
 5. ~~Does adding small WD on AdamW embed during cooldown help?~~ **#554 CLOSED productive-NEGATIVE** — clean monotone regression; embed group rejects added WD during cooldown; bilateral asymmetry with #550 (body benefits from REDUCED WD, embed rejects ADDED WD).
-6. Does per-group AdamW β₂ asymmetry extract per-group second-moment time-constant gains? (#560, alphonse — fresh axis motivated by #474/#516 embed-sparsity insights)
+6. ~~Does per-group AdamW β₂ asymmetry extract per-group second-moment time-constant gains?~~ **#560 CLOSED productive-NULL/NEGATIVE** — embed β₂=0.999 regression (+0.00359), β₂=0.95 null (+0.00089), D inert; AdamW-internal axis family substantially exhausted.
 7. Does per-group cooldown WINDOW LENGTH asymmetry around 0.70 baseline extract gains? (#568, nezuko — fresh structural axis paralleling SHAPE work)
 8. Is the *entire* NS-cooldown sub-stack jointly load-bearing even though each component is individually redundant? (#487 follow-up, tanjiro — joint-pruning ablation, structurally novel compound subtraction)
 
@@ -298,6 +303,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #560 | alphonse | Per-group AdamW β₂ asymmetric sweep (embed/lm_head decoupling) | CLOSED productive-NULL/NEGATIVE (B=+0.00089 null, C β₂_embed=0.999=+0.00359 regression, D inert; AdamW-internal family exhausted; 38th this cycle) |
 | #483 | thorfinn | Muon WD warmup frac∈{0.05,0.10,0.20} | CLOSED productive-NEGATIVE (monotone: +0.00080/+0.00258/+0.00400; body WD=0.025 is load-bearing from step 0; bilateral WD-level closure) |
 | #474 | edward | AdaBelief aux scope sweep | CLOSED productive-NEGATIVE (B=+0.041/D=+0.035 catastrophic embed sparsity; C=+0.002 mild; second-moment-formulation axis closed) |
 | #477 | fern | OrthoGrad aux scope sweep | CLOSED productive-null (D=−0.00080 short of −0.002; non-monotonic: singles regress, combined recovers; aux groups coupled system) |
@@ -320,7 +326,9 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 ## Closed axes (do not re-assign)
 
 **Optimizer-internal / Adam-family**:
-- β₁, β₂, ε per-group: all swept, β₁=0.80/β₂=0.99/ε=1e-10 confirmed
+- β₁ per-group: in-flight (alphonse follow-up to #560)
+- β₂ per-group asymmetry (embed swept 0.95/0.999, lm_head 0.999): CLOSED productive-NULL/NEGATIVE (#560; embed β₂=0.999 +0.00359 regression, β₂=0.95 +0.00089 null, D inert; AdamW-internal family substantially exhausted)
+- ε per-group: all swept, β₂=0.99/ε=1e-10 confirmed
 - WD per-group: all harmful, axis closed
 - Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC, OrthoGrad: all closed
 - AdaBelief variance-of-prediction-error second moment: CLOSED productive-NEGATIVE (#474; embed sparsity pathology; `(g−m)²` fails on absent-row sparse groups)
