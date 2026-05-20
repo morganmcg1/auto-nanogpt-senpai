@@ -26,6 +26,7 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
 PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+PMUON_MU = 0.97    # Body-Muon momentum EMA horizon (PR #570 scan; baseline=0.95). Arm A=0.90 (~10 steps), Arm B=0.97 (~33 steps).
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -522,7 +523,7 @@ def pmuon_update(
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=PMUON_MU, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -695,6 +696,7 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
+            "pmuon_mu": PMUON_MU,
             "ns_iterations": NS_ITERS,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
@@ -919,6 +921,7 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "pmuon/mu": PMUON_MU,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
