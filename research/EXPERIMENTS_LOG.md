@@ -1,3 +1,50 @@
+## 2026-05-20 16:50 UTC — PR #597 ASSIGNED (fern): H31 MuLoCo outer Nesterov pruning ablation — is the Nesterov velocity amplifier load-bearing?
+
+- Branch: `g1r3-fern/outer-nesterov-pruning`
+- Hypothesis: The outer optimizer's Nesterov lookahead (`update = lr · (g + β·m)`) introduces a velocity amplifier `(1 + β/(1−β)) = 2×` at β=0.5. PR #536 (nezuko) established "momentum is load-bearing" (mom=0 catastrophic); PR #563 (nezuko) established "moderate momentum uniquely optimal" (β→0.9 catastrophic). But neither tested FORMULATION vs MAGNITUDE — holding β=0.5 fixed and replacing Nesterov with vanilla SGD-momentum (`update = lr · m`). This pruning ablation tests whether the PR #563 velocity-amplifier mental model is mechanistically correct or incidental.
+- Two arms: ctrl (Nesterov on), arm 2 (vanilla SGD-momentum, Nesterov off).
+- Three informative outcomes: win → Nesterov was hurting; match → Nesterov redundant, can simplify stack; NEG → Nesterov velocity amplifier IS load-bearing, refines PR #563 finding.
+- ~10 LoC. Fused-safe (outer MuLoCo only). Directly aligned with launch directive on pruning ablations.
+
+---
+
+## 2026-05-20 16:50 UTC — PR #567 CLOSED (fern): H22 AdEMAMix on aux — NEG, horizon-saturation structural mismatch
+
+- Branch: `g1r3-fern/aux-ademamix`
+- Hypothesis: Short-β1=0.8 aux AdamW (half-life ~3 steps) creates short-horizon first moment. Adding a slow EMA m_2 with β3=0.9999 (half-life ~7000 steps, Pagliardini EMNLP 2024) would complement the short m_1 with long-horizon gradient signal. AdEMAMix update: `(m_1 + α·m_2) / (√v + eps)`.
+
+### Results (3325 steps each)
+
+| Arm | run_id | val/loss | ffs | reached_target | Δ vs ctrl | Δ vs baseline |
+|---|---|---:|---:|---|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | yes | — | — |
+| Arm 1 ctrl | `xqmqsxba` | **3.27228** | 3125 | yes | — | +0.00109 |
+| Arm 2 α=5, β3=0.9999, warm=30% | `k0psv3oo` | **3.27269** | 3125 | yes | +0.00041 | +0.00150 |
+| Arm 3 α=8, β3=0.9999, warm=30% | `xrh0qfrf` | **3.27541** | 3175 | yes | +0.00313 | +0.00422 |
+| Smoke 200 steps | `v55lvh4b` | — | — | — | — | — |
+
+- Arm 2 (α=5) noise-neutral vs ctrl (Δ=+0.00041, well inside σ≈0.001) — AdEMAMix not providing additive gain.
+- Arm 3 (α=8) mild regression (+0.00313) — unwarmed m_2 carries bias, scaling up hurts.
+- No arm cleared n=1 merge bar 3.27039.
+
+### Key diagnostic (fern-original telemetry)
+
+`m2_fill_fraction ≈ 0.283 = 1 − 0.9999^3325` — m_2 reaches only **28% of its limiting value** by end of training. The slow EMA never saturates; β3=0.9999 assumes a ~30000-step horizon, we have 3325 steps.
+
+### Mechanism finding (sharper than original hypothesis)
+
+> **AdEMAMix is a HORIZON-CALIBRATED technique. At β3=0.9999, the assumed horizon is ≥ 30000 steps. On our 3325-step speedrun, m_2 spends the entire run warming up, contributing a small-magnitude noisy gradient signal rather than a mature long-horizon direction.**
+
+**Generalizable rule**: Any optimizer mechanism with a hyperparameter calibrated by training-horizon length (β3 in AdEMAMix, long-EMA half-life in SF-AdamW, slow-VR weight in MARS, etc.) must have that hyperparameter renormalized to our 3325-step horizon BEFORE the result is read as "method failed on this stack". Otherwise we're testing horizon mismatch, not the mechanism.
+
+**Why β3-sweep follow-up is not pursued**: launch directive emphasizes fresh mechanisms, not scalar HP search to rescue a NEG. β3=0.999 (fern's suggestion #1) would fix the horizon mismatch but remains HP tuning of an already-NEG method. Fern reassigned to H31 outer Nesterov pruning ablation (PR #597).
+
+### Disposition
+
+NEG. AdEMAMix code change merged-as-is (additive at default off). Fern reassigned to PR #597.
+
+---
+
 ## 2026-05-20 16:28 UTC — PR #595 ASSIGNED (nezuko): H29 AGC pruning ablation — is Adaptive Gradient Clipping load-bearing on aux and/or muonh inner sides?
 
 - Branch: `g1r3-nezuko/agc-pruning-ablation`
