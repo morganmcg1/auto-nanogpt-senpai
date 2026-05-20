@@ -36,6 +36,8 @@ NS_B = -0.5
 NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
+# PR #513: Body-Muon raw-gradient clipping (pre-EMA damping). Arm A=1.0, Arm B=0.5; baseline=no clip.
+BODY_CLIP_NORM = 0.5
 
 
 def parse_args():
@@ -704,6 +706,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "body_clip_norm": BODY_CLIP_NORM,
         },
     )
 
@@ -739,7 +742,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
+    body_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    optimizer2 = Muon(body_params,
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
@@ -879,6 +883,18 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #513: Body-Muon raw-gradient clipping (pre-EMA damping). All ranks compute and clip;
+        # rank 0 logs per-step diagnostics so we can verify the clip fired at expected frequency.
+        body_grad_norm_pre = torch.nn.utils.clip_grad_norm_(body_params, max_norm=BODY_CLIP_NORM)
+        if dist.get_rank() == 0:
+            body_norm_val = body_grad_norm_pre.item()
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "body/grad_norm_pre_clip": body_norm_val,
+                "body/grad_clip_threshold": BODY_CLIP_NORM,
+                "body/grad_clipped": int(body_norm_val > BODY_CLIP_NORM),
+            }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
