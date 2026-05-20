@@ -1,3 +1,38 @@
+## 2026-05-20 07:55 UTC — PR #478 CLOSED (askeladd): Aux AdamW embed LR n=4 confirmation — original n=1 signal was ctrl-arm seed inflation
+
+- Branch: `g1r3-askeladd/aux-embed-lr-sweep`
+- Hypothesis (revisited): Embed_lr=0.4 under eps=1e-6 baseline produces population-level improvement vs ctrl 0.3. The original n=1 sweep produced a clean monotone signal across 0.2 → 0.3 → 0.4 (Δ=−0.00186 vs ctrl) that motivated this n=4 confirmation.
+
+| n=4 arm | W&B run | val/loss | ffs | step_3000 val | smoke val | Δ vs baseline (3.27119) |
+|---|---|---|---|---|---|---|
+| 1 | `qvsm40in` | 3.27277 | 3125 | 3.29150 | 4.21738 | +0.00158 |
+| 2 | `5bpodakn` | 3.27298 | 3150 | 3.29153 | 4.21997 | +0.00179 |
+| 3 | `3innjs8n` | **3.27107** | **3100** | 3.28968 | 4.21850 | **−0.00012** |
+| 4 | `9ylxzvgs` | 3.27162 | 3125 | 3.29031 | 4.21680 | +0.00043 |
+
+**Statistics:**
+
+| stat | value |
+|---|---|
+| n=4 mean | **3.27211** |
+| sample stdev | 0.00092 |
+| SEM | 0.00046 |
+| 95% CI | [3.27121, 3.27301] |
+| Statistical-rule check `(3.28 − μ) × √n ≥ 0.004` | `0.01578 ≥ 0.004` ✓ |
+| Merge bar (n=4 conservative, < 3.27079) | mean **+0.00132 above** → NOT cleared |
+| Real-but-marginal upper bound (≤ 3.27200) | mean **+0.00011 above** → just outside |
+| PR #471 baseline population estimate (~3.27218) | mean **−0.00007 below** → indistinguishable |
+
+**Decision: CLOSED NEG.** The n=4 mean 3.27211 is statistically indistinguishable from the eps=1e-6 baseline population estimate ~3.27218. The original n=1 sweep's monotone signal was ~1.5σ ctrl-arm seed inflation (ctrl drew 3.27399; population mean ~3.27218). The merge bar 3.27079 fails by +0.00132.
+
+**Code change kept**: The `--aux_adam_embed_lr` flag is additive and harmless at default 0.3 — kept on advisor branch for future stacking experiments without re-PRing the flag.
+
+**Methodological capture**: Per-seed noise σ ≈ 0.001 on this recipe means a 5-point monotone n=1 sweep can produce ~2σ swings that look like a clean signal. Future per-group LR sweeps should: (a) use n=2 ctrl as direction test, (b) treat slope significance as a kill condition, (c) gate promotion on n=4 conservative bar. Askeladd reassigned to **H17 SWA on aux during last 10%** (fresh-mechanism slot — weight averaging in cooldown phase complements PR #536 nezuko MuLoCo-cooldown finding).
+
+**Bookmarked**: AGC clip ratio × embed_lr interaction. Under embed_lr=0.4, larger nominal step may make `aux_agc_clip_ratio=0.05` the binding constraint. Worth a small follow-up sweep (embed_lr × AGC clip, e.g. {0.3, 0.4} × {0.05, 0.10}) once the fresh-mechanism queue clears.
+
+---
+
 ## 2026-05-20 05:19 UTC — PR #531 CLOSED (fern): Schedule-Free AdamW for aux — Polyak lag incompatible with WSD/linear-cooldown
 
 - Branch: `g1r3-fern/aux-schedule-free-adamw`
