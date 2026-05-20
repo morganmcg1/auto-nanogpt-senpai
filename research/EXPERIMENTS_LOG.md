@@ -1,3 +1,23 @@
+## 2026-05-20 05:19 UTC — PR #531 CLOSED (fern): Schedule-Free AdamW for aux — Polyak lag incompatible with WSD/linear-cooldown
+
+- Branch: `g1r3-fern/aux-schedule-free-adamw`
+- Hypothesis: Replace aux AdamW + linear cooldown with SF-AdamW (Defazio et al NeurIPS 2024). SF maintains trajectory Polyak-Ruppert average `x` and evaluates at `x` instead of final iterate `y`. Avoids explicit cooldown. Applied only to aux groups (not MuonH inner) to sidestep PR #265's WSD×SF incompatibility.
+
+| Arm | Config | W&B run | val/loss @step | Δ vs AdamW ctrl |
+|---|---|---|---|---|
+| ctrl | Standard AdamW (full 3325) | `jqnpnzf7` | 3.27344 @3325 | (ref) |
+| 2 SF | r=0, weight_lr_power=2 | `z13vk5l6` | 3.856 @625 (killed) | +0.026 @step 625 |
+
+**Result**: SF arm 2 killed at step 612 due to smoke gate failure (val 4.29 at step 250 vs band 4.16-4.22). After extended analysis, student confirmed gap closing trend: 0.075 → 0.046 → 0.025 → 0.026. Extrapolated endpoint: 3.278–3.288 (solidly NEG).
+
+**Decision: CLOSED NEG.** Mechanism explanation: Polyak-Ruppert averaging evaluates at trajectory mean (≈z@step∼175 at step 250), which is behind the final iterate in a still-descending trajectory. Gap closes asymptotically but for finite 3325-step training, gap ≈ 0.005-0.015 above AdamW ctrl.
+
+**Key finding**: SF-methods are categorically incompatible with our WSD/linear-cooldown stack. Combined with PR #265 (SF-MuonH NEG), both aux-only and inner-MuonH SF fail for the same structural reason: WSD targets a final iterate but SF evaluates at the trajectory mean. Any future SF-flavor requires removing the cooldown entirely.
+
+**Additional finding**: My smoke gate band [4.16, 4.22] was calibrated for AdamW's `y` trajectory, not for SF's averaged `x` trajectory. Band should have been [4.25, 4.35] for SF.
+
+---
+
 ## 2026-05-19 21:50 UTC — PR #484 CLOSED (frieren): Aux AdamW cooldown_frac sweep — axis SATURATED at 0.4
 
 - Branch: `g1r3-frieren/aux-cooldown-frac-sweep`
