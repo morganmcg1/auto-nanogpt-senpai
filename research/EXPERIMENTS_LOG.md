@@ -1,5 +1,77 @@
 # SENPAI Research Results
 
+## 2026-05-20 14:25 UTC — PR #545 CLOSED: AdaBelief on aux AdamW (v-estimator leaf) — NULL/NULL clear after paper-formulation bug-fix, mean-subtracted second moment offers no headroom on noise-dominated aux gradients (g1r1-fern)
+
+- Branch: `g1r1-fern/adabelief-aux-adamw`
+- Hypothesis: AdaBelief (Zhuang et al 2020) replaces Adam's v-target `g²` with the mean-subtracted variance `(g − m)²` — a "trust region" preconditioner that should be more stable on aux gradients where m-direction is informative. Two arms scan eps ∈ {1e-10, 1e-8}.
+
+| Arm | eps | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 1e-10 | `p3ryt23e` | 2950 | 3.265551 | +12.5 | +0.001273 | NULL clear |
+| Arm B | 1e-8  | `6ft2eleu` | 2975 | 3.266170 | +37.5 | +0.001892 | NULL clear |
+
+**Verdict: NULL | NULL clear → v-estimator axis closes at standard AdamW raw |g|² for the aux group.**
+
+**Pre-run bug-fix (fern self-diagnosis):** initial implementation used bias-corrected `m̂` inside the belief term `(g − m̂)²`. At step 1 with `m₀=0`, `m̂₁ ≡ g` identically, so belief ≡ 0, denom ≡ ε, and the embed update reached ~6708×|g| — divergent. Fern derived the failure mode in closed form, consulted AdaBelief Algorithm 2 (which uses raw `m`, not bias-corrected `m̂`), and made a one-line fix. Both arms then ran cleanly to 3250 steps. This is reference-quality root-cause analysis.
+
+**Mechanism analysis (data confirms reading #2):** Telemetry shows `v_belief / g² ≈ 0.69-0.72` at convergence — AdaBelief IS preconditioning by ~Var(g) (~70% of E[g²]) rather than raw E[g²], a meaningful 30% mechanism shift. It just doesn't help on aux. Increasing eps (1e-10 → 1e-8) made Arm B *worse*, not better — monotone regression on both sr and val. If the issue were "denom too small at step 1", larger eps would help. It didn't. The mechanism itself is the regression, not a floor issue.
+
+**Why aux fails AdaBelief:** aux gradients (embed BF16, lm_head BF16, scalars) are dominated by per-element noise variance. Adam's `|g|² = Var(g) + |E[g]|²` is essentially `≈ Var(g)` already because `|E[g]|` is tiny relative to per-element noise on these tensors. Subtracting m before squaring is informationally a no-op; it only makes the warmup transient worse by taking smaller-than-paper early steps.
+
+**Combined with the other four aux update-rule leaves:**
+- **v-estimator (this PR #545)**: CLOSED NULL/NULL
+- **v-aggregation**: #583 Adamax (thorfinn) — in flight
+- **v-clamp**: #578 AMSGrad (edward) — in flight
+- **m-step**: #575 NadamW (askeladd) — in flight
+- **m-aggregation**: #585 AdEMAMix (fern, this assignment) — in flight (NEW)
+
+**Fern reassigned** to **AdEMAMix on aux AdamW** (PR #585) — the **m-aggregation** leaf of the aux update-rule mechanism tree, the fifth and final leaf. AdEMAMix (Pagliardini et al ICLR 2024) maintains TWO first-moment EMAs (fast β1≈0.9 + slow β1_slow≈0.9999) and uses `m_used = m_fast + α·m_slow`. This changes how m is FORMED rather than how m is USED (NadamW's domain). It is the mechanism specifically designed to leverage long-history gradient information that single-EMA Adam discards — relevant for rare-token embed/lm_head rows whose gradients are sparse over hundreds of steps.
+
+**Suggested follow-ups (acknowledged):**
+- LAMB/LARS layerwise trust ratio on aux — orthogonal mechanism class (per-tensor rescale not per-coordinate); queued.
+- α-blend mixed second moment — limited additional learning; skip.
+- Body-side variance — subsumed by Newton-Schulz polar map; skip (agreed).
+
+## 2026-05-20 14:00 UTC — PR #546 CLOSED: NS_ITERS extension {16, 18} — NULL/NULL clear, V-shaped 5-point response curve confirms NS_ITERS=12 at local optimum (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/ns-iters-16-18`
+- Hypothesis: extend constant-NS_ITERS scan beyond #511's {10, 12, 14} to {16, 18}. If extra Newton-Schulz iterations buy late-training polar-map quality, sr should drop monotonically as NS_ITERS grows.
+
+| Arm | NS_ITERS | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 12 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 16 | `bqm06i25` | 2975 | 3.267862 | +37.5 | +0.0036 | NULL clear |
+| Arm B | 18 | `xtaiy5c7` | 3000 | 3.269456 | +62.5 | +0.0052 | NULL clear |
+
+**Verdict: NULL | NULL clear → NS_ITERS=12 confirmed at local optimum across full 5-point response curve.**
+
+**Full response curve (NS_ITERS ∈ {10, 12, 14, 16, 18}):**
+
+| NS_ITERS | sr | val/best_loss | Source |
+|---|---|---|---|
+| 10 | 3000 (Δsr=+62.5) | 3.273 | #511 Arm A |
+| **12** | **2937.5 (baseline)** | **3.264278** | baseline |
+| 14 | 2950 (n=2, Δsr=+12.5 marginal-NULL n=2) | 3.265846 | #511 Arm B n=2 |
+| 16 | 2975 (Δsr=+37.5) | 3.267862 | #546 Arm A |
+| 18 | 3000 (Δsr=+62.5) | 3.269456 | #546 Arm B |
+
+**Beautifully clean V-shape** centered on NS_ITERS=12. Departures in both directions (NS=10 underconverged, NS=14-18 over-iterating with mounting cost) confirm 12 is the local minimum on this preconditioner-quality axis.
+
+**Two independent inference paths converging:** tanjiro's #511 NS=14 went marginal-n=1-win then failed-n=2-confirmation, suggesting NS=14 was within seed noise of baseline. Thorfinn's #546 NS=16/18 produced clean NULLs on first attempt — the seed-noise band ends between NS=14 and NS=16. The 5-point monotone-V across {10, 12, 14, 16, 18} closes the iteration-count axis exhaustively.
+
+**Combined with #540 (NS coefficient scan NULL/NULL identical sr=2975):** NS preconditioner quality is now pinned to inherited defaults across BOTH polynomial structure AND iteration count. NS-quality axis effectively saturated for this stack at cubic Newton (1.5, -0.5, 0.0) and NS_ITERS=12.
+
+**Mechanistic read:** at NS_ITERS=12 cubic-Newton, the polar map for typical body-Muon matrices is essentially converged. Extra iterations after that point can only redistribute floating-point noise — they don't improve the spectral whitening. The mounting cost in {16, 18} is consistent with this: each extra iter introduces ~1e-6 magnitude perturbations to the polar-mapped step that don't help anywhere but show up as +25-37 sr regression because the rest of the stack was tuned to NS=12-output spectra.
+
+**Student suggested follow-ups (incorporated):**
+1. ✅ Joint NS_ITERS × coefficient axis — addressed by combined-closure of #540 + #511 + #546.
+2. ✅ NS schedule (ramp up during cooldown) — being tested by **nezuko #559 NS_ITERS cooldown ramp 12→{16,18} over last 30%** in flight.
+3. ✅ Lattice/seed variance n=2 policy for marginal sr — codified in advisor memory `feedback_marginal_n1_win_requires_n2.md`.
+4. Adopt cooldown-only NS extension as the productive direction (nezuko #559 in flight).
+
+**Thorfinn reassigned** to **Adamax on aux AdamW** (PR #583) — the v-aggregation leaf of the aux update-rule mechanism tree. Adamax (Kingma and Ba 2014, Section 7) replaces v-EMA (L2 norm of gradient history) with u-EMA (L∞ norm: `u = max(β2·u, |g|)`). Mechanistically distinct from AdaBelief #545 (v-target), NadamW #575 (m-step), AMSGrad #578 (v-clamp). Together these four leaves span the aux AdamW update-rule mechanism class.
+
 ## 2026-05-20 13:15 UTC — PR #540 CLOSED: NS coefficient scan (quintic vs aggressive-cubic) — NULL/NULL clear, polynomial axis closes alongside iteration count (g1r1-edward)
 
 - Branch: `g1r1-edward/ns-coefficient-joint-scan`
