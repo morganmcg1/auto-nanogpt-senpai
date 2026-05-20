@@ -52,11 +52,18 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--wd_schedule", default=os.environ.get("WD_SCHEDULE", "constant"),
+                        choices=["constant", "warmup", "cooldown"],
+                        help="Body-Muon WD temporal schedule: constant (baseline), warmup (0->base over first 25%), or cooldown (base->0 over last 25%)")
+    parser.add_argument("--wd_schedule_frac", type=float, default=float(os.environ.get("WD_SCHEDULE_FRAC", "0.25")),
+                        help="Fraction of total_steps used for WD warmup/cooldown ramp")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if not 0.0 < args.wd_schedule_frac <= 1.0:
+        raise ValueError("--wd_schedule_frac must be in (0, 1]")
     return args
 
 
@@ -704,6 +711,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "body_wd_schedule": args.wd_schedule,
+            "body_wd_schedule_frac": args.wd_schedule_frac,
+            "body_wd_base": 0.025,
         },
     )
 
@@ -764,6 +774,26 @@ for trial_idx in range(args.num_trials):
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
         return progress, cooldown_progress, eta
+
+    # Body-Muon WD temporal schedule (PR #503).
+    # Holds constant by default; "warmup" ramps 0 -> base over first `frac` of training;
+    # "cooldown" ramps base -> 0 over last `frac` of training. Partition-uniform across body groups.
+    body_wd_base = 0.025
+
+    def body_wd_schedule(step, schedule=args.wd_schedule, frac=args.wd_schedule_frac):
+        if schedule == "warmup":
+            warmup_steps = int(train_steps * frac)
+            if warmup_steps > 0 and step < warmup_steps:
+                return body_wd_base * (step / warmup_steps)
+            return body_wd_base
+        if schedule == "cooldown":
+            cooldown_start = int(train_steps * (1.0 - frac))
+            if step > cooldown_start:
+                denom = max(1, train_steps - cooldown_start)
+                cd_progress = (step - cooldown_start) / denom
+                return body_wd_base * max(0.0, 1.0 - cd_progress)
+            return body_wd_base
+        return body_wd_base
 
 
     ########################################
@@ -853,6 +883,10 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # apply body-Muon WD temporal schedule (PR #503): uniform across all body groups
+        current_body_wd = body_wd_schedule(step)
+        for pg in optimizer2.param_groups:
+            pg["weight_decay"] = current_body_wd
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -860,6 +894,12 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "body/wd": current_body_wd,
+                "body/wd_schedule_progress": step / train_steps,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
