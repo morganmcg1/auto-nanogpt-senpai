@@ -71,6 +71,10 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_lookahead_k", type=int, default=int(os.environ.get("AUX_LOOKAHEAD_K", "0")),
+                        help="Lookahead k (slow-update frequency) for aux AdamW. 0 disables Lookahead.")
+    parser.add_argument("--aux_lookahead_alpha", type=float, default=float(os.environ.get("AUX_LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead alpha (slow-weight blend factor in [0, 1]).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +673,70 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class LookaheadWrapper:
+    """Wraps an inner optimizer with Lookahead (Zhang et al., NeurIPS 2019).
+
+    Every ``k`` inner ``step()`` calls, slow weights phi are updated:
+        phi <- alpha * theta + (1 - alpha) * phi
+        theta <- phi
+    so fast weights theta are snapped back onto the interpolated slow point.
+    """
+    def __init__(self, inner_optimizer, k=5, alpha=0.5):
+        self.inner = inner_optimizer
+        self.k = k
+        self.alpha = alpha
+        self._step_count = 0
+        self._slow = {}
+        for group in self.inner.param_groups:
+            for p in group["params"]:
+                self._slow[id(p)] = p.data.detach().clone()
+
+    @property
+    def param_groups(self):
+        return self.inner.param_groups
+
+    @property
+    def state(self):
+        return self.inner.state
+
+    @property
+    def defaults(self):
+        return self.inner.defaults
+
+    def zero_grad(self, *args, **kwargs):
+        return self.inner.zero_grad(*args, **kwargs)
+
+    def step(self, *args, **kwargs):
+        loss = self.inner.step(*args, **kwargs)
+        self._step_count += 1
+        if self._step_count % self.k == 0:
+            with torch.no_grad():
+                for group in self.inner.param_groups:
+                    for p in group["params"]:
+                        slow = self._slow[id(p)]
+                        slow.mul_(1.0 - self.alpha).add_(p.data, alpha=self.alpha)
+                        p.data.copy_(slow)
+        return loss
+
+    def state_dict(self):
+        return {
+            "inner": self.inner.state_dict(),
+            "step_count": self._step_count,
+            "k": self.k,
+            "alpha": self.alpha,
+            "slow": {key: tensor.detach().clone() for key, tensor in self._slow.items()},
+        }
+
+    def load_state_dict(self, state):
+        self.inner.load_state_dict(state["inner"])
+        self._step_count = state["step_count"]
+        self.k = state["k"]
+        self.alpha = state["alpha"]
+        for key, tensor in state["slow"].items():
+            if key in self._slow:
+                self._slow[key].copy_(tensor)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -766,6 +834,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_lookahead_k": args.aux_lookahead_k,
+            "aux_lookahead_alpha": args.aux_lookahead_alpha,
         },
     )
 
@@ -816,6 +886,13 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    if args.aux_lookahead_k > 0:
+        optimizer1 = LookaheadWrapper(
+            optimizer1, k=args.aux_lookahead_k, alpha=args.aux_lookahead_alpha,
+        )
+        print0(f"Lookahead ENABLED on aux AdamW: k={args.aux_lookahead_k} alpha={args.aux_lookahead_alpha}", console=True)
+    else:
+        print0("Lookahead DISABLED on aux AdamW (k=0)", console=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
