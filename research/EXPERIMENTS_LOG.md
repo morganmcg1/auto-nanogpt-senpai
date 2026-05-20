@@ -43,6 +43,54 @@ The control-variate correction requires `m_{t-1}` to be positively correlated wi
 
 ---
 
+## 2026-05-20 21:46 UTC — PR #616 ASSIGNED (fern): H33 MuonH momentum reset on MuLoCo sync — is cross-sync momentum coherence load-bearing?
+
+- Branch: `g1r3-fern/muonh-momentum-reset-on-sync`
+- Hypothesis: MuonH uses mu=0.95 (half-life ~14 steps). The MuLoCo outer sync fires every 30 inner steps and applies a non-trivial "kick" to parameters. The MuonH momentum buffer persists unchanged across these sync events — carrying stale gradient history from the pre-kick parameter neighborhood. This ablation tests whether that cross-sync coherence is load-bearing or harmful noise.
+- Two arms: ctrl (no reset, current baseline), arm 2 (`--muonh_reset_on_sync 1` = zero MuonH buffers after each sync).
+- Orthogonal to PR #612 (aux β1 pruning) and all prior outer-side closures (PR #563/#536/#597). Tests inner-outer coupling as a structural axis for the first time.
+- ~8 LoC. Fused-safe (modifying optimizer state tensors, not fused-kernel HPs).
+
+---
+
+## 2026-05-20 21:46 UTC — PR #597 CLOSED (fern): H31 MuLoCo outer Nesterov pruning NEG — Nesterov velocity amplifier IS load-bearing, operating-regime model refined
+
+- Branch: `g1r3-fern/outer-nesterov-pruning`
+- Hypothesis: The MuLoCo outer optimizer uses Nesterov lookahead (`p = anchor − outer_lr · (β·v + delta)`), introducing a velocity amplifier `(1 + β/(1−β)) = 2×` at β=0.5. PR #536 showed momentum=0 is catastrophic; PR #563 showed β→0.9 ramp is catastrophic. Neither tested FORMULATION — Nesterov vs vanilla SGD-momentum at fixed β=0.5. This ablation separated the Nesterov velocity-amplifier from the momentum magnitude.
+
+### Results (3325 steps each)
+
+| Arm | run_id | val/loss | ffs | reached_target | Δ vs ctrl | Δ vs baseline |
+|---|---|---:|---:|---|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | yes | — | — |
+| Arm 1 ctrl (Nesterov on) | `aywshl69` | **3.27332** | 3150 | yes | — | +0.00213 |
+| Arm 2 Nesterov off (vanilla SGD-mom) | `tcpo0yg8` | **3.27774** | 3325 | yes | +0.00443 | +0.00655 |
+
+- Arm 1 ctrl: noise-neutral vs baseline (Δ+0.00213, within σ≈0.001 band), code-clean.
+- Arm 2 Nesterov-off: decisively NEG (Δ+0.00443 vs ctrl; ffs=3325 never beat 3.28 target efficiently).
+- Neither arm cleared merge bar 3.27039.
+
+### Mechanism finding (sharpened from PR #563)
+
+> **Nesterov velocity amplifier IS load-bearing in the outer MuLoCo step.** Removing Nesterov (vanilla SGD-momentum at same β=0.5) costs Δ+0.00443.
+
+**But the mechanism is subtler than the simple steady-state bound `(1 + β/(1−β)) = 2×`.**
+
+The operating-regime ratio `β + g/v` better describes when Nesterov matters:
+- **Mid-training (large g/v)**: ratio ≈ β + ~0.8 → 1.3×. Fresh gradients dominate; Nesterov adds moderate amplification.
+- **Steady state (g/v ≈ β)**: ratio ≈ 2β = 1.0. Nesterov approaches vanilla.
+- **Cooldown (g/v → 0)**: ratio < 1. Nesterov becomes marginal.
+
+The δval=0.00443 loss is substantial — Nesterov is most valuable in the bulk-training phase where outer deltas are large. Vanilla SGD-momentum fails to efficiently accumulate momentum during the non-stationary bulk phase.
+
+**Generalizable rule**: Outer Nesterov is load-bearing throughout bulk training due to operating-regime amplification. The outer Nesterov formulation axis is CLOSED alongside the outer_momentum schedule axis (PR #563). **No further Nesterov-related outer-optimizer work needed.**
+
+### Disposition
+
+NEG. PR #597 closed. Fern reassigned to H33 MuonH momentum reset on MuLoCo sync (PR #616).
+
+---
+
 ## 2026-05-20 16:50 UTC — PR #597 ASSIGNED (fern): H31 MuLoCo outer Nesterov pruning ablation — is the Nesterov velocity amplifier load-bearing?
 
 - Branch: `g1r3-fern/outer-nesterov-pruning`
