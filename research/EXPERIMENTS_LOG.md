@@ -3,6 +3,35 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 20:55 UTC — PR #571: askeladd AdamW scalar LR sweep — **Phase 1 terminal, P2 confirmation IN-FLIGHT** 🔥🔥
+
+- Branch: `g1r5-askeladd/scalar-lr-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: RMSNorm gain LR=0.01 (hardcoded, ~20K params, scalar group of AdamW). Sweep 0.001/0.003/0.01ctrl/0.03/0.1. Tests whether "less optimizer intensity" applies (lower wins) or whether the gain LR is genuinely under-tuned (higher wins).
+
+### Phase 1 results (n=1 each, vs NEW baseline mu=3.266120, σ=0.001747)
+
+| Cell | `--lr_scalars` | val/loss | ffs | Δ vs new baseline | σ_single | n=4 gate? | W&B run |
+|------|:--------------:|:--------:|:---:|:-----------------:|:--------:|:---------:|---------|
+| A (ctrl) | 0.01  | 3.265233 | 3075 | −0.000887 | −0.51σ |  | `aw6cq08g` |
+| B | 0.003 | 3.278590 | 3225 | +0.012470 | +7.14σ |  | `s4c0z0uf` |
+| C | 0.001 | 3.289189 | DNF  | +0.023069 | +13.20σ |  | `uo6a2cql` |
+| **D** | **0.03**  | **3.262962** | **3050** | **−0.003158** | **−1.81σ** | **✓ (beats by 0.001158)** | `xcxu2ziv` |
+| E | 0.1   | 3.272018 | 3125 | +0.005898 | +3.38σ |  | `het906af` |
+
+### Phase 1 conclusion
+
+- **Hump-shaped curve** with minimum at lr_scalars=0.03 (3× the historical default).
+- **Asymmetry**: lower direction is ≈+13σ per decade harsh; upper is ≈+5σ per decade gentle (D minimum to E).
+- **Cell D = strongest single-seed signal currently in portfolio** (−1.81σ vs new baseline, beats n=4 gate by 0.001158). Theme: "less optimizer intensity" does NOT apply to per-group LR for RMSNorm gains — they were genuinely under-tuned.
+- Cell E (0.1, 10× ctrl) overshoots but still reaches target by step 3125 (slower than D=3050) — cooldown saves it from full divergence.
+- **P2 confirmation requested on Cell D** (lr_scalars=0.03) — n=4 fresh seeds, ~7.3 GPU-hours. Group `g1r5-askeladd/scalar-lr-P2-d-confirm`.
+
+### P2 decision rule
+- If n=4 mean ≤ 3.264120 (n=4 gate): **MERGE** as new baseline. lr_scalars=0.03 becomes new default.
+- If 3.264120 < n=4 mean ≤ 3.265720: borderline; expand to n=6.
+- If n=4 mean > 3.265720: NOT confirmed; close axis clean-neutral.
+
 ## 2026-05-20 18:55 UTC — PR #556: frieren AdamW epsilon sweep — **Phase 1 terminal, P2 confirmation IN-FLIGHT**
 
 - Branch: `g1r5-frieren/adam-eps-sweep`
