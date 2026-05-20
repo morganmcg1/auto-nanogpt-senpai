@@ -37,6 +37,13 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Per-block LR multipliers — depth partition test (PR #532).
+# Mean multiplier across blocks is 1.0 (redistribution, not scale change).
+# Toggle BLOCK_LR_PARTITION_DIRECTION between "early_fast" and "late_fast" per arm.
+BLOCK_LR_MULT_EARLY = 1.10   # multiplier on first half of blocks
+BLOCK_LR_MULT_LATE = 0.90    # multiplier on last half of blocks
+BLOCK_LR_PARTITION_DIRECTION = "late_fast"    # Arm B; was "early_fast" for Arm A
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -524,11 +531,22 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
-        super().__init__(params, defaults)
+        if isinstance(params[0], dict):
+            # Accept a list of param-group dicts (per-block LR partition, etc.).
+            sorted_groups = []
+            for group in params:
+                group_params = sorted(group["params"], key=lambda x: x.size(), reverse=True)
+                new_group = {k: v for k, v in group.items()}
+                new_group["params"] = group_params
+                sorted_groups.append(new_group)
+            super().__init__(sorted_groups, defaults)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+            super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -704,6 +722,10 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # Per-block LR partition (PR #532).
+            "block_lr_mult_early": BLOCK_LR_MULT_EARLY,
+            "block_lr_mult_late": BLOCK_LR_MULT_LATE,
+            "block_lr_partition_direction": BLOCK_LR_PARTITION_DIRECTION,
         },
     )
 
@@ -739,9 +761,29 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+
+    # Body-Muon split into early/late halves with per-half LR multiplier (PR #532).
+    muon_base_lr = 0.035
+    if BLOCK_LR_PARTITION_DIRECTION == "early_fast":
+        early_mult = BLOCK_LR_MULT_EARLY
+        late_mult = BLOCK_LR_MULT_LATE
+    elif BLOCK_LR_PARTITION_DIRECTION == "late_fast":
+        early_mult = BLOCK_LR_MULT_LATE
+        late_mult = BLOCK_LR_MULT_EARLY
+    else:
+        raise ValueError(f"Unknown BLOCK_LR_PARTITION_DIRECTION: {BLOCK_LR_PARTITION_DIRECTION}")
+    num_blocks = len(model.blocks)
+    half = num_blocks // 2
+    early_body_params = []
+    late_body_params = []
+    for bi, block in enumerate(model.blocks):
+        for p in block.parameters():
+            if p.ndim >= 2:
+                (early_body_params if bi < half else late_body_params).append(p)
+    optimizer2 = Muon([
+        dict(params=early_body_params, lr=muon_base_lr * early_mult, name="muon_blocks_early"),
+        dict(params=late_body_params, lr=muon_base_lr * late_mult, name="muon_blocks_late"),
+    ], lr=muon_base_lr, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -919,6 +961,8 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "body/lr_early": optimizer2.param_groups[0]["lr"],
+                "body/lr_late": optimizer2.param_groups[1]["lr"],
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
