@@ -466,6 +466,7 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+CAUTIOUS_ADAMW = int(os.environ.get("CAUTIOUS_ADAMW", "0"))  # Cautious mask on AdamW update (arxiv 2411.16085)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -775,6 +776,88 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class CautiousAdamW(torch.optim.Optimizer):
+    """Cautious AdamW (Liang et al, arxiv 2411.16085).
+
+    Applies a per-element sign-agreement mask between the AdamW update
+    direction u_t = m_hat / (sqrt(v_hat) + eps) and the current gradient g_t.
+    Components where sign(u_t) != sign(g_t) are zeroed; the surviving mask is
+    rescaled by numel / max(mask.sum(), 1) so the L1 norm of the update is
+    preserved, keeping the effective per-step learning rate unchanged.
+
+    Moment buffers m, v are updated from the RAW gradient (mask is applied to
+    the update only). Weight decay is decoupled (AdamW style) and applied
+    before the masked update, matching PyTorch's AdamW convention.
+
+    Per-group running stats (`_mask_fraction_running`) record the
+    EMA-tracked fraction of unmasked coordinates per parameter group for
+    telemetry.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-10, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._mask_fraction_running: dict[str, float] = {}
+        self._mask_fraction_steps: dict[str, int] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            lr = group["lr"]
+            eps = group["eps"]
+            beta1, beta2 = group["betas"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "unnamed")
+            mask_on_sum = 0.0
+            mask_total = 0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                u = m_hat / (v_hat.sqrt() + eps)
+                # Cautious sign-agreement mask
+                mask = (u * grad > 0).to(u.dtype)
+                mask_sum = mask.sum()
+                mask_on_sum += float(mask_sum.item())
+                mask_total += mask.numel()
+                # Preserve update L1 norm
+                scale = mask.numel() / mask_sum.clamp(min=1.0)
+                u_masked = u * mask * scale
+                # Decoupled (AdamW) weight decay then masked update
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(u_masked, alpha=-lr)
+            if mask_total > 0:
+                frac = mask_on_sum / mask_total
+                # EMA over recent steps for cheap telemetry
+                prev = self._mask_fraction_running.get(group_name, frac)
+                self._mask_fraction_running[group_name] = 0.95 * prev + 0.05 * frac
+                self._mask_fraction_steps[group_name] = self._mask_fraction_steps.get(group_name, 0) + 1
+        return loss
+
+    def cautious_stats(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for name, frac in self._mask_fraction_running.items():
+            out[f"{name}/mask_fraction_ema"] = float(frac)
+        return out
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -864,6 +947,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/cautious_adamw": CAUTIOUS_ADAMW,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -896,10 +980,15 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    adam_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if CAUTIOUS_ADAMW:
+        optimizer1 = CautiousAdamW(adam_param_groups, betas=(0.8, 0.95), eps=1e-10)
+    else:
+        optimizer1 = AdamW(adam_param_groups, betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1057,6 +1146,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "cautious_stats"):
+                    stats = opt.cautious_stats()
+                    if stats:
+                        wandb.log(prefixed("train/cautious", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
