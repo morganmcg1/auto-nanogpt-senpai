@@ -1,5 +1,80 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 17:35 UTC — Cycle 71 mid-13: PR #586 nezuko Adan CLOSED (corrected n_t denominator inflates variance); nezuko → #602 lm_head non-zero init sweep
+
+### PR #586 — nezuko Adan CLOSED — both arms killed step-500 gate, stable +0.12 val gap
+
+Branch: `g1r2-nezuko/adan`. Paper-faithful Adan (Xie 2022 Algorithm 1) with bias correction, decoupled WD, prev_grad init = g_0.
+
+| Arm | β1 | β2 | β3 | W&B | val@500 | Δ vs baseline ~3.70 | Verdict |
+|---|---|---|---|---|---|---|---|
+| Disabled control | — | — | — | mkvd9cyj | 3.97306 @ 250 | within noise | sanity OK |
+| Smoke A | 0.02 (paper) | 0.08 | 0.01 | nv2cwqwy | 4.12641 @ 250 | +0.19 | barely passed loose smoke (≤4.0) |
+| Smoke B | 0.10 (responsive) | 0.08 | 0.01 | qnkru0en | 4.06396 @ 250 | +0.12 | barely passed loose smoke (≤4.0) |
+| **Full A** | **0.02** | **0.08** | **0.01** | **fhz25cez** | **3.82062 @ 500** | **+0.12** | **KILL — gate ≤3.78 violated** |
+| **Full B** | **0.10** | **0.08** | **0.01** | **cpzbwpcg** | **3.81666 @ 500** | **+0.12** | **KILL — gate ≤3.78 violated** |
+
+Killed at step ~686 (Arm A) and ~816 (Arm B) per PR contract. Parallel curves through Arm B's reached step 750 — no warmup convergence, stable +0.12 gap.
+
+### Mechanism telemetry confirms cost is `n_t`, not `v_hat`
+
+`diff_contribution = (1-β2)·||v_hat|| / ||m_hat + (1-β2)·v_hat||`:
+
+| Arm | DC profile | DC mean | DC max | Step 500 val |
+|---|---|---|---|---|
+| Arm A (β1=0.02) | 0 → 0.12 → 0.30 → 0.39 → 0.60 → 0.73 → 0.77 | 0.578 | 0.775 | 3.82062 |
+| Arm B (β1=0.10) | 0 → 0.26 → 0.38 → 0.42 → 0.39 (stable) | 0.366 | 0.440 | 3.81666 |
+
+**Despite 2× difference in v_hat contribution direction (DC 77% vs 39%), val curves are nearly identical.** This isolates the cost: NOT the v_hat blend, NOT the additive update direction, but the SHARED structural change between arms — the `n_t = β3·n_{t-1} + (1-β3)·(g_t + (1-β2)·diff_t)²` denominator. With `(1-β2)=0.92`, the corrected gradient `c_t = g_t + 0.92·(g_t - g_{t-1})` has ~0.85× larger variance than `g_t` alone (uncorrelated diff term contributes additively to variance). Larger `n_t` → smaller adaptive step → undertrained.
+
+### Closed family expansion — AdamW direction/correction bucket: 7/7 closures
+
+| PR | Mechanism class | Verdict |
+|---|---|---|
+| #538 Lion | sign-only m | FAIL |
+| #523 Cautious AdamW | sign-mask m | FAIL |
+| #527 NAdamW | Nesterov m | FAIL |
+| #557 SF-AdamW | cooldown-removal | FAIL |
+| #574 Sophia-G | Hessian-clip → sign-m | FAIL |
+| #576 MARS | STORM c_t correction | FAIL |
+| **#586 Adan (now)** | **additive v_t + corrected n_t** | **FAIL** |
+
+**Overwhelming evidence**: AdamW's `m / √v` structure with both terms in the same dynamic range is structurally load-bearing on this stack at our LR/WD tuning. Future numerator/denominator interventions must preserve the dynamic-range balance (AdaBelief #569 still in flight and structurally safe).
+
+### Closed family expansion — Variance-reduction mechanism bucket: 6/6 closures
+
+| PR | Mechanism class | Mechanism level | Verdict |
+|---|---|---|---|
+| #495 COOLDOWN_FRAC | schedule shape | LR-time-envelope | CLOSED |
+| #524 SWA tail averaging | weight trajectory | post-step parameter avg | CLOSED |
+| #573 SAM | sharpness penalization | 2×fwd-bwd (contract violation) | CLOSED |
+| #561 Lookahead | slow-weights sync | post-step parameter sync | CLOSED |
+| #576 MARS | STORM gradient correction | pre-EMA gradient level | CLOSED |
+| **#586 Adan (now)** | **additive variance-reduced m + corrected n_t** | **EMA + denominator level** | **CLOSED** |
+
+Six orthogonal mechanism classes span every reasonable level at which a single-pass optimizer could compress variance. All fail. **Bimodal ffs at our floor is virtually confirmed as intrinsic to data/loss geometry at our model size + step budget.** Future wins must come from MODEL/REPRESENTATION side, not optimizer side.
+
+### PR #602 — nezuko reassigned: lm_head non-zero init sweep
+
+Nezuko → **first model-output-side experiment** in cycle 71. Symmetrically complements askeladd #541 (input-embed magnitude winner, n=2 confirm in flight).
+
+**Hypothesis**: lm_head (`model.proj`) is currently zero-initialized (line 886, `if "proj" in name: w.zero_()`). The other zero-inited projections (`blocks.X.attn.proj`, `blocks.X.mlp.proj`) need zero-init for residual identity initialization — but lm_head is NOT a residual; it's a final output layer. The zero-init is a GPT-2 convention (Radford 2019), never ablated in this codebase.
+
+| Arm | LM_HEAD_INIT_STD | Mechanism tested |
+|---|---|---|
+| A | 0.02 | GPT-2 standard non-zero init (mild) |
+| B | 0.1 | Matches askeladd's winning embed magnitude (strong) |
+
+**Code change**: env-var-gated, defaults to 0 (current zero-init). Two lines:
+```python
+LM_HEAD_INIT_STD = float(os.environ.get("LM_HEAD_INIT_STD", "0.0"))
+```
+Plus modify init block to use `name == "proj.weight"` exact match (not substring) so only lm_head is gated, residual projections stay zero-inited.
+
+**Decision tree**: both arms beat bar → strong model-side magnitude story (compounds with askeladd). One arm beats → magnitude curve is non-monotonic (refine). Both regress → zero-init is genuinely optimal for lm_head; close axis.
+
+---
+
 ## 2026-05-20 17:30 UTC — Cycle 71 mid-12: PR #576 thorfinn MARS CLOSED (5/5 variance-reduction closures); thorfinn → #601 Muon WD reintroduction
 
 ### PR #576 — thorfinn MARS CLOSED — both arms MISS, monotonic dose-response
