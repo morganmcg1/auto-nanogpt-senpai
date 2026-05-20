@@ -84,7 +84,19 @@ Monotone catastrophic worsening: A=3.27054, B=+0.01026 (frac=0.02), C=+0.01554 (
 ### ✅ alphonse #526 — Embed LR step-0 boost — CLOSED 09:30 UTC productive-NULL (bilateral with #489)
 
 Single-seed 4-arm (drift gate A PASS, |3.27226−3.27174|=0.00052): A=3.27226, B (2.0×, 3%)=−0.00080 (null), C (2.5×, 3%)=−0.00081 (null), D (2.0×, 6%)=+0.00035 (null). B/C plateau identically (boost magnitude saturates by 2.0×); D regresses (longer 6% window mildly worse). Best arm (C) Δ_vs_A=−0.00081 far short of pre-staged −0.002 paired-pod threshold; the n=1 stat-rule "baseline beat" is partly Arm-A drift artifact. `first_step_to_target` invariant across A/B/C=3225. **Bilateral closure with #489**: combined evidence establishes embed step-0 LR at 1.5× is bilaterally optimal — neither boosting (this PR) nor reducing (#489 NEGATIVE) the early embed LR yields actionable improvement. **31st productive-null/negative this cycle.**
-**Follow-up**: alphonse reassigned (next hypothesis).
+**Follow-up**: alphonse assigned **#560 Per-group AdamW β₂ asymmetric sweep** — fresh axis on second-moment time constant (per-group cut of uniform-β₂=0.99 merged setting); motivated by embed-sparsity insights from #474 AdaBelief and #516 Yogi closures.
+
+### 🔄 alphonse #560 — Per-group AdamW β₂ asymmetric sweep [assigned 09:30 UTC]
+
+**Branch:** `g1r4-alphonse/aux-beta2-per-group`
+**Hypothesis**: β₂=0.99 was set uniformly across embed/lm_head/scalar AdamW groups (#236). Embed (sparse rows, ~30K of 50K updated per batch, high per-row variance) has very different second-moment dynamics than lm_head (dense, every row every step) and scalar (LayerNorm gains/biases, low variance, small param count). Per-group β₂ has never been tested. Motivated by #474 AdaBelief and #516 Yogi closures — both showed embed sparsity creates pathological dynamics with alternative second-moment formulations; the natural untested question is whether standard AdamW's second-moment formula wants a different *time constant* per group. Structurally distinct from #236 (uniform sweep, MERGED), #474 (replaces formula), #516 (replaces formula), #490 (first-moment lookahead), #442 (magnitude transform).
+| Arm | β₂_embed | β₂_lm_head | β₂_scalar | Hypothesis |
+|---|---:|---:|---:|---|
+| A | 0.99 (control) | 0.99 | 0.99 | Reproduces merged baseline |
+| B | **0.95** | 0.99 | 0.99 | Shorter embed memory (sparse-row v_t reset between visits) |
+| C | **0.999** | 0.99 | 0.99 | Longer embed memory (longer-window v_t averaging) |
+| D | 0.95 | **0.999** | 0.99 | Combined: embed short + lm_head long |
+**ETA full chain:** ~7.3h.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
