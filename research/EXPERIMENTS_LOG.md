@@ -1,3 +1,48 @@
+## 2026-05-20 23:18 UTC — PR #621 ASSIGNED (nezuko): H34 MuonH hyperball projection pruning ablation — is the Frobenius-sphere projection load-bearing?
+
+- Branch: `g1r3-nezuko/muonh-hyperball-pruning`
+- Hypothesis: The current baseline (PR #443) uses `mode=scale_invariant` with `hyperball=True` — the always-active SI projection that holds each hidden-weight matrix on a Frobenius sphere of radius `||initial param||`. This was introduced in PR #443 as a structural change but never ablated. Setting `hyperball=False` prunes the projection entirely — vanilla Muon-SGDM with no norm constraint.
+- Two arms: ctrl (hyperball=1, current baseline), arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM).
+- Three informative outcomes: win → SI projection was hurting (opens weight-norm regulari­zation-free direction); match → projection dead code; NEG → SI projection IS the load-bearing mechanism from PR #443.
+- ~5 LoC change (add `--muonh_hyperball` flag, pass to MuonH constructor). Orthogonal to PR #612 (aux β1), PR #616 (MuonH momentum reset), and PR #595 (AGC pruning just closed).
+
+---
+
+## 2026-05-20 23:18 UTC — PR #595 CLOSED (nezuko): H29 AGC pruning ablation — marginal NEG, AGC not load-bearing as NaN safety net
+
+- Branch: `g1r3-nezuko/agc-pruning-ablation`
+- Hypothesis: AGC (Brock et al ICLR 2021) was added to the stack on both aux AdamW and inner MuonH sides. PR #483 found ratio sweep [0.02, 0.10] "insensitive", but never tested disabled. This 3-arm pruning ablation resolved whether AGC was: (a) dead code; (b) NaN safety net; (c) productive clipping.
+
+### Results (3325 steps each)
+
+| Arm | run_id | val/loss | ffs | nonfinite | Δ vs ctrl | Δ vs baseline |
+|---|---|---:|---:|---:|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | — | — | — |
+| Arm 1 ctrl (AGC=0.05 both) | `g66n94a2` | 3.27470 | 3175 | 0 | — | +0.00351 |
+| Arm 2 AGC-off-aux (`aux_agc=1e9`) | `wlwedbuq` | 3.27420 | 3150 | 0 | −0.00050 | +0.00301 |
+| Arm 3 AGC-off-muonh (`muonh_agc=1e9`) | `ajm433v5` | **3.27243** | **3125** | 0 | **−0.00227** | +0.00124 |
+
+- No arm clears merge bar 3.27039. Best arm (arm 3) Δ=−0.00227 vs ctrl (~2σ effect, n=1 inconclusive).
+- SENPAI-RESULT: `{"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["g66n94a2","wlwedbuq","ajm433v5"],"primary_metric":{"name":"speedrun/final_first_step_to_target","value":3125},"test_metric":{"name":"val/loss","value":3.27243}}`
+
+### Mechanism findings
+
+1. **AGC is NOT a load-bearing NaN safety net**: nonfinite_count=0 across all 6650 ablation steps (arms 2+3 combined). The "AGC catches gradient spikes that would NaN training" hypothesis is decisively disconfirmed at n=1 ablation.
+
+2. **Aux-side AGC is effectively dead code** (arm 2 Δ=−0.00050, within σ≈0.001). Clip threshold ≈ 70k (= 0.05×||W_embed||≈1.39M) >> typical aux gradients (~1-100). The AGC path almost certainly never activates on aux groups.
+
+3. **MuonH-side AGC trends best when removed** (arm 3 Δ=−0.00227, ~2σ below ctrl). NS5 orthogonalization already enforces a spectral-norm bound on the update direction; AGC on top is at best redundant. Suggestive but n=1 leaves room for seed luck (ctrl itself is at high end of seed band, +0.00351 vs baseline).
+
+**Generalizable rules**:
+- Aux-AGC structural axis is CLOSED — never fire again.
+- MuonH-AGC "redundant-or-marginal" but n=1 insufficient for multi-seed confirmation per launch directive budget constraints. No further AGC work needed.
+
+### Disposition
+
+Marginal NEG. PR closed. Nezuko reassigned to H34 MuonH hyperball pruning (PR #621).
+
+---
+
 ## 2026-05-20 20:38 UTC — PR #612 ASSIGNED (askeladd): H32 aux AdamW β1=0 pruning ablation — is the first moment load-bearing?
 
 - Branch: `g1r3-askeladd/aux-beta1-pruning`

@@ -1,6 +1,8 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 21:49 UTC
+- **Last updated:** 2026-05-20 23:18 UTC
+- **🆕 PR #621 nezuko ASSIGNED 23:18 UTC — H34 MuonH hyperball projection pruning**: Tests whether the always-active Frobenius-sphere SI projection (`hyperball=True`, mode=scale_invariant) is load-bearing. PR #443 introduced mode=scale_invariant as the baseline but never ablated the projection mechanism itself. 2 arms: ctrl (hyperball=1) vs arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM with no norm constraint). ~5 LoC. Three decisive outcomes.
+- **🆕 PR #595 CLOSED NEG 23:18 UTC — H29 AGC pruning ablation marginal NEG, structural finding: AGC not load-bearing on either side**: ctrl `g66n94a2` 3.27470, arm 2 agc-off-aux `wlwedbuq` 3.27420 (noise-neutral Δ=−0.00050), arm 3 agc-off-muonh `ajm433v5` 3.27243 (best, Δ=−0.00227 vs ctrl ~2σ, ffs=3125). No arm cleared merge bar 3.27039. **Structural finding**: AGC is NOT load-bearing as a NaN safety net (nonfinite=0 across all 6650 ablation steps). **Aux-side AGC is effectively dead code** (threshold 70k >> typical aux gradients). MuonH-side AGC trends best when removed (NS5 orthogonalization already enforces spectral-norm bound) but n=1 inconclusive. Rule logged: aux-AGC structural axis CLOSED; muonh-AGC "redundant-or-marginal" finding noted.
 - **🆕 PR #616 fern ASSIGNED 21:49 UTC — H33 MuonH momentum reset on MuLoCo sync**: Tests whether cross-sync momentum coherence is load-bearing. MuonH momentum buffer (mu=0.95, half-life ~14 steps) persists unchanged across MuLoCo sync events (every 30 inner steps), carrying stale history from the pre-kick parameter neighborhood. 2 arms: ctrl (no reset) vs arm 2 (`--muonh_reset_on_sync 1` = zero MuonH buffers after each sync). ~8 LoC. Orthogonal to PR #612 (aux side β1) and all prior outer-side closures. Three decisive outcomes: reset wins → stale momentum harmful; match → cross-sync coupling is dead weight; NEG → long-horizon mu=0.95 buffer IS load-bearing across kicks.
 - **🆕 PR #597 CLOSED NEG 21:46 UTC — H31 fern MuLoCo outer Nesterov pruning NEG, operating-regime mental model refined**: ctrl `aywshl69` val=3.27332 ffs=3150 (code-clean, noise-neutral), arm 2 nesterov-off `tcpo0yg8` val=3.27774 ffs=3325 (NEG, Δ+0.00443). **Mechanism finding**: Nesterov velocity amplifier IS load-bearing. But the mechanism is subtler than the steady-state bound: **operating-regime ratio = β + g/v** (mid-training: ~1.3× amplification) vs steady-state (1+β/(1-β) = 2×) vs cooldown (<1×). Nesterov is most valuable when g/v >> 0 (fresh gradients dominate), least valuable at steady state, and marginal in cooldown. This supersedes PR #563's catastrophic-ramp framing. **Rule**: outer Nesterov is load-bearing; Nesterov formulation axis is now closed alongside outer_momentum schedule axis.
 - **🆕 PR #612 askeladd ASSIGNED 20:38 UTC — H32 aux AdamW β1=0 pruning ablation**: Tests whether aux AdamW first moment (β1=0.8) is load-bearing. 2 arms: ctrl (β1=0.8) vs arm 2 (`--aux_adamw_beta1 0.0` = RMSProp-on-aux). 2 LoC change. Motivated by triple-NEG pattern (#544/#567/#582) — all 3 gradient-history mechanisms failed on short-β1=0.8 stack.
@@ -58,20 +60,22 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (21:49 UTC 2026-05-20)
+## Active experiments (23:18 UTC 2026-05-20)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#616** | fern | **H33: MuonH momentum reset on MuLoCo sync** (NEW 21:49 UTC) | Assigned. ~8 LoC. 2 arms: ctrl (no reset), arm 2 (`--muonh_reset_on_sync 1`). Tests whether cross-sync momentum coherence is load-bearing. |
-| **#612** | askeladd | **H32: aux AdamW β1=0 pruning** | Assigned 20:38 UTC. 2 LoC. 2 arms: ctrl (β1=0.8), arm 2 (`--aux_adamw_beta1 0.0` = RMSProp). Chain in progress. |
-| **#595** | nezuko | **H29: AGC pruning ablation (aux + muonh sides)** | ctrl `g66n94a2` **TERMINAL: val=3.27470 ffs=3175**. Arm 2 `wlwedbuq` **TERMINAL: val=3.27420 ffs=3150** (agc-off-aux, noise-neutral Δ−0.00050). Arm 3 (agc-off-muonh) launching. |
-| **#592** | edward | **H28: Gradient Centralization on aux AdamW** | **HELD — POD STILL BROKEN.** Smoke `ej68hkb5` NaN with 147.9M nonfinite — pod failure not implementation. esc#27/28 posted. |
-| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — esc#27/28 posted. |
+| **#621** | nezuko | **H34: MuonH hyperball projection pruning** (NEW 23:18 UTC) | Assigned. ~5 LoC. 2 arms: ctrl (hyperball=1), arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM, no norm constraint). Tests if SI projection is load-bearing. |
+| **#616** | fern | **H33: MuonH momentum reset on MuLoCo sync** | ctrl arm `s4vuryin` running (~28% at 23:00 UTC, ETA terminal ~01:30 UTC). Reset arm follows. |
+| **#612** | askeladd | **H32: aux AdamW β1=0 pruning** | ctrl arm `oaviz82w` ~91% at 22:42 UTC (ETA terminal ~23:00 UTC). β1=0 arm queued. |
+| **#592** | edward | **H28: Gradient Centralization on aux AdamW** | **HELD — POD STILL BROKEN.** esc#27/28/29 posted on Issue #164. |
+| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD ON OTHER BRANCHES** — orphaned PR. |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD STILL BROKEN** — esc#27/28 posted. |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD STILL BROKEN** — esc#27/28 posted. |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD STILL BROKEN** — esc#27/28/29 posted. |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 
 ## Recently closed PRs
+
+- **PR #595 nezuko AGC pruning (CLOSED 23:18 UTC 2026-05-20)** — 3-arm terminal: ctrl `g66n94a2` 3.27470, arm 2 agc-off-aux `wlwedbuq` 3.27420 (noise-neutral Δ=−0.00050), arm 3 agc-off-muonh `ajm433v5` **3.27243 ffs=3125** (best, Δ=−0.00227 ~2σ). Marginal NEG — no arm clears 3.27039. **Key findings**: (1) AGC is NOT load-bearing as NaN safety net — nonfinite=0 across 6650 ablation steps; (2) Aux-side AGC is effectively dead code (threshold 70k >> typical gradients); (3) MuonH-side AGC trends best when pruned (NS5 already constrains update, AGC on top may be redundant) but n=1 inconclusive. **Rule**: aux-AGC structural axis CLOSED. Nezuko reassigned to H34 MuonH hyperball pruning (PR #621).
 
 - **PR #563 nezuko cooldown-aware outer_momentum ramp (CLOSED 16:22 UTC 2026-05-20)** — 3-arm terminal: ctrl `jaobblo5` 3.27140 (Δ+0.00021 vs baseline, code clean), arm 2 cooldown-ramp `nfx9rw46` 3.27991 (+0.00851 NEG), arm 3 long-ramp `lz1rez4p` **3.31239 (missed 3.28 target entirely, +0.04099)**. NEG. **Refined mechanism finding** (combining PR #536 + PR #563): **moderate outer_momentum is uniquely optimal — both extremes catastrophic.** Nesterov velocity amplifier `(1 + β/(1−β))` framing: β=0 → 1× (velocity collapse, PR #536 arm 3), β=0.5 → 2× (optimum), β=0.9 → 10× (stale velocity overshoots during cooldown's shrinking inner steps, PR #563 arm 3). **Outer_momentum scheduling axis now exhausted in both directions** — future planning should NOT propose outer_momentum schedule variants. Nezuko reassigned to H29 AGC pruning ablation (PR #595).
 - **PR #567 fern AdEMAMix (CLOSED 16:50 UTC 2026-05-20)** — ctrl `xqmqsxba` 3.27228 ✓, α=5 `k0psv3oo` 3.27269 (noise-neutral), α=8 `xrh0qfrf` 3.27541 (mild NEG). **Mechanism finding**: m2_fill_fraction=0.283 — m_2 only 28% saturated at step 3325. β3=0.9999 assumes ≥30000-step horizon; AdEMAMix is horizon-calibrated, our speedrun is too short. **Rule**: optimizer mechanisms with horizon-calibrated HPs must be renormalized to 3325-step horizon before reading as "method failed on stack". Fern reassigned to H31 outer Nesterov pruning (PR #597).
@@ -154,6 +158,7 @@
 | H30 | Catapult initialization (large initial LR step before cooldown) | Pending. Schedule idea, inner-side complement to outer momentum |
 | H31 | MuLoCo outer Nesterov pruning ablation — Nesterov vs vanilla SGD-momentum | **CLOSED PR #597 21:46 UTC** — ctrl 3.27332 vs nesterov-off 3.27774 (Δ+0.00443 NEG). Nesterov IS load-bearing. Operating-regime ratio β+g/v more nuanced than steady-state bound 2×. Axis CLOSED.
 | H33 | MuonH momentum reset on MuLoCo sync — cross-sync coherence ablation | **PR #616 fern ASSIGNED 21:49 UTC** — ~8 LoC. 2 arms: ctrl vs `--muonh_reset_on_sync 1`. Tests if mu=0.95 buffer coherence across 30-step sync events is load-bearing. |
+| H34 | MuonH hyperball projection pruning — Frobenius-sphere constraint ablation | **PR #621 nezuko ASSIGNED 23:18 UTC** — ~5 LoC. 2 arms: ctrl vs `--muonh_hyperball 0` (vanilla Muon-SGDM, no SI projection). Tests if PR #443's mode=scale_invariant win was from the hyperball mechanism or incidental. |
 
 ## Research direction (21:49 UTC 2026-05-20)
 
