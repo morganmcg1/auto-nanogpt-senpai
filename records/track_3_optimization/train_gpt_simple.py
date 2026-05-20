@@ -225,6 +225,9 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            if "betas" in group:
+                metrics[f"train/beta1/{group_name}"] = group["betas"][0]
+                metrics[f"train/beta2/{group_name}"] = group["betas"][1]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -466,6 +469,13 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# β1 cooldown ramp (PR #587): linearly ramp AdamW β1 from BETA1_BASELINE (0.8 = AdamW
+# constructor value) at the cooldown start to BETA1_RAMP_END at the final step. The
+# ramp window matches the global LR cooldown window (progress in [1 - cooldown_frac, 1]).
+# Outside the cooldown window β1 stays at BETA1_BASELINE — disabled mode reproduces baseline.
+BETA1_RAMP_ENABLED = int(os.environ.get("BETA1_RAMP_ENABLED", 0))
+BETA1_RAMP_END = float(os.environ.get("BETA1_RAMP_END", 0.99))
+BETA1_BASELINE = 0.8
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -864,6 +874,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/beta1_ramp_enabled": BETA1_RAMP_ENABLED,
+            "optimizer/beta1_ramp_end": BETA1_RAMP_END,
+            "optimizer/beta1_baseline": BETA1_BASELINE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -929,11 +942,23 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # β1 cooldown ramp: linearly raise AdamW β1 from BETA1_BASELINE (cooldown
+        # start) to BETA1_RAMP_END (final step). Outside the cooldown window
+        # (i.e., during the plateau / pre-cooldown phase) β1 stays at the
+        # baseline value, exactly matching the unmodified optimizer.
+        if BETA1_RAMP_ENABLED and progress >= 1 - cooldown_frac:
+            t_b1 = (progress - (1 - cooldown_frac)) / cooldown_frac
+            t_b1 = min(max(t_b1, 0.0), 1.0)
+            beta1_current = BETA1_BASELINE + (BETA1_RAMP_END - BETA1_BASELINE) * t_b1
+        else:
+            beta1_current = BETA1_BASELINE
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                elif "betas" in group:
+                    group["betas"] = (beta1_current, group["betas"][1])
 
 
     ########################################
@@ -1030,6 +1055,9 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        # PR #587: log AdamW β1 trajectory every 50 steps so the ramp can be verified in W&B
+        if dist.get_rank() == 0 and (train_step % 50 == 0 or train_step == train_steps):
+            wandb.log({"optimizer/beta1_current": optimizer1.param_groups[0]["betas"][0]}, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
