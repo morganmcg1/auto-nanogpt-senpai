@@ -52,6 +52,13 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    # Lion aux optimizer (PR #604): replace aux AdamW with Lion sign-based update.
+    parser.add_argument("--lion_embed_lr", type=float, default=0.100)
+    parser.add_argument("--lion_lm_head_lr", type=float, default=1/480)
+    parser.add_argument("--lion_scalar_lr", type=float, default=0.025/3)
+    parser.add_argument("--lion_beta1", type=float, default=0.9)
+    parser.add_argument("--lion_beta2", type=float, default=0.99)
+    parser.add_argument("--lion_weight_decay", type=float, default=0.0)
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -577,6 +584,63 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al. 2023, arXiv:2302.06675), Algorithm 2.
+
+    Per step:
+      c_t = beta1 * m_{t-1} + (1 - beta1) * g_t      (current update direction)
+      p   <- p - lr * sign(c_t)                       (sign-based parameter step)
+      p   <- p * (1 - lr * wd)                        (decoupled weight decay)
+      m_t = beta2 * m_{t-1} + (1 - beta2) * g_t      (EMA update AFTER step)
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        per_group_diag: list[dict] = []
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            wd = group["weight_decay"]
+            update_norm_sq_dev: Tensor | None = None
+            m_norm_sq_dev: Tensor | None = None
+            touched_elems = 0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad.float()  # upcast to FP32 for stability of sign + EMA arithmetic
+                state = self.state[p]
+                if len(state) == 0:
+                    # FP32 state required: (1 - beta2) = 0.01 rounds to 0 in BF16.
+                    state["m"] = torch.zeros_like(p.data, dtype=torch.float32)
+                m = state["m"]
+                # Step 1: compute interpolated update direction (temporary tensor).
+                update = m.mul(beta1).add_(g, alpha=1.0 - beta1)
+                # Step 2: sign update + decoupled weight decay.
+                p.data.add_(torch.sign(update).to(p.dtype), alpha=-lr)
+                if wd != 0.0:
+                    p.data.mul_(1.0 - lr * wd)
+                # Step 3: EMA update AFTER parameter step (paper convention).
+                m.mul_(beta2).add_(g, alpha=1.0 - beta2)
+                # Accumulate norms on-device (avoid per-param GPU sync).
+                u_sq = update.square().sum()
+                m_sq = m.square().sum()
+                update_norm_sq_dev = u_sq if update_norm_sq_dev is None else update_norm_sq_dev + u_sq
+                m_norm_sq_dev = m_sq if m_norm_sq_dev is None else m_norm_sq_dev + m_sq
+                touched_elems += int(update.numel())
+            per_group_diag.append({
+                "name": group.get("name", "lion"),
+                "lr": float(lr),
+                # Lazy: keep as 0-d device tensors; caller reads via .item() at log time.
+                "update_norm_sq_dev": update_norm_sq_dev,
+                "m_norm_sq_dev": m_norm_sq_dev,
+                "touched_elems": touched_elems,
+            })
+        self._lion_diag = per_group_diag
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -704,6 +768,14 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # Lion aux optimizer (PR #604): sign-based update replaces aux AdamW.
+            "aux_optimizer": "lion",
+            "lion_embed_lr": args.lion_embed_lr,
+            "lion_lm_head_lr": args.lion_lm_head_lr,
+            "lion_scalar_lr": args.lion_scalar_lr,
+            "lion_beta1": args.lion_beta1,
+            "lion_beta2": args.lion_beta2,
+            "lion_weight_decay": args.lion_weight_decay,
         },
     )
 
@@ -735,10 +807,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # PR #604: aux path uses Lion (Chen et al. 2023) instead of AdamW. The sign-based
+    # update has no second moment (v), eliminating one FP32 buffer per aux param.
+    optimizer1 = Lion([dict(params=[model.embed.weight], lr=args.lion_embed_lr, name="lion_embed"),
+                       dict(params=[model.proj.weight], lr=args.lion_lm_head_lr, name="lion_lm_head"),
+                       dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lion_scalar_lr, name="lion_scalars")],
+                      betas=(args.lion_beta1, args.lion_beta2), weight_decay=args.lion_weight_decay)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -851,6 +925,27 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        # PR #604 Lion early-kill gate: only kill on non-finite loss. Lion's sign
+        # update is per-coord bounded (|update| = lr), so true divergence shows up
+        # as non-finite loss; large grad_norm is expected with sign updates.
+        if not (train_loss == train_loss) or train_loss == float("inf") or train_loss == float("-inf"):
+            print0(f"LION EARLY-KILL: non-finite train_loss={train_loss} at step {step}", console=True)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "lion/early_kill": 1,
+                    "lion/kill_step": step,
+                    "lion/kill_reason": 0,  # 0 = non-finite loss
+                    "lion/kill_loss": train_loss if (train_loss == train_loss) else 1e9,
+                }, step=trial_idx * (train_steps + 1) + (step + 1))
+                wandb.log({
+                    "trial": trial_idx,
+                    "speedrun/final_first_step_to_target": first_step_to_target,
+                    "speedrun/final_best_val_loss": best_val_loss,
+                    "speedrun/final_best_val_step": best_val_step,
+                    "speedrun/final_reached_target": int(first_step_to_target >= 0),
+                }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+            break
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
         train_step = step + 1
@@ -912,6 +1007,22 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            lion_diag = getattr(optimizer1, "_lion_diag", None)
+            if lion_diag is not None:
+                for diag in lion_diag:
+                    group_name = diag["name"]
+                    u_sq_dev = diag.get("update_norm_sq_dev")
+                    m_sq_dev = diag.get("m_norm_sq_dev")
+                    update_norm = float(u_sq_dev.sqrt().item()) if u_sq_dev is not None else 0.0
+                    m_norm = float(m_sq_dev.sqrt().item()) if m_sq_dev is not None else 0.0
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        f"lion/{group_name}/update_norm": update_norm,
+                        f"lion/{group_name}/m_norm": m_norm,
+                        f"lion/{group_name}/lr": diag["lr"],
+                        f"lion/{group_name}/touched_elems": diag["touched_elems"],
+                    }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
