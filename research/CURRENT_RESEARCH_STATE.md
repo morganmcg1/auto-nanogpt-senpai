@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-19 23:42 UTC
+- **Date:** 2026-05-20 01:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -88,17 +88,23 @@ b sweep {0.3, 1.0, 3.0}: all regress vs AdamW (b=0). D (b=3.0) misses 3.28 targe
 Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e-3) fails benchmark (val=3.29393 > 3.28). Root cause: logit softcap c=15 already provides sufficient logit regularization — z-loss is redundant and competes at high λ. **18th productive-null/negative this cycle.** Loss-side auxiliary regularization axis fully closed.
 **Follow-up**: tanjiro assigned **#487 cooldown-NS pruning ablation**.
 
-### 🔄 tanjiro #487 — Cooldown-NS pruning ablation [assigned 17:00 UTC]
+### 🚨 tanjiro #487 — Cooldown-NS pruning ablation [paired-pod confirmation in progress, sent back 01:05 UTC]
 
 **Branch:** `g1r4-tanjiro/cooldown-ns-pruning`
 **Hypothesis**: Three NS-cooldown components (#176 NS_ITERS_COOLDOWN=16, #285 NS_COOLDOWN_SHAPE=late_peak, #290 NS_COEF_SCHEDULE=linear_ramp_down) were each merged sequentially. Later components may have subsumed earlier ones. Drop one component per arm (revert to compiled-in default), testing if any is now redundant. First *subtractive* experiment this cycle — no code changes, env-var overrides only.
-| Arm | Drop | Env override |
-|---|---|---|
-| A | none (control) | full merged stack |
-| B | NS_ITERS_COOLDOWN | NANOGPT_NS_ITERS_COOLDOWN=0 |
-| C | NS_COOLDOWN_SHAPE | NANOGPT_NS_COOLDOWN_SHAPE=step |
-| D | NS_COEF_SCHEDULE | NANOGPT_NS_COEF_SCHEDULE=constant |
-**ETA full chain:** ~7.3h.
+
+**N=1 results (pod-0):**
+| Arm | Drop | val | Δ vs A |
+|---|---|---:|---:|
+| A | none (control) | 3.27198 | 0.0 |
+| **B** | **NS_ITERS_COOLDOWN** | **3.26813** | **−0.00385** ⭐ |
+| C | NS_COOLDOWN_SHAPE | 3.27278 | +0.00080 (null) |
+| D | NS_COEF_SCHEDULE | 3.27264 | +0.00066 (null) |
+
+**Arm B is the first Δ ≤ −0.002 candidate in many cycles.** Mechanism reading: #176 (NS_ITERS_COOLDOWN=16) was the first cooldown component merged; subsequent #285 (late_peak SHAPE) and #290 (linear_ramp_down COEF) may have made the iter ramp redundant — possibly even harmful through over-orthogonalization in the cooldown window. If confirmed, this is a **stack-simplification merge**: dropping a load-bearing-looking component improves the recipe.
+
+**Paired-pod confirmation chain** (sent back to draft at 01:05 UTC): 3 paired A/B pods to control for seed/pod-variance. Arms C and D held — single false-positive arm B replication takes priority. Merge gate: mean(Δ) ≤ −0.002 AND mean(val_B) ≤ 3.27174 AND `(3.28 − mean) × √3 ≥ 0.004`. ETA ~11.4h (3 paired chains).
+**Precedent**: 3 false-positives this cycle (#344, #351, #408 AGC) on single-pod Δ ≤ −0.002 signals → paired-pod is mandatory.
 
 ### ✅ thorfinn #446 — Label smoothing sweep — CLOSED 15:38 UTC productive-NEGATIVE
 
@@ -193,7 +199,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 **Current open questions** (in-flight):
 1. Does block init scaling matter under Muon? (#452)
 2. Does embed-only LR warmup help sparse-row early training? (#489)
-3. Are any cooldown-NS merged components now redundant after later merges? (#487)
+3. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
 4. Does NAdam's Nesterov first-moment help aux groups vs standard AdamW? (#490)
 5. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
 6. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
@@ -204,7 +210,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 1. **"Less constraint early" schedule cluster** (in flight): embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — three early-phase schedule axes. WD warmup (#483) closed NEGATIVE — body-WD is load-bearing from step 0.
 2. **Late-phase cooldown shape**: body Muon LR cooldown shape (#520 thorfinn) — complementary to early-phase cluster, targeting the load-bearing 30% cooldown window
 3. **Adam-family second-moment update rule**: NAdam (#490, Nesterov first-moment) and Yogi (#516, sign-additive second-moment) are the last two in-flight Adam-family mechanism axes
-4. **Stack simplification** if any pruning (#487) finds redundant components
+4. **Stack simplification** — #487 Arm B (drop NS_ITERS_COOLDOWN) N=1 Δ=−0.00385 first winner candidate in many cycles; paired-pod confirmation in flight. If confirmed, removes #176 from merged stack as redundant under #285/#290.
 5. **Bilateral regularization closure (from #483)**: both ADD (17 axes) and REDUCE (WD warmup) regularization fail → Muon-WD=0.025 is bilaterally optimal
 6. **Aux-group coupled system insight (from #477)**: future aux-group mechanism experiments should default to "all aux" scope, not single-group
 7. **Embed sparsity structural insight (from #474)**: `(g − m)²`-based second moments fail on embed group; `g²`-only formulations (AdamW, Yogi) are safe
@@ -248,9 +254,9 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 - Adam-atan2 magnitude-transform (b∈{0.3,1.0,3.0}): CLOSED productive-NEGATIVE (#442; ε=1e-8 already optimal)
 
 **NS precision family**:
-- NS_ITERS_COOLDOWN: saturated (#388); pruning ablation in-flight (#487 arm B)
-- NS cooldown SHAPE=late_peak: MERGED #285; pruning ablation in-flight (#487 arm C)
-- NS coef schedule=linear_ramp_down: MERGED #290; pruning ablation in-flight (#487 arm D)
+- NS_ITERS_COOLDOWN: saturated (#388); **#487 Arm B (drop) N=1 Δ=−0.00385 winner candidate** — paired-pod confirmation in flight
+- NS cooldown SHAPE=late_peak: MERGED #285; #487 Arm C drop = +0.00080 null
+- NS coef schedule=linear_ramp_down: MERGED #290; #487 Arm D drop = +0.00066 null
 - NS coef depth/center: saturated (#345, #384)
 - NS=12 normal phase: CLOSED productive-null (#470; wide plateau NS ∈ [10,14]; NS=8 below floor; NS step-time flat ±1%)
 - NS-iter warmup: in-flight (#506)
