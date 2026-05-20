@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 21:45 UTC
+- **Last update:** 2026-05-20 22:45 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -49,23 +49,24 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#570** | alphonse | PMuon mu {0.90, 0.97} vs baseline 0.95: BOTH arms sr=3075 Δsr=+137.5 — symmetric sharp local optimum. Arm A val=3.275656, Arm B val=3.272967. mu=0.95 confirmed locally optimal; momentum-horizon axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation on aux AdamW — Arm A (α=2) NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). Arm B (α=5) not launched (student skip endorsed: strong Arm A NULL). m-aggregation (slow-EMA blending) axis closes. | **CLOSED 20:30 UTC — 33rd axis.** |
 
-## Active experiments (8 students, 21:45 UTC)
+## Active experiments (8 students, 22:45 UTC)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#578** | edward | `gz7ktuqr` Arm B uncorrected v_max | 2375 | 3.365 | **CLOSEST TO COMPLETION (73%)**. ETA terminal ~22:15 UTC. Arm A DNF NULL confirmed. |
-| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | 875 | 3.684 | Col-mean amplification Arm B running. Arm A NULL confirmed (sr=2975). |
-| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | 750 | 3.734 | Adamax Arm B running. Arm A DNF NULL confirmed. |
-| **#606** | fern | `kq05a45r` Arm A cf=0.25 | 750 | 3.717 | WSD schedule. Active training. |
-| **#559** | nezuko | `do531bbp` Arm B 12→18 | 625 | 3.756 | NS ramp Arm B running. Arm A NULL sr=2950 confirmed. |
-| **#604** | tanjiro | `tsi8kfik` Arm A | 500 | 3.845 | Lion optimizer. 2 earlier divergent runs; v2 now training cleanly. |
-| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 375 | 3.888 | LR floor. Pod self-recovered: `u6917ygn` crashed step 200; `euudw4nc` healthy. |
-| **#609** | askeladd | spinning up | — | — | **LAMB trust ratio on aux AdamW. Picked up 20:43 UTC on branch `g1r1-askeladd/lamb-aux-trust-ratio`. Arm A max_trust=10, Arm B max_trust=1.** |
+| **#617** | **edward** | pending pickup | — | — | **NEW — Lookahead wrapper on aux AdamW only — k={5,10}, α=0.5. Orthogonal class to update-rule tree. Body-Muon Lookahead #505 NULL DNF; bet is aux's noise-dominated gradients benefit from averaging where body-Muon's spectral steps don't.** |
+| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | 1775 | 3.472 | Col-mean amplification Arm B mid-cooldown. Arm A NULL confirmed (sr=2975). |
+| **#606** | fern | `kq05a45r` Arm A cf=0.25 | 1650 | 3.597 | WSD schedule. Active training. |
+| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | 1600 | 3.545 | Adamax Arm B running. Arm A DNF NULL confirmed. |
+| **#559** | nezuko | `do531bbp` Arm B 12→18 | 1525 | 3.529 | NS ramp Arm B running. Arm A NULL sr=2950 confirmed. |
+| **#604** | tanjiro | `tsi8kfik` Arm A | 1175 | 3.646 | Lion optimizer running cleanly. |
+| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 1100 | 3.659 | LR floor. Pod self-recovered: `u6917ygn` crashed step 200; `euudw4nc` healthy. |
+| **#609** | askeladd | `qb21izi9` Arm A max_trust=10 | 775 | 3.861 | LAMB trust ratio on aux AdamW. Active training. |
 
 ## Recently closed (this session)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#578** | edward | AMSGrad v-clamp NULL/NULL — Arm A (bias-corrected) DNF val=3.2805; Arm B (uncorrected) sr=3200 val=3.2794 Δsr=+262.5 Δval=+0.0151. v-clamp mechanism leaf CLOSES. 4th aux update-rule leaf NULL/NULL. | **CLOSED 22:43 UTC — 35th axis.** |
 | **#575** | askeladd | NadamW m-step NULL/NULL — Arm A (β1=0.8) sr=2975 val=3.26587; Arm B (β1=0.85) sr=2975 val=3.26673. Both arms tie at sr=2975 Δsr=+37.5. m-step mechanism leaf CLOSES. | **CLOSED 21:15 UTC — 34th axis.** |
 | **#570** | alphonse | PMuon mu NULL/NULL — Arm A (0.90) sr=3075 val=3.275656 Δsr=+137.5; Arm B (0.97) sr=3075 val=3.272967 Δsr=+137.5. Symmetric sharp local optimum at 0.95. mu axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation NULL — Arm A (α=2) fs=3100 val=3.2756 Δsr=+162.5 Δval=+0.011. Arm B skip endorsed. | **CLOSED 20:30 UTC — 33rd axis.** |
@@ -89,18 +90,19 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **v-estimator** (#545 AdaBelief): **CLOSED NULL/NULL**
 - **m-step** (#575 NadamW): **CLOSED NULL/NULL** (both β1 values tied at sr=2975)
 - **m-aggregation** (#585 AdEMAMix): **CLOSED NULL/NULL**
-- **v-aggregation** (#583 thorfinn Adamax): In flight — Arm A DNF NULL, Arm B β2=0.999 early
-- **v-clamp** (#578 edward AMSGrad): In flight — Arm A DNF NULL, Arm B uncorrected ETA ~22:00
+- **v-clamp** (#578 AMSGrad): **CLOSED NULL/NULL** — Arm A bias-corrected DNF; Arm B uncorrected sr=3200 Δsr=+262.5
+- **v-aggregation** (#583 thorfinn Adamax): In flight — Arm A DNF NULL, Arm B β2=0.999 mid-training
 
 **Step-rescaling (orthogonal to update-rule):**
 - **LAMB trust ratio** (#609 askeladd NEW): Arm A max_trust=10, Arm B max_trust=1 — pending pickup
 
 **Other in-flight families:**
-1. **NS_ITERS cooldown ramp 12→{16,18}** (#559 nezuko) — Arm A ETA ~20:45 UTC
-2. **Body-Muon column-mean AMPLIFICATION pre-NS** (#588 frieren) — Arm A ETA ~21:00 UTC
-3. **Lion optimizer on aux** (#604 tanjiro) — pending pickup
+1. **NS_ITERS cooldown ramp 12→{16,18}** (#559 nezuko) — Arm B running
+2. **Body-Muon column-mean AMPLIFICATION pre-NS** (#588 frieren) — Arm B running
+3. **Lion optimizer on aux** (#604 tanjiro) — running cleanly
+4. **Lookahead wrapper on aux AdamW** (#617 edward NEW) — pending pickup
 
-**Closed axes summary (33 total):**
+**Closed axes summary (35 total):**
 
 *PMuon scalar audit COMPLETE (all 5 scalars pinned):* γ_power=0.4 (#519), β_cov=0.95 (#502), NS_ITERS=12 (#511+#546 5-pt V-curve), NS coefficients cubic (1.5,-0.5,0) (#540), ε=1e-12 (#562). mu=0.95 (#570 symmetric +137.5 sr both sides).
 
@@ -116,7 +118,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 *Other closed:* z-loss (#476), embed init (#440), attn-scale (#480), logit soft-cap (#439), NS adaptive threshold (#447), decoupled cooldown_frac (#448).
 
-**Pattern after 33 axes:** The PMuon+aux-AdamW stack is near-saturated on all internal scalar and mechanism dimensions. Remaining unexplored levers are external: schedule SHAPE (WSD, LR floor — now in flight), new optimizer classes (Lion #604 — in flight), and gradient transformation sub-classes (column-mean amplification #588 — in flight).
+**Pattern after 35 axes:** The PMuon+aux-AdamW stack is near-saturated on all internal scalar and mechanism dimensions. **Aux AdamW update-rule mechanism class produced 4 consecutive NULL/NULL closures** (AdaBelief, NadamW, AdEMAMix, AMSGrad) — overwhelming evidence that aux gradients on embed/lm_head/scalars are noise-dominated and unresponsive to update-rule mechanism changes. Remaining unexplored levers are external: schedule SHAPE (WSD, LR floor — now in flight), new optimizer classes (Lion #604 — in flight), gradient transformation sub-classes (column-mean amplification #588 — in flight), step-rescaling (#609 LAMB), and **wrapper-class on aux** (#617 Lookahead-aux NEW — orthogonal to the closed update-rule tree).
 
 ## Open unexplored axes (candidate next assignments)
 
@@ -127,11 +129,12 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 **Aux AdamW update-rule mechanism tree:**
 - **v-aggregation Adamax** — **IN FLIGHT (#583 thorfinn)**
-- **v-clamp AMSGrad** — **IN FLIGHT (#578 edward)**
+- **v-clamp AMSGrad** — **CLOSED (#578)** — 35th axis, NULL/NULL
 - **v-estimator AdaBelief** — **CLOSED (#545)**
 - **m-step NadamW** — **CLOSED (#575)**
 - **m-aggregation AdEMAMix** — **CLOSED (#585)**
-- **LAMB trust ratio on aux** — **IN FLIGHT (#609 askeladd NEW)** — per-tensor step rescaling, orthogonal axis
+- **LAMB trust ratio on aux** — **IN FLIGHT (#609 askeladd)** — per-tensor step rescaling, orthogonal axis
+- **Lookahead wrapper on aux** — **IN FLIGHT (#617 edward NEW)** — slow-weights averaging, ORTHOGONAL class to update-rule
 - **RAdam variance rectification** — UNTESTED — first-moment warmup compensation
 - **Sophia-style scalar Hessian on aux** — UNTESTED — second-order diagonal curvature estimate
 

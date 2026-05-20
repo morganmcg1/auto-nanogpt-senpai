@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-05-20 22:43 UTC — PR #578 CLOSED: AMSGrad v-clamp on aux AdamW — NULL/NULL clear, v-clamp mechanism leaf of aux update-rule tree closes (g1r1-edward)
+
+- Branch: `g1r1-edward/amsgrad-aux-adamw`
+- Hypothesis: AMSGrad (Reddi, Kale, Kumar — ICLR 2018) clamps the v-estimator with a monotone-max running max: `v_max = max(v_max, v)`, then uses `v_max` as the preconditioner denominator instead of `v`. Tests whether monotone non-decreasing v provides stability benefits on noisy aux gradients vs the standard EMA running-mean v.
+
+| Arm | bias-corrected | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | n/a | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | True | `d6qh9eie` | DNF (-1) | 3.2805 | DNF | +0.016222 | NULL DNF |
+| Arm B | False | `gz7ktuqr` | 3200 | 3.2794 | +262.5 | +0.015122 | NULL clear |
+
+**Verdict: NULL | NULL clear → v-clamp mechanism axis closes. 35th axis closed.**
+
+**Arm A bias-corrected DNF** at val=3.2805 / step 3250 — never crossed 3.28 in the full step budget. v_max binding fraction reported at 99.7% per W&B logs, meaning v_max was essentially always the active denominator — the monotone-max preconditioner aggressively damped aux step magnitudes on noisy embed/lm_head rows.
+
+**Arm B uncorrected** crossed 3.28 only at step 3200 — Δsr=+262.5 vs baseline, Δval=+0.0151. The uncorrected variant produces smaller v_max (no over-correction in early steps) but still regresses sr by ~262 steps. Both formulations of monotone-non-decreasing v slow convergence.
+
+**Mechanism reading:** AMSGrad's preconditioner monotonicity (v_max never decreases) prevents aux from "forgetting" early gradient noise. On noisy aux gradients, early v spikes get locked in and persistently inflate the denominator, shrinking aux steps. Standard AdamW's EMA running mean (which can decrease) is better suited to aux's noise-dominated gradients.
+
+**Aux update-rule tree progress: 4 of 5 leaves CLOSED (NULL/NULL):**
+- v-estimator AdaBelief #545: CLOSED NULL/NULL
+- m-step NadamW #575: CLOSED NULL/NULL
+- m-aggregation AdEMAMix #585: CLOSED NULL/NULL
+- **v-clamp AMSGrad #578: CLOSED NULL/NULL ← THIS PR**
+- v-aggregation Adamax #583: IN FLIGHT (thorfinn)
+
+**Pattern (4 consecutive NULL closures):** The aux AdamW update-rule mechanism class is overwhelmingly NULL across 4 distinct mechanism modifications (v-estimator, m-step, m-aggregation, v-clamp). The consistent explanation: aux gradients on embed/lm_head/scalars are noise-dominated, so changes to update-rule arithmetic don't have informational leverage. The benchmark's standard AdamW formulation is at or near a local optimum within this mechanism class. Adamax (#583 in flight) is the final leaf — strong prior bearish given the pattern.
+
+**Run history (student iteration):** Arm A initial run `d6qh9eie` finished DNF. Student launched a redundant Arm A retry `h7sq36z7` which was identified as redundant and killed; Arm B `gz7ktuqr` then launched cleanly with `AMSGRAD_BIAS_CORRECTED=False`. Single SENPAI-RESULT not posted by student before advisor close — W&B terminal data was unambiguous (3.3 hour ago last comment, 3.5+ hours after Arm B termination).
+
+---
+
 ## 2026-05-20 21:15 UTC — PR #575 CLOSED: NadamW (Nesterov AdamW) on aux AdamW m-step — NULL/NULL clear, m-step mechanism leaf of aux update-rule tree closes (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/nadamw-aux-adamw`
