@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 11:30 UTC — PR #551: askeladd Muon nesterov toggle (True/False) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-askeladd/muon-nesterov-toggle`
+- Student: g1r5-askeladd
+- Hypothesis: Muon `nesterov=True` (hardcoded) performs `grad.lerp_(momentum, mu)` before NS orthogonalization. Ablating to `nesterov=False` (pure EMA momentum) might help by reducing early-step gradient noise — consistent with "less optimizer intensity" theme.
+
+### Results
+
+| Cell | muon_nesterov | val_loss | Δ vs NEW baseline (σ=0.001747) | ffs | W&B run |
+|------|:-------------:|:--------:|:------------------------------:|----:|---------|
+| **A (ctrl)** | True | **3.265755** | **−0.21σ** | 3075 | `b8tygvux` |
+| B | False | 3.273293 | **+4.10σ** | 3150 | `1f0ci6y2` |
+
+### Conclusion
+
+- **Clear clean-NEG**: Cell B (nesterov=False) = +4.10σ above new baseline, well past the +1σ kill gate. ffs 75 steps slower.
+- **Mechanism**: The `grad.lerp_(momentum, mu)` correction (≈5% current grad + 95% EMA before NS orthogonalization) is load-bearing. Orthogonalizing pure EMA discards the small but informative current-step delta, leaving NS with only stale 20-step-lagged direction. Even a 5% current-gradient correction significantly improves convergence per step.
+- **Theme clarification**: The "less optimizer intensity" theme (PR #371, PR #497) does NOT generalize to removing the gradient correction from Nesterov. The gradient correction is informative, not noisy — removing it costs ~+7 millinats and 75 ffs steps.
+- **Muon nesterov axis closed**: nesterov=True is optimal. The axis is binary — no finer scan needed.
+
+Askeladd reassigned to PR #571: scalar param LR sweep (adam_scalars lr=0.01 hardcoded — third AdamW group LR, never ablated).
+
 ## 2026-05-20 10:20 UTC — PR #521: nezuko gradient clipping sweep (0/50K/100K/200K/400K) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-nezuko/grad-clip-sweep`
