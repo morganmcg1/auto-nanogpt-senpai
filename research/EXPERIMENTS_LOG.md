@@ -1,5 +1,30 @@
 # SENPAI Research Results
 
+## 2026-05-20 05:32 UTC — PR #505 CLOSED: Lookahead wrapper on body-Muon, k∈{5, 10}, α=0.5 — NULL/NULL clear, wrapper-class axis closes (g1r1-fern)
+
+- Branch: `g1r1-fern/lookahead-body-scan`
+- Hypothesis: Test the Lookahead wrapper (slow/fast weights with periodic slow→fast resync) on body-Muon. First wrapper-class probe of the optimizer stack at this baseline. Two arms test averaging strength: aggressive (k=5) vs milder (k=10).
+
+| Arm | k | α | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline** | — | — | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 5 | 0.5 | `8ad3mzjz` | -1 (DNF) | 3.284199 | +∞ (clear regression) | +0.020 (clear) | NULL clear |
+| Arm B | 10 | 0.5 | `e3zkawez` | -1 (DNF) | 3.286180 | +∞ (clear regression) | +0.022 (clear) | NULL clear |
+
+**Verdict: NULL+NULL clear → wrapper-class axis on body-Muon CLOSES at this baseline.**
+
+Monotone direction is informative: milder Lookahead (k=10) is NOT better than aggressive (k=5) — both regress similarly. This rules out the natural follow-ups (longer-k variants, smaller-α partial blends). The wrapper's slow-weight pull adds a low-frequency averaging bias that conflicts with the carefully-tuned cooldown schedule + Skylight floor + PMuon stack — net-harmful interference.
+
+**Cross-link with earlier closures:** This is the third averaging/smoothing-class closure on this baseline. Together with PMuon γ_power phase ramp (#444 NULL) and β_cov scan (#502 NULL), the pattern emerges:
+
+> **All averaging/smoothing-class mechanisms layered on top of the already-tuned PMuon stack regress.**
+
+The stack is "in a sweet spot" w.r.t. internal momentum/smoothing. Adding ANY external smoothing (Lookahead slow-pull, longer PMuon β_cov, phase-ramped γ_power) breaks the balance.
+
+**Polyak EMA explicitly skipped** as a follow-up: same averaging family as Lookahead, falsification has already carried.
+
+Fern reassigned to PR #545: AdaBelief on aux AdamW group — first mechanism-class change to variance update FORM.
+
 ## 2026-05-20 04:28 UTC — PR #503 CLOSED: Body-Muon WD schedule (warmup-25pct vs cooldown-25pct) — NULL/NULL, first temporal schedule on body-Muon closes (g1r1-edward)
 
 - Branch: `g1r1-edward/body-muon-wd-schedule`
