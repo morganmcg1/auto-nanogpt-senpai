@@ -532,7 +532,27 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+# Embed-only step-0 LR boost. Boost multiplier decays linearly from BOOST_MULT at
+# step 0 down to 1.0 at step int(BOOST_FRAC * train_steps). Applied multiplicatively
+# on top of eta_embed (so still composes with EMBED_COOLDOWN_SHAPE and ADAMW_EMBED_LR_MULT).
+# Defaults are no-op.
+NANOGPT_EMBED_LR_BOOST_MULT = float(os.environ.get("NANOGPT_EMBED_LR_BOOST_MULT", "1.0"))
+NANOGPT_EMBED_LR_BOOST_FRAC = float(os.environ.get("NANOGPT_EMBED_LR_BOOST_FRAC", "0.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+
+
+def embed_boost_multiplier(step: int, total_steps: int, boost_mult: float, boost_frac: float) -> float:
+    """Step-0 boost on top of eta_embed.
+
+    At step 0: returns boost_mult. Linearly decays to 1.0 by step int(boost_frac*total_steps).
+    After that window: returns 1.0. No-op when boost_mult <= 1.0 or boost_frac <= 0.
+    """
+    if boost_mult <= 1.0 or boost_frac <= 0.0:
+        return 1.0
+    boost_steps = int(boost_frac * total_steps)
+    if boost_steps <= 0 or step >= boost_steps:
+        return 1.0
+    return boost_mult + (1.0 - boost_mult) * (step / boost_steps)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -744,6 +764,14 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"EMBED_LR_BOOST_MULT: {NANOGPT_EMBED_LR_BOOST_MULT}", console=True)
+print0(f"EMBED_LR_BOOST_FRAC: {NANOGPT_EMBED_LR_BOOST_FRAC}", console=True)
+if NANOGPT_EMBED_LR_BOOST_MULT > 1.0 and NANOGPT_EMBED_LR_BOOST_FRAC > 0:
+    _boost_steps_dbg = int(NANOGPT_EMBED_LR_BOOST_FRAC * int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350")))
+    print0(f"  Embed step-0 boost: {NANOGPT_EMBED_LR_BOOST_MULT:.2f}x -> 1.0x linear over first {_boost_steps_dbg} steps", console=True)
+    print0(f"  Effective embed LR mult at step 0: {NANOGPT_ADAMW_EMBED_LR_MULT * NANOGPT_EMBED_LR_BOOST_MULT:.3f}x base LR", console=True)
+else:
+    print0(f"  Embed step-0 boost: DISABLED (mult={NANOGPT_EMBED_LR_BOOST_MULT}, frac={NANOGPT_EMBED_LR_BOOST_FRAC})", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -806,6 +834,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
+            "nanogpt_embed_lr_boost_mult": NANOGPT_EMBED_LR_BOOST_MULT,
+            "nanogpt_embed_lr_boost_frac": NANOGPT_EMBED_LR_BOOST_FRAC,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -880,6 +910,11 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+        # Step-0 boost on embed group only; multiplicative on top of eta_embed.
+        embed_boost = embed_boost_multiplier(
+            step, train_steps, NANOGPT_EMBED_LR_BOOST_MULT, NANOGPT_EMBED_LR_BOOST_FRAC,
+        )
+        eta_embed = eta_embed * embed_boost
         for opt in optimizers:
             for group in opt.param_groups:
                 if group.get("name") == "adam_embed":
@@ -1063,6 +1098,10 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/adam_step_rms": embed_step_rms,
                             "train/embed_schedule/lr_embed": embed_group["lr"],
                             "train/embed_schedule/adam_steps_taken": step_count,
+                            "train/embed_schedule/embed_boost_multiplier": embed_boost_multiplier(
+                                step, train_steps,
+                                NANOGPT_EMBED_LR_BOOST_MULT, NANOGPT_EMBED_LR_BOOST_FRAC,
+                            ),
                         }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
