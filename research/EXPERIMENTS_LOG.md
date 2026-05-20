@@ -1,5 +1,49 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 02:35 UTC — Cycle 70: nezuko #494 MUON_LR=0.04 n=2 val PASS / ffs TIES → n=4 confirm
+
+### PR #494 — nezuko MUON_LR=0.04 vs default 0.0375 (n=2 screen result)
+
+Branch: `g1r2-nezuko/muon-lr-sweep`. W&B run `phlq9bug` (Arm B). Mandatory stack + MUON_LR=0.04.
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.26875 | 3000 |
+| T1 | 3.27152 | 3050 |
+| **n=2 mean** | **3.270135** | **3025.0** |
+
+| Metric | n=2 mean | Bar (strict) | Δ | Verdict |
+|---|---|---|---|---|
+| val/loss | 3.270135 | < 3.271388 | **−0.001253** | **PASS** |
+| ffs | 3025.0 | < 3025 | **0** (tie) | **TIES — fails strict** |
+
+Statsig: (3.28 − 3.270135) × √2 = **0.01395** ≥ 0.004 ✓
+
+**Arm A (MUON_LR=0.035)** was math-killed earlier (T0=3.27504/3075 fails both axes; mean cannot recover at n=2).
+
+**Verdict**: Val improvement (~−1.3e-3) is robust with healthy statsig. FFS axis ties the 3025 baseline floor. Per predeclared decision tree: send back for n=4 confirm. Math for n=4 strict pass: T2+T3 val sum < 6.5426 (mean <3.27128 — T0=3.26875 already below), T2+T3 ffs sum < 6050 (mean <3025 strict — need ≥1 trial at 3000). Same n=4 path as askeladd #493 ADAM_EPS=1e-8 axis.
+
+**Pattern observation**: Both winning axes (MUON_LR=0.04, ADAM_EPS=1e-8) show identical {3000, 3050} ffs at n=2 → mean=3025. This is the inter-trial bimodal variance pattern thorfinn's SWA #524 targets directly.
+
+### PR #493 — askeladd ADAM_EPS=1e-8 n=4 confirm partial (T2 terminal)
+
+Branch: `g1r2-askeladd/adam-eps`. W&B run `0r0o4waj` (n=4 confirm T2+T3).
+
+| Trial | val/loss | ffs | source run |
+|---|---|---|---|
+| T0 | 3.26937 | 3000 | ef8iatgn |
+| T1 | 3.27351 | 3050 | ef8iatgn |
+| T2 | **3.27114** | **3025** | 0r0o4waj |
+| T3 | (in flight, step 226) | — | 0r0o4waj |
+
+**n=3 partial**: val mean = 3.2713 (PASS strict by 9e-5), ffs mean = 3025 (TIES strict).
+
+**T3 math for n=4 strict pass**:
+- val < 3.271388 → T3 sum-budget: T3 ≤ 3.271552 (~3e-4 margin)
+- ffs < 3025 → T3 < 3025 strict (i.e. 3000 needed)
+
+T3 terminal ETA ~04:10 UTC.
+
 ## 2026-05-20 01:30 UTC — Cycle 69 late: fern #456 SCALARS_LR CLOSED; fern reassigned #527 NAdamW
 
 ### PR #456 — fern SCALARS_LR ±25% (0.0075 vs 0.0125) — CLOSED axis falsified

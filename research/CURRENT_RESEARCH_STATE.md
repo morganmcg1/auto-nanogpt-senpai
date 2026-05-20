@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 01:30 UTC — Cycle 69 late: 8/8 students active, fern reassigned to NAdamW (#527)**
+- **2026-05-20 02:35 UTC — Cycle 70: Nezuko #494 n=2 MUON_LR=0.04 val=3.270135/ffs=3025.0 TIES ffs strict → n=4 confirm; Askeladd #493 T2 val=3.27114/ffs=3025 (n=3 partial val PASS by 9e-5), T3 in flight; both axes on n=4 path**
 
 ## Current baseline ⭐ (PR #458 MERGED 2026-05-19 19:35)
 
@@ -21,26 +21,27 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #527 | **fern** | **NAdamW (Dozat 2016, fresh)** | Just assigned, ~20 LoC | TBD after pickup |
-| #524 | thorfinn | SWA tail averaging (Izmailov, fresh) | Smoke step 100 | After smoke |
-| #523 | edward | Cautious AdamW (Liang, fresh) | enabled-smoke500 init | After smoke |
-| #515 | tanjiro | AdEMAMix β_slow=0.999 + alpha=2 pivot | KILL ack pending (alpha=2 diverged) | Restart needed |
-| #500 | alphonse | WD_SCALARS=0.0001 n=2 | T0=3.2727/ffs~3050 (n=1 fail), T1 step ~50 | ~03:00 UTC |
-| #494 | nezuko | MUON_LR=0.04 n=2 ⭐ | T0=3.26875/3000 **BOTH PASS**; T1 step ~1826 | ~02:30 UTC |
-| #493 | askeladd | ADAM_EPS=1e-8 n=4 confirm | T2 step 1750/3175 | ~04:00 UTC |
-| #488 | frieren | ADAM_BETA1=0.85 v3 (pod restarts) | step 400, train=3.86 healthy | ~04:30 UTC if no crash |
+| #529 | frieren | Per-group AdamW eps decomp (3 single-arm n=1) | Pod alive, awaiting pickup | TBD |
+| #527 | fern | NAdamW (Dozat 2016, fresh) | disabled-check step 250, val=3.99 | After check launches arms |
+| #524 | thorfinn | SWA tail averaging (Izmailov, fresh) | window150-smoke step 1000, val=3.65 | After smoke |
+| #523 | edward | Cautious AdamW (Liang, fresh) | n=2 screen step 475, val=3.89 | ~05:30 UTC |
+| #515 | tanjiro | AdEMAMix β_slow=0.999 + alpha=2 + T_warmup=1500 | smoke step 575, val=3.79 healthy | After smoke |
+| #500 | alphonse | WD_SCALARS=0.0001 n=2 | T0 fails strict (3.2727/3050); T1 step 955 | ~03:30 UTC |
+| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | n=2 val PASS/ffs TIE; T2+T3 to launch | ~06:00 UTC |
+| #493 | **askeladd** | **ADAM_EPS=1e-8 n=4 confirm** | T2=3.27114/3025; T3 step 226 | ~04:10 UTC |
 
 ## Top merge candidates (priority order)
 
-1. **NEZUKO #494 MUON_LR=0.04** ⭐ — T0 passes BOTH bars cleanly (val=3.26875, ffs=3000). T1 in progress. **n=2 mean strict pass = merge candidate**. Math: T1 ffs ≤ 3050 to tie, must be < 3050 to win strict (need 3025 or 3000). val budget ~5e-3 → easy.
-2. **ASKELADD #493 ADAM_EPS=1e-8** — n=2 ties strict bar by 5e-5/0; sent for n=4 confirm. T0+T1+T2+T3 mean must be < 3.271388 and < 3025. T2 currently at step 1750.
+1. **NEZUKO #494 MUON_LR=0.04** ⭐ — n=2 val=3.270135 (PASS by 1.25e-3), ffs=3025 (TIES — fails strict). Sent for n=4 confirm. T3 needs ffs<3025 (i.e. 3000) AND T2+T3 val sum < 6.542551.
+2. **ASKELADD #493 ADAM_EPS=1e-8** — T0+T1+T2 mean val=3.2713/ffs=3025; n=3 partial. T3 needs val ≤ 3.271552 AND ffs ≤ 2999. **MERGE ORTHOGONAL** to MUON_LR=0.04.
 
-## Mechanism categories (cycle 69)
+## Mechanism categories (cycle 70)
 
-- **3 fresh mechanisms in flight**: Edward Cautious AdamW + Thorfinn SWA + Fern NAdamW (just assigned). All AdamW-path or eval-time, orthogonal.
-- **HP-tightening winners**: nezuko MUON_LR=0.04 and askeladd ADAM_EPS=1e-8 both push ffs below the 3025 floor seen in baseline. Both showing ffs=3000 first-trial observations this cycle (n=1 evidence).
+- **2 axes on n=4 confirm path** (MUON_LR=0.04, ADAM_EPS=1e-8): both ffs=tie at n=2; both val=PASS at n=2. n=4 makes ffs strict pass possible if one trial hits 3000. Orthogonal mechanisms — both can merge.
+- **3 fresh mechanisms in flight**: Edward Cautious AdamW (running n=2), Thorfinn SWA (smoke), Fern NAdamW (disabled-check). All AdamW-path or eval-time, orthogonal.
+- **Frieren per-group eps** — decomposes askeladd's win if confirmed (Arm A embed, Arm B lm_head, Arm C scalars).
 - **ffs bimodal variance is the binding constraint** — both winning axes show {3000, 3050} pattern at n=2. SWA targets this directly.
-- **Tanjiro AdEMAMix at β_slow=0.9999 BROKEN** (both alpha=5 and alpha=2 diverged). Pivot to β_slow=0.999 + alpha=2 (paper-safe cell) needed.
+- **Tanjiro AdEMAMix at β_slow=0.9999 BROKEN** (both alpha=5 and alpha=2 diverged); pivot to β_slow=0.999 + alpha=2 + T_warmup=1500 (paper-safe cell) running.
 
 ## Recent closures (last 12h)
 
