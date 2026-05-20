@@ -64,6 +64,15 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--warmup_frac", type=float, default=0.0,
+                        help="Fraction of training steps to use for LR warmup (0.0 = no warmup, current). "
+                             "Typical LLM values: 0.005-0.10. Applies the warmup multiplier to ALL "
+                             "optimizer param groups (Muon + AdamW aux).")
+    parser.add_argument("--warmup_shape", type=str, default="linear",
+                        choices=["linear", "cosine"],
+                        help="Shape of warmup curve: 'linear' = LR ramps linearly from 0 to peak; "
+                             "'cosine' = LR follows half-cosine (slow at start, fast in middle). "
+                             "Only used when warmup_frac > 0.")
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
@@ -747,6 +756,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "warmup_frac": args.warmup_frac,
+            "warmup_shape": args.warmup_shape,
         },
     )
 
@@ -819,11 +830,22 @@ for trial_idx in range(args.num_trials):
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
 
-    # learning rate schedule: stable then decay
+    # learning rate schedule: optional warmup, stable, then decay
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        warmup_frac = args.warmup_frac
+        if warmup_frac > 0 and progress < warmup_frac:
+            # Warmup phase: ramp from 0 to 1.0 over [0, warmup_frac)
+            w_progress = progress / warmup_frac
+            if args.warmup_shape == "linear":
+                eta = w_progress
+            elif args.warmup_shape == "cosine":
+                import math
+                eta = 0.5 * (1.0 - math.cos(math.pi * w_progress))
+            else:
+                raise ValueError(f"Unknown warmup_shape: {args.warmup_shape}")
+        elif progress < 1 - cooldown_frac:
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
