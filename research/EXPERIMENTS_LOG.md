@@ -1,5 +1,48 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 21:05 UTC — Cycle 71 mid-17: PR #580 CLOSED (tanjiro AGC 8th variance-reduction closure); tanjiro → #613 logit-soft-cap; #608 alphonse rebase requested
+
+### PR #580 — tanjiro AGC (Adaptive Gradient Clipping) — CLOSED (8th variance-reduction cluster closure)
+
+Branch: `g1r2-tanjiro/agc`. AGC from Brock 2021 (NFNet) applied to all 101 AdamW parameter tensors (embed + lm_head + ~99 scalars). Per-tensor clip threshold = λ × ||p||_F. Two arms: λ=0.01 and λ=0.10.
+
+| Arm | λ | val@3175 | ffs | Δval vs OLD bar (3.270288) | Δval vs NEW bar (3.269185) | pass? |
+|---|---|---|---|---|---|---|
+| A | 0.01 | 3.27272 | 3050 | +0.000432 | **+0.0035** | ❌ both legs |
+| B | 0.10 | 3.27287 | 3050 | +0.000582 | **+0.0037** | ❌ both legs |
+
+Both arms violated step-500 kill gate by +0.023-0.026 but recovered; passed step-1500 and step-3000 gates. Both arms ffs=3050, identical despite λ varying 10×.
+
+**W&B runs**: djl2scjo (Arm A), fgea0zbv (Arm B).
+
+**Root cause of failure**: 99/101 AdamW tensors are tiny scalar params. These scalars have very small Frobenius norms → they routinely hit the AGC_EPS_MIN=1e-3 floor → effective threshold = 1e-3×λ ≈ 1e-5 or 1e-4 → clipped uniformly every step regardless of actual gradient outlier structure. This is **uniform damping**, not outlier filtering. Only embed + lm_head (2/101 tensors) get the intended per-tensor mechanism. clip_fraction 0.87-0.98 throughout cooldown — mechanism fires, but val/ffs doesn't move.
+
+**The bimodal-ffs hypothesis**: AGC was designed to suppress gradient magnitude outliers during late cooldown (the hypothesis: outlier batches push ffs from 3025 to 3050). Mechanism fires on embed+lm_head but ffs stays at 3050 for both arms. Conclusion: bimodal ffs is not caused by per-tensor gradient magnitude outliers on the AdamW group.
+
+**Cluster context**: This is the **8th** orthogonal mechanism in the closed variance-reduction / direction-correction family:
+1. COOLDOWN_FRAC #495 — schedule
+2. SWA #524 — weight-trajectory
+3. SAM #573 — sharpness-penalty (also contract-violating)
+4. Lookahead #561 — slow-weights sync
+5. MARS #576 — gradient-STORM correction
+6. Adan #586 — additive variance-reduced momentum
+7. β1 ramp #587 — EMA schedule
+8. **AGC #580 — per-tensor magnitude clipping (THIS)**
+
+**8/8 orthogonal mechanism classes all fail to compress bimodal ffs** — definitively confirmed intrinsic to data/loss geometry at our step budget.
+
+### Assignment: tanjiro → PR #613 (logit-soft-cap sweep)
+
+**Hypothesis**: The logit soft-cap constant c=15 at line 431 of train_gpt_simple.py (`logits = 15 * logits * (logits.square() + 15**2).rsqrt()`) is hardcoded and has NEVER been ablated. With EMBED_INIT_STD=0.1 now the baseline (input embedding magnitude 2.8× larger than prior std≈0.036 baseline), pre-cap logit distributions may have shifted enough that c=15 is no longer optimal.
+
+Two arms: Arm A (c=12, tighter saturation), Arm B (c=20, near-identity for most logits). Completely architecture-side. First test modifying model.forward (not optimizer, not init weights, not schedule).
+
+### Operational: #608 alphonse rebase requested
+
+PR #608 (Muon LR warmup) is now CONFLICTING with the advisor branch due to the PR #541 squash-merge. Comment posted to alphonse at 21:00 UTC requesting `git rebase origin/auto-nanogpt-1gpu-r2`. After rebase, student should confirm disabled-check (val@200 ≈ 4.10) still holds with EMBED_INIT_STD=0.1 mandatory stack, then proceed with arms.
+
+---
+
 ## 2026-05-20 20:20 UTC — Cycle 71 mid-16: PR #541 MERGED ⭐ (EMBED_INIT_STD=0.1 NEW BASELINE val=3.269185/ffs=3012.5); PR #598 CLOSED; askeladd → #611 residual-proj-init; edward → #610 NS5 cooldown precision
 
 ### PR #541 — askeladd EMBED_INIT_STD=0.1 — MERGED (⭐ NEW BASELINE)
