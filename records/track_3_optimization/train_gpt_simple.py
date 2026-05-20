@@ -63,15 +63,33 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--ns_iter", type=int, default=12,
+                        help="Number of Newton-Schulz iterations for Muon orthogonalization "
+                             "(default 12 matches historical hardcode).")
+    parser.add_argument("--ns_coefs", type=str, default="2.0,-1.5,0.5",
+                        help="NS polynomial coefficients (a,b,c) as comma-separated floats. "
+                             "Default '2.0,-1.5,0.5' = current. "
+                             "Muon paper variant: '3.4445,-4.7750,2.0315'. "
+                             "Analytical quintic: '1.875,-1.25,0.375'.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    parts = [float(x.strip()) for x in args.ns_coefs.split(",")]
+    assert len(parts) == 3, f"--ns_coefs must be 'a,b,c'; got {args.ns_coefs}"
+    args.ns_coef_a, args.ns_coef_b, args.ns_coef_c = parts
+    if args.ns_iter < 1:
+        raise ValueError("--ns_iter must be >= 1")
     return args
 
 
 args = parse_args()
+
+NS_ITER = args.ns_iter
+NS_COEF_A = args.ns_coef_a
+NS_COEF_B = args.ns_coef_b
+NS_COEF_C = args.ns_coef_c
 
 
 def clean_metric_name(name: str) -> str:
@@ -468,8 +486,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    a, b, c = NS_COEF_A, NS_COEF_B, NS_COEF_C
+    for _ in range(NS_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -741,6 +759,11 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "ns_iter": args.ns_iter,
+            "ns_coefs": args.ns_coefs,
+            "ns_coef_a": args.ns_coef_a,
+            "ns_coef_b": args.ns_coef_b,
+            "ns_coef_c": args.ns_coef_c,
         },
     )
 
