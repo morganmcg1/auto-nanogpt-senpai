@@ -3,6 +3,53 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 16:15 UTC — PR #506: NS-iter warmup schedule (frieren) — CLOSED productive-NEGATIVE [paired-pod n=3]
+
+- Branch: `g1r4-frieren/ns-warmup`
+- Hypothesis: Ramp NS_ITERS from low (8 or 10) → 12 over first 5-10% of training. Builds on #470 findings (NS=8 below precision floor in flat mode, may be OK for early noisy gradients). "Less constraint early" cluster paired with #483 WD warmup, #489 embed-LR warmup.
+- Code: `NANOGPT_NS_ITERS_WARMUP_START` + `NANOGPT_NS_ITERS_WARMUP_FRAC` env vars + linear ramp helper.
+
+**N=1 sweep results (drift gate A PASS):**
+
+| Arm | NS_WARMUP_START | NS_WARMUP_FRAC | val/loss | Δ vs A | W&B run |
+|---|---:|---:|---:|---:|---|
+| A | 12 | 0.0 | 3.27282 | — (drift +0.00108) | — |
+| B | 10 | 0.05 | 3.27321 | +0.00039 (null) | — |
+| **C** | **8** | **0.05** | **3.27163** | **−0.00119** (null but directional) | candidate |
+| D | 10 | 0.10 | 3.27215 | −0.00067 (null) | — |
+
+Arm C passed single-seed stat-rule (3.27163 ≤ 3.27174 baseline AND margin 0.00837 ≥ 0.004), but within-pod Δ=−0.00119 was inside productive-null band [−0.002, +0.0015]. Sent back for paired-pod confirmation.
+
+**Paired-pod n=3 results (per-pod controlled SENPAI_SEED):**
+
+| Pod | SENPAI_SEED | Arm A val | Arm B val | Δ_pod (B−A) | W&B A | W&B B |
+|---|---:|---:|---:|---:|---|---|
+| pod 0 | 0 | 3.27172 | 3.27347 | +0.00175 | `gn9qxomh` | `j15polni` |
+| pod 1 | 1 | 3.27361 | 3.27435 | +0.00074 | `sq5a9w6s` | `no3kmvgt` |
+| pod 2 | 2 | 3.27194 | 3.27206 | +0.00012 | `x0ox4mu6` | `1m0t1atd` |
+| **n=3 mean** | — | **3.27242** | **3.27329** | **+0.00087** | — | — |
+
+**Merge-gate verdict (pre-staged):**
+
+| Gate | Threshold | Observed | Pass? |
+|---|---|---|---|
+| 1. mean(Δ) ≤ −0.002 | ≤ −0.002 | +0.00087 | ❌ FAIL (wrong sign by 0.00287) |
+| 2. mean(val_B) ≤ 3.27174 | ≤ 3.27174 | 3.27329 (+0.00155) | ❌ FAIL |
+| 3. (3.28 − mean) × √3 ≥ 0.004 | ≥ 0.004 | 0.01162 | ✅ PASS |
+
+Two of three gates fail. **CLOSED productive-NEGATIVE.**
+
+**Analysis:**
+
+- **The N=1 Δ_C=−0.00119 was an Arm-A drift artifact, not a real treatment effect.** Tight pod-A controls anchor at mean 3.27242 (only +0.00068 above baseline 3.27174), revealing the warmup arm is neutral-to-regressive within-pod. All three pods regress (Δ_pod > 0). The original "win" reading required Arm A to be drifted high.
+- **5th cycle precedent for single-seed → paired-pod collapse**: joins #344 askeladd dual-LR, #351 askeladd-fern post-cooldown WD, #408 fern AGC, #487 tanjiro NS_ITERS_COOLDOWN-drop. Pattern is now sufficiently documented that the within-pod Δ ≤ −0.002 threshold should be treated as a hard requirement before merge, regardless of single-seed stat-rule.
+- **NS-axis program now fully fenced**: 3/3 NS-iter schedule axes closed (warmup #506, normal-phase #470, cooldown saturation #388) + 3 cooldown-machinery components MERGED (#176 magnitude, #285 shape, #290 coef) + sub-stack pruning #487 null + spatial #543 null. Further NS-axis experiments are blocked unless a structurally novel approach emerges (per-block-type NS coefficients, NS warmup × per-block, etc.).
+- **37th productive-null/negative this cycle.**
+
+**Compute summary**: 6 paired-pod runs × ~1h45m each ≈ ~10h30m total wall time on RTX PRO 6000 Blackwell. No OOMs, no NaNs, all reached 3.28 target cleanly.
+
+**Follow-up**: frieren assigned **per-group AdamW WD sweep** — current `weight_decay=0` is uniformly applied across all 3 AdamW groups (embed/lm_head/scalar); whether dense lm_head or small-param scalar groups benefit from steady-state WD>0 has never been tested.
+
 ## 2026-05-20 15:35 UTC — PR #554: AdamW embed WD cooldown nudge (thorfinn) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-thorfinn/embed-wd-cooldown-nudge`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 15:35 UTC
+- **Date:** 2026-05-20 16:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -214,24 +214,10 @@ Single-seed 4-arm (drift gate A PASS, |3.27253−3.27174|=0.00079): A α=0.95=3.
 Arms B=8 (+0.00235 regression), C=10 (−0.00168 null), D=14 (−0.00145 null). Wide saturation plateau NS ∈ [10, 14]; NS=8 below floor. **Critical compute finding: NS step-time is flat (±1%) across all NS values — orthogonalization is not the per-step bottleneck.** 21st productive-null/negative.
 **Follow-up**: frieren assigned **#506 NS-iter warmup schedule** — ramp NS from {8,10} → 12 over first 5-10%.
 
-### 🚨 frieren #506 — NS-iter warmup schedule [sent back to paired-pod 04:43 UTC]
+### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
-**Branch:** `g1r4-frieren/ns-warmup`
-**Hypothesis**: Ramp NS_ITERS from a low starting value → 12 over the first N% of normal phase. Builds on #470 findings: NS=8 is below precision floor in flat mode, but may be acceptable for the first 5% (noisy gradients). Structurally novel: first NS schedule experiment *within* the normal phase (all prior NS schedule work targeted cooldown). Pairs with WD warmup (#483) and embed LR warmup (#489) — "less constraint early" cluster.
-
-**N=1 results (all 4 arms terminated):**
-| Arm | NS_WARMUP_START | NS_WARMUP_FRAC | val/loss | Δ vs A | Δ vs baseline |
-|---|---:|---:|---:|---:|---:|
-| A | 12 | 0.0 | 3.27282 | 0 (ref) | +0.00108 (drift ✓) |
-| B | 10 | 0.05 | 3.27321 | +0.00039 (null) | +0.00147 |
-| **C** | **8** | **0.05** | **3.27163** | **−0.00119 (null but directional)** | **−0.00011** |
-| D | 10 | 0.10 | 3.27215 | −0.00067 (null) | +0.00041 |
-
-**Single-seed winner candidate**: Arm C passes stat-rule (val 3.27163 ≤ 3.27174 baseline AND margin 0.00837 ≥ 0.004), but within-pod Δ=−0.00119 is inside productive-null band [−0.002, +0.0015]. Arm A drifted +0.00108 — partly explaining the disagreement.
-
-**Monotone pattern**: more aggressive early loosening → better val_loss. Aggressiveness (C beats B by 0.00158 at fixed 5% window) > Duration (D beats B by 0.00106 at fixed NS=10) > both axes coherent.
-
-**Sent back for paired-pod confirmation (04:43 UTC)**: 3 paired A/B pods (B=NS=8 over 5% candidate). Same gates as #487: mean(Δ) ≤ −0.002 AND mean(val_B) ≤ 3.27174 AND `(3.28 − mean) × √3 ≥ 0.004`. ETA ~11h.
+Paired-pod n=3 confirmation: all 3 pods regress (mean Δ=+0.00087, wrong sign). Gates 1+2 fail (mean Δ above 0, mean val_B 3.27329 > baseline 3.27174). The N=1 Δ_C=−0.00119 was an Arm-A drift artifact (original Arm A drifted +0.00108 above baseline; paired-pod Arm-A controls anchor at +0.00068). **5th cycle precedent for single-seed → paired-pod collapse** (joins #344, #351, #408, #487). **NS-axis program now fully fenced**: 3/3 NS-iter schedule axes closed by frieren (warmup #506, normal-phase #470, cooldown saturation #388) + 3 cooldown-machinery components MERGED (#176, #285, #290) + sub-stack pruning #487 null + spatial #543 null. **37th productive-null/negative this cycle.**
+**Follow-up**: frieren assigned **per-group AdamW WD sweep** — currently WD=0 uniformly across embed/lm_head/scalar; whether dense lm_head or small-param scalar groups benefit from WD>0 has never been tested. Structurally distinct from #554 (embed WD ADD cooldown, NEGATIVE — sparse-row mechanism), #550 (Muon body WD), #483 (Muon WD warmup, NEGATIVE).
 
 ### ✅ edward #474 — AdaBelief for aux groups — CLOSED 22:35 UTC productive-NEGATIVE
 
@@ -264,7 +250,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**36 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**37 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -274,7 +260,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 3. **Additive regularization always fails on this stack.** AGC, GC, gradient noise, label smoothing, z-loss — all hurt.
 
 **Current open questions** (in-flight):
-1. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — pod 0 Δ=+0.00175 REVERSED from N=1, productive-NEGATIVE trajectory)
+1. ~~Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise?~~ **#506 CLOSED productive-NEGATIVE** — all 3 pods regress, 5th single-seed→paired-pod collapse precedent; NS-axis program fully fenced.
 2. ~~Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12?~~ **#543 CLOSED productive-NULL** — NS=12 saturation robust to spatial reallocation; codebase has limited surface (only 2-of-6 Muon blocks non-square).
 3. ~~Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear?~~ **#547 CLOSED productive-NULL** — lm_head wants monotonic linear; late_peak doesn't cross-axis transfer from NS.
 4. Does Muon WD reduction during cooldown extract precision-window gain? (**#550, edward — N=1 Arm D WD=0 Δ=−0.00337 strong winner candidate; sent back for paired-pod n=3 confirmation, identical protocol to #487; non-linear axis response (only WD=0 extracts gain) is structurally novel; either fresh merge candidate or 5th single-seed→paired-pod collapse**)
@@ -340,7 +326,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 - **Per-block NS-iter spatial allocation (aspect ratio)**: CLOSED productive-NULL (#543; NS=12 saturated to spatial reallocation; codebase has only 2 non-square Muon blocks limiting surface)
 - NS coef depth/center: saturated (#345, #384)
 - NS=12 normal phase: CLOSED productive-null (#470; wide plateau NS ∈ [10,14]; NS=8 below floor; NS step-time flat ±1%)
-- NS-iter warmup: in-flight (#506)
+- **NS-iter warmup (NS=8→12 over first 5%)**: CLOSED productive-NEGATIVE (#506; paired-pod n=3 mean Δ=+0.00087, all 3 pods regress; 5th single-seed→paired-pod collapse; NS axis fully fenced — 3/3 frieren NS schedule corners closed + sub-stack pruning + spatial reallocation also null)
 
 **Schedule**:
 - Cooldown frac (global): closed
