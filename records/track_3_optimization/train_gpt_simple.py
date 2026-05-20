@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# AGC: Adaptive Gradient Clipping (Brock 2021, arxiv 2102.06171). Per-tensor: g <- min(lambda * ||W||_F / ||g||_F, 1) * g.
+# Applied to AdamW group only (embed + lm_head + scalars); Muon group untouched.
+AGC_ENABLED = int(os.environ.get("AGC_ENABLED", "0"))
+AGC_LAMBDA = float(os.environ.get("AGC_LAMBDA", "0.01"))
+AGC_EPS_MIN = float(os.environ.get("AGC_EPS_MIN", "1e-3"))  # floor on param norm so 0-init scalars don't get fully clipped
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -864,6 +869,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/agc_enabled": AGC_ENABLED,
+            "optimizer/agc_lambda": AGC_LAMBDA,
+            "optimizer/agc_eps_min": AGC_EPS_MIN,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1025,6 +1033,21 @@ for trial_idx in range(args.num_trials):
         set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
+        # AGC: Adaptive Gradient Clipping on AdamW group (embed + lm_head + scalars).
+        # g <- min(lambda * ||W||_F / ||g||_F, 1) * g. Muon group untouched.
+        agc_ratios = []
+        if AGC_ENABLED:
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    param_norm = p.detach().norm().clamp(min=AGC_EPS_MIN)
+                    grad_norm = p.grad.detach().norm()
+                    max_norm = param_norm * AGC_LAMBDA
+                    clip_coef = max_norm / (grad_norm + 1e-6)
+                    clip_coef_clamped = clip_coef.clamp(max=1.0)
+                    p.grad.detach().mul_(clip_coef_clamped)
+                    agc_ratios.append(clip_coef_clamped)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
@@ -1049,6 +1072,17 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if AGC_ENABLED and len(agc_ratios) > 0:
+                ratios_t = torch.stack(agc_ratios).detach().float()
+                agc_n_total = int(ratios_t.numel())
+                agc_n_clipped = int((ratios_t < 1.0).sum().item())
+                wandb.log({
+                    "agc/clip_fraction": agc_n_clipped / agc_n_total,
+                    "agc/mean_clip_ratio": float(ratios_t.mean().item()),
+                    "agc/min_clip_ratio": float(ratios_t.min().item()),
+                    "agc/n_total": agc_n_total,
+                    "agc/n_clipped": agc_n_clipped,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
