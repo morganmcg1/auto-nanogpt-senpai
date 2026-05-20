@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Gradient Centralization (Yong 2020, arxiv 2004.01461): subtract per-input-column mean over
+# the output dimension from 2D weight gradients before AdamW step. Applied only to optimizer1
+# (AdamW group). Only 2D params (embed, lm_head) actually receive GC; scalars are skipped.
+GC_ENABLED = int(os.environ.get("GC_ENABLED", "0"))  # 0=off, 1=on
+GC_GROUPS = os.environ.get("GC_GROUPS", "all")  # "all"=embed+lm_head, "lm_head"=only lm_head, "embed"=only embed
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -864,6 +869,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/gc_enabled": GC_ENABLED,
+            "optimizer/gc_groups": GC_GROUPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1049,6 +1056,20 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if GC_ENABLED:
+            # Apply Gradient Centralization to AdamW group (optimizer1) only.
+            # GC subtracts per-column mean over the output dimension from 2D weight grads,
+            # removing the rank-1 "all-outputs DC offset" mode. Yong et al. 2020.
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                if GC_GROUPS == "lm_head" and gname != "adam_lm_head":
+                    continue
+                if GC_GROUPS == "embed" and gname != "adam_embed":
+                    continue
+                for p in group["params"]:
+                    if p.grad is None or p.grad.dim() < 2:
+                        continue
+                    p.grad.sub_(p.grad.mean(dim=0, keepdim=True))
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
