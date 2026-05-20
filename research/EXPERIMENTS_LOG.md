@@ -1,5 +1,42 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 12:00 UTC — Cycle 71 mid-4: PR #524 thorfinn SWA CLOSED (bimodal var NOT compressed); PR #557 edward SF-AdamW CLOSED (no cooldown analog); thorfinn → #573 SAM; edward → #574 Sophia
+
+### PR #524 — thorfinn SWA Tail Averaging CLOSED — weight-averaging cannot compress upstream bimodal variance
+
+Branch: `g1r2-thorfinn/swa-tail-averaging`. W&B run: `z02q183a` (Arm B v2 n=2, SWA_WINDOW=300).
+
+| Trial | val/loss | ffs |
+|---|---|---|
+| T0 | 3.27290 | **3000** |
+| T1 | 3.27539 | 3050 |
+| **mean** | **3.274145** | **3025** |
+| stddev (sample) | 0.001761 | 35.36 |
+
+Bar FAIL: val mean +0.0039 above 3.270288; ffs mean = 3025 is TIE not strict <. Statsig (3.28-3.274145)·√2=0.00828 ≥ 0.004 ✓ (clean miss, not noise).
+
+**Mechanism verdict (student's analysis)**: Bimodal {3000, 3050} ffs variance was NOT compressed — only translated. SWA averages the *endpoint* of the cooldown trajectory but cannot fix the *upstream* dataloader/optimizer noise that determines which bimodal branch the trajectory lands on. T0 hit the 3000 branch, T1 hit the 3050 branch, giving baseline-equivalent mean by coincidence. The val curve through the SWA window (swa_count 1→300) was perfectly clean (monotonic descent, no perturbation pre-SWA), confirming implementation is sound. The mechanism is real (SWA-averaged weights ARE smoother than terminal weights) but additive on top of irreducible upstream bimodal noise.
+
+**Closed family update**: Weight-averaging mechanisms (Polyak EMA #286, SWA WINDOW=150 v1, SWA WINDOW=300 v2) all FAIL to compress bimodal ffs variance. Variance is upstream noise, not endpoint noise. Remaining variance-reduction angles: frieren #561 Lookahead (discrete sync, different from continuous SWA), upstream interventions.
+
+### PR #557 — edward Schedule-Free AdamW CLOSED — cooldown irreplaceable on AdamW group
+
+Branch: `g1r2-edward/sfadamw`. W&B runs: disabled-check `nhjc7usg`+`z5b8oqne`; smoke A `y2ew8t60`; smoke B `5k7zyfr7`; n=1 partial (killed) `v150qzl3`.
+
+Arm B (SFADAMW_LR_SCALE=2.0) killed at step 1500: val=3.57083 vs baseline 3.52970 → gap +0.041 (kill gate >3.55 tripped by 0.021). Gap stabilizes at +0.03-0.04 throughout training; **no sign of closing**.
+
+**Mechanism verdict (student's analysis)**: SF-AdamW has **no cooldown analog**. Baseline cooldown monotonically shrinks the gradient step in the last 30% of training, compressing val from 3.43 (step 2000) to 3.27 (step 3175). SF-AdamW's constant-LR-with-Polyak-average cannot replicate this — z-iterate keeps stepping at full LR throughout. The deployed x averages over a still-large-step trajectory. The +0.04 gap is purely the loss of cooldown on this minority of params.
+
+**Closed family update**: This is the **4th AdamW-group mechanism perturbation to fail** (Cautious #523 sign-mask, Lion #538 sign-of-momentum, NAdamW #527 Nesterov, SF #557 Polyak/no-cooldown). Pattern: at our 3175-step horizon, the AdamW group's tuned combination of {Adam update, linear cooldown, decoupled WD, β=(0.8, 0.95)} is irreplaceable. Cooldown-replacement mechanisms on AdamW group are CLOSED — do not re-propose.
+
+### PR #573 — thorfinn SAM assigned (Foret 2020, arxiv 2010.01412)
+
+Sharpness-Aware Minimization: compute g(θ) → perturb θ + ε where ε=ρ·g/||g||₂ → compute g(θ+ε) → use the perturbed gradient for the AdamW/Muon step. Doubles compute (2× forward-backward) but targets variance via flatter-basin discovery — fundamentally different from SWA weight averaging. 2 arms: Arm A SAM on all params, Arm B SAM on AdamW group only (cheaper).
+
+### PR #574 — edward Sophia-G assigned (Liu 2023, arxiv 2305.14342)
+
+Sophia-G (Gauss-Newton-Bartlett variant): replaces AdamW's g² denominator with `h ← β2·h + (1-β2)·g²` plus clipped update `clip(m/h, ±ρ)`. Hessian-aware second-order signal, preserves linear cooldown (avoids SF failure mode). ~10% step overhead with update_period=10. 2 arms: SOPHIA_LR_SCALE=2.0 (paper default for GPT-2) and SOPHIA_LR_SCALE=1.0 (conservative AdamW-matched scale).
+
 ## 2026-05-20 11:00 UTC — Cycle 71 mid-3: PR #527 fern NAdamW CLOSED (direction-blend cluster falsified); fern assigned #569 AdaBelief; tanjiro #534 n=1 arms launched
 
 ### PR #527 — fern NAdamW CLOSED — direction-blend AdamW cluster now fully falsified
