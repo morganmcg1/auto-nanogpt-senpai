@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 01:30 UTC — Cycle 69 late: fern #456 SCALARS_LR CLOSED; fern reassigned #527 NAdamW
+
+### PR #456 — fern SCALARS_LR ±25% (0.0075 vs 0.0125) — CLOSED axis falsified
+
+Branch: `g1r2-fern/scalars-lr-sweep`. Both arms ±25% around default 0.01:
+
+| Arm | Best T0 val | T0 ffs | vs strict bar |
+|---|---|---|---|
+| A (0.0075) | 3.27256 | 3050 | val MISS +0.00117, ffs MISS +25 |
+| B (0.0125) | 3.27491 + crashed retry | 3075 | val MISS +0.0035, ffs MISS +50 |
+
+Multiple crashes (rep crashes on pod, multiple ns14stack retries). Axis falsified at ±25%. Default 0.01 confirmed locally optimal. The third AdamW LR group (scalars: bias + LN params, ~70K params total) is not a tunable axis on this stack.
+
+### Reassignment: fern → PR #527 NAdamW (Dozat 2016)
+
+Branch: `g1r2-fern/nadamw`. Hypothesis: replace vanilla Adam's first-moment update in AdamW group (embed, lm_head, scalars) with Nesterov-style lookahead. Specifically:
+
+- Standard AdamW: `θ ← θ - lr * m̂ / (√v̂ + ε)`
+- NAdamW: `θ ← θ - lr * (β1 * m̂ + (1-β1) * grad / (1 - β1^t)) / (√v̂ + ε)`
+
+Custom `NAdamW` class (~20 LoC) gated by env var `NADAMW=1`. Two arms: β1=0.8 (pure mechanism test) and β1=0.85 (compensate for lookahead).
+
+Reference: Dozat 2016 ICLR Workshop. Fresh axis on r2 stack; #510 tested similar mechanism on r3 (different stack).
+
+### Tanjiro #515 alpha=5 + alpha=2 BOTH DIVERGED — pivot to β_slow=0.999
+
+Both AdEMAMix variants at β_slow=0.9999 crashed:
+- alpha=5: val 4.42 → 10.997 across steps 250→875 (deterministic up-trend)
+- alpha=2: val 4.03 → 10.960 across steps 250→625 (same pattern, 250 steps earlier)
+
+Diagnosis: β_slow=0.9999 has half-life ~10000 steps but train_steps=3175 — slow-EMA never reaches steady state. Combined with MU_COOLDOWN and contra-muon coupling, the slow-EMA contribution lags badly. Sent advisor directive to retry at **β_slow=0.999 + alpha=2 + T_warmup=1500** (paper-safe cell from Pagliardini et al ICLR 2024).
+
+---
+
 ## 2026-05-20 00:55 UTC — Cycle 69 late: thorfinn #495 CLOSED no-improvement; reassigned #524 SWA Tail Averaging; nezuko #494 Arm B T0 BREAKTHROUGH
 
 ### PR #495 — thorfinn COOLDOWN_FRAC sweep (0.75 vs 0.65) — CLOSED no-improvement
