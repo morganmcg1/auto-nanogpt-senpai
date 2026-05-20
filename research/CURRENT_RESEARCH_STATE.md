@@ -1,11 +1,11 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 03:50 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **escalations through esc#29 (02:38 UTC 2026-05-20)** — ~99.5h total operator silence. esc#30 due ~07:00 UTC 2026-05-20.
+- **Last updated:** 2026-05-20 04:10 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **Escalations through esc#29+add-on (04:09 UTC 2026-05-20)** — ~99.5h total operator silence on alphonse/tanjiro. esc#30 due ~07:00 UTC 2026-05-20.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
 - **🟢 ACTIVE WIN DIRECTION (cooling):** askeladd PR #478 embed_lr n=4 confirm arm 1 (val=3.27277) significantly WORSE than n=1 single-arm 3.27213. arm 2 ETA 04:00; running mean 3.27277 after n=1 doesn't clear conservative bar 3.27079. Wait for n=4.
 - **🆕 KEY MECHANISTIC FINDING (PR #510 CLOSED 01:30 UTC):** Unfused optimizer path produces NaN at step-3 forward under the current aux stack (eps=1e-6 + AGC + per-group LR). Plain `AdamW(fused=False)` shows identical failure. **Implication**: any aux optimizer without a fused kernel (NAdam, AdaBelief unfused, AdaFactor) is BLOCKED. Lookahead/Lion/SWA wrappers around fused AdamW are SAFE.
-- **🆕 PR #525 frieren NaN cascade**: 6 NaN runs at step 25 with `--aux_lookahead_k 0` (inert wrapper, code-byte identical to baseline). Not GPU contention; not code bug; not zombie process. Working hypothesis: **stale torchinductor cache** from 4d15h of file edits. Cache-clear smoke pending.
+- **🆕 PR #525 frieren POD ROTATION REQUESTED 04:09 UTC**: 8 separate NaN runs at step 25–125 (`gm8z8yej / jx9m9ah5 / 3z6utx5l / lokz88lw / h22dzj1i / 87wznxfr / 876gasq0 / pu4hxo61`) with identical `nonfinite_count ≈ 1.48e8` (~91%) fingerprint. Ruled out: GPU contention, code bug, torchinductor cache (cleared + relaunched → same step-125 NaN). Cross-pod baseline produces healthy val ≈ 3.271 today. Conclusion: **pod hardware / CUDA state issue**. Frieren PR parked in WIP; pod added to Issue #164 rotation list.
 
 ## ⭐ Current baseline (post-PR #443 merge)
 
@@ -41,7 +41,7 @@
 |---|---|---|---|
 | **#536** | nezuko | **H15: MuLoCo outer-step pruning ablation** (`--use_outer_optimizer 0`) | **NEWLY ASSIGNED 03:48 UTC** — ctrl + OFF + momentum=0 arms |
 | **#531** | fern | **H11: Schedule-Free AdamW for aux** (replaces aux linear cooldown w/ PR-averaging) | Assigned 02:05 UTC — ctrl running step ~1328 |
-| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **NaN BLOCKED** — 6 ctrl runs NaN at step 25 with inert k=0; pursuing torchinductor cache-clear smoke (advised 03:46 UTC) |
+| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD ROTATION REQUESTED 04:09 UTC** — 8 NaN runs, same step-125 nonfinite fingerprint, cache-clear didn't fix. Hypothesis still valid; awaiting clean pod. |
 | **#512** | edward | **H6: Aux v_t reset at cooldown onset** (`reset_frac`=1.0/0.5/0.1) | Arm 1 (1.0) 3.27280; Arm 2 (0.5) **3.27142** (BEST so far, Δ−0.00138 vs ctrl); Arm 3 (0.1) ETA ~04:00 |
 | **#478** | askeladd | **embed LR n=4 confirmation @ 0.4** | Arm 1 (n=4 arm 1) terminal val=3.27277 ffs=3125 (WORSE than 1-shot 3.27213). Arms 2/3/4 ETA 04:00/05:40/07:25 |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~99.5h** — GPU `g71b0d6`. esc#30 due ~07:00. |
