@@ -201,6 +201,9 @@ def log_training_telemetry(
     pre_clip_grad_norm: Tensor | None = None,
     clip_norm: float = 0.0,
     per_group_pre_clip: dict[str, Tensor] | None = None,
+    eta_default: float | None = None,
+    eta_embed: float | None = None,
+    eta_body: float | None = None,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -235,6 +238,12 @@ def log_training_telemetry(
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
     metrics.update(prefixed("train/grad/all", grad_stats))
+    if eta_default is not None:
+        metrics["train/eta_default"] = eta_default
+    if eta_embed is not None:
+        metrics["train/eta_embed"] = eta_embed
+    if eta_body is not None:
+        metrics["train/eta_body"] = eta_body
     for opt_idx, opt in enumerate(optimizers):
         for group_idx, group in enumerate(opt.param_groups):
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
@@ -528,6 +537,14 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     raise ValueError(
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
+# Per-group body (Muon) cooldown shape. Applies to muon_blocks group only;
+# lm_head/scalars keep the default linear-to-zero cooldown.
+NANOGPT_BODY_COOLDOWN_SHAPE = os.environ.get("NANOGPT_BODY_COOLDOWN_SHAPE", "linear")
+_VALID_BODY_COOLDOWN_SHAPES = ("linear", "cosine", "linear_floor", "quadratic")
+if NANOGPT_BODY_COOLDOWN_SHAPE not in _VALID_BODY_COOLDOWN_SHAPES:
+    raise ValueError(
+        f"NANOGPT_BODY_COOLDOWN_SHAPE={NANOGPT_BODY_COOLDOWN_SHAPE!r}, must be one of {_VALID_BODY_COOLDOWN_SHAPES}"
+    )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
@@ -740,6 +757,8 @@ print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLI
        console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+print0(f"BODY_COOLDOWN_SHAPE: {NANOGPT_BODY_COOLDOWN_SHAPE} "
+       f"(applies to muon_blocks only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
@@ -802,6 +821,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_body_cooldown_shape": NANOGPT_BODY_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
@@ -860,13 +880,15 @@ for trial_idx in range(args.num_trials):
 
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
-    # adam_embed group, which can be remapped via NANOGPT_EMBED_COOLDOWN_SHAPE.
+    # adam_embed group (NANOGPT_EMBED_COOLDOWN_SHAPE) and the muon_blocks
+    # body group (NANOGPT_BODY_COOLDOWN_SHAPE).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta_default = 1.0
             eta_embed = 1.0
+            eta_body = 1.0
         else:
             eta_default = (1 - progress) / cooldown_frac
             cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
@@ -880,12 +902,26 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+            if NANOGPT_BODY_COOLDOWN_SHAPE == "linear":
+                eta_body = eta_default
+            elif NANOGPT_BODY_COOLDOWN_SHAPE == "cosine":
+                eta_body = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
+            elif NANOGPT_BODY_COOLDOWN_SHAPE == "linear_floor":
+                eta_body = 0.15 + 0.85 * eta_default
+            elif NANOGPT_BODY_COOLDOWN_SHAPE == "quadratic":
+                eta_body = eta_default ** 2
+            else:
+                raise ValueError(f"unknown body shape: {NANOGPT_BODY_COOLDOWN_SHAPE}")
         for opt in optimizers:
             for group in opt.param_groups:
-                if group.get("name") == "adam_embed":
+                name = group.get("name")
+                if name == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
+                elif name == "muon_blocks":
+                    group["lr"] = group["initial_lr"] * eta_body
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        return eta_default, eta_embed, eta_body
 
 
     ########################################
@@ -988,7 +1024,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        set_hparams(step)
+        eta_default, eta_embed, eta_body = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1017,6 +1053,9 @@ for trial_idx in range(args.num_trials):
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
+                eta_default=eta_default,
+                eta_embed=eta_embed,
+                eta_body=eta_body,
             )
         # NS iteration schedule: cooldown shape controls how iters evolve during
         # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
