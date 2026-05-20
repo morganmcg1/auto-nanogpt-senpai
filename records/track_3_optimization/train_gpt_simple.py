@@ -63,6 +63,9 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--lr_floor", type=float, default=0.0,
+                        help="Minimum LR multiplier during cooldown phase (0.0 = decay to zero; "
+                             "0.10 = decay to 10%% of peak LR). Default 0.0 matches current behavior.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -741,6 +744,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "lr_floor": args.lr_floor,
         },
     )
 
@@ -820,7 +824,9 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            # Linear decay from 1.0 -> args.lr_floor over the cooldown phase
+            cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
+            eta = 1.0 - (1.0 - args.lr_floor) * cooldown_progress
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
