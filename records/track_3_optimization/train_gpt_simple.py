@@ -466,6 +466,12 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# NAdamW (Dozat 2016): Nesterov-momentum first-moment lookahead on the AdamW path.
+# When NADAMW=1, replace AdamW's first-moment update with the Nesterov-lookahead
+# direction: m_hat * beta1 + grad * (1-beta1) / (1 - beta1^t). β2/ε/decoupled
+# WD semantics are unchanged from AdamW. Fused path is unavailable for NAdamW.
+NADAMW = int(os.environ.get("NADAMW", "0"))
+ADAM_BETA1 = float(os.environ.get("ADAM_BETA1", "0.8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -775,6 +781,50 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class NAdamW(torch.optim.Optimizer):
+    """AdamW with Nesterov-momentum first-moment lookahead (Dozat 2016).
+
+    Update direction: nesterov_dir = beta1 * m_hat + (1-beta1) * grad / bc1
+    where m_hat = m / (1 - beta1^t), v_hat = v / (1 - beta2^t), and decoupled
+    weight decay is applied multiplicatively before the gradient step.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps, lr, wd = group["eps"], group["lr"], group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["exp_avg"], state["exp_avg_sq"]
+                m.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                # Nesterov lookahead: blend bias-corrected m with bias-corrected grad
+                nesterov_dir = beta1 * m_hat + (1.0 - beta1) * grad / bc1
+                denom = v_hat.sqrt().add_(eps)
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.addcdiv_(nesterov_dir, denom, value=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -864,6 +914,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/nadamw": NADAMW,
+            "optimizer/adam_beta1": ADAM_BETA1,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -896,10 +948,14 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    OptClass = NAdamW if NADAMW else AdamW
+    adam_kwargs = dict(betas=(ADAM_BETA1, 0.95), eps=1e-10, weight_decay=0)
+    if not NADAMW:
+        adam_kwargs["fused"] = True
+    optimizer1 = OptClass([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                           dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                          **adam_kwargs)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
