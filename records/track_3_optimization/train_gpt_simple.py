@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--aux_beta2", type=float, default=0.95,
+                        help="beta2 for the aux AdamaxAdamW group (L-inf u-EMA decay).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -521,6 +523,60 @@ def pmuon_update(
     return update
 
 
+class AdamaxAdamW(torch.optim.Optimizer):
+    """Adamax variant of AdamW: L-infinity v-aggregation in place of L2 v-EMA.
+
+    Replaces the AdamW second-moment EMA ``v = beta2 * v + (1 - beta2) * g**2`` with
+    the element-wise L-infinity running max ``u = max(beta2 * u, |g|)``, then
+    divides the bias-corrected first moment by ``u`` directly (no sqrt). Decoupled
+    weight decay is preserved. ``m`` and ``u`` state are kept in FP32 even for
+    BF16 parameters because ``u.mul_(beta2)`` is precision-sensitive when
+    ``beta2`` is close to 1.
+
+    Reference: Kingma and Ba 2014, "Adam: A Method for Stochastic Optimization",
+    Section 7. https://arxiv.org/abs/1412.6980
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["u"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                step = state["step"]
+                m = state["m"]
+                u = state["u"]
+                g32 = p.grad.detach().float()
+                # First-moment EMA (same as AdamW).
+                m.mul_(beta1).add_(g32, alpha=1.0 - beta1)
+                # L-infinity aggregation: u = max(beta2 * u, |g|) element-wise.
+                u.mul_(beta2)
+                torch.maximum(u, g32.abs(), out=u)
+                # Bias correction on m only (u as a running max is bias-free).
+                bc1 = 1.0 - beta1 ** step
+                m_hat = m / bc1
+                # Decoupled weight decay (AdamW-style).
+                if weight_decay != 0:
+                    p.mul_(1.0 - lr * weight_decay)
+                # p -= lr * m_hat / (u + eps). Divide in FP32, cast to param dtype.
+                update = m_hat / (u + eps)
+                p.add_(update.to(p.dtype), alpha=-lr)
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -704,6 +760,11 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "aux_optimizer": "AdamaxAdamW",
+            "aux_beta1": 0.8,
+            "aux_beta2": args.aux_beta2,
+            "aux_eps": 1e-10,
+            "aux_weight_decay": 0.0,
         },
     )
 
@@ -735,10 +796,11 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # Aux group: Adamax (L-infinity v-aggregation) replaces standard AdamW v-EMA.
+    optimizer1 = AdamaxAdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                              dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                              dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                             betas=(0.8, args.aux_beta2), eps=1e-10, weight_decay=0)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
