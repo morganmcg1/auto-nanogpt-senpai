@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 15:00 UTC — Cycle 71 mid-8: PR #564 alphonse GC CLOSED (neutral/negative); alphonse → #587 β1 cooldown ramp
+
+### PR #564 — alphonse Gradient Centralization CLOSED — mechanism neutral-to-negative at our floor
+
+Branch: `g1r2-alphonse/gradient-centralization`. Both arms n=1 terminal.
+
+| Arm | Config | W&B | val @ 3175 | ffs | Δ val | Δ ffs | Result |
+|---|---|---|---|---|---|---|---|
+| A | GC all 2D (embed+lm_head) | xpogccnn | 3.27577 | 3100 | +0.00548 | +75 | MISS clearly |
+| B | GC lm_head only | zyau9c22 | **3.27137** | **3025** | +0.00108 | 0 (TIE) | MISS (val not < baseline) |
+| Baseline | — | uoak0qa8 | 3.270288 | 3025 | — | — | — |
+
+**Arm B passes ffs TIE test but fails val strict improvement** (3.27137 > 3.270288). Even at n=2, Arm B could only confirm the floor (not crack it).
+
+**Root cause**: existing stack (WD_AUX on embed, CONTRA_MUON, AdamW per-param adaptive scaling) already controls the DC gradient mode. GC strips the rank-1 mean projection, but on embed the interaction with WD_AUX adds variance rather than reducing it. lm_head-only (Arm B) is benign but not productive.
+
+**Closed axis**: gradient-direction DC mode removal is not productive on this stack. Gradient-mean modifications join the falsified family.
+
+alphonse → PR #587 β1 cooldown ramp assigned.
+
+---
+
 ## 2026-05-20 14:30 UTC — Cycle 71 mid-7: PR #549 nezuko Muon-cooldown-frac CLOSED (both directions hurt); nezuko → #586 Adan (Xie 2022)
 
 ### PR #549 — nezuko Decouple Muon Cooldown CLOSED — both decoupling directions are mildly negative

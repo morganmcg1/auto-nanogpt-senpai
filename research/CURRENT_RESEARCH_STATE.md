@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 14:30 UTC — PR #549 nezuko Muon-cooldown-frac CLOSED (both directions mildly negative; val regression in both directions = shared cooldown is local optimum); nezuko → #586 Adan (Xie 2022). 8/8 active.**
+- **2026-05-20 15:00 UTC — PR #564 alphonse GC CLOSED (neutral-to-negative; DC mode not productive on this stack); alphonse → #587 β1 cooldown ramp. 8/8 active.**
 
 ## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
 
@@ -28,7 +28,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | #541 | askeladd | Embed init std sweep (0.5/0.1/0.02) | Arm A n=1 launched 09:44 UTC | ~11:28 UTC |
 | **#580** | **tanjiro** | **AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance** | **Just assigned; #534 closed** | **TBD (~3.7h n=1 both arms)** |
 | #561 | frieren | Lookahead AdamW wrapper (Zhang 2019, k=5/k=10) | Just assigned | TBD |
-| #564 | alphonse | Gradient Centralization on AdamW group (Yong 2020, ~10 LoC) | Just assigned | TBD |
+| **#587** | **alphonse** | **β1 cooldown ramp: 0.8 → 0.99/0.95 during cooldown to smooth ffs variance** | **Just assigned; #564 GC closed** | **TBD (~3.7h n=1 both arms)** |
 | #569 | fern | AdaBelief: (g−m)² denominator (Zhuang 2020) | Just assigned | TBD |
 
 ## Top merge candidates / watching closely
@@ -47,13 +47,14 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
   - #576 thorfinn: MARS — STORM g_t/g_{t-1} variance-reduced first moment (Liu 2024, contract-compliant)
 - **Gradient-magnitude control** (#580 tanjiro): AGC — per-tensor grad clipping by param/grad norm ratio (λ=0.01/0.1)
 - **Initialization sweep** (#541 askeladd): EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}; Arm A MISS (3.27245), Arm B running
-- **Gradient-level modification** (#564 alphonse): GC zero-mean projection over output dim
+- **EMA schedule** (#587 alphonse): β1 cooldown ramp (0.8 → 0.99 or 0.95) — increased averaging window in cooldown to compress ffs variance
 - **Denominator semantics** (#569 fern + #574 edward): AdaBelief (g−m)² and Sophia-G clip(m/h, ±ρ) — orthogonal to direction-blend cluster
 
 ## CLOSED cycle 71 (stack status known)
 
 - **Muon decoupled cooldown fraction** (#549 nezuko): BOTH directions (FRAC=0.6 faster, FRAC=0.8 slower) MISS. Val regression in BOTH directions = shared cooldown_frac=0.7 is a local optimum. Closed axis. Muon momentum schedule decoupling is structurally different and remains available.
 - **SAM** (#573 thorfinn): CLOSED immediately — benchmark contract violation. `program.md` prohibits >1 forward-backward per optimizer step; SAM requires 2. Do NOT re-propose SAM, ASAM, Hutchinson-Sophia-H, or any other 2-pass method.
+- **Gradient Centralization** (#564 alphonse): Arm B (lm_head-only) val=3.27137 (+0.001), ffs TIE 3025 — but val not strictly better, bar not met. Arm A (all 2D) clearly worse (+0.005 val, +75 ffs). DC mode modifications are not productive — WD_AUX + existing stack already controls the DC mode.
 - **Right-factor Shampoo on lm_head** (#534 tanjiro): BOTH arms MISS (best: val=3.27190 +0.0016, ffs=3050 +25). Telltale: *less* preconditioning → closer to baseline; the preconditioning actively hurts lm_head. lm_head column space is near-isotropic (independent per-token gradient). Do NOT re-propose one-sided SOAP on lm_head.
 - **Stack pruning** (#533 alphonse): CONTRA_MUON, MU_WARMUP, ATTN_SOAP all BOUNDARY-weakly-load-bearing. Keep full stack.
 - **Per-group AdamW eps** (#529 frieren): embed + lm_head + scalars all FAIL eps=1e-8; ε ∈ [1e-10, 1e-8] insensitive at our LR/WD scale.
@@ -79,6 +80,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 |---|---|---|
 | #534 | tanjiro | Shampoo lm_head CLOSED — both arms MISS (best: val=3.27190 +0.0016, ffs=3050 +25); less preconditioning=closer baseline; lm_head near-isotropic |
 | #549 | nezuko | Muon-cooldown-frac CLOSED — both directions mildly negative (A: val+0.0027 ffs+25; B: val+0.0016 ffs+25); shared cooldown is local optimum |
+| #564 | alphonse | GC CLOSED — neutral-to-negative; DC mode not productive (WD_AUX + existing stack already controls it); best arm val=3.27137 (+0.001) ffs TIE |
 | #573 | thorfinn | SAM CLOSED — benchmark contract violation (2× fwd-bwd per step); thorfinn → #576 MARS |
 | #524 | thorfinn | SWA tail averaging CLOSED — weight-avg can't compress upstream bimodal ffs variance; n=2 mean val 3.274145 (+0.0039), ffs 3025 (TIE) |
 | #557 | edward | SF-AdamW CLOSED — no cooldown analog; killed at step 1500 with +0.04 gap; 4th AdamW group mechanism failure |
@@ -106,6 +108,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **No human researcher directives this session** (last issue #164 was r3-only).
 - **TWO closed mechanism families on AdamW group now confirmed**: (1) direction-blend variants (Lion/Cautious/NAdamW) FAIL; (2) cooldown-removal mechanisms (SF-AdamW) FAIL. Fresh AdamW proposals must preserve linear cooldown AND keep first-moment direction intact — only denominator/curvature interventions remain (AdaBelief #569, Sophia #574, AdaFactor [queued]).
 - **BENCHMARK CONTRACT HARD CONSTRAINT**: `target/program.md` prohibits multiple forward-backward passes per optimizer step. This disqualifies SAM, ASAM, full Hutchinson-Sophia-H, and any other 2-pass method. VERIFY contract compliance before assigning.
-- **Variance-reduction family pivot**: weight-averaging closed (SWA, Polyak). Fresh angles are now MARS (STORM gradient correction, #576), Lookahead (discrete sync, #561), and gradient-level (GC #564). If all three fail, cooldown bimodality is intrinsic to data/loss geometry and not addressable from optimizer side.
+- **Gradient-direction DC mode closed**: GC (zero-mean projection) is neutral-to-negative on this stack. WD_AUX + CONTRA_MUON + per-param AdamW scaling already controls the DC mode — stripping it adds noise. Do NOT re-propose GC or gradient-mean modifications.
+- **Variance-reduction family status**: Lookahead (#561), MARS (#576), AGC (#580), Adan (#586), β1-ramp (#587) all in flight. If all fail, cooldown bimodality may be intrinsic to this dataset/loss geometry — escalate to different abstraction (architecture-side, loss-side, or accept the floor).
 - **Second-order preconditioner family on lm_head falsified**: right-factor Shampoo BETA2={0.95,0.99} both MISS; telltale shows less preconditioning → closer baseline → preconditioning actively hurts. lm_head column space is near-isotropic. Do NOT re-propose SOAP/Shampoo on lm_head.
 - **Askeladd #541 Arm B status**: launch comment not posted; nudged at ~13:35 UTC. Arm A MISS (val=3.27245, ffs=3050).
