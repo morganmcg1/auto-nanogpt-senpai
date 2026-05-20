@@ -37,6 +37,14 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Body-Muon pre-NS rank-1 mean amplification — PR #588.
+# Replaces a 2D body-Muon gradient g with g_amplified = g + GC_ALPHA * g.mean(dim=GC_DIM, keepdim=True)
+# before it enters the PMuon whitening + Newton-Schulz pipeline.
+# GC_ALPHA = 0.0 is baseline (no transformation); GC_ALPHA < 0 reproduces PR #553 gradient centralization
+# (mean subtraction); GC_ALPHA > 0 amplifies the rank-1 mean direction.
+GC_ALPHA = 0.0
+GC_DIM = 1
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -52,6 +60,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--gc_alpha", type=float, default=0.0,
+                        help="Body-Muon pre-NS rank-1 mean amplification scalar. alpha>0 amplifies, alpha=0 baseline, alpha<0 is GC (mean subtraction).")
+    parser.add_argument("--gc_dim", type=int, default=1, choices=[0, 1],
+                        help="Reduction dim for the rank-1 mean (0=column-mean reduces rows; 1=row-mean reduces cols).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -61,6 +73,8 @@ def parse_args():
 
 
 args = parse_args()
+GC_ALPHA = float(args.gc_alpha)
+GC_DIM = int(args.gc_dim)
 
 
 def clean_metric_name(name: str) -> str:
@@ -539,6 +553,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        gc_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -550,8 +565,24 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    # Pre-NS rank-1 mean amplification (PR #588): g_amplified = g + GC_ALPHA * mean(g, GC_DIM)
+                    # GC_ALPHA=0 keeps baseline; GC_ALPHA<0 reproduces PR #553 gradient centralization.
+                    g = p.grad
+                    if g.dim() == 2:
+                        g32 = g.float()
+                        mean = g32.mean(dim=GC_DIM, keepdim=True)
+                        if "grad_norm_pre" not in gc_diag:
+                            pre_norm = float(g32.norm().item())
+                            gc_diag["grad_norm_pre"] = pre_norm
+                            gc_diag["mean_norm"] = float(mean.norm().item())
+                            gc_diag["sample_rows"] = g.size(0)
+                            gc_diag["sample_cols"] = g.size(1)
+                        if GC_ALPHA != 0.0:
+                            g = (g32 + GC_ALPHA * mean).to(g.dtype)
+                        if "grad_norm_post" not in gc_diag:
+                            gc_diag["grad_norm_post"] = float(g.float().norm().item())
                     update = pmuon_update(
-                        p.grad,
+                        g,
                         state["momentum"],
                         state["L"],
                         state["R"],
@@ -575,6 +606,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._gc_diag = gc_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,8 +736,13 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "gc_alpha": GC_ALPHA,
+            "gc_dim": GC_DIM,
         },
     )
+    wandb.summary["body/gc/active"] = 1.0 if GC_ALPHA != 0.0 else 0.0
+    wandb.summary["body/gc/alpha"] = GC_ALPHA
+    wandb.summary["body/gc/dim"] = GC_DIM
 
 for trial_idx in range(args.num_trials):
 
@@ -911,6 +948,25 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            gc_diag = getattr(optimizer2, "_gc_diag", None)
+            if gc_diag and "grad_norm_pre" in gc_diag:
+                pre = gc_diag["grad_norm_pre"]
+                post = gc_diag.get("grad_norm_post", pre)
+                mean_norm = gc_diag.get("mean_norm", 0.0)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "body/gc/active": 1.0 if GC_ALPHA != 0.0 else 0.0,
+                    "body/gc/alpha": GC_ALPHA,
+                    "body/gc/dim": GC_DIM,
+                    "body/gc/grad_norm_pre": pre,
+                    "body/gc/grad_norm_post": post,
+                    "body/gc/grad_norm_ratio": (post / pre) if pre > 0 else 1.0,
+                    "body/gc/mean_norm": mean_norm,
+                    "body/gc/mean_norm_ratio": (mean_norm / pre) if pre > 0 else 0.0,
+                    "body/gc/sample_rows": gc_diag.get("sample_rows", 0),
+                    "body/gc/sample_cols": gc_diag.get("sample_cols", 0),
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
