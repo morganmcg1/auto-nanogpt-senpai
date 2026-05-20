@@ -140,6 +140,18 @@ Clean monotone worsening: A=3.27066, B=+0.00080 (null), C=+0.00258 (regression),
 Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.27261, B cosine=+0.00163 (marginal regression), C quadratic=+0.00864 (strong regression, fst=-1), D linear_floor=+0.01401 (strongest, fst=-1). Monotone with non-linear distortion of the final-window decay. **Mechanism**: body Muon needs (1) decay to ~zero at end, (2) linear shape (not steeper, not slower). NS-orthogonalized updates have rank-stable magnitudes — late-phase convergence requires actual zero LR to land. **Striking per-group cooldown contrast**: embed wins with linear_floor (#235), body LOSES strongest with linear_floor — different update statistics demand different profiles. Per-group cooldown-shape design axis substantially characterized (lm_head #547 in flight completes the matrix). **30th productive-null/negative this cycle.**
 **Follow-up**: thorfinn assigned **#554 AdamW embed WD cooldown nudge** — adds small positive WD on embed during cooldown only (currently WD=0). Tests whether late-phase implicit regularization on sparse-row embed group helps; structurally distinct from edward #550 (Muon WD REDUCTION, body group, removes existing).
 
+### 🔄 thorfinn #590 — NS-cooldown START_FRAC sweep [assigned 15:35 UTC]
+
+**Branch:** `g1r4-thorfinn/ns-cooldown-start-frac`
+**Hypothesis**: `NANOGPT_NS_COOLDOWN_START_FRAC=0.7` (NS=12→16 ramp start point) has never been independently swept on the merged stack — bundled at #176 merge with NS_ITERS_COOLDOWN=16 as a heuristic, not an optimized value. Other NS-cooldown axes saturated (#176 mag=16, #285 shape=late_peak, #290 coef=linear_ramp_down) but the TIMING of when the precision window begins is unexplored. Pure env-var sweep. Structurally distinct from #506 (NS-iter warmup at start of training), #487/#577 (sub-stack pruning), #543 (per-block NS spatial), #520 (LR cooldown not NS).
+| Arm | NANOGPT_NS_COOLDOWN_START_FRAC | NS=16 ramp starts at | Window length | Tests |
+|---|---:|---:|---|---|
+| A | 0.70 (ctrl) | step 2345 | 30% (1005 steps) | Reproduces merged baseline |
+| B | **0.50** | step 1675 | **50% (1675 steps)** | Longer precision window (more NS=16 compute) |
+| C | **0.85** | step 2848 | **15% (502 steps)** | Shorter precision window (concentrated late NS=16) |
+| D | **0.60** | step 2010 | 40% (1340 steps) | Intermediate longer (B/A split) |
+**ETA full chain:** ~7.3h.
+
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
 Single-seed 4-arm (drift gate A PASS, |3.27277−3.27174|=0.00103): A=3.27277, B (0.001)=−0.00035 (null edge, fails baseline parity +0.00068), C (0.005)=+0.00657 (regression), D (0.010)=+0.01571 (regression, **FAILS 3.28 target**). Clean monotone regression — any embed WD during cooldown is harmful. Mechanism: with EMBED_COOLDOWN_SHAPE=linear_floor holding embed LR at 15% floor, embed updates are already small; adding WD uniformly shrinks rarely-updated rare-token rows whose representations depend on *accumulated information*. **Bilateral asymmetry on WD-cooldown axis** (paired with #550 winner candidate): embed group rejects added WD during cooldown (NEGATIVE), body Muon group may benefit from REDUCED WD during cooldown (#550 N=1 winner, paired-pod confirming). Both point to "do not constrain rare/sparse representations during cooldown precision window". **36th productive-null/negative this cycle.**
