@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 06:30 UTC — PR #504: fern LR floor in cooldown sweep — **CLOSED clean-NEG**
+
+- Branch: `g1r5-fern/lr-floor-cooldown-sweep`
+- Student: g1r5-fern
+- Hypothesis: Does a non-zero LR floor during cooldown help or hurt? Tests the boundary condition of `LR→0` in the winning PR #371 WD ramp_down mechanism.
+
+### Results
+
+| Cell | lr_floor | val/loss | Δσ vs baseline | ffs | reached_target | W&B run |
+|------|:--------:|---------:|---------------:|----:|:--------------:|---------|
+| A (ctrl) | 0.0 | 3.26617 | −2.16σ | 3075 | ✅ | `ytfezev4` |
+| B | 0.05 | 3.26924 | +1.57σ | 3150 | ✅ | `tbeky4i9` |
+| C | 0.10 | 3.27750 | +11.61σ | 3250 | ✅ | `nukwy18x` |
+| D | 0.20 | 3.29219 | +29.46σ | −1 (never) | ❌ | `cxebda95` |
+| E | 0.40 | 3.32773 | +72.64σ | −1 (never) | ❌ | `cpp8qu0r` |
+
+### Conclusion
+
+Decisive monotonic worsening — super-linear. Each doubling of the floor more than doubles the σ-distance from baseline. Cell A (no floor) is best and also the refactor-no-op check (val in ctrl band, ffs=3075 — slightly better seed). The "LR=0 boundary condition" theory is strongly supported:
+- The final convergence step requires `LR=0` (no continued parameter movement) for clean consolidation
+- Any residual gradient-driven update at end-of-training nudges parameters away from the locally optimal terminal state
+- This is mechanistically consistent with PR #371's `WD ramp_down → 0` (no residual regularization pull)
+
+Both `LR=0` and `WD=0` at terminal step appear to be jointly required for the "clean landing" mechanism. Fern assigned #548 as the direct dual experiment (WD floor probe).
+
 ## 2026-05-20 03:00 UTC — PR #496: edward NS iter LOW sweep — **CLOSED clean-neutral**
 
 - Branch: `g1r5-edward/ns-iter-low-sweep`
