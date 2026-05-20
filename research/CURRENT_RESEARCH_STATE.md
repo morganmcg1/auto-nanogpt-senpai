@@ -1,20 +1,24 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~00:55Z (poll #284)
+- **Last updated:** 2026-05-20 ~01:25Z (poll #285)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.265948 | n=6: mu ≤ 3.266316 | n=8: mu ≤ 3.266536
 
 
-## ⭐ ACTIVE WINNER CANDIDATE — askeladd P2 #497 (n=4 ns_iter=6 confirmation) — lean failing
+## ⭐ ACTIVE WINNER CANDIDATE — askeladd P2 #497 (n=4 ns_iter=6 confirmation) — **back in contention**
 
-- **T1 TERMINAL**: val=**3.26566**, ffs=**3075** (−2.78σ single-seed; 0.000288 below n=4 gate)
-- **T2 TERMINAL**: val=**3.26957**, ffs=**3125** (+1.24σ, baseline-region)
-- **🆕 T3 NEAR-TERMINAL**: step 3175/3250 (~97%), mid-cooldown val=**3.2684**, ffs not yet reported
-- T4 sequential after T3.
-- **n=3 mean projection** (if T3 lands at 3.268): (3.26566 + 3.26957 + 3.268)/3 = **3.26774** (slightly above baseline mean). For n=4 gate, T4 alone needs ≤ **3.260537** — single-seed −9σ territory, effectively impossible.
-- **Verdict ~02:30 UTC May 20** (T3 imminent + T4 ~100min). **Lean: P2 will fail by a wide margin.** ns_iter=6 is variance-dominated.
+- **T1 TERMINAL**: val=**3.26566**, ffs=**3075** (−2.78σ single-seed)
+- **T2 TERMINAL**: val=**3.26957**, ffs=**3125** (+1.97σ outlier)
+- **🆕 T3 TERMINAL**: val=**3.26493**, ffs=**3075** (−**3.67σ**, new best single)
+- **n=3 mean = 3.266720** (−1.49σ vs baseline mu 3.267948); ffs_mean = 3091.67
+- **T4 IN PROGRESS**: step 115/3250 (~3.5%); ETA terminal ~02:55 UTC May 20
+- **T4 decision matrix:**
+  - **T4 ≤ 3.263632 (~−5.2σ single-seed)** → n=4 outright WIN, MERGE as NEW BASELINE
+  - **3.263632 < T4 ≤ 3.265104** → borderline (mu_n4 ≤ 3.266316); **propose n=6 extension** (modal expectation)
+  - **T4 > 3.265104** → variance-eaten; close
+- **Key insight**: 2-of-3 trials both at 3.265 range with ffs=3075 — pattern more consistent with real mechanism + variance than pure noise. T2 outlier resembles edward #422 P2 bad-T3 pattern.
 
 ### Supporting evidence on the ns_iter axis (now MIXED, not all positive):
 
@@ -38,7 +42,7 @@ This is **critical new information** — if ns_iter=5 doesn't beat ns_iter=12, t
 | #517 | tanjiro | EMA / Polyak averaging for eval (0.0/0.99/0.999/0.9999/+cooldown-only) | **Cell A ctrl (decay=0) TERMINAL val=3.2678 ffs=?** (refactor no-op); Cell B (decay=0.99) running |
 | #518 | thorfinn | NS polynomial coefficient sweep — current / Muon paper / analytical quintic | **Cell A ctrl (ns_coefs=2,-1.5,0.5 ns_iter=12) `1e5dtrfm` step 1999/3250 (~61%)**; smoke (`plsvkx35` 200-step) ok; pod healthy |
 | #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | Cell A (0.0) val=3.26617; **Cell B (0.05) TERMINAL val=3.2692** (Δσ=+1.52, lr_floor=0.05 makes things WORSE); **Cell C (0.10) running `nukwy18x`** |
-| #521 | nezuko | Gradient clipping sweep (0.0/0.25/0.5/1.0/2.0) — fresh mechanism never tested | **Cell A ctrl (clip=0.0) running `1kiauw9h`** — fast launch on this new PR |
+| #521 | nezuko | Gradient clipping sweep (anchored 0/50K/100K/200K/400K — corrected from advisor's wrongly-scaled 0–2 ladder) | **BLOCKER caught + corrected**: student found loss is sum-reduced, natural grad L2 norm is ~80K–200K (median 142K). Advisor approved corrected ladder. Cell A ctrl (no-clip) continuing; B–E sequential after |
 
 
 ## Recent Closures (polls #273–283)
@@ -55,14 +59,14 @@ This is **critical new information** — if ns_iter=5 doesn't beat ns_iter=12, t
 
 ## Research Themes
 
-**Primary goal:** Push below n=4 gate mu ≤ 3.265948. **askeladd P2 #497 T2 just landed val=3.26957 — the variance verdict is leaning toward "T1 was lucky".**
+**Primary goal:** Push below n=4 gate mu ≤ 3.265948. **askeladd P2 #497 T3 landed val=3.26493 (−3.67σ, new best) — P2 is back in contention.**
 
-**🆕 Updated ns_iter axis interpretation (after askeladd T2):**
-- ns_iter=6 single-seed values now: thorfinn #461 B (3.26553), askeladd T1 (3.26566), askeladd T2 (3.26957) — **range 0.00404 ≈ 5× σ**. Two −2.9σ and one neutral. Looks like seed variance dominating, not a robust mechanism.
+**🆕 Updated ns_iter axis interpretation (after askeladd T3):**
+- ns_iter=6 single-seed values now: thorfinn #461 B (3.26553), askeladd T1 (3.26566), askeladd T2 (3.26957), askeladd T3 (3.26493). **3 of 4 cluster in 3.2649-3.2657; T2 the lone outlier at 3.26957.**
 - ns_iter=5 (edward B): val = 3.26754 (weak, −0.5σ)
-- ns_iter=12 ctrl (thorfinn A + edward A): val ≈ 3.266–3.268 (baseline match)
-- **Working hypothesis (subject to T3+T4):** ns_iter=6 has the SAME val distribution as ns_iter=12; the apparent "winner" was lucky-side variance × 2. The wall-clock saving (~42 ms/step) is the only real win, but the speedrun metric is val/step-count, not wall-clock.
-- T3+T4 will confirm or refute. If T3+T4 both land near 3.2655 → real local optimum. If they land near 3.267 (likely) → variance.
+- ns_iter=12 ctrl: val ≈ 3.266–3.268 (baseline)
+- **Working hypothesis updated**: ns_iter=6 likely has a real mean shift downward of ~0.001 vs ns_iter=12, but variance is high enough that single-seed outliers (like T2) can mask the signal. T4 is decisive.
+- ffs pattern: both T1 and T3 hit ffs=3075 (−25 steps vs baseline) — reproducible wall-clock benefit even if val gate is uncertain.
 
 **"Less optimizer intensity" principle — partially extended:**
 - PR #371 winner: Muon WD ramp_down (cooldown axis)
