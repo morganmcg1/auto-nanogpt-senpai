@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 04:30 UTC — Cycle 70 late wrap: #493 ADAM_EPS n=4 CLOSED (val FAIL +5e-4 / ffs FAIL +6.25); #523 Cautious AdamW CLOSED (+1.4% regression); edward #538 Lion + askeladd #541 embed-init-std assigned; nezuko T2 ~75% (terminal ~04:50 UTC)**
+- **2026-05-20 05:40 UTC — Cycle 70 late wrap2: alphonse #533 Arm A (CONTRA_MUON=0) terminal val=3.273/ffs=3050 (FAIL strict, soft-redundant); frieren #529 Arm A (embed eps=1e-8) terminal val=3.272/ffs=3050 (FAIL — matches global #493 closure); nezuko T3 ~70% (terminal ~05:50 UTC, strict needs ffs≤3000)**
 
 ## Current baseline ⭐ (PR #458 MERGED 2026-05-19 19:35)
 
@@ -21,14 +21,14 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #541 | **askeladd** | **Embed init std sweep (1.0 → 0.5/0.1/0.02) 3 arms n=1** | Just assigned (after #493 closed) | TBD |
-| #538 | edward | Lion optimizer (Chen 2023, AdamW-group swap) 2 arms n=1 | Disabled-check step ~120 | TBD |
-| #534 | tanjiro | Shampoo-lmhead right-factor (2 arms n=1) | Assigned | TBD |
-| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Disabled-check step 125 | ~08:30 UTC |
-| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A embed n=1 step 1575 (val=3.526) | ~05:25 UTC |
-| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A n=2 step ~1975 (val=3.448) | ~04:50 UTC |
-| #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 screen launched after smoke (val+0.0015) | ~07:00 UTC |
-| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | T2 step ~2475/3175 (78%); T3 pending | ~06:00 UTC |
+| #541 | askeladd | Embed init std sweep (1.0 → 0.5/0.1/0.02) 3 arms n=1 | Stuck in disabled-check loop (10 pod restarts); heartbeat pushed | TBD |
+| #538 | edward | Lion optimizer (Chen 2023, AdamW-group swap) 2 arms n=1 | Arm A smoke step ~120 (after torch bug fix) | TBD |
+| #534 | tanjiro | Shampoo-lmhead right-factor (2 arms n=1) | Stuck in disabled-check loop (5 replicas); heartbeat pushed | TBD |
+| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Arm A (CONTRA_MUON=0) DONE val=3.273/ffs=3050 SOFT-REDUNDANT; Arm B queued | ~08:30 UTC |
+| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A (embed) DONE val=3.272/ffs=3050 FAIL; Arm B (lm_head) step 775 | ~06:30 UTC |
+| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A T1 step ~1176 (tracking T0 within 0.002) | ~06:15 UTC |
+| #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 T1 step ~351 | ~06:40 UTC |
+| #494 | **nezuko** | **MUON_LR=0.04 n=4 confirm** | T3 step ~2175/3175 (69%); T2 PASS val=3.2699/ffs=3025 | ~05:50 UTC |
 
 ## Top merge candidates (priority order)
 
