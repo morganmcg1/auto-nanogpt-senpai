@@ -55,6 +55,18 @@ Arms B (embed: +0.00163), C (lm_head: +0.00285) regress; D (embed+lm_head: −0.
 Single-seed 4-arm (drift gate A PASS): A=3.27279, B=+0.00135 (null edge), C=+0.00162 (regression), D=+0.00252 (regression). Monotone-ish worsening with warmup aggressiveness. No arm passes stat-rule. **3rd consecutive "less constraint early" closure**: WD warmup (#483 NEGATIVE) + embed-LR warmup (#489 NEGATIVE) + β₁ warmup (#514 NEGATIVE) — bilateral closure across 3 aux-group AdamW schedule axes. Early-training window is uniformly well-tuned across WD/LR/β₁ at merged settings. **28th productive-null/negative this cycle.**
 **Follow-up**: fern assigned **#547 lm_head cooldown SHAPE sweep** — pivot from temporal (warmup) to shape (cooldown) axes.
 
+### 🔄 fern #584 — lm_head AdamW LR multiplier sweep around 1.0× [assigned 14:15 UTC]
+
+**Branch:** `g1r4-fern/lm-head-lr-ratio`
+**Hypothesis**: `NANOGPT_ADAMW_LM_HEAD_LR_MULT` was tested at only one non-control value in #393 (C arm lm_head=1.5×, rejected). Values <1.0× and intermediate values between 1.0× and 1.5× remain unexplored on the post-#393 stack which has `ADAMW_EMBED_LR_MULT=1.5×` merged. Joint vocab update budget mechanism: if embed_mult=1.5× is load-bearing, lm_head_mult may want < 1.0× to balance — specifically 1/1.5 ≈ 0.67. Pure env-var sweep (no code changes; env var already exists from #393). Structurally distinct from #393 (boost-only), #547 (cooldown SHAPE), #454 (cooldown linear_floor).
+| Arm | NANOGPT_ADAMW_LM_HEAD_LR_MULT | Effective lm_head LR | Hypothesis |
+|---|---:|---:|---|
+| A | 1.00 (ctrl) | 1/320 ≈ 0.003125 | Reproduces merged baseline |
+| B | **0.70** | ~0.00219 | Joint vocab budget balance (~1/1.5) |
+| C | **1.30** | ~0.00406 | Intermediate boost (fills #393's 1.0→1.5 gap) |
+| D | **0.50** | ~0.00156 | Deeper LR reduction (locates minimum) |
+**ETA full chain:** ~7.3h.
+
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
 Single-seed 4-arm (drift gate A PASS, |3.27273−3.27174|=0.00099): A linear=3.27273, B cosine=+0.00012 (null), C late_peak=+0.00179 (regression), D linear_floor=+0.00024 (null). No arm meets −0.002 threshold. **Cross-axis SHAPE transfer hypothesis falsified**: NS late_peak does NOT transfer to lm_head — lm_head wants monotonic decay (dense AdamW group with no mid-phase quality plateau analogous to NS orthogonalization). Reproduces #454 Arm B (linear_floor null). **Per-group cooldown SHAPE design space now substantially characterized**: embed=linear_floor (#235), body=linear (#520 NEG on alternatives), NS_iter=late_peak (#285), NS_coef=linear_ramp_down (#290), lm_head=linear (#547 NEG on alternatives); scalar gap untested. **35th productive-null/negative this cycle.**
