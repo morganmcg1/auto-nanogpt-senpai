@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # MARS variance reduction (Yuan et al 2025, arXiv:2411.10438) on aux AdamW.
+    # Applies pre-step correction c_t = g_t + gamma_t * (m_{t-1} - g_{t-1}) on
+    # the aux gradient, then runs fused AdamW on c_t. gamma_t = gamma * beta1
+    # (paper Eq. 8). Default 0.0 disables (bit-identical to baseline).
+    parser.add_argument("--aux_mars_gamma", type=float, default=float(os.environ.get("AUX_MARS_GAMMA", "0.0")),
+                        help="MARS variance-reduction coefficient on aux AdamW (Yuan 2025 Eq. 8). "
+                             "Default 0.0 = disabled (standard AdamW, bit-identical baseline). "
+                             "Paper LM default 0.025; aggressive 0.1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +721,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_mars_gamma > 0:
+    print0(f"MARS variance reduction ENABLED on aux AdamW: gamma={args.aux_mars_gamma} (gamma_t = gamma * beta1)", console=True)
+else:
+    print0("MARS variance reduction DISABLED on aux AdamW (gamma=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +778,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_mars_gamma": args.aux_mars_gamma,
         },
     )
 
@@ -825,6 +838,15 @@ for trial_idx in range(args.num_trials):
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
+    # MARS variance reduction (Yuan 2025 Eq. 8): c_t = g_t + gamma_t*(m_{t-1} - g_{t-1}),
+    # gamma_t = gamma * beta1. Maintains a previous-step raw-grad buffer per aux param.
+    # At step 0 the correction is skipped (fused AdamW lazy-allocates exp_avg on its
+    # first step); g_prev is recorded each step regardless.
+    mars_enabled = args.aux_mars_gamma > 0.0
+    if mars_enabled:
+        mars_g_prev = {id(p): torch.zeros_like(p) for g in optimizer1.param_groups for p in g["params"]}
+    else:
+        mars_g_prev = None
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
@@ -1018,6 +1040,33 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # MARS variance-reduction correction on aux AdamW gradients (Yuan 2025 Eq. 8):
+        #   c_t = g_t + gamma_t * (m_{t-1} - g_{t-1}), gamma_t = gamma * beta1
+        # Applied AFTER aux AGC so the correction operates on the already-clipped grad.
+        # The fused AdamW path is undisturbed; only p.grad is modified pre-step.
+        # state['exp_avg'] is lazy-allocated by fused AdamW on its first step(); at
+        # step 0 the correction is skipped (no m_{t-1}) but g_prev is still recorded.
+        mars_correction_sum_sq = 0.0
+        mars_correction_count = 0
+        if mars_enabled:
+            compute_mars_telemetry = telemetry_due and dist.get_rank() == 0
+            for group in optimizer1.param_groups:
+                beta1 = group["betas"][0]
+                gamma_t = args.aux_mars_gamma * beta1
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    g_curr_copy = p.grad.detach().clone()
+                    m_prev = optimizer1.state[p].get("exp_avg")
+                    if isinstance(m_prev, torch.Tensor):
+                        g_prev = mars_g_prev[id(p)]
+                        if compute_mars_telemetry:
+                            diff = m_prev.float() - g_prev.float()
+                            mars_correction_sum_sq += float(diff.square().sum().item()) * (gamma_t ** 2)
+                            mars_correction_count += diff.numel()
+                        # In-place: p.grad += gamma_t * (m_prev - g_prev)
+                        p.grad.add_(m_prev, alpha=gamma_t).add_(g_prev, alpha=-gamma_t)
+                    mars_g_prev[id(p)] = g_curr_copy
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1054,6 +1103,14 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and mars_enabled:
+                # beta1 is shared across optimizer1 groups (all use betas=(0.8, 0.95))
+                beta1 = optimizer1.param_groups[0]["betas"][0]
+                muonh_metrics["train/mars/gamma_t"] = args.aux_mars_gamma * beta1
+                if mars_correction_count > 0:
+                    muonh_metrics["train/mars/correction_rms_mean"] = (mars_correction_sum_sq / mars_correction_count) ** 0.5
+                else:
+                    muonh_metrics["train/mars/correction_rms_mean"] = 0.0
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
