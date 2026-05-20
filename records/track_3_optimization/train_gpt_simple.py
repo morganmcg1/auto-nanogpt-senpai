@@ -533,6 +533,10 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Muon body Nesterov-style gradient lookahead coefficient (PR #530).
+# update = (1-α)·g + α·buf_ema; special-case α=0.0 → update = buf_ema (no Nesterov).
+# Default 0.95 matches the existing nesterov=True lerp behavior with mu=0.95 (merged baseline).
+NANOGPT_MUON_NESTEROV_ALPHA = float(os.environ.get("NANOGPT_MUON_NESTEROV_ALPHA", "0.95"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -632,9 +636,17 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+def muon_update(grad, momentum, v, ns_iters: int, nesterov_alpha: float,
+                mu=0.95, beta2=0.999, eps=1e-8):
+    momentum.lerp_(grad, 1 - mu)  # buf_ema = μ·buf + (1-μ)·g (unchanged EMA step)
+    # PR #530: Nesterov-weight sweep on the lerp form.
+    # α=0.0 (special-case bypass): update = buf_ema only — no Nesterov mix.
+    # α>0:                         update = (1-α)·g + α·buf_ema — generalized lerp Nesterov.
+    # α=μ=0.95 recovers the pre-PR baseline (nesterov=True grad.lerp_(momentum, mu)).
+    if nesterov_alpha == 0.0:
+        update = momentum
+    else:
+        update = grad.lerp_(momentum, nesterov_alpha)
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
@@ -643,7 +655,8 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8,
+                 nesterov_alpha: float = NANOGPT_MUON_NESTEROV_ALPHA):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
@@ -657,6 +670,12 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # PR #530 Nesterov-weight sweep: α controls update = (1-α)·g + α·buf_ema.
+        self.nesterov_alpha = float(nesterov_alpha)
+        # Set to True by the training loop on telemetry-due steps to collect
+        # per-param ||g||, ||buf||, ||g_eff|| norms; aggregated into `norm_stats`.
+        self.collect_norm_stats: bool = False
+        self.norm_stats: dict[str, float] | None = None
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -666,10 +685,16 @@ class Muon(torch.optim.Optimizer):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         ns_iters = self.ns_iters_this_step
+        nesterov_alpha = self.nesterov_alpha
         spectral_target = self.spectral_telemetry_param
+        collect_norms = self.collect_norm_stats
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        self.norm_stats = None
+        g_norms: list = []
+        buf_norms: list = []
+        g_eff_norms: list = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -680,9 +705,20 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    if collect_norms:
+                        g_norms.append(p.grad.detach().float().norm())
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
+                                         nesterov_alpha=nesterov_alpha,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if collect_norms:
+                        buf_norms.append(state["momentum"].detach().float().norm())
+                        if nesterov_alpha > 0.0:
+                            # grad has been mutated in-place to g_eff by lerp_.
+                            g_eff_norms.append(p.grad.detach().float().norm())
+                        else:
+                            # α=0 special-case: g_eff == buf_ema; reuse buf norm.
+                            g_eff_norms.append(buf_norms[-1])
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -704,6 +740,14 @@ class Muon(torch.optim.Optimizer):
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if collect_norms and g_norms:
+            # Aggregate per-step norm stats across params owned by this rank.
+            # Single-GPU runs: rank 0 owns all params → exact mean across Muon params.
+            self.norm_stats = {
+                "muon_g_norm_mean": float(torch.stack(g_norms).mean().item()),
+                "muon_buf_norm_mean": float(torch.stack(buf_norms).mean().item()),
+                "muon_g_eff_norm_mean": float(torch.stack(g_eff_norms).mean().item()),
+            }
 
 
 ########################################
@@ -752,6 +796,13 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"MUON_NESTEROV_ALPHA: {NANOGPT_MUON_NESTEROV_ALPHA}", console=True)
+if NANOGPT_MUON_NESTEROV_ALPHA == 0.0:
+    print0("  Standard Muon: NS sees buf_ema only (no Nesterov mix)", console=True)
+else:
+    print0(f"  Nesterov-Muon ACTIVE: NS sees (1-α)·g + α·buf_ema "
+           f"with α={NANOGPT_MUON_NESTEROV_ALPHA} "
+           f"(α=0.95 reproduces pre-PR baseline)", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +858,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_nesterov_alpha": NANOGPT_MUON_NESTEROV_ALPHA,
         },
     )
 
@@ -1026,6 +1078,7 @@ for trial_idx in range(args.num_trials):
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
         )
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        optimizer2.collect_norm_stats = telemetry_due
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
@@ -1089,6 +1142,10 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            if optimizer2.norm_stats is not None:
+                for k, v in optimizer2.norm_stats.items():
+                    ns_metrics[f"train/{k}"] = v
+                ns_metrics["train/muon_nesterov_alpha"] = NANOGPT_MUON_NESTEROV_ALPHA
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
