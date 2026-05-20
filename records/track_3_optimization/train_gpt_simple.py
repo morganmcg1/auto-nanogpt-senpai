@@ -67,6 +67,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--z_loss_coef", type=float, default=0.0,
+                        help="Coefficient for Z-loss regularizer: penalizes log(Z)^2 where "
+                             "Z is the softmax partition function. Default 0.0 (off). "
+                             "Typical values: PaLM 1e-4, T5 1e-3.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -457,7 +461,13 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_flat = logits.view(targets.numel(), -1)
+        ce_loss = F.cross_entropy(logits_flat, targets.view(-1), reduction="sum")
+        if args.z_loss_coef > 0:
+            log_z = torch.logsumexp(logits_flat, dim=-1)
+            z_loss = args.z_loss_coef * (log_z ** 2).sum()
+            return ce_loss + z_loss
+        return ce_loss
 
 
 ########################################
@@ -747,6 +757,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "z_loss_coef": args.z_loss_coef,
         },
     )
 
