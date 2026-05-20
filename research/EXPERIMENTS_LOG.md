@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 07:30 UTC — PR #508: alphonse Muon mu static sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-alphonse/muon-mu-static-sweep`
+- Student: g1r5-alphonse
+- Hypothesis: Static value sweep of Muon momentum coefficient `mu` ∈ {0.85, 0.90, 0.95, 0.97, 0.99}. Tests whether the hardcoded mu=0.95 is locally optimal or if an off-center value provides headroom.
+
+### Results
+
+| Cell | mu | val_loss | Δσ vs OLD baseline (3.267948, σ=0.000823) | ffs | reached_target | W&B run |
+|------|:--:|---------:|------------------------------------------:|----:|:--------------:|---------|
+| A (ctrl) | 0.95 | 3.26763 | −0.39σ | 3100 | ✅ | `oi7bjcrm` |
+| B | 0.85 | 3.27409 | +7.46σ | 3150 | ✅ | `knpgt2mk` |
+| C | 0.90 | 3.26873 | +0.95σ | 3100 | ✅ | `mxfj0f96` |
+| D | 0.97 | 3.27048 | +3.08σ | 3125 | ✅ | `018d8f1v` |
+| E | 0.99 | **3.30009** | **+39.05σ** | −1 (never) | ❌ | `mbnofrws` |
+
+### Conclusion
+
+- **Highly asymmetric response curve around mu=0.95.** Above mu=0.97, damage scales super-linearly (~1800σ/unit between 0.97→0.99). Below 0.95, ~94σ/unit between 0.85→0.95.
+- **mu=0.99 is catastrophic** — never reached target val=3.28 in 3250 steps; final val=3.30009 still improving but only at ~1e-4/step.
+- **mu=0.90 essentially neutral** (within ±2σ noise) — wider basin on the low side than the high side, but not enough headroom to support mu < 0.95.
+- **mu=0.95 confirmed locally optimal.** No off-center static winner.
+- **Diagnostic value**: cleanly explains tanjiro #445 (mu schedule sweep) failures. Both `ramp_up_090_099` and `ramp_down_099_090` crossed the catastrophic mu≥0.98 regime; the schedule averaging partially rescued them but the static mu=0.99 result (+39σ) is worse than either schedule (+11σ, +8σ).
+
+Muon mu axis closed. Important calibration data: any future mu-schedule work must stay below mu=0.97.
+
 ## 2026-05-20 07:00 UTC — PR #497: askeladd P2 ns_iter=6 n=6 confirm — ✅ **MERGED NEW BASELINE**
 
 - Branch: `g1r5-askeladd/ns-iter-6-P2-n4`

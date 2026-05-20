@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~07:00Z (poll #290)
+- **Last updated:** 2026-05-20 ~07:30Z (poll #291)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -19,13 +19,15 @@
 | #518 | thorfinn | NS poly coefficient sweep | A=3.267355, B=3.267031, **C=3.26684 (−1.35σ vs OLD best)**. Cell D (analytical quintic) running. Cell E (current coefs+iter6) critical cross-check pending |
 | #517 | tanjiro | EMA / Polyak eval (5 cells) | A=3.26776, B=3.27528 (+8.91σ), C=3.34507 (+93.71σ CATASTROPHIC). Cell D (0.9999) running. Cell E (cooldown-only EMA) is the only survivor candidate |
 | #509 | frieren | lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) | A=3.267302, B=3.267014 (−1.13σ), C=3.267256. **Cell D (0.065) running** |
-| #508 | alphonse | Muon mu static sweep (0.85–0.99) | A=3.26763, B=3.27409 (+7.46σ), C=3.26873, D=3.27048 (+3.08σ). **Cell E (mu=0.99) running** |
+| **#552** | **alphonse** | **LR warmup curve sweep (none/0.05L/0.10L/0.05C/0.02L) — first warmup PR ever** | **NEW assignment** — awaiting first heartbeat |
 | **#548** | **fern** | **WD floor in cooldown (0.0/0.05/0.10/0.20/0.50) — dual of LR floor** | **NEW — awaiting first heartbeat** |
 
 
 ## Recent Closures
 
+- **🆕 #508 alphonse Muon mu static sweep {0.85/0.90/0.95/0.97/0.99}** — CLOSED clean-neutral (poll #291). Asymmetric response curve: mu=0.95 ctrl best; mu=0.99 catastrophic (+39.05σ, never reached target). Cleanly explains tanjiro #445 schedule failures (both schedules crossed mu≥0.98 catastrophic regime). Muon mu axis closed; current 0.95 confirmed optimal.
 - **#504 fern LR floor sweep** — CLOSED clean-NEG (poll #289). Monotonic super-linear worsening; LR=0 terminal boundary load-bearing.
+- **#497 askeladd P2 ns_iter=6** — ✅ **MERGED NEW BASELINE** (poll #290). mu=3.266120 (n=6, statsig +0.000478). ns_iter axis won at ns_iter=6.
 - **#496 edward NS iter LOW sweep** — CLOSED clean-neutral (poll #287). Hard bf16 cliff below ns_iter=5; axis fully mapped.
 - **#467 nezuko SOAP trust threshold** — CLOSED clean-neutral (poll #283).
 
