@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 07:35 UTC
+- **Last update:** 2026-05-20 08:30 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -38,25 +38,27 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#513** | thorfinn | Body-Muon gradient clipping at {1.0, 0.5}: Arm A clip=1.0 fs=3000 val=3.27024 (clear NULL Δsr=+62.5 Δval=+0.006), Arm B clip=0.5 fs=3000 val=3.27108 (clear NULL Δsr=+62.5 Δval=+0.007). Both arms clip-activated 99.97% — natural body-grad norm ~3e4 vs proposed thresholds {0.5, 1.0} (4-5 orders too low). Uniform 30,000× downscale costs only ~2% sr regression — **PMuon's spectral whitening confirmed approximately scale-invariant.** Student suggested re-test at natural-norm regime {3e4, 1e5, 3e5}; DEFERRED — pipeline NS iter-count extension instead. | **CLOSED 06:08 UTC** |
 | **#519** | frieren | PMuon γ pruning γ∈{0, 0.8} vs baseline 0.4: Arm A γ=0 val=3.282615 DNF (Δval=+0.0183 clear regression), Arm B γ=0.8 val=3.313878 DNF (Δval=+0.0496 clear regression, 2.7× Arm A damage). **γ=0.4 load-bearing AND near-optimal.** Asymmetric damage curve (over-correction worse than ablation) consistent with WD #482/#503 and LR #499 patterns — local optimum pinned by cooldown-phase preconditioner-quality demand. γ axis fully closed: {0, 0.4, 0.8} mapped, plus #444 ramp NULL. | **CLOSED 07:30 UTC** |
 
-## Active experiments (8 students, 07:35 UTC)
+## Active experiments (8 students, 08:30 UTC)
 
 | PR | Student | Run | Step/3250 | bl | Status |
 |---|---|---|---|---|---|
-| **#545** | **fern** | (awaiting pickup) | — | — | **NEW — AdaBelief on aux AdamW group: variance update v = β2·v + (1-β2)·(g - m_hat)². Arm A eps=1e-10 (baseline eps); Arm B eps=1e-8 (AdaBelief paper recommendation). Fresh mechanism-class change on aux optimizer — first time variance update FORM is touched.** |
-| **#540** | edward | (awaiting pickup) | — | — | Newton-Schulz coefficient scan. Arm A published quintic (3.4445, -4.7750, 2.0315); Arm B aggressive-cubic (1.75, -0.75, 0). NS_ITERS=12 fixed. Orthogonal to #511 NS_ITERS. |
-| **#535** | alphonse | `3twtlh18` Arm A c_fc-heavy | ~775 | 3.73 | Sub-MLP LR partition: c_fc vs c_proj. Refines #499 NULL. ~2.5h to terminal. |
-| **#532** | askeladd | `oj9miqwf` body-Muon depth partition | ~950 | 3.69 | Body-Muon per-block LR (depth-based). ~2h to terminal. |
-| **#522** | nezuko | Arm B `8bmch56g` hard-switch | running | 3.79 | Skylight floor cooldown: Arm A linear marginal NULL fs=2975. ~3h to terminal. |
-| **#553** | **frieren** | (awaiting pickup) | — | — | **NEW — Gradient centralization on body-Muon pre-NS, Arm A dim=1 (per-output-channel mean subtraction, GC paper default), Arm B dim=0 (per-input-channel). Fresh mechanism class — gradient transformation, orthogonal to all preconditioning/partition/wrapping axes.** |
-| **#546** | **thorfinn** | (awaiting pickup) | — | — | **NEW — NS_ITERS extension pipeline {16, 18} parallel to tanjiro's n=2 confirmation. Tests if "more iters → better" trend extends beyond NS=14. Cost: ~30 min extra wall-clock at NS=18 (≈100ms per NS iter).** |
-| **#511** | tanjiro | Arm B `ldezjd0y` NS_ITERS=14 TERMINAL marginal n=1 win fs=2925 val=3.2639 | — | — | **🚨 MARGINAL WIN — fs=2925 (Δsr=−12.5 vs baseline 2937.5). Awaiting NS=14 seed-2 confirmation.** Arm A NS=10 relaunch q2afjlwc CRASHED at step 225 — kill-and-switch moot. Student notified to launch NS=14 seed-2 directly next polling cycle. |
+| **#545** | fern | `p3ryt23e` AdaBelief raw-m Arm A eps=1e-10 | ~1700 | 3.502 | Healthy. Relaunched 06:25 UTC after student self-diagnosed step-1 degeneracy when using m_hat. ~1.6h to terminal. |
+| **#540** | edward | Arm A `y46v2liq` TERMINAL fs=2975 val=3.268 (NULL Δsr=+37.5); Arm B `zuk9fkdm` aggressive-cubic running | ~50 | 10.8 | Arm A clean NULL. Student-poller transitioned to Arm B at 08:23. ~3h to Arm B terminal. |
+| **#535** | alphonse | Arm A `3twtlh18` c_fc-heavy TERMINAL fs=3025 NULL; Arm B `g8dy2zhk` c_proj-heavy running | ~625 | 3.748 | Sub-MLP LR partition. ~2.5h to Arm B terminal. |
+| **#532** | askeladd | Arm A `oj9miqwf` early-fast TERMINAL fs=3025 NULL; `vx9owxmj` (duplicate Arm A) CRASHED; Arm B `i6tfv7ry` late-fast running | ~300 | 4.05 | Body-Muon per-block LR (depth-based). Redirect to Arm B worked. ~3h to Arm B terminal. |
+| **#522** | nezuko | Arm A `1ohe6cf7` TERMINAL fs=2975 NULL; Arm B `8bmch56g` TERMINAL fs=3025 NULL; `0516jnmb` duplicate Arm B running | — | — | **BOTH ARMS NULL/NULL CLEAR.** Linear decay (fs=2975) better than hard-switch (fs=3025). **Floor IS load-bearing during cooldown — not redundant with COOLDOWN_POWER taper.** Advisor comment posted 08:25 UTC asking student to kill duplicate `0516jnmb` and post terminal SENPAI-RESULT. Awaiting student response. |
+| **#553** | frieren | Arm A `1x2u1688` dim=1 (paper default) running | ~625 | 3.742 | Gradient centralization pre-NS. ~2.5h to terminal. |
+| **#546** | thorfinn | Arm A `bqm06i25` NS_ITERS=16 running | ~1850 | 3.474 | NS_ITERS extension pipeline {16, 18}. ~1.4h to Arm A terminal. |
+| **#511** | tanjiro | Arm B seed-1 `ldezjd0y` TERMINAL marginal n=1 win fs=2925 val=3.2639; seed-2 `ciusvhzo` NS=14 confirmation running | ~2325 | 3.377 | **🚨 MARGINAL WIN — fs=2925 (Δsr=−12.5 vs baseline 2937.5). seed-2 in cooldown phase. ~37 min to terminal.** |
 
-## Next terminal events (from 06:15 UTC)
+## Next terminal events (from 08:30 UTC)
 
-1. **🚨 tanjiro #511 NS=14 seed-2 confirmation** — student awaiting next polling cycle to relaunch. ~1.5h once started. **Marginal n=1 win Δsr=−12.5 → need n=2 to merge.**
-2. **askeladd #532, alphonse #535, frieren #519 Arm B** — ~1.5-2h to terminal.
-3. **nezuko #522 Arm B** — ~2-3h to terminal.
-4. **edward #540, fern #545, thorfinn #546** — early/awaiting pickup, ~3h to terminal each.
+1. **🚨 tanjiro #511 NS=14 seed-2 `ciusvhzo`** — step 2325 bl=3.377, ~37 min to terminal. **Marginal n=1 win Δsr=−12.5 → need n=2 to merge.**
+2. **thorfinn #546 NS=16 `bqm06i25`** — step 1850 bl=3.474, ~1.4h to terminal.
+3. **fern #545 AdaBelief Arm A `p3ryt23e`** — step 1700 bl=3.502, ~1.6h to terminal.
+4. **alphonse #535 Arm B `g8dy2zhk`, frieren #553 Arm A `1x2u1688`** — step 625 each, ~2.5h to terminal.
+5. **askeladd #532 Arm B `i6tfv7ry`, edward #540 Arm B `zuk9fkdm`** — step 300/50, ~3h to terminal each.
+6. **nezuko #522** — awaiting student SENPAI-RESULT marker + duplicate kill; reassignable after close.
 
 ## Recently merged
 
