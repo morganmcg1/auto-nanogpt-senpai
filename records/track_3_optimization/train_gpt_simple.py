@@ -466,6 +466,16 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Schedule-Free AdamW (Defazio et al. 2024, arxiv 2405.15682). When enabled,
+# replaces optimizer1 (the embed + lm_head + scalars group). Uses the canonical
+# three-iterate algorithm: p.data holds y (lookahead), state['z'] is the
+# gradient accumulator, x (Polyak avg, deployed) is recovered via lerp.
+# SF group's LR is held constant — set_hparams() bypasses the cooldown.
+SFADAMW_ENABLED = int(os.environ.get("SFADAMW_ENABLED", "0"))
+SFADAMW_LR_SCALE = float(os.environ.get("SFADAMW_LR_SCALE", "1.0"))
+SFADAMW_BETA1 = float(os.environ.get("SFADAMW_BETA1", "0.9"))
+SFADAMW_BETA2 = float(os.environ.get("SFADAMW_BETA2", "0.99"))
+SFADAMW_WARMUP = int(os.environ.get("SFADAMW_WARMUP", "100"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -775,6 +785,101 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    """Schedule-Free AdamW (Defazio et al. 2024, arxiv 2405.15682).
+
+    Canonical three-iterate algorithm. p.data holds y (the lookahead point,
+    where gradients are computed); state['z'] is the gradient accumulator;
+    x (Polyak average, the deployed weights for inference) is recovered from
+    y and z via lerp without storing it explicitly. eval()/train() swap
+    p.data between y and x; eval() MUST be called before validation and
+    train() restored before continued optimizer.step() calls.
+
+    Reference: https://github.com/facebookresearch/schedule_free.
+    Update follows that package's `adamw_schedulefree.AdamWScheduleFree`
+    (single-iterate fused-y form, no foreach, no inner_momentum).
+    """
+    def __init__(self, params, lr=2.5e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, warmup_steps=0, r=0.0, weight_lr_power=2.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay,
+                        warmup_steps=warmup_steps,
+                        r=r, weight_lr_power=weight_lr_power,
+                        k=0, train_mode=False,
+                        weight_sum=0.0, lr_max=-1.0, scheduled_lr=0.0)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def eval(self):
+        for group in self.param_groups:
+            beta1, _ = group['betas']
+            if group['train_mode']:
+                for p in group['params']:
+                    state = self.state[p]
+                    if 'z' in state:
+                        p.lerp_(end=state['z'].to(p.device), weight=1 - 1 / beta1)
+                group['train_mode'] = False
+
+    @torch.no_grad()
+    def train(self):
+        for group in self.param_groups:
+            beta1, _ = group['betas']
+            if not group['train_mode']:
+                for p in group['params']:
+                    state = self.state[p]
+                    if 'z' in state:
+                        p.lerp_(end=state['z'].to(p.device), weight=1 - beta1)
+                group['train_mode'] = True
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if not self.param_groups[0]['train_mode']:
+            raise RuntimeError("ScheduleFreeAdamW.step called outside train mode. "
+                               "Call optimizer.train() before training and "
+                               "optimizer.eval() before validation.")
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            eps = group['eps']
+            beta1, beta2 = group['betas']
+            decay = group['weight_decay']
+            k = group['k']
+            r = group['r']
+            warmup_steps = group['warmup_steps']
+            weight_lr_power = group['weight_lr_power']
+            sched = (k + 1) / warmup_steps if k < warmup_steps else 1.0
+            bias_correction2 = 1 - beta2 ** (k + 1)
+            lr = group['lr'] * sched
+            group['scheduled_lr'] = lr
+            lr_max = group['lr_max'] = max(lr, group['lr_max'])
+            weight = ((k + 1) ** r) * (lr_max ** weight_lr_power)
+            weight_sum = group['weight_sum'] = group['weight_sum'] + weight
+            ckp1 = weight / weight_sum if weight_sum > 0 else 0.0
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if 'z' not in state:
+                    state['z'] = torch.clone(p, memory_format=torch.preserve_format)
+                    state['exp_avg_sq'] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                y = p  # alias for clarity — p.data currently holds y
+                grad = p.grad
+                z = state['z']
+                exp_avg_sq = state['exp_avg_sq']
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                denom = exp_avg_sq.div(bias_correction2).sqrt_().add_(eps)
+                grad_normalized = grad.div_(denom)  # reuses grad buffer
+                if decay != 0:
+                    grad_normalized.add_(y, alpha=decay)
+                y.lerp_(end=z, weight=ckp1)
+                y.add_(grad_normalized, alpha=lr * (beta1 * (1 - ckp1) - 1))
+                z.sub_(grad_normalized, alpha=lr)
+            group['k'] = k + 1
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -864,6 +969,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/sfadamw_enabled": SFADAMW_ENABLED,
+            "optimizer/sfadamw_lr_scale": SFADAMW_LR_SCALE,
+            "optimizer/sfadamw_beta1": SFADAMW_BETA1,
+            "optimizer/sfadamw_beta2": SFADAMW_BETA2,
+            "optimizer/sfadamw_warmup": SFADAMW_WARMUP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -896,10 +1006,30 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if SFADAMW_ENABLED:
+        # Schedule-Free AdamW replaces optimizer1. Keep the same three param
+        # groups (embed, lm_head, scalars) with their per-group LRs scaled by
+        # SFADAMW_LR_SCALE. SF manages its own averaging — no LR cooldown
+        # (see set_hparams below) and no first-moment EMA (β1 is the
+        # x/z interpolation weight).
+        optimizer1 = ScheduleFreeAdamW(
+            [dict(params=[model.embed.weight], lr=0.3 * SFADAMW_LR_SCALE,
+                  name="adam_embed", weight_decay=WD_AUX),
+             dict(params=[model.proj.weight], lr=(1 / 320) * SFADAMW_LR_SCALE,
+                  name="adam_lm_head", weight_decay=WD_AUX),
+             dict(params=[p for p in model.parameters() if p.ndim < 2],
+                  lr=0.01 * SFADAMW_LR_SCALE, name="adam_scalars",
+                  weight_decay=0)],
+            betas=(SFADAMW_BETA1, SFADAMW_BETA2),
+            eps=1e-10,
+            warmup_steps=SFADAMW_WARMUP,
+        )
+        optimizer1.train()
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -930,10 +1060,17 @@ for trial_idx in range(args.num_trials):
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
+            is_sf = SFADAMW_ENABLED and (opt is optimizer1)
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
-                    group["mu"] = cur_mu
+                if is_sf:
+                    # Schedule-Free manages its own averaging — no external
+                    # cooldown; LR stays at initial_lr (warmup is handled
+                    # inside ScheduleFreeAdamW via warmup_steps).
+                    group["lr"] = group["initial_lr"]
+                else:
+                    group["lr"] = group["initial_lr"] * eta
+                    if group.get("name") == "muon_blocks":
+                        group["mu"] = cur_mu
 
 
     ########################################
@@ -966,6 +1103,9 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            if SFADAMW_ENABLED:
+                # Swap p.data from y (training point) to x (Polyak avg) for val.
+                optimizer1.eval()
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -1000,6 +1140,9 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
+            if SFADAMW_ENABLED:
+                # Restore p.data to y (training point) before resuming.
+                optimizer1.train()
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
