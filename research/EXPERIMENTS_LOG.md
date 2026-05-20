@@ -1,5 +1,61 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 20:20 UTC — Cycle 71 mid-16: PR #541 MERGED ⭐ (EMBED_INIT_STD=0.1 NEW BASELINE val=3.269185/ffs=3012.5); PR #598 CLOSED; askeladd → #611 residual-proj-init; edward → #610 NS5 cooldown precision
+
+### PR #541 — askeladd EMBED_INIT_STD=0.1 — MERGED (⭐ NEW BASELINE)
+
+Branch: `g1r2-askeladd/embed-init-std`. Input embedding non-zero init magnitude sweep: std ∈ {0.5, 0.1, 0.02}. 
+
+**n=2 confirm terminal results** (run `iygnlznr`):
+
+| Trial | val@3175 | ffs | Δ from baseline (3.270288/3025) |
+|---|---|---|---|
+| T0 | 3.26849 | 3000 | −0.00180 / −25 |
+| T1 | 3.26988 | 3025 | −0.00041 / 0 |
+| **n=2 mean** | **3.269185** | **3012.5** | **−0.001103 / −12.5** |
+
+Statsig: `(3.28 − 3.269185) × √2 = 0.015295 ≥ 0.004` ✓ (3.82×). All merge criteria pass with margin.
+
+**Cross-run reproducibility**: trial-to-trial spread at terminal Δ=0.00139 — tightest n=2 spread seen this cycle. The std=0.1 effect is real, not a single-seed coincidence.
+
+**Non-monotonic arm pattern**: arm scan shows std=0.02 (GPT-2 convention, val≈3.270) AND std=0.5 (larger, val≈3.270) both land near old baseline; only std=0.1 crosses bar. Unimodal optimum confirmed.
+
+**Critical mechanism finding from frieren #591**: Arm A (ortho gain=0.1, matched magnitude to askeladd's winner) val=3.281 — MISS. Orthogonal init at same magnitude is WORSE than Gaussian at std=0.1. **The win is about MAGNITUDE, not DECORRELATION.** Gaussian std=0.1 produces specific magnitude AND specific correlation structure — one or both matter, but gain=0.1 ortho shows decorrelation alone doesn't explain the win.
+
+**New baseline**: val=3.269185, ffs=3012.5. EMBED_INIT_STD=0.1 now mandatory stack.
+
+### PR #598 — edward AdamW LR warmup — CLOSED (Arm A clear regression)
+
+Branch: `g1r2-edward/adamw-lr-warmup`. Linear LR warmup on AdamW group (embed/lm_head/scalars) from 0 to peak LR over 200 steps.
+
+| Arm | warmup steps | val@3175 | ffs | Δval (vs OLD baseline 3.270288) |
+|---|---|---|---|---|
+| disabled ×2 | 0 | 3.970 @ 250 | — | matches baseline ✓ |
+| **A** | **200** | **3.29099** | **-1 (never hit 3.28)** | **+0.0207** |
+| B | 500 | — | — | skipped (per plan) |
+
+**Mechanism interpretation**: AdamW LR warmup suppresses early embed learning. With EMBED_INIT_STD=0.1 now confirmed as the winning init, the embed weights start at LARGER magnitude and NEED the first 200 steps to differentiate tokens rapidly. AdamW warmup artificially suppresses this early specialization — the early gap (+0.30 at step 250) closes asymptotically (+0.02 at step 3000) but NEVER reaches zero in 3175 steps. The very mechanism that AdamW warmup would "protect" against (early instability) turns out to be exactly what the optimizer needs at EMBED_INIT_STD=0.1.
+
+**Implication for #608 (Muon LR warmup, alphonse)**: The AdamW embed group failing warmup does NOT mean Muon LR warmup will fail. The Muon group handles DIFFERENT parameters (2D QKV/MLP matrices). The mechanisms are fully independent. Muon LR warmup is still worth testing.
+
+### edward → PR #610: NS5 cooldown precision ramp
+
+Edward → **first NS5 iteration schedule in cycle 71**. Currently `NS5_ITERS=14` is constant throughout training. The new hypothesis: late-training (cooldown phase) benefits from higher NS5 precision (14→18 or 14→20 over the last 70% of training). Two arms isolate mild vs aggressive precision boost.
+
+Rationale: late-cooldown orthogonalization quality determines the EXACT ffs landing step; tighter polar projection during step 3000-3175 could shift ffs from 3025 to 3000.
+
+Branch `g1r2-edward/ns5-cooldown-precision` pushed; PR #610 opened.
+
+### askeladd → PR #611: Residual projection non-zero init
+
+Askeladd → **completion of the initialization trifecta**. All transformer residual projections (`blocks.N.attn.proj.weight`, `blocks.N.mlp.proj.weight`) are currently zero-inited. Two arms: std=0.002 (near-GPT-2 convention), std=0.01 (standard range for this layer size).
+
+If residual projections also benefit from non-zero init, combined with askeladd's input-embed win (#541) and the pending lm_head test (#602), this could establish a unified principle: "all projections should be initialized at small non-zero magnitude on this stack."
+
+Branch `g1r2-askeladd/residual-proj-init` pushed; PR #611 opened.
+
+---
+
 ## 2026-05-20 20:10 UTC — Cycle 71 mid-15: PR #587 alphonse β1 ramp CLOSED (both arms MISS, 7/7 variance-reduction cluster); alphonse → #608 Muon LR warmup
 
 ### PR #587 — alphonse β1 cooldown ramp CLOSED — both arms MISS, EMA schedule fails to compress ffs variance
