@@ -466,6 +466,10 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# PR #605: Muon heavy-ball ablation. Default 0 keeps the Nesterov-style re-blend
+# (u_t = (1-μ)g + μ·m where m has already absorbed (1-μ)g, giving effective β=μ²).
+# When 1, drop the re-blend and use the EMA buffer directly (effective β=μ).
+MUON_HEAVY_BALL = int(os.environ.get("MUON_HEAVY_BALL", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -691,7 +695,10 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if MUON_HEAVY_BALL:
+                        momentum_update = state["momentum"].clone()
+                    else:
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -864,6 +871,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_heavy_ball": MUON_HEAVY_BALL,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
