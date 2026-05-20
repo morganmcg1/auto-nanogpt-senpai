@@ -1,3 +1,40 @@
+## 2026-05-20 15:11 UTC — PR #572 CLOSED (edward): H26 Aux AdamW β1 cooldown ramp (0.8→0.95) — NEG, mechanism incompatible with fused AdamW state
+
+- Branch: `g1r3-edward/aux-beta1-cooldown-ramp`
+- Hypothesis: Linear ramp β1 0.8→0.95 over the last 40% (long ramp) or last 15% (short ramp) of training would let aux AdamW use a longer-memory first moment during cooldown — the inner-side analogue of PR #563 H18 outer_momentum ramp. The PR #536 finding that cooldown-phase momentum is load-bearing should generalize from MuLoCo outer to AdamW inner.
+
+### Results (3325 steps each)
+
+| Arm | Config | run_id | val/loss | ffs | nonfinite_count | duration |
+|---|---|---|---:|---:|---:|---:|
+| 1 ctrl | β1=0.8 static | `gxylln21` | **3.2713** ✓ | 3125 | 0 | 132m |
+| 2 beta1ramp-long | β1=0.8→0.95 over last 40% | `zzotocuj` | NaN @ step 25 | — | 148M | 22m |
+| smoke-v2 #1 | gated reassignment, 200 steps | `xn2wyuug` | NaN @ step 1+ | — | 148M | 7m |
+| smoke-v2 #2 | gated reassignment relaunch | `icqb3em2` | NaN @ step 1+ | — | 147M | 4m |
+
+### Crash diagnostic
+
+Ctrl arm `gxylln21` reproduces baseline (val=3.2713 ≈ t1coza71 3.27119) — the schedule code path itself is harmless. But every attempt to actually engage the mechanism (even pre-ramp when β1 reassignment is a no-op 0.8→0.8) crashes immediately with NaN and ~148M nonfinite floats.
+
+Initial diagnostic: `for group in optimizer1.param_groups: group['betas'] = (scheduled_beta1, group['betas'][1])` reassigns the tuple every iteration, creating a NEW tuple object even when value is unchanged. Hypothesis: PyTorch fused AdamW caches compiled state keyed on betas tuple identity (not value); new tuple every step triggers recomputation hitting a numerical edge case.
+
+Proposed fix: gate the reassignment to only happen when value actually changes (pre-ramp: skip; in-ramp: reassign).
+
+Two consecutive smoke-v2 attempts with the gated fix STILL crashed identically. Confirms the mechanism is broken at a level deeper than the gating logic. Either:
+1. **State-cache invalidation**: even one in-ramp reassignment poisons fused state.
+2. **First-step path divergence**: fused AdamW has a specialized step==1 path the betas reassignment perturbs.
+3. **Implementation race**: student's code may have an unseen typo, but two attempts with identical fingerprints suggests mechanistic failure.
+
+### Mechanism finding
+
+`optimizer.param_groups[i]['betas']` reassignment mid-training on PyTorch fused AdamW is incompatible. The β1-scheduling axis is **closed at the optimizer level** on this stack. **Rule for future planning**: Do NOT propose schedule interventions that mutate fused-kernel hyperparameters mid-training (β1, β2, eps). The only safe schedule insertion point on this stack is BEFORE `optimizer.step()` via `p.grad` modification (MARS-style at PR #582, STORM-style at PR #589).
+
+### Disposition
+
+NEG. Edward reassigned to H27 STORM recursive variance-reduced gradient (PR #589).
+
+---
+
 ## 2026-05-20 14:00 UTC — PR #555 CLOSED (askeladd): H17 SWA on aux AdamW during cooldown — paired SWA-vs-iterate proves SWA actively harmful (third weight-averaging NEG)
 
 - Branch: `g1r3-askeladd/aux-swa-cooldown`
