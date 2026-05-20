@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 06:40 UTC — BASELINE UPDATED: PR #494 MUON_LR=0.04 MERGED (val=3.270288/ffs=3025 n=4; val PASS statsig 4.86×, ffs tied). Nezuko #549 Muon-cooldown-frac assigned. All 7 in-flight PRs notified to rebase + add MUON_LR=0.04 to run commands.**
+- **2026-05-20 08:35 UTC — Cycle 71: Lion #538 CLOSED (val+0.024, third sign-family failure on AdamW group); edward reassigned #557 Schedule-Free AdamW (Defazio 2024, Polyak avg). 8 PRs active.**
 
 ## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
 
@@ -22,20 +22,21 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| #549 | **nezuko** | **Muon decoupled cooldown (MUON_COOLDOWN_FRAC 0.8/0.6) 2 arms n=1** | Just assigned (after #494 merged) | TBD |
-| #541 | askeladd | Embed init std sweep (1.0 → 0.5/0.1/0.02) 3 arms n=1 | Pushed from disabled-check loop; smoke expected | TBD |
-| #538 | edward | Lion optimizer (Chen 2023, AdamW-group swap) 2 arms n=1 | Arm A smoke running; Arm B queued | TBD |
-| #534 | tanjiro | Shampoo-lmhead right-factor (2 arms n=1) | Pushed from 5× disabled-check loop; smoke expected | TBD |
-| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Arm A CONTRA_MUON=0 soft-redundant val=3.273/ffs=3050; Arm B (WARMUP=0) queued | ~08:30 UTC |
-| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A embed FAIL val=3.272/ffs=3050; Arm B lm_head step ~775; Arm C queued | ~07:30 UTC |
-| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A T1 in flight | ~06:15 UTC |
-| #524 | thorfinn | SWA tail averaging WINDOW=150 | n=2 T1 in flight | ~06:40 UTC |
+| #557 | **edward** | **Schedule-Free AdamW (Defazio 2024, Polyak avg, no cooldown) 2 arms n=1** | Just assigned; Lion #538 closed | TBD |
+| #549 | nezuko | Muon decoupled cooldown (MUON_COOLDOWN_FRAC 0.8/0.6) 2 arms n=1 | Just assigned post-#494 merge | TBD |
+| #541 | askeladd | Embed init std sweep (3 arms: 0.5/0.1/0.02) | Smoke expected | TBD |
+| #534 | tanjiro | Right-factor Shampoo on lm_head (2 arms n=1) | Smoke expected | TBD |
+| #533 | alphonse | Stack pruning ablation (3 arms n=1) | Arm A CONTRA_MUON=0 FAIL; Arm B MU_WARMUP=0 FAIL; Arm C ATTN_SOAP=1.0 in flight (~09:30 UTC) | ~09:30 UTC |
+| #529 | frieren | Per-group AdamW eps (3 arms n=1) | Arm A+B embed/lm_head FAIL; Arm C scalars in flight with MUON_LR=0.04 | ~10:00 UTC |
+| #527 | fern | NAdamW (Dozat 2016, fresh) | Arm A T0+T1 running; Arm B at step 522 | T0 ~08:25 UTC |
+| #524 | thorfinn | SWA tail averaging WINDOW=300 n=2 | Arm B v2 at step 1508; ETA T0 terminal ~09:20 UTC | ~09:20 UTC |
 
 ## Top merge candidates (priority order)
 
-1. **FRIEREN #529 Arm B lm_head eps=1e-8** — only remaining per-group eps that could carry signal. Arm A (embed) failed = same as global #493. Arm B (lm_head) is the highest-likelihood candidate given lm_head = 30% of params.
-2. **FERN #527 NAdamW** — Arm A T0 terminal (val ~3.28); Nesterov first-moment is orthogonal to all closed axes.
-3. **NEZUKO #549 Muon cooldown decoupling** — directly targets ffs=3025 floor via Muon LR timing in final convergence window.
+1. **NEZUKO #549 Muon-cooldown-frac** — directly targets ffs=3025 floor via per-group Muon LR in final convergence window. Primary research priority axis.
+2. **FERN #527 NAdamW** — Arm A T0/T1 running (ETA terminal ~08:25 UTC); Nesterov first-moment is orthogonal to all closed axes. Good probability of improvement.
+3. **EDWARD #557 Schedule-Free AdamW** — Polyak averaging eliminates LR cooldown timing stochasticity. Fresh mechanism attack on bimodal ffs variance.
+4. **FRIEREN #529 Arm C scalars** — Arms A (embed) + B (lm_head) both FAIL. Arm C (scalars) running on NEW MUON_LR=0.04 stack. Low probability but last arm standing.
 
 ## Mechanism categories (post-#494 merge)
 
@@ -52,6 +53,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #538 | edward | Lion optimizer closed — val+0.024 regression, ffs=-1; sign-only update incompatible (3rd sign-family failure) |
 | #493 | askeladd | ADAM_EPS=1e-8 n=4 closed — val FAIL +5e-4, ffs FAIL +6.25; T0=3000 was outlier, T1-T3 cluster at noise floor |
 | #523 | edward | Cautious AdamW closed — T0 val=3.286 (+1.4% regression); sign-mask discards useful cooldown signal |
 | #500 | alphonse | WD_SCALARS ±0.0009 closed — flat top of regularization ridge |
@@ -69,6 +71,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - EMA-family β2 sweeps (SOAP, NORMUON, ATTN_SOAP, AdaMuon all sharp at 0.90-0.95)
 - Schedule shape variants (linear cooldown is optimal; cosine/poly all worse)
 - Output-side (logit softcap, embed init magnitude tweaks beyond default)
+- **Sign-family AdamW group replacements** (Lion #538 sign-only, Cautious AdamW #523 sign-mask both failed; do NOT re-propose sign-based updates)
 - AdamW Nesterov is FRESH for r2 — see #527 (was #510 for r3 only)
 
 **Open categories with potential** (per researcher-agent 2026-05-20 0030):
@@ -78,12 +81,12 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ## Next research directions (queue when students close)
 
-- **One-sided SOAP on lm_head** (Idea 2 from researcher-agent) — assign when a student frees up
-- **WSD scheduler** (warmup-stable-decay, Hu et al 2024 MiniCPM): trapezoidal schedule shape, replaces cosine cooldown. Schedule-level perturbation.
-- **Mu-on AdamW (μP-style)** for hyperparameter transfer when stack changes
-- **Schedule-Free optimizer** (Defazio 2024) — closed-form momentum-free Adam
-- **Lion optimizer** as Muon-group alternative (sign-based)
-- **Stack pruning ablations**: which mandatory-stack elements are still load-bearing? CONTRA_MUON, MU_WARMUP, MU_COOLDOWN_END all stack — one might be redundant under the others.
+- **One-sided SOAP on lm_head** (Idea 2 from researcher-agent) — queue for next free student after tanjiro #534 (which is right-factor Shampoo on same target)
+- **AdaFactor (Shazeer 2018)** — factorizes second moment v as row×col product; half memory, slightly different conditioning. Fresh mechanism orthogonal to all in-flight.
+- **Lookahead wrapper (Zhang 2019)** — periodic slow-weights sync, wraps existing AdamW. ~30 LoC. Variance-reduction angle; different from SWA (which is tail-only).
+- **Prodigy / DoG auto-LR** (Mishchenko 2023) — automatic LR adaptation, no manual LR tuning. Could improve robustness on bimodal variance.
+- **Stack pruning confirmation Arm C** (alphonse #533 in-flight): if ATTN_SOAP_TRUST_THRESHOLD=1.0 also fails, stack has THREE load-bearing elements confirmed.
+- **Lion / Muon-group alternative** — closed on AdamW group. NOT worth re-trying on Muon group (NS5 already provides orthogonalization which is Lion-like for matrices).
 
 ## Critical operational notes
 

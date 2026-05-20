@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 08:30 UTC — Cycle 71: PR #538 Lion closed; edward reassigned #557 SF-AdamW
+
+### PR #538 — edward Lion optimizer (Chen 2023) on AdamW group — CLOSED structurally worse
+
+Branch: `g1r2-edward/lion-adamw-group`. W&B runs: `xi4wtxky` (disabled-check), `uyc4zbxk` + `f6gl4fbq` (Arm A smokes), `ea66u7v6` (Arm B smoke), `1k9xh5qs` (Arm A n=1 full).
+
+| Arm | Config | val/loss | ffs | Gate verdict |
+|---|---|---|---|---|
+| Disabled-check (200 steps) | LION_ENABLED=0 | 4.09560 | n/a | ✅ plumbing OK |
+| Arm A smoke (200 steps) | LION_LR_SCALE=0.33 | 4.322 | n/a | ⚠ borderline |
+| Arm B smoke (200 steps) | LION_LR_SCALE=0.10, B1=0.95/B2=0.98 | 4.640 | n/a | ❌ killed (>4.50) |
+| Arm A n=1 full (3175 steps) | LION_LR_SCALE=0.33 | **3.29467** | -1 (never reached) | ❌ FAIL |
+
+**Bar check vs new baseline (val < 3.270288, ffs ≤ 3025)**:
+- Arm A val 3.29467 = +0.024 regression. FAIL by 6× statsig margin. ffs=-1 (never reached 3.28 = structural miss).
+- Arm B killed at smoke.
+
+**Mechanism verdict**: Lion's `sign(β1·m + (1-β1)·g)` removes the second-moment scaling AdamW provides. Third sign/eps perturbation falsified (chain: ADAM_EPS #493 → Cautious AdamW #523 → Lion #538). The lm_head (50304×768) and embed row-rank-1 gradients need precise variance normalization — sign compression and sign-masking both destroy this. Axis closed: sign-based AdamW group replacements incompatible with our floor.
+
+**New assignment**: edward → #557 Schedule-Free AdamW (Defazio 2024, arxiv 2405.15682). Polyak averaging mechanism is fundamentally different from sign variants — preserves full second-moment adaptation, eliminates LR cooldown timing dependence. 2 arms: LR_SCALE=1.0 and LR_SCALE=2.0.
+
 ## 2026-05-20 06:40 UTC — BASELINE UPDATED: PR #494 MUON_LR=0.04 MERGED
 
 ### PR #494 — nezuko MUON_LR=0.04 — MERGED ⭐ (new baseline val=3.270288/ffs=3025)
