@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-20 03:25 UTC — PR #502 CLOSED: PMuon body β_cov scan — both arms NULL, β_cov axis CLOSES (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/pmuon-beta-cov-scan`
+- Hypothesis: PMuon bilateral covariance EMA β_cov∈{0.90, 0.99} symmetric around inherited 0.95. Tests whether more responsive (10-step window) or smoother (100-step window) preconditioner EMA is preferred at the 2937-step operating point. Last untested PMuon scalar after γ_power, lr, wd, NS_ITERS were closed earlier.
+
+| Arm | β_cov | W&B | sr | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | 0.95 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| A | 0.90 (responsive) | `o31yd0nw` | 2950 | 3.264775 | +12.5 ✗ | +0.000497 ✗ | NULL (marginal) |
+| B | 0.99 (smoother) | `7donghzb` | 3000 | 3.269313 | +62.5 ✗ | +0.005035 ✗ | NULL (clear) |
+
+**Signal: asymmetric NULL/NULL — β_cov=0.95 locally optimal.** Going UP to 0.99 costs ~10× more than going DOWN to 0.90 (Δval +0.005 vs +0.0005). The 100-step EMA over-smooths late-phase covariance: by the time cooldown gradients shrink, the EMA still drags in pre-cooldown statistics that mis-shape spectral normalization.
+
+**Falsification table outcome (per preregistered design): NULL × NULL → "β_cov=0.95 is saturated. Axis closes."** Student also notes the asymmetry is in the WRONG direction for a "down during cooldown" β_cov schedule — Arm A (responsive) was marginal-WORSE, not better. Scheduled β_cov ramp is ruled out without further test.
+
+**Strategic implication:** PMuon scalar block (γ_power, β_cov, NS_ITERS, body-lr, body-wd) all closed NULL at inherited defaults. Moving askeladd to **Body-Muon per-block LR multiplier (#532)** — first depth-based partition test, fresh class never tested.
+
+---
+
 ## 2026-05-19 16:13 UTC — PR #448 CLOSED: Decoupled cooldown_frac aux vs body — both arms NULL, cf-decoupling axis CLOSES (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/decoupled-cooldown-frac`
