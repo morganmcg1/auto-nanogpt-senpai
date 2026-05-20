@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lookahead_k", type=int, default=int(os.environ.get("NANOGPT_LOOKAHEAD_K", "5")))
+    parser.add_argument("--lookahead_alpha", type=float, default=float(os.environ.get("NANOGPT_LOOKAHEAD_ALPHA", "0.5")))
+    parser.add_argument("--train_steps", type=int, default=None,
+                        help="Override train_steps (defaults to 3250). For smoke tests only.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +708,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_enabled": int(args.lookahead_k > 0),
         },
     )
 
@@ -716,6 +723,8 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = 3250
+    if args.train_steps is not None:
+        train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -739,7 +748,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
+    body_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    optimizer2 = Muon(body_params,
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
@@ -748,6 +758,15 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # Lookahead wrapper on body-Muon (Zhang et al. 2019).
+    # Every LOOKAHEAD_K inner steps: slow += alpha*(fast - slow); fast <- slow.
+    # Slow weights kept in FP32 for numerical stability across many averages.
+    LOOKAHEAD_K = args.lookahead_k
+    LOOKAHEAD_ALPHA = args.lookahead_alpha
+    lookahead_enabled = LOOKAHEAD_K > 0
+    lookahead_slow: dict[int, torch.Tensor] = {}
+    lookahead_trigger_count = 0
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def set_hparams(step, cooldown_frac=0.7):
@@ -773,6 +792,9 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Initialize Lookahead slow weights AFTER broadcast so all ranks start in sync.
+    if lookahead_enabled:
+        lookahead_slow = {id(p): p.detach().clone().to(torch.float32) for p in body_params}
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -881,6 +903,16 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Lookahead update on body-Muon params: every K inner steps,
+        # slow += alpha * (fast - slow); fast <- slow (in fp32 space).
+        lookahead_triggered = lookahead_enabled and (step + 1) % LOOKAHEAD_K == 0
+        if lookahead_triggered:
+            lookahead_trigger_count += 1
+            with torch.no_grad():
+                for p in body_params:
+                    slow = lookahead_slow[id(p)]
+                    slow.add_(p.detach().to(torch.float32) - slow, alpha=LOOKAHEAD_ALPHA)
+                    p.copy_(slow.to(p.dtype))
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -919,6 +951,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "lookahead/enabled": int(lookahead_enabled),
+                "lookahead/k": LOOKAHEAD_K,
+                "lookahead/alpha": LOOKAHEAD_ALPHA,
+                "lookahead/triggered": int(lookahead_triggered),
+                "lookahead/total_triggers": lookahead_trigger_count,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
