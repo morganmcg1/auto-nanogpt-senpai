@@ -739,10 +739,45 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    # --- Body Muon LR partition: MLP vs attention (PR #499) ---
+    BODY_MUON_LR_BASE = 0.035
+    MLP_LR_MULT = 0.80    # Arm B (swap).
+    ATTN_LR_MULT = 1.20   # Arm B (swap).
+    MLP_LR = BODY_MUON_LR_BASE * MLP_LR_MULT
+    ATTN_LR = BODY_MUON_LR_BASE * ATTN_LR_MULT
+
+    mlp_params, attn_params = [], []
+    for block in model.blocks:
+        for p in block.mlp.parameters():
+            if p.ndim >= 2:
+                mlp_params.append(p)
+        for p in block.attn.parameters():
+            if p.ndim >= 2:
+                attn_params.append(p)
+    all_body_2d = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    assert len(mlp_params) + len(attn_params) == len(all_body_2d), (
+        f"partition mismatch: mlp={len(mlp_params)} + attn={len(attn_params)} != body_2d={len(all_body_2d)}"
+    )
+
+    optimizer2_mlp = Muon(mlp_params, lr=MLP_LR, weight_decay=0.025,
+                         beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_attn = Muon(attn_params, lr=ATTN_LR, weight_decay=0.025,
+                          beta_cov=0.95, gamma=PMUON_GAMMA)
+    optimizer2_mlp.param_groups[0]["name"] = "muon_mlp"
+    optimizer2_attn.param_groups[0]["name"] = "muon_attn"
+    optimizer2 = optimizer2_mlp  # alias for existing diagnostic reads (_floor_diag, _polar_diag)
+    optimizers = [optimizer1, optimizer2_mlp, optimizer2_attn]
+    if dist.get_rank() == 0 and wandb.run is not None:
+        wandb.config.update(
+            {
+                "body_muon_lr_base": BODY_MUON_LR_BASE,
+                "mlp_lr_mult": MLP_LR_MULT,
+                "attn_lr_mult": ATTN_LR_MULT,
+                "muon_mlp_lr": MLP_LR,
+                "muon_attn_lr": ATTN_LR,
+            },
+            allow_val_change=True,
+        )
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
