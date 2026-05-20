@@ -466,6 +466,10 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Per-group Muon cooldown fraction (PR #549): decouples the Muon LR cooldown
+# from the global AdamW cooldown_frac. 0.0 (default) falls back to the global
+# cooldown_frac for identical behavior.
+MUON_COOLDOWN_FRAC = float(os.environ.get("MUON_COOLDOWN_FRAC", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -854,6 +858,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_cooldown_frac": MUON_COOLDOWN_FRAC,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -918,6 +923,16 @@ for trial_idx in range(args.num_trials):
             eta = 1.0
         else:
             eta = (1 - progress) / cooldown_frac
+
+        # Per-group Muon LR schedule (PR #549): decouple Muon cooldown from
+        # the global AdamW cooldown_frac. MUON_COOLDOWN_FRAC=0.0 (default)
+        # falls back to the global cooldown_frac for identical behavior.
+        muon_cf = MUON_COOLDOWN_FRAC if MUON_COOLDOWN_FRAC > 0.0 else cooldown_frac
+        if progress < 1 - muon_cf:
+            muon_eta = 1.0
+        else:
+            muon_eta = (1 - progress) / muon_cf
+
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
@@ -931,9 +946,11 @@ for trial_idx in range(args.num_trials):
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
+                    group["lr"] = group["initial_lr"] * muon_eta
                     group["mu"] = cur_mu
+                else:
+                    group["lr"] = group["initial_lr"] * eta
 
 
     ########################################
