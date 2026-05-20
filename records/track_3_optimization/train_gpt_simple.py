@@ -25,7 +25,7 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 COOLDOWN_POWER = 1.4
-PMUON_GAMMA = 0.4  # PMuon bilateral whitening exponent (PR #202 arm A WIN; was 0.3 baseline)
+PMUON_GAMMA = 0.8  # Arm B: γ=0.8 amplification (PR #519) — double-strength PMuon γ
 
 # Newton-Schulz quintic polar map coefficients f(x) = a*x + b*x^3 + c*x^5.
 # Default (2, -1.5, 0.5) is the conservative quintic used since program inception.
@@ -706,6 +706,7 @@ if dist.get_rank() == 0:
             "muon_method": MUON_METHOD,
         },
     )
+    wandb.log({"body/pmuon_gamma_static": PMUON_GAMMA}, step=0)
 
 for trial_idx in range(args.num_trials):
 
