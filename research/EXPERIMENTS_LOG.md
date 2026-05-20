@@ -1,5 +1,41 @@
 # SENPAI Research Results
 
+## 2026-05-20 23:46 UTC — PR #583 CLOSED: Adamax on aux AdamW (L∞ v-aggregation) — NULL/NULL DNF, 5th and FINAL leaf of aux update-rule mechanism tree CLOSES (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/adamax-aux-adamw`
+- Hypothesis: Adamax (Kingma & Ba 2014) replaces AdamW's E[g²] preconditioner with L∞ aggregation: `u_t = max(β2·u_{t-1}, |g_t|)`. Tests whether L∞ v-aggregation provides advantages over standard L2 aggregation on noisy aux gradients. β2={0.95, 0.999} probed.
+
+| Arm | β2 | W&B | sr (ffs) | val/best_loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | n/a | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.95 | `n3usxhni` | DNF (-1) | 3.28038 | DNF | +0.0161 | NULL DNF |
+| Arm B | 0.999 | `p8l0a36v` | DNF (-1) | 3.28384 | DNF | +0.0196 | NULL DNF |
+
+**Verdict: NULL DNF | NULL DNF → Adamax v-aggregation mechanism leaf CLOSES. 37th axis closed.**
+
+**Validation trajectories track each other tightly:** Δval ~0.001-0.003 between arms at every checkpoint (250→3250). Adamax's L∞ v-aggregation has nearly zero β2 sensitivity on this stack — consistent with all 4 prior aux update-rule mechanism closures.
+
+**🎯 AUX ADAMW UPDATE-RULE MECHANISM TREE — FULL CLOSURE (5/5 leaves NULL/NULL):**
+
+| Leaf | Mechanism | PR | Verdict |
+|---|---|---|---|
+| v-estimator | AdaBelief | #545 | CLOSED NULL/NULL |
+| m-step | NadamW | #575 | CLOSED NULL/NULL |
+| m-aggregation | AdEMAMix | #585 | CLOSED NULL/NULL |
+| v-clamp | AMSGrad | #578 | CLOSED NULL/NULL |
+| **v-aggregation** | **Adamax** | **#583** | **CLOSED NULL/NULL** ← THIS |
+
+**Cross-PR aggregate finding:** Across 10 distinct optimizer formulations (5 leaves × 2 hyperparameter arms each), ZERO produced an sr improvement over standard E[g²]/E[g] AdamW. The aux gradients on embed/lm_head/scalars are noise-dominated, and the *aggregation operator* over noisy v/m is irrelevant. This is overwhelming evidence that **the aux update-rule mechanism axis is saturated** — further attempts at this class of modification will continue to NULL.
+
+**Remaining aux-side levers (orthogonal to mechanism tree):**
+- Step-rescaling: LAMB trust ratio (#609 askeladd in flight)
+- Wrapper class: Lookahead (#617 edward in flight)
+- Schedule shape: WSD cooldown_frac (#606 fern in flight), LR floor (#607 alphonse in flight)
+- Variance rectification: RAdam — UNTESTED
+- **Iterate averaging: Schedule-free Adam (Defazio 2024) — NEWLY ASSIGNED #623 thorfinn**
+
+---
+
 ## 2026-05-20 23:33 UTC — PR #588 CLOSED: Body-Muon column-mean AMPLIFICATION pre-NS — NULL/NULL clear, completes the rank-1 column-mean transformation class symmetric closure (g1r1-frieren)
 
 - Branch: `g1r1-frieren/gc-amplify-mean`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 23:35 UTC
+- **Last update:** 2026-05-20 23:50 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -49,23 +49,24 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#570** | alphonse | PMuon mu {0.90, 0.97} vs baseline 0.95: BOTH arms sr=3075 Δsr=+137.5 — symmetric sharp local optimum. Arm A val=3.275656, Arm B val=3.272967. mu=0.95 confirmed locally optimal; momentum-horizon axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation on aux AdamW — Arm A (α=2) NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). Arm B (α=5) not launched (student skip endorsed: strong Arm A NULL). m-aggregation (slow-EMA blending) axis closes. | **CLOSED 20:30 UTC — 33rd axis.** |
 
-## Active experiments (7 students + 1 idle frieren, 23:35 UTC)
+## Active experiments (8 students, 23:50 UTC — 0 idle)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | 3125 (96%) | 3.287 | Adamax Arm B late cooldown — terminal soon. Arm A DNF NULL confirmed. |
-| **#559** | nezuko | `do531bbp` Arm B 12→18 | 3125 (96%) | 3.270 | NS ramp Arm B late cooldown — val below 3.28! Watch terminal soon. |
-| **#606** | fern | `kq05a45r` Arm A cf=0.25 | 3075 (95%) | 3.327 | WSD schedule Arm A — val trajectory above baseline, **DNF likely**. |
-| **#609** | askeladd | `qb21izi9` Arm A max_trust=10 | 2225 (68%) | 3.49 | LAMB trust ratio — literal Step 2 (lr-cancelled). Arm B redirected to canonical-LAMB max_trust=10 (advisor 23:21 UTC). |
-| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 2225 (68%) | 3.40 | LR floor. Pod healthy. |
-| **#604** | tanjiro | `p67n6bxz` Arm A | 1275 (39%) | 3.61 | Lion optimizer — stabilized after 5 crash-recovery cycles. |
-| **#617** | edward | `yu2ob60m` Arm A k=5 | 525 (16%) | 3.80 | Lookahead wrapper on aux AdamW — recovered from 5 prior crashes. |
-| **frieren** | — | **IDLE** | — | — | **#588 closed NULL/NULL — assignment pending researcher idea selection.** |
+| **#559** | nezuko | `do531bbp` Arm B 12→18 | FINISHED | 3.2670 sr=2975 | **Arm A sr=2950 Δsr=+12.5, Arm B sr=2975 Δsr=+37.5. BOTH NULL.** Awaiting terminal SENPAI-RESULT post for closure. |
+| **#606** | fern | `kq05a45r` Arm A cf=0.25 | FINISHED | 3.3039 sr=-1 | **WSD Arm A DNF.** Awaiting terminal SENPAI-RESULT post; Arm B (cf=0.15) may follow. |
+| **#609** | askeladd | `qb21izi9` Arm A max_trust=10 | 2500 (77%) | 3.42 | LAMB trust ratio — literal Step 2 (lr-cancelled in unclipped). Arm B redirected to canonical-LAMB max_trust=10. |
+| **#607** | alphonse | `euudw4nc` Arm A η_min=0.10 | 2400 (74%) | 3.36 | LR floor. Pod healthy. |
+| **#604** | tanjiro | `p67n6bxz` Arm A | 1525 (47%) | 3.55 | Lion optimizer — stabilized after 5 crash-recovery cycles. |
+| **#617** | edward | `yu2ob60m` Arm A k=5 | 750 (23%) | 3.71 | Lookahead wrapper on aux AdamW. |
+| **#622** | frieren | pending pickup | — | — | **NEW — tanh-squash pre-NS body-Muon gradient compression. scale_mult={0.5, 1.0}. Orthogonal to closed rank-1 mean class (element-wise, no singular-vector perturbation).** |
+| **#623** | thorfinn | pending pickup | — | — | **NEW — Schedule-Free Adam on aux ONLY (Defazio 2024). Iterate-averaging replaces explicit cooldown. Orthogonal axis to 5/5 closed aux mechanism tree.** |
 
 ## Recently closed (this session)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#583** | thorfinn | Adamax NULL DNF/NULL DNF — Arm A β2=0.95 val=3.28038; Arm B β2=0.999 val=3.28384. Both DNF (never reached 3.28). Trajectories tracked tightly throughout. v-aggregation leaf CLOSES. **🎯 AUX UPDATE-RULE MECHANISM TREE FULLY EXHAUSTED — 5/5 leaves NULL/NULL.** | **CLOSED 23:46 UTC — 37th axis.** |
 | **#588** | frieren | Body-Muon column-mean AMPLIFICATION NULL/NULL — Arm A α=0.05 dim=1 sr=2975 val=3.26788 Δsr=+37.5; Arm B α=0.20 dim=1 sr=2950 val=3.26550 Δsr=+12.5. Rank-1 column-mean transformation class CLOSES symmetrically (combined with #553 subtraction). Non-monotone cost in α (Arm B hurt less) — likely polar-map renormalization at large α. | **CLOSED 23:33 UTC — 36th axis.** |
 | **#578** | edward | AMSGrad v-clamp NULL/NULL — Arm A (bias-corrected) DNF val=3.2805; Arm B (uncorrected) sr=3200 val=3.2794 Δsr=+262.5 Δval=+0.0151. v-clamp mechanism leaf CLOSES. 4th aux update-rule leaf NULL/NULL. | **CLOSED 22:43 UTC — 35th axis.** |
 | **#575** | askeladd | NadamW m-step NULL/NULL — Arm A (β1=0.8) sr=2975 val=3.26587; Arm B (β1=0.85) sr=2975 val=3.26673. Both arms tie at sr=2975 Δsr=+37.5. m-step mechanism leaf CLOSES. | **CLOSED 21:15 UTC — 34th axis.** |
@@ -87,12 +88,12 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **#606 fern WSD schedule** — global `cooldown_frac` {0.25, 0.15} vs baseline 0.70. More stable training at peak LR before sharp terminal decay. The baseline already uses zero warmup (starts at full LR), so WSD changes how long the peak plateau lasts before cooldown begins.
 - **#607 alphonse LR floor** — `eta = max(LR_FLOOR, w^COOLDOWN_POWER)` prevents LR collapsing to zero in late cooldown. Arm A: 10% floor (activates at step ~2811, through speedrun zone); Arm B: 5% floor (activates at step ~2993). Flagged in BASELINE.md PR #274 notes as unexplored.
 
-**Aux AdamW update-rule tree — 4 of 5 leaves CLOSED NULL/NULL:**
+**🎯 Aux AdamW update-rule tree — 5/5 leaves CLOSED NULL/NULL (FULL EXHAUSTION):**
 - **v-estimator** (#545 AdaBelief): **CLOSED NULL/NULL**
 - **m-step** (#575 NadamW): **CLOSED NULL/NULL** (both β1 values tied at sr=2975)
 - **m-aggregation** (#585 AdEMAMix): **CLOSED NULL/NULL**
 - **v-clamp** (#578 AMSGrad): **CLOSED NULL/NULL** — Arm A bias-corrected DNF; Arm B uncorrected sr=3200 Δsr=+262.5
-- **v-aggregation** (#583 thorfinn Adamax): In flight — Arm A DNF NULL, Arm B β2=0.999 mid-training
+- **v-aggregation** (#583 Adamax): **CLOSED NULL/NULL** — Arm A β2=0.95 DNF val=3.28038; Arm B β2=0.999 DNF val=3.28384. Trajectories track tightly throughout. 5th and final leaf.
 
 **Step-rescaling (orthogonal to update-rule):**
 - **LAMB trust ratio** (#609 askeladd NEW): Arm A max_trust=10, Arm B max_trust=1 — pending pickup
@@ -103,7 +104,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 3. **Lion optimizer on aux** (#604 tanjiro) — running cleanly
 4. **Lookahead wrapper on aux AdamW** (#617 edward NEW) — pending pickup
 
-**Closed axes summary (36 total):**
+**Closed axes summary (37 total):**
 
 *PMuon scalar audit COMPLETE (all 5 scalars pinned):* γ_power=0.4 (#519), β_cov=0.95 (#502), NS_ITERS=12 (#511+#546 5-pt V-curve), NS coefficients cubic (1.5,-0.5,0) (#540), ε=1e-12 (#562). mu=0.95 (#570 symmetric +137.5 sr both sides).
 
