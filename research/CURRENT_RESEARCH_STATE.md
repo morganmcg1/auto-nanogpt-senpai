@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 20:35 UTC
+- **Last update:** 2026-05-20 21:15 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -49,23 +49,24 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#570** | alphonse | PMuon mu {0.90, 0.97} vs baseline 0.95: BOTH arms sr=3075 Δsr=+137.5 — symmetric sharp local optimum. Arm A val=3.275656, Arm B val=3.272967. mu=0.95 confirmed locally optimal; momentum-horizon axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation on aux AdamW — Arm A (α=2) NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). Arm B (α=5) not launched (student skip endorsed: strong Arm A NULL). m-aggregation (slow-EMA blending) axis closes. | **CLOSED 20:30 UTC — 33rd axis.** |
 
-## Active experiments (8 students, 20:35 UTC)
+## Active experiments (8 students, 21:15 UTC)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#607** | **alphonse** | pending pickup | — | — | **NEW — LR floor in cooldown. `eta = max(LR_FLOOR, w^COOLDOWN_POWER)`. Arm A eta_floor=0.10 (floor at step ~2811); Arm B eta_floor=0.05 (floor at step ~2993). First test of minimum-LR behavior in late-cooldown window (flagged in BASELINE.md PR #274 notes).** |
-| **#606** | **fern** | pending pickup | — | — | **NEW — WSD schedule. cooldown_frac={0.25 (Arm A), 0.15 (Arm B)} vs baseline 0.70. More stable training at full LR before sharp terminal decay. MiniCPM/OLMo-style long plateau. Global cooldown_frac never previously scanned.** |
-| **#604** | **tanjiro** | pending pickup | — | — | **Lion optimizer replacing aux AdamW. Sign-of-momentum mechanism class (Chen et al 2023). No v-state. Arm A lr×1/3 (embed=0.10, lm_head=1/480, scalar=0.00833); Arm B lr×1/10 (embed=0.03, lm_head=1/1600, scalar=0.0025). Both β1=0.9 β2=0.99 FP32 m-state.** |
-| **#588** | frieren | `ix493rgk` Arm A α=0.05 dim=1 | step ~2800 | ~3.32 | Body-Muon column-mean amplification. Arm B (α=0.20) not yet started. ETA Arm A terminal ~21:00 UTC. |
-| **#583** | thorfinn | `n3usxhni` Adamax Arm A β2=0.95 | step ~2800 | ~3.30 | ~1h to Arm A terminal (~21:00 UTC). Arm B β2=0.999 follows. |
-| **#578** | edward | Arm A `d6qh9eie` DNF NULL. Arm B `gz7ktuqr` running. | step ~1250 | ~3.59 | Arm B uncorrected v_max. ETA terminal ~21:30 UTC. |
-| **#575** | askeladd | Arm A `ppotks3f` NULL fs=2975 val=3.26587. Arm B `bpadxpdy`. | step ~2400 | ~3.41 | Arm A clear NULL confirmed. Arm B ETA terminal ~20:40 UTC. |
-| **#559** | nezuko | `jb6mjgmf` NS_ITERS 12→16 Arm A | step ~2900 | ~3.30 | Approaching terminal (~20:45 UTC). Arm B (12→18) follows. |
+| **#609** | **askeladd** | pending pickup | — | — | **NEW — LAMB trust ratio on aux AdamW. Per-tensor step rescaling: trust_ratio = clip(||w||/||r||, 0, max_trust). ORTHOGONAL to closed update-rule mechanisms. Arm A max_trust=10 (paper default), Arm B max_trust=1 (conservative, no amplification).** |
+| **#607** | alphonse | `u6917ygn` Arm A η_min=0.10 | step ~200 | early | LR floor. Active training with GPU 71 GB. Student iterating after early crash. |
+| **#606** | fern | `kq05a45r` Arm A cf=0.25 | step ~450 | ~3.88 | WSD schedule. Active training. |
+| **#604** | tanjiro | `tsi8kfik` Arm A lr×1/3 v2 | step ~225 | ~4.77 | Lion optimizer. 2 earlier divergent runs; clean v2 now training. GPU 71 GB. |
+| **#588** | frieren | `fiiel4pd` Arm B α=0.20 | step ~500 | ~3.80 | Col-mean amplification Arm B running. Arm A NULL confirmed (sr=2975). |
+| **#583** | thorfinn | `p8l0a36v` Arm B β2=0.999 | step ~375 | ~3.91 | Adamax Arm B early. Arm A DNF NULL confirmed. |
+| **#578** | edward | `gz7ktuqr` Arm B uncorrected v_max | step ~2000 | ~3.43 | ETA terminal ~22:00 UTC. Arm A DNF NULL confirmed. |
+| **#559** | nezuko | `do531bbp` Arm B 12→18 | step ~125 | ~4.47 | NS ramp Arm B launched. Arm A NULL sr=2950 confirmed. |
 
 ## Recently closed (this session)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#575** | askeladd | NadamW m-step NULL/NULL — Arm A (β1=0.8) sr=2975 val=3.26587; Arm B (β1=0.85) sr=2975 val=3.26673. Both arms tie at sr=2975 Δsr=+37.5. m-step mechanism leaf CLOSES. | **CLOSED 21:15 UTC — 34th axis.** |
 | **#570** | alphonse | PMuon mu NULL/NULL — Arm A (0.90) sr=3075 val=3.275656 Δsr=+137.5; Arm B (0.97) sr=3075 val=3.272967 Δsr=+137.5. Symmetric sharp local optimum at 0.95. mu axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation NULL — Arm A (α=2) fs=3100 val=3.2756 Δsr=+162.5 Δval=+0.011. Arm B skip endorsed. | **CLOSED 20:30 UTC — 33rd axis.** |
 | **#562** | tanjiro | PMuon ε floor NULL/NULL (Arm A fs=2950 marginal; Arm B fs=2975 clear). ε=1e-12 confirmed optimal ±2 OOM. | **CLOSED 19:11 UTC — 31st axis.** |
@@ -84,12 +85,15 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **#606 fern WSD schedule** — global `cooldown_frac` {0.25, 0.15} vs baseline 0.70. More stable training at peak LR before sharp terminal decay. The baseline already uses zero warmup (starts at full LR), so WSD changes how long the peak plateau lasts before cooldown begins.
 - **#607 alphonse LR floor** — `eta = max(LR_FLOOR, w^COOLDOWN_POWER)` prevents LR collapsing to zero in late cooldown. Arm A: 10% floor (activates at step ~2811, through speedrun zone); Arm B: 5% floor (activates at step ~2993). Flagged in BASELINE.md PR #274 notes as unexplored.
 
-**Aux AdamW update-rule tree — 3 leaves still in flight:**
-- **v-estimator** (#545 fern AdaBelief): **CLOSED NULL/NULL**
-- **m-aggregation** (#585 fern AdEMAMix): **CLOSED NULL/NULL** (Arm A only; strong enough to skip Arm B)
-- **v-aggregation** (#583 thorfinn Adamax): In flight — Arm A ~1h to terminal
-- **v-clamp** (#578 edward AMSGrad): In flight — Arm A DNF NULL, Arm B running ETA ~21:30
-- **m-step** (#575 askeladd NadamW): In flight — Arm A clear NULL, Arm B ETA ~20:40
+**Aux AdamW update-rule tree — 4 of 5 leaves CLOSED NULL/NULL:**
+- **v-estimator** (#545 AdaBelief): **CLOSED NULL/NULL**
+- **m-step** (#575 NadamW): **CLOSED NULL/NULL** (both β1 values tied at sr=2975)
+- **m-aggregation** (#585 AdEMAMix): **CLOSED NULL/NULL**
+- **v-aggregation** (#583 thorfinn Adamax): In flight — Arm A DNF NULL, Arm B β2=0.999 early
+- **v-clamp** (#578 edward AMSGrad): In flight — Arm A DNF NULL, Arm B uncorrected ETA ~22:00
+
+**Step-rescaling (orthogonal to update-rule):**
+- **LAMB trust ratio** (#609 askeladd NEW): Arm A max_trust=10, Arm B max_trust=1 — pending pickup
 
 **Other in-flight families:**
 1. **NS_ITERS cooldown ramp 12→{16,18}** (#559 nezuko) — Arm A ETA ~20:45 UTC
@@ -124,12 +128,12 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 **Aux AdamW update-rule mechanism tree:**
 - **v-aggregation Adamax** — **IN FLIGHT (#583 thorfinn)**
 - **v-clamp AMSGrad** — **IN FLIGHT (#578 edward)**
-- **m-step NadamW** — **IN FLIGHT (#575 askeladd)**
 - **v-estimator AdaBelief** — **CLOSED (#545)**
+- **m-step NadamW** — **CLOSED (#575)**
 - **m-aggregation AdEMAMix** — **CLOSED (#585)**
-- **RAdam variance rectification** — UNTESTED — first-moment warmup compensation (next candidate if tree fully closes NULL)
+- **LAMB trust ratio on aux** — **IN FLIGHT (#609 askeladd NEW)** — per-tensor step rescaling, orthogonal axis
+- **RAdam variance rectification** — UNTESTED — first-moment warmup compensation
 - **Sophia-style scalar Hessian on aux** — UNTESTED — second-order diagonal curvature estimate
-- **LAMB/LARS layerwise trust ratio on aux** — UNTESTED (fern suggestion, queued)
 
 **New optimizer classes:**
 - **Lion on aux** — **IN FLIGHT (#604 tanjiro)** — sign-of-momentum, no v-state

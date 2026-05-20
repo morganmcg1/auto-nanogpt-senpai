@@ -1,5 +1,37 @@
 # SENPAI Research Results
 
+## 2026-05-20 21:15 UTC — PR #575 CLOSED: NadamW (Nesterov AdamW) on aux AdamW m-step — NULL/NULL clear, m-step mechanism leaf of aux update-rule tree closes (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/nadamw-aux-adamw`
+- Hypothesis: Nesterov AdamW (Dozat 2016) replaces the standard Adam m-step `θ - lr * m̂` with a Nesterov lookahead `θ - lr * (β1*m̂_{t+1} + (1-β1)*g_t/bc_t)`, applying the momentum update in the gradient direction of the next step rather than the current. Tests whether lookahead on the m-usage axis of aux AdamW unlocks speedrun improvement.
+
+| Arm | β1 | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 0.80 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.80 | `ppotks3f` | 2975 | 3.26587 | +37.5 | +0.001592 | NULL clear |
+| Arm B | 0.85 | `bpadxpdy` | 2975 | 3.26673 | +37.5 | +0.002452 | NULL clear |
+
+**Verdict: NULL | NULL clear → m-step mechanism axis closes. 34th axis closed.**
+
+**Both arms tie at sr=2975**, Δsr=+37.5 beyond marginal threshold (>25), Δval ≥ +0.001592 beyond marginal threshold (>0.001). Clear NULL on both sr AND val dimensions.
+
+**Mechanism analysis:** The aux AdamW update-rule mechanism class has now produced 3 consecutive NULL closures: AdaBelief #545 v-estimator, this PR #575 m-step, AdEMAMix #585 m-aggregation. Consistent with the mechanistic explanation from #545: aux gradients (embed/lm_head/scalars) are noise-dominated. Var(g) ≈ E[g²] for these tensors, so changes to how m and v are computed or used don't have informational leverage over the baseline Adam formulation.
+
+**Diagnostic telemetry (student):** Identical mid-training trajectories at step 1875 (val 3.4474 vs 3.4474 for Arms A/B) confirmed the m-step axis is mechanism-NULL, not just β1-value-NULL. Both Nesterov β1=0.80 and β1=0.85 produce indistinguishable training curves through mid-run.
+
+**Run history (infra issues):** Arm B encountered several launches with NaN loss / SIGTERM at step 0 (infra, not mechanism). Student correctly identified the canonical run `bpadxpdy` (β1=0.85) as distinct from the crashed launches `8dxko849`, `3pg2aahk`, `o9wfvvan`.
+
+**Aux update-rule tree progress: 3 of 5 leaves CLOSED (NULL/NULL):**
+- v-estimator AdaBelief #545: CLOSED NULL/NULL
+- m-step NadamW #575: CLOSED NULL/NULL (this PR)
+- m-aggregation AdEMAMix #585: CLOSED NULL/NULL
+- v-clamp AMSGrad #578: in flight (Arm A DNF NULL, Arm B running)
+- v-aggregation Adamax #583: in flight (Arm A DNF NULL, Arm B running)
+
+**Askeladd reassigned** to **LAMB trust ratio on aux AdamW** (PR #609) — per-tensor step rescaling via `trust_ratio = clip(||w|| / ||r||, 0, max_trust)`. ORTHOGONAL to the update-rule mechanism class (changes step SIZE not step direction). Arm A: max_trust=10 (paper default), Arm B: max_trust=1 (conservative, no amplification). Designed for mixed parameter scale scenarios like embed/lm_head/scalars.
+
+---
+
 ## 2026-05-20 20:30 UTC — PR #570 CLOSED: PMuon mu (body-Muon momentum EMA) scalar scan {0.90, 0.97} vs baseline 0.95 — NULL/NULL clear, mu=0.95 is a sharp symmetric local optimum (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/pmuon-mu-scalar-scan`
