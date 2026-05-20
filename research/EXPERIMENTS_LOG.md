@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 13:40 UTC — Cycle 71 mid-6: PR #534 tanjiro Shampoo lm_head CLOSED (no improvement); tanjiro → #580 AGC (Brock 2021)
+
+### PR #534 — tanjiro Right-factor Shampoo on lm_head CLOSED — second-order preconditioning does not beat baseline
+
+Branch: `g1r2-tanjiro/shampoo-lmhead-right-factor`. Both arms n=1 terminal.
+
+| Arm | BETA2 | W&B run | val/loss | ffs | Δ val | Δ ffs | Result |
+|---|---|---|---|---|---|---|---|
+| A | 0.95 | 4kj7qdmo | 3.27509 | 3075 | +0.00480 | +50 | MISS |
+| B | 0.99 | bt1aviep | **3.27190** | **3050** | +0.00162 | +25 | MISS |
+| Baseline | — | uoak0qa8 | 3.270288 | 3025 | — | — | — |
+
+**Key telltale**: Arm B (BETA2=0.99, slower adaptation = *less* preconditioning) is closer to baseline than Arm A. The preconditioning is actively hurting — less of it = less damage.
+
+**Root cause**: lm_head column space is near-isotropic (each vocabulary embedding token generates independent gradient updates). The R^(-1/4) factor rotates in the column space but that space lacks directional curvature bias — it shrinks well-conditioned directions rather than correcting ill-conditioned ones. AdamW eps=1e-10 already covers the per-element adaptive scaling these curvature methods typically add.
+
+**Closed axis**: Second-order preconditioning on lm_head falsified. Do not re-propose one-sided SOAP on lm_head — the column space lacks anisotropy to benefit.
+
+tanjiro → PR #580 AGC (Brock 2021) — Adaptive Gradient Clipping.
+
+---
+
 ## 2026-05-20 12:20 UTC — Cycle 71 mid-5: PR #573 thorfinn SAM CLOSED (benchmark contract: 2× fwd-bwd); thorfinn → #576 MARS (Liu 2024, STORM-style variance-reduced AdamW)
 
 ### PR #573 — thorfinn SAM CLOSED — benchmark contract violation (2× forward-backward per step)

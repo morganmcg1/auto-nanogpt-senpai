@@ -1,6 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
-- **2026-05-20 12:20 UTC — PR #573 thorfinn SAM CLOSED (benchmark contract: 2× fwd-bwd violates no-multi-pass rule); thorfinn → #576 MARS (Liu 2024, STORM-style variance-reduced AdamW, contract-compliant). 8/8 active.**
+- **2026-05-20 13:40 UTC — PR #534 tanjiro Shampoo lm_head CLOSED (both arms MISS; second-order preconditioner axis falsified); tanjiro → #580 AGC (Brock 2021). 8/8 active.**
 
 ## Current baseline ⭐ (PR #494 MERGED 2026-05-20 06:37)
 
@@ -26,18 +26,18 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | **#574** | **edward** | **Sophia-G (Liu 2023) Hessian-clipped denominator** | **Just assigned; #557 closed** | **TBD (~5h n=1 both arms)** |
 | #549 | nezuko | Muon decoupled cooldown (MUON_COOLDOWN_FRAC 0.8/0.6) | Both n=1 arms launched ~10:23 UTC | ~12:00 UTC |
 | #541 | askeladd | Embed init std sweep (0.5/0.1/0.02) | Arm A n=1 launched 09:44 UTC | ~11:28 UTC |
-| #534 | tanjiro | Right-factor Shampoo on lm_head | n=1 Arm A launched 09:40 UTC; **PAST ETA — nudged 11:42 UTC** | ETA passed; investigating |
+| **#580** | **tanjiro** | **AGC: Adaptive Gradient Clipping (Brock 2021) on AdamW group — mag variance** | **Just assigned; #534 closed** | **TBD (~3.7h n=1 both arms)** |
 | #561 | frieren | Lookahead AdamW wrapper (Zhang 2019, k=5/k=10) | Just assigned | TBD |
 | #564 | alphonse | Gradient Centralization on AdamW group (Yong 2020, ~10 LoC) | Just assigned | TBD |
 | #569 | fern | AdaBelief: (g−m)² denominator (Zhuang 2020) | Just assigned | TBD |
 
 ## Top merge candidates / watching closely
 
-1. **NEZUKO #549 Muon-cooldown-frac** — Both arms running. Directly targets ffs floor via Muon-group LR in final convergence window. Most targeted mechanism vs ffs bimodal variance.
-2. **ASKELADD #541 Embed init std** — Arm A (std=0.5) terminal ~11:28 UTC. Initialization variance is a fresh axis.
-3. **TANJIRO #534 Shampoo lm_head** — Past ETA, nudged. If terminal, this is the only second-order preconditioner in flight.
-4. **FRIEREN #561 Lookahead** — Recent assignment. Discrete slow-weights sync — only remaining variance-reduction angle after SWA closure.
-5. **EDWARD #574 Sophia** — Hessian-clipped denominator with cooldown preserved (avoids SF failure mode). Best fresh AdamW mechanism.
+1. **NEZUKO #549 Muon-cooldown-frac** — Arm A MISS (val=3.27297, ffs=3050); Arm B n=1 running. Directly targets ffs floor via Muon-group LR timing.
+2. **FRIEREN #561 Lookahead** — Discrete slow-weights sync — strong variance-reduction angle after SWA closure.
+3. **EDWARD #574 Sophia** — Sophia-G Hessian-clipped denominator with cooldown preserved (avoids SF failure mode). Best fresh AdamW denominator mechanism.
+4. **THORFINN #576 MARS** — STORM-style variance-reduced first moment. Paper-faithful c_t now confirmed; implementations in progress.
+5. **ASKELADD #541 Embed init std** — Arm A MISS (val=3.27245, ffs=3050); Arm B running (no launch comment yet, nudged).
 
 ## Mechanism categories (cycle 71 active)
 
@@ -45,14 +45,15 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
   - #561 frieren: Lookahead AdamW wrapper — discrete slow-weights sync k=5/10
   - #549 nezuko: Muon decoupled cooldown frac — per-group LR timing
   - #576 thorfinn: MARS — STORM g_t/g_{t-1} variance-reduced first moment (Liu 2024, contract-compliant)
-- **Preconditioner** (#534 tanjiro): right-factor Shampoo on lm_head; n=1 in flight (status uncertain)
-- **Initialization sweep** (#541 askeladd): EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}; n=1 in progress
+- **Gradient-magnitude control** (#580 tanjiro): AGC — per-tensor grad clipping by param/grad norm ratio (λ=0.01/0.1)
+- **Initialization sweep** (#541 askeladd): EMBED_INIT_STD ∈ {0.5, 0.1, 0.02}; Arm A MISS (3.27245), Arm B running
 - **Gradient-level modification** (#564 alphonse): GC zero-mean projection over output dim
 - **Denominator semantics** (#569 fern + #574 edward): AdaBelief (g−m)² and Sophia-G clip(m/h, ±ρ) — orthogonal to direction-blend cluster
 
 ## CLOSED cycle 71 (stack status known)
 
 - **SAM** (#573 thorfinn): CLOSED immediately — benchmark contract violation. `program.md` prohibits >1 forward-backward per optimizer step; SAM requires 2. Do NOT re-propose SAM, ASAM, Hutchinson-Sophia-H, or any other 2-pass method.
+- **Right-factor Shampoo on lm_head** (#534 tanjiro): BOTH arms MISS (best: val=3.27190 +0.0016, ffs=3050 +25). Telltale: *less* preconditioning → closer to baseline; the preconditioning actively hurts lm_head. lm_head column space is near-isotropic (independent per-token gradient). Do NOT re-propose one-sided SOAP on lm_head.
 - **Stack pruning** (#533 alphonse): CONTRA_MUON, MU_WARMUP, ATTN_SOAP all BOUNDARY-weakly-load-bearing. Keep full stack.
 - **Per-group AdamW eps** (#529 frieren): embed + lm_head + scalars all FAIL eps=1e-8; ε ∈ [1e-10, 1e-8] insensitive at our LR/WD scale.
 - **NAdamW** (#527 fern): Nesterov first-moment blend FAILS; completes direction-blend cluster.
@@ -75,6 +76,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Verdict |
 |---|---|---|
+| #534 | tanjiro | Shampoo lm_head CLOSED — both arms MISS (best: val=3.27190 +0.0016, ffs=3050 +25); less preconditioning=closer baseline; lm_head near-isotropic |
 | #573 | thorfinn | SAM CLOSED — benchmark contract violation (2× fwd-bwd per step); thorfinn → #576 MARS |
 | #524 | thorfinn | SWA tail averaging CLOSED — weight-avg can't compress upstream bimodal ffs variance; n=2 mean val 3.274145 (+0.0039), ffs 3025 (TIE) |
 | #557 | edward | SF-AdamW CLOSED — no cooldown analog; killed at step 1500 with +0.04 gap; 4th AdamW group mechanism failure |
@@ -87,12 +89,12 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ## Next research directions (queue when students close)
 
-- **One-sided SOAP on lm_head** (Idea 2 from researcher-agent) — queue after tanjiro #534 (which is right-factor Shampoo on same target). Tanjiro's results inform whether preconditioned lm_head is worth memory cost.
-- **AdaFactor (Shazeer 2018)** — factorizes second moment as row×col product; half memory, slightly different conditioning.
-- **Prodigy / DoG auto-LR (Mishchenko 2023)** — automatic LR adaptation, no manual LR tuning. Could improve robustness on bimodal ffs.
-- **ASAM (Kwon 2021)** — adaptive perturbation radius for SAM. Queue after thorfinn #573 if results promising.
-- **MARS (Liu 2024)** — variance-reduced Adam variant. Fresh denominator/numerator combo.
-- **Adan (Xie 2022)** — Nesterov adaptive momentum with curvature handling. Different mechanism class.
+- **AdaFactor (Shazeer 2018)** — factorizes second moment as row×col product; no memory advantage at our scale but conditioning is different. Lower priority now that AdaBelief (#569) and Sophia-G (#574) are in flight.
+- **Prodigy / DoG auto-LR (Mishchenko 2023)** — automatic LR adaptation. But we know cooldown is irreplaceable (SF-AdamW lesson); unclear if auto-LR preserves the cooldown mechanism. Needs verification.
+- **Adan (Xie 2022)** — adaptive Nesterov via separate gradient-difference momentum buffer (different from NAdamW's lookahead blend, which touched direction). The Adan v_t = β2·(g-g_prev) buffer is structurally similar to MARS c_t — test only if MARS #576 fails and mechanism class is worth more exploration.
+- **Per-row AGC** (unit-wise Brock 2021 variant) — if tanjiro #580 per-tensor AGC succeeds, per-row granularity is a natural follow-up.
+- **SOAP on attention Q/K matrices** (NOT lm_head — column space there is falsified). Q/K are 768×768 square with structurally anisotropic curvature. Different from lm_head. Lower priority after tanjiro's Shampoo closure.
+- **MUON_NESTEROV** — Muon NS5 uses standard orthogonalization; Nesterov-corrected variant may improve convergence on Muon-updated matrices. Orthogonal to all AdamW-side experiments.
 
 ## Critical operational notes
 
@@ -103,4 +105,5 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **TWO closed mechanism families on AdamW group now confirmed**: (1) direction-blend variants (Lion/Cautious/NAdamW) FAIL; (2) cooldown-removal mechanisms (SF-AdamW) FAIL. Fresh AdamW proposals must preserve linear cooldown AND keep first-moment direction intact — only denominator/curvature interventions remain (AdaBelief #569, Sophia #574, AdaFactor [queued]).
 - **BENCHMARK CONTRACT HARD CONSTRAINT**: `target/program.md` prohibits multiple forward-backward passes per optimizer step. This disqualifies SAM, ASAM, full Hutchinson-Sophia-H, and any other 2-pass method. VERIFY contract compliance before assigning.
 - **Variance-reduction family pivot**: weight-averaging closed (SWA, Polyak). Fresh angles are now MARS (STORM gradient correction, #576), Lookahead (discrete sync, #561), and gradient-level (GC #564). If all three fail, cooldown bimodality is intrinsic to data/loss geometry and not addressable from optimizer side.
-- **Tanjiro #534 past ETA**: nudged at 11:42 UTC. If no response by next cycle, may need pod investigation via kubectl.
+- **Second-order preconditioner family on lm_head falsified**: right-factor Shampoo BETA2={0.95,0.99} both MISS; telltale shows less preconditioning → closer baseline → preconditioning actively hurts. lm_head column space is near-isotropic. Do NOT re-propose SOAP/Shampoo on lm_head.
+- **Askeladd #541 Arm B status**: launch comment not posted; nudged at ~13:35 UTC. Arm A MISS (val=3.27245, ffs=3050).
