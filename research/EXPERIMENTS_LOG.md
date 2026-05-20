@@ -2047,3 +2047,25 @@ Wave 1 launched at ~12:35 UTC. By ~15:35 UTC the following observations:
 
 **Next for nezuko**: PR #536 assigned — H15 MuLoCo outer-step pruning ablation (`--use_outer_optimizer 0` arm B). Pure CLI-flag prune; ctrl + OFF + outer_momentum=0 arms. Direct test of whether MuLoCo Nesterov-SGD outer wrapper is load-bearing on single-GPU r3, or inert overhead.
 
+## 2026-05-20 04:25 UTC — PR #512 CLOSED: Aux v_t partial reset at cooldown — non-monotonic U with optimum at 0.5, doesn't beat baseline (edward)
+
+- Branch: `g1r3-edward/aux-v-reset-cooldown`
+- Hypothesis: Resetting (or partially resetting) the AdamW second-moment buffer `v_t` at cooldown onset would re-adapt the optimizer to the smaller-LR regime, helping the low-grad groups that benefit from the eps=1e-6 floor.
+
+| Arm | aux_v_reset_frac | W&B run | val/loss | ffs | Δ vs ctrl (3.27280) | Δ vs baseline (3.27119) |
+|---|---|---|---|---|---|---|
+| 1 ctrl | 1.0 (full reset) | `x2n8smi9` | 3.27280 | — | (ref) | +0.00161 |
+| 2 | 0.5 (partial) | `z814787y` | **3.27142** | **3125** | **−0.00138** | +0.00023 |
+| 3 | 0.1 (almost no reset) | `qkb44tgz` | 3.27270 | — | −0.00010 | +0.00151 |
+
+**Decision: CLOSED (no merge — best arm 2 at +0.00103 above merge bar 3.27039).**
+
+**Mechanistic finding**:
+- Non-monotonic U-shape with optimum at partial reset (0.5). Full reset (1.0) wipes useful v_t accumulation; no-reset (0.1) misses the perturbation benefit.
+- Arm 2 vs arm 1: Δ=−0.00138 is **above seed noise** (σ ≈ 0.0012). The mechanism is real.
+- But arm 2 vs baseline: +0.00023 (within seed noise). Effect magnitude consumed by `t1coza71` favorable-seed bias.
+
+**Compound idea logged**: (reset_frac=0.5) × (only on lm_head/scalars groups) could amplify the signal — these are exactly the eps=1e-6 carrier groups per PR #501. Filed as future hypothesis if H7 (per-group WD) lands well.
+
+**Next for edward**: PR #539 assigned — H7 per-group AdamW weight decay under eps=1e-6 stack. Hypothesis: under prior eps=1e-10 regime, low-grad groups (lm_head/scalars) had near-zero updates so WD>0 would have dominated; under eps=1e-6 those groups have meaningful update magnitude, so WD can act as proper regularization. Three arms: ctrl (all wd=0) / carriers (lm_head+scalars wd=0.01) / all-aux (wd=0.01).
+
