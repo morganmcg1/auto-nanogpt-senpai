@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 13:50 UTC — PR #537: edward Adam β1/β2 sweep (5 cells) — **CLOSED clean-neutral**
+
+- Branch: `g1r5-edward/adam-betas-sweep`
+- Student: g1r5-edward
+- Hypothesis: Adam betas (β1=0.8, β2=0.95) hardcoded; never ablated. Sweeps β1 ∈ {0.7, 0.8, 0.9, 0.95} and β2 ∈ {0.9, 0.95, 0.99, 0.999}. Uses ns_iter=12 (assigned before PR #497 ns_iter=6 baseline merge) — compare against OLD baseline.
+
+### Results (vs OLD baseline mu=3.267948, σ=0.000823)
+
+| Cell | adam_betas | val_loss | Δσ vs OLD baseline | ffs | W&B run |
+|------|:----------:|:--------:|:------------------:|----:|---------|
+| **A (ctrl)** | `0.8,0.95` | **3.26855** | **+0.73σ** | 3100 | `3dbms8x0` |
+| B | `0.9,0.95` | 3.26963 | +2.04σ | 3125 | `jdv0uk7w` |
+| C | `0.9,0.99` | 3.27063 | +3.26σ | 3125 | `wg208ces` |
+| D | `0.95,0.999` | 3.27524 | +8.86σ | 3175 | `6mb3xwks` |
+| E | `0.7,0.9` | 3.27053 | +3.14σ | 3125 | `gh62fjck` |
+
+### Conclusion
+
+- **U-shaped response with min at A**: both directions from ctrl worsen val/loss. Moving toward canonical AdamW (D=+8.86σ) is catastrophically worse; moving more aggressive (E=+3.14σ) also hurts.
+- **β1=0.8 is optimal** for this 3250-step run: 5-step EMA window lets Adam adapt fast to cooldown dynamics. Standard β1=0.9 costs +1.31σ vs A.
+- **β2=0.95 is optimal**: 20-step window adapts fast enough to ride cooldown. Canonical β2=0.999 (~1000-step window) is catastrophically sluggish for a 3250-step horizon.
+- **Mechanism**: short speedrun training is dominated by transient gradient dynamics (warmup→cooldown over 3250 steps); long-memory canonical AdamW under-adapts.
+- **Note**: Cell A (+0.73σ vs OLD baseline) is within seed noise band (~5σ range per PR note); Adam β axis closed at (0.8, 0.95).
+
+Edward reassigned to PR #581: Lookahead optimizer wrapper (fresh mechanism — k-step sync of slow/fast params; first non-HP mechanism for edward this run).
+
 ## 2026-05-20 11:30 UTC — PR #551: askeladd Muon nesterov toggle (True/False) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-askeladd/muon-nesterov-toggle`

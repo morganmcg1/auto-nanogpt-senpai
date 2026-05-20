@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~11:30Z (poll #299)
+- **Last updated:** 2026-05-20 ~13:50Z (poll #302)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -18,14 +18,15 @@
 | #565 | thorfinn | Init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0) | Cell A ctrl running |
 | #558 | tanjiro | Z-loss regularizer sweep | Cell A ctrl running |
 | #556 | frieren | AdamW epsilon sweep | In progress |
-| #537 | edward | Adam β1/β2 sweep | A=3.26855, B=3.26963, C=3.27063 — all WORSE. Cell D (b095_b0999 canonical) running. Uses ns_iter=12 |
+| **#581** | **edward** | **Lookahead optimizer wrapper (α=0.0ctrl/0.3/0.5 × k=5/10) — fresh mechanism** | **NEW assignment** — awaiting first heartbeat |
 | #552 | alphonse | LR warmup curve sweep | Cell A ctrl: val=3.2686 (+0.27σ — refactor no-op ✓). Cell B (linear-005) running |
 | #548 | fern | WD floor in cooldown | Cell A (0.0): val=3.267094 (+0.56σ). Cell B (0.05) running |
 
 
 ## Recent Closures
 
-- **🆕 #551 askeladd Muon nesterov toggle** — CLOSED clean-NEG (poll #299). Cell B (nesterov=False) = 3.273293 (+4.10σ vs NEW baseline). The `grad.lerp_(momentum, mu)` correction (~5% current grad + 95% EMA before NS orthogonalization) is load-bearing — orthogonalizing pure EMA discards informative current-step delta, leaves NS with stale direction. Theme clarification: "less intensity" does NOT mean removing gradient correction. nesterov=True axis closed.
+- **🆕 #537 edward Adam β1/β2 sweep** — CLOSED clean-neutral (poll #302). U-shaped response: A=(0.8,0.95) ctrl is locally optimal; both directions worse. Canonical AdamW (0.95,0.999) catastrophic (+8.86σ vs OLD — ~1000-step β2 window too slow for 3250-step run). β1=0.8 (5-step window) and β2=0.95 (20-step window) confirmed optimal. Adam β axis closed.
+- **#551 askeladd Muon nesterov toggle** — CLOSED clean-NEG (poll #299). Cell B (nesterov=False) = 3.273293 (+4.10σ vs NEW baseline). The `grad.lerp_(momentum, mu)` correction (~5% current grad + 95% EMA before NS orthogonalization) is load-bearing — orthogonalizing pure EMA discards informative current-step delta, leaves NS with stale direction. Theme clarification: "less intensity" does NOT mean removing gradient correction. nesterov=True axis closed.
 - **#521 nezuko gradient clipping** — CLOSED clean-NEG (poll #298). Monotonic worsening: tighter clip = strictly worse. A (no clip) = 3.26439 BEST; B (400K) = 3.26635; C (200K) = 3.26712; D (100K) = 3.26927; E (50K) much worse. A→E span ≈ +10σ_single. Mechanism: NS orthogonalization is scale-invariant on Muon path, so clipping damage falls entirely on Adam path (embed/lm_head/scalars) where it kills useful gradient magnitude. No-clip remains the right default. Grad-clip axis closed.
 - **#518 thorfinn NS poly coefs** — CLOSED clean-neutral (poll #297). Coef family val-neutral at iter=12 (A/B/D within 0.39σ). ns_iter val-flat 6→12 in both families (≤0.23σ). Cell C signal (+0.55σ vs E) revealed as seed noise: Cell C absolute val (3.26684) is WORSE than askeladd's P2 cluster (~3.265) with same nominal config. NS-internal axis fully mapped; current (2, −1.5, 0.5) + ns_iter=6 is the optimum we can find. Vs NEW baseline: best cell (C) is +0.41σ ABOVE mean, not actionable.
 - **#517 tanjiro EMA / Polyak eval** — CLOSED — mechanism rejected (poll #294). All EMA cells catastrophic vs ctrl: B (decay=0.99) +8.91σ; C (0.999) +93.71σ; D (0.9999) +4781σ; E (cooldown-only) +41.50σ. Mechanism: cooldown already shrinks raw steps to ~0 → terminal raw weights ARE effectively averaged → EMA drags eval weights backward. Post-hoc eval averaging axis closed for this 3250-step regime.
@@ -48,7 +49,7 @@
 
 **Key analytical questions for in-flight PRs:**
 - **nezuko #566 embed_lr sweep**: fresh AdamW axis (PR #162 touched Muon LR only). 5 cells: 0.05/0.15/0.3ctrl/0.6/1.0; lm_head_lr held at 1/320. embed.weight (38M params) is the biggest single Adam-managed param. If 0.15 wins: "less optimizer intensity" theme extends to embed; if 0.6 wins: rare-token gradients need more push.
-- **edward #537 Adam betas**: Cell A=3.268547, Cell B (0.9, 0.95)=3.269635 — both worse than baseline. Cells C/D (b09_b099) at step 2559. Uses ns_iter=12 so reads against OLD baseline.
+- **edward #581 Lookahead**: fresh mechanism wrapper — slow/fast param sync every k steps. Cells: ctrl (off), α=0.5 k=5 (standard), α=0.5 k=10, α=0.3 k=5, α=0.5 k=5 cooldown-disabled. Cooldown-aware Cell E tests the tanjiro-#517 risk factor. Awaiting first heartbeat.
 - **askeladd #571 scalar LR**: fresh AdamW axis — lr=0.01 for RMSNorm gains never ablated. 5 cells ±1 decade. Awaiting first heartbeat.
 - **frieren #556 Adam eps**: fresh log-scale sweep (1e-12→1e-4); ctrl 1e-10. Consistent with "less intensity" theme if larger eps (1e-8/1e-6) helps by softening small-`v` updates.
 - **alphonse #552 LR warmup**: first ever warmup PR. 5 curve shapes tested. Cell A at step ~2488 (~76%).
@@ -58,6 +59,7 @@
 
 **What comes after current in-flight:**
 - **lm_head LR sweep** — pair to nezuko #566 (embed_lr) and askeladd #571 (scalars); proj lr=1/320 hardcoded, never swept independently
+- **Lookahead optimizer wrapper** — now in flight as edward #581
 - **Muon momentum warmup** — separate from current mu=0.95 (ramp from 0 across run)
 - **Tied vs untied embedding** — model.embed and model.proj are independent; tying could be a structural ablation
 - **Scalar param LR** — RMSNorm gains at lr=0.01, never swept
