@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-20 11:30 UTC — PR #535 CLOSED: Sub-MLP LR partition (c_fc vs c_proj) — NULL/NULL clear, PMuon whitening equalizes sub-projection asymmetry (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/sub-mlp-lr-partition-cfc-cproj`
+- Hypothesis: c_fc (expansion `d→4d`) and c_proj (contraction `4d→d`) have asymmetric gradient-geometry under PMuon. Splitting LR within MLP would surface a sub-MLP scheduling axis where PMuon's per-matrix whitening leaves headroom.
+
+| Arm | mult_cfc | mult_cproj | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | 1.0 | 1.0 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A (c_fc-heavy) | 1.20 | 0.80 | `3twtlh18` | 3025 | 3.27030 | +87.5 | +0.006 | NULL clear |
+| Arm B (c_proj-heavy) | 0.80 | 1.20 | `g8dy2zhk` | 2975 | 3.26732 | +37.5 | +0.003 | NULL clear |
+
+**Verdict: NULL | NULL clear → sub-MLP LR partition axis closed.**
+
+**Mechanistic read:** PMuon's per-matrix bilateral whitening of L_cov and R_cov already normalises the singular-value spectrum of each MLP sub-projection independently, so a coarse ±20% LR multiplier on top of the whitened update doesn't have headroom to help. Centered geometric mean preserved (`sqrt(1.20×0.80) ≈ 0.98`) confirms this is a genuine asymmetry test, not an effective-LR shift.
+
+**Directional Arm-B-favouring residual signal:** Arm B is consistently 50 sr / 0.003 val_loss better than Arm A across the cooldown phase — a directionally clean but sub-threshold signal that c_proj wants slightly more LR than c_fc. Not large enough to chase with a narrower partition (1.05/0.95) — diminishing returns past PMuon's whitening.
+
+**Combined with #499** (per-type MLP-vs-ATTN both arms NULL/NULL +62.5/+87.5): **body-Muon LR partition family is fully closed** on every coarse subdivision tested — per-type (#499), sub-MLP (#535), depth (pending #532). Coarse LR partitioning on body-Muon permanently de-prioritized.
+
+**Student-suggested follow-up:** attack mechanisms PMuon does NOT equalize — per-projection momentum (mu), per-projection γ exponent, per-projection NS iteration count. Adopted as direction but first the global scalars need closure. Alphonse reassigned to **PMuon mu (body-Muon momentum EMA) scalar scan {0.90, 0.97}** — closes the only untested PMuon/body-Muon scalar (temporal smoothing axis, distinct from β_cov spatial-EMA).
+
 ## 2026-05-20 09:25 UTC — PR #511 CLOSED: NS_ITERS scan {10, 14} — NULL/NULL clear at n=2, NS_ITERS=12 confirmed local optimum (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/ns-iters-scan`
