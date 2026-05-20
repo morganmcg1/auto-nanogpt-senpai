@@ -466,6 +466,12 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Lookahead optimizer wrapper (PR #561, Zhang et al. 2019, arxiv 1907.08610):
+# every K AdamW steps, slow weights w_slow <- w_slow + alpha*(w_fast - w_slow) and w_fast <- w_slow.
+# LOOKAHEAD_ENABLED=0 reproduces baseline AdamW exactly.
+LOOKAHEAD_ENABLED = int(os.environ.get("LOOKAHEAD_ENABLED", "0"))
+LOOKAHEAD_K = int(os.environ.get("LOOKAHEAD_K", "5"))
+LOOKAHEAD_ALPHA = float(os.environ.get("LOOKAHEAD_ALPHA", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -775,6 +781,50 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class Lookahead:
+    """Lookahead optimizer wrapper (Zhang et al. 2019, arxiv 1907.08610).
+
+    Wraps any torch.optim.Optimizer. Base optimizer maintains "fast" weights.
+    Every K steps: slow <- slow + alpha*(fast - slow); fast <- slow.
+
+    Exposes ``param_groups`` and ``state`` as references to the wrapped optimizer
+    so the LR scheduler in set_hparams() and the W&B telemetry continue to work.
+
+    Slow weights live in a separate dict, not in ``optimizer.state``, because
+    torch.optim.Adam's _init_group() lazily initializes ('step', 'exp_avg', ...)
+    only when ``len(state[p]) == 0`` — pre-populating state[p] would cause it
+    to skip its own init and raise KeyError('exp_avg') on first .step().
+    """
+    def __init__(self, base_optimizer, k=5, alpha=0.5):
+        self.optimizer = base_optimizer
+        self.k = k
+        self.alpha = alpha
+        self.step_count = 0
+        self.param_groups = self.optimizer.param_groups
+        self.state = self.optimizer.state
+        self.slow_weights = {}
+        for group in self.optimizer.param_groups:
+            for p in group["params"]:
+                self.slow_weights[p] = p.data.detach().clone()
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = self.optimizer.step(closure)
+        self.step_count += 1
+        if self.step_count % self.k == 0:
+            for group in self.optimizer.param_groups:
+                for p in group["params"]:
+                    slow = self.slow_weights[p]
+                    # slow <- slow + alpha*(fast - slow)
+                    slow.add_(p.data - slow, alpha=self.alpha)
+                    # fast <- slow
+                    p.data.copy_(slow)
+        return loss
+
+    def zero_grad(self, set_to_none=True):
+        self.optimizer.zero_grad(set_to_none=set_to_none)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -900,6 +950,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if LOOKAHEAD_ENABLED:
+        optimizer1 = Lookahead(optimizer1, k=LOOKAHEAD_K, alpha=LOOKAHEAD_ALPHA)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
