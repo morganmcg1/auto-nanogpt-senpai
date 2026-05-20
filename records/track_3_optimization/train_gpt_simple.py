@@ -67,6 +67,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--lr_embed", type=float, default=0.3,
+                        help="LR for embed.weight (AdamW group adam_embed). "
+                             "Default 0.3 — high because token gradients are sparse.")
+    parser.add_argument("--lr_lm_head", type=float, default=1/320,
+                        help="LR for proj.weight / lm_head (AdamW group adam_lm_head). "
+                             "Default 1/320 ≈ 0.003125 — low to keep logits stable.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -747,6 +753,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "lr_embed": args.lr_embed,
+            "lr_lm_head": args.lr_lm_head,
         },
     )
 
@@ -778,8 +786,8 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.lr_embed, name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=args.lr_lm_head, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
