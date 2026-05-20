@@ -215,7 +215,19 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 ### ✅ edward #516 — Yogi optimizer on aux groups — CLOSED 07:00 UTC productive-NEGATIVE (embed/all-aux) + productive-NULL (lm_head)
 
 Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=3.27419, B embed=+0.00386 (regression), C lm_head=+0.00038 (null), D all-aux=+0.00447 (regression). D ≈ B + 0.00061 — embed regression dominates; lm_head and scalars contribute marginally. Mechanism reading: Yogi's faster-additive v_t reaction destabilizes sparse-row embed at β₂=0.99 (regression grows monotonically through cooldown); dense lm_head indistinguishable from AdamW. Independent of AdaBelief mechanism (#474): Yogi accumulates g² same as AdamW. **Closes second-moment-update-rule axis** — joined with #474 AdaBelief, #442 Adam-atan2, #490 NAdam-aux. **29th productive-null/negative this cycle.**
-**Follow-up**: edward assigned **#NEW Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 WD warmup which tested early reduction).
+**Follow-up**: edward assigned **#550 Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 WD warmup which tested early reduction).
+
+### 🔄 edward #550 — Muon WD cooldown reduction [assigned 07:00 UTC]
+
+**Branch:** `g1r4-edward/muon-wd-cooldown-reduction`
+**Hypothesis**: Muon body uses constant WD=0.025; during cooldown LR shrinks linearly toward 0 while WD friction remains constant — WD/LR ratio grows in relative importance. Reducing Muon WD over the cooldown window (0.025 → lower) removes competing magnitude-shrinkage friction at the precision window. Structurally distinct from #483 (CLOSED NEGATIVE) which tested early-phase WD warmup; this tests late-phase WD reduction. Stacks orthogonally with in-flight #487 NS-cooldown pruning and #506 NS-iter warmup (different mechanism: weight-magnitude friction, not orthogonalization budget).
+| Arm | NANOGPT_MUON_WD_COOLDOWN_FINAL | WD at cooldown start | WD at cooldown end |
+|---|---:|---:|---:|
+| A | -1 (disabled, control) | 0.025 | 0.025 |
+| B | 0.010 | 0.025 | 0.010 |
+| C | 0.005 | 0.025 | 0.005 |
+| D | 0.000 | 0.025 | 0.000 |
+**ETA full chain:** ~7.3h.
 
 ---
 
@@ -238,7 +250,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 5. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
 6. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
 7. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
-8. **NEW**: Does Muon WD reduction during cooldown extract precision-window gain? (#NEW, edward — late-phase WD axis, structurally distinct from #483 early reduction)
+8. **NEW**: Does Muon WD reduction during cooldown extract precision-window gain? (#550, edward — late-phase WD axis, structurally distinct from #483 early reduction)
 
 **Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
