@@ -1,20 +1,20 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-20 ~00:10Z (poll #283)
+- **Last updated:** 2026-05-20 ~00:55Z (poll #284)
 - **🆕 NEW BASELINE (PR #371 MERGED):** mu=3.267948, std=0.000823, n=4, ffs_mean=3100
   - **Mechanism: Muon WD ramp_down (linear 0.05→0 over all steps)**
   - Statsig: `(3.267948 - mu) × √n ≥ 0.004`
   - n=4: mu ≤ 3.265948 | n=6: mu ≤ 3.266316 | n=8: mu ≤ 3.266536
 
 
-## ⭐ ACTIVE WINNER CANDIDATE — askeladd P2 #497 (n=4 ns_iter=6 confirmation) — variance now playing against
+## ⭐ ACTIVE WINNER CANDIDATE — askeladd P2 #497 (n=4 ns_iter=6 confirmation) — lean failing
 
 - **T1 TERMINAL**: val=**3.26566**, ffs=**3075** (−2.78σ single-seed; 0.000288 below n=4 gate)
-- **🆕 T2 TERMINAL (W&B history)**: val=**3.26957**, ffs=**3125** — **+0.001622 above T1** and 0.000125 above baseline mean. Cooldown ate the signal again — same pattern as edward Cell B.
-- **T3 IN PROGRESS**: step ~125 (~4%), early. T4 sequential.
-- **n=1+1 mean so far**: (3.26566 + 3.26957)/2 = **3.26762** (still −0.4σ vs baseline mu=3.267948, but n=2 mean ABOVE the n=2 gate of 3.265186)
-- **For n=4 gate (mu ≤ 3.265948)**: T3+T4 must mean **≤ 3.264281** (each needs to land near or below T1's 3.26566 — single-seed −2.78σ territory, twice in a row)
-- **Verdict ~04:00 UTC May 20.** Lean: P2 likely fails; ns_iter=6 signal looks variance-dominated.
+- **T2 TERMINAL**: val=**3.26957**, ffs=**3125** (+1.24σ, baseline-region)
+- **🆕 T3 NEAR-TERMINAL**: step 3175/3250 (~97%), mid-cooldown val=**3.2684**, ffs not yet reported
+- T4 sequential after T3.
+- **n=3 mean projection** (if T3 lands at 3.268): (3.26566 + 3.26957 + 3.268)/3 = **3.26774** (slightly above baseline mean). For n=4 gate, T4 alone needs ≤ **3.260537** — single-seed −9σ territory, effectively impossible.
+- **Verdict ~02:30 UTC May 20** (T3 imminent + T4 ~100min). **Lean: P2 will fail by a wide margin.** ns_iter=6 is variance-dominated.
 
 ### Supporting evidence on the ns_iter axis (now MIXED, not all positive):
 
@@ -33,12 +33,12 @@ This is **critical new information** — if ns_iter=5 doesn't beat ns_iter=12, t
 |------|---------|-----------|--------|
 | **#497** | **askeladd** | **P2 n=4 confirmation of ns_iter=6** | T1 val=3.26566 ffs=3075; **T2 TERMINAL val=3.26957 ffs=3125** (variance ate signal). T3 ~4%, T4 pending. n=2 mean=3.26762, **needs T3+T4 mean ≤ 3.264281 for n=4 gate** — lean failing |
 | #496 | edward | NS iter LOW sweep (12 / 5 / 4 / 3 / 2) | Cell A ctrl (ns=12) TERMINAL val=3.26793; Cell B (ns=5) TERMINAL val=3.26754 (−0.49σ); **Cell C (ns=4) running step ~559/3250 (~17%)**; D/E pending |
-| #508 | alphonse | Muon momentum (mu) static value sweep (0.85/0.90/0.95/0.97/0.99) | Cell A ctrl (mu=0.95) TERMINAL val=3.26763 ffs=3100 (ctrl matches baseline); **Cell B (mu=0.85) running step 551/3250 (~17%)**. Advisor nudge posted for Cell A comment |
-| #509 | frieren | lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) | **Cell A ctrl (0.055) step 3199/3250 (~98%), ffs=3100 already hit — TERMINAL IMMINENT**. Terminal val likely 3.266–3.268 |
-| #517 | tanjiro | EMA / Polyak averaging for eval (0.0/0.99/0.999/0.9999/+cooldown-only) | Cell A ctrl (decay=0) running step 1124/3250 (~35%); B–E pending |
-| **#518** | **thorfinn** | **NS polynomial coefficient sweep — current / Muon paper / analytical quintic** | **Cell A ctrl (ns_coefs=2,-1.5,0.5 ns_iter=12) LAUNCHED `1e5dtrfm` step 156/3250 (~5%)** |
-| #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | Cell A ctrl (0.0) TERMINAL val=3.26617 ffs=3075 (lucky-side single-seed); **Cell B (0.05) running step ~1561/3250 (~48%)** |
-| **#521** | **nezuko** | **Gradient clipping sweep (0.0/0.25/0.5/1.0/2.0) — fresh mechanism never tested** | **NEW (poll #283)** — targets single-seed variance; first ever gradient clip sweep. PR #467 CLOSED clean-neutral |
+| #508 | alphonse | Muon momentum (mu) static value sweep (0.85/0.90/0.95/0.97/0.99) | Cell A ctrl (mu=0.95) val=3.26763 ffs=3100; **Cell B (mu=0.85) running step 2703/3250 (~83%)** — terminal in ~15 min. Cell A comment still pending |
+| #509 | frieren | lr_mlp fine-scan (0.050/0.055/0.060/0.065/0.075) | **Cell A (0.055) TERMINAL val=3.267302 ffs=3100** (Δσ=−0.79, refactor confirmed); **Cell B (0.050) running step 1334/3250 (~41%)**. Student handling repeated duplicate-launch incidents (3 killed) — advisor suggested pgrep guard |
+| #517 | tanjiro | EMA / Polyak averaging for eval (0.0/0.99/0.999/0.9999/+cooldown-only) | **Cell A ctrl (decay=0) TERMINAL val=3.2678 ffs=?** (refactor no-op); Cell B (decay=0.99) running |
+| #518 | thorfinn | NS polynomial coefficient sweep — current / Muon paper / analytical quintic | **Cell A ctrl (ns_coefs=2,-1.5,0.5 ns_iter=12) `1e5dtrfm` step 1999/3250 (~61%)**; smoke (`plsvkx35` 200-step) ok; pod healthy |
+| #504 | fern | LR floor in cooldown sweep (0.0/0.05/0.10/0.20/0.40) | Cell A (0.0) val=3.26617; **Cell B (0.05) TERMINAL val=3.2692** (Δσ=+1.52, lr_floor=0.05 makes things WORSE); **Cell C (0.10) running `nukwy18x`** |
+| #521 | nezuko | Gradient clipping sweep (0.0/0.25/0.5/1.0/2.0) — fresh mechanism never tested | **Cell A ctrl (clip=0.0) running `1kiauw9h`** — fast launch on this new PR |
 
 
 ## Recent Closures (polls #273–283)
