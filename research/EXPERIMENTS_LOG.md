@@ -1,5 +1,40 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-20 21:35 UTC — Cycle 71 mid-18: PR #601 CLOSED (thorfinn Muon explicit WD — u/w-floor confirmed sufficient); thorfinn → #615 Muon LR floor
+
+### PR #601 — thorfinn Muon explicit WD — CLOSED (u/w-floor sufficient, Muon-side regularization axis closed)
+
+Branch: `g1r2-thorfinn/muon-explicit-wd`. MUON_WEIGHT_DECAY env-var-driven explicit decoupled WD on Muon group, two arms: WD=2.5e-3 (mild) and WD=2.5e-2 (original code-intent).
+
+| Arm | WD | val@3175 | ffs | Δval vs new bar (3.269185) | Δffs vs bar (3012.5) | pass? |
+|---|---|---|---|---|---|---|
+| A | 2.5e-3 | 3.27088 | 3025 | **+0.0017** | **+12.5** | ❌ both legs |
+| B | 2.5e-2 | killed @ step 1051 | — | val@500=3.80089 (+0.023) | — | ❌ catastrophic |
+
+W&B runs: cpm9zjbn (Arm A), qzigkad3 (Arm B, killed).
+
+**Against OLD baseline (3.270288)**: Arm A was a statistical tie (+0.00059). But against NEW baseline (3.269185, set by PR #541 EMBED_INIT_STD=0.1 merge), Arm A misses both legs cleanly. Arm B violated step-500 kill gate (3.80089 > 3.78).
+
+**Root cause of Arm B failure**: At MUON_LR=0.04 with WD=0.025, per-step decay = 1 - 0.04×0.025 = 0.999 → ~3.1% cumulative shrinkage per epoch. Early training (when Muon-group norms are small) gets throttled heavily → early-training lag propagates through entire run.
+
+**Root cause of Arm A neutrality**: u/w-floor (targeting u/w ratio = 0.35) already imposes the regularization the Muon group needs via its spectral update mechanism. At mild WD=2.5e-3 with LR=0.04, per-step decay is only 0.01% — noise floor relative to u/w-floor equilibrium.
+
+**The "intentionally omitted" comment at line 709 was empirically correct**: Record #14's design choice to drop explicit WD in favor of u/w-floor was load-bearing, not vestigial. Arm B catastrophically confirms this.
+
+**MUON_WEIGHT_DECAY plumbing now in place**: env-var at line 458, default 0.0 = byte-equivalent. Future Muon-side regularization probes (schedule-decoupled WD, per-leaf Muon WD, peak-WD multiplier on Muon) are now one-flag activations.
+
+**Conclusion**: Muon-side regularization axis closed. u/w-floor + EMBED_INIT_STD=0.1 saturates Muon-group regularization Pareto front at tested values.
+
+### Assignment: thorfinn → PR #615 (Muon LR floor)
+
+**Hypothesis**: The Muon LR decays to EXACTLY 0 at terminal step — over-cooling the Muon group in the last few percent of training. MUON_LR_FLOOR clamps eta to max(eta, floor) for the Muon group only, preserving cooldown shape everywhere except the tail.
+
+Two arms: FLOOR=0.05 (5% of peak = 0.002 terminal LR), FLOOR=0.10 (10% of peak = 0.004 terminal LR).
+
+Mechanism: set_hparams line 935, Muon group only. ~5 LoC. Orthogonal to #608 (warmup front-end) and #610 (NS5 precision).
+
+---
+
 ## 2026-05-20 21:05 UTC — Cycle 71 mid-17: PR #580 CLOSED (tanjiro AGC 8th variance-reduction closure); tanjiro → #613 logit-soft-cap; #608 alphonse rebase requested
 
 ### PR #580 — tanjiro AGC (Adaptive Gradient Clipping) — CLOSED (8th variance-reduction cluster closure)
