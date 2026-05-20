@@ -21,6 +21,37 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al 2023, arxiv 2302.06675).
+
+    Update: u = sign(b1 * m + (1 - b1) * g); w -= lr * u; m = b2 * m + (1 - b2) * g.
+    Weight decay applied AdamW-style (decoupled): w *= (1 - lr * weight_decay).
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        super().__init__(params, dict(lr=lr, betas=betas, weight_decay=weight_decay))
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None if closure is None else closure()
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            lr, wd = group["lr"], group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "exp_avg" not in state:
+                    state["exp_avg"] = torch.zeros_like(p)
+                m = state["exp_avg"]
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                u = (m * b1 + g * (1 - b1)).sign_()
+                p.add_(u, alpha=-lr)
+                m.mul_(b2).add_(g, alpha=1 - b2)
+        return loss
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
@@ -466,6 +497,10 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+LION_ENABLED = int(os.environ.get("LION_ENABLED", "0"))
+LION_LR_SCALE = float(os.environ.get("LION_LR_SCALE", "0.33"))
+LION_B1 = float(os.environ.get("LION_B1", "0.9"))
+LION_B2 = float(os.environ.get("LION_B2", "0.99"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -896,10 +931,18 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if LION_ENABLED:
+        optimizer1 = Lion(
+            [dict(params=[model.embed.weight], lr=0.3 * LION_LR_SCALE, name="adam_embed", weight_decay=WD_AUX),
+             dict(params=[model.proj.weight], lr=(1/320) * LION_LR_SCALE, name="adam_lm_head", weight_decay=WD_AUX),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * LION_LR_SCALE, name="adam_scalars", weight_decay=0)],
+            betas=(LION_B1, LION_B2),
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
