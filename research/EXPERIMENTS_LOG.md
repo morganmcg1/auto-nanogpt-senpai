@@ -3,6 +3,33 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-20 01:25 UTC — PR #489: Embed-only LR warmup (alphonse) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-alphonse/embed-lr-warmup`
+- Hypothesis: Embed-AdamW (sparse-row gradients) may benefit from per-group LR warmup even though global LR warmup (#102) closed negative for Muon body. Tests whether the closure rationale of #102 ("NS handles early stability") extends or fails on the embed group.
+- Code: env var `NANOGPT_EMBED_LR_WARMUP_FRAC` (default 0.0); embed-only multiplier applied on top of `eta_embed` in `set_hparams`.
+- Arms: 4-arm chain, NANOGPT_EMBED_LR_WARMUP_FRAC ∈ {0.0 control, 0.02, 0.05, 0.10}.
+
+| Arm | frac | Warmup steps | val_loss@3350 | Δ vs A | reached_target | W&B |
+|---|---:|---:|---:|---:|:---:|---|
+| A (control) | 0.0 | 0 | **3.27054** | — | ✓ (step 3225) | [kl6g296w](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/kl6g296w) |
+| B | 0.02 | ~67 | 3.28080 | +0.01026 | ✗ | [6b4gjf2y](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/6b4gjf2y) |
+| C | 0.05 | ~167 | 3.28608 | +0.01554 | ✗ | [jv703r3z](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/jv703r3z) |
+| D | 0.10 | ~335 | 3.29370 | +0.02316 | ✗ | [z2cra10j](https://wandb.ai/wandb-applied-ai-team/modded-nanogpt-senpai/runs/z2cra10j) |
+
+**Drift gate:** Δ_A=−0.00120 vs baseline 3.27174 → PASS.
+**Decision:** All arms exceed +0.0015 regression threshold by 7-15×; monotone worsening with longer warmup confirms mechanism (not noise). Closes axis productive-NEGATIVE.
+
+**Analysis:**
+1. **Full embed LR from step 0 is load-bearing.** Even smallest warmup (frac=0.02, ~67 steps) costs Δ=+0.01 — far above noise floor.
+2. **No late-cooldown rescue.** All warmup arms track ~+0.01 to +0.023 above arm A through the entire cooldown window.
+3. **#102 closure rationale extends to embed group.** Despite the structural distinction (sparse-grad AdamW vs Muon+NS), the early high-LR window is productive, not destabilizing, on both groups.
+4. **#393 embed_lr_mult=1.5× amplifies sensitivity.** Embed runs at 1.5× body LR in the merged stack — warming up further suppresses an already-boosted group.
+
+**Bilateral closure with #483 thorfinn WD warmup (also productive-NEGATIVE this cycle):** Both "regularization-REDUCTION by warmup" symmetric experiments — on body Muon (WD) and embed AdamW (LR) — fail. The merged stack's early-training window is bilaterally well-tuned and resists symmetric deregularization. This is a structural finding: 25 axes of additive AND subtractive regularization both fail.
+
+**Follow-up**: alphonse assigned **#524 embed LR step-0 boost** — inverse direction (boost above 1.5× at step 0, decay to merged 1.5×). Tests whether the embed group can take MORE early LR.
+
 ## 2026-05-19 23:42 UTC — PR #483: Muon WD warmup schedule (thorfinn) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-thorfinn/wd-warmup`

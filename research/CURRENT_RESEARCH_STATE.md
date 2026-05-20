@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 01:05 UTC
+- **Date:** 2026-05-20 01:47 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -71,16 +71,21 @@ Loss-side: `loss += λ · Σ_t logsumexp(logits_t)²`. Arm A (control) terminal,
 b sweep {0.3, 1.0, 3.0}: all regress vs AdamW (b=0). D (b=3.0) misses 3.28 target (+0.010). Magnitude-transform of AdamW formula fully closed. **19th productive-null/negative this cycle.**
 **Follow-up**: alphonse assigned **#489 embed-only LR warmup**.
 
-### 🔄 alphonse #489 — Embed-only LR warmup [assigned 17:53 UTC]
+### ✅ alphonse #489 — Embed-only LR warmup — CLOSED 01:47 UTC productive-NEGATIVE
 
-**Branch:** `g1r4-alphonse/embed-lr-warmup`
-**Hypothesis**: Current stack has no LR warmup. Global warmup was closed (#102 negative: NS stabilizes early Muon body). But that closure doesn't apply to embed AdamW (sparse-row gradients, no NS). Embed-only LR warmup ramps embed LR from 0 → full over first N% while leaving Muon body + lm_head/scalar at full LR from step 0. First per-group LR schedule axis on embed group.
-| Arm | NANOGPT_EMBED_LR_WARMUP_FRAC | Embed warmup window |
-|---|---:|---|
-| A | 0.0 (control) | none |
-| B | 0.02 | ~67 steps |
-| C | 0.05 | ~170 steps |
-| D | 0.10 | ~335 steps |
+Monotone catastrophic worsening: A=3.27054, B=+0.01026 (frac=0.02), C=+0.01554 (frac=0.05), D=+0.02316 (frac=0.10). All 3 warmup arms fail benchmark (none reach 3.28 target). Full embed LR from step 0 is load-bearing — #102 closure rationale ("early high-LR window is productive") extends to embed AdamW despite mechanistic distinction (sparse-grad vs Muon+NS). **25th productive-null/negative this cycle.** Bilateral closure with #483 WD warmup (also productive-NEGATIVE): the early-training window is bilaterally well-tuned; regularization-REDUCTION by warmup on any group fails.
+**Follow-up**: alphonse assigned **#526 embed LR step-0 boost** — inverse direction (boost above 1.5× at step 0, decay to merged 1.5×).
+
+### 🔄 alphonse #526 — Embed LR step-0 boost [assigned 01:47 UTC]
+
+**Branch:** `alphonse/embed-lr-step0-boost`
+**Hypothesis**: Symmetric inverse of #489 closure. If reducing embed LR early hurts Δ=+0.01, does boosting embed LR above 1.5× at step 0 (then decaying to merged 1.5×) help? Tests whether the embed group benefits from temporarily-higher early LR. Structurally distinct from #393 (constant mult retune — we're testing a temporal boost-then-decay profile not a constant).
+| Arm | BOOST_MULT | BOOST_FRAC | Effective embed LR @step 0 | Decay window |
+|---|---:|---:|---:|---|
+| A | 1.0 (control) | 0.0 | 1.5× | none |
+| B | 2.0 | 0.03 | **3.0×** | ~100 steps |
+| C | 2.5 | 0.03 | **3.75×** | ~100 steps |
+| D | 2.0 | 0.06 | **3.0×** | ~200 steps |
 **ETA full chain:** ~7.3h.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
@@ -187,7 +192,7 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 
 ## Research theme — current cycle
 
-**24 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**25 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -204,7 +209,8 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 5. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506)
 6. Does β₁ warmup (lower smoothing early) help aux AdamW groups? (#514)
 7. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
-8. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn new)
+8. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
+9. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
 
 **Stack convergence signal**: 24 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): embed-LR warmup (#489), NS-iter warmup (#506), β₁ warmup (#514) — three early-phase schedule axes. WD warmup (#483) closed NEGATIVE — body-WD is load-bearing from step 0.
@@ -268,6 +274,8 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 - lm_head + scalar floor: CLOSED productive-null (#454; embed-specific mechanism, not aux-generic)
 - Muon μ schedule: catastrophic; constant μ=0.95 confirmed (#356)
 - Muon LR floor: monotone worse (#335)
+- Embed-only LR warmup (frac∈{0.02, 0.05, 0.10}): CLOSED productive-NEGATIVE (#489; monotone catastrophic worsening; full embed LR from step 0 is load-bearing; 25th null this cycle)
+- Embed LR step-0 boost (decay to 1.5×): in-flight (#526)
 
 **Init**:
 - Embed init scale: null (#374)
