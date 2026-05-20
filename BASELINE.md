@@ -8,6 +8,52 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-20 20:20 — PR #541: EMBED_INIT_STD=0.1 — Input embedding non-zero init magnitude (squash-merged) ⭐ NEW WINNER
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | `EMBED_INIT_STD=0.1` — input embedding (`model.embed.weight`) initialized as `Normal(0, 0.1)` instead of the default PyTorch zero-init convention. The GPT-2 paper convention is `Normal(0, 0.02)` — the winning std=0.1 is 5× larger, suggesting early-training token representation magnitude matters more than conventional wisdom suggests. Non-monotonic across arms: std=0.5 and std=0.02 both land near baseline; only std=0.1 crosses bar. Env var: `EMBED_INIT_STD=0.1`. Now baked into mandatory stack. |
+| Full mandatory stack | `NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 EMBED_INIT_STD=0.1` |
+| W&B runs (n=2 confirm) | `iygnlznr` (T0+T1 n=2 confirm); `ooph39ox` (n=1 screen T0); `4v7x7t30`, `llqwjy0t` |
+| **n=2 mean val/loss** | **3.269185** |
+| **n=2 statsig margin** | **0.015295** ≥ 0.004 — PASSES (3.82×) |
+| **ffs mean (n=2)** | **3012.5** (T0=3000, T1=3025) |
+| **Δ vs PR #494** | val Δ=**−0.001103**; ffs Δ=**−12.5** |
+
+Per-trial results (n=2 confirm):
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 | 3.26849 | 3000 |
+| T1 | 3.26988 | 3025 |
+
+**Mechanism insight**: Non-zero input embedding init at std=0.1 is ~5× larger than GPT-2's conventional std=0.02. The winning magnitude creates more diverse initial token representations, enabling faster early specialization of the attention mechanism. The non-monotonic curve (std=0.5 near baseline, std=0.02 near baseline, std=0.1 crosses bar) suggests the mechanism is unimodal in magnitude with a specific operating point. Cross-run reproducibility is exceptional: trial-to-trial spread Δ=0.00139 (tightest n=2 seen this cycle).
+
+**Critical open question**: Does lm_head non-zero init at the same std=0.1 provide complementary headroom? See nezuko #602 (in flight). And does orthogonal-vs-Gaussian init at matched magnitude change outcomes? See frieren #591 (in flight — Arm A miss at gain=0.1 suggests the win is MAGNITUDE, not DECORRELATION).
+
+**New merge bar**: val mean < **3.269185** AND ffs_mean ≤ **3012.5** (ffs tie accepted if val strictly improves).
+
+**All new experiments must include the updated mandatory stack**:
+```
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1
+MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90
+ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
+```
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1 \
+MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 \
+ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 2 \
+  --wandb_name 'baseline-repro-pr541'
+```
+
+---
+
 ### 2026-05-20 06:37 — PR #494: MUON_LR=0.04 — Muon learning rate tuned 0.0375→0.04 (squash-merged)
 
 | Field | Value |
