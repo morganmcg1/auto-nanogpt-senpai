@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-20 10:20 UTC — PR #521: nezuko gradient clipping sweep (0/50K/100K/200K/400K) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-nezuko/grad-clip-sweep`
+- Student: g1r5-nezuko
+- Hypothesis: Gradient clipping at various thresholds may stabilize training. Sweeps `--grad_clip` ∈ {0.0, 50000, 100000, 200000, 400000}.
+
+### Results
+
+| Cell | grad_clip | val_loss | Δσ vs OLD baseline | Δ vs NEW baseline | ffs | W&B run |
+|------|----------:|---------:|-------------------:|------------------:|----:|---------|
+| **A (ctrl)** | 0.0 (no clip) | **3.26439** | **−4.32σ** | **−0.99σ** (n=1 lucky) | 3050 | `1kiauw9h` |
+| D | 400000 | 3.26635 | −1.94σ | +0.13σ | 3075 | `hkgyzeic` |
+| B | 200000 | 3.26712 | −1.00σ | +0.57σ | 3100 | `tpe1w7ir` |
+| C | 100000 | 3.26927 | +1.61σ | +1.80σ | 3100 | `9qiwuvm1` |
+| E | 50000 | 3.27260 | +5.65σ | +3.71σ | 3150 | `c24upax9` |
+
+### Conclusion
+
+- **Monotonic verdict**: tighter clip = strictly worse. A → E span = +10σ_single, far outside any noise envelope.
+- **Mechanism (student analysis)**: Muon's NS orthogonalization is approximately scale-invariant w.r.t. input grad magnitude. So clipping damage falls almost entirely on the Adam path (embeddings, lm_head, scalars) where direct-gradient updates carry useful sparse-token signal. Confirmed via per-group `grad_norm_pre_clip` telemetry.
+- **Cell A at NEW baseline**: 3.26439 vs new baseline mu=3.266120 → −0.99σ (lucky seed). Vs n=4 NEW gate (3.264120): +0.000270 = +0.31σ above gate. NOT a genuine improvement — Cell A is the same code path as the current no-clip baseline.
+- **Net**: Gradient clipping axis fully closed. Current no-clip behavior is optimal. Per-group `grad_norm_pre_clip` telemetry preserved.
+
+Nezuko reassigned to fresh axis: PR #566 embed_lr sweep (embed_lr=0.3 / lm_head_lr=1/320 — both hardcoded AdamW per-group LRs, never ablated).
+
 ## 2026-05-20 09:55 UTC — PR #518: thorfinn NS polynomial coefficient sweep — **CLOSED clean-neutral**
 
 - Branch: `g1r5-thorfinn/ns-coefs-sweep`
