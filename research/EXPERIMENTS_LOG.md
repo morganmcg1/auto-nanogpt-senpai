@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-20 13:15 UTC — PR #540 CLOSED: NS coefficient scan (quintic vs aggressive-cubic) — NULL/NULL clear, polynomial axis closes alongside iteration count (g1r1-edward)
+
+- Branch: `g1r1-edward/ns-coefficient-joint-scan`
+- Hypothesis: NS polynomial coefficients `(NS_A, NS_B, NS_C)` define PMuon's per-matrix spectral whitening polar map. Baseline cubic `(1.5, -0.5, 0)` was inherited from upstream and never directly tested. Quintic (degree-5 published Muon coefs) and aggressive-cubic (same degree, larger contraction magnitude) test whether polynomial degree OR within-family scale is load-bearing.
+
+| Arm | NS_A, NS_B, NS_C | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 1.5, -0.5, 0.0 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A (quintic published) | 3.4445, -4.7750, 2.0315 | `y46v2liq` | 2975 | 3.267725 | +37.5 | +0.003 | NULL clear |
+| Arm B (cubic aggressive) | 1.75, -0.75, 0.0 | `zuk9fkdm` | 2975 | 3.267596 | +37.5 | +0.003 | NULL clear |
+
+**Verdict: NULL | NULL clear → NS coefficient axis closes.**
+
+**Remarkable coincidence:** both arms hit **identical sr=2975** and val differ by only 0.000129. Two very different polynomial families (degree-3 aggressive cubic vs degree-5 published quintic) produce near-indistinguishable trajectories despite different polynomial structure.
+
+**Mechanistic read:** At NS_ITERS=12 the iteration has plenty of budget; the polar map is already near-perfect under baseline cubic. Replacing it with a steeper or higher-degree polynomial gives no whitening gain but slightly perturbs the spectral structure relative to what the rest of the stack (PMuon bilateral preconditioning, γ_power=0.4, β_cov=0.95) was tuned for. The flat optimum + ~37 sr cost in either direction tells us NS coefficient choice is at a saturated local optimum for our stack.
+
+**Combined with #511 (NS_ITERS={10,14} NULL/NULL n=2)** and **#546 (Arm A NS_ITERS=16 NULL fs=2975, Arm B NS_ITERS=18 in flight)**: NS preconditioner quality is pinned to inherited defaults across BOTH polynomial structure AND iteration count. NS-quality axis effectively saturated.
+
+**Student observations:**
+- Both arms passed stat-sig threshold (val ≤ 3.276) — neither diverged.
+- Neither arm satisfied win condition (sr ≤ 2925, or sr=2925 AND val<3.264278).
+- Δval=+0.0034 and Δsr=+37.5 exceed marginal thresholds → n=2 not required.
+- Student terminated redundant third Arm A run (`073p9uvl`) to free GPU — correct resource discipline.
+
+**Suggested follow-up (deferred):** joint scan with #511 at low NS_ITERS (e.g., quintic at NS_ITERS=6) — at lower iter count quintic's per-iter convergence advantage might pay. Not assigned this round given closure-mode focus on independent leaves.
+
+**Stale source comment** (lines 30–33 of `train_gpt_simple.py`) references old quintic→cubic labeling; advisor-owned cleanup, not a student bug.
+
+**Edward reassigned** to **AMSGrad v-clamp on aux AdamW** (PR #578) — third leaf of the aux AdamW update-rule mechanism tree, alongside fern #545 AdaBelief (v-estimator leaf) and askeladd #575 NadamW (m-step leaf). AMSGrad clamps v_max from below via running max, distinct from changing v's estimation target (AdaBelief) or m's usage in the step (NadamW).
+
 ## 2026-05-20 12:10 UTC — PR #532 CLOSED: Body-Muon depth-based LR partition (early-fast vs late-fast) — NULL/NULL clear, body-Muon LR partition family fully closed across all three coarse subdivisions (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/body-muon-block-lr-partition`
