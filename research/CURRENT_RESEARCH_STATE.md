@@ -214,6 +214,20 @@ Single-seed 4-arm (drift gate A PASS, |3.27253−3.27174|=0.00079): A α=0.95=3.
 Arms B=8 (+0.00235 regression), C=10 (−0.00168 null), D=14 (−0.00145 null). Wide saturation plateau NS ∈ [10, 14]; NS=8 below floor. **Critical compute finding: NS step-time is flat (±1%) across all NS values — orthogonalization is not the per-step bottleneck.** 21st productive-null/negative.
 **Follow-up**: frieren assigned **#506 NS-iter warmup schedule** — ramp NS from {8,10} → 12 over first 5-10%.
 
+### 🔄 frieren #593 — Per-group AdamW WD sweep [assigned 16:15 UTC]
+
+**Branch:** `g1r4-frieren/adamw-wd-per-group`
+**Hypothesis**: AdamW constructor uses `weight_decay=0` uniformly across all 3 groups (embed/lm_head/scalar) — this default was inherited from upstream modded-nanogpt and never validated on r4 branch. Per-group dense vs sparse update statistics differ substantially: embed sparse-row rejects WD addition (#554 confirmed), but dense lm_head and small-param scalar groups are completely untested at WD>0. Pivots frieren off the now-fully-fenced NS-axis program onto AdamW-internal axes. Structurally distinct from #554 (sparse embed, cooldown only, NEGATIVE), #550 (Muon body), #483 (Muon warmup), #393 (LR multiplier, MERGED), #560 (β₂, in-flight).
+| Arm | EMBED_WD | LM_HEAD_WD | SCALAR_WD | Tests |
+|---|---:|---:|---:|---|
+| A | 0.0 (ctrl) | 0.0 | 0.0 | Reproduces merged baseline |
+| B | 0.0 | **0.01** | 0.0 | lm_head WD only (dense output regularization) |
+| C | 0.0 | 0.0 | **0.01** | scalar WD only (low-impact null fencepost) |
+| D | 0.0 | **0.01** | **0.01** | Combined lm_head + scalar |
+
+Requires minimal code change: 3 env vars + per-group `weight_decay` in AdamW param-group dicts (same pattern as #393 LR multipliers). **EMBED_WD stays at 0** across all arms per #554 closure (embed sparse-row rejects WD).
+**ETA full chain:** ~7.3h.
+
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
 Paired-pod n=3 confirmation: all 3 pods regress (mean Δ=+0.00087, wrong sign). Gates 1+2 fail (mean Δ above 0, mean val_B 3.27329 > baseline 3.27174). The N=1 Δ_C=−0.00119 was an Arm-A drift artifact (original Arm A drifted +0.00108 above baseline; paired-pod Arm-A controls anchor at +0.00068). **5th cycle precedent for single-seed → paired-pod collapse** (joins #344, #351, #408, #487). **NS-axis program now fully fenced**: 3/3 NS-iter schedule axes closed by frieren (warmup #506, normal-phase #470, cooldown saturation #388) + 3 cooldown-machinery components MERGED (#176, #285, #290) + sub-stack pruning #487 null + spatial #543 null. **37th productive-null/negative this cycle.**
