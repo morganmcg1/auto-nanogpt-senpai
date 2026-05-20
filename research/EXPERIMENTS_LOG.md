@@ -1,3 +1,51 @@
+## 2026-05-20 10:20 UTC — PR #544 CLOSED (fern): H16 Cautious AdamW on aux — short-β1 stack has no stale-momentum gap to filter
+
+- Branch: `g1r3-fern/aux-cautious-adamw`
+- Hypothesis: Cautious AdamW masking (Liang et al 2024, arXiv:2411.16085) on aux groups improves terminal val/loss by filtering momentum-gradient sign-disagreements.
+
+### Two-arm results (3325 steps each)
+
+| Arm | Config | W&B run | best val/loss | terminal val | ffs | reached | Δ vs ctrl arm |
+|---|---|---|---:|---:|---:|:---:|---:|
+| 1 ctrl | `--aux_cautious 0` | `nca79tab` | **3.27189** | 3.27189 | 3125 | ✓ | — |
+| 2 cautious+norm | `--aux_cautious 1 --aux_cautious_normalize 1` | `ziqd4qqy` | **3.29606** @3225 | 3.43536 | -1 | ✗ | +0.02417 best, +0.16347 terminal |
+
+Δ(arm1 − baseline) = +0.00070 → ctrl reproduces baseline within seed noise (code-path verifier passes).
+
+### Mechanism finding (THE result of this PR)
+
+**Cautious AdamW is structurally unsuitable for our aux stack.** Two reasons:
+
+1. **Effective LR amplification ×3.1** at steady-state mask_frac≈0.32 (steps 25-2000). Cautious is implicitly pushing unmasked-coord LR way out of our well-tuned baseline (0.3 / 1/320 / 0.01 → ~0.93 / 1/103 / 0.031). Aux LRs already at population optima per PRs #475/#478/#481.
+2. **Short β1=0.8 (half-life ~3 steps)** kills the stale-momentum lag Cautious is designed to filter. m_t is already very close to g_t, so the disagreement signal Cautious filters is mostly noise.
+
+**Generalization**: Cautious AdamW is a WIN when β1 is large (e.g., 0.9-0.95) AND aux LR is NOT pre-tuned at population optimum. Both prerequisites fail here.
+
+### Late-cooldown blowup (side observation)
+
+Arm 2 had a catastrophic +0.20 val jump in last ~75 steps (3275-3325): 3.30 → 3.50 → terminal 3.44. Hypothesized mechanism: stale outer-momentum amplifying within-sync mask-direction drift. NOT pursued as follow-up — side-effect of a NEG mechanism.
+
+### Side diagnostic — PR #510 unfused-NaN failure mode is NOT global
+
+`train/grad/all/nonfinite_count = 0` across all 134 logged steps. **Unfused Cautious-AdamW under eps=1e-6 + AGC + per-group LR is numerically clean.** PR #510 NaN-at-step-3 failure was specific to NAdam, not all unfused-AdamW variants.
+
+| Optimizer | Status |
+|---|---|
+| fused AdamW | ✅ SAFE |
+| unfused Cautious-AdamW | ✅ SAFE (this PR) |
+| unfused NAdam | ❌ BLOCKED (PR #510) |
+
+### Decision: CLOSED NEG
+
+Code change kept (`--aux_cautious` and `--aux_cautious_normalize` flags additive harmless at default 0/0). Fern reassigned to **H22 AdEMAMix (PR #567)** — fresh dual-EMA preconditioner mechanism, complementary to short-β1 by ADDING long-horizon m_2 instead of removing low-quality m_1.
+
+### Bookmarked (NOT assigned now)
+
+1. **Late-cooldown blowup probe**: train with Cautious for 3000 steps then disable for last 325 — would confirm Cautious × end-of-cooldown interaction. Side curiosity, low priority.
+2. **Cautious without normalize**: dominated by uniform LR cut, NOT worth testing.
+
+---
+
 ## 2026-05-20 09:45 UTC — PR #536 CLOSED (nezuko): MuLoCo outer-step ablation — Nesterov momentum is the load-bearing component, NOT averaging
 
 - Branch: `g1r3-nezuko/muloco-outer-step-ablation`

@@ -1,16 +1,17 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 09:50 UTC
-- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **esc#30 posted 06:53 UTC** — ~103h total operator silence on alphonse/tanjiro/thorfinn; ~3.5h on frieren. esc#31 due ~10:00 UTC 2026-05-20.
+- **Last updated:** 2026-05-20 10:25 UTC
+- **Most recent human-team directive:** Operator rotated 3 broken pods at 19:34 UTC 2026-05-16. Alphonse/tanjiro/thorfinn still broken; **frieren pod NEWLY ADDED** to rotation request at 04:09 UTC. **esc#31 posted 09:54 UTC** — ~107h total operator silence on alphonse/tanjiro/thorfinn; ~6h on frieren. esc#32 due ~13:00 UTC 2026-05-20.
 - **Branch state:** Baseline post-PR #443 (Aux AdamW eps=1e-6, merged 13:25 UTC 2026-05-19). 🎉 **CURRENT BASELINE**.
-- **🆕 PR #536 nezuko CLOSED 09:45 UTC — MECHANISM FINDING: Nesterov momentum IS the load-bearing component (NOT averaging)**: 3-arm ablation complete. Arm 1 ctrl 3.27220, Arm 2 muloco-off 3.28245 (+0.01025), Arm 3 momentum=0 **3.30224** (+0.03005, 3× worse than removing whole wrapper). Mechanism: outer Nesterov momentum compounds 30 inner deltas into one coherent kick (`v_rms=0.0137 = 2.2× delta_rms`). Without momentum, periodic anchor-snap becomes regressive 30%-revert during cooldown. **Mental model updated: MuLoCo on single-GPU is "accumulated outer Nesterov momentum on top of inner stack", NOT distributed Polyak averaging.**
-- **🆕 PR #563 nezuko REASSIGNED 09:50 UTC — H18 cooldown-aware `outer_momentum` ramp**: 3 arms — static 0.5 ctrl, cooldown-only ramp 0.5→0.9 (last 13%), long ramp 0.5→0.9 (last 40%). Directly exploits PR #536 finding (momentum's marginal value INCREASES during cooldown — arm 3 mom=0 led ctrl by 0.083 at step 1500 then collapsed by step 3325).
-- **🔴 PR #478 askeladd CLOSED 07:55 UTC**: n=4 mean=3.27211 (sample stdev 0.00092), +0.00132 above merge bar 3.27079, statistically indistinguishable from PR #471 population estimate ~3.27218. Original n=1 monotone signal was ~1.5σ ctrl-arm seed inflation. Embed-LR lever closed. `--aux_adam_embed_lr` flag kept (additive harmless). AGC×embed_lr interaction bookmarked.
-- **🟡 PR #539 edward arm 3 wd-all W&B FINISHED**: `zhfffa5p` val=**3.2832**, ffs=-1 (never reached target). All 3 WD arms NEG: arm 2 wd-carriers val=3.27321 (+0.00202), arm 3 wd-all val=3.2832 (+0.01201). Student SENPAI-RESULT marker not yet posted; advisor will close NEG after marker arrives.
-- **🟡 PR #555 askeladd ASSIGNED 07:55 UTC**: H17 SWA on aux during last 10%. Mechanism: uniform-mean weight averaging during cosine cooldown phase, aux-only. Arm 1 swa-ctrl `ws2odsqa` step 2525/3325 (76%), val=3.40 ETA terminal ~10:10 UTC.
-- **🟡 PR #544 fern arm 1 ctrl FINISHED 07:48 UTC**: `nca79tab` val=**3.27189**, Δ=+0.00070 vs baseline 3.27119 — within seed noise σ≈0.001 → ctrl reproduces baseline cleanly. Arm 2 cautious-on-norm `ziqd4qqy` step 2730/3325 (82%), val=3.37 ETA terminal ~10:05 UTC.
-- **🆕 KEY MECHANISTIC FINDING (PR #510 CLOSED 01:30 UTC):** Unfused optimizer path produces NaN at step-3 forward under the current aux stack (eps=1e-6 + AGC + per-group LR). Plain `AdamW(fused=False)` shows identical failure. **Implication**: any aux optimizer without a fused kernel (NAdam, AdaBelief unfused, AdaFactor) is BLOCKED. Lookahead/Lion/SWA wrappers around fused AdamW are SAFE.
-- **🆕 PR #525 frieren POD ROTATION REQUESTED 04:09 UTC**: 8 NaN runs (~91% nonfinite_count). Pod hardware/CUDA state issue. Frieren PR parked in WIP; pod added to Issue #164 rotation list.
+- **🆕 PR #544 fern CLOSED 10:20 UTC — Cautious AdamW NEG, short-β1 stack incompatibility**: Arm 2 cautious+norm val=3.29606 best (terminal 3.43536 after +0.20 late-cooldown blowup), Δ+0.025 vs ctrl arm 1 (val=3.27189 baseline-match). **Mechanism finding**: ×3.1 effective LR amplification on unmasked coords pushes out-of-distribution from our population-tuned aux LRs; short β1=0.8 kills stale-momentum gap Cautious is designed to filter. Side diagnostic: unfused Cautious-AdamW path is numerically clean (PR #510 NaN failure is NAdam-specific, NOT all unfused-AdamW).
+- **🆕 PR #567 fern REASSIGNED 10:25 UTC — H22 AdEMAMix (dual-EMA preconditioner)**: 3 arms — ctrl, α=5 with 30%-warmup, α=8 with 30%-warmup. Fresh mechanism (Pagliardini et al EMNLP 2024). Complements short-β1 by ADDING long-horizon m_2 (β3=0.9999) on top of fresh m_1 (β1=0.8). Post-hoc correction respects PR #510 fused constraint.
+- **🆕 PR #536 nezuko CLOSED 09:45 UTC — MECHANISM FINDING: Nesterov momentum IS the load-bearing component (NOT averaging)**: 3-arm ablation. Arm 3 momentum=0 val=3.30224 (+0.03005, 3× worse than removing whole wrapper). Mental model: MuLoCo on single-GPU is "accumulated outer Nesterov momentum on top of inner stack", NOT distributed Polyak averaging.
+- **🆕 PR #563 nezuko REASSIGNED 09:50 UTC — H18 cooldown-aware `outer_momentum` ramp**: Direct exploit of PR #536 finding (momentum marginal value INCREASES during cooldown).
+- **🔴 PR #478 askeladd CLOSED 07:55 UTC**: n=4 mean=3.27211, embed-LR lever closed. Original n=1 monotone signal was ~1.5σ ctrl-arm seed inflation.
+- **🟡 PR #539 edward arm 3 wd-all REPORTED 09:54 UTC**: arm 3 val=3.28321 (+0.01202 NEG, embed-WD destroys). All 3 WD arms NEG: arm 2 wd-carriers +0.00202, arm 3 wd-all +0.01202. **Arm 1 ctrl REDO in progress** (`9werg9o8`, started 09:38 UTC, ETA ~11:19 UTC). Student SENPAI-RESULT will follow arm 1 redo terminal.
+- **🟡 PR #555 askeladd ARM 1 swa-ctrl FINISHED 10:09 UTC**: `ws2odsqa` val=**3.2738**, ffs=3150, reached target. Δ+0.00261 vs baseline (within population band). Arm 2 swa-10pct `n1cmpotm` launched 10:09:53 UTC, step 100, ETA ~11:50 UTC. Arm 3 swa-20pct follows.
+- **🆕 KEY MECHANISTIC FINDING (PR #510 CLOSED 01:30 UTC, REFINED by PR #544 10:20 UTC):** Unfused optimizer path NaN failure is **NAdam-specific**, NOT all unfused-AdamW. Fern's PR #544 ran unfused Cautious-AdamW with zero nonfinite gradients for 3325 steps. **Implication**: optimizer-by-optimizer unfused-safety check required. Wraps of fused AdamW (Lookahead, SWA, AdEMAMix-correction) remain unconditionally SAFE.
+- **🆕 PR #525 frieren POD ROTATION REQUESTED 04:09 UTC**: 8 NaN runs (~91% nonfinite_count). Pod hardware/CUDA state issue. Frieren PR parked in WIP.
 
 ## ⭐ Current baseline (post-PR #443 merge)
 
@@ -40,21 +41,22 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (09:50 UTC 2026-05-20)
+## Active experiments (10:25 UTC 2026-05-20)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
-| **#563** | nezuko | **H18: Cooldown-aware `outer_momentum` ramp** (NEW 09:50 UTC) | Assigned. Fresh schedule: static 0.5 ctrl, ramp 0.5→0.9 in last 13%/40%. Directly exploits PR #536 finding |
-| **#544** | fern | **H16: Cautious AdamW wrapper on aux** | **Arm 1 ctrl TERMINAL `nca79tab` val=3.27189 (Δ+0.00070, ctrl reproduces baseline)**. Arm 2 cautious-on-norm `ziqd4qqy` step 2730/3325 (82%) ETA ~10:05 UTC |
-| **#555** | askeladd | **H17: SWA on aux during last 10% cooldown** | Arm 1 swa-ctrl `ws2odsqa` step 2525/3325 (76%) val=3.40 ETA ~10:10 UTC. Arms 2/3 (SWA frac=0.9/0.8) follow |
-| **#539** | edward | **H7: Per-group AdamW WD under eps=1e-6** | **Arm 2 wd-carriers TERMINAL val=3.27321 (+0.00202 NEG)**. **Arm 3 wd-all W&B FINISHED val=3.2832 (+0.01201 NEG)** — student SENPAI-RESULT pending. Will close NEG once marker arrives |
-| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD ROTATION REQUESTED 04:09 UTC** — 8 NaN runs same step-25-125 fingerprint (~91% nonfinite). esc#30 posted 06:53 UTC |
-| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~103h** — GPU `g71b0d6`. esc#30 posted 06:53 UTC |
-| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~103h** — NaN on GPU `gd125a8`. esc#30 posted 06:53 UTC |
-| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED + DIRTY mergeable** (2-hunk train_gpt_simple.py divergence). esc#30 posted 06:53 UTC |
+| **#567** | fern | **H22: AdEMAMix on aux** (NEW 10:25 UTC) | Assigned. Dual-EMA preconditioner: m_1 (β1=0.8 fast) + α·m_2 (β3=0.9999 slow). 3 arms: ctrl, α=5+30%warmup, α=8+30%warmup. Post-hoc correction respects fused-AdamW constraint |
+| **#563** | nezuko | **H18: Cooldown-aware `outer_momentum` ramp** (09:50 UTC) | Assigned. Fresh schedule: static 0.5 ctrl, ramp 0.5→0.9 last 13%/40%. Directly exploits PR #536 finding |
+| **#555** | askeladd | **H17: SWA on aux during last 10% cooldown** | Arm 1 swa-ctrl TERMINAL `ws2odsqa` **val=3.2738 ffs=3150 reached_target=1** (Δ+0.00261 vs baseline). **Arm 2 swa-10pct `n1cmpotm` launched 10:09:53 UTC, running, ETA ~11:50 UTC**. Arm 3 swa-20pct follows |
+| **#539** | edward | **H7: Per-group AdamW WD under eps=1e-6** | **Arm 2 wd-carriers TERMINAL val=3.27321 (+0.00202 NEG)**. **Arm 3 wd-all TERMINAL val=3.28321 (+0.01202 NEG, embed-WD destroys)**. **Arm 1 ctrl REDO in progress** `9werg9o8` step 406/3325 ETA ~11:19 UTC. Student SENPAI-RESULT marker pending arm 1 redo |
+| **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD ROTATION REQUESTED 04:09 UTC** — 8 NaN runs same step-25-125 fingerprint. esc#31 posted 09:54 UTC |
+| **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD-BLOCKED ~107h** — GPU `g71b0d6`. esc#31 posted 09:54 UTC |
+| **#298** | tanjiro | **Residual branch init rescale** | **POD-BLOCKED ~107h** — NaN on GPU `gd125a8`. esc#31 posted 09:54 UTC |
+| **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD-BLOCKED + DIRTY mergeable**. esc#31 posted 09:54 UTC |
 
 ## Recently closed PRs
 
+- **PR #544 fern Cautious AdamW (CLOSED 10:20 UTC 2026-05-20)** — Arm 1 ctrl 3.27189 (baseline-match), Arm 2 cautious+norm **3.29606 best @3225 (terminal 3.43536 after +0.20 late-cooldown blowup)**, Δ+0.025 vs ctrl. NEG. **Mechanism finding**: short β1=0.8 (half-life ~3 steps) kills the stale-momentum gap Cautious is designed to filter; ×3.1 effective LR amplification on unmasked coords pushes aux LRs out of population-tuned range. Cautious AdamW is structurally unsuitable for short-β1 + pre-tuned-LR stacks. **Side diagnostic**: PR #510 unfused-NaN failure refined to NAdam-specific (Cautious unfused ran clean). Fern reassigned to H22 AdEMAMix (PR #567).
 - **PR #536 nezuko MuLoCo ablation (CLOSED 09:45 UTC 2026-05-20)** — 3-arm result: ctrl 3.27220, off 3.28245 (+0.01025), mom0 **3.30224 (+0.03005)**. **Mechanism finding: Nesterov momentum is the active component, NOT averaging**. Removing momentum alone is 3× worse than removing the whole wrapper. Mental model: MuLoCo on single-GPU r3 = "accumulated outer Nesterov momentum compounds 30 inner deltas into one coherent kick", NOT periodic Polyak averaging. Cooldown-phase momentum value increases (arm 3 led ctrl by 0.083 at step 1500, collapsed by step 3325). Nezuko reassigned to H18 cooldown-aware momentum schedule (PR #563).
 - **PR #478 askeladd embed_lr n=4 (CLOSED 07:55 UTC 2026-05-20)** — n=4 mean **3.27211** (sample stdev 0.00092, 95% CI [3.27121, 3.27301]). Merge bar 3.27079 fails by +0.00132; real-but-marginal upper bound 3.27200 fails by +0.00011. Statistically indistinguishable from PR #471 population estimate ~3.27218. **Original n=1 monotone signal across 0.2 → 0.3 → 0.4 was ~1.5σ ctrl-arm seed inflation.** Embed-LR lever closed. Per-seed σ ≈ 0.001 on this recipe means 5-point monotone n=1 sweeps can produce ~2σ swings that look like clean signals; future per-group LR sweeps should use n=2 ctrl as direction test, not promotion signal.
 - **PR #531 fern SF-AdamW on aux (CLOSED 05:19 UTC 2026-05-20)** — ctrl arm `jqnpnzf7` val=3.27344. SF arm 2 `z13vk5l6` killed at step 612 (arm-2 at that point: val=3.856 vs AdamW ctrl 3.829, Δ+0.026). Extrapolated endpoint 3.278–3.288 (solidly NEG). **Mechanism: Polyak-Ruppert averaging lag — SF evaluates at trajectory mean, WSD/linear-cooldown targets final iterate. Combined with PR #265, establishes SF-methods are categorically incompatible with WSD/linear-cooldown stack.** H11 closes NEG.
@@ -111,26 +113,34 @@
 | H12 | Per-group LR sweep on lm_head/scalars | Pending — informed by PR #501 finding that lm_head/scalars carry eps=1e-6 win |
 | H13 | Compound test: stack embed_lr=0.4 (askeladd PR #478) + embed_eps=1e-10 (PR #501 arm 2 finding) | Pending — leaderboard-win candidate if effects compound additively |
 | H14 | Sophia (Hessian-diagonal preconditioner, NOT sign-mode) | Pending. Fresh preconditioner; ~50 LoC; needs occasional 2nd backward for Hessian estimate |
-| H15 | Pruning ablation of MuLoCo outer wrapper | **CLOSED PR #536** — mechanism finding: Nesterov momentum is the load-bearing axis (NOT averaging); momentum-removal 3× worse than full-wrapper-removal |
-| H16 | Cautious AdamW wrapper on aux (gradient-momentum masking) | **PR #544 fern ACTIVE 05:20 UTC** — Liang et al 2024; ctrl + cautious-normalized arms; arm 1 ctrl reproduces baseline |
-| H17 | SWA on aux during cooldown | **PR #555 askeladd ACTIVE 07:55 UTC** — aux-only uniform-mean averaging during cosine cooldown |
-| H18 | Cooldown-aware `outer_momentum` ramp | **PR #563 nezuko ACTIVE 09:50 UTC** — directly exploits PR #536 finding (momentum value increases in cooldown) |
+| H15 | Pruning ablation of MuLoCo outer wrapper | **CLOSED PR #536** — Nesterov momentum is the load-bearing axis (NOT averaging) |
+| H16 | Cautious AdamW wrapper on aux | **CLOSED PR #544 NEG** — short-β1 kills the stale-momentum gap Cautious filters; ×3.1 LR amplification pushes out-of-distribution |
+| H17 | SWA on aux during cooldown | **PR #555 askeladd ACTIVE** — Arm 1 ctrl baseline-match; Arm 2 swa-10pct running |
+| H18 | Cooldown-aware `outer_momentum` ramp | **PR #563 nezuko ACTIVE 09:50 UTC** — directly exploits PR #536 finding |
 | H19 | AGC clip ratio sweep (aux side) | Pending. Scalar tuning — defer per user directive. |
-| H20 | AGC clip ratio × embed_lr interaction | **Bookmarked from PR #478 closure** — under embed_lr=0.4, AGC=0.05 may be binding constraint. Defer. |
-| H21 | outer_momentum × outer_lr joint sweep (post-PR #563) | Bookmarked: if H18 schedule wins, joint sweep next. If loses, static `outer_momentum` sweep 0.5→0.95 |
-| H22 | AdEMAMix (Pagliardini 2024): dual EMA β1 for aux (fast+slow) | Fresh-mechanism candidate. ~30 LoC; wraps fused AdamW with second slow-momentum buffer; fits PR #510 fused constraint |
+| H20 | AGC clip ratio × embed_lr interaction | Bookmarked from PR #478 closure. Defer. |
+| H21 | outer_momentum × outer_lr joint sweep | Bookmarked: if H18 wins, joint sweep next |
+| H22 | AdEMAMix (Pagliardini EMNLP 2024) on aux | **PR #567 fern ACTIVE 10:25 UTC** — dual-EMA preconditioner; post-hoc correction on fused AdamW |
 | H23 | Sophia (Hessian-diagonal preconditioner) | Pending. Fresh preconditioner; ~50 LoC; needs occasional 2nd backward |
-| H24 | Sharpness-Aware Minimization (SAM) on aux | Fresh preconditioner; perturb-then-restore. May break fused kernel — needs check |
+| H24 | Sharpness-Aware Minimization (SAM) on aux | Fresh; perturb-then-restore. May break fused kernel |
+| H25 | MARS (Yuan 2025): variance-reduced AdamW | Pending. Fresh variance-reduction mechanism |
+| H26 | Aux β1 cooldown ramp (0.8→0.95) | Pending. Aux-side analogue of H18 (more inner-side momentum during cooldown) |
+| H27 | Catapult initialization (large initial LR step before cooldown) | Pending. Schedule idea, inner-side complement to outer momentum |
 
 ## Research direction (08:00 UTC)
 
 **Primary active mechanism directions:**
-1. **🆕 MuLoCo Nesterov MOMENTUM is the load-bearing axis** (PR #536 CLOSED 09:45 UTC, 3-arm ablation complete) — NOT averaging. Removing momentum alone (arm 3) cost +0.03005 vs ctrl, 3× worse than removing the whole wrapper. Mechanism: outer Nesterov compounds 30 inner deltas into one coherent kick. **Cooldown-phase momentum value INCREASES** (arm 3 led ctrl by 0.083 at step 1500, collapsed in cooldown). High-value mechanistic finding informs every cooldown-phase intervention.
-2. **🆕 H18 Cooldown-aware outer_momentum ramp** (PR #563 nezuko 09:50 UTC, NEW) — Direct exploit of PR #536 finding. Schedule outer_momentum 0.5→0.9 during cooldown phase. Tests whether momentum's marginal cooldown-phase value can be amplified by ramping.
-3. **H17 SWA on aux during cooldown** (PR #555 askeladd 07:55 UTC) — Aux-only uniform-mean averaging across last 10%. Mechanism-aligned with PR #536 cooldown finding but operating on aux iterates rather than outer wrapper.
-4. **Cautious AdamW gradient-momentum masking** (PR #544 fern) — Arm 1 ctrl reproduces baseline (val=3.27189). Arm 2 cautious-on-norm running. Liang et al 2024 mechanism: mask AdamW directions where m_t and g_t disagree in sign.
-5. **Per-group WD under eps=1e-6** (PR #539 edward) — Both wd-arms NEG (arm 2 wd-carriers +0.00202, arm 3 wd-all +0.01201). Closing NEG once student posts SENPAI-RESULT marker.
-6. **Lookahead aux wrapper** (PR #525 frieren) — H2 BLOCKED, pod rotation requested. Hypothesis still valid; awaiting clean pod.
+1. **🆕 MuLoCo Nesterov MOMENTUM is the load-bearing axis** (PR #536 CLOSED 09:45 UTC) — Mechanism: outer Nesterov compounds 30 inner deltas into one coherent kick. **Cooldown-phase momentum value INCREASES**. High-value mechanistic finding informs every cooldown-phase intervention.
+2. **🆕 H18 Cooldown-aware outer_momentum ramp** (PR #563 nezuko 09:50 UTC) — Direct exploit of PR #536. Schedule outer_momentum 0.5→0.9 during cooldown.
+3. **🆕 H22 AdEMAMix on aux** (PR #567 fern 10:25 UTC, NEW) — Dual-EMA preconditioner: fresh m_1 (β1=0.8) + long-horizon m_2 (β3=0.9999). Complements short-β1 by adding long-horizon component instead of removing fresh one (opposite of PR #544 Cautious approach).
+4. **H17 SWA on aux during cooldown** (PR #555 askeladd) — Aux-only uniform-mean averaging across last 10%. Arm 1 swa-ctrl baseline-match (val=3.2738). Arm 2 swa-10pct running.
+5. **Per-group WD under eps=1e-6** (PR #539 edward) — Both wd-arms NEG (arm 2 +0.00202, arm 3 +0.01201). Arm 1 ctrl redo in progress. Closing NEG once terminal marker arrives.
+6. **Lookahead aux wrapper** (PR #525 frieren) — POD-BLOCKED.
+
+**Generalizable mechanism principles (from PR #544 closure):**
+- Cautious AdamW = WIN when β1 large AND aux LR not pre-tuned. Both prereqs fail here → structurally unsuitable.
+- PR #510 unfused-NaN failure mode is NAdam-specific, NOT all unfused-AdamW. Per-implementation safety check needed.
+- Post-hoc correction wrappers (Lookahead, SWA, AdEMAMix correction) on fused AdamW remain unconditionally SAFE.
 
 **Saturated levers (no further work):**
 - All per-group LR sweeps closed (embed PR #478, lm_head PR #481, scalars PR #475).
