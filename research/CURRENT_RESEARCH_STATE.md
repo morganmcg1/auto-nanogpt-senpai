@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 06:20 UTC
+- **Date:** 2026-05-20 07:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -212,23 +212,16 @@ Arms B=8 (+0.00235 regression), C=10 (−0.00168 null), D=14 (−0.00145 null). 
 Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B trajectory confirms embed group dominates catastrophic regression. Root cause: AdaBelief's `(g−m)²` fails on sparse-row embed (absent rows have g=0 but m≠0 → `(g−m)²=m²`, inflating denominator globally). lm_head: stable mild regression. **23rd productive-null/negative this cycle.** Second-moment-formulation axis fully closed.
 **Follow-up**: edward assigned **#516 Yogi optimizer on aux groups** — sign-based additive second-moment update (avoids embed sparsity pathology, structurally distinct).
 
-### 🔄 edward #516 — Yogi optimizer on aux groups [assigned 22:35 UTC]
+### ✅ edward #516 — Yogi optimizer on aux groups — CLOSED 07:00 UTC productive-NEGATIVE (embed/all-aux) + productive-NULL (lm_head)
 
-**Branch:** `g1r4-edward/yogi-aux`
-**Hypothesis**: Yogi replaces AdamW's multiplicative β₂-EMA second moment with sign-based additive update: `v_t = v_{t-1} − (1−β₂)·sign(v_{t-1} − g_t²)·g_t²`. Avoids AdaBelief's absent-row pathology (accumulates g², not (g−m)²). Distinct mechanism: bounded-additive update vs multiplicative EMA. Motivated by heavy-tailed gradient distributions (embed token sparsity, lm_head token frequency noise). Structurally distinct from every prior Adam-family axis tested.
-| Arm | NANOGPT_AUX_OPTIMIZER | NANOGPT_YOGI_SCOPE | Tests |
-|---|---|---|---|
-| A | adamw | none (control) | Drift gate |
-| B | yogi | embed | Sparse-row: does additive update help? |
-| C | yogi | lm_head | Dense-noisy: does bounded update help? |
-| D | yogi | embed_lm_head_scalars | Full aux scope |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=3.27419, B embed=+0.00386 (regression), C lm_head=+0.00038 (null), D all-aux=+0.00447 (regression). D ≈ B + 0.00061 — embed regression dominates; lm_head and scalars contribute marginally. Mechanism reading: Yogi's faster-additive v_t reaction destabilizes sparse-row embed at β₂=0.99 (regression grows monotonically through cooldown); dense lm_head indistinguishable from AdamW. Independent of AdaBelief mechanism (#474): Yogi accumulates g² same as AdamW. **Closes second-moment-update-rule axis** — joined with #474 AdaBelief, #442 Adam-atan2, #490 NAdam-aux. **29th productive-null/negative this cycle.**
+**Follow-up**: edward assigned **#NEW Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 WD warmup which tested early reduction).
 
 ---
 
 ## Research theme — current cycle
 
-**28 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**29 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -241,11 +234,11 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 1. Are any cooldown-NS merged components now redundant after later merges? (#487 — Arm B Δ=−0.00385 N=1 winner candidate, paired-pod confirmation chain running)
 2. Does NS-iter warmup (low → 12 over first N%) extract benefit from early gradient noise? (#506 paired-pod confirmation in flight — Arm C N=1 winner candidate val=3.27163, but within-pod Δ=−0.00119 directional null)
 3. Does Nesterov-style lookahead help body Muon before NS? (#530, nezuko)
-4. Does Yogi's sign-based additive second-moment update help aux groups? (#516)
-5. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
-6. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
-7. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
-8. **NEW**: Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
+4. Does body Muon LR cooldown shape (linear/cosine/quadratic/linear_floor) matter? (#520, thorfinn)
+5. Does embed LR step-0 boost (above 1.5×, decay to 1.5×) help? (#526, alphonse)
+6. Does per-block NS iter allocation (by aspect ratio) help over uniform NS=12? (#543, askeladd — spatial axis, Bernstein-Newhouse 2024)
+7. Does lm_head cooldown SHAPE (cosine / late_peak / linear_floor) matter vs default linear? (#547, fern)
+8. **NEW**: Does Muon WD reduction during cooldown extract precision-window gain? (#NEW, edward — late-phase WD axis, structurally distinct from #483 early reduction)
 
 **Stack convergence signal**: 28 productive-null/negative results. The baseline at 3.27174 is well-tuned. New wins will likely come from:
 1. **"Less constraint early" schedule cluster** (in flight): NS-iter warmup (#506), β₁ warmup (#514) — early-phase schedule axes. WD warmup (#483) and embed-LR warmup (#489) both closed productive-NEGATIVE — bilateral structural finding.
