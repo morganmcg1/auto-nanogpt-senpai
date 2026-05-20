@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-20 12:10 UTC — PR #532 CLOSED: Body-Muon depth-based LR partition (early-fast vs late-fast) — NULL/NULL clear, body-Muon LR partition family fully closed across all three coarse subdivisions (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/body-muon-block-lr-partition`
+- Hypothesis: Depth-based LR multiplication (early blocks vs late blocks) would create headroom where uniform body-Muon LR=0.035 leaves it. Deeper blocks may benefit from different effective LR due to gradient norm scaling with depth, residual stream accumulation, or distinct preconditioning needs at different depths.
+
+| Arm | early (blocks 0–5) | late (blocks 6–11) | W&B | sr (ffs) | val/best_loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | 1.0 | 1.0 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A (early-fast) | 1.10 | 0.90 | `oj9miqwf` | 3025 | 3.27130 | +87.5 | +0.007 | NULL clear |
+| Arm B (late-fast) | 0.90 | 1.10 | `i6tfv7ry` | 3000 | 3.26825 | +62.5 | +0.004 | NULL clear |
+
+**Verdict: NULL | NULL clear → depth-based LR partition axis closed.**
+
+**Mechanistic read:** PMuon's per-matrix bilateral whitening of L_cov and R_cov normalises the singular-value spectrum of each weight matrix independently — including across depth. Each block's matrices get their own whitening estimates, so depth-distinct gradient norm scaling is effectively neutralized at the preconditioner output. A ±10% LR multiplier across two depth halves doesn't have headroom to compete with what PMuon already equalizes per-matrix.
+
+**Directional late_fast-favouring residual signal:** Arm B is consistently 25 sr / 0.003 val_loss better than Arm A — a directionally clean but sub-threshold signal that deeper blocks marginally prefer slightly more LR. Same pattern direction as the c_proj-favouring sub-MLP residual (#535) — both suggest information-aggregation modules (c_proj, late blocks) want marginally more update — but signal magnitude is sub-stat-sig and inside seed noise.
+
+**Combined with #499 (per-type MLP-vs-ATTN NULL/NULL +62.5/+87.5) and #535 (sub-MLP c_fc-vs-c_proj NULL/NULL +87.5/+37.5):** body-Muon LR partition family **fully closed across all three coarse subdivisions** — per-type, sub-MLP, depth. PMuon's per-matrix bilateral whitening eliminates coarse LR partitioning headroom by construction. **Coarse LR partitioning on body-Muon permanently de-prioritized.**
+
+**Askeladd reassigned** to **NadamW (Nesterov AdamW, Dozat 2016) on aux AdamW first-moment update** — fresh aux m-step mechanism orthogonal to fern #545 AdaBelief (v-estimator) and orthogonal to all body-Muon work (aux path, not body path). Aux AdamW update-rule mechanism class now actively under test on both m and v sides.
+
 ## 2026-05-20 11:30 UTC — PR #535 CLOSED: Sub-MLP LR partition (c_fc vs c_proj) — NULL/NULL clear, PMuon whitening equalizes sub-projection asymmetry (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/sub-mlp-lr-partition-cfc-cproj`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-20 11:30 UTC
+- **Last update:** 2026-05-20 12:15 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -40,28 +40,28 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#522** | nezuko | Skylight u/w-floor cooldown phase-out: Arm A linear decay 0.35→0 fs=2975 val=3.27188 (clear NULL Δsr=+37.5 Δval=+0.0076), Arm B hard switch at cooldown_start fs=3025 val=3.27214 (clear NULL Δsr=+87.5 Δval=+0.0079, 2× Arm A regression). **Asymmetric regression** (hard worse than linear) confirms u/w-amplification continues to contribute useful work as COOLDOWN_POWER=1.4 narrows polar-map updates — floor and cooldown are complementary, not redundant. Combined with #486 (static {0.25, 0.45} NULL +87.5 both), TARGET_UW=0.35 is the local optimum on BOTH magnitude AND schedule axes. Skylight floor exhaustively pinned. | **CLOSED 08:55 UTC** |
 | **#511** | tanjiro | NS_ITERS scan {10, 14} vs baseline 12: Arm A NS=10 fs=3000 val=3.273 (clear NULL Δsr=+62.5 Δval=+0.009); Arm B NS=14 seed-1 `ldezjd0y` fs=2925 val=3.2639 marginal n=1 win → seed-2 `ciusvhzo` fs=2975 val=3.2678 → n=2 mean sr=2950 (Δsr=+12.5) val=3.265846 (Δval=+0.00157) NO confirm. NS_ITERS=12 confirmed locally optimal — extra iters do NOT pay off at n=2. Scalar axis closes; combined with thorfinn #546 (NS={16,18} pipeline) maps the iteration-count axis. | **CLOSED 09:25 UTC** |
 | **#535** | alphonse | Sub-MLP LR partition c_fc vs c_proj: Arm A (c_fc=1.20, c_proj=0.80) fs=3025 val=3.27030 (clear NULL Δsr=+87.5 Δval=+0.006), Arm B (c_fc=0.80, c_proj=1.20) fs=2975 val=3.26732 (clear NULL Δsr=+37.5 Δval=+0.003). **Both NULL clear**. Sub-MLP partition axis closes — PMuon's per-matrix bilateral whitening already equalizes c_fc / c_proj effective gradient at the matrix-pair level. Residual c_proj-favouring signal (50 sr / 0.003 val_loss across cooldown) noted but sub-threshold. Combined with #499 (per-type MLP-vs-ATTN NULL/NULL +62.5/+87.5), the body-Muon **LR partition family is fully closed** on every coarse subdivision: per-type, sub-MLP, depth (pending #532). | **CLOSED 11:30 UTC** |
+| **#532** | askeladd | Body-Muon depth-based LR partition (early-fast vs late-fast): Arm A (blocks 0-5 × 1.10, blocks 6-11 × 0.90) `oj9miqwf` fs=3025 val=3.27130 (clear NULL Δsr=+87.5 Δval=+0.007), Arm B (blocks 0-5 × 0.90, blocks 6-11 × 1.10) `i6tfv7ry` fs=3000 val=3.26825 (clear NULL Δsr=+62.5 Δval=+0.004). **Both NULL clear**. Asymmetric NULL favouring late_fast — deeper blocks marginally prefer more LR, but signal sub-threshold. Combined with #499 (per-type NULL/NULL +62.5/+87.5) and #535 (sub-MLP NULL/NULL +87.5/+37.5), this **completes the body-Muon LR partition family closure on all three coarse subdivisions**. PMuon's per-matrix bilateral whitening neutralizes LR multipliers at every coarse partitioning. **Body-Muon LR partition permanently de-prioritized.** | **CLOSED 12:10 UTC** |
 
-## Active experiments (8 students, 09:55 UTC)
+## Active experiments (8 students, 12:15 UTC)
 
 | PR | Student | Run | Step/3250 | bl | Status |
 |---|---|---|---|---|---|
 | **#545** | fern | `p3ryt23e` AdaBelief raw-m Arm A eps=1e-10 | ~2100 | ~3.42 | Healthy. ~1.0h to Arm A terminal. |
 | **#540** | edward | Arm A `y46v2liq` TERMINAL fs=2975 NULL; Arm B `zuk9fkdm` aggressive-cubic running | ~250 | ~4.5 | Arm A clean NULL. ~2.5h to Arm B terminal. |
 | **#570** | **alphonse** | (awaiting pickup) | — | — | **NEW — PMuon mu (body-Muon momentum EMA) scalar scan {0.90, 0.97} vs baseline 0.95. Only untested PMuon/body-Muon scalar after γ/β_cov/ε/NS_ITERS closures. Temporal smoothing axis distinct from spatial scalars (γ, ε, NS coefs/iters) and from β_cov (covariance EMA, closed #502). Mechanism-orthogonal to all in-flight body-Muon work.** |
-| **#532** | askeladd | Arm A `oj9miqwf` early-fast TERMINAL fs=3025 NULL; Arm B `i6tfv7ry` late-fast running | ~675 | ~3.74 | Body-Muon per-block LR (depth-based). ~2.5h to Arm B terminal. |
+| **#575** | **askeladd** | (awaiting pickup) | — | — | **NEW — NadamW (Nesterov AdamW, Dozat 2016) on aux AdamW first-moment update. Arm A baseline betas (β1=0.8, β2=0.95); Arm B β1=0.85. Fresh first-moment update mechanism. Orthogonal to fern #545 AdaBelief (different v-estimator, not m-step). Orthogonal to all body-Muon work (aux path, not body path). Aux path first-moment update mechanism never touched.** |
 | **#559** | nezuko | (pickup pending) | — | — | NS_ITERS cooldown ramp 12→{16,18} over last 30%. Scheduled-late NS test. |
 | **#553** | frieren | Arm A `1x2u1688` dim=1 (paper default) running | ~1000 | ~3.65 | Gradient centralization pre-NS. ~2h to terminal. |
 | **#546** | thorfinn | Arm A `bqm06i25` NS_ITERS=16 running | ~2250 | ~3.40 | NS_ITERS extension pipeline {16, 18}. ~50 min to Arm A terminal. |
 | **#562** | **tanjiro** | (awaiting pickup) | — | — | **NEW — PMuon ε floor scan {1e-10, 1e-14}. ONLY untested PMuon scalar — eigenvalue clamp in spectral whitening (matrix_neg_power). γ closed (#444 ramp + #519 {0, 0.8}), β_cov closed (#502), floor closed (#486 + #522), NS_ITERS closed (#511 NULL/NULL n=2). Arm A 1e-10 (10,000× max amp); Arm B 1e-14 (400,000× max amp). Mechanism-orthogonal to all in-flight body-Muon work.** |
 
-## Next terminal events (from 09:55 UTC)
+## Next terminal events (from 12:15 UTC)
 
-1. **thorfinn #546 NS=16 `bqm06i25`** — step ~2250 bl=3.40, ~50 min to terminal.
-2. **fern #545 AdaBelief Arm A `p3ryt23e`** — step ~2100 bl=3.42, ~1.0h to terminal.
-3. **alphonse #535 Arm B `g8dy2zhk`, frieren #553 Arm A `1x2u1688`** — step ~1000 each, ~2h to terminal.
-4. **askeladd #532 Arm B `i6tfv7ry`** — step ~675, ~2.5h to terminal.
-5. **edward #540 Arm B `zuk9fkdm`** — step ~250, ~2.5h to terminal.
-6. **nezuko #559, tanjiro #562** — newly assigned, will pick up at next polling cycle.
+1. **thorfinn #546 NS=16 `bqm06i25`** — terminal expected; check for SENPAI-RESULT.
+2. **fern #545 AdaBelief Arm A `p3ryt23e`** — terminal expected; check for SENPAI-RESULT.
+3. **frieren #553 Arm A `1x2u1688`** — terminal soon; check progress.
+4. **edward #540 Arm B `zuk9fkdm`** — running; ~1.5h to terminal.
+5. **nezuko #559, tanjiro #562, alphonse #570, askeladd #575** — picked up or pending; new runs.
 
 ## Recently merged
 
@@ -69,38 +69,42 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 |---|---|---|---|
 | **#413** | alphonse | scalar_lr=0.025: n=2 sr=2937.5, val=3.264278 | **MERGED 11:48 UTC** — current baseline. |
 
-## Current research focus (updated 11:30 UTC)
+## Current research focus (updated 12:15 UTC)
 
-**Body-Muon LR partition family fully closed:** #499 per-type (MLP vs ATTN, +62.5/+87.5 NULL/NULL), #535 sub-MLP (c_fc vs c_proj, +87.5/+37.5 NULL/NULL), #532 depth-based (pending — Arm B `i6tfv7ry` running). All coarse partitions on body-Muon LR converge to NULL because PMuon's per-matrix bilateral whitening already equalizes gradient geometry at the matrix-pair level. Future partition tests should attack mechanisms PMuon does NOT equalize (per-projection momentum, per-projection γ exponent) — but FIRST close those as global scalars (mu being tested via #570).
+**Body-Muon LR partition family FULLY CLOSED:** #499 per-type (MLP vs ATTN, +62.5/+87.5 NULL/NULL), #535 sub-MLP (c_fc vs c_proj, +87.5/+37.5 NULL/NULL), **#532 depth-based (early-fast vs late-fast, +87.5/+62.5 NULL/NULL — CLOSED 12:10 UTC)**. All three coarse partitionings on body-Muon LR converge to NULL because PMuon's per-matrix bilateral whitening already equalizes gradient geometry at the matrix-pair level. Coarse LR partitioning on body-Muon is **permanently de-prioritized**.
 
-**24 scalar/mechanism axes closed** at inherited defaults (now incl. #503 body-WD schedule NULL/NULL clear, #505 Lookahead wrapper NULL/NULL clear, #513 body-Muon grad clipping NULL/NULL clear, #519 PMuon γ pruning {0, 0.8} NULL/NULL clear, #522 Skylight floor cooldown phase-out NULL/NULL clear, #511 NS_ITERS scan {10, 14} NULL/NULL n=2, **#535 sub-MLP LR partition NULL/NULL clear**). Active families:
+**25 scalar/mechanism axes closed** at inherited defaults (now incl. #503 body-WD schedule NULL/NULL clear, #505 Lookahead wrapper NULL/NULL clear, #513 body-Muon grad clipping NULL/NULL clear, #519 PMuon γ pruning {0, 0.8} NULL/NULL clear, #522 Skylight floor cooldown phase-out NULL/NULL clear, #511 NS_ITERS scan {10, 14} NULL/NULL n=2, #535 sub-MLP LR partition NULL/NULL clear, **#532 depth-based LR partition NULL/NULL clear**). Active families:
 
-1. **AdaBelief variance update on aux AdamW** (fern #545): fresh mechanism-class change to second-moment estimator.
+1. **AdaBelief variance update on aux AdamW** (fern #545): fresh mechanism-class change to **aux v-estimator**.
 2. **NS coefficient (polynomial degree + within-cubic strength)** (edward #540): tests quintic vs aggressive-cubic at NS_ITERS=12 fixed.
-3. **LR partition by sub-MLP geometry** (alphonse #535 — Arm A fs=3025 NULL, Arm B c_proj-heavy running).
-4. **LR partition by depth** (askeladd #532 — Arm A fs=3025 NULL, Arm B late-fast running).
-5. **NS preconditioner quality — iteration count axis** (thorfinn #546 NS={16,18} pipeline; tanjiro #511 closed NULL at {10, 14}).
-6. **Gradient centralization on body-Muon pre-NS** (frieren #553 — gradient TRANSFORMATION class, orthogonal to all preconditioning/wrapping/partition work).
-7. **NS_ITERS cooldown ramp** (nezuko #559 — scheduled preconditioner quality during effective cooldown phase, distinct from constant-NS tests and early-NS-warmup).
-8. **PMuon ε floor (eigenvalue clamp in spectral whitening)** (tanjiro #562 — ONLY untested PMuon scalar; closes scalar audit of full PMuon stack).
-9. **PMuon mu (body-Muon momentum EMA)** (alphonse #570 NEW — temporal smoothing axis. Mechanistically distinct from β_cov (covariance EMA, closed #502): mu smooths the raw gradient buffer feeding NS polar map, β_cov smooths the bilateral covariance estimates. Only major body-Muon scalar never varied).
+3. **NS preconditioner quality — iteration count axis** (thorfinn #546 NS={16,18} pipeline; tanjiro #511 closed NULL at {10, 14}).
+4. **Gradient centralization on body-Muon pre-NS** (frieren #553 — gradient TRANSFORMATION class, orthogonal to all preconditioning/wrapping/partition work).
+5. **NS_ITERS cooldown ramp** (nezuko #559 — scheduled preconditioner quality during effective cooldown phase, distinct from constant-NS tests and early-NS-warmup).
+6. **PMuon ε floor (eigenvalue clamp in spectral whitening)** (tanjiro #562 — ONLY untested PMuon scalar; closes scalar audit of full PMuon stack).
+7. **PMuon mu (body-Muon momentum EMA)** (alphonse #570 — temporal smoothing axis. Mechanistically distinct from β_cov (covariance EMA, closed #502): mu smooths the raw gradient buffer feeding NS polar map, β_cov smooths the bilateral covariance estimates. Only major body-Muon scalar never varied).
+8. **NadamW (Nesterov AdamW) on aux AdamW first-moment update** (askeladd #575 NEW — fresh **aux m-update** mechanism. Lookahead Nesterov variant. Orthogonal to fern #545 AdaBelief (different component of AdamW step: NadamW changes m-use, AdaBelief changes v-estimation). Orthogonal to all body-Muon work (aux path, not body path).
 
 **Body-Muon WD exhaustively tested:** partition (#482 NULL), schedule (#503 NULL/NULL clear). Constant uniform WD=0.025 confirmed locally optimal. **Wrapper-class on body-Muon closed** (#505 Lookahead NULL/NULL clear). **Body-Muon damping/clipping closed at tested thresholds** (#513 NULL/NULL — but thresholds {0.5, 1.0} were 4-5 orders below natural-norm regime ~3e4; PMuon's whitening confirmed approximately scale-invariant). **PMuon γ axis fully mapped:** {0 (#519 Arm A, +0.018), 0.4 (baseline), 0.8 (#519 Arm B, +0.050), ramp #444 NULL} — γ=0.4 load-bearing and near-optimal. **NS_ITERS scalar closed at constant regime** ({10, 12, 14} mapped via #511).
 
-**Emerging pattern after 24 closed axes:** mechanism scalars saturate at inherited defaults. **Body-Muon LR partition family fully closed** (per-type MLP-vs-ATTN #499 NULL/NULL, sub-MLP c_fc vs c_proj #535 NULL/NULL clear, depth #532 Arm A NULL + Arm B in flight). Wrapper-class on body-Muon closed. Damping/clipping closed below natural-norm regime. γ-axis fully mapped. NS_ITERS at constant-iter regime closed. **Coarse LR partitioning on body-Muon is permanently de-prioritized** — PMuon's per-matrix whitening eliminates the headroom that LR multipliers could have exploited. **The remaining live hypotheses test scheduled/dynamic schedules + fresh scalars** (NS coef #540, NS cooldown ramp #559, AdaBelief variance #545, GC pre-NS #553, ε floor #562, **mu EMA #570 NEW**) — orthogonal to the static-scalar audit that has now saturated.
+**Emerging pattern after 25 closed axes:** mechanism scalars saturate at inherited defaults. **Body-Muon LR partition family FULLY CLOSED** (per-type MLP-vs-ATTN #499 NULL/NULL, sub-MLP c_fc vs c_proj #535 NULL/NULL clear, depth #532 NULL/NULL clear). Wrapper-class on body-Muon closed. Damping/clipping closed below natural-norm regime. γ-axis fully mapped. NS_ITERS at constant-iter regime closed. **Coarse LR partitioning on body-Muon is permanently de-prioritized** — PMuon's per-matrix whitening eliminates the headroom that LR multipliers could have exploited. **The remaining live hypotheses test scheduled/dynamic schedules + fresh scalars + alternative update-rule mechanisms**: NS coef #540, NS cooldown ramp #559, AdaBelief v-estimator #545, GC pre-NS #553, PMuon ε floor #562, PMuon mu EMA #570, **NadamW aux m-update #575 NEW** — orthogonal to the static-scalar audit that has now saturated. **Aux AdamW update-rule mechanism class now actively under test on both m (NadamW #575) and v (AdaBelief #545) sides.**
 
 ## Open unexplored axes (candidate next assignments)
 
-- **Per-block LR multiplier** (depth-based) — **IN FLIGHT (#532 askeladd)**
+- **Per-block LR multiplier** (depth-based) — **CLOSED (#532 NULL/NULL clear, body-Muon LR partition family fully closed)**
 - **Sub-MLP LR partition (c_fc vs c_proj)** — **CLOSED (#535 NULL/NULL clear)**
 - **PMuon mu (body-Muon momentum EMA)** — **IN FLIGHT (#570 alphonse)** — only untested PMuon/body-Muon scalar
 - **NS coefficient (a,b,c) joint scan** — **IN FLIGHT (#540 edward)**
-- **AdaBelief on aux AdamW** — **IN FLIGHT (#545 fern)**
+- **AdaBelief on aux AdamW (v-estimator)** — **IN FLIGHT (#545 fern)**
+- **NadamW on aux AdamW (m-step Nesterov)** — **IN FLIGHT (#575 askeladd)** — fresh aux m-step mechanism
+- **AMSGrad on aux AdamW** — UNTESTED — alternative v-clamp mechanism
+- **RAdam variance rectification** — UNTESTED — first-moment warmup compensation
+- **Sophia-style scalar Hessian on aux AdamW** — UNTESTED — second-order aux update
+- **NS_ITERS cooldown ramp** — **IN FLIGHT (#559 nezuko)**
+- **NS_ITERS=16 / NS_ITERS=18 follow-up** — **IN FLIGHT (#546 thorfinn)** — exploratory pipeline parallel to tanjiro #511 n=2 closure
+- **PMuon ε floor (matrix_neg_power eigenvalue clamp)** — **IN FLIGHT (#562 tanjiro)** — only untested PMuon scalar
 - **Skip-connection LR multiplier** — UNTESTED
 - **Embed eps below 1e-10** {1e-12, 1e-14} — gradient pointed *down* from #463, but BF16 floor concern
 - **EMA wrapper (Polyak)** — REDUNDANT after #505 closes wrapper-class; same averaging family as Lookahead
-- **NS_ITERS=16 / NS_ITERS=18 follow-up** — **IN FLIGHT (#546 thorfinn)** — exploratory pipeline parallel to tanjiro #511 n=2 closure
-- **PMuon ε floor (matrix_neg_power eigenvalue clamp)** — **IN FLIGHT (#562 tanjiro)** — only untested PMuon scalar
 - **Body-Muon grad clipping at natural-norm regime** {3e4, 1e5, 3e5} — DEFERRED (thorfinn pivoted to NS extension; #513 student suggestion)
 - **Per-token-position embed weight init asymmetry** — UNTESTED
 - **COOLDOWN_POWER fine-scan** {1.3, 1.5, 1.6} — scalar likely NULL given pattern; low priority
