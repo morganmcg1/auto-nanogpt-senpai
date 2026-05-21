@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 07:30 UTC — PR #614: nezuko logit softcap value sweep — **CLOSED clean-NEG**
+
+- Branch: `g1r5-nezuko/logit-softcap-sweep`
+- Student: g1r5-nezuko
+- Hypothesis: Logit softcap hardcoded at 15, never ablated. 5-cell asymmetric sweep (2 tighter / 1 ctrl / 2 looser) tests whether softcap value is tuned end-to-end.
+
+| Cell | softcap | val/loss @ 3250 | first_step | Δ vs ctrl A | Δ vs PR #497 baseline (3.266120, σ=0.001747) | W&B |
+|------|---------|----------------:|-----------:|------------:|---------------------------------------------:|------|
+| A (ctrl) | 15.0 | 3.26859 | 3100 | — | +0.00247 (+1.4σ_old) | ifk37kj1 |
+| B | 7.5 | 3.30528 | -1 (never reached) | +0.03669 | +0.03916 (+22.4σ_old) | abzrzbwf |
+| C | 10.0 | 3.27118 | 3125 | +0.00259 | +0.00506 (+2.9σ_old) | 23vscyou |
+| D | 22.5 | 3.27180 | 3125 | +0.00321 | +0.00568 (+3.3σ_old) | qvph4p1k |
+| E | 30.0 | 3.27143 | 3125 | +0.00284 | +0.00531 (+3.0σ_old) | k4alzow6 |
+
+- All non-ctrl cells regress. Cell A (ctrl=15) is the best of the sweep. **No cell met any gate** (n=4 new gate 3.261265; old −0.5σ flag 3.265720).
+- Note: these runs predate PR #571 merge and use `--lr_scalars 0.01` (old default), so all cells trail the new baseline (mu=3.263265) by ~3-6σ_new. Comparisons here are vs PR #497 (old baseline at the time of launch) for consistency with the student's per-cell deltas.
+- Mechanistic shape:
+  - **Lower bound is a hard floor.** Tight axis monotone-negative: 15→10 (+3σ) → 7.5 (+22σ). The B→C ratio (~14×) is the nonlinear saturation signature — once softcap falls below typical logit magnitudes, gradient signal at confident logits is clipped and learning capacity collapses.
+  - **Upper region is plateau-shaped, mildly negative.** D and E both ~+3σ_old vs baseline; no inflection from 22.5 → 30 means looser caps don't recover ground.
+  - **Cap value of 15 is robustly tuned end-to-end.** Loosening doesn't break anything (no NaN, smooth curves) but doesn't help either.
+- Cross-axis observation: "Less optimizer intensity" theme (validated on WD ramp_down PR #371 and ns_iter=6 PR #497) does **not** transfer from optimizer-side levers to loss-side levers. WD/NS act on parameter updates; softcap acts on the loss-derivative pathway. Different mechanism class, different sensitivity.
+- Logging gap noted by student: `train/logits_abs_max`, `train/grad_norm_pre_clip` (output layer), and `train/param_norm` for proj.weight aren't emitted by base codebase. Suggested in PR body but deliberately not retrofit mid-sweep for cell-to-cell consistency. Small-scope add for any future logit/normalization PR that needs them.
+- Decision: CLOSED clean-NEG. Logit softcap axis closed at this scale/budget. Nezuko reassigned to Schedule-Free AdamW (#659).
+
 ## 2026-05-21 05:05 UTC — PR #638: frieren Lion optimizer replacement — **CLOSED clean-NEG**
 
 - Branch: `g1r5-frieren/lion-optimizer-replacement`

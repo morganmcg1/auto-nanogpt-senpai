@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-21 ~05:10Z (poll #322)
+- **Last updated:** 2026-05-21 ~07:35Z (poll #323)
 - **🆕🆕🆕 NEW BASELINE (PR #571 MERGED poll #321):** mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75
   - **Mechanism: lr_scalars=0.03 + ns_iter=6 + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.263265 - mu) × √n ≥ 0.004`
@@ -28,24 +28,25 @@ P2 status across the portfolio:
 **Key implication:** New n=4 gate (3.261265) is ~2.0σ_new below new mu. For a single-seed n=1 result to be worth P2 confirmation, it must land near 3.260 or lower. This is a hard gate — screens only genuinely strong signals. No P2 confirms currently in flight — all attention is on P1 mechanism tests + targeted hyperparameter sweeps.
 
 
-## Active WIP Portfolio (poll #322 — new baseline mu=3.263265)
+## Active WIP Portfolio (poll #323 — new baseline mu=3.263265)
 
 ⚠️ **New gate reminder: all future PRs need ctrl cell ≈ 3.263265. n=4 gate = 3.261265. Strong P1 signals must land ≤ 3.260 to be worth P2 confirmation.**
 
-| PR # | Student | Hypothesis | Status (poll #322) |
+| PR # | Student | Hypothesis | Status (poll #323) |
 |------|---------|-----------|--------|
-| #641 | alphonse | AdaBelief optimizer for AdamW groups (Zhuang 2020) | Assigned poll #319. Running. AdaBelief variance of (g − m)² instead of g². 5-cell sweep: A=AdamW ctrl / B=AdaBelief default / C/D/E vary eps. Fresh-mechanism optimizer test #1. |
+| #641 | alphonse | AdaBelief optimizer for AdamW groups (Zhuang 2020) | Assigned poll #319. AdamW ctrl arm crashing repeatedly (3 crashes at steps 450/603/1701) — student in crash-debug loop. Student also caught baseline drift (PR launched before #571 merged) and wired `--lr_scalars 0.03` into both ctrl and AdaBelief cells for fair comparison. Advisor flagged the crashes + asked for traceback (poll #323). Fresh-mechanism optimizer test #1. |
 | #620 | tanjiro | Attention softmax scale sweep (0.0884/0.10/0.12ctrl/0.14/0.18) — hardcoded, never ablated | Assigned poll #313. Running. No terminal yet. |
-| **#648** | **thorfinn** | **NEW** Per-block LR decay/growth sweep (5-cell: const/decay/growth/bottom_heavy/top_heavy) | Just assigned (poll #322). Static per-block multipliers on Muon-managed 2D weights across 12 layers. Tests whether early-layer (raw tokens) vs late-layer (high-level features) want different step sizes — depth-aware micro-LR axis (never tried). All cells include mandatory `--lr_scalars 0.03`. |
-| #614 | nezuko | Logit softcap value sweep (7.5/10/15ctrl/22.5/30) — hardcoded, never ablated | Assigned poll #311. Running. No terminal yet. |
-| **#649** | **frieren** | **NEW** wd_scalars per-group WD sweep (5-cell: 0.0 ctrl / 0.0001 / 0.001 / 0.01 / 0.1) | Just assigned (poll #322). Follow-up to lr_scalars=0.03 win — RMSNorm gains now train 3× faster, so WD=0 may no longer be optimal. Targeted hyperparameter sweep, mechanistically tied to the new baseline. |
+| #648 | thorfinn | Per-block LR decay/growth sweep (5-cell: const/decay/growth/bottom_heavy/top_heavy) | Assigned poll #322. Pod alive (GPU 100%), student in implementation phase. Depth-aware micro-LR axis (never tried). |
+| **#659** | **nezuko** | **NEW** Schedule-Free AdamW (Defazio 2024, arXiv:2405.15682) — Polyak iterate averaging removes LR cooldown | Just assigned (poll #323). 5-cell: A=AdamW ctrl / B=SF defaults no-cooldown / C=SF+cooldown compound / D=β=0.95 / E=no-warmup. Mechanistically distinct from the 3 in-flight AdamW-variant tests (#626 slow EMA, #641 variance-of-residual, #645 gradient-difference) — SF *removes the schedule* via averaging, doesn't add buffers. If wins, eliminates cooldown_frac=0.7 degree of freedom. |
+| #649 | frieren | wd_scalars per-group WD sweep (5-cell: 0.0 ctrl / 0.0001 / 0.001 / 0.01 / 0.1) | Assigned poll #322. Pod alive (GPU 100%), student in implementation phase. Targeted follow-up to lr_scalars=0.03 win. |
 | #626 | edward | AdEMAMix slow-EMA augmentation of AdamW (α-sweep) | Assigned poll #315. Running. Dual EMA on gradients (slow β3=0.9999). Fresh-mechanism optimizer test #2. |
 | #635 | fern | WD schedule SHAPE sweep (ramp_down ctrl/triangle/cosine_updown/constant/ramp_up) | Cell A (ramp_down ctrl) done at 3.267194 (ABOVE new baseline — likely missing `--lr_scalars 0.03`). Cell B (triangle) running. Cells use OLD lr_scalars; results compare to Cell A for relative shape effects only. |
-| #645 | askeladd | Adan optimizer for AdamW groups (Xie 2022, gradient-difference 3-buffer) | Assigned poll #321. Adan uses 3 EMA buffers: grad (β1=0.98), gradient-difference (β2=0.92), adaptive second-moment (β3=0.99). 5-cell: A=AdamW ctrl / B=Adan defaults LR×1.0 / C=LR×0.5 / D=LR×2.0 / E=tighter betas (0.9/0.85/0.95). Fresh-mechanism optimizer test #3. |
+| #645 | askeladd | Adan optimizer for AdamW groups (Xie 2022, gradient-difference 3-buffer) | Assigned poll #321. Cell A AdamW ctrl run `qq8w1qc6` running step 2949/3250 (~91%). Student cross-checked PR spec against official sail-sg/Adan and caught 2 mechanism-changing bugs (β2 vs 1-β2 coefficient, step-1 prev_g init); advisor approved official-faithful implementation. Fresh-mechanism optimizer test #3. |
 
 
 ## Recent Closures
 
+- **#614 nezuko logit softcap value sweep** — CLOSED clean-NEG (poll #323). All 5 cells regress vs ctrl (softcap=15). Tight axis catastrophic (B=7.5 at +22σ_old, never reached target); upper axis plateau-shaped mild-NEG (C/D/E all ~+3σ_old). B→C ratio (~14×) is the nonlinear saturation signature — once cap < typical logit magnitudes, gradient clipping at confident logits collapses learning capacity. Loose axis benign-but-flat: no inflection from 22.5→30 means there's no looser regime that recovers ground. Softcap=15 is robustly tuned end-to-end. Cross-axis observation: "less optimizer intensity" theme does NOT transfer from optimizer-side levers (WD, NS) to loss-side levers (softcap) — different sensitivity classes. Logit softcap axis CLOSED. Nezuko reassigned Schedule-Free AdamW (#659).
 - **#565 thorfinn init variance scale** — CLOSED clean-neutral (poll #322). P2 mathematically impossible vs new baseline mu=3.263265. Trial 0+1 mean was 3.265280; Trial 3 would have needed val/loss ≤ 3.249940 to clear new n=4 gate (3.261265) — that is ~11.9σ_new below new mu, impossible by any rational seed. Init variance magnitude axis CLOSED. Thorfinn reassigned to depth-aware per-block LR (#648).
 - **#638 frieren Lion optimizer** — CLOSED clean-NEG (poll #322). Two independent failures: Cell C (lion_lr_scale=0.10) grad-norm=235k at step 16; Cell B (lion_lr_scale=0.01, 10× lower) FAILED at step 0 / relaunch grad-norm=233,763 at step 15. Lion is fundamentally incompatible with this architecture at any viable LR scale — sign-based update + embed_lr=0.3 produces unstable gradients regardless. Per Chen 2023 recipe Lion needs ~1000× lower LR + non-zero WD; that scale of retuning is outside the optimizer-replacement budget here. Lion axis CLOSED. Frieren reassigned to wd_scalars sweep (#649).
 - **#571 askeladd lr_scalars sweep** — ✅ **MERGED NEW BASELINE (poll #321)**. n=4 mean=3.263265. All 4 seeds clear n=4 gate. Mechanism: RMSNorm gain LR under-tuned at 0.01 → 3× to 0.03 allows faster layer-scale convergence. New gate = 3.261265 (n=4). Follow-up: askeladd reassigned to Adan (#645).
@@ -82,31 +83,33 @@ P2 status across the portfolio:
 - askeladd #571 Cell B/C (lr_scalars=0.001, 0.003): catastrophic +7–13σ. RMSNorm gains NEED their current LR.
 - askeladd #571 Cell D (lr_scalars=0.03): **3× HIGHER than ctrl beats baseline**. Some optimizer dials want MORE intensity, not less. The "less" theme is specific to globally-coupled regularization (WD, NS), not per-group LR.
 
-**Key analytical questions for in-flight PRs (poll #322 — new baseline mu=3.263265):**
+**Key analytical questions for in-flight PRs (poll #323 — new baseline mu=3.263265):**
 
 ⚠️ **Gate recalibration:** With new baseline mu=3.263265, only results landing near 3.260 or below are worth P2 confirmation. The ctrl cell for all future PRs should be compared against 3.263265, not 3.266120.
 
-- **thorfinn #648 per-block LR (NEW)**: 5-cell static depth-aware LR multipliers on Muon-managed 2D weights (12 blocks): const ctrl / decay (early>late) / growth (late>early) / bottom_heavy / top_heavy. All cells use mandatory baseline flags including `--lr_scalars 0.03`. Tests depth-aware LR axis (never tried).
-- **frieren #649 wd_scalars (NEW)**: 5-cell sweep on per-group WD for the RMSNorm-gain scalar group: 0.0(ctrl) / 0.0001 / 0.001 / 0.01 / 0.1. Targeted follow-up to lr_scalars=0.03 win — if scalar gains now train 3× faster, optimal scalar WD may have shifted off zero.
+- **nezuko #659 Schedule-Free AdamW (NEW)**: 5-cell sweep. SF-AdamW removes LR cooldown via Polyak iterate averaging (Defazio 2024). True fresh mechanism — orthogonal to the 3 AdamW-variant tests in flight which all ADD buffers; SF REMOVES the schedule. If wins, removes cooldown_frac=0.7 hyperparam dependency.
+- **thorfinn #648 per-block LR**: 5-cell static depth-aware LR multipliers on Muon-managed 2D weights (12 blocks): const ctrl / decay / growth / bottom_heavy / top_heavy. Pod implementing.
+- **frieren #649 wd_scalars**: 5-cell sweep on per-group WD for the RMSNorm-gain scalar group: 0.0(ctrl) / 0.0001 / 0.001 / 0.01 / 0.1. Pod implementing. Targeted follow-up to lr_scalars=0.03 win.
 - **tanjiro #620 attn scale**: 5-cell sweep, softmax scale (0.0884/0.10/0.12ctrl/0.14/0.18). Running. Ctrl should land ~3.263265 (new baseline). Promising if Cell C validates, then check ±20% cells.
-- **alphonse #641 AdaBelief**: AdaBelief second-moment variance of (g − m)² instead of g². Ctrl=AdamW, 4 cells vary eps. Test whether variance of gradient-residual better adapts to the RMSNorm gain update path.
+- **alphonse #641 AdaBelief**: AdaBelief second-moment variance of (g − m)² instead of g². Student caught baseline-drift issue and wired `--lr_scalars 0.03` into both ctrl and AdaBelief paths so comparison is fair. **AdamW ctrl arm crashing repeatedly (3 crashes at steps 450/603/1701)** — student in crash-debug loop; advisor asked for traceback. Test depends on resolving ctrl crashes first.
 - **edward #626 AdEMAMix**: Slow gradient EMA augmentation. α=0 → vanilla AdamW ctrl (should be ~3.263265); α>0 augments with slow-EMA. Key question: does slow gradient memory provide any signal beyond what the baseline already captures?
-- **askeladd #645 Adan**: 3-buffer optimizer (m for grad, v for grad-difference, n for adaptive second-moment). Mechanistically distinct from the other 3 fresh-mechanism tests in flight.
+- **askeladd #645 Adan**: 3-buffer optimizer (m for grad, v for grad-difference, n for adaptive second-moment). **Student caught 2 mechanism-changing bugs in PR spec (β2 vs 1-β2 coefficient — 11× mismatch; step-1 prev_g init)** by cross-checking official sail-sg/Adan code. Advisor approved official-faithful implementation. Cell A AdamW ctrl ~91% done (step 2949/3250, val/loss 3.2925).
 - **fern #635 WD shape**: Cell A (ramp_down ctrl) done at 3.267194 — **ABOVE new baseline mu=3.263265** by 0.003929. All cells run at lr_scalars=0.01 (old default), so results cannot be compared directly to new baseline but can compare to Cell A for relative shape effects.
-- **nezuko #614 logit softcap**: 5-cell sweep (7.5/10/15ctrl/22.5/30). Running.
 
-**Emerging cross-PR insight (poll #322) — #571 MERGED, 3 fresh-mechanism + 2 targeted-hp tests:**
+**Emerging cross-PR insight (poll #323) — #571 MERGED, 4 fresh-mechanism + 2 targeted-hp tests:**
 1. **✅ Scalar LR** (askeladd #571, lr_scalars=0.03) — **MERGED NEW BASELINE (poll #321)** — n=4 mean=3.263265
 2. **❌ Init scale** (thorfinn #565) — CLOSED poll #322; P2 math-impossible
 3. **❌ Lion** (frieren #638) — CLOSED poll #322; twice-failed crashes
-4. **❌ Adam eps** (frieren #556) — CLOSED clean-neutral
-5. **❌ Peak WD** (fern #594) — CLOSED clean-neutral
-6. **❌ lm_head LR** (alphonse #600) — CLOSED clean-neutral (asymmetry: scalars take 3× but lm_head rejects 3×)
+4. **❌ Logit softcap** (nezuko #614) — CLOSED poll #323; clean-NEG; tight catastrophic, loose plateau-flat
+5. **❌ Adam eps** (frieren #556) — CLOSED clean-neutral
+6. **❌ Peak WD** (fern #594) — CLOSED clean-neutral
+7. **❌ lm_head LR** (alphonse #600) — CLOSED clean-neutral (asymmetry: scalars take 3× but lm_head rejects 3×)
 
-**Three parallel fresh-mechanism optimizer tests still in flight (Lion eliminated):**
-- **#626 edward AdEMAMix** — dual EMA on gradients (slow β3=0.9999, α-sweep)
-- **#641 alphonse AdaBelief** — variance of (g − m)² instead of g² (Zhuang 2020)
-- **#645 askeladd Adan** — gradient-difference 3-buffer (Xie 2022)
+**Four parallel fresh-mechanism optimizer tests in flight (Lion eliminated):**
+- **#626 edward AdEMAMix** — dual EMA on gradients (slow β3=0.9999, α-sweep) — adds buffers to AdamW
+- **#641 alphonse AdaBelief** — variance of (g − m)² instead of g² (Zhuang 2020) — adds buffer to AdamW; AdamW ctrl crashing
+- **#645 askeladd Adan** — gradient-difference 3-buffer (Xie 2022) — adds buffers to AdamW
+- **#659 nezuko Schedule-Free AdamW** — Polyak iterate averaging (Defazio 2024) — **REMOVES the LR schedule**, orthogonal mechanism class
 
 **Two targeted hyperparameter sweeps on the new baseline:**
 - **#648 thorfinn per-block LR** — depth-aware LR multipliers across 12 layers (decay/growth/bottom_heavy/top_heavy)
@@ -126,6 +129,7 @@ Cross-PR insight: AdamW per-group LR landscape **fully mapped** — embed (#566 
 - **Muon mu axis is closed** — PR #508 confirmed mu=0.95 optimal.
 - **Init variance magnitude axis CLOSED** — thorfinn #565 (poll #322).
 - **Lion optimizer axis CLOSED** — frieren #638 (poll #322), incompatible at viable LR scale.
+- **Logit softcap axis CLOSED** — nezuko #614 (poll #323); tight catastrophic, loose flat-plateau, ctrl=15 robustly tuned.
 
 **Key insights:**
 - **New n=4 gate 3.264120 is very hard** — but askeladd #571 D shows a real effect can confirm at P2.
