@@ -27,6 +27,13 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+# Tanjiro NS iter schedule globals — overridden by args at module load and per-trial setup
+NS_ITER_START = 6
+NS_ITER_END = 3
+NS_ITER_SCHEDULE = "const"
+NS_ITER_TOTAL_STEPS = 0  # populated per-trial when train_steps is known
+NS_ITER_COOLDOWN_FRAC = 0.7  # mirrors set_hparams default
+GLOBAL_STEP = [0]  # mutable container bumped each train step
 
 
 def parse_args():
@@ -67,6 +74,15 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_iter_schedule", type=str, default="const",
+                        choices=["const", "linear_decay", "linear_growth", "step_at_cooldown", "linear_decay_aggressive"],
+                        help="Schedule for NS iteration count. 'const' uses --ns_iter. "
+                             "'linear_decay' goes ns_iter->ns_iter_end linearly. "
+                             "'linear_growth' goes ns_iter_end->ns_iter linearly. "
+                             "'step_at_cooldown' uses ns_iter until cooldown_frac point, then ns_iter_end. "
+                             "'linear_decay_aggressive' is the same as linear_decay but documents the very low end value.")
+    parser.add_argument("--ns_iter_end", type=int, default=3,
+                        help="End value for ns_iter schedule (default 3). Used by all non-const schedules.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -81,6 +97,9 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_ITER_START = args.ns_iter
+NS_ITER_END = args.ns_iter_end
+NS_ITER_SCHEDULE = args.ns_iter_schedule
 
 
 def clean_metric_name(name: str) -> str:
@@ -468,6 +487,30 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+@torch._dynamo.disable
+def _get_ns_iter() -> int:
+    """Return ns_iter count for current GLOBAL_STEP based on NS_ITER_SCHEDULE.
+
+    Marked @torch._dynamo.disable so the compiled muon path treats this as opaque
+    and only guards on the returned int — recompiles trigger when the int value
+    changes (a handful of times across a 3250-step run), not every step.
+    """
+    if NS_ITER_SCHEDULE == "const":
+        return NS_ITER_START
+    total = max(NS_ITER_TOTAL_STEPS, 1)
+    t = GLOBAL_STEP[0] / total  # in [0, 1]
+    if NS_ITER_SCHEDULE in ("linear_decay", "linear_decay_aggressive"):
+        v = NS_ITER_START + (NS_ITER_END - NS_ITER_START) * t
+        return max(int(round(v)), 1)
+    if NS_ITER_SCHEDULE == "linear_growth":
+        v = NS_ITER_END + (NS_ITER_START - NS_ITER_END) * t
+        return max(int(round(v)), 1)
+    if NS_ITER_SCHEDULE == "step_at_cooldown":
+        cooldown_start = 1.0 - NS_ITER_COOLDOWN_FRAC
+        return NS_ITER_START if t < cooldown_start else NS_ITER_END
+    return NS_ITER_START
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -478,7 +521,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(_get_ns_iter()):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -752,6 +795,8 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "ns_iter_schedule": args.ns_iter_schedule,
+            "ns_iter_end": args.ns_iter_end,
         },
     )
 
@@ -764,6 +809,8 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+    NS_ITER_TOTAL_STEPS = train_steps  # for _get_ns_iter() schedule normalization
+    GLOBAL_STEP[0] = 0  # reset for new trial
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -927,6 +974,7 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        GLOBAL_STEP[0] = step  # for _get_ns_iter() schedule lookup inside muon
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -972,6 +1020,7 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["train/ns_iter_now"] = _get_ns_iter()
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
