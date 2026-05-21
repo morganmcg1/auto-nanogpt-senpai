@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-21 13:30 UTC — PR #647 CLOSED: WSD longer cooldown_frac {0.80, 0.85} — NULL/NULL, 46th axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/wsd-longer-cooldown`
+- Hypothesis: extend WSD cooldown fraction in the LONGER direction to {0.80, 0.85}, symmetric counter-axis to PR #606 (cf=0.25 catastrophic). If cooldown is where productive descent happens, more cooldown should give better convergence.
+
+| Arm | cf | W&B | sr | val/loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | 0.70 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| A | 0.80 | `tk8hizl3` | 2950 | 3.26675 | +12.5 ✗ | +0.00247 ✗ | NULL (marginal) |
+| B | 0.85 | `96jhh0zy` | 2975 | 3.27016 | +37.5 ✗ | +0.00588 ✗ | NULL (clear) |
+
+**Mechanism (excellent student slope telemetry):** at step 1625 (mid-training), the longer-cooldown arms ARE further into the decay curve (cd_prog 0.41 vs 0.29) and val/loss is genuinely lower (3.466/3.474 vs 3.500). But by step 2925 the slope has gone BLUNTER (-0.0039/-0.0045 vs -0.0064) — the early-start advantage is consumed and the late tail is rate-limited by LR magnitude. By step 3250, val is *worse* than baseline. Spreading the COOLDOWN_POWER=1.4 curve over more steps proportionally weakens LR at every point in the decay tail.
+
+**Cross-axis pattern (WSD shape now exhaustively characterized in 5 axes):**
+
+| Axis | Test | Verdict | PR |
+|---|---|---|---|
+| cooldown_frac (shorter) | 0.25 vs 0.70 | catastrophic DNF | #606 |
+| cooldown_frac (longer) | 0.80, 0.85 vs 0.70 | NULL/NULL | #647 |
+| cooldown_power | extreme scan | symmetric loss | #648-class |
+| lr_floor | η_min=0.05, 0.10 | NULL/NULL | #607 |
+| NS_ITERS cooldown ramp | time-varying | NULL/NULL | #559 |
+
+WSD schedule shape is fully pinned. The decay-to-zero tail is the load-bearing feature; weakening it (via floor, longer spread, or fewer iters) hurts; shortening it cannot match baseline trajectory.
+
+**Next direction:** axis-level cf is closed. Future cooldown experiments should target **cooldown shape variants** (e.g. piecewise, sigmoid, or LR-schedule family changes — cosine already in flight #667) rather than further duration sweeps.
+
+---
+
 ## 2026-05-21 08:50 UTC — PR #627 CLOSED: Per-block grad L2 normalization pre-NS — NULL/NULL, 45th axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/per-block-grad-norm`

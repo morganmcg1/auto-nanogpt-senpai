@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 08:50 UTC
+- **Last update:** 2026-05-21 13:35 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -20,7 +20,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#660** | alphonse | `6et8oaqm` nesterov=False mu=0.95 | ~575 | 3.83 | PMuon Nesterov OFF Arm A running cleanly. |
 | **#658** | edward | `d9ifhvbr` post_ns Arm A | ~350 | ~4.1 | Post-NS momentum Arm A running after dtype bf16↔fp32 fix. Spec-norm drifting below 1 as expected. Arm B post_ns_repolar follows after. |
 | **#651** | tanjiro | `b7tnbh0k` warmup=100-v2 | ~775 | 3.73 | LR warmup Arm A v2 running (multiple early crashes from warmup impl; v2 clean). |
-| **#647** | askeladd | `tk8hizl3` cf=0.80 | ~2825 | 3.30 | WSD LONGER cooldown Arm A nearing terminal. DNF trajectory (val=3.30 at 87% progress). Arm B cf=0.85 queued. |
+| **#647** | askeladd | both arms TERMINAL | 3250 | 3.267/3.270 | **CLOSED 13:30 UTC — 46th axis. Both arms NULL: cf=0.80 sr=2950 Δval=+0.00247, cf=0.85 sr=2975 Δval=+0.00588.** Mechanism: longer cooldown spreads COOLDOWN_POWER=1.4 over more steps → weaker LR throughout decay tail; early-start advantage spent by step 2925, slope blunter than baseline. WSD cf bracketed in both directions (cf=0.25 #606 catastrophic, cf=0.70 baseline, cf=0.80/0.85 NULL). |
 | **#644** | fern | `5erh0eht` k=1.5 warmup100 | ~2625 | 3.32 | Winsorization Arm A k=1.5 nearing terminal. Borderline DNF trajectory. |
 | **#667** | nezuko | pending pickup | — | — | **NEW (08:50 UTC) — Cosine LR schedule vs WSD. Arm A: pure cosine from step 0. Arm B: cosine with 30% stable plateau. First non-WSD schedule family test in 45 closed experiments.** |
 | **#622** | frieren | `w1rzdmoy` scale_mult=0.005 | ~2650 | 3.32 | Tanh-squash Arm C scale_mult=0.005 nearing terminal. DNF trajectory. |
@@ -29,6 +29,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#647** | askeladd | WSD longer cf NULL/NULL — Arm A cf=0.80 sr=2950 val=3.26675 Δval=+0.00247, Arm B cf=0.85 sr=2975 val=3.27016 Δval=+0.00588. Monotonic ordering 0.70 < 0.80 < 0.85 on both metrics. Combined with #606 cf=0.25 catastrophic, axis bracketed. Mechanism: spreading COOLDOWN_POWER=1.4 over more steps weakens LR throughout the decay tail. | **CLOSED 13:30 UTC — 46th axis.** |
 | **#627** | nezuko | Per-block grad norm NULL/NULL — Arm A all val=3.269108 sr=3000 (Δsr=+62.5); Arm B mlp_only val=3.265763 sr=2950 (Δsr=+12.5 wrong direction). Arm A loudly hurt (pooling attn+MLP destroys inter-sublayer scale). Arm B noise-level-NULL. Pre-NS per-block magnitude conditioning axis CLOSES. | **CLOSED 08:50 UTC — 45th axis.** |
 | **#623** | thorfinn | Schedule-Free Adam on aux NULL/NULL decisive. Both arms DNF val~3.31. Aux WSD cooldown load-bearing. Aux side saturated across 9 optimizer families. | **CLOSED 08:15 UTC — 44th axis.** |
 | **#617** | edward | Lookahead wrapper on aux NULL/NULL. k=5 Δsr=+37.5, k=10 Δsr=+87.5. | **CLOSED 07:10 UTC — 42nd axis.** |
@@ -79,7 +80,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 `(3.28 − μ) × √n ≥ 0.004`. n=1 win: sr ≤ 2925 OR (sr = 2925 AND val < 3.264278). Stat-sig threshold: val ≤ 3.276 (n=1). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Closed axes reference (45 total)
+## Closed axes reference (46 total)
 
 *PMuon scalars COMPLETE (all 5 pinned):* γ_power=0.4, β_cov=0.95, NS_ITERS=12 (5-pt V-curve), NS coeff cubic (1.5,-0.5,0), ε=1e-12, mu=0.95.
 
@@ -95,6 +96,6 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 *Gradient transformation body-Muon:* GC subtract (#553 NULL), column-mean amplify (#588 NULL), clipping (#513 NULL), per-block grad-norm (#627 NULL 45th).
 
-*WSD schedule shape:* shorter-cooldown (#606 NULL 39th), LR floor (#607 NULL 43rd), NS_ITERS cooldown ramp (#559 NULL 38th), decoupled aux cooldown (#448).
+*WSD schedule shape:* shorter-cooldown (#606 NULL 39th), LR floor (#607 NULL 43rd), NS_ITERS cooldown ramp (#559 NULL 38th), decoupled aux cooldown (#448), longer-cooldown (#647 NULL 46th).
 
 *Other:* z-loss (#476), embed init (#440), attn-scale (#480), logit soft-cap (#439), NS adaptive threshold (#447).
