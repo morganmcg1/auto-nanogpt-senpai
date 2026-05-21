@@ -38,10 +38,14 @@ NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 # Polyak/EMA on body-Muon params: number of steps to TRACK params live before
-# starting true exponential averaging. Required because several body matrix
-# params (attn.proj, mlp.proj) init to zero, which would otherwise bias the EMA
-# buffer toward zero for thousands of steps at high beta.
-EMA_WARMUP_STEPS = 500
+# starting true exponential averaging. Set to cooldown-begin so EMA averages
+# only over the cooldown trajectory (single monotonic descent), avoiding
+# parameter-space interpolation across high-LR stable-phase weights and the
+# cooldown basin — first attempt at warmup=500 saw val_loss_ema diverge to
+# +0.526 above val_loss_live by step 875 due to that curvature. The live-track
+# during warmup also handles the proj-zero-init (attn.proj, mlp.proj) bias.
+# Default config: train_steps=3250, cooldown_frac=0.7 → cooldown begins step 975.
+EMA_WARMUP_STEPS = 975
 
 
 def parse_args():
