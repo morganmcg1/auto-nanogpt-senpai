@@ -1,3 +1,63 @@
+## 2026-05-21 21:58 UTC — PR #621 CLOSED (nezuko): H34 MuonH hyperball pruning — NEG with third cooldown-crossover instance + generalized "constraint removal LEADS mid-training, LOSES cooldown" rule
+
+- Branch: `g1r3-nezuko/hyperball-pruning`
+- Hypothesis: Test whether MuonH-SI's Frobenius-sphere projection (`hyperball=True`) is load-bearing. PR #443 introduced `mode=scale_invariant` as baseline but never ablated the SI projection mechanism itself.
+
+### Results (3325 steps, n=1; 2 arms)
+
+| Arm | Run | val/loss | ffs | reached_target | Δ vs ctrl | Decision |
+|---|---|---|---|---|---|---|
+| 1 ctrl (hyperball=1) | `drb9bjmh` | **3.27218** | 3125 | ✓ | — | baseline-match (within pop μ≈3.273) |
+| 2 hyperball=0 | `dm1qs45y` | **3.32370** | -1 | ✗ | **+0.05152** | NEG (~100σ over merge bar) |
+
+**Decision: CLOSED NEG** — arm 2 catastrophically misses merge bar despite massive mid-training lead.
+
+### Mechanism finding — third cooldown-crossover instance
+
+**The crossover trajectory** (cleanest demonstration to date):
+
+| Step | Arm 1 (hb=1) | Arm 2 (hb=0) | Δ (Arm2−Arm1) |
+|---|---|---|---|
+| 125 | 4.927 | 4.834 | **−0.094** (hb=0 leads) |
+| 500 | 3.905 | 3.815 | **−0.090** |
+| 750 | 3.825 | 3.696 | **−0.129** (peak lead) |
+| 1000 | 3.726 | 3.602 | **−0.124** |
+| 1500 | 3.616 | 3.503 | **−0.113** |
+| 2000 | 3.481 | 3.425 | **−0.056** |
+| **2500** | **3.372** | **3.371** | **−0.001 ← CROSSOVER** (~75%, cooldown onset) |
+| 3000 | 3.292 | 3.334 | +0.042 |
+| 3325 | **3.272** | **3.324** | **+0.052** |
+
+### Generalized mechanism rule (now three-instance supported)
+
+**Modifications that REMOVE constraints/regularization/long-horizon-memory often LEAD during the bulk-training phase but LOSE during cooldown:**
+
+| PR | What was removed/added | Mid-training Δ | Terminal Δ | Crossover step |
+|---|---|---|---|---|
+| #616 fern | MuonH momentum reset on sync (removes inner memory) | −0.020 to −0.035 | +0.023 | ~step 2500 |
+| #689 askeladd | AdEMAMix slow-EMA injection (adds long-horizon m_2) | −0.008 to −0.013 | +0.018 | step 2250 |
+| **#621 nezuko (this)** | **hyperball=0 (removes SI Frobenius projection)** | **−0.094 to −0.129** | **+0.052** | **step 2500** |
+
+**Specific finding for hyperball=0**: The MuonH Frobenius-sphere SI projection is **load-bearing during cooldown**. Removing it gives faster mid-training descent (unconstrained update magnitude lets the optimizer move further per step in the bulk phase), but the unbounded update magnitude prevents the optimizer from settling into the cooldown's flat basin. The SI projection acts as a per-step "variance brake" critical when LR cooldown reduces per-step magnitudes to ~1e-9.
+
+This is the **cleanest demonstration** — `hyperball=0` is pure constraint removal with NS5 orthogonalization preserved, so the +0.052 is attributable to the SI projection alone.
+
+### Active exploit attempts (cooldown-aware versions)
+
+Two PRs currently testing cooldown-gated remediations:
+- PR #636 fern cooldown-gated MuonH reset — already CLOSED NEG (path-dependence: arm 2 mid-training state can't be transferred to cooldown without losing progress)
+- PR #721 askeladd α_t cosine cooldown for AdEMAMix — IN-FLIGHT (anneals α back to 0 during cooldown)
+
+The PR #636 closure suggests cooldown-gating is fundamentally path-dependent. PR #721 will provide a clean second data point on whether cooldown-aware schedules can recover any of the mid-training benefit.
+
+### Suggested follow-ups
+
+- A SOFTENED hyperball (weighted Frobenius with proportional radius rather than fixed unit radius) might capture some mid-training freedom while preserving cooldown stability — but this is speculative.
+- Future "constraint pruning" hypotheses on MuonH should be deprioritized; the SI projection is now confirmed load-bearing.
+- The generalized rule should INFORM hypothesis selection: any "remove a constraint" or "extend a memory horizon" mechanism should be presumed cooldown-incompatible at constant magnitude unless explicitly cooldown-scheduled.
+
+---
+
 ## 2026-05-21 20:45 UTC — PR #689 CLOSED (askeladd): H41 AdEMAMix β3=0.9990 — NEG with calibration debt resolved + NEW "cooldown demands sharp updates on aux" mechanism rule
 
 - Branch: `g1r3-askeladd/adem-beta3-recalib`
