@@ -71,6 +71,25 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H38: Adan optimizer (Xie et al 2022, gradient-difference variance reduction)
+    # replacement for AdamW on the aux groups.
+    parser.add_argument("--aux_use_adan", type=int,
+                        default=int(os.environ.get("AUX_USE_ADAN", "0")),
+                        help="If 1, replace fused AdamW with custom unfused Adan optimizer "
+                             "(Xie et al 2022) on the aux groups. Adan uses gradient-difference "
+                             "variance reduction: update = (m + (1-β2)·v) / (√n + ε), where v "
+                             "is EMA of (g_t - g_{t-1}) and n is EMA of corrected-gradient². "
+                             "Default 0 (use fused AdamW).")
+    parser.add_argument("--aux_adan_beta1", type=float,
+                        default=float(os.environ.get("AUX_ADAN_BETA1", "0.02")),
+                        help="Adan β1 (first-moment new-step weight = paper notation). "
+                             "Paper default 0.02 (i.e., 98% weight on prior EMA).")
+    parser.add_argument("--aux_adan_beta2", type=float,
+                        default=float(os.environ.get("AUX_ADAN_BETA2", "0.08")),
+                        help="Adan β2 (gradient-difference new-step weight). Paper default 0.08.")
+    parser.add_argument("--aux_adan_beta3", type=float,
+                        default=float(os.environ.get("AUX_ADAN_BETA3", "0.01")),
+                        help="Adan β3 (second-moment new-step weight). Paper default 0.01.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +688,91 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Adan(torch.optim.Optimizer):
+    """Adan: Adaptive Nesterov Momentum Algorithm (Xie et al 2022).
+    https://arxiv.org/abs/2208.06677
+
+    Update rule (paper β notation: each β is the NEW-step weight in [0, 1]):
+      m_t = (1-β1)·m_{t-1} + β1·g_t                                  # first moment of g
+      v_t = (1-β2)·v_{t-1} + β2·(g_t - g_{t-1})                      # first moment of Δg
+      n_t = (1-β3)·n_{t-1} + β3·(g_t + (1-β2)·(g_t - g_{t-1}))²      # second moment of corrected g
+
+    Per-term bias-corrected (canonical sail-sg/Adan behavior, supplementary B.4):
+      bc1 = 1 - (1-β1)^t,  bc2 = 1 - (1-β2)^t,  bc3 = 1 - (1-β3)^t
+      denom = √(n_t/bc3) + eps
+      p -= lr/denom · (m_t/bc1 + (1-β2)·v_t/bc2)         + optional decoupled wd
+
+    Without bias correction, m at step 1 is suppressed to β1·g_t (≈0.02·g for paper
+    defaults), which would unfairly handicap Adan vs AdamW under shared per-group
+    LRs tuned for the AdamW-style normalized step. Paper defaults: β1=0.02, β2=0.08,
+    β3=0.01. prev_grad initialized to grad.clone() so grad_diff=0 on step 1.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.02, 0.08, 0.01), eps=1e-8,
+                 weight_decay=0.0):
+        if not all(0.0 <= b <= 1.0 for b in betas):
+            raise ValueError(f"Adan betas must each lie in [0, 1]; got {betas}")
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            one_minus_beta1 = 1.0 - beta1
+            one_minus_beta2 = 1.0 - beta2
+            one_minus_beta3 = 1.0 - beta3
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)        # m
+                    state["exp_avg_diff"] = torch.zeros_like(p)   # v
+                    state["exp_avg_sq"] = torch.zeros_like(p)     # n
+                    # Initialize prev_grad to current grad so grad_diff = 0 on step 1
+                    # (canonical sail-sg/Adan behavior; the first-step finite difference
+                    # is degenerate and would otherwise inject a spurious Δg = g_1).
+                    state["prev_grad"] = grad.clone()
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_diff"]
+                n = state["exp_avg_sq"]
+                prev_grad = state["prev_grad"]
+                grad_diff = grad - prev_grad
+                corrected_grad = grad + one_minus_beta2 * grad_diff
+                # EMA updates (paper convention: β is new-step weight).
+                m.mul_(one_minus_beta1).add_(grad, alpha=beta1)
+                v.mul_(one_minus_beta2).add_(grad_diff, alpha=beta2)
+                n.mul_(one_minus_beta3).addcmul_(corrected_grad, corrected_grad, value=beta3)
+                # Per-term bias correction (Adan supplementary B.4 / sail-sg ref).
+                bc1 = 1.0 - one_minus_beta1 ** t
+                bc2 = 1.0 - one_minus_beta2 ** t
+                bc3 = 1.0 - one_minus_beta3 ** t
+                # Decoupled weight decay applied to params (AdamW-style proximal form).
+                if wd > 0:
+                    p.mul_(1.0 / (1.0 + lr * wd))
+                # denom = sqrt(n / bc3) + eps. Use a fresh buffer (don't mutate n).
+                denom = n.sqrt().mul_(1.0 / math.sqrt(bc3)).add_(eps)
+                # Note: n.sqrt() returns a NEW tensor on first call, then we mutate it
+                # in-place. n itself is not modified.
+                # Update: p -= lr/(denom*bc1) * m + lr*(1-β2)/(denom*bc2) * v
+                p.addcdiv_(m, denom, value=-lr / bc1)
+                p.addcdiv_(v, denom, value=-lr * one_minus_beta2 / bc2)
+                # Cache current grad as prev_grad for next step.
+                prev_grad.copy_(grad)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +817,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_use_adan:
+    print0(f"Adan ENABLED on aux groups: betas=({args.aux_adan_beta1}, {args.aux_adan_beta2}, "
+           f"{args.aux_adan_beta3}) eps={args.aux_adamw_eps}", console=True)
+else:
+    print0("Adan DISABLED on aux groups (using fused AdamW)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +875,10 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_use_adan": bool(args.aux_use_adan),
+            "aux_adan_beta1": args.aux_adan_beta1,
+            "aux_adan_beta2": args.aux_adan_beta2,
+            "aux_adan_beta3": args.aux_adan_beta3,
         },
     )
 
@@ -812,10 +925,19 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    aux_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                  dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                  dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if not args.aux_use_adan:
+        optimizer1 = AdamW(aux_groups, betas=(0.8, 0.95),
+                           eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    else:
+        # H38: custom unfused Adan optimizer on aux groups (gradient-difference VR).
+        # Per-group LR is preserved (aux LRs are tuned for AdamW-style normalized
+        # updates; we're testing the optimizer mechanism, not the LR config).
+        adan_betas = (args.aux_adan_beta1, args.aux_adan_beta2, args.aux_adan_beta3)
+        optimizer1 = Adan(aux_groups, lr=0.3, betas=adan_betas,
+                          eps=args.aux_adamw_eps, weight_decay=0)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
