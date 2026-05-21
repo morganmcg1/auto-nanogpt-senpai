@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 03:10 UTC — PR #600: alphonse lm_head LR sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-alphonse/lm-head-lr-sweep`
+- Student: g1r5-alphonse
+- Hypothesis: lm_head LR hardcoded at 1/320 (0.003125), never ablated. 5-cell sweep across 20× range (1/640 to 0.03) tests whether the proj group LR can be improved. Sibling to askeladd #571 (scalars_lr sweep) and nezuko #566 (embed_lr sweep).
+
+| Cell | --lr_lm_head | val_loss | Δσ_n6 vs new baseline | ffs | W&B run |
+|------|:------------:|:--------:|----------------------:|-----|---------|
+| A (ctrl) | 1/320 (0.003125) | 3.26574 | −0.22σ | 3075 | `646yhh2s` |
+| B | 1/640 (0.0015625) | 3.26809 | +1.13σ | 3100 | `zkatc2b1` |
+| C | 1/160 (0.00625) | 3.26626 | +0.08σ | 3075 | `wqjf39r2` |
+| D | 0.01 | 3.26608 | −0.02σ | 3075 | `6zpybyjf` |
+| E | 0.03 | 3.26771 | +0.91σ | 3100 | `uqdww2sj` |
+
+- Baseline: mu=3.266120, σ=0.001747, n=4 gate ≤3.264120
+
+**Results commentary:** U-shaped response. Lower LR (B, 1/640) hurts at +1.13σ. Higher LR (E, 0.03 = 10× ctrl) also hurts at +0.91σ. Plateau at 0.003125–0.01 (A/C/D within ±0.3σ). No cell crosses n=4 gate.
+
+**Key cross-PR insight:** askeladd #571 won at scalars_lr=0.03 (20K params) but alphonse #600 LOSES at lm_head_lr=0.03 (39M params). Big param groups want conservative LR, small param groups can take aggressive LR. Pre-existing per-group LR ratio (1/320 lm_head vs 0.01 scalars, ~3× ratio) is directionally correct.
+
+**Conclusions:** AdamW per-group LR landscape now fully characterized via #566 (embed), #600 (lm_head), #571 (scalars in P2). The per-group LR axis is closed. Time to test fresh optimizer mechanisms.
+
+**Follow-up assigned:** PR #641 — alphonse AdaBelief (Zhuang et al. 2020, arXiv:2010.07468) — variance of (g - m)² instead of g². Drop-in replacement for AdamW on the 3 AdamW-managed groups. 5-cell sweep: A=AdamW ctrl, B=AdaBelief default, C/D/E = AdaBelief with different eps values. Three parallel fresh-mechanism tests (#641 AdaBelief + #638 Lion + #626 AdEMAMix) — orthogonal modifications of AdamW.
+
 ## 2026-05-21 02:35 UTC — PR #556: frieren AdamW epsilon P2 confirmation — **CLOSED clean-neutral**
 
 - Branch: `g1r5-frieren/adam-eps-sweep`
