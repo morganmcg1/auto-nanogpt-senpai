@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 19:20 UTC
+- **Date:** 2026-05-21 19:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -120,25 +120,23 @@ Single-seed 4-arm (drift gate A PASS, |3.27121−3.27174|=0.00053): A=3.27121, B
 Single-seed 4-arm (drift gate A PASS, |3.27208−3.27174|=0.00034): A=3.27208, B (β₁_embed=0.50)=+0.00399 (regression), C (β₁_embed=0.00, RMSProp-mode)=+0.00513 (regression), D (β₁_embed=0.90)=+0.00177 (regression marginal). All B/C/D regress past +0.0015 within-pod threshold. Magnitude-up direction (β₁ 0.80→0.50→0.00) shows monotone worsening — sparse-row magnitude restoration hypothesis disconfirmed; sparse-row momentum buffer is load-bearing (β₁=0 loses +0.005 vs ctrl). Smoothing-up direction (β₁=0.90) also marginal regression. **Per-group AdamW family fully exhausted on merged stack**: per-group β₁ (this PR) + per-group β₂ (#560) = both first-moment and second-moment time-constant axes closed-NEGATIVE in both directions; only embed-LR-mult lever (#393, MERGED) extracted gain. **44th productive-NEGATIVE this cycle.**
 **Follow-up**: alphonse assigned **#632 Tunable post-NS aspect-ratio exponent** — post-NS-side modification targeting the canonical `max(1, fan_out/fan_in)**0.5` scaling in `muon_update()`. Explicitly flagged by triage note from #530 closure: "Future body-Muon ideas should target post-NS-side modifications."
 
-### 🔄 alphonse #632 — Tunable post-NS aspect-ratio exponent [N=1 sweep COMPLETE 08:54 UTC; SENT BACK 09:08 UTC for paired-pod n=3 confirmation of Arm D winner candidate]
+### 🔄 alphonse #632 — Tunable post-NS aspect-ratio exponent [paired-pod n=3 in progress — Pod 2 Arm D running, ETA ~20:26 UTC, trending productive-NULL]
 
 **Branch:** `g1r4-alphonse/muon-post-ns-aspect-exp`
 
-**Phase 1 (N=1 4-arm sweep) results**:
-| Arm | exp | val/loss | Δ vs A | Δ vs baseline | W&B run |
-|---|---:|---:|---:|---:|---|
-| A | 0.5 (ctrl) | 3.27421 | — | +0.00247 (drift PASS upper edge) | v7q5nij3 |
-| B | 0.0 | 3.27344 | −0.00077 (null) | +0.00170 | 32cjrhjd |
-| C | 0.25 | 3.27463 | +0.00042 (null) | +0.00289 | qn112qgi |
-| **D** | **1.0** | **3.27147** | **−0.00274** ⭐ | **−0.00027** | xs4uapkg |
+**Phase 1 (N=1 4-arm sweep)**: Arm D (exp=1.0) winner candidate at N=1 (val=3.27147, Δ=−0.00274 vs A, Δ=−0.00027 vs OLD baseline 3.27174). Sent back for mandatory paired-pod n=3.
 
-**Arm D = WINNER CANDIDATE at N=1**: passes all three single-seed gates (within-pod Δ=−0.00274, val=3.27147 < baseline 3.27174 by 0.00027 absolute, stat-rule 0.00853 ≥ 0.004). Landscape: wide flat plateau exp ∈ [0.0, 0.5] (all within ±0.0008 of A), single-arm jump at exp=1.0.
+**Phase 2 (paired-pod n=3) — live** — group `g1r4-alphonse/muon-post-ns-aspect-exp-paired`:
 
-**Honest seed-correction caveat**: Arm A's +0.00247 drift is at upper edge of ±0.003 band. Seed-corrected D gain over baseline is only −0.00027 — within the magnitude range where prior N=1 winners have collapsed under paired-pod control. Now **7 cycle precedents for single-seed → paired-pod sign collapse** (#344, #351, #408, #487, #506, #550, #577 today).
+| Pod | Arm A (exp=0.5 ctrl) | Arm D (exp=1.0) | Δ_D_vs_A | Drift gate |
+|---|---|---|---:|---|
+| 0 | `f2fyfups` val=3.27205 | `pvsxw7uy` val=3.27203 | **−0.00002** (null) | A drift +0.00135, PASS |
+| 1 | `i793ei0g` val=3.27049 | `zagy84ul` val=3.27175 | **+0.00126** (sign-flip) | A drift −0.00021, PASS (bullseye) |
+| 2 | `v06cutf6` val=3.27295 ✅ | `s5argpey` 🔄 step ~1750/3350 ETA ~20:26 UTC | TBD | A drift +0.00225, PASS |
 
-**Pre-staged Phase 2 paired-pod n=3 (mandatory before merge)**: Sequential chain, 6 paired runs with SENPAI_SEED ∈ {0, 1, 2}, comparing Arm A (exp=0.5 ctrl) vs Arm D (exp=1.0). Group: `g1r4-alphonse/muon-post-ns-aspect-exp-paired`. Merge gate (all 3 must pass): mean(Δ) ≤ −0.002 AND mean(val_D) ≤ 3.27174 AND (3.28 − mean) × √3 ≥ 0.004.
+**Running mean(Δ, n=2): +0.00062** — firmly in productive-NULL band. Mean(val_D, n=2)=3.27189 → above NEW baseline 3.27070 (Gate 2 failing). Terminal verdict trending: **productive-NULL** (9th N=1→paired-pod collapse precedent). Phase 1 N=1 advantage explained by favorable A seed (A drift +0.00247 at upper edge of ±0.003 band). Post-NS aspect-ratio exponent axis flat around canonical 0.5 on new stack.
 
-**ETA full paired-pod chain:** ~11h. Triton compile fix during Phase 1 (Python int-literal-0 issue with `libdevice.pow(... 0 ...)` inside Triton — guarded with `if NANOGPT_MUON_POST_NS_EXP != 0.0:`) verified to have no semantic effect on arms A/C/D. Parallel winner candidate: #628 nezuko Arm B (val=3.27127) also awaiting paired-pod — orthogonal mechanism (per-layer cos-EMA LR boost pre-NS vs aspect exponent post-NS); if both confirm, may compound.
+**Final SENPAI-RESULT expected ~20:30 UTC** after Pod 2 Arm D terminal.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -228,20 +226,38 @@ Single-seed 4-arm (drift gate A PASS, |3.27277−3.27174|=0.00103): A=3.27277, B
 Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed → mean(Δ_pool)=+0.00068 across n=3 pods. 4th paired-pod false-positive caught this cycle (after #344, #351, #408 AGC). DeepNet/T-Fixup family init-scaling axis closed: NS-normalized Muon updates wash out init scaling within first ~100 steps as hypothesized — but no preserved benefit signal. **27th productive-null/negative this cycle.**
 **Follow-up**: askeladd assigned **#543 per-block NS iter budget** — spatial allocation by aspect ratio (Bernstein-Newhouse). (#542 Lion-aux mis-assignment closed 05:12 UTC — Lion on aux groups already closed in #77, prior round.)
 
-### 🔄 askeladd #669 — Per-block-type WD asymmetry on body Muon [assigned 09:55 UTC]
+### ✅ askeladd #669 — Per-block-type WD asymmetry on body Muon — CLOSED 19:40 UTC productive-NEGATIVE
 
 **Branch:** `g1r4-askeladd/muon-attn-mlp-wd-asym`
 
-**Hypothesis**: Direct extension of #579 (just merged: body-Muon attn=0.80×/mlp=1.20× LR asymmetry, μ_D=3.27070). Same per-block-type partition, orthogonal regularization axis — sweep per-block-type WD multipliers. Mechanism precedent: #550 (uniform body Muon WD reduction 0.025→0, mean Δ=−0.00090 direction-correct sub-threshold). If the gain is concentrated in one block-type (attn vs mlp), per-block-type asymmetric WD captures it cleanly. Aspect-ratio reading: attn (square 768×768) and mlp (4× aspect 768×3072) drift toward different parameter-magnitude equilibria under uniform WD pressure.
+| Arm | attn_wd_mult | mlp_wd_mult | val/loss | Δ vs baseline | within-pod Δ vs A | Verdict | W&B |
+|---|---:|---:|---:|---:|---:|---|---|
+| A (ctrl) | 1.0 | 1.0 | 3.26835 | −0.00235 (drift PASS, favorable seed) | — | baseline | `ml6f98zt` |
+| B | 1.0 | **0.0** | 3.28602 | **+0.01532** | **+0.01767** | **NEGATIVE** | `2a6apjqx` |
+| C | **0.0** | 1.0 | 3.27007 | −0.00063 | +0.00172 | marginal-null | `uinfzkf9` |
+| D | **0.0** | **0.0** | 3.28751 | **+0.01681** | **+0.01916** | **NEGATIVE** | `k7u4nli7` |
 
-| Arm | attn_wd_mult | mlp_wd_mult | Effective attn_WD | Effective mlp_WD | Tests |
-|---|---:|---:|---:|---:|---|
-| A (ctrl) | 1.0 | 1.0 | 0.025 | 0.025 | Bit-identical merged baseline 3.27070 |
-| B | 1.0 | **0.0** | 0.025 | **0** | Drop mlp WD only (mirrors #550 by block-type) |
-| C | **0.0** | 1.0 | **0** | 0.025 | Drop attn WD only |
-| D | **0.0** | **0.0** | **0** | **0** | Drop both (reproduces #550 on new stack) |
+**Key finding**: mlp WD=0.025 is load-bearing (Arm B regression +0.01532); attn WD=0.025 is approximately null (Arm C marginal-null at +0.00172 within-pod). The per-block-type partition shows an asymmetry BUT in the load-bearing direction: mlp needs WD, attn is indifferent. Post-#579 with mlp_lr_mult=1.20 raising mlp effective updates, mlp WD becomes MORE load-bearing. Bilateral WD-reduction fence now closed.
 
-**ETA full chain:** ~7.3h. Implementation: ~20 LOC (mirrors #579 LR-multiplier wiring pattern). If singletons null + compound D signal (mirrors #579), → paired-pod on D. If single B or C signal → asymmetric merge candidate at signaling block-type.
+**Per-block-type Muon family**: LR ✅ MERGED (#579) | WD ✗ NEGATIVE (#669) | μ ✗ NULL (#674) | β₂ 🔄 (#712 in flight) | NS_ITERS per-type: unexplored
+
+**57th productive-null/negative this cycle.**
+
+### 🔄 askeladd #717 — Adan body Muon — momentum-of-difference pre-NS preconditioner [assigned 19:40 UTC]
+
+**Branch:** `g1r4-askeladd/adan-body-muon`
+**Hypothesis**: Replace current body Muon pre-NS preconditioner (heavy-ball EMA + Adam v.sqrt()) with Adan (Xie et al. NeurIPS 2022) — a three-buffer scheme that adds a **momentum-of-gradient-differences** term tracking gradient acceleration. Adan update: `(m + β₂·v_diff) / sqrt(n + ε)` where v_diff = EMA(g_t − g_{t−1}), n = second moment of Nesterov-corrected gradient. Then NS as usual.
+
+**Why fresh**: distinct from AggMo (#711, parallel buffers at same role), Nesterov-Muon (#530, single lookahead step), AdEMAMix (#399 aux), AdaBelief (#474 aux). Adan's differential momentum tracks gradient rate-of-change (a form of second derivative) — mechanically novel pre-NS input.
+
+| Arm | Config | Key change |
+|---|---|---|
+| A (ctrl) | existing `muon_update` | bit-identical baseline |
+| B | Adan(β₁=0.98, β₂=0.92, β₃=0.99) | paper defaults for NLP |
+| C | Adan(β₁=0.98, β₂=0.0, β₃=0.99) | no diff term → degenerates to Adam-style m/sqrt(n)+NS |
+| D | Adan(β₁=0.98, β₂=0.92, β₃=0.999) | conservative v decay matching current Muon β₂ |
+
+B vs C isolates the gradient-difference contribution. B vs D tests second-moment timescale. Implementation: ~30 LOC (2 new state buffers per param + new `muon_update_adan()` + env-var dispatch). ETA full chain ~7.3h.
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 

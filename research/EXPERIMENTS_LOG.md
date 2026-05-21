@@ -3,6 +3,47 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 19:40 UTC — PR #669: Per-block-type WD asymmetry on body Muon (attn vs mlp) (askeladd) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-askeladd/muon-attn-mlp-wd-asym`
+- Hypothesis: Extension of #579 (per-block-TYPE Muon LR asymmetry MERGED) to the weight-decay axis. If the LR asymmetry produces an interaction effect, the analogous WD asymmetry (attn=0 WD, mlp=0.025 or vice versa) might compound. Precedent: #550 (uniform WD drop) was sub-threshold productive at paired-pod (mean Δ=−0.00090). Predicted: the WD-drop signal may be concentrated in one block type, similar to #579 LR pattern.
+
+### Results — 4-arm single-seed sweep (post-#579 stack)
+
+| Arm | attn_wd_mult | mlp_wd_mult | Effective attn_WD | Effective mlp_WD | val/loss | Δ vs NEW baseline (3.27070) | Δ within-pod vs A | Classification | W&B |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|
+| A (ctrl) | 1.0 | 1.0 | 0.025 | 0.025 | 3.26835 | −0.00235 (favorable drift, PASS ±0.003) | — | drift gate PASS | `ml6f98zt` |
+| B | 1.0 | **0.0** | 0.025 | **0** | 3.28602 | **+0.01532** | **+0.01767** | **productive-NEGATIVE** | `2a6apjqx` |
+| C | **0.0** | 1.0 | **0** | 0.025 | 3.27007 | −0.00063 | +0.00172 | productive-NULL (marginal) | `uinfzkf9` |
+| D | **0.0** | **0.0** | **0** | **0** | 3.28751 | **+0.01681** | **+0.01916** | **productive-NEGATIVE** | `k7u4nli7` |
+
+W&B group: `g1r4-askeladd/muon-attn-mlp-wd-asym`
+
+### Key findings
+
+1. **mlp WD=0.025 is load-bearing** — Arm B (drop mlp WD only) regresses by +0.01532; Arm D (drop both) regresses by +0.01681. The mlp regression is independent of attn WD state. On the post-#579 stack with mlp_lr_mult=1.20, mlp parameters receive larger effective updates, making their WD regularization *more* load-bearing.
+
+2. **attn WD=0.025 is approximately null** — Arm C (drop attn WD only) lands at +0.00172 within-pod vs A. Marginal-null vs baseline (−0.00063). attn body parameters tolerate WD=0 with negligible effect.
+
+3. **Hypothesis falsified**: The #550 uniform-drop sub-threshold signal was NOT concentrated in one block type in a productive direction. The WD-reduction direction shows: attn-side is null, mlp-side is load-bearing. Neither direction unlocks a merge.
+
+4. **Mechanism**: The LR asymmetry merge (#579, mlp_lr_mult=1.20 increases mlp effective updates) *increases* mlp WD's load-bearingness post-merge. The two axes (LR and WD) interact: raising mlp LR demands proportionally higher WD to constrain parameter growth. The #550 (uniform WD drop, pre-#579) sub-threshold signal (+0.00090 productive) may have been composed of a tiny attn-WD-drop gain partially cancelling a small mlp-WD-drop loss; on the new stack the mlp-loss is dominant.
+
+5. **Bilateral fence on WD-reduction axis**: #550 (uniform drop, productive-NULL paired-pod) + this PR (per-block-type drop, productive-NEGATIVE on mlp side) fully close the WD-reduction direction. Per-block-type WD axis closed.
+
+6. **Per-block-type Muon family tracking**:
+   - LR axis (#579): **MERGED**
+   - WD axis (#669): **CLOSED NEGATIVE** (this)
+   - mu axis (#674): **CLOSED NULL**
+   - β₂ axis (#712): **IN FLIGHT** (edward)
+   - NS_ITERS per-type: unexplored
+
+**57th productive-negative/null this cycle.** Per-block-type WD-reduction axis closed bilaterally.
+
+**Follow-up**: askeladd assigned **#717 Adan body Muon** — Adan optimizer (Xie et al. NeurIPS 2022) as pre-NS preconditioner replacing heavy-ball+v scheme. Fresh mechanism, mechanically distinct from AggMo (#711, multi-buffer), Nesterov-Muon (#530, closed). 4-arm: A=ctrl, B=Adan-default(β₁=0.98,β₂=0.92,β₃=0.99), C=Adan-nodiff(β₂=0), D=Adan-β₃=0.999. B vs C isolates whether gradient-difference term contributes.
+
+---
+
 ## 2026-05-21 19:20 UTC — PR #674: Per-block-TYPE Muon momentum asymmetry (attn vs mlp mu) (edward) — CLOSED productive-NULL/NEGATIVE
 
 - Branch: `g1r4-edward/muon-attn-mlp-momentum-asym`
