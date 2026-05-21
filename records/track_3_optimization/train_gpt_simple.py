@@ -46,6 +46,12 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_reset_on_sync", type=int,
+                        default=int(os.environ.get("MUONH_RESET_ON_SYNC", "0")),
+                        help="If 1, zero MuonH momentum buffers immediately after each MuLoCo "
+                             "outer sync step (every sync_interval inner steps). Default 0 "
+                             "(current baseline: momentum persists across syncs). Tests whether "
+                             "cross-sync momentum coherence is load-bearing.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -1101,6 +1107,12 @@ for trial_idx in range(args.num_trials):
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
                         total_count += delta.numel()
+                if args.muonh_reset_on_sync:
+                    for group in optimizer2.param_groups:
+                        for p in group["params"]:
+                            state = optimizer2.state.get(p, None)
+                            if state is not None and "momentum" in state:
+                                state["momentum"].zero_()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
