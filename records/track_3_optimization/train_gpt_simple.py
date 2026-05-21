@@ -37,6 +37,16 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# LAMB trust-ratio rescaling on aux AdamW (PR #609). When LAMB_AUX is True we
+# scale each aux param tensor's post-step delta by min(||w||/||delta||, max_trust),
+# effectively setting per-tensor step magnitude relative to weight norm.
+# LAMB_CANONICAL=True multiplies the trust ratio by the per-group lr so the
+# AdamW lr/schedule continues to modulate aux step magnitude (canonical LAMB
+# formula trust = lr * ||w||/||step|| == ||w||/||r||, clipped at max_trust).
+LAMB_AUX = False
+LAMB_MAX_TRUST = 10.0
+LAMB_CANONICAL = False
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -52,6 +62,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lamb_aux", action="store_true", default=False,
+                        help="Enable LAMB trust-ratio rescaling on aux AdamW (PR #609).")
+    parser.add_argument("--lamb_max_trust", type=float, default=10.0,
+                        help="Maximum LAMB trust ratio (clip ||w||/||step|| at this value).")
+    parser.add_argument("--lamb_canonical", action="store_true", default=False,
+                        help="Use canonical LAMB formula trust=lr*||w||/||step|| (preserves lr modulation).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -61,6 +77,9 @@ def parse_args():
 
 
 args = parse_args()
+LAMB_AUX = args.lamb_aux
+LAMB_MAX_TRUST = args.lamb_max_trust
+LAMB_CANONICAL = args.lamb_canonical
 
 
 def clean_metric_name(name: str) -> str:
@@ -621,6 +640,74 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
     return {}
 
 
+def save_lamb_pre_step(optimizer):
+    """Snapshot pre-step parameter data for LAMB trust-ratio rescaling."""
+    for group in optimizer.param_groups:
+        for p in group["params"]:
+            p._lamb_pre_step = p.data.clone()
+
+
+def apply_lamb_trust_ratio(optimizer, max_trust, canonical=False, log=False):
+    """Rescale each aux param's post-step delta by a LAMB trust ratio.
+
+    Two variants:
+      - Literal (canonical=False): trust = min(||w||/||step||, max_trust). Because
+        step = -lr*r, this absorbs the lr factor so aux LR schedule no longer
+        modulates step magnitude in the unclipped regime. New step = -r*||w||/||r||.
+      - Canonical (canonical=True): trust = min(lr*||w||/||step||, max_trust)
+        == min(||w||/||r||, max_trust). lr/cooldown is preserved. New step
+        magnitude = -lr * r * trust = -lr * r * ||w||/||r||.
+
+    Per-tensor: each parameter gets its own trust ratio.
+
+    Returns a dict of per-group statistics for W&B logging when log=True (otherwise
+    no GPU->CPU sync occurs on this code path).
+    """
+    log_data = {} if log else None
+    for group in optimizer.param_groups:
+        group_name = group.get("name", "aux")
+        group_lr = float(group.get("lr", 1.0))
+        trusts: list[Tensor] = []
+        w_norms: list[Tensor] = []
+        step_norms: list[Tensor] = []
+        for p in group["params"]:
+            if not hasattr(p, "_lamb_pre_step"):
+                continue
+            pre = p._lamb_pre_step
+            step = p.data - pre
+            w_norm = pre.float().norm(2)
+            step_norm = step.float().norm(2)
+            raw = w_norm / step_norm.clamp_min(1e-12)
+            if canonical:
+                raw = raw * group_lr
+            ones = torch.ones_like(w_norm)
+            trust = torch.where(
+                (w_norm > 0) & (step_norm > 0),
+                raw.clamp_max(max_trust),
+                ones,
+            )
+            p.data.copy_(pre + step * trust.to(step.dtype))
+            del p._lamb_pre_step
+            if log:
+                trusts.append(trust)
+                w_norms.append(w_norm)
+                step_norms.append(step_norm)
+        if log and trusts:
+            t_stack = torch.stack(trusts)
+            w_stack = torch.stack(w_norms)
+            s_stack = torch.stack(step_norms)
+            log_data[f"lamb/{group_name}/trust_mean"] = float(t_stack.mean().item())
+            log_data[f"lamb/{group_name}/trust_max"] = float(t_stack.max().item())
+            log_data[f"lamb/{group_name}/trust_min"] = float(t_stack.min().item())
+            log_data[f"lamb/{group_name}/trust_clipped_fraction"] = float(
+                (t_stack >= max_trust - 1e-6).float().mean().item()
+            )
+            log_data[f"lamb/{group_name}/w_norm_mean"] = float(w_stack.mean().item())
+            log_data[f"lamb/{group_name}/step_norm_mean"] = float(s_stack.mean().item())
+            log_data[f"lamb/{group_name}/tensors"] = float(len(trusts))
+    return log_data
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -704,6 +791,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "lamb_aux": LAMB_AUX,
+            "lamb_max_trust": LAMB_MAX_TRUST,
+            "lamb_canonical": LAMB_CANONICAL,
         },
     )
 
@@ -879,8 +969,22 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        lamb_log: dict = {}
         for opt in optimizers:
+            if LAMB_AUX and opt is optimizer1:
+                save_lamb_pre_step(opt)
             opt.step()
+            if LAMB_AUX and opt is optimizer1:
+                lamb_log = apply_lamb_trust_ratio(
+                    opt,
+                    LAMB_MAX_TRUST,
+                    canonical=LAMB_CANONICAL,
+                    log=(dist.get_rank() == 0 and telemetry_due),
+                )
+        if dist.get_rank() == 0 and telemetry_due and lamb_log:
+            lamb_log["trial"] = trial_idx
+            lamb_log["train/step"] = train_step
+            wandb.log(lamb_log, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
