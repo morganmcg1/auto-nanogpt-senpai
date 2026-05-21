@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-21 15:15 UTC — PR #658 CLOSED: Post-NS momentum in PMuon — NULL/NULL, 49th axis (g1r1-edward)
+
+- Branch: `g1r1-edward/post-ns-momentum`
+- Hypothesis: moving the EMA momentum step to AFTER Newton-Schulz (post-NS) would separate temporal smoothing from the polar map, giving cleaner per-step update directions. Arm B (post_ns_repolar) additionally re-polars the post-NS EMA to restore unit spectral norm.
+
+| Arm | Config | W&B | Steps | val/loss | sr | spec_norm (final) | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline** | pre_ns (default) | k7ylyby9/dm4joozw | 3250 | 3.264278 (n=2) | 2937.5 | — | — | — |
+| A | post_ns | d9ifhvbr | 3250 | **3.29212** | -1 DNF | 0.491 | +0.028 | NULL clear |
+| B | post_ns_repolar | 9f46i8v1 | 2550 (killed) | 3.367 @ step 2500 | DNF | 0.469 | ~+0.024 extrapolated | NULL clear |
+
+**Matched-step comparison (Arm A vs Arm B, student-corrected):**
+Arm B tracked Arm A at every step by ~5 mnat better (not worse as originally claimed), but both tracked 26-28 mnat above baseline at every step. Arm B killed at step 2550 per advisor instruction (`val>3.30 @step 2500 → 3.367`).
+
+**Mechanism (cleanest read in 10 axes):**
+
+1. **Direction matters, not magnitude.** Arm B (post_ns_repolar) restored per-step unit spectral norm — the same magnitude as baseline — yet val tracked Arm A's sub-unit trajectory. This isolates the failure as directional mis-targeting.
+
+2. **polar() is non-linear.** `polar(EMA(grads))` and `EMA(polar(grads))` point in qualitatively different directions. The baseline's polar-of-EMA direction is empirically better for this model+schedule — a causal mechanism, not just an empirical scan.
+
+3. **Pre-NS placement CONFIRMED load-bearing.** EMA-of-polar settles at spec_norm ≈ 0.47, reducing effective update magnitude. Arm B's repolar corrects magnitude but not direction → magnitude is not the failure mode.
+
+4. **Implementation bugs uncovered:** bf16/fp32 dtype mismatch on `polar_g.to(momentum.dtype)` + momentum buffer aliasing (clone needed before uw-floor in-place multiply). Both fixed, gated behind `--momentum_position != pre_ns`.
+
+**Axis closure impact:** Body-Muon operator ordering (momentum/polar swap) FULLY CLOSED. Both alternative orderings tested; pre-NS is the empirical and mechanistic optimum.
+
+**Cross-axis note:** Edward's suggested follow-up (α·polar(EMA) + (1-α)·polar(grad_t) interpolation) partially overlaps with #682 askeladd's mu schedule experiment (same temporal-smoothing-vs-instantaneous axis) and is not independently assigned.
+
+---
+
 ## 2026-05-21 14:00 UTC — PR #644 CLOSED: Winsorization pre-NS body-Muon k={1.5, 3.0} — NULL/NULL, 48th axis (g1r1-fern)
 
 - Branch: `g1r1-fern/winsorize-pre-ns`
