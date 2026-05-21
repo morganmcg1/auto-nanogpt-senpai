@@ -37,6 +37,15 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Body-Muon mu temporal schedule (PR #682)
+# "A" = cooldown ramp DOWN  (mu 0.95 → 0.85 during cooldown)
+# "B" = warmup  ramp UP     (mu 0.0  → 0.95 over first 250 steps)
+# "off" = static mu=0.95 (baseline behavior)
+MU_SCHEDULE_ARM = "B"
+MU_BASE = 0.95
+MU_COOLDOWN_END = 0.85
+MU_WARMUP_STEPS = 250
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -760,10 +769,19 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
+        # Body-Muon mu temporal schedule (PR #682)
+        if MU_SCHEDULE_ARM == "A":
+            mu_value = MU_BASE - (MU_BASE - MU_COOLDOWN_END) * cooldown_progress if cooldown_progress > 0 else MU_BASE
+        elif MU_SCHEDULE_ARM == "B":
+            mu_value = MU_BASE * step / MU_WARMUP_STEPS if step < MU_WARMUP_STEPS else MU_BASE
+        else:
+            mu_value = MU_BASE
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+                if "mu" in group:
+                    group["mu"] = mu_value
+        return progress, cooldown_progress, eta, mu_value
 
 
     ########################################
@@ -852,7 +870,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_mu = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -919,6 +937,7 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "train/pmuon/mu": sched_mu,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
