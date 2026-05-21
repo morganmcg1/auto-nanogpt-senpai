@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 21:00 UTC
+- **Date:** 2026-05-21 21:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -332,17 +332,53 @@ Single-seed 4-arm (drift gate A PASS, |3.27134−3.27174|=0.00040): A=3.27134, B
 Chain thrashed for ~5h with 6+ crashes across arms. Student identified key implementation limitation: `proj.weight=0` init at line 828 blocks gradient flow back through model during ghost steps (zero-inits all "proj" weights so `F.linear` backward `grad_input = grad_output @ proj.weight = 0`). Ghost steps thus only warm `lm_head` AdamW second-moment, NOT embed or scalar. The single completed arm (C ghost=25) reached **val=3.3018** — a +0.030 catastrophic regression vs baseline 3.27174, indicating ghost-step warmstart of lm_head's AdamW v_t is actively harmful. **43rd productive-NULL/NEGATIVE this cycle.** WAVE3 IDEA 7 (cold-start v_t direction) axis: closed. **Key durable finding (reusable across this programme): proj.weight=0 init blocks all upstream grad flow during pre-step probes — future optimizer-state-warming experiments must account for this.**
 **Follow-up**: nezuko assigned **#628 trust-region adaptive Muon LR** — per-layer cos-EMA boost on rare-aligned layers. First experiment to AMPLIFY the rare-productive-direction signal rather than suppress conflict (vs #126 Contra-Soft attenuate, #163 DMR reset, #419 Cautious mask — all closed). Mechanistically distinct from all closed gradient-direction-aware mechanisms.
 
-### 🔄 nezuko #628 — Trust-region adaptive Muon LR (per-layer cos-EMA boost) [assigned 00:15 UTC]
+### ✅ nezuko #628 — Trust-region adaptive Muon LR (per-layer cos-EMA boost) — CLOSED 21:40 UTC productive-NULL
 
 **Branch:** `g1r4-nezuko/trust-region-muon-lr`
-**Hypothesis**: After 43 productive-NULLs, structurally distinct mechanism — boost Muon LR on layers where grad·momentum cosine EMA is positive (rare-productive layers per #154 90% conflict finding). Per-layer cos_ema tracks long-run direction agreement; trust_scale = 1 + boost × max(cos_ema, 0). Leaves common-conflict case at LR=1.0 (no harm), amplifies rare-aligned layers (productive signal). Distinct from #163 DMR (resets buffer), #126 Contra-Soft (attenuates gradient), #419 Cautious (masks elements), #120/#434 Lookahead (blends weights).
-| Arm | NANOGPT_MUON_TRUST_BOOST | NANOGPT_MUON_TRUST_BETA | Tests |
+
+Paired-pod n=3 terminal (only Arm B at BOOST=0.5 advanced after Phase 1 N=1):
+
+| Pod | A val (ctrl) | B val (BOOST=0.5) | Δ_B_vs_A | A-drift vs 3.27070 |
+|---|---:|---:|---:|---:|
+| 0 | `785bssa9` 3.26902 | `y4lkmh68` 3.27291 | **+0.00389** (regression, 2.6× threshold) | −0.00168 (favorable) |
+| 1 | `tu2c0ipa` 3.27344 | `7z8bjifp` 3.27219 | **−0.00125** (sub-threshold) | +0.00274 (unfavorable) |
+| 2 | `r3txbt4h` 3.27269 | `hbdi8w4c` 3.27205 | **−0.00064** (sub-threshold) | +0.00199 (mid) |
+| **mean (n=3)** | **3.27172** | **3.27238** | **+0.00067** | sd_A=0.00224 |
+
+**Gates** (vs NEW baseline 3.27070): Gate 1 (mean Δ ≤ −0.002) FAIL at +0.00067 (wrong sign). Gate 2 (mean(val_B) ≤ 3.27070) FAIL at 3.27238 (+0.00168). Gate 3 stat-rule (3.28−3.27238)×√3=0.01319 PASS (moot). **No merge.**
+
+**Phase 1 → Phase 2 collapse**: Phase 1 Δ_B_vs_A=−0.00268 → n=3 mean Δ=+0.00067. **Direction-flip + sign collapse**. Phase 1 Arm A had drift +0.00221 (upper edge); the negative within-pod Δ was inflated by unfavorable A seed AND was measured against OLD baseline 3.27174 (pre-#579). **#579's merge absorbed the productive component** — same productive signal the cos-EMA boost was extracting.
+
+**11th N=1→paired-pod collapse precedent** post-#579.
+
+**Mechanism reading — sub-percent LR boost + favorable-seed anti-amplification**:
+
+Trust-mechanism telemetry across 3 B pods (reproducible — failure is at val/loss, not implementation):
+- Max LR amplification: **<1% mean, <0.7% peak** even at BOOST=0.5
+- cos_ema_pos_frac final: 0.208 / 0.236 / 0.333 (consistent across pods)
+- lr_scale_max final: 1.00641 / 1.00344 / 1.00435
+
+**Pod 0 (favorable A seed) anti-amplification**: Arm B over-shoots into +0.00389 regression while Arm A is at 3.26902 — BOOST pushes LR HIGHER when training is already going well, accelerating into overshoot. The "rare-productive amplification" hypothesis is INVERTED on favorable seeds.
+
+**Mechanism class fully fenced**: Direction-aware Muon update modifications joining #126 Contra-Soft, #163 DMR, #419 Cautious, #629 layer-aggregate Contra-Soft, #530 Nesterov-Muon — all NULL/NEGATIVE.
+
+**59th productive-null/negative this cycle.**
+
+### 🔄 nezuko #724 — Per-block-TYPE NS_ITERS_COOLDOWN (attn vs mlp precision) [assigned 21:40 UTC]
+
+**Branch:** `g1r4-nezuko/per-type-ns-cooldown`
+**Hypothesis**: Last untested per-block-TYPE Muon hparam axis. NS_ITERS_COOLDOWN=16 is uniform across all 72 body Muon matrices. With #579's `attn=0.80×, mlp=1.20×` LR asymmetry, MLP matrices take 1.5× larger effective steps; combined with their 4:1 aspect ratio (slower NS convergence), MLP may benefit from MORE cooldown iterations. Attn matrices (square, fast NS convergence + conservative 0.80× LR) may be over-converged at NS=16 — could be FLOP-neutral or productive to reduce.
+
+**NS-schedule axis is the most prolific merge source** in this branch (3 of 9 merges: #176, #285, #290). Per-block-TYPE family completes: LR ✓#579 / WD ✗#669 / μ ✗#674 / aspect-exp ✗#632 / β₂ 🔄#712 / NS_ITERS_COOLDOWN: this PR.
+
+| Arm | NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN | NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN | Tests |
 |---|---:|---:|---|
-| A | 0.0 (ctrl) | n/a | Reproduces merged baseline |
-| B | **0.5** | 0.97 | Mild boost (full alignment → 1.5× LR) |
-| C | **1.0** | 0.97 | Moderate boost (full alignment → 2.0× LR) |
-| D | **2.0** | 0.97 | Aggressive boost (full alignment → 3.0× LR) |
-**ETA full chain:** ~7.3h. Computational overhead ~12 cosines per step (negligible).
+| A (ctrl) | 16 | 16 | Bit-identical merged baseline |
+| B | **20** | 16 | Attn extra precision — do square attn benefit beyond NS=16? |
+| C | 16 | **20** | MLP extra precision — do rectangular mlp need more cooldown iters at 1.5× step? |
+| D | **12** | **20** | Compound asymmetry — attn relies on fast square convergence; mlp gets max precision (FLOP-neutral) |
+
+**Distinct from**: #710 frieren in-flight (per-depth NS body phase, not cooldown), #543 (per-aspect-ratio NS body phase, NULL), #470 (uniform body NS sweep, plateau [10,14]), #590 (NS_COOLDOWN_START_FRAC, NULL). **Smoke verification ask**: telemetry confirms per-group ns_iters values fire correctly in cooldown only. ETA full chain ~7.3h. Implementation: ~30-50 LOC (extends per-block-type wiring from #579/#669/#674/#712 to NS_ITERS_COOLDOWN).
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 

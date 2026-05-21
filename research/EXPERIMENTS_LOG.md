@@ -3,6 +3,81 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 21:40 UTC — PR #628: Trust-region adaptive Muon LR — per-layer cos-EMA boost (nezuko) — CLOSED productive-NULL
+
+- Branch: `g1r4-nezuko/trust-region-muon-lr`
+- Hypothesis: Per-layer trust signal `trust_scale = 1 + BOOST × max(cos_ema_grad_momentum, 0)` amplifies Muon LR on rare-productive layers (#154 90% conflict finding). Phase 1 N=1 Arm B (BOOST=0.5) showed Δ_B_vs_A=−0.00268 against OLD baseline 3.27174 — winner candidate sent back for paired-pod n=3 confirmation against NEW post-#579 baseline 3.27070.
+
+### Phase 2 — paired-pod n=3 (group `g1r4-nezuko/trust-region-muon-lr-paired-pod-postNS579`)
+
+| Pod | Arm A (BOOST=0.0) val | Arm B (BOOST=0.5) val | Δ_B_vs_A | A-drift vs base 3.27070 | W&B (A, B) |
+|---|---:|---:|---:|---:|---|
+| 0 | 3.26902 | 3.27291 | **+0.00389** (regression 2.6× threshold) | −0.00168 (favorable) | `785bssa9`, `y4lkmh68` |
+| 1 | 3.27344 | 3.27219 | **−0.00125** (sub-threshold) | +0.00274 (unfavorable) | `tu2c0ipa`, `7z8bjifp` |
+| 2 | 3.27269 | 3.27205 | **−0.00064** (sub-threshold) | +0.00199 (mid) | `r3txbt4h`, `hbdi8w4c` |
+| **mean (n=3)** | **3.27172** | **3.27238** | **+0.00067** | sd_A=0.00224 | — |
+
+### Merge gate verdict (against NEW baseline 3.27070)
+
+| Gate | Rule | Result | Status |
+|---|---|---:|---|
+| 1 | mean(Δ_B_vs_A, n=3) ≤ −0.002 | **+0.00067** | **FAIL** (wrong sign) |
+| 2 | mean(val_B, n=3) ≤ 3.27070 | 3.27238 (+0.00168) | **FAIL** |
+| 3 | (3.28 − mean(val_B)) × √3 ≥ 0.004 | 0.01319 | PASS (moot) |
+
+Gates 1+2 FAIL → **NO merge**. mean(Δ)=+0.00067 in productive-NULL band but regression-leaning.
+
+### Phase 1 → Phase 2 collapse + direction flip
+
+| Phase | n | Δ_B_vs_A | vs baseline |
+|---|---:|---:|---|
+| Phase 1 (single screening) | 1 | **−0.00268** ⭐ | OLD baseline 3.27174 |
+| Phase 2 (paired-pod n=3) | 3 | **+0.00067** | NEW baseline 3.27070 |
+
+Phase 1 N=1 signal came from compound effects: (a) Arm A drift +0.00221 (upper edge) inflating Δ; (b) measurement against OLD pre-#579 baseline. **#579's merge of body-Muon attn/mlp LR asymmetry (Δ=−0.00104) absorbed the productive component** the cos-EMA boost was extracting. On the new baseline, this mechanism is direction-incorrect on average.
+
+**11th N=1→paired-pod collapse precedent** post-#579 (joining #344, #351, #408, #487, #506, #550, #577, #595, #628, #632 — almost cycle-uniform pattern at this baseline).
+
+### Trust-mechanism telemetry — reproducible failure, not implementation bug
+
+| Pod | cos_ema_mean (final) | cos_ema_pos_frac (final) | lr_scale_max (final) | Δ_B_vs_A |
+|---|---:|---:|---:|---:|
+| 0 | −0.01465 | 0.208 | 1.00641 | +0.00389 |
+| 1 | −0.01469 | 0.236 | 1.00344 | −0.00125 |
+| 2 | −0.01348 | 0.333 | 1.00435 | −0.00064 |
+
+**Max LR amplification is <1% mean, <0.7% peak even at BOOST=0.5.** The cos-EMA per-layer trust signal fires consistently — the mechanism is reproducible. Sub-percent LR boost cannot extract net gain at this baseline (seed-noise σ≈0.001).
+
+### Pod 0 anti-amplification — favorable-seed signature
+
+Pod 0 (Arm A drift −0.00168 favorable): Arm B *over*-shoots into **+0.00389 regression** while Arm A landed at 3.26902. The BOOST mechanism pushes LR HIGHER when training is already going well — accelerating into overshoot rather than rescuing. **The "rare-productive amplification" hypothesis is INVERTED on favorable seeds** (where there's less amplification headroom because optimization is already well-aligned with global descent direction).
+
+### Mechanism class — FULLY CLOSED
+
+Direction-aware Muon update modifications all NULL/NEGATIVE on post-#579 stack:
+- #126 Contra-Soft (attenuate gradient) — closed
+- #163 DMR (momentum buffer reset) — closed
+- #419 Cautious AdamW mask — closed
+- #629 layer-aggregate Contra-Soft — closed
+- #530 Nesterov-Muon — closed
+- #628 trust-region boost — closed (this PR)
+
+The NS-orthogonalization downstream normalizes spectral structure such that direction-aware pre-NS interventions get absorbed.
+
+### Productive learning
+
+1. **Sub-percent LR adjustments cannot extract gain at this baseline**: any per-layer LR boost mechanism with <1% effective magnitude is below seed-noise floor (~0.001 in val/loss). Future trust-region or adaptive-LR mechanisms need larger boost magnitudes or operate on a different signal (e.g., gradient covariance vs cosine).
+2. **Favorable-seed anti-amplification anti-pattern**: BOOST mechanisms over-shoot on favorable seeds. Future adaptive-LR work should **suppress** (not boost) updates when training is going well — Polyak-style anti-amplification.
+3. **Direction-aware modification class is exhausted**: 6 mechanisms tested, all NULL/NEGATIVE. NS-orthogonalization downstream absorbs direction-level interventions.
+
+**59th productive-null/negative this cycle.**
+
+Closing comment: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/628#issuecomment-4512952609
+
+Follow-up: nezuko assigned **#724 per-block-TYPE NS_ITERS_COOLDOWN (attn vs mlp precision allocation)** — last untested per-block-TYPE Muon hparam axis. Tests whether attn vs mlp matrices benefit differently from cooldown NS precision given #579's LR asymmetry created 1.5× larger step magnitudes for mlp + their 4:1 aspect ratio (slower NS convergence).
+
+---
+
 ## 2026-05-21 21:00 UTC — PR #632: Tunable post-NS aspect-ratio exponent — Muon update scaling (alphonse) — CLOSED productive-NULL
 
 - Branch: `g1r4-alphonse/muon-post-ns-aspect-exp`
