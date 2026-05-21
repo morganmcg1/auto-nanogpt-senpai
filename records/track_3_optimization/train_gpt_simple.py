@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #678: per-group cooldown_frac — decouples Muon and AdamW LR-cooldown timing.
+# Defaults (0.7, 0.7) reproduce the prior shared-cooldown schedule byte-for-byte.
+MUON_COOLDOWN_FRAC = float(os.environ.get("MUON_COOLDOWN_FRAC", "0.7"))
+ADAMW_COOLDOWN_FRAC = float(os.environ.get("ADAMW_COOLDOWN_FRAC", "0.7"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +870,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_cooldown_frac": MUON_COOLDOWN_FRAC,
+            "optimizer/adamw_cooldown_frac": ADAMW_COOLDOWN_FRAC,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -913,29 +919,38 @@ for trial_idx in range(args.num_trials):
             group["initial_lr"] = group["lr"]
 
     # learning rate schedule: stable then decay
-    def set_hparams(step, cooldown_frac=0.7):
+    # PR #678: per-group cooldown_frac. Muon (muon_blocks) and AdamW (embed +
+    # lm_head + scalars) use independent cooldown fractions. When both env vars
+    # default to 0.7 the schedule reproduces the prior shared-cooldown behavior
+    # byte-for-byte. The MU_COOLDOWN_* mu schedule tracks the Muon-side cooldown.
+    def _eta_for_frac(progress, cooldown_frac):
+        if progress < 1 - cooldown_frac:
+            return 1.0
+        return (1 - progress) / cooldown_frac
+
+    def set_hparams(step):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-        else:
-            eta = (1 - progress) / cooldown_frac
+        eta_muon = _eta_for_frac(progress, MUON_COOLDOWN_FRAC)
+        eta_adamw = _eta_for_frac(progress, ADAMW_COOLDOWN_FRAC)
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
                 cur_mu = MU_WARMUP_START + (MU_COOLDOWN_START - MU_WARMUP_START) * w
-            elif progress < 1 - cooldown_frac:
+            elif progress < 1 - MUON_COOLDOWN_FRAC:
                 cur_mu = MU_COOLDOWN_START
             else:
-                t = (progress - (1 - cooldown_frac)) / cooldown_frac
+                t = (progress - (1 - MUON_COOLDOWN_FRAC)) / MUON_COOLDOWN_FRAC
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
+                    group["lr"] = group["initial_lr"] * eta_muon
                     group["mu"] = cur_mu
+                else:
+                    group["lr"] = group["initial_lr"] * eta_adamw
 
 
     ########################################
