@@ -29,6 +29,17 @@ PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
 
 
+def bool_flag(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value.lower() in ("true", "1", "yes", "on", "t"):
+            return True
+        if value.lower() in ("false", "0", "no", "off", "f"):
+            return False
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got: {value!r}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -71,6 +82,24 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--use_cautious_adamw", type=bool_flag, default=False,
+                        help="Replace torch.optim.AdamW for embed/lm_head/scalars groups "
+                             "with the in-script CautiousAdamW (Liang 2024, arXiv:2411.16085). "
+                             "With --cautious_mask_mode=off this is a refactor no-op.")
+    parser.add_argument("--cautious_mask_mode", type=str, default="boolean",
+                        choices=["off", "boolean", "soft"],
+                        help="Mask mode for CautiousAdamW. off=standard AdamW path; "
+                             "boolean=(adam_step*g>0).float(); "
+                             "soft=sigmoid(soft_gamma*cosine_proxy).")
+    parser.add_argument("--cautious_mask_normalize", type=bool_flag, default=False,
+                        help="Normalize mask per-tensor by max(mean(mask), 0.01) to "
+                             "preserve average update magnitude.")
+    parser.add_argument("--cautious_soft_gamma", type=float, default=10.0,
+                        help="Sigmoid scaling factor for soft mask "
+                             "(only used when --cautious_mask_mode=soft).")
+    parser.add_argument("--cautious_scalars_only", type=bool_flag, default=False,
+                        help="Apply the cautious mask ONLY to the adam_scalars group. "
+                             "Embed and lm_head fall back to mask_mode=off (standard AdamW path).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -554,6 +583,136 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+class CautiousAdamW(torch.optim.Optimizer):
+    """Cautious AdamW (Liang et al. 2024, arXiv:2411.16085).
+
+    Masks per-coordinate updates where the Adam step direction disagrees with the
+    current gradient (m·g < 0). With mask_mode='off' this reduces to standard AdamW
+    and provides a refactor no-op gate for ablations. mask_mode='boolean' applies
+    the paper-default hard mask; mask_mode='soft' uses sigmoid(soft_gamma·cos_proxy).
+
+    Per-group settings (mask_mode, mask_normalize, soft_gamma) allow surgical
+    targeting (e.g. mask only the scalars group while embed/lm_head remain
+    standard AdamW).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, mask_mode="boolean", mask_normalize=False,
+                 soft_gamma=10.0):
+        if mask_mode not in ("off", "boolean", "soft"):
+            raise ValueError(f"Unknown mask_mode: {mask_mode!r}")
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        mask_mode=mask_mode, mask_normalize=mask_normalize,
+                        soft_gamma=soft_gamma)
+        super().__init__(params, defaults)
+        self._mask_density_sum: dict[str, Tensor] = {}
+        self._mask_density_count: dict[str, int] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for g_idx, group in enumerate(self.param_groups):
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            mask_mode = group["mask_mode"]
+            mask_normalize = group["mask_normalize"]
+            soft_gamma = group["soft_gamma"]
+            group_name = group.get("name", f"cautious_adamw_group_{g_idx}")
+
+            mask_sum_acc: Tensor | None = None
+            mask_count_acc = 0
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p.data)
+                    state["exp_avg_sq"] = torch.zeros_like(p.data)
+                state["step"] += 1
+                t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                grad = p.grad
+
+                # Standard Adam moments
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                bias_corr1 = 1 - beta1 ** t
+                bias_corr2 = 1 - beta2 ** t
+
+                denom = (exp_avg_sq.sqrt() / (bias_corr2 ** 0.5)).add_(eps)
+                adam_step = (exp_avg / bias_corr1) / denom
+
+                # Decoupled weight decay (matches torch.optim.AdamW with decoupled WD)
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+
+                if mask_mode == "off":
+                    update = adam_step
+                elif mask_mode == "boolean":
+                    raw_mask = (adam_step * grad > 0).to(adam_step.dtype)
+                    if mask_sum_acc is None:
+                        mask_sum_acc = raw_mask.sum()
+                    else:
+                        mask_sum_acc = mask_sum_acc + raw_mask.sum()
+                    mask_count_acc += raw_mask.numel()
+                    if mask_normalize:
+                        mean_mask = raw_mask.mean().clamp_min(0.01)
+                        mask = raw_mask / mean_mask
+                    else:
+                        mask = raw_mask
+                    update = adam_step * mask
+                else:  # 'soft'
+                    cosine_proxy = (adam_step * grad) / (
+                        adam_step.abs() * grad.abs() + eps
+                    )
+                    raw_mask = torch.sigmoid(soft_gamma * cosine_proxy)
+                    if mask_sum_acc is None:
+                        mask_sum_acc = raw_mask.sum()
+                    else:
+                        mask_sum_acc = mask_sum_acc + raw_mask.sum()
+                    mask_count_acc += raw_mask.numel()
+                    if mask_normalize:
+                        mean_mask = raw_mask.mean().clamp_min(0.01)
+                        mask = raw_mask / mean_mask
+                    else:
+                        mask = raw_mask
+                    update = adam_step * mask
+
+                p.data.add_(update, alpha=-lr)
+
+            if mask_count_acc > 0 and mask_sum_acc is not None:
+                self._mask_density_sum[group_name] = mask_sum_acc
+                self._mask_density_count[group_name] = mask_count_acc
+            else:
+                self._mask_density_sum.pop(group_name, None)
+                self._mask_density_count.pop(group_name, None)
+
+        return loss
+
+    def get_mask_density(self) -> dict[str, float]:
+        """Return latest-step mean mask density per param group (pre-normalize).
+
+        Returns an empty dict for groups in mask_mode='off' (no mask applied).
+        Triggers a GPU->CPU sync per group; call only when telemetry is due.
+        """
+        out: dict[str, float] = {}
+        for name, total in self._mask_density_sum.items():
+            count = self._mask_density_count.get(name, 0)
+            if count == 0:
+                continue
+            out[name] = float(total.item()) / count
+        return out
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
@@ -752,6 +911,11 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "use_cautious_adamw": bool(args.use_cautious_adamw),
+            "cautious_mask_mode": args.cautious_mask_mode,
+            "cautious_mask_normalize": bool(args.cautious_mask_normalize),
+            "cautious_soft_gamma": float(args.cautious_soft_gamma),
+            "cautious_scalars_only": bool(args.cautious_scalars_only),
         },
     )
 
@@ -783,10 +947,42 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.use_cautious_adamw:
+        # Per-group mask_mode: when --cautious_scalars_only is set, only the
+        # scalars group is masked; embed/lm_head fall back to mask_mode='off'
+        # (standard AdamW path under the CautiousAdamW class).
+        if args.cautious_scalars_only:
+            embed_mask_mode = "off"
+            lm_head_mask_mode = "off"
+            scalars_mask_mode = args.cautious_mask_mode
+        else:
+            embed_mask_mode = args.cautious_mask_mode
+            lm_head_mask_mode = args.cautious_mask_mode
+            scalars_mask_mode = args.cautious_mask_mode
+
+        scalar_params_adam = [p for p in model.parameters() if p.ndim < 2]
+        optimizer1 = CautiousAdamW(
+            [
+                dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+                     mask_mode=embed_mask_mode,
+                     mask_normalize=args.cautious_mask_normalize,
+                     soft_gamma=args.cautious_soft_gamma),
+                dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+                     mask_mode=lm_head_mask_mode,
+                     mask_normalize=args.cautious_mask_normalize,
+                     soft_gamma=args.cautious_soft_gamma),
+                dict(params=scalar_params_adam, lr=args.lr_scalars, name="adam_scalars",
+                     mask_mode=scalars_mask_mode,
+                     mask_normalize=args.cautious_mask_normalize,
+                     soft_gamma=args.cautious_soft_gamma),
+            ],
+            betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -961,6 +1157,8 @@ for trial_idx in range(args.num_trials):
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
                            for i, group in enumerate(optimizer2.param_groups)}
+            mask_densities = (optimizer1.get_mask_density()
+                              if isinstance(optimizer1, CautiousAdamW) else {})
             if dist.get_rank() == 0:
                 per_group_metrics = {"trial": trial_idx, "train/step": train_step}
                 for name, mean_norm in update_norms.items():
@@ -972,6 +1170,8 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                for name, density in mask_densities.items():
+                    per_group_metrics[f"train/cautious_mask_density/{name}"] = density
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
