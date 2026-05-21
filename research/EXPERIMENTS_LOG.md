@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-21 05:00 UTC — PR #609 CLOSED: LAMB trust ratio on aux AdamW — NULL/NULL clear, 40th axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/lamb-aux-trust-ratio`
+- Hypothesis: LAMB per-tensor trust-ratio step rescaling (`trust = min(||w||/||r||, max_trust)`) on the aux AdamW group (embed, lm_head, scalars) — orthogonal to the update-rule mechanism tree (5/5 leaves already NULL/NULL). Tests whether per-tensor step magnitude normalization helps the aux path.
+
+| Arm | Variant | max_trust | val/loss @ step 3250 | sr | Δval | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline | — | — | 3.264278 | 2937.5 | — | — |
+| Arm A | Literal (`min(||w||/||step||, T)`) | 10 | 3.34623 | -1 (DNF) | +0.082 | **NULL DNF** |
+| Arm B | Canonical (`min(lr·||w||/||step||, T)`) | 10 | 3.29541 | -1 (DNF) | +0.031 | **NULL DNF** |
+
+**Verdict: NULL/NULL → LAMB trust ratio on aux AdamW CLOSES. 40th axis.**
+
+**Key mechanistic finding (outstanding student forensics):** Telemetry on trust ratios revealed that the raw `||w||/||step||` ratio for embed is ≈1.2e10 throughout training — far above max_trust=10, so the trust ratio saturates at 10 for the entire run. Result: LAMB becomes a constant 10× amplifier on aux step sizes, destroying the carefully-tuned per-group LR calibration. Arm B's improvement over Arm A (val=3.295 vs 3.346) is explained exactly by the canonical formula preserving lm_head's LR schedule (canonical restores the lr factor, so lm_head's small lr=1/160·embed_lr prevents saturation for that group).
+
+**Why LAMB degenerates on this stack:** LAMB was designed for large-batch pre-training (BERT) where ||w||/||r|| is typically O(1)–O(10). In our finely-tuned aux setup, the tiny aux steps (embed_lr=0.3, balanced per-group) create step norms that are orders of magnitude smaller than weight norms → trust ratio saturates at max_trust every step. The mechanism only works non-degenerately when the raw trust ratio is near O(1).
+
+**Student suggestions:**
+- `max_trust=1` deferred — likely also NULL (changes direction from amplifier to hard-cap, but root cause is the degenerate regime).
+- **LAMB on Muon** flagged as genuinely interesting: PMuon's NS-whitened step has spectral norm ~1, weight matrices have similar order → trust ratio would be in LAMB's design regime. Filed for future assignment.
+
+---
+
 ## 2026-05-21 04:30 UTC — PR #606 CLOSED: WSD shorter cooldown_frac — Arm A NULL DNF / Arm B SKIPPED, 39th axis (g1r1-fern)
 
 - Branch: `g1r1-fern/wsd-schedule`

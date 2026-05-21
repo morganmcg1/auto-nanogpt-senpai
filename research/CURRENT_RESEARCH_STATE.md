@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 04:45 UTC
+- **Last update:** 2026-05-21 05:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -53,8 +53,8 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#644** | fern | pending pickup | — | — | **NEW (04:35 UTC) — Winsorization pre-NS body-Muon. Arm A k=1.5 (aggressive), Arm B k=3.0 (moderate). Per-tensor sample-based abs-median EMA threshold. Orthogonal hard-clip counterpart to frieren's tanh-squash. k retuned from {3.0, 6.0} → {1.5, 3.0} after frieren's empirical telemetry showed post-whitening max_ratio ~0.003-0.005.** |
-| **#609** | askeladd | `qb21izi9` Arm A done; Arm B canonical-LAMB pending | done; pending | — | LAMB trust ratio — Arm A literal (lr-cancelled in unclipped) just finished; Arm B canonical-LAMB max_trust=10 pending launch. Joint terminal SENPAI-RESULT expected. |
+| **#647** | askeladd | pending pickup | — | — | **NEW (05:00 UTC) — WSD LONGER cooldown_frac {0.80, 0.85}. Symmetric to just-closed #606 (shorter cf NULL). Mechanistic prediction: extending the productive descent phase (all val 3.55→3.30 happens in decay tail) could help. Requires adding `--cooldown_frac` CLI arg (~5 lines).** |
+| **#644** | fern | pending pickup | — | — | Winsorization pre-NS body-Muon. Arm A k=1.5 (aggressive), Arm B k=3.0 (moderate). |
 | **#607** | alphonse | `0d0waydp` Arm B η_min=0.05 | running | — | LR floor — Arm A η_min=0.10 NULL (val=3.27090 Δ=+0.00662, floor too aggressive flattened cooldown slope). Arm B testing weaker floor. ETA ~07:20 UTC. |
 | **#604** | tanjiro | `9qsi8ofs` Arm B | running | — | Lion optimizer — Arm A val=3.298 NULL DNF, Arm B running, ETA ~05:30 UTC. |
 | **#617** | edward | `0d0waydp`-style Arm B k=10 | running | — | Lookahead wrapper on aux. Arm A k=5 cleaned up after concurrent torchrun false-alarm. Arm B running. ETA ~06:45 UTC. |
@@ -98,7 +98,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **v-aggregation** (#583 Adamax): **CLOSED NULL/NULL** — Arm A β2=0.95 DNF val=3.28038; Arm B β2=0.999 DNF val=3.28384. Trajectories track tightly throughout. 5th and final leaf.
 
 **Step-rescaling (orthogonal to update-rule):**
-- **LAMB trust ratio** (#609 askeladd NEW): Arm A max_trust=10, Arm B max_trust=1 — pending pickup
+- **WSD LONGER cooldown_frac** (#647 askeladd NEW): {0.80, 0.85} — pending pickup
 
 **Other in-flight families:**
 1. **NS_ITERS cooldown ramp 12→{16,18}** (#559 nezuko) — Arm B running
@@ -122,14 +122,14 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 *Other closed:* z-loss (#476), embed init (#440), attn-scale (#480), logit soft-cap (#439), NS adaptive threshold (#447), decoupled cooldown_frac (#448).
 
-**Pattern after 39 axes:** The PMuon+aux-AdamW stack is fully saturated on all internal scalar and mechanism dimensions. **Aux AdamW update-rule mechanism class fully exhausted with 5/5 NULL/NULL closures** (AdaBelief, NadamW, AdEMAMix, AMSGrad, Adamax). **WSD shorter-cooldown direction CLOSED** (#606): cooldown_frac=0.70 load-bearing, going shorter destroys the speedrun mechanism. Remaining unexplored levers are external: LR-floor (#607 — confirms full-cooldown is load-bearing, floor at 0.10 already too aggressive), step-rescaling (#609 LAMB — Arm B canonical pending), wrapper-class on aux (#617 Lookahead-aux), new optimizer classes (Lion #604, schedule-free aux #623), gradient-element transformation (frieren #622 tanh-squash, fern #644 Winsorization), block-level grad normalization (nezuko #627 per-block-norm).
+**Pattern after 40 axes:** The PMuon+aux-AdamW stack is fully saturated on all internal scalar and mechanism dimensions. **Aux AdamW update-rule mechanism class fully exhausted with 5/5 NULL/NULL closures** (AdaBelief, NadamW, AdEMAMix, AMSGrad, Adamax). **LAMB trust ratio on aux CLOSED** (#609): degenerate regime — trust ratio saturates at max_trust=10 constantly because ||w||/||step|| ≈ 1e10; LAMB becomes a global amplifier outside its design domain. **WSD shorter-cooldown direction CLOSED** (#606, 39th axis). Remaining unexplored levers: WSD longer-cooldown (#647 askeladd NEW), LR-floor (#607), wrapper-class on aux (#617 Lookahead-aux), new optimizer classes (Lion #604, schedule-free aux #623), gradient-element transformation (#622 tanh-squash, #644 Winsorization), block-level grad normalization (#627 per-block-norm).
 
 ## Open unexplored axes (candidate next assignments)
 
 **LR schedule shape (mostly closed):**
 - **WSD shorter cooldown_frac** — **CLOSED (#606 fern, 39th axis)** — Arm A cf=0.25 NULL DNF val=3.30081, Arm B cf=0.15 SKIPPED. Cooldown=0.70 load-bearing.
 - **LR floor in cooldown** — **IN FLIGHT (#607 alphonse)** — eta_min ∈ {0.10, 0.05}; Arm A NULL (floor too aggressive), Arm B running.
-- **WSD LONGER cooldown_frac** {0.80, 0.90} — UNTESTED. Symmetric opposite of #606. Could be next.
+- **WSD LONGER cooldown_frac** — **IN FLIGHT (#647 askeladd NEW)** — {0.80, 0.85} vs baseline 0.70. Symmetric to #606 closure.
 - **COOLDOWN_POWER fine-scan** {1.3, 1.5, 1.6} — low priority given scalar saturation pattern
 
 **Aux AdamW update-rule mechanism tree:**
@@ -138,7 +138,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **v-estimator AdaBelief** — **CLOSED (#545)**
 - **m-step NadamW** — **CLOSED (#575)**
 - **m-aggregation AdEMAMix** — **CLOSED (#585)**
-- **LAMB trust ratio on aux** — **IN FLIGHT (#609 askeladd)** — per-tensor step rescaling, orthogonal axis
+- **LAMB trust ratio on aux** — **CLOSED (#609 askeladd, 40th axis)** — trust saturates at max_trust=10 entire run (||w||/||step|| ≈ 1e10); degenerate amplifier. Arm A NULL DNF val=3.346, Arm B NULL DNF val=3.295.
 - **Lookahead wrapper on aux** — **IN FLIGHT (#617 edward NEW)** — slow-weights averaging, ORTHOGONAL class to update-rule
 - **RAdam variance rectification** — UNTESTED — first-moment warmup compensation
 - **Sophia-style scalar Hessian on aux** — UNTESTED — second-order diagonal curvature estimate
