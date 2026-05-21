@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-21 UTC — Cycle 71 mid-23: PR #608 alphonse Muon LR warmup CLOSED (both arms MISS; longer warmup hurts more — Muon already well-conditioned from step 0; Muon-side schedule front-end closed). PR #611 askeladd residual proj init CLOSED (init trifecta complete — zero-init optimal on both output+residual; only input embed magnitude matters). alphonse → #633 attention scale sweep (ATTN_SCALE ∈ {0.088, 0.15} vs hardcoded 0.12 — never ablated, 1.36× textbook). askeladd → #634 SOAP β2 sweep (ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs hardcoded 0.90 — EMA timescale of Kronecker-factor estimates, ffs floor attack).**
 - **2026-05-21 UTC — Cycle 71 mid-21: PR #602 nezuko lm_head non-zero init CLOSED (zero-init confirmed optimal on output side; input embed=0.1 magnitude is asymmetrically beneficial vs output proj zero-init; asymmetric init story complete: EMBED_INIT_STD=0.1 wins for input, zero-init wins for output). nezuko → #630 RoPE base frequency sweep (ROPE_BASE ∈ {256, 4096} vs default 1024; positional encoding axis; NEVER tested on this stack; fresh class orthogonal to all 9+7+2+1+init closures; 3 LoC implementation).**
 - **2026-05-21 UTC — PR #605 fern Muon heavy-ball CLOSED (Nesterov re-blend IS load-bearing — 9th variance-reduction closure; Arm A killed step-1500 gate val=3.55996; Arm B terminal val=3.28014/ffs=-1 MISS +0.011; re-blend's longer integration window ~10 effective steps vs heavy-ball's ~5.3 is specifically beneficial in late cooldown). fern → #625 AdamW β2 sweep (ADAMW_BETA2 ∈ {0.99, 0.999}; current β2=0.95 untouched; EMA-timescale axis; fresh class). alphonse #608 Arm A terminal (e8mr7a46: val=3.2712, ffs=3025; NARROW MISS both axes +0.002 val/+12.5 ffs; Arm B MUON_LR_WARMUP_STEPS=300 status pending SENPAI-RESULT).**
 - **2026-05-20 22:20 UTC — PR #591 frieren ortho-embed-init CLOSED (decorrelation theory falsified; pure-magnitude confirmed as #541 win mechanism). Arm A (ortho gain=0.1, matched magnitude ~22→0.1): val=3.28051 catastrophic MISS — never reached 3.28. Arm B (ortho gain=1.0): val=3.27675/ffs=3100 statsig fail. 2×2 mechanism dissection table (5 arms across #541+#591) proves: magnitude is the only relevant axis, decorrelation adds no benefit and actively hurts. frieren → #619 z-loss regularization (Z_LOSS_COEF ∈ {1e-4, 1e-3}; PaLM/Chinchilla/GPT-3/LLaMA technique; never tested on this stack; penalty on pre-cap logsumexp²; complementary mechanism class to tanjiro #613 soft-cap; ~10 LoC, benchmark-compliant).**
@@ -35,14 +36,15 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Terminal ETA |
 |---|---|---|---|---|
-| **#611** | **askeladd** | **Residual projection non-zero init — std ∈ {0.002, 0.01}; completing init trifecta (input #541✓, output #602, residual this)** | **Arm A step 3025 val=3.2802 — approaching terminal** | **~30 min** |
+| **#634** | **askeladd** | **SOAP preconditioner β2 sweep — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs default 0.90 (EMA timescale of Kronecker-factors; ffs floor attack)** | **Just assigned** | **~4h both arms** |
 | **#610** | **edward** | **NS5 cooldown precision ramp — NS5_ITERS 14→18/20 during last 70% of training (cooldown phase only)** | **Step 625, val=3.748 — early** | **~45 min** |
 | **#615** | **thorfinn** | **Muon LR floor — MUON_LR_FLOOR ∈ {0.05, 0.10} vs linear-to-zero terminal; cooldown back-end, set_hparams line 935** | **Step 2500, val=3.349 — stale_wip flag (false positive — actively training)** | **~45 min** |
 | **#630** | **nezuko** | **RoPE base frequency sweep — ROPE_BASE ∈ {256, 4096} vs default 1024 (positional encoding, first ablation on this stack)** | **Just assigned — disabled-check + Arm A smoke first** | **~4h both arms** |
 | **#613** | **tanjiro** | **Logit soft-cap value sweep — LOGIT_SOFTCAP ∈ {12, 20} vs default 15; architecture-side, model.forward line 431** | **Step 875, val=3.691 — early** | **~50 min** |
 | **#619** | **frieren** | **z-loss regularization — Z_LOSS_COEF ∈ {1e-4, 1e-3}; PaLM-style logsumexp² penalty on PRE-cap logits** | **Step 2375, val=3.368 — mid-run** | **~50 min** |
 | **#608** | **alphonse** | **Muon LR warmup — MUON_LR_WARMUP_STEPS ∈ {100, 300}; symmetric to #598 on Muon side** | **Arm A terminal (val=3.2712, ffs=3025 — narrow miss); waiting SENPAI-RESULT + Arm B launch** | **Waiting student post** |
-| **#625** | **fern** | **AdamW β2 sweep — ADAMW_BETA2 ∈ {0.99, 0.999}; current β2=0.95 untouched; EMA-timescale axis** | **Just assigned (#605 Muon heavy-ball CLOSED — re-blend load-bearing)** | **TBD (~3.7h n=1 both arms)** |
+| **#625** | **fern** | **AdamW β2 sweep — ADAMW_BETA2 ∈ {0.99, 0.999}; current β2=0.95 untouched; EMA-timescale axis** | **Arm A crashed (infra, re-running); Arm B step 1375 val=3.567** | **~2h** |
+| **#633** | **alphonse** | **Attention scale sweep — ATTN_SCALE ∈ {0.088, 0.15} vs hardcoded 0.12 (1.36× textbook, never ablated)** | **Just assigned (#608 Muon LR warmup CLOSED — Muon well-conditioned from step 0)** | **~4h both arms** |
 
 ## Top merge candidates / watching closely
 
@@ -63,11 +65,14 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **Gradient-magnitude control** (#580 tanjiro — CLOSED 8th variance-reduction closure): AGC per-tensor grad clipping (λ=0.01/0.1) MISS both arms vs new baseline 3.269185.
 - **Architecture output transform** (NEW — #613 tanjiro): logit soft-cap value sweep — LOGIT_SOFTCAP ∈ {12, 20} vs default c=15 at model.forward line 431. First architecture-side test not involving weight init. Tests whether EMBED_INIT_STD=0.1 changed the effective logit magnitude regime enough to shift the optimal cap.
 - **Output logit regularization** (NEW — #619 frieren): z-loss regularization Z_LOSS_COEF ∈ {1e-4, 1e-3} — PaLM/GPT-3/Chinchilla/LLaMA standard technique. Penalty `Z_LOSS_COEF · logsumexp(raw_logits)².sum()` applied PRE-soft-cap. Prevents partition function drift into CE-gradient-saturation regime. Complementary to #613 soft-cap (different mechanism class: soft regularizer vs deterministic saturation). Never tested on this stack.
-- **Initialization sweep** (#541 askeladd MERGED ⭐, #591 frieren CLOSED, #602 nezuko + #611 askeladd in-flight):
+- **Initialization sweep** (#541 askeladd MERGED ⭐, #591 frieren CLOSED, #602 nezuko CLOSED, #611 askeladd CLOSED):
   - #541 askeladd EMBED_INIT_STD=0.1: ⭐ **MERGED — NEW BASELINE** val=3.269185 ffs=3012.5
-  - #591 frieren ORTHO_EMBED_GAIN ∈ {0.1, 1.0}: **CLOSED** — 2×2 mechanism dissection (5 arms, 5 OOM magnitude range) CONFIRMS pure-magnitude is the only relevant axis; decorrelation adds nothing and actively hurts. Do NOT re-propose orthogonal init.
-  - #602 nezuko lm_head non-zero init: **CLOSED** — zero-init confirmed optimal on output side. Asymmetric: input embed prefers std=0.1, output proj prefers zero-init.
-  - #611 askeladd residual proj init (in-flight): third axis in init trifecta (input ✓, output, residual)
+  - #591 frieren ORTHO_EMBED_GAIN ∈ {0.1, 1.0}: **CLOSED** — pure-magnitude axis; decorrelation adds nothing
+  - #602 nezuko lm_head non-zero init: **CLOSED** — zero-init optimal on output
+  - #611 askeladd residual proj init: **CLOSED** — zero-init optimal on residual. **Init trifecta complete.** Asymmetric principle: input embed magnitude matters; output/residual zero-init.
+- **Muon-side schedule front-end** (#608 alphonse — CLOSED): Muon LR warmup MISS both arms (A=+0.002, B=+0.005). Muon already well-conditioned from step 0. Symmetric closure to edward #598 AdamW warmup.
+- **Attention softmax temperature** (NEW — #633 alphonse): ATTN_SCALE ∈ {0.088 textbook, 0.15 sharper} vs hardcoded 0.12 (1.36× textbook). First attention-side architectural axis. Scale controls how peaked attention distribution is.
+- **SOAP preconditioner β2** (NEW — #634 askeladd): ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs hardcoded 0.90. Controls EMA timescale of Kronecker-factor estimates for Q/K/V/proj attention weights. Orthogonal to AdamW β2 (#625). Targets ffs floor via faster/slower preconditioner adaptation.
 - **Muon LR schedule** (NEW — #608 alphonse): Muon LR warmup (MUON_LR_WARMUP_STEPS ∈ {100, 300}) — symmetric to edward #598 (AdamW LR warmup). MU has warmup (200 steps) but LR doesn't.
 - **Denominator semantics** (CLOSED — class likely exhausted): #569 AdaBelief Arm B neutral (val_mean=3.27037, +8.2e-5 over baseline); #574 Sophia-G FAIL (Lion mode at our gradient scale). 2/2 closures — AdamW group's vanilla `g_t²` denominator with sqrt appears to be at local optimum for this stack.
 - **Schedule envelope addition** (#598 edward): AdamW LR warmup 200/500 steps — only mechanism modifying time-domain LR shape; compounds with askeladd's early-step gradient-magnitude finding

@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 UTC — Cycle 71 mid-23: PR #608 CLOSED (alphonse Muon LR warmup — not productive; both arms MISS); PR #611 CLOSED (askeladd residual proj init — zero-init optimal; init trifecta complete); alphonse → #633 attention scale sweep; askeladd → #634 SOAP β2 sweep
+
+### PR #608 — alphonse Muon LR warmup — CLOSED (Muon LR warmup not productive)
+
+| Arm | MUON_LR_WARMUP_STEPS | val@3175 | ffs | Δval | Δffs |
+|---|---|---|---|---|---|
+| A | 100 | 3.27121 | 3025 | +0.002025 | +12.5 |
+| B | 300 | 3.27407 | 3075 | +0.004885 | +62.5 |
+
+**Conclusion**: Arm B worse than Arm A — longer warmup hurts more. Muon optimizer is already well-conditioned at MUON_LR=0.04 from step 0. No warmup is the local optimum. Mechanism class Muon-side schedule front-end closed. Symmetric to edward #598 (AdamW LR warmup).
+
+### PR #611 — askeladd residual projection init — CLOSED (zero-init confirmed optimal)
+
+| Arm | RESIDUAL_PROJ_INIT_STD | val@3175 | ffs | Δval | Δffs |
+|---|---|---|---|---|---|
+| A | 0.002 | 3.27171 | 3050 | +0.00253 | +37.5 |
+| B | 0.010 | 3.27012 | 3025 | +0.00094 | +12.5 |
+
+**Conclusion**: Progression — larger non-zero init → closer to baseline (less hurt). But still misses. Zero-init is optimal on residual projections (same story as lm_head #602). Init trifecta complete: input embed magnitude wins (#541 ✓), output proj zero-optimal (#602), residual proj zero-optimal (this). Asymmetric init principle confirmed.
+
+### Assignments: alphonse → #633, askeladd → #634
+
+- **alphonse #633 attention scale sweep**: ATTN_SCALE ∈ {0.088, 0.15} vs hardcoded 0.12. Scale=0.12 is 1.36× textbook (1/√128=0.088), never ablated. Architecture-side attention softmax temperature.
+- **askeladd #634 SOAP β2 sweep**: ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs hardcoded 0.90. Controls EMA timescale of Kronecker-factor estimates for attention weights. Distinct from AdamW β2 (#625). ffs floor attack via faster/slower preconditioner adaptation.
+
 ## 2026-05-21 UTC — Cycle 71 mid-21: PR #602 CLOSED (nezuko lm_head non-zero init — output zero-init confirmed optimal; asymmetric init story complete); nezuko → #630 RoPE base frequency sweep
 
 ### PR #602 — nezuko lm_head non-zero init sweep — CLOSED (zero-init confirmed optimal on output side)
