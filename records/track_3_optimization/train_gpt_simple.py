@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+MUON_NESTEROV = int(os.environ.get("MUON_NESTEROV", "0"))  # 0=EMA blend (baseline), 1=strong Nesterov (post-update momentum), 2=classical Nesterov (grad + mu*momentum)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -693,7 +694,15 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if MUON_NESTEROV == 1:
+                        # Strong Nesterov form: post-update momentum directly (Dozat 2016, Eq. 8)
+                        momentum_update = state["momentum"]
+                    elif MUON_NESTEROV == 2:
+                        # Classical Nesterov form: grad + mu * updated_momentum
+                        momentum_update = grad + group["mu"] * state["momentum"]
+                    else:
+                        # Standard EMA blend (default/baseline)
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -866,6 +875,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_nesterov": MUON_NESTEROV,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
