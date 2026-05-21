@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--tanh_squash_scale_mult", type=float, default=0.0,
+                        help="Multiplier on per-tensor EMA Frobenius norm for pre-NS body-Muon tanh-squash. 0=off (baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -488,6 +490,9 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    tanh_squash_scale_mult: float = 0.0,
+    tanh_squash_state: dict | None = None,
+    tanh_squash_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -500,6 +505,38 @@ def pmuon_update(
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
+
+    if tanh_squash_scale_mult > 0 and tanh_squash_state is not None:
+        # Per-tensor EMA-tracked Frobenius norm of the matrix being fed to NS.
+        # β=0.95 matches PMuon β_cov convention. clamp_min handles 0/0=NaN edge case.
+        # Warmup: skip squash and reset EMA each step until rank-1 whitening transient
+        # subsides. With L_cov, R_cov at step 0 = g@g.T (rank 1), matrix_neg_power
+        # clamps eigvals at eps=1e-12 then raises to -0.4, producing ~63k amplification.
+        # That makes m_pre Frobenius norm ~10^9 on step 1, which poisons the EMA for
+        # hundreds of steps and forces clip_fraction to 0 (squash becomes a noop).
+        m_pre_fp32 = m_pre.float()
+        frob_now = m_pre_fp32.detach().norm()
+        step_idx = tanh_squash_state.get("squash_step", 0)
+        tanh_squash_state["squash_step"] = step_idx + 1
+        WARMUP_STEPS = 10
+        if step_idx < WARMUP_STEPS:
+            tanh_squash_state["frob_ema"] = frob_now.detach().clone()
+        else:
+            tanh_squash_state["frob_ema"].mul_(0.95).add_(frob_now, alpha=0.05)
+            scale = (tanh_squash_scale_mult * tanh_squash_state["frob_ema"]).clamp_min(1e-12)
+            if tanh_squash_diag is not None:
+                clip_frac = (m_pre_fp32.detach().abs() > scale).float().mean()
+                max_ratio = (m_pre_fp32.detach().abs() / scale).max()
+                device = m_pre.device
+                tanh_squash_diag.setdefault("frob_ema_sum", torch.zeros((), device=device)).add_(tanh_squash_state["frob_ema"])
+                tanh_squash_diag.setdefault("frob_pre_sum", torch.zeros((), device=device)).add_(frob_now)
+                tanh_squash_diag.setdefault("clip_fraction_sum", torch.zeros((), device=device)).add_(clip_frac)
+                tanh_squash_diag.setdefault("max_ratio_sum", torch.zeros((), device=device)).add_(max_ratio)
+            m_pre = scale * torch.tanh(m_pre_fp32 / scale)
+            if tanh_squash_diag is not None:
+                frob_post = m_pre.detach().norm()
+                tanh_squash_diag.setdefault("frob_post_sum", torch.zeros((), device=m_pre.device)).add_(frob_post)
+                tanh_squash_diag["count"] = tanh_squash_diag.get("count", 0) + 1
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
@@ -523,11 +560,12 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, tanh_squash_scale_mult=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        tanh_squash_scale_mult=tanh_squash_scale_mult)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -539,6 +577,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        tanh_squash_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -562,6 +601,9 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        tanh_squash_scale_mult=group["tanh_squash_scale_mult"],
+                        tanh_squash_state=state,
+                        tanh_squash_diag=tanh_squash_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -575,6 +617,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._tanh_squash_diag = tanh_squash_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,6 +747,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "tanh_squash_scale_mult": args.tanh_squash_scale_mult,
         },
     )
 
@@ -740,7 +784,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      tanh_squash_scale_mult=args.tanh_squash_scale_mult)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -911,6 +956,25 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            tanh_diag = getattr(optimizer2, "_tanh_squash_diag", None)
+            if tanh_diag and tanh_diag.get("count", 0) > 0:
+                count = tanh_diag["count"]
+                frob_ema_mean = float(tanh_diag["frob_ema_sum"].item()) / count
+                frob_pre_mean = float(tanh_diag["frob_pre_sum"].item()) / count
+                frob_post_mean = float(tanh_diag["frob_post_sum"].item()) / count
+                clip_frac_mean = float(tanh_diag["clip_fraction_sum"].item()) / count
+                max_ratio_mean = float(tanh_diag["max_ratio_sum"].item()) / count
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "body/tanh_squash/frob_ema_mean": frob_ema_mean,
+                    "body/tanh_squash/frob_norm_pre": frob_pre_mean,
+                    "body/tanh_squash/frob_norm_post": frob_post_mean,
+                    "body/tanh_squash/norm_ratio": frob_post_mean / max(frob_pre_mean, 1e-12),
+                    "body/tanh_squash/clip_fraction": clip_frac_mean,
+                    "body/tanh_squash/max_ratio": max_ratio_mean,
+                    "body/tanh_squash/param_count": count,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
