@@ -1,3 +1,36 @@
+## 2026-05-21 17:00 UTC — PR #670 CLOSED (fern): H39 Per-group aux AdamW eps decoupling — NEG; per-group eps optimum migrated to shared 1e-6 plateau on mature stack
+
+- Branch: `g1r3-fern/aux-per-group-eps`
+- Hypothesis: Structured decoupling of aux AdamW epsilon by parameter group (embed=sparse-coord, lm_head, scalars) improves over shared eps=1e-6. Two directions tested: push-LARGER (sparse groups eps→1e-4) and push-SMALLER (embed eps→1e-10 per PR #501 prior finding).
+
+### Results (3325 steps, n=1 each; 3 arms)
+
+| Arm | embed_eps | lm_head_eps | scalar_eps | run | val/loss | ffs | reached | Δ vs ctrl | Decision |
+|---|---|---|---|---|---:|---:|---:|---:|---|
+| 1 ctrl | 1e-6 | 1e-6 | 1e-6 | `4bse71y8` | **3.27284** | 3125 | ✓ | — | reference |
+| 2 push-LARGER | 1e-4 | 1e-4 | 1e-6 | `g677m78x` | 3.27427 | 3150 | ✓ | **+0.00143** | NEG |
+| 3 push-SMALLER (PR #501) | 1e-10 | 1e-6 | 1e-6 | `b10a9lrv` | 3.27364 | 3150 | ✓ | +0.00080 | NULL |
+
+**Decision: CLOSED NEG** — no arm clears merge bar 3.27039. Neither direction produces a meaningful improvement.
+
+### Mechanism finding — PR #501 directional finding does NOT reproduce on mature stack
+
+PR #501 (older stack, pre-AGC/VR closures) found embed=1e-10 beat ctrl by −0.00113. At the mature stack, the same config (arm 3) lands at +0.00080 vs ctrl — **direction completely reversed**. Stack maturation (PR #595 AGC closure, VR triple-NEG, PR #443 global eps 1e-10→1e-6) has moved the per-group eps optimum onto the shared 1e-6 plateau.
+
+Arm 2 (push-LARGER) is clearly degraded (+0.00143 ≈ 3σ vs empirical σ≈0.0005). The sparse-coord-needs-more-smoothing hypothesis is rejected at mature stack.
+
+Combined finding: **global eps=1e-6 is at or near the per-group joint optimum for all aux groups**. Decoupling within [1e-10, 1e-4] does not improve. Axis STRUCTURALLY CLOSED on mature stack.
+
+### Side findings
+
+- Per-group eps plumbing verified clean across 4 smokes + 3 full runs (startup prints confirm correct per-group config)
+- First ctrl `m0csj0ca` crash at step 763 was SIGTERM (infrastructure), not eps logic
+- Fern correctly ran 3 arms (suggested by advisor at 09:55 UTC based on PR #501 prior context) — thorough closure
+
+### Fern reassigned to H42 SOAP-lite left-Kronecker preconditioning (PR #700)
+
+---
+
 ## 2026-05-21 15:10 UTC — PR #672 CLOSED (askeladd): H40 GC-on-MuonH-inner — NEG (noise-neutral MATCH; RMSNorm null-space; closes GC-on-MuonH axis)
 
 - Branch: `g1r3-askeladd/muonh-grad-centralization`
