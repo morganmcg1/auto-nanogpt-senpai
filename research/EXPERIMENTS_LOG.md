@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 04:22 UTC — PR #571: askeladd AdamW scalar LR sweep — **✅ MERGED — NEW BASELINE**
+
+- Branch: `g1r5-askeladd/scalar-lr-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: AdamW `adam_scalars` group (RMSNorm gains, ~20K params) hardcoded at lr=0.01. Sweep across 5 cells: A=0.01 ctrl / B=0.003 / C=0.001 / D=0.03 / E=0.1.
+
+| Phase | Cell/Trial | lr_scalars | val/loss | ffs | Δ vs baseline (3.266120) | σ_single | W&B run |
+|-------|-----------|-----------|---------|-----|--------------------------|---------|---------|
+| P1 | A ctrl | 0.01 | 3.265233 | 3075 | −0.000887 | −0.51σ | aw6cq08g |
+| P1 | B | 0.003 | 3.278590 | 3225 | +0.012470 | +7.14σ | s4c0z0uf |
+| P1 | C | 0.001 | 3.289189 | DNF | +0.023069 | +13.20σ | uo6a2cql |
+| **P1** | **D** | **0.03** | **3.262962** | **3050** | **−0.003158** | **−1.81σ** | xcxu2ziv |
+| P1 | E | 0.1 | 3.272018 | 3125 | +0.005898 | +3.38σ | het906af |
+| P2 T0 | D | 0.03 | 3.26347 | 3050 | −0.002650 | −1.52σ | apz56jxx |
+| P2 T1 | D | 0.03 | 3.26401 | 3050 | −0.002110 | −1.21σ | apz56jxx |
+| P2 T2 | D | 0.03 | 3.26162 | 3025 | −0.004500 | −2.58σ | apz56jxx |
+| P2 T3 | D | 0.03 | 3.26396 | 3050 | −0.002160 | −1.24σ | apz56jxx |
+| **P2 n=4 mean** | **D** | **0.03** | **3.263265** | **3043.75** | **−0.002855** | **−1.63σ** | apz56jxx |
+
+**Statsig: (3.266120 − 3.263265) × √4 = 0.005710 ≥ 0.004 ✅ PASS (+0.001710 margin)**
+
+- Results commentary: Asymmetric hump shape — lower direction (B/C) catastrophically worse (+7/+13σ), upper peaks at D (3× higher) and regresses at E (10× higher). All 4 P2 seeds independently clear the n=4 gate (3.264120). Sample σ=0.001123 tighter than baseline σ=0.001747. ffs_mean=3043.75 (−43.75 steps vs baseline 3087.5). Mechanism: RMSNorm gains were under-tuned at lr=0.01 — raising to 0.03 lets gains track optimal layer-scale faster during cooldown without destabilizing.
+- **NEW BASELINE: mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75**
+- **New statsig gate:** (3.263265 − mu) × √n ≥ 0.004 → n=4: mu ≤ 3.261265 | n=6: mu ≤ 3.261633 | n=8: mu ≤ 3.261852
+- Critical cross-axis: scalars_lr=0.03 WINS (this PR) but lm_head_lr=0.03 LOSES (#600) — per-group LR ratios NOT universal. Small param groups (20K scalars) take aggressive LR; large param groups (39M lm_head proj) need conservative LR.
+
 ## 2026-05-21 03:10 UTC — PR #600: alphonse lm_head LR sweep — **CLOSED clean-neutral**
 
 - Branch: `g1r5-alphonse/lm-head-lr-sweep`
