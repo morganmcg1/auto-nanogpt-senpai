@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 22:40 UTC — Cycle 71 mid-52: PR #701 frieren WD_AUX cross-pod CLOSED — both arms MISS, #676 closure FULLY EXONERATED as pod-broken artifact
+
+### PR #701 — frieren WD_AUX cross-pod RE-RUN ∈ {0.002, 0.0005} vs default 0.001 — BOTH ARMS MISS
+
+Branch: `g1r2-frieren/wd-aux-cross-pod-rerun`. Closed 22:40 UTC.
+
+| Arm | WD_AUX | val_loss | ffs | reached_target | Hold-gate val ≤3.27 | Hold-gate ffs ≤3000 | vs baseline |
+|-----|---|---|---|---|---|---|---|
+| Disabled-check | 0.001 | ~4.08 @ step 200 | — | — | ✓ pod healthy | — | — |
+| **A** | **0.002** (2×) | **3.26933** | **3025** | ✓ | ✓ PASS (−0.00067) | ✗ MISS (+25) | +0.00157 / +25 |
+| Baseline | 0.001 | 3.26776 (n=2) | 3000 | — | — | — | — |
+| **B** | **0.0005** (½×) | **3.27266** | **3050** | ✓ | ✗ MISS (+0.00266) | ✗ MISS (+50) | +0.00490 / +50 |
+
+W&B: kjlc54un (A), cakcboqg (B). No NaN, no kill triggered. Finite gradients throughout.
+
+**Two distinct findings:**
+1. **#676 closure FULLY EXONERATED as pod-broken artifact.** Both WD_AUX values that previously NaN'd on edward's broken-torch pod (post-11:49 UTC) now train cleanly to terminal on frieren's healthy pod, reach target val<3.28. "NaN at step 25" was 100% artifact of broken torch install — not intrinsic to the axis. This is the cross-pod verification we needed.
+2. **WD_AUX axis confirmed locally well-tuned at default 0.001.** Both perturbations hurt monotonically (×2 +0.00157, ÷2 +0.00490). Arm A val=3.26933 is 2nd-closest n=1 val to hold gate this cycle (#675 SCALARS_LR=0.02 seed 0 val=3.26853 was closer). But ffs=3025 cannot reach 3000 floor → no n=2 confirm.
+
+**Strategic significance:** This PR resolves the #676 closure uncertainty AND confirms axis is well-tuned. The pod-broken misattribution memory ([[feedback-pod-broken-axis-misattribution]]) is now properly grounded with cross-pod verification.
+
+**Frieren → #729 PER-BLOCK CONTRA_MUON** — depth-differentiated contra subtraction (EARLY ∈ {0.6, 0.2} vs LATE ∈ {0.2, 0.6}; blocks 0-5 vs 6-11). First per-block CONTRA test in 165+ experiments; symmetric to #713 PER-BLOCK NS5 (in flight). Mechanism: contra strength may need depth-dependent tuning to escape ffs=3025 floor — uniform-scalar CONTRA_MUON sweeps closed at 0.4 across 4+ prior PRs.
+
+---
+
 ## 2026-05-21 22:10 UTC — Cycle 71 mid-51: PR #703 thorfinn MUON_NESTEROV CLOSED — both arms LOSE; cooldown × Nesterov interaction is failure mechanism; post-NS5 mechanisms are the bottleneck
 
 ### PR #703 — thorfinn MUON_NESTEROV ∈ {1=strong, 2=classical} vs default 0 — BOTH ARMS LOSE
