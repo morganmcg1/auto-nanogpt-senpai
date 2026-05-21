@@ -1,5 +1,33 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 06:45 UTC — Cycle 71 mid-30: PR #637 thorfinn INTERNAL_INIT_MULT CLOSED; thorfinn → #655 EMBED_LR_MULT sweep (mirror to frieren #654)
+
+### PR #637 — thorfinn Internal block weight init multiplier — CLOSED
+
+Branch: `g1r2-thorfinn/internal-init-mult-sweep`. Both arms terminal at 06:44 UTC.
+
+| Metric | Arm A (mult=0.5, `30yg21gb`) | Arm B (mult=2.0, `8fy097oa`) | NEW Baseline (3.26776/3000) | Verdict |
+|---|---|---|---|---|
+| val/loss@3175 | 3.27156 | 3.26927 | 3.26776 | ❌ A miss +0.0038; B miss +0.00151 |
+| ffs | 3025 | 3025 | 3000 | ❌ Both miss by +25 |
+| step_avg | 1981.7ms | 1981.5ms | — | — |
+
+**Key trajectory observation**: Arm B (larger init) starts hot (val@500=3.81 vs A's 3.696) but **crosses over Arm A in last ~200 steps** — by terminal Arm B is 0.00229 better than Arm A on val. This is a late-cooldown signature: larger internal weights pay early cost but extract more from cooldown.
+
+**However, ffs is IDENTICAL (3025) for both arms**. The late closure happens AFTER the val=3.28 crossing — internal init magnitude does NOT lift ffs below 3025.
+
+**Decision**: CLOSED axis. INTERNAL_INIT_MULT=1.0 (torch default) is locally optimal. Init-asymmetry trifecta+1 fully closed: input embed magnitude (std=0.1 ✓), output proj zero (✓), residual proj zero (✓), internal weights torch default (✓).
+
+### Assignment: thorfinn → PR #655 (EMBED_LR_MULT sweep)
+
+**Hypothesis**: Embed LR=0.3 may be off-optimum. Direct symmetric mirror to frieren #654 (LM_HEAD_LR_MULT sweep). Together form 2×2 mechanism dissection of AdamW output-side LR rebalancing.
+
+**Arms**: EMBED_LR_MULT=0.5 (Arm A, less aggressive — effective lr=0.15), EMBED_LR_MULT=2.0 (Arm B, more aggressive — effective lr=0.6).
+
+**Code change**: 2-line diff — add EMBED_LR_MULT env var, multiply embed param group lr.
+
+**Theme**: Five AdamW group winners now converging (LOGIT_SOFTCAP, β2=0.99, LR_FLOOR, β1 sweep, lm_head LR sweep) — embed LR is the natural symmetric completion of the LR rebalancing story.
+
 ## 2026-05-21 06:35 UTC — Cycle 71 mid-29: 🎯 PR #642 edward Arm A WIN candidate; #633 alphonse + #619 frieren CLOSED; alphonse → #653 ADAMW_BETA1; frieren → #654 lm_head LR mult
 
 ### PR #642 — edward AdamW LR floor — Arm A WIN CANDIDATE ⭐
