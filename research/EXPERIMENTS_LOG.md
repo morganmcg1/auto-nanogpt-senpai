@@ -1,5 +1,46 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 07:00 UTC — Cycle 71 mid-31: PR #634 askeladd ATTN_SOAP_BETA2 CLOSED; askeladd → #656 MU_COOLDOWN_END (fresh Muon-side schedule axis)
+
+### PR #634 — askeladd SOAP preconditioner β2 sweep — CLOSED
+
+Branch: `g1r2-askeladd/attn-soap-beta2-sweep`. Both arms terminal; both miss new bar.
+
+| Arm | ATTN_SOAP_BETA2 | val/loss | ffs | Δval vs NEW (3.26776/3000) | Δffs vs NEW |
+|---|---|---|---|---|---|
+| A | 0.80 (faster, ~5-step memory) | 3.26953 | 3025 | +0.00177 | +25 |
+| B | 0.95 (slower, ~20-step memory) | 3.27075 | 3025 | +0.00299 | +25 |
+| default | 0.90 (~10-step memory) | — | — | — | — |
+
+**Cross-arm trajectory** (highlights — student's full table is comprehensive):
+
+| Step | Arm A (β2=0.80) | Arm B (β2=0.95) | Δ (A-B) |
+|---|---|---|---|
+| 500 | 3.80963 | 3.79339 | +0.01624 (B leads) |
+| 1500 | 3.53596 | 3.52649 | +0.00947 (B leads) |
+| 2500 | 3.34657 | 3.35148 | −0.00491 (A leads) |
+| 3175 | 3.26953 | 3.27075 | −0.00122 (A leads terminal) |
+
+**Key findings**:
+1. **Axis is flat** — cross-arm gap <0.0013 at terminal; ffs UNCHANGED at 3025 across both arms.
+2. **Directional prior wrong** — predicted Arm B (slower β2) higher prior per "fern β2=0.99 win pattern". Reality: faster β2=0.80 marginally better. SOAP Kronecker-factor EMA timescale does NOT behave like AdamW per-coordinate g² EMA — different regularizer class.
+3. **ffs=3025 stuck** — confirms SOAP β2 is not the lever to attack ffs floor.
+4. **No instability** — shorter SOAP β2 memory did not produce val spikes (tail risk did not materialize).
+
+**Decision**: CLOSED. ATTN_SOAP_BETA2=0.90 is locally optimal. Do NOT re-propose SOAP β2 sweep. SOAP TRUST_THRESHOLD and PRECOND_FREQ remain unexplored but lower priority.
+
+### Assignment: askeladd → PR #656 (MU_COOLDOWN_END sweep)
+
+**Hypothesis**: Mandatory stack hardcodes MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 — Muon momentum swings 0.05 during cooldown. This END VALUE has NEVER been ablated. All prior Muon work was on LR schedule envelope (warmup #608, floor #615, NS5 precision #610) — MU schedule is a separate, untested axis.
+
+**Arms**:
+- A: MU_COOLDOWN_END=0.85 (bigger swing: 0.95→0.85, more aggressive momentum reduction)
+- B: MU_COOLDOWN_END=0.95 (no swing: constant 0.95 throughout — eliminate MU cooldown)
+
+**Theme**: Mirrors edward #642 Arm A WIN candidate (ADAMW_LR_FLOOR=0.05 keeps AdamW groups updating in cooldown tail). Tests whether the same "more activity in cooldown tail" mechanism applies to Muon momentum.
+
+**No code change**: env vars already wired (line 449).
+
 ## 2026-05-21 06:45 UTC — Cycle 71 mid-30: PR #637 thorfinn INTERNAL_INIT_MULT CLOSED; thorfinn → #655 EMBED_LR_MULT sweep (mirror to frieren #654)
 
 ### PR #637 — thorfinn Internal block weight init multiplier — CLOSED
