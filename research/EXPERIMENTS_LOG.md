@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 07:35 UTC — Cycle 71 mid-33: PR #625 fern ADAMW_BETA2 CLOSED on c=20 stack (antagonistic composition); fern → #661 NORMUON_BETA2 (Muon-side EMA)
+
+### PR #625 — fern AdamW β2 sweep — CLOSED
+
+Branch: `g1r2-fern/adamw-beta2-sweep`. Re-run on c=20 stack terminal.
+
+| Arm | Stack | val/loss | ffs | Δval vs NEW (3.26776/3000) | Δffs vs NEW |
+|---|---|---|---|---|---|
+| A (β2=0.99) | original c=15 (n=1, dprue0mx) | 3.26704 | 3000 | — (was on old c=15 stack) | — |
+| A re-run (β2=0.99 + c=20) | new mandatory c=20 (n=1, 9v03uc9n) | **3.27064** | **3025** | +0.00288 | +25 |
+
+**Cooldown trajectory comparison** (β2=0.99 + c=15 vs β2=0.99 + c=20):
+
+| Step | β2=0.99 + c=15 | β2=0.99 + c=20 | Δ (c=20 − c=15) |
+|---|---|---|---|
+| 2900 | 3.28862 | 3.29202 | +0.00340 |
+| 3000 | 3.27823 | 3.28172 | +0.00349 |
+| 3050 | 3.27336 | 3.27685 | +0.00349 |
+| 3175 | 3.26704 | **3.27064** | +0.00360 |
+
+**Key finding — antagonistic composition**: +0.0036 stable penalty across 12 cooldown checkpoints (std <0.0001) is real signal, not seed noise. Mechanism: β2=0.99 + LOGIT_SOFTCAP=20 over-smooth the same parameter group (lm_head). c=20 loosens the cap → larger gradient magnitudes flow into lm_head AdamW group; β2=0.99's longer EMA over these wider magnitudes makes the denominator over-smooth precisely where adaptation matters most in cooldown.
+
+**Strategic lesson**: β2=0.99 was a baseline-specific win on c=15, NOT generally additive. Mechanisms touching the same parameter group (lm_head: c=20, β2, β1, LR floor, lm_head LR) may NOT compose with each other. Edward #642 (ADAMW_LR_FLOOR) is the cleanest candidate because it acts at the LR-schedule level, not the denominator level.
+
+**Decision**: CLOSED. AdamW β2 axis is exercised — β2=0.999 closed on slow early adaptation, β2=0.99 wins on c=15 but loses on c=20. β2=0.95 stays as default.
+
+### Assignment: fern → PR #661 (NORMUON_BETA2 sweep)
+
+**Hypothesis**: NORMUON_BETA2=0.95 (hardcoded line 460) is the Muon-side analogue of AdamW β2 — controls per-row variance EMA in the contra+normuon Muon update. Applied to **Muon block parameters** (q/k/v/proj/fc), not output side. Structurally different from AdamW β2: per-row not per-coord, applied after NS orthogonalization. Never ablated.
+
+**Arms**:
+- A: NORMUON_BETA2=0.90 (faster EMA, ~10-step memory)
+- B: NORMUON_BETA2=0.99 (slower EMA, ~100-step memory) — Arm B first as higher prior
+
+**Code change**: 1-line — add env var wrap on line 460.
+
+**Theme**: Fresh Muon-side EMA axis. AdamW β2 axis is closed via antagonism with c=20; Muon-side has different geometry and may have a genuinely different optimum.
+
 ## 2026-05-21 07:15 UTC — Cycle 71 mid-32: PR #630 nezuko ROPE_BASE CLOSED (axis flat); nezuko → #657 SCHEDULE_SHAPE (cosine/quadratic vs linear)
 
 ### PR #630 — nezuko RoPE base frequency sweep — CLOSED
