@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -52,6 +53,11 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lr_schedule", choices=["wsd", "sgdr"], default="wsd",
+                        help="Body-Muon LR schedule. 'wsd' (default) uses stable+power-law cooldown for all groups. "
+                             "'sgdr' applies cosine annealing with warm restarts to body-Muon only; aux groups stay on WSD.")
+    parser.add_argument("--sgdr_num_restarts", type=int, default=1,
+                        help="Number of warm restarts for SGDR (num cycles = num_restarts + 1). Used only when --lr_schedule sgdr.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +710,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "lr_schedule": args.lr_schedule,
+            "sgdr_num_restarts": args.sgdr_num_restarts,
         },
     )
 
@@ -749,21 +757,35 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER) for aux groups;
+    # body-Muon may use SGDR (cosine annealing with warm restarts) when --lr_schedule sgdr.
+    sgdr_num_cycles = max(1, args.sgdr_num_restarts + 1)
+    sgdr_cycle_len = max(1, train_steps // sgdr_num_cycles)
+
+    def sgdr_eta(step):
+        # Equal-length cycles of sgdr_cycle_len. When train_steps is not divisible by
+        # num_cycles, cap cycle_idx so leftover tail steps stay in the final cycle's low-LR
+        # region rather than triggering a spurious extra restart.
+        cycle_idx = min(step // sgdr_cycle_len, sgdr_num_cycles - 1)
+        cycle_step = min(step - cycle_idx * sgdr_cycle_len, sgdr_cycle_len - 1)
+        return 0.5 * (1.0 + math.cos(math.pi * cycle_step / sgdr_cycle_len))
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
-            eta = 1.0
+            wsd_eta = 1.0
             cooldown_progress = 0.0
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+            wsd_eta = w ** COOLDOWN_POWER
+        muon_eta = sgdr_eta(step) if args.lr_schedule == "sgdr" else wsd_eta
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+                eta_group = muon_eta if group.get("name") == "muon_blocks" else wsd_eta
+                group["lr"] = group["initial_lr"] * eta_group
+        return progress, cooldown_progress, wsd_eta, muon_eta
 
 
     ########################################
@@ -826,6 +848,22 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if args.lr_schedule == "sgdr" and step < train_steps:
+                    # Telemetry that confirms warm restarts are firing at each val event.
+                    sgdr_mult_at_step = sgdr_eta(step)
+                    muon_initial_lr = 0.0
+                    for group in optimizer2.param_groups:
+                        if group.get("name") == "muon_blocks":
+                            muon_initial_lr = group["initial_lr"]
+                            break
+                    metrics.update({
+                        "sgdr/muon_lr": muon_initial_lr * sgdr_mult_at_step,
+                        "sgdr/muon_lr_multiplier": sgdr_mult_at_step,
+                        "sgdr/cycle_step": step % sgdr_cycle_len,
+                        "sgdr/cycle_index": step // sgdr_cycle_len,
+                        "sgdr/cycle_len": sgdr_cycle_len,
+                        "sgdr/num_restarts": args.sgdr_num_restarts,
+                    })
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -852,7 +890,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_muon_eta = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -912,14 +950,29 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
-            wandb.log({
+            sched_log = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
-            }, step=wandb_step)
+            }
+            if args.lr_schedule == "sgdr":
+                muon_lr_value = 0.0
+                for group in optimizer2.param_groups:
+                    if group.get("name") == "muon_blocks":
+                        muon_lr_value = group["lr"]
+                        break
+                sched_log.update({
+                    "sgdr/muon_lr": muon_lr_value,
+                    "sgdr/muon_lr_multiplier": sched_muon_eta,
+                    "sgdr/cycle_step": step % sgdr_cycle_len,
+                    "sgdr/cycle_index": step // sgdr_cycle_len,
+                    "sgdr/cycle_len": sgdr_cycle_len,
+                    "sgdr/num_restarts": args.sgdr_num_restarts,
+                })
+            wandb.log(sched_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
