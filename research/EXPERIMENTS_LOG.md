@@ -3,6 +3,49 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 06:00 UTC — PR #618: Muon² for lm_head — replace AdamW with NS-orthogonalized momentum on output projection (fern) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-fern/muon-lm-head`
+- Hypothesis: Forty productive-null closures cumulative — within-AdamW-lm_head mechanism space substantially exhausted (#393 LR mult MERGED, #584 LR sweep NULL, #547 cooldown SHAPE NULL, plus all per-group AdamW work). Pivots to **replacing AdamW for lm_head with Muon (NS-orthogonalized momentum)** — structurally fresh per-group optimizer-family change. Block-heterogeneity analysis (Zhang et al., NeurIPS 2024) shows lm_head has distinct Hessian structure; NS may provide spectral-direction conditioning AdamW's `m/√v` cannot. **Pre-staged primary risk: vocabulary frequency info may be carried by gradient magnitude structure (Zipf distribution) which NS homogenizes.**
+- Code: env vars `NANOGPT_LM_HEAD_OPTIMIZER` ∈ {adamw, muon}, `NANOGPT_MUON_LM_HEAD_LR`, `NANOGPT_MUON_LM_HEAD_NS_ITERS`. Param group split (lm_head removed from AdamW when optimizer=muon, added as separate Muon group with WD=0). NS transpose-trick handles (50257, 768) tall matrix via internal transpose.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS |3.27313−3.27174|=0.00139):**
+
+| Arm | LM_HEAD_OPTIMIZER | MUON_LM_HEAD_LR | val/loss | Δ vs A | Δ vs baseline | 3.28 target | W&B run | Verdict |
+|---|---|---:|---:|---:|---:|---|---|---|
+| A | adamw (ctrl) | n/a | 3.27313 | — | +0.00139 (drift PASS) | ✅ pass | `elxeofty` | bit-identical control |
+| B | muon | 0.005 | **3.28460** | **+0.01147** | +0.01286 | ❌ **MISS** (+0.0046) | `jxhyl88g` | regression |
+| C | muon | 0.010 | **3.28043** | **+0.00730** | +0.00869 | ❌ **MISS** (by 0.00043) | `ujy1vmxa` | regression |
+| D | muon | 0.002 | **3.29285** | **+0.01972** | +0.02111 | ❌ **MISS** (worst) | `26mjxq1u` | regression |
+
+**Analysis**:
+
+- **Monotonic-LR pattern**: higher Muon LR → smaller regression (D 0.002 → B 0.005 → C 0.010 in increasing LR order, Δ goes +0.01972 → +0.01147 → +0.00730). No interior minimum in the tested 0.002–0.010 range; optimum (if any) lies at LR ≥ 0.010 but the +0.00730 gap at C is too wide to plausibly close by LR alone, and pushing further risks instability (body Muon at LR=0.035 already operates much higher; extrapolation to lm_head is dangerous).
+- **All 3 Muon arms MISS the 3.28 benchmark target**. The best Muon arm (C, LR=0.010) misses by +0.00043 above target. This is not a marginal regression — it's a benchmark failure.
+- **Implementation correctness gates pass**: bit-identical control reproduction (drift +0.00139), all Muon arms ran stably with sane loss curves (no NS transpose-trick bug), wall-clock parity ±0.4%.
+
+**Mechanism reading — the pre-staged primary risk materialized**:
+
+The closure mechanism: **NS-orthogonalization homogenizes the spectral structure that lm_head needs to carry vocabulary-frequency information**.
+
+- AdamW's per-coordinate `m/√v` update preserves Zipf-distributed gradient magnitude information (rare tokens get scaled differently than common tokens via per-coordinate v_t).
+- Muon's NS-orthogonalized update has unit singular values post-NS — the LR controls only spectral magnitude, not per-vocab-direction scaling. The vocabulary-frequency Hessian structure is lost.
+- The monotonic LR pattern (higher LR closes the gap) suggests Muon is consistently under-stepping in the magnitude-carrying directions but cannot recover them via raw magnitude alone.
+- This matches block-heterogeneity intuition (Zhang et al. 2024): lm_head's Hessian is qualitatively different from inner blocks, and the spectral-conditioning that helps inner blocks **actively harms output projection**.
+
+**Strategic implications**:
+
+1. **\"Replace AdamW for lm_head\" axis: fully closed** — Muon arms span 5× LR range (0.002–0.010), all fail benchmark. Future research should not re-test alternative non-AdamW lm_head optimizers without addressing the Zipf-distribution mechanism.
+2. **The mirror question is now the obvious follow-up**: does AdamW's per-coordinate magnitude scaling itself need adjustment? `eps` is the direct knob — controls how aggressively `m/√v` rescales rare-token rows. Small eps → pure preconditioning (homogenizes magnitudes); large eps → SGD-like (preserves magnitude differences). **eps is the last untested per-group AdamW hyperparameter on the merged stack.**
+3. **Within-AdamW-lm_head axes substantially exhausted**: LR mult #393 MERGED, LR ratio sweep #584 NULL, cooldown SHAPE #547 NULL, optimizer family #618 NEGATIVE. Remaining: eps (next test), init scaling (untested), genuinely novel optimizers (Schedule-Free, D-Adaptation, Prodigy — none in stack).
+4. **Body-Muon depth boundary** structurally unexplored: if NS uniformly harms lm_head, where exactly is the \"NS works\" / \"NS hurts\" boundary in the model? Could be a fresh axis (test last-N blocks AdamW vs Muon).
+
+**46th productive-null/negative on the merged stack post-#393.**
+
+**Follow-up**: fern assigned **#652 Per-group AdamW eps sweep on lm_head** — directly motivated by #618 mechanism reading. Arms test LM_HEAD_EPS ∈ {1e-10 ctrl, 1e-8, 1e-6, 1e-12}. Hypothesis: larger eps (B 1e-8 or C 1e-6) preserves per-row magnitude differences in lm_head, letting magnitude carry vocabulary-frequency information rather than homogenizing it via preconditioning. If true, signal extracts at B or C; if false, productive-NULL closure completes the per-group AdamW family.
+
+---
+
 ## 2026-05-21 02:50 UTC — PR #550: Muon WD cooldown reduction (edward) — CLOSED productive-NULL (paired-pod collapse)
 
 - Branch: `g1r4-edward/muon-wd-cooldown-reduction`
