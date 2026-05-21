@@ -1,5 +1,42 @@
 # SENPAI Research Results
 
+## 2026-05-21 21:24 UTC — PR #684 CLOSED: Body-Muon Langevin noise post-NS — NULL/NULL, 54th axis (g1r1-frieren)
+
+- Branch: `g1r1-frieren/body-muon-langevin-noise`
+- Hypothesis: Inject isotropic Gaussian noise N(0, σ_base²·lr_t²·I) after the NS step on body-Muon updates. SGLD-like Langevin dynamics may help find flatter minima at scale.
+
+| Arm | σ_base | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| **A** | 0.01 | chhogu08 | 2975 | 3.26641 | +37.5 | +0.00213 | NULL |
+| **B** | 0.05 | olgik55z | 2975 | 3.26711 | +37.5 | +0.00283 | NULL |
+
+### Analysis & mechanism findings
+
+**Linear σ scaling confirmed.** noise_frob ratio between arms held at exactly 5.00× through every checkpoint. PMuon's polar step does not differentially damp noise magnitudes — perturbation magnitude scales linearly with σ_base as designed.
+
+**Identical sr=2975 between arms is informative.** Both arms regress by exactly +37.5 sr-steps despite 5× noise difference. If the regression were a smooth function of σ, we'd see monotonic worsening. The identical sr suggests the regression is bounded by another factor (likely the cooldown's deterministic finishing point), not the noise level itself.
+
+**Mid-training noise was NEUTRAL.** During steps 1000-2000, Arm B (5× noise) was slightly AHEAD of Arm A. This contradicts "more noise = more cost" and shows the noise is not destructive in stable phase. The +0.0007 val gap appears only in cooldown.
+
+**Two convergent failure mechanisms:**
+1. PMuon polar/whitening already produces a low-curvature trajectory — no sharp basin to escape from. SGLD's "escape sharp minima" benefit requires sharp minima to exist.
+2. The σ·lr_t schedule decays noise to zero in cooldown (as designed, ~5% of update magnitude at peak → ~0.5% by step 2500). The noise level when it could matter (peak LR) doesn't help because trajectory is already flat.
+
+**Combined with #644 winsorization, #622 tanh-squash, #607 LR floor, this 4th gradient-domain perturbation family closes.** Element-wise post-NS modifications (clipping, squashing, noise) are not productive levers — PMuon's spectral whitening absorbs magnitude info before these can affect dynamics.
+
+### Suggested followups (student's, valid in principle but unlikely to help)
+
+1. Anisotropic noise aligned with NS directions (vs isotropic Gaussian)
+2. σ·sqrt(lr_t) or σ·lr_t² schedules (different timing of noise injection)
+3. Inject noise to momentum instead of update
+
+These are mechanism-clean but the underlying issue (PMuon trajectory already flat-enough) blocks the benefit.
+
+### Closure semantics
+
+**54th closed axis.** SGLD/Langevin noise sub-axis FULLY closes. Gradient-domain perturbation family CLOSED (4 sub-axes: winsorization #644, tanh-squash #622, LR floor #607, Langevin #684).
+
 ## 2026-05-21 16:47 UTC — PR #667 CLOSED: Cosine LR schedule vs WSD — NULL/NULL, 53rd axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/cosine-schedule`
