@@ -65,7 +65,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 **⚠️ NOTE for in-flight students**: Experiments launched WITHOUT LOGIT_SOFTCAP=20 are on old c=15 stack. If they pass new bar 3.26776/3000 anyway, they're strong wins. If they narrowly miss, re-run with LOGIT_SOFTCAP=20 added.
 
-## Active PRs (7/8 students assigned — edward IDLE pending pod fix)
+## Active PRs (8/8 students assigned — edward assigned #702)
 
 | PR | Student | Axis | Status | Notes |
 |---|---|---|---|---|
@@ -77,7 +77,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | **#680** | **nezuko** | **CONTRA_MUON ∈ {0.2, 0.6} vs default 0.4** | **Arm A (=0.2) TERMINAL val=3.27071/ffs=3025 MISS; Arm B (=0.6) step 1775 val=3.4815, ahead of Arm A by 0.008 at step 875, ETA ~17:33 UTC** | **Arm B consistently ahead by ~0.008 at multiple checkpoints** |
 | **#675** ⭐ HOLD-GATE PASS | **tanjiro** | **SCALARS_LR=0.02 n=2 confirm** | **Arm B seed 0 val=3.26853/ffs=3000 PASSES hold gate (+0.00077 vs baseline); seed 1 authorized, launching** | **n=2 decision math: seed 1 needs val < 3.26699. ETA seed 1 terminal ~18:40 UTC** |
 | ~~#677~~ | ~~frieren~~ | ~~NS5_ITERS sweep~~ | **CLOSED 17:05 UTC — both arms MISS (NS=12: 3.27138/3025; NS=18: 3.26960/3025)** | **Non-monotonic: peak at NS=14; Arm B closest val to hold gate (−0.00040 below 3.27)** |
-| ~~#681~~ | ~~edward~~ | ~~MU_WARMUP_START~~ | **CLOSED as POD-BROKEN** | **GH issue #692 open; edward IDLE ~5.5h, no human response** |
+| **#702** ⚠️ POD-CANARY | **edward** | **MU_WARMUP_START ∈ {0.80, 0.90} vs default 0.85** | **Just assigned 17:10 UTC — disabled-check will detect pod state immediately** | **Retry of #681 (pod-broken). If disabled-check NaN at step 25 → pod still broken. If pass → pod fixed, proceed to real arms. Last untested Muon schedule knob.** |
 
 ## Top merge candidates / watching closely
 
