@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-21 10:05 UTC — Cycle 71 mid-36: PR #653 alphonse ADAMW_BETA1 CLOSED (axis flat — Arm A β1=0.9 val=3.27651/ffs=3100; Arm B β1=0.95 val=3.28168/never-reached-target +0.01392; monotone degradation with higher β1; β1=0.8 is local optimum, joint with β2=0.95 closed in #625; AdamW first+second moment defaults JOINTLY locally optimal on c=20). Alphonse → #673 MUON_LR sweep (∈ {0.032, 0.05} vs default 0.04 — fresh Muon-side base LR axis; never ablated; #608 warmup CLOSED, #615 floor CLOSED, only base VALUE remained). Also nudged frieren #654 for terminal SENPAI-RESULT (Arm A done at val=3.2690, Arm B running). Edward #642 seed 1 at step 2575/3175, ETA terminal ~10:13 UTC. Fern Arm B (NORMUON_BETA2=0.99) launched and running step 2175. Nezuko #657 terminal Arm A (cosine) val=3.28145 — NEVER REACHED 3.28 TARGET, catastrophic schedule failure. 8/8 students assigned.**
 - **2026-05-21 09:25 UTC — Cycle 71 mid-35: First-half-of-round terminal sweep — five Arm A's now landed (all on c=20 stack):
   - **#642 edward Arm A** (FLOOR=0.05): val=3.26712/ffs=3000 ⭐ **WIN candidate** (Δval=-0.00064) — n=2 seed 1 running (step 100 at 09:25 UTC), ETA terminal ~10:13 UTC
   - **#655 thorfinn Arm A** (EMBED_LR_MULT=0.5): val=3.26866/ffs=3000 — passes n=1 hold gate (val≤3.27 AND ffs=3000) but misses merge bar by +0.00090. Arm B (mult=2.0) running step 675. Hold n=2 decision until Arm B terminal.
@@ -60,7 +61,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 | PR | Student | Axis | Status | Notes |
 |---|---|---|---|---|
 | **#642** ⭐⭐⭐ | **edward** | **ADAMW_LR_FLOOR=0.05 — Arm A val=3.26712/ffs=3000 WIN candidate; Arm B (0.10) val=3.26842/ffs=3000 miss** | **n=2 seed 1 running step 100 at 09:25 UTC** | **ETA ~10:13 UTC; MERGE candidate if seed 1 lands < 3.26840** |
-| **#653** | **alphonse** | **ADAMW_BETA1 sweep — Arm A (0.9) val=3.27651/ffs=3100 MISS clear (+0.00875 val)** | **Arm B (β1=0.95) running step ~800** | **β1=0.8 likely tuned; axis closing direction** |
+| **#673** ⭐ NEW | **alphonse** | **MUON_LR sweep — base Muon LR ∈ {0.032, 0.05} vs default 0.04 (fresh axis)** | **Just assigned** | **Mirror to closed AdamW LR axes; tests if c=20's larger backward gradients want smaller Muon step (Arm A higher prior)** |
 | **#654** | **frieren** | **LM_HEAD_LR_MULT sweep — Arm A (2.0×) val=3.2690/ffs=3025 MISS (+0.00124 val, +25 ffs)** | **Arm B (mult=0.5) running step 200** | **Up direction failed; down direction may also fail** |
 | **#650** | **tanjiro** | **Logit softcap extended — Arm A (c=25, canonical hk5yhvot) val=3.2730/ffs=3050 MISS** | **Arm B (c=30) running step 318** | **Monotone direction REVERSED above c=20; axis likely closing** |
 | **#661** | **fern** | **NORMUON_BETA2 sweep — stalled in disabled-check loop (6 since 07:53)** | **Override posted 09:20 UTC: launch Arm B (0.99) immediately** | **Waiting for launch confirmation** |

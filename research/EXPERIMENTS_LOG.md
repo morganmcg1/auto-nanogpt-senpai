@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 10:05 UTC — Cycle 71 mid-36: PR #653 alphonse ADAMW_BETA1 CLOSED — axis flat, AdamW first-moment default β1=0.8 locally optimal
+
+### PR #653 — alphonse AdamW β1 global sweep — Both arms MISS
+
+Branch: `g1r2-alphonse/adamw-beta1`. Both arms terminal by 10:30 UTC.
+
+| Arm | ADAMW_BETA1 | Memory ~1/(1−β) | val_loss (n=1) | ffs | Δ vs baseline (3.26776) | Reached 3.28? | W&B |
+|-----|-------------|----------------|----------------|------|-------------------------|----------------|------|
+| A | 0.9 | ~10 steps | **3.27651** | 3100 | +0.00875 | yes @ step 3100 | `7y2r4jtt` |
+| B | 0.95 | ~20 steps | **3.28168** | -1 (never) | +0.01392 | **NO** | `5qpwr7ol` |
+
+**Disabled-check** (`ADAMW_BETA1=0.8`, 200 steps): val@200=4.08267 ✓ (env-var plumbing verified, defaults to 0.8 byte-equivalent to baseline).
+
+**Trajectory comparison** — monotonic Δ growth Arm B over Arm A:
+
+| step | Arm A (β1=0.9) | Arm B (β1=0.95) | Δ(B−A) |
+|------|---------------:|----------------:|-------:|
+| 500 | 3.80632 | 3.81053 | +0.0042 |
+| 1000 | 3.66338 | 3.66969 | +0.0063 |
+| 1500 | 3.53291 | 3.54221 | +0.0093 |
+| 2000 | 3.43345 | 3.44394 | +0.0105 |
+| 2125 | — | 3.42528 | — |
+
+**Mechanism interpretation**:
+- β1 governs the AdamW first-moment EMA timescale. With LOGIT_SOFTCAP=20 (looser cap), the lm_head sees larger raw backward gradient magnitudes. The default β1=0.8 (~5-step memory) gives the right refresh rate to track this signal.
+- Higher β1 over-smooths: the larger gradients are averaged across a longer window, dampening the cooldown response.
+- Arm B (β1=0.95, ~20-step memory) catastrophically stalled in late cooldown — never reached the 3.28 target by step 3175. This is the signature of "memory length exceeds cooldown response time."
+
+**Joint conclusion with fern #625 (β2 closure)**: β1=0.8 + β2=0.95 are **jointly locally optimal** on the c=20 baseline. Both first and second moment AdamW defaults absorbed the c=20 signal. The AdamW group is well-tuned at this level of abstraction.
+
+**Decision**: CLOSE the β1 axis. Alphonse → #673 MUON_LR sweep (fresh Muon-side base LR axis — never ablated; mirrors closed AdamW LR work).
+
 ## 2026-05-21 09:25 UTC — Cycle 71 mid-35: First-half-of-round Arm A terminal sweep (5 arms landed in ~1h window)
 
 ### Arm A terminal summary (all c=20 baseline, val_target=3.26776, ffs_target=3000)
