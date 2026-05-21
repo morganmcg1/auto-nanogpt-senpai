@@ -846,6 +846,14 @@ if NANOGPT_NS_DEGREE == 5:
                console=True)
 else:
     print0(f"  cubic NS coef table inert (c=0, NS_COEF_SCHEDULE ignored)", console=True)
+_senpai_seed_env = os.environ.get("SENPAI_SEED", "")
+SENPAI_SEED = int(_senpai_seed_env) if _senpai_seed_env != "" else None
+if SENPAI_SEED is not None:
+    torch.manual_seed(SENPAI_SEED)
+    torch.cuda.manual_seed_all(SENPAI_SEED)
+    print0(f"SENPAI_SEED: {SENPAI_SEED} (torch.manual_seed + cuda.manual_seed_all)", console=True)
+else:
+    print0("SENPAI_SEED: unset (default non-deterministic init)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -904,6 +912,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_ns_degree": NANOGPT_NS_DEGREE,
+            "senpai_seed": SENPAI_SEED,
         },
     )
 
@@ -918,6 +927,9 @@ for trial_idx in range(args.num_trials):
     train_steps = int(os.environ.get("NANOGPT_TRAIN_STEPS", "3350"))
 
     # initialize model parameters
+    if SENPAI_SEED is not None:
+        torch.manual_seed(SENPAI_SEED + trial_idx)
+        torch.cuda.manual_seed_all(SENPAI_SEED + trial_idx)
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
