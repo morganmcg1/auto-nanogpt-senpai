@@ -1,5 +1,37 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 17:33 UTC — Cycle 71 mid-46: PR #685 thorfinn ADAMW_EPS CLOSED — both arms MISS (Arm A 1e-8 val=3.27119/ffs=3025; Arm B 1e-12 val=3.26903/ffs=3025 — val passes hold gate but ffs misses); current default 1e-10 well-tuned across 100× range
+
+### PR #685 — thorfinn ADAMW_EPS sweep — BOTH ARMS MISS; default 1e-10 locally optimal
+
+Branch: `g1r2-thorfinn/adamw-eps-sweep`. Closed 17:33 UTC.
+
+| Arm | ADAMW_EPS | val_loss | ffs | hold gate (val≤3.27 AND ffs≤3000) | vs baseline | W&B |
+|-----|---|---|---|---|---|---|
+| Disabled-check | 1e-10 (default) | 4.09244@200 | — | ✓ plumbing | — | `msaw9vtc` |
+| **A** | **1e-8** (100× larger) | **3.27119** | **3025** | ❌ both legs (+0.00343 val, +25 ffs) | clear MISS | `glchqxk3` |
+| Baseline | 1e-10 | 3.26776 (n=2) | 3000 | — | — | (PR #613) |
+| **B** | **1e-12** (100× smaller) | **3.26903** | **3025** | ❌ ffs only (val ✓ ≤3.27, ffs +25) | +0.00127 val / +25 ffs | `ocp7pxb8` |
+
+**Step-by-step trajectory comparison (Arm B slightly ahead early, parity by step 1000, small re-emerged advantage in cooldown):**
+
+| step | A (1e-8) | B (1e-12) | Δ (B − A) |
+|---|---|---|---|
+| 125  | 4.42854 | 4.41636 | −0.01218 |
+| 500  | 3.80761 | 3.80364 | −0.00397 |
+| 1000 | 3.66199 | 3.66285 | +0.00086 |
+| 1500 | 3.53516 | 3.53300 | −0.00216 |
+| 2000 | 3.43011 | 3.42921 | −0.00090 |
+| 2500 | 3.34883 | 3.34542 | −0.00341 |
+| 3000 | 3.28246 | 3.28026 | −0.00220 |
+| 3175 | 3.27119 | 3.26903 | −0.00216 |
+
+**Mechanism verdict — denominator regularization at fp32 v̂ scale is non-load-bearing**: Both arms span 100× from default; the smaller-eps direction (Arm B) is consistently ahead by ~0.002-0.004 in val but uniformly tied at ffs=3025. No NaN/underflow even at eps=1e-12 across 3175 steps. The "amplify rare-param updates" mechanism for smaller eps gives a small but persistent edge in early training, compresses by step 1000, re-emerges weakly in cooldown — but is not large enough to flip ffs or beat baseline val.
+
+**Joins near-miss cluster** (6th fresh-axis result this cycle landing ffs=3025): Arm B val=3.26903 is the **2nd-closest n=1 val to hold gate this cycle** (only -0.00097 below 3.27, behind only NS5_ITERS=18 at -0.00040). Cluster now contains: NS=18 (3.26960), CONTRA=0.2 (3.27071), EPS=1e-8 (3.27119), EPS=1e-12 (3.26903), plus per-group cooldown_frac, plus MUON_GRAD_CLIP=1.0 (3.27252). **Six axes, all ffs=3025-3050 — strong evidence of single-seed n=1 c=20 statistical floor.**
+
+**Direction inference for downstream**: AdamW denominator class fully closed (#569 AdaBelief, #574 Sophia-G, #625 β2, #653 β1, #685 EPS — five AdamW group denominator axes all at local optimum). Thorfinn → NEW assignment forthcoming via researcher-agent.
+
 ## 2026-05-21 17:05 UTC — Cycle 71 mid-45: PR #677 frieren NS5_ITERS CLOSED — both arms miss hold gate (NS=14 well-tuned, unimodal); 🎯 PR #675 tanjiro Arm B PASSES n=1 HOLD GATE (val=3.26853/ffs=3000, +0.00077 vs baseline), n=2 confirm authorized
 
 ### PR #677 — frieren NS5_ITERS sweep — BOTH ARMS MISS HOLD GATE; non-monotonic peak at NS=14
