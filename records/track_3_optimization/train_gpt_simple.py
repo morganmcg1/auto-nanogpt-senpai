@@ -71,6 +71,20 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # AdEMAMix on aux AdamW groups (Pagliardini et al. 2024, arXiv:2409.03137).
+    # Blends a slow EMA `s = beta3*s + (1-beta3)*grad` into the AdamW gradient:
+    # effective_grad = grad + alpha_t * s. Alpha warms up linearly so the slow EMA
+    # has time to populate before contributing. beta3=0.9990 gives ~96% saturation
+    # by step 2300 at our 3325-step training; PR #567 used beta3=0.9999 and the
+    # slow EMA only reached ~28% saturation by end of training.
+    parser.add_argument("--use_adem_aux", type=int, default=int(os.environ.get("USE_ADEM_AUX", "0")),
+                        help="1 = apply AdEMAMix slow-EMA blending to aux AdamW groups (embed, lm_head, scalars)")
+    parser.add_argument("--adem_beta3", type=float, default=float(os.environ.get("ADEM_BETA3", "0.9990")),
+                        help="AdEMAMix slow EMA decay (default 0.9990 — calibrated for ~3325 steps)")
+    parser.add_argument("--adem_alpha", type=float, default=float(os.environ.get("ADEM_ALPHA", "5.0")),
+                        help="AdEMAMix mixing coefficient alpha (paper default 5)")
+    parser.add_argument("--adem_alpha_warmup", type=int, default=int(os.environ.get("ADEM_ALPHA_WARMUP", "1000")),
+                        help="Linear warmup steps for alpha (0 = no warmup)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +727,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_adem_aux:
+    print0(f"AdEMAMix ENABLED on aux AdamW groups: beta3={args.adem_beta3} "
+           f"alpha={args.adem_alpha} alpha_warmup={args.adem_alpha_warmup}", console=True)
+else:
+    print0("AdEMAMix DISABLED on aux AdamW groups (use_adem_aux=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +785,10 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "use_adem_aux": bool(args.use_adem_aux),
+            "adem_beta3": args.adem_beta3,
+            "adem_alpha": args.adem_alpha,
+            "adem_alpha_warmup": args.adem_alpha_warmup,
         },
     )
 
@@ -828,6 +851,18 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # AdEMAMix slow-EMA buffers on the aux AdamW params (gradient-blending variant).
+    # We update s = beta3*s + (1-beta3)*grad after AGC clips the aux grads, then add
+    # alpha_t*s into p.grad before AdamW's step. Buffers are zero-initialized; alpha
+    # warmup mitigates the start-of-training bias. Buffers are held in fp32 so the
+    # 0.001*grad updates (at beta3=0.999) do not lose precision relative to a bf16
+    # accumulator over the full ~3325-step training run.
+    if args.use_adem_aux:
+        adem_aux_params = [p for g in optimizer1.param_groups for p in g["params"]]
+        adem_slow_bufs = [torch.zeros_like(p, dtype=torch.float32) for p in adem_aux_params]
+    else:
+        adem_aux_params = []
+        adem_slow_bufs = []
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1018,8 +1053,63 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # AdEMAMix on aux AdamW groups (gradient-blending variant). The slow EMA
+        # tracks the post-AGC aux gradients (so we add a clean signal into AdamW).
+        # We then push (alpha_t * s) into p.grad so the normal AdamW step sees
+        # an effective gradient g_eff = g + alpha_t * s. This differs from the
+        # paper formulation (which uses s only in the numerator alongside v_t
+        # built from raw g) but is much cleaner to implement and close enough
+        # for screening. Bit-identical no-op when args.use_adem_aux == 0.
+        # Note: the blended gradient contaminates AdamW's v_t accumulator vs the
+        # paper formulation. We log slow_to_grad_ratio so we can see if the
+        # injection magnitude becomes large relative to the raw gradient signal.
+        adem_alpha_t = 0.0
+        adem_slow_norm = 0.0
+        adem_grad_norm = 0.0
+        adem_inject_norm = 0.0
+        adem_fast_norm = 0.0
+        adem_measure = False
+        if args.use_adem_aux:
+            if args.adem_alpha_warmup > 0:
+                adem_alpha_t = args.adem_alpha * min(1.0, step / args.adem_alpha_warmup)
+            else:
+                adem_alpha_t = args.adem_alpha
+            beta3 = args.adem_beta3
+            slow_sq_local = 0.0
+            grad_sq_local = 0.0
+            adem_measure = dist.get_rank() == 0 and telemetry_due
+            for p, s in zip(adem_aux_params, adem_slow_bufs):
+                if p.grad is not None:
+                    if adem_measure:
+                        grad_sq_local += float(p.grad.detach().float().square().sum().item())
+                    s.mul_(beta3).add_(p.grad, alpha=1.0 - beta3)
+                    if adem_alpha_t > 0.0:
+                        p.grad.add_(s, alpha=adem_alpha_t)
+                    if adem_measure:
+                        slow_sq_local += float(s.detach().float().square().sum().item())
+            if adem_measure:
+                adem_slow_norm = slow_sq_local ** 0.5
+                adem_grad_norm = grad_sq_local ** 0.5
+                adem_inject_norm = adem_alpha_t * adem_slow_norm
         for opt in optimizers:
             opt.step()
+        # After the AdamW step, measure the fast EMA (m_t) norm so we can report
+        # slow_EMA_norm / fast_EMA_norm — the advisor-requested diagnostic for
+        # whether beta3=0.9990 calibration is delivering meaningful long-horizon
+        # momentum vs PR #567's under-saturation. Note: m_t here is built from
+        # the blended grad (g + alpha_t * s), so it is not a pure "fast EMA of
+        # the raw gradient" — but the ratio still captures relative magnitudes
+        # inside AdamW's update math.
+        if args.use_adem_aux and adem_measure:
+            fast_sq_local = 0.0
+            for p in adem_aux_params:
+                st = optimizer1.state.get(p, None)
+                if st is None:
+                    continue
+                m = st.get("exp_avg", None)
+                if m is not None:
+                    fast_sq_local += float(m.detach().float().square().sum().item())
+            adem_fast_norm = fast_sq_local ** 0.5
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1054,6 +1144,21 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if args.use_adem_aux and telemetry_due:
+                muonh_metrics["train/adem/alpha_t"] = adem_alpha_t
+                muonh_metrics["train/adem/slow_norm"] = adem_slow_norm
+                muonh_metrics["train/adem/grad_norm"] = adem_grad_norm
+                muonh_metrics["train/adem/fast_norm"] = adem_fast_norm
+                muonh_metrics["train/adem/inject_norm"] = adem_inject_norm
+                if adem_grad_norm > 0.0:
+                    muonh_metrics["train/adem/inject_to_grad_ratio"] = adem_inject_norm / adem_grad_norm
+                    muonh_metrics["train/adem/slow_to_grad_ratio"] = adem_slow_norm / adem_grad_norm
+                if adem_fast_norm > 0.0:
+                    muonh_metrics["train/adem/slow_to_fast_ratio"] = adem_slow_norm / adem_fast_norm
+                muonh_metrics["train/adem/alpha_warmup_progress"] = min(
+                    1.0, (step + 1) / max(1, args.adem_alpha_warmup)
+                )
+                muonh_metrics["train/adem/slow_saturation"] = 1.0 - args.adem_beta3 ** (step + 1)
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
