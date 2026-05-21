@@ -3,6 +3,40 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 05:05 UTC — PR #638: frieren Lion optimizer replacement — **CLOSED clean-NEG**
+
+- Branch: `g1r5-frieren/lion-optimizer-replacement`
+- Student: g1r5-frieren
+- Hypothesis: Lion optimizer (Chen 2023, arXiv:2302.06675) replaces AdamW for embed/lm_head/scalars groups with sign-based update + single momentum buffer. Mechanistically distinct from AdamW's variance-based update.
+
+| Attempt | Cell | lion_lr_scale | W&B run | State | Crash Mode |
+|---------|------|--------------|---------|-------|-----------|
+| #1 | C | 0.10 | 9zzr3bc0 | CRASHED at step 16 | grad-norm=235,925 |
+| #2 (relaunch) | B | 0.01 | clazjucp | FAILED at step 0 | only val/loss=10.826 logged |
+| #2b (relaunch) | B | 0.01 | 7pcrm3hv | grad-norm=233,763 at step 15 (failing) | same explosion |
+
+- Results: Two independent attempts spanning 10× LR range both produced runaway gradient norms (~235k vs healthy baseline ~5-10). Even with effective Lion embed_lr at 0.003 (100× smaller than AdamW embed_lr=0.3), the sign-based update is too aggressive for this regime. The architecture (50K-vocab embed table, ReLU² MLP, RMSNorm pre-norm, 12-layer depth) appears intrinsically incompatible with unit-magnitude sign updates on the embedding rows.
+- Diagnostic insight: Lion's published recipes for language modeling typically use LR ≤ 3e-4 (vs our embed_lr=0.3 ÷ scale). To make Lion viable would need lion_lr_scale ≈ 0.001 (1000× reduction from AdamW) plus non-zero decoupled WD (Lion's recipe was LR ÷ 10 + WD × 5-10 vs AdamW, but our baseline uses WD=0 for AdamW groups). The retuning required is far enough from baseline that it stops being a like-for-like mechanism comparison.
+- Decision: CLOSED clean-NEG. Lion axis closed at this scale/architecture. Frieren reassigned to wd_scalars sweep on new baseline.
+
+## 2026-05-21 04:50 UTC — PR #565: thorfinn init variance scale sweep — **CLOSED clean-neutral (after MERGE shifted gate)**
+
+- Branch: `g1r5-thorfinn/init-var-sweep`
+- Student: g1r5-thorfinn
+- Hypothesis: 5-cell init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0). Phase 1 Cell B (xavier var=1.0) at val/loss=3.263870 cleared old n=1 gate by 0.000250 — at the noise floor, triggered P2.
+
+| Phase | Trial | val/loss | ffs | Δ vs old baseline | vs new baseline (3.263265) |
+|-------|-------|----------|-----|-------------------|---------------------------|
+| P1 | Cell B (n=1) | 3.263870 | — | −1.29σ_old | +0.000605 ABOVE new |
+| P2 | Trial 0 | 3.26387 | — | −1.29σ_old | +0.000605 ABOVE new |
+| P2 | Trial 1 | 3.26740 | — | +0.73σ_old | +0.004135 ABOVE new |
+| P2 | Trial 2 | 3.263850 | — | −1.20σ_old | +0.000585 ABOVE new |
+| P2 | mean(0,1,2) | 3.265040 | — | −1.66σ_old | +0.001775 ABOVE new |
+
+- Math gate analysis: For n=4 mean to clear NEW n=4 gate (3.261265), Trial 3 would need ≤ **3.249940** — that's **−7.6σ_old / −11.9σ_new**, empirically impossible.
+- Results commentary: Cell B at 3.263870 was lucky-side noise vs old gate (passed by 0.000250, at the noise floor). P2 replication shows the true distribution sits at or slightly above the new baseline. Init variance axis (magnitude only) is closed for this budget. Depth-aware init (μP-style) and other init schemes remain unexplored.
+- Decision: CLOSED clean-neutral. P2 math-closed by Trial 2; no waiting for Trial 3. Thorfinn reassigned to per-block LR decay sweep.
+
 ## 2026-05-21 04:22 UTC — PR #571: askeladd AdamW scalar LR sweep — **✅ MERGED — NEW BASELINE**
 
 - Branch: `g1r5-askeladd/scalar-lr-sweep`
