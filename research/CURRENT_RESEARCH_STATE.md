@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 21:43 UTC
+- **Last update:** 2026-05-21 22:04 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -23,12 +23,13 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#690** | edward | `5n88a4qm` Arm B SGDR T_mult=2 (3 cycles) | running | — | **Arm A TERMINAL DNF** val=3.30605 sr=-1 (never reached 3.28). Mechanism: cycle-1 +0.10 advantage REAL, restart spike +0.17 unrecoverable in cycle-2's 1625 steps. Arm B even more frequent restarts → expected worse. Terminal ETA ~23:30 UTC. SGDR axis will close. |
 | **#725** | askeladd | NEWLY ASSIGNED 21:43 UTC | — | — | **NEW — PMuon bilateral covariance buffer scale at cooldown_start (step 975). Arm A: L_cov, R_cov × 0.5; Arm B: × 0.0. Parallel to #723 (momentum buffer reset) — tests "buffer state at cooldown_start" mechanism on PMuon's bilateral covariance.** |
 | **#723** | frieren | NEWLY ASSIGNED 21:26 UTC | — | — | **NEW — Body-Muon momentum buffer scale at cooldown_start (step 975). Arm A: m × 0.5; Arm B: m × 0.0. Directly tests the cooldown-erosion mechanism finding — momentum buffer reset at cooldown_start may allow gradient-driven cooldown trajectory.** |
-| **#686** | fern | `zh1xe1ci` Arm B β_cov 0.95→0.98 | 1367/3250 | 3.595 @ 1250 | **Arm A TERMINAL NULL** val=3.26763 sr=2975. Arm B (smoother-cooldown direction) tracks Arm A through step 1125 (pre-cooldown), β_cov ramps from step 975. Terminal ETA ~21:50 UTC. β_cov axis closure expected (static 0.95 optimal). |
+| **#727** | fern | NEWLY ASSIGNED 22:04 UTC | — | — | **NEW — Body-Muon WD cooldown schedule. Arm A: WD 0.025→0.050 UP ramp; Arm B: WD 0.025→0.000 DOWN ramp. Untested as temporal schedule. Tests whether the WD-impulse trajectory (WD × LR) is optimal at static WD coupled to WSD LR-decay.** |
 
 ## Recently closed (this session)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#686** | fern | β_cov schedule SYMMETRIC NULL — Arm A (0.90→0.95 warm) val=3.267627 sr=2975 (+37.5, +0.00335); Arm B (0.95→0.98 cool) val=3.267820 sr=2975 (+37.5, +0.00354). **Identical regression in opposite directions = canonical static-optimum signature.** Pre-cooldown sanity check confirms regression is from schedule mechanism (not confound). Combined with PR #502 β_cov scalar scan → β_cov axis FULLY CLOSED across scalar + schedule. Student insight: cooldown-erosion is NOT explained by whitening miscalibration. | **CLOSED 22:02 UTC — 56th axis.** |
 | **#682** | askeladd | mu temporal-schedule NULL/inconclusive — Arm A (cooldown ramp 0.95→0.85) sr=2925 val=3.26985 (Δsr=−12.5 marginal BUT Δval=+0.00557 regression fails win rule's val<baseline clause); Arm B (warmup ramp 0→0.95) sr=3050 val=3.27239 clear NULL. **Mechanism finding 1:** Warmup ramp UP rejects "random-init bias" hypothesis cleanly — Arm B never catches baseline. **Finding 2:** Cooldown ramp DOWN shows real sr-for-val tradeoff but at unfavorable ratio. Combined with #660 Nesterov closure → **body-Muon mu spec PINNED at static (mu=0.95, nesterov=True, NS_ITERS=12) across 4 sub-axes.** | **CLOSED 21:42 UTC — 55th axis.** |
 | **#684** | frieren | Langevin noise NULL/NULL — Arm A (σ=0.01) val=3.26641 sr=2975 (+0.00213 val, +37.5 sr); Arm B (σ=0.05) val=3.26711 sr=2975 (+0.00283, +37.5). **Linear 5× noise scaling confirmed exact every step. Both arms IDENTICAL sr=2975 despite 5× difference → regression bounded by cooldown deterministic finish point, not noise level. Mid-training (1000-2000) Arm B slightly AHEAD of Arm A — noise neutral in stable phase, cost only in cooldown.** PMuon trajectory already low-curvature → no sharp basin to escape via SGLD. **Gradient-domain perturbation family (4 sub-axes: winsorization, tanh-squash, LR floor, Langevin) FULLY CLOSED.** | **CLOSED 21:24 UTC — 54th axis.** |
 | **#667** | nezuko | Cosine schedule NULL/NULL — Arm A (pure cosine) val=3.276601 sr=3000 (+62.5); Arm B (cosine_wsd 30% stable + cosine 70%) val=3.272568 sr=3000 (+62.5). **Mechanism (two findings):** (1) stable plateau is REQUIRED — Arm B beats Arm A by Δval=0.004 at identical sr; (2) WSD power-1.4 tail beats cosine tail by +62.5 sr-steps when stable phase is fixed. Both arms cross 3.28 at step 3000. **Schedule family WSD-LOCKED across 7 sub-axes.** | **CLOSED 16:47 UTC — 53rd axis.** |

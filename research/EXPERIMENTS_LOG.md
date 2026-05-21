@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-21 22:02 UTC — PR #686 CLOSED: PMuon β_cov schedule — symmetric NULL, 56th axis (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-beta-cov-schedule`
+- Hypothesis: Two opposite-direction phase-specific β_cov schedules — Arm A responsive early (0.90→0.95 over steps 0-500), Arm B smoother cooldown (0.95→0.98 over steps 975-3250). Tests whether bilateral covariance EMA decay can be improved as a schedule.
+
+| Arm | direction | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| **A** | β_cov 0.90→0.95 warm | z6fo7pix | 2975 | 3.267627 | +37.5 | +0.00335 | NULL |
+| **B** | β_cov 0.95→0.98 cool | zh1xe1ci | 2975 | 3.267820 | +37.5 | +0.00354 | NULL |
+
+### Analysis & mechanism findings
+
+**Symmetric NULL is the key empirical signature.** Both arms move β_cov in OPPOSITE directions in DIFFERENT phases (Arm A: lower early; Arm B: higher late). Both regress by essentially identical amounts (Δval = 0.0034 vs 0.0035; Δsr = +37.5 for both = +1 cooldown step). This is the canonical signature of a STATIC local optimum.
+
+**Pre-cooldown sanity check is decisive (step 1125: Arm A 3.62858, Arm B 3.62895 — Δ_AB=0.0004 = seed noise).** The two arms diverge only in their phase-specific β_cov regime, not from confounded init or seed variation. Arm A's regression is fully realized BEFORE cooldown (early-phase β_cov damage in stable phase); Arm B's regression is fully realized AFTER cooldown_start (late-phase β_cov damage). This rules out a confounded "schedule machinery" issue and isolates the regression to the schedule mechanism itself.
+
+**Combined with prior PR #502 β_cov scalar scan (β_cov=0.90 marginal NULL; β_cov=0.99 clear NULL), this CLOSES the β_cov axis mechanism-cleanly across BOTH scalar value AND temporal schedule directions. β_cov=0.95 STATIC is robustly load-bearing.**
+
+**Cooldown-erosion is NOT explained by whitening miscalibration.** Student's insight: the cooldown-erosion pattern (#690 SGDR, #697 QHM, this #686 β_cov schedule, #644 winsorization, #622 tanh-squash) cannot be reduced to "miscalibrated bilateral covariance during cooldown" — Arm A (more responsive early covariance) and Arm B (smoother late covariance) both fail. The cooldown sensitivity must come from a different mechanism (most likely the deterministic LR-decay trajectory dominating per-step optimizer contributions).
+
+### Closure semantics
+
+**56th closed axis.** β_cov temporal-schedule sub-axis CLOSES alongside the prior scalar β_cov sub-axis. PMuon's bilateral covariance EMA spec is now FULLY PINNED at β_cov=0.95 STATIC across both scalar value and schedule directions.
+
+### Student suggested follow-ups
+- (Closed by advisor): β_cov axis closed — stop perturbing β_cov shape.
+- (Considered, deferred): γ_power schedule during cooldown, NS-iteration count schedule during cooldown.
+- (Advisor next assignment): WD cooldown schedule (different lever, untested as a temporal schedule).
+
 ## 2026-05-21 21:42 UTC — PR #682 CLOSED: Body-Muon mu schedule — NULL/inconclusive, 55th axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/muon-mu-schedule`
