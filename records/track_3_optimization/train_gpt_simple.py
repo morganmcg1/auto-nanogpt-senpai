@@ -536,6 +536,18 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Per-row L2 gradient clip on aux AdamW groups (#668). For each row of the
+# target 2-D weight gradient, scale by min(1, T / ||row||) so rows below T
+# pass through untouched and rows above T are bounded to L2 norm T. Acts
+# pre-global-clip on the all-reduced gradient. T=0 disables (bit-identical
+# to baseline).
+NANOGPT_PER_ROW_CLIP = float(os.environ.get("NANOGPT_PER_ROW_CLIP", "0.0"))
+NANOGPT_PER_ROW_CLIP_SCOPE = os.environ.get("NANOGPT_PER_ROW_CLIP_SCOPE", "embed_lmhead")
+_PER_ROW_CLIP_TARGETS = {
+    "embed_only":   {"adam_embed"},
+    "lmhead_only":  {"adam_lm_head"},
+    "embed_lmhead": {"adam_embed", "adam_lm_head"},
+}.get(NANOGPT_PER_ROW_CLIP_SCOPE, set())
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -761,6 +773,12 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(
+    f"PER_ROW_GRAD_CLIP: threshold={NANOGPT_PER_ROW_CLIP} scope={NANOGPT_PER_ROW_CLIP_SCOPE} "
+    f"targets={sorted(_PER_ROW_CLIP_TARGETS)} "
+    f"({'ENABLED' if NANOGPT_PER_ROW_CLIP > 0 else 'DISABLED'})",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -826,6 +844,8 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_per_row_clip_threshold": NANOGPT_PER_ROW_CLIP,
+            "nanogpt_per_row_clip_scope": NANOGPT_PER_ROW_CLIP_SCOPE,
         },
     )
 
@@ -1001,6 +1021,40 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        # Per-row L2 clip on aux AdamW groups (#668). Acts AFTER all_reduce and
+        # BEFORE the existing global clip below: for each row of the target 2-D
+        # weight gradient, scale by min(1, T / ||row||) so rows below T pass
+        # through untouched while rows above T are bounded to L2 norm T.
+        # Also emits row-norm percentile diagnostics at step 50/1675/3000 so
+        # we can refine future per-row clip PRs from measured row-norm bands.
+        _prc_diag_due = (step + 1) in (50, 1675, 3000)
+        if (NANOGPT_PER_ROW_CLIP > 0 or _prc_diag_due) and _PER_ROW_CLIP_TARGETS:
+            _prc_wandb_step = trial_idx * (train_steps + 1) + (step + 1)
+            for _g in optimizer1.param_groups:
+                if _g.get("name") not in _PER_ROW_CLIP_TARGETS:
+                    continue
+                for _p in _g["params"]:
+                    if _p.grad is None or _p.grad.ndim != 2:
+                        continue
+                    _row_norms = _p.grad.norm(dim=1, keepdim=True)
+                    if _prc_diag_due and dist.get_rank() == 0:
+                        _flat = _row_norms.squeeze(1).detach().to(torch.float32)
+                        _q = torch.quantile(
+                            _flat,
+                            torch.tensor([0.5, 0.9, 0.99, 0.999], device=_flat.device),
+                        )
+                        _name_short = "embed" if _g.get("name") == "adam_embed" else "lmhead"
+                        wandb.log({
+                            "trial": trial_idx,
+                            "train/step": step + 1,
+                            f"diag/{_name_short}_row_norm_p50":  float(_q[0].item()),
+                            f"diag/{_name_short}_row_norm_p90":  float(_q[1].item()),
+                            f"diag/{_name_short}_row_norm_p99":  float(_q[2].item()),
+                            f"diag/{_name_short}_row_norm_p999": float(_q[3].item()),
+                        }, step=_prc_wandb_step)
+                    if NANOGPT_PER_ROW_CLIP > 0:
+                        _clip_factor = (NANOGPT_PER_ROW_CLIP / _row_norms.clamp(min=1e-12)).clamp(max=1.0)
+                        _p.grad.mul_(_clip_factor)
         if NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
