@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 15:00 UTC — Cycle 71 mid-41: PR #673 alphonse MUON_LR CLOSED — third Muon-side scalar at default; portfolio rebalance to fresh-mechanism PR #688 MUON_GRAD_CLIP
+
+### PR #673 — alphonse MUON_LR sweep — BOTH arms MISS hold gate, monotone direction confirmed
+
+Branch: `g1r2-alphonse/muon-lr-sweep`. Closed 14:55 UTC.
+
+| Arm | MUON_LR | val_loss | ffs | Δval vs baseline | Δffs vs baseline | Hold gate | W&B |
+|-----|---|---|---|---|---|---|---|
+| A | **0.032** (-20%) | 3.27208 | 3025 | +0.00432 | +25 | MISS (+0.00208 val, +25 ffs) | `59dpesjp` |
+| Default | 0.04 | 3.26776 (n=2) | 3000 (n=2) | 0 | 0 | — | PR #613 |
+| B | **0.05** (+25%) | 3.27489 | 3100 | +0.00713 | +100 | MISS (+0.00489 val, +100 ffs) | `qbp5ubu0` |
+
+### Monotone direction with asymmetric magnitude
+
+**Smaller LR (0.032) loses by +0.00432; larger LR (0.05) loses by +0.00713.** The directional prior was partially confirmed: c=20's larger backward gradients DO push the optimum slightly downward (Arm A is closer to baseline than Arm B), but the +25% upward perturbation hurts substantially more than the -20% downward — suggesting **the loss surface is steeper on the upward side around MUON_LR=0.04**.
+
+### Step-by-step trajectory comparison (Arm A vs Arm B)
+
+| step | A (0.032) | B (0.05) | Δ (B − A) |
+|---|---|---|---|
+| 500 | 3.77674 | 3.84567 | **+0.069** |
+| 1000 | 3.62280 | 3.71603 | **+0.093** |
+| 1500 | 3.50468 | 3.57477 | +0.070 |
+| 2000 | 3.41071 | 3.45796 | +0.047 |
+| 2500 | 3.33727 | 3.36820 | +0.031 |
+| 3000 | 3.28151 | 3.28882 | +0.007 |
+| **3175** | **3.27208** | **3.27489** | +0.003 |
+
+Arm B trails Arm A maximally at step 1000 (+0.093). The gap CONVERGES through cooldown — both arms reach within +0.003 by terminal step. **Cooldown rescues the larger-LR arm.** This is consistent with linear-cooldown-to-zero giving the larger-LR run a brief catch-up window in the last 0.7 × 3175 = 2222 cooldown steps.
+
+### Mechanism interpretation — third Muon-side scalar locally optimal
+
+| PR | Axis | Default | Result | Verdict |
+|---|---|---|---|---|
+| #656 | MU_COOLDOWN_END | 0.90 | both arms MISS | Locally optimal |
+| #661 | NORMUON_BETA2 | 0.95 | both arms MISS | Locally optimal |
+| **#673** | **MUON_LR** | **0.04** | **both arms MISS** | **Locally optimal** |
+
+**Three Muon-side scalars now closed at default values.** Combined with AdamW closures (#641 ADAMW_LR_FLOOR closed via stack mismatch, #654 LM_HEAD_LR_MULT closed, #655 EMBED_LR_MULT closed via symmetric n=2, #663 ADAMW_BETA1, #625 ADAMW_BETA2), **the c=20 stack scalar surface is FLAT near the current operating point**. Future wins must come from mechanism-level changes per program.md's portfolio rule.
+
+### Why no n=2 confirm on Arm A
+
+Arm A (MUON_LR=0.032) clearly missed the n=1 hold gate (val=3.27208 > 3.27 cap by +0.00208; ffs=3025 > 3000 cap by +25). The PR decision tree branch 3 (both miss → close) applied unambiguously. Spending an n=2 GPU-pair to explore a +0.004-above-baseline n=1 result was correctly assessed as low-value vs fresh mechanism work.
+
+### Alphonse → #688 MUON_GRAD_CLIP — first fresh-mechanism PR this wave
+
+Per program.md: *"Reserve some capacity for genuinely new optimizer mechanisms... a wave of only scalar hyperparameter tweaks is too conservative."*
+
+The current in-flight queue was 7/8 scalar sweeps:
+- #685 thorfinn ADAMW_EPS
+- #683 fern ATTN_SOAP_TRUST_THRESHOLD
+- #681 edward MU_WARMUP_START
+- #680 nezuko CONTRA_MUON
+- #678 askeladd PER_GROUP_COOLDOWN_FRAC (decoupling, slightly more mechanism-like)
+- #677 frieren NS5_ITERS
+- #675 tanjiro SCALARS_LR
+
+Alphonse's reassignment was an opportunity to **rebalance toward mechanism-level exploration**. Chose **MUON_GRAD_CLIP** because:
+
+1. **Fresh axis** — `grep -n "clip_grad" records/track_3_optimization/train_gpt_simple.py` returns 0 hits. No gradient clipping exists anywhere in the script.
+2. **Mechanistically motivated** — Edward #676 WD_AUX closure revealed early-warmup gradient explosion (~91% NaN gradients by step 25 when WD_AUX×2). The c=20 stack sits in a narrow stability window; clipping could widen it.
+3. **Different geometry from AGC #580 closure** — AGC clipped AdamW group per-tensor (99/101 hit epsilon floor → uniform damping). MUON_GRAD_CLIP touches only ~24 Muon block tensors with conventional L2 max-norm.
+4. **Single-line code change** — minimal complexity, easy disabled-check verification.
+
+Arms: {1.0, 0.5} per-tensor L2 max-norm. 1.0 is conventional Adam clip value; 0.5 is more aggressive dose-response.
+
+---
+
 ## 2026-05-21 13:50 UTC — Cycle 71 mid-40: PR #655 thorfinn EMBED_LR_MULT n=2 CONFIRM CLOSED — symmetric quadratic well confirmed; PR #661 fern NORMUON_BETA2 CLOSED — default 0.95 locally optimal
 
 ### PR #655 — thorfinn EMBED_LR_MULT n=2 confirm — CLEAN MISS on both axes
