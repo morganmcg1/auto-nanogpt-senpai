@@ -536,6 +536,11 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# One-sided SOAP for lm_head. 0 = disabled (Arm A is bit-identical to AdamW baseline).
+# Positive value K means: every K training steps, refresh the right-factor R (768x768
+# EMA of G^T G with β2) and its eigenbasis Q_R; Adam state runs in the rotated basis,
+# and the update is rotated back before applying to the parameter.
+NANOGPT_SOAP_LM_HEAD_FREQ = int(os.environ.get("NANOGPT_SOAP_LM_HEAD_FREQ", "0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -769,6 +774,9 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"SOAP_LM_HEAD: freq={NANOGPT_SOAP_LM_HEAD_FREQ} "
+       f"({'ENABLED — one-sided Shampoo on Adam preconditioner' if NANOGPT_SOAP_LM_HEAD_FREQ > 0 else 'DISABLED — standard AdamW'})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -826,6 +834,7 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_soap_lm_head_freq": NANOGPT_SOAP_LM_HEAD_FREQ,
         },
     )
 
@@ -887,6 +896,23 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # One-sided SOAP state for lm_head (model.proj.weight, shape [vocab_size, model_dim]).
+    # When enabled, the AdamW lm_head update is replaced by Adam-in-eigenbasis-of-G^T G.
+    # Q_R starts as identity so the first NANOGPT_SOAP_LM_HEAD_FREQ steps behave like pure
+    # Adam in the original coordinate basis; the right-factor R then accumulates and
+    # rotates the basis to track the slowly-varying second-moment structure.
+    _soap_state = None
+    if NANOGPT_SOAP_LM_HEAD_FREQ > 0:
+        _lm_head_w = model.proj.weight
+        _D = _lm_head_w.size(-1)
+        _soap_state = {
+            "R": torch.zeros(_D, _D, device=_lm_head_w.device, dtype=_lm_head_w.dtype),
+            "Q_R": torch.eye(_D, device=_lm_head_w.device, dtype=_lm_head_w.dtype),
+            "exp_avg": torch.zeros_like(_lm_head_w),
+            "exp_avg_sq": torch.zeros_like(_lm_head_w),
+            "eigvals": torch.zeros(_D, device=_lm_head_w.device, dtype=_lm_head_w.dtype),
+        }
 
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
@@ -1061,8 +1087,71 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # SOAP intercept: capture (clipped, all-reduced) lm_head grad, then zero it so AdamW
+        # leaves model.proj.weight untouched. The SOAP update is applied manually after
+        # opt.step() using the same betas/lr/eps as the adam_lm_head AdamW group.
+        lm_head_grad_saved = None
+        if NANOGPT_SOAP_LM_HEAD_FREQ > 0:
+            lm_head_grad_saved = model.proj.weight.grad.detach().clone()
+            model.proj.weight.grad.zero_()
         for opt in optimizers:
             opt.step()
+        if NANOGPT_SOAP_LM_HEAD_FREQ > 0 and lm_head_grad_saved is not None:
+            s = _soap_state
+            lm_head_group = next(g for g in optimizer1.param_groups if g.get("name") == "adam_lm_head")
+            b1, b2 = lm_head_group["betas"]
+            lr_lm = lm_head_group["lr"]
+            eps_lm = lm_head_group["eps"]
+            t_soap = train_step  # 1-indexed step count
+            # EMA right-factor: R ← β2·R + (1−β2)·G^T G, refreshed EVERY step so that the
+            # eigendecomposition every FREQ steps sees a properly accumulated estimate of
+            # the column-covariance of the gradient stream (matches reference SOAP).
+            s["R"].mul_(b2).addmm_(lm_head_grad_saved.T, lm_head_grad_saved, alpha=(1 - b2))
+            if t_soap % NANOGPT_SOAP_LM_HEAD_FREQ == 0:
+                # Preserve momentum continuity across basis rotations: project exp_avg back
+                # to parameter space via OLD Q_R, refresh Q_R from current R, then project
+                # into NEW Q_R. eps·I floor matches reference soap.py numerical hygiene.
+                exp_avg_param = s["exp_avg"] @ s["Q_R"].T
+                _R_reg = s["R"] + 1e-30 * torch.eye(s["R"].size(0), device=s["R"].device, dtype=s["R"].dtype)
+                eigvals_R, Q_new = torch.linalg.eigh(_R_reg)
+                s["Q_R"].copy_(Q_new)
+                s["eigvals"].copy_(eigvals_R)
+                s["exp_avg"].copy_(exp_avg_param @ s["Q_R"])
+            # Rotate gradient into the eigenbasis, run Adam there, rotate the update back.
+            g_rot = lm_head_grad_saved @ s["Q_R"]
+            s["exp_avg"].mul_(b1).add_(g_rot, alpha=(1 - b1))
+            s["exp_avg_sq"].mul_(b2).addcmul_(g_rot, g_rot, value=(1 - b2))
+            bias1 = 1.0 - b1 ** t_soap
+            bias2 = 1.0 - b2 ** t_soap
+            m_hat = s["exp_avg"] / bias1
+            v_hat = s["exp_avg_sq"] / bias2
+            update_rot = m_hat / (v_hat.sqrt() + eps_lm)
+            update = update_rot @ s["Q_R"].T
+            # adam_lm_head has weight_decay=0, so no decoupled WD term is needed.
+            model.proj.weight.data.add_(update, alpha=-lr_lm)
+            # Lightweight SOAP telemetry every 100 steps: eigenvalue spectrum of R,
+            # exp_avg_sq RMS in rotated basis vs the same quantity rotated back to
+            # parameter space (rough proxy for second-moment conditioning gain).
+            soap_telem_due = (train_step % 100 == 0 or train_step == train_steps)
+            if dist.get_rank() == 0 and soap_telem_due:
+                with torch.no_grad():
+                    v_rot = s["exp_avg_sq"].to(torch.float32)
+                    v_param = (v_rot @ s["Q_R"].T).abs()  # rotate back; abs since not all-positive
+                    eigvals = s["eigvals"].to(torch.float32)
+                    eig_max = float(eigvals.abs().max().item())
+                    eig_min_pos = float(eigvals.clamp(min=1e-20).min().item())
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/soap/R_eig_max": eig_max,
+                        "train/soap/R_eig_min_pos": eig_min_pos,
+                        "train/soap/R_cond_number": eig_max / max(eig_min_pos, 1e-30),
+                        "train/soap/R_frob": float(s["R"].norm().item()),
+                        "train/soap/exp_avg_sq_rms_rotated": float(v_rot.mean().sqrt().item()),
+                        "train/soap/exp_avg_sq_rms_param": float(v_param.mean().sqrt().item()),
+                        "train/soap/update_rms": float(update.square().mean().sqrt().item()),
+                        "train/soap/lr_lm_head": lr_lm,
+                    }, step=wandb_step)
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1149,6 +1238,25 @@ for trial_idx in range(args.num_trials):
                 }.get(NS_COEF_SCHEDULE, -1),
             })
             wandb.log(ns_metrics, step=wandb_step)
+        if (dist.get_rank() == 0 and telemetry_due
+                and NANOGPT_SOAP_LM_HEAD_FREQ > 0 and _soap_state is not None):
+            s = _soap_state
+            eigvals = s["eigvals"]
+            eig_max_f = float(eigvals.max().item())
+            eig_min_f = float(eigvals.min().item())
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/soap_lm_head/R_norm": float(s["R"].norm().item()),
+                "train/soap_lm_head/R_eigval_max": eig_max_f,
+                "train/soap_lm_head/R_eigval_min": eig_min_f,
+                "train/soap_lm_head/R_eigval_abs_min": float(eigvals.abs().min().item()),
+                "train/soap_lm_head/R_condition_proxy": eig_max_f / (abs(eig_min_f) + 1e-30),
+                "train/soap_lm_head/exp_avg_rms_rotated": float(s["exp_avg"].square().mean().sqrt().item()),
+                "train/soap_lm_head/exp_avg_sq_rms_rotated": float(s["exp_avg_sq"].sqrt().mean().item()),
+                "train/soap_lm_head/exp_avg_sq_max_rotated": float(s["exp_avg_sq"].max().item()),
+                "train/soap_lm_head/lr_lm_head": optimizer1.param_groups[1]["lr"],
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
