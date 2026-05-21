@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-21 ~12:00Z (poll #336)
+- **Last updated:** 2026-05-21 ~14:00Z (poll #341)
 - **🆕🆕🆕 NEW BASELINE (PR #571 MERGED poll #321):** mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75
   - **Mechanism: lr_scalars=0.03 + ns_iter=6 + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.263265 - mu) × √n ≥ 0.004`
@@ -40,11 +40,13 @@ P2 status across the portfolio:
 | #665 | tanjiro | NS iter SCHEDULE sweep — time-varying Newton-Schulz iteration count (5-cell) | Assigned poll #330. First time-varying NS schedule ever tested. Extends "less optimizer intensity late" theme to Muon polynomial depth. Mechanistically orthogonal to all in-flight AdamW-path optimizer tests. |
 | #649 | frieren | wd_scalars per-group WD sweep (5-cell: 0.0 ctrl / 0.0001 / 0.001 / 0.01 / 0.1) | Assigned poll #322. Cell A ctrl=0.0 done at 3.262853 (matches new baseline within noise). Cell B=1e-4 running at step ~1555. 5 earlier A-ctrl crashes attributed to shared-GPU OOM contention (same pattern as #648). |
 | #671 | edward | Cautious AdamW (Liang 2024, arXiv:2411.16085) — mask updates where Adam step disagrees with current gradient | Assigned poll #333. 5-cell: A=AdamW ctrl / B=boolean mask / C=normalized boolean / D=soft sigmoid mask / E=scalars-only. Mechanistically inverse of AdEMAMix #626 (closed clean-NEG): instead of ADDING slow-EMA info, REMOVES wrong-direction-update info. Fresh-mechanism optimizer test replacing #626 slot. |
-| #645 | askeladd | Adan optimizer for AdamW groups (Xie 2022, gradient-difference 3-buffer) | Assigned poll #321. Cell A AdamW ctrl ~91% done. Student caught 2 mechanism-changing bugs in PR spec (β2 vs 1-β2 coefficient, step-1 prev_g init) by cross-checking official sail-sg/Adan; advisor approved official-faithful implementation. Fresh-mechanism optimizer test #3. |
+| **#687** | **askeladd** | **NEW (poll #341)** Atan2-AdamW bounded SNR normalization (StableAdamW, Wortsman 2023) | Just assigned (poll #341). Replaces AdamW update `m_hat/(sqrt(v_hat)+eps)` with `(2/π)*atan2(m_hat, sqrt(v_hat))` — smooth-bounded to [-1,+1]. STRUCTURALLY ORTHOGONAL to all 5 failed augmentation-class optimizers (Lion/Lookahead/AdEMAMix/Schedule-Free-B/Adan). 5-cell: A=AdamW ctrl / B=atan2 default LR / C=atan2 1.5× LR / D=atan2 2.0× LR / E=atan2 1.5× LR + β1=0.9 tighter. Applies to AdamW groups (embed/lm_head/scalars) only; Muon unchanged. |
 | **#679** | **fern** | **NEW (poll #336)** LR cooldown SHAPE sweep (linear ctrl/cosine/quadratic/sqrt/step, fixed LR peak) | Just assigned (poll #336). 5-cell analogue of fern's just-closed WD shape sweep (#635). All shapes fix LR peak; integrals vary (cosine=linear=0.5; quadratic=1/3; sqrt=2/3; step=0.9). Most likely candidate to beat: cosine (equal integral, smoother transition). LR cooldown shape axis never tested on r5. |
 
 
 ## Recent Closures
+
+- **#645 askeladd Adan (Xie 2022, gradient-difference 3-buffer)** — CLOSED clean-NEG (poll #341). Final ranking: A=3.26231 (ctrl) > E=3.26822 (+4.4σ_single) > B=3.27603 ≈ D=3.27611 (+11.4σ_single) > C=3.29233 (+25.9σ_single). Student caught 2 mechanism-changing bugs in original spec (β2 vs 1-β2 coefficient, step-1 prev_g init) via cross-check against sail-sg/Adan — rigor that kept the sweep interpretable. Cell-E diagnostic was clinical: tighter β1=0.90 (vs paper's 0.98) recovers most of the gap, confirming slow-EMA-horizon mismatch as dominant failure mode, not the gradient-difference mechanism itself. Cell-D (LR×2.0 ≈ Cell-B at LR×1.0) confirms Adan's `n_hat` denominator self-normalizes step magnitude — paper's "5-10× higher LR" regime cannot be reached by simple LR scaling at this horizon. **5th augmentation-class optimizer to fail clean-NEG** at 3250-step horizon (Lion #638, Lookahead #581, AdEMAMix #626, Schedule-Free-B #659, Adan #645). Askeladd reassigned #687 Atan2-AdamW — structurally orthogonal mechanism (bounded SNR normalization, not augmentation).
 
 - **#635 fern WD schedule SHAPE sweep** — CLOSED clean-NEUTRAL (poll #336). Ranking: A ramp_down (3.26719) > D constant (3.27126, +2.33σ) > E ramp_up (3.27722, +5.74σ) ≈ B triangle (3.27746, +5.88σ) > C cosine_updown (3.28164, +8.27σ). Three key findings: (1) **Early WD is the dominant lever** (+5σ): schedules with zero WD during first ~30% (B, C, E) all fail; (2) **Time-decay vs flat (+2.3σ)**: ramp_down beats constant within the "have-early-WD" family; (3) **Mid-peak is WORST**: B/C both lose to E despite E having zero WD until later — peak-WD coinciding with LR-cooldown-transition is uniquely bad. Pre-sweep prediction that E (ramp_up) would be catastrophic (+15σ) was wrong; E tied triangle. All cells at OLD lr_scalars=0.01 (no merge candidate vs new baseline). **WD axis now fully closed** (magnitude #594 + floor #548 + duration #321 + shape #635). Fern reassigned LR cooldown SHAPE sweep (#679).
 - **#626 edward AdEMAMix slow-EMA augmentation** — CLOSED clean-NEG (poll #333). All 5 cells monotonically hurt: A (α=0 ctrl no-op) +0.11σ_single vs old baseline 3.266120 (matches); B (α=2, β3=0.9999 paper defaults) +1.88σ_single vs A; C (α=5) +14.34σ_single; D (α=2, β3=0.999 faster slow-EMA) +32.65σ_single; E (α=10) +37.26σ_single. α-axis monotonic worsening (0→2→5→10); β3-axis hurts when faster (more slow-EMA contribution = more harm). **Joint closure with PR #581 Lookahead**: both "slow-signal" mechanisms — gradient-side (AdEMAMix) and parameter-side (Lookahead) — fail clean-NEG at this 3250-step horizon. AdamW dynamics here are robustly well-tuned and resistant to slow-signal augmentation; paper's claimed +20-50% sample efficiency requires the million-step horizon for slow-EMA accumulation to express. All cells used OLD lr_scalars=0.01 (Cell A at 3.26631 vs new baseline 3.263265 = +2.7σ_new gap explained). 3rd augmentation-based optimizer to fail clean-NEG (Lion #638, Lookahead #581, AdEMAMix #626). Edward reassigned Cautious AdamW (#671) — mechanistic *inverse*: instead of adding slow-EMA, REMOVES wrong-direction updates.
@@ -111,23 +113,27 @@ P2 status across the portfolio:
 9. **❌ lm_head LR** (alphonse #600) — CLOSED clean-neutral (asymmetry: scalars take 3× but lm_head rejects 3×)
 10. **❌ WD shape** (fern #635) — CLOSED clean-NEUTRAL (poll #336); ramp_down dominant; WD axis fully closed
 
-**Four parallel fresh-mechanism optimizer tests in flight (Lion + AdEMAMix eliminated):**
-- **#641 alphonse AdaBelief** — variance of (g − m)² instead of g² (Zhuang 2020) — adds buffer to AdamW; AdamW ctrl crashing
-- **#645 askeladd Adan** — gradient-difference 3-buffer (Xie 2022) — adds buffers to AdamW
-- **#659 nezuko Schedule-Free AdamW** — Polyak iterate averaging (Defazio 2024) — **REMOVES the LR schedule**, orthogonal mechanism class
-- **#671 edward Cautious AdamW** (NEW) — masks updates where Adam step disagrees with current gradient (Liang 2024) — **inverse of AdEMAMix**: removes wrong-direction information rather than adding slow-EMA information
+**Active fresh-mechanism optimizer tests (poll #341 — 5 augmentation classes closed, 2 remain in flight + 1 new orthogonal mechanism):**
+- **#641 alphonse AdaBelief** — variance of (g − m)² instead of g² (Zhuang 2020) — AdamW ctrl crashing; augmentation-class test #6 (if fails, pattern complete)
+- **#659 nezuko Schedule-Free AdamW** — Polyak iterate averaging (Defazio 2024) — Cell B confirmed clean-NEG; remaining cells give axis closure
+- **#671 edward Cautious AdamW** (NEW) — masks updates where Adam step disagrees with current gradient (Liang 2024) — mechanistic **inverse** of AdEMAMix: removes wrong-direction information rather than adding slow-EMA info; augmentation-class test #7
+- **#687 askeladd Atan2-AdamW** (NEW poll #341) — smooth bounded normalization via `(2/π)*atan2(m_hat, sqrt(v_hat))` — **STRUCTURALLY ORTHOGONAL to all 5 closed augmentation classes**; not adding buffers/signals, replacing the normalization kernel itself
 
 **Three targeted hyperparameter sweeps on the new baseline:**
 - **#648 thorfinn per-block LR** — depth-aware LR multipliers across 12 layers (decay/growth/bottom_heavy/top_heavy)
 - **#649 frieren wd_scalars** — per-group WD on scalar gains, now that lr_scalars=0.03
 - **#665 tanjiro NS iter SCHEDULE** — time-varying ns_iter across training (decay/growth/step variants); extends "less optimizer intensity late" theme to Muon polynomial depth
 
-**Mechanism class joint-closure (3 augmentation-style optimizer mechanisms failed clean-NEG):**
-- Lion #638 (sign-based momentum replacement — incompatible at any viable LR)
-- Lookahead #581 (parameter-side slow averaging)
-- AdEMAMix #626 (gradient-side slow EMA)
+**Mechanism class joint-closure — 5 AUGMENTATION-CLASS optimizers failed clean-NEG at 3250-step horizon:**
+| # | PR | Mechanism | Failure mode |
+|---|----|-----------|----|
+| 1 | #638 Lion | Sign-based momentum replacement | Incompatible at any viable LR; unstable gradients |
+| 2 | #581 Lookahead | Parameter-side slow averaging (k=5/6 sync) | Base optimizer co-adapts to periodic resets; sync disrupts cooldown |
+| 3 | #626 AdEMAMix | Gradient-side slow EMA (β3=0.9999, α∈{2,5,10}) | Slow EMA half-life >> training length; can't accumulate signal |
+| 4 | #659 Schedule-Free Cell B | Polyak iterate averaging removes LR cooldown | Cooldown is load-bearing at this horizon; averaging on x_bar without LR decay leaves noisier iterate |
+| 5 | #645 Adan | Gradient-difference 3-buffer | Slow-EMA-horizon mismatch dominant failure; n_hat denominator self-normalizes, blocking paper's LR-scaling regime |
 
-The pattern: AdamW dynamics here are robustly well-tuned for the 3250-step horizon. Slow-signal augmentations require many half-lives to express their paper-claimed benefits. **Cautious (#671) tests the inverse hypothesis: rather than ADDING signal, FILTER existing signal** — does removing wrong-direction updates help where adding slow updates hurt?
+**The pattern is robust:** AdamW + WSD linear cooldown is well-tuned for 3250 steps. "Improved AdamW" variants from literature (100k+ step pretraining) do not transfer. **Cautious AdamW #671 tests the INVERSE hypothesis (filter wrong-direction, not add signal). AdaBelief #641 tests adaptive variance-of-residual. Atan2-AdamW #687 (askeladd) exits the augmentation paradigm entirely — replaces the normalization kernel, not adds to it.**
 
 Cross-PR insight: AdamW per-group LR landscape **fully mapped** — embed (#566 flat), lm_head (#600 flat), scalars (#571 3× wins → MERGED). Per-group LR asymmetry: small 20K scalar group can take aggressive LR; 39M lm_head proj cannot. Init magnitude axis CLOSED. Lion axis CLOSED. If any of the 3 mechanism tests beats the new hard gate (3.261265), compound with lr_scalars=0.03 (already in baseline) becomes natural next step.
 

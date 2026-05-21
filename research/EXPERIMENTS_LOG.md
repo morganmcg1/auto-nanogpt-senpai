@@ -3,6 +3,37 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 14:00 UTC — PR #645: askeladd Adan optimizer (Xie 2022) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-askeladd/adan-optimizer`
+- Student: g1r5-askeladd
+- Hypothesis: Adan (Adaptive Nesterov Momentum Algorithm, Xie 2022, arXiv:2208.06677) uses a 3-buffer optimizer — m (1st moment), v (2nd moment), n (3rd moment tracking 1st moment of gradient differences) — that combines the benefits of gradient difference information into the update. For AdamW-path groups (embed/lm_head/scalars), Adan may exploit the fine-grained curvature information encoded in gradient differences to out-converge standard AdamW. SOAP+Muon already handles the 2D weight matrices with full matrix preconditioning; Adan targets only the smaller AdamW groups.
+
+- **Results:**
+
+| Rank | Cell | Config | val/loss | ffs | Δ vs A ctrl | Δ vs baseline (μ=3.263265, σ=0.001123) |
+|:----:|:----:|--------|--------:|----:|------------:|----------------------------------------:|
+| 1 | A (ctrl) | AdamW | 3.26231 | — | — | −0.85σ (within band) |
+| 2 | E | Adan, tight β1=0.90/β2=0.85/β3=0.95, LR×1.0 | 3.26822 | — | +0.006 | +4.4σ |
+| 3 | B | Adan paper defaults (0.98/0.92/0.99), LR×1.0 | 3.27603 | — | +0.014 | +11.4σ |
+| 4 | D | Adan paper, LR×2.0 | 3.27611 | — | +0.014 | +11.4σ |
+| 5 | C | Adan paper, LR×0.5 | 3.29233 | — | +0.030 | +25.9σ |
+
+- **Student's spec-bug catches:** Student cross-checked advisor's PR spec against the official sail-sg/Adan implementation and caught 2 mechanism-changing bugs: (1) the v update coefficient should be `(1-β2)` not `β2`; (2) step-1 `prev_g` should be initialized to the current gradient, not zeros. Both bugs were confirmed and corrected before any runs. This rigor made the sweep's results interpretable.
+
+- **Key mechanistic findings:**
+  1. **Tighter betas (Cell E) recover most gap:** Cell E (β1=0.90 vs paper's 0.98) at +4.4σ vs best Adan cell E. The slow-EMA-horizon mismatch was the dominant failure mode, not the gradient-difference mechanism itself. Paper's momentum=0.98 means EMA half-life >> 3250 steps.
+  2. **Cell D (LR×2.0 ≈ Cell B at LR×1.0):** Cleanest signal that Adan's `n_hat` denominator self-normalizes step magnitude — the paper's "Adan benefits from 5-10× higher LR" regime cannot be reached by simple LR scaling at this horizon.
+  3. **Cell C (LR×0.5) compound failure:** Slow EMAs + halved LR → +25.9σ catastrophic regression.
+  4. **SOAP curvature overlap hypothesis:** Student's observation that "Adan's small-curvature-proxy advantage may be redundant once SOAP is doing heavy lifting on the matrices" is correct — SOAP+Muon already exploits curvature aggressively on 2D weights; adding Adan's gradient-difference curvature-proxy on embed/lm_head/scalars provides no residual headroom.
+
+- **Cross-PR closure cluster — 5th augmentation-class optimizer to fail clean-NEG:** Lion #638 (sign) + Lookahead #581 (slow-param) + AdEMAMix #626 (slow-grad) + Schedule-Free Cell B #659 (cooldown-removal) + Adan #645 (diff-based). Pattern is robust: AdamW + WSD linear cooldown is well-tuned at 3250-step horizon. "AdamW augmentation" variants from literature (100k+ step pretraining) do not transfer.
+
+- **Decision:** CLOSED clean-NEG. No P2 candidate (best Adan cell E at +4.4σ; n=4 gate requires ≤ 3.261265).
+- **Askeladd reassigned:** PR #687 Atan2-AdamW — smooth bounded normalization via `(2/π)*atan2(m_hat, sqrt(v_hat))`, structurally orthogonal to all 5 failed augmentation classes.
+
+---
+
 ## 2026-05-21 12:00 UTC — PR #635: fern WD schedule SHAPE sweep — **CLOSED clean-NEUTRAL**
 
 - Branch: `g1r5-fern/wd-schedule-shape-sweep`
