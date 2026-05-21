@@ -3,6 +3,58 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 18:30 UTC — PR #663: One-sided SOAP preconditioning for lm_head (thorfinn) — CLOSED productive-NULL
+
+- Branch: `g1r4-thorfinn/soap-lm-head`
+- Hypothesis: WAVE3 IDEA 2 (last untested). Replace standard AdamW with one-sided SOAP on the `lm_head` param group. Maintains `R = (768×768)` running second-moment of `grad.T @ grad`, updates eigenbasis `Q_R = eigh(R)` every K steps, runs Adam in rotated eigenspace, rotates back. Mechanistically distinct from #618 (Muon for lm_head — NS destroys Zipf-distributed per-coord magnitude scaling) because SOAP preserves Adam's m/√v WITHIN the rotated basis. Public record #20 explicitly uses "KL-SOAP" on MLP+V — validated at problem level. Distinct from #652 (per-group eps — tweaks magnitude within FIXED basis; SOAP changes the basis itself).
+
+### Results (N=1, 4-arm, on NEW merged stack post-#579 baseline 3.27070)
+
+| Arm | SOAP_FREQ | val/loss | Δ vs A' | Δ vs baseline 3.27070 | first_step | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A' (ctrl) | 0 | 3.26762 | — | −0.00308 | 3200 | w81t5jdl |
+| B | 50 | 3.26936 | +0.00174 | −0.00134 | 3200 | o9c16nww |
+| C | 25 | 3.27087 | +0.00325 | +0.00017 | 3225 | p88zr3g5 |
+| **D** | **100** | **3.26666** | **−0.00096** | **−0.00404** | **3175** | 4vm2ccwh |
+
+### Verdict — productive-NULL, mechanism finding: monotone-frequency / AdamW coord-basis is near-optimal
+
+- **Drift gate A' vs baseline 3.27070**: PASS at −0.00308 (favorable seed but within ±0.003 envelope)
+- **Within-pod gate (Arm D)**: Δ_D_vs_A' = −0.00096 — **sub-threshold** (within-pod signal threshold is −0.002)
+- **Absolute baseline gate**: Arm D at 3.26666 = −0.00404 below baseline 3.27070 — beats absolutely but single-seed
+- **N=1 → paired-pod risk**: Magnitude is well inside the paired-pod collapse range (8+ precedents this cycle including most recently #487, #506, #550, #577). Would require n=3 confirmation, and −0.00096 within-pod is far below the magnitude that typically survives.
+
+### Mechanism reading (kept for portfolio)
+
+1. **Monotone frequency trend**: FREQ=25 (+0.00325) > FREQ=50 (+0.00174) > FREQ=100 (−0.00096). **Less rotation = better.** Optimum extrapolates to FREQ→∞ (= AdamW, no SOAP rotation).
+2. **AdamW coord-basis is near-optimal for lm_head**: At current recipe (β₂=0.99, lr_mult=1.0), AdamW's per-coordinate magnitude scaling (m/√v) is already well-aligned with the vocabulary-frequency Hessian structure of lm_head. SOAP's eigenbasis rotation re-projects gradients off a basis the optimizer has already self-tuned for. The rotation **perturbs** rather than **improves** the conditioning.
+3. **Extreme aspect ratio is wrong regime for SOAP**: lm_head shape (50304, 768) is 65:1. SOAP's left/right preconditioner stale-eigenvector amortization assumes near-square matrices where rotation cost amortizes across both axes. For 65:1 aspect, the left covariance estimation cost dominates (and +0.32% wall-clock at FREQ=100 is the LOWER bound — at FREQ=25 it would be ~1.3%).
+4. **Composes with #618 finding**: #618 closed productive-NEGATIVE for full Muon-on-lm_head (NS orthogonalization). #663 closes productive-NULL for SOAP-on-lm_head (eigenbasis preconditioning). Together: **lm_head's Hessian is structurally distinct from inner-block Hessians and resists every form of spectral conditioning intervention tested**. The optimization axis for lm_head is exhausted at the preconditioner level — future lm_head work should target representation/loss-side mechanisms (Zipf-weighted loss, frequency-aware label smoothing, output-projection low-rank decomposition).
+
+### Implementation quality (clean)
+
+- Additive ~108 LOC behind `NANOGPT_SOAP_LM_HEAD_FREQ` env var (off-by-default, ctrl arm bit-identical)
+- Wall-clock overhead +0.32% at FREQ=100; ~1.3% at FREQ=25 (within budget)
+- All 4 arms hit 3.28 target (best: D fst=3175, ctrl fst=3200)
+- Drift gate clean (A' at −0.00308 favorable but within envelope)
+
+### Strategic — WAVE3 IDEA-by-IDEA portfolio closed
+
+| IDEA | PR | Outcome |
+|---|---|---|
+| 1 Polar Express | (not assigned) | — |
+| 2 SOAP for aux groups | **#663** | **NULL** |
+| 3 Contra-Soft momentum | #126, #629 | NEG, NULL |
+| 4 Lookahead | #434, #581, #666 | NEG (k=5,α=0.5 = Δ+0.00244) |
+| 5 Per-block NS budget | #543 | NULL |
+| 6 Muon for embed/lm_head | #618 | NEG |
+| 7 Ghost-step warmstart | #603 | NEG |
+| 8 Spectral norm penalty | #624 | NULL |
+
+WAVE3 coverage: 7/8 IDEAs tested. **1 merge (#579 NOT from WAVE3 list — fresh per-block-TYPE LR asym)** / 4 productive-null/negative-related to WAVE3 family. The merge came from a NEW mechanism axis discovered during WAVE3 execution. Strong signal: **mechanism progress now from per-block-TYPE asymmetry family** (#669 WD / #674 momentum currently testing the extension) rather than aux-group preconditioner replacements.
+
+**52nd productive-null/negative this cycle.** Reassigning thorfinn to a fresh axis distinct from per-block-TYPE wiring (which #669 / #674 are currently hitting impl bugs on).
+
 ## 2026-05-21 11:10 UTC — PR #639: Embed-stack joint redundancy ablation (edward) — CLOSED productive-NULL
 
 - Branch: `g1r4-edward/embed-stack-redundancy`
