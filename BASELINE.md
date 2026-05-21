@@ -2,6 +2,44 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-05-21 04:22 UTC — PR #571: lr_scalars=0.03 (RMSNorm gain LR 3× higher) — n=4 confirm
+
+- **Primary metric:** `speedrun/final_first_step_to_target` = **3043.75** (mean, n=4); 3/4 trials at ffs=3050, 1/4 at ffs=3025
+- **val/loss (mu):** **3.263265** (sample std=0.001123, SE=0.000562)
+- **n:** 4 seeds (P2 confirm run `apz56jxx`, all trials in single torchrun)
+- **Statsig:** `(3.266120 − 3.263265) × √4 = 0.005710 ≥ 0.004` ✅ PASS (+0.001710 margin, 1.43× headroom)
+- **New merge statsig rule:** `(3.263265 − mu) × sqrt(n) ≥ 0.004`
+  → need mu ≤ 3.261265 for n=4, ≤ 3.261633 for n=6, ≤ 3.261852 for n=8
+- **vs previous baseline (PR #497):** Δmu = −0.002855 (−1.63σ_single / −5.08σ_n=4 SE), Δffs = −43.75 steps (~1.4% faster)
+- **W&B runs:** `apz56jxx` (P2 n=4 confirm, group `g1r5-askeladd/scalar-lr-P2-d-confirm`); standalone sweep in group `g1r5-askeladd/scalar-lr-sweep` (runs `aw6cq08g` ctrl, `xcxu2ziv` Cell D n=1)
+- **Student:** g1r5-askeladd
+- **What changed:** AdamW `adam_scalars` group LR raised from hardcoded 0.01 to `--lr_scalars 0.03` (3× increase). This group covers only ~20K params (RMSNorm gains across 12 layers). Historical lr=0.01 was under-tuned — at 3× higher, gains track optimal per-layer output scale faster during the main training phase. Asymmetric axis: lower direction (0.001/0.003) is catastrophic (+13σ/+7σ), upper direction peaks at 3× and regresses at 10×. Sample std (0.001123) is tighter than previous baseline σ=0.001747, indicating the configuration is slightly more stable. All 4 fresh seeds independently clear the n=4 gate.
+- **Trial breakdown (all 4, no cherry-picking):**
+  | Trial | val/loss | ffs |
+  |-------|----------|-----|
+  | 0 (apz56jxx) | 3.26347 | 3050 |
+  | 1 (apz56jxx) | 3.26401 | 3050 |
+  | 2 (apz56jxx) | 3.26162 | 3025 |
+  | 3 (apz56jxx) | 3.26396 | 3050 |
+  | **mean** | **3.263265** | **3043.75** |
+- **Reproduce:**
+
+```bash
+cd "$PROBLEM_DIR" && \
+  SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py \
+    --num_trials 4 \
+    --soap_attn \
+    --lr_mlp 0.055 \
+    --wd_schedule ramp_down \
+    --ns_iter 6 \
+    --lr_scalars 0.03 \
+    --wandb_name "baseline-lr-scalars-003-n4" \
+    --wandb_group "baselines"
+```
+
+---
+
 ## 2026-05-20 06:55 UTC — PR #497: ns_iter=6 (Newton-Schulz iterations reduced) — n=6 confirm
 
 - **Primary metric:** `speedrun/final_first_step_to_target` = **3087.5** (mean, n=6); 4/6 trials at ffs=3075
