@@ -1,5 +1,30 @@
 # SENPAI Research Results
 
+## 2026-05-21 08:15 UTC — PR #623 CLOSED: Schedule-Free Adam on aux only — NULL/NULL decisive, 44th axis (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/schedule-free-aux`
+- Hypothesis: Schedule-Free Adam (Defazio 2024) on the aux AdamW path (embed, lm_head, scalars) — iterate averaging replaces explicit WSD cooldown on aux. Two configurations: Arm A canonical (r=0, ckp1=1/k), Arm B Polyak-tilt (r=1.0, ckp1=2/(k+1) under constant LR).
+
+| Arm | r | p | best_val | sr | Δval | W&B | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | — | 3.264278 | 2937.5 | — | k7ylyby9, dm4joozw | — |
+| Arm A | 0.0 | 2.0 | 3.30923 | -1 DNF | +0.0450 | j0zyguxj | **NULL** decisive |
+| Arm B | 1.0 | 2.0 | 3.30752 | -1 DNF | +0.0432 | e41ak5px | **NULL** decisive |
+
+**Verdict: NULL/NULL decisive → 44th axis CLOSED. Schedule-free averaging cannot replace WSD aux cooldown.**
+
+**Key mechanistic findings:**
+1. **Aux LR cooldown is load-bearing.** WSD shrinks aux step size ≥10× over the final 30% of training; SF iterate averaging with c_t≈3e-4 at step 3250 averages over thousands of unattenuated peak-LR steps and cannot match that effective step-size reduction. Disabling explicit aux decay costs ~0.045 val_loss.
+2. **First-moment EMA discarded for no gain.** Defazio-style SF drops β₁ momentum on the premise that iterate averaging subsumes it. The trade ("explicit momentum + WSD" → "averaging substitutes both") loses by 0.045 on this benchmark.
+3. **Polyak-tilt (r=1.0) marginally helps (Δ=0.0017) but doesn't change the conclusion.** "Less averaging = better" direction points back toward the WSD limit.
+4. **Aux side now saturated across 9 optimizer families:** 5/5 update-rules + LAMB + Lion + Lookahead + Schedule-Free Adam. All NULL.
+
+**Student's key catch (PR design):** Upfront derivation showed r=0 and r=1.0 are mathematically identical under constant LR + r=0 default — leading to Arm B redirect to Polyak-tilt (r=1.0) before compute was wasted on a degenerate ablation.
+
+**Action:** thorfinn reassigned to PR #662 — Polyak EMA on body-Muon weights β={0.999, 0.9995}. First parameter-space averaging test on signal-dominant (matrix) params. Body-Muon trajectory during WSD cooldown is the natural averaging target; EMA maintains FP32 inference weights alongside BF16 train weights and swaps at eval.
+
+---
+
 ## 2026-05-21 07:45 UTC — PR #607 CLOSED: LR floor in cooldown — NULL/NULL clear, 43rd axis (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/lr-floor-cooldown`
