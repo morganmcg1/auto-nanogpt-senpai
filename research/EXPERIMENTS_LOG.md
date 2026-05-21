@@ -4805,3 +4805,23 @@ vs. old baseline (PR #288): val Δ=−0.000967, ffs Δ=−18.75. statsig: (3.28�
 **Implementation detail**: Student correctly used `clip_grad_norm_` over the Muon block as a group (not per-tensor), which fires on most steps at thresholds {1.0, 0.5} since the per-block group-norm is ~1.5-5. This means the mechanism is a near-constant damper rather than an outlier-filtering safety net.
 
 **Conclusion**: Group-norm gradient clipping at {0.5, 1.0} is not productive on the c=20 stack. The stability-widening mechanism had no live instability to suppress (c=20 trains cleanly without clip). Axis closed. A per-tensor form (strict max-norm per tensor) or cooldown-only clip remain untested if revisiting this class.
+
+---
+
+## 2026-05-21 19:55 UTC — PR #683: ATTN_SOAP_TRUST_THRESHOLD sweep (CLOSED — both arms MISS)
+
+- `g1r2-fern/attn-soap-trust`
+- Hypothesis: ATTN_SOAP_TRUST_THRESHOLD=0.85 (default, trust SOAP preconditioning when EMA second-moment sufficiently converged) may not be optimal. Testing whether more permissive trust (0.75 = more SOAP) or stricter trust (0.95 = more raw-gradient fallback) improves convergence on the c=20 stack.
+- W&B runs: `fb7cb6z2` (Arm A, threshold=0.75), `peani9ou` (Arm B, threshold=0.95)
+
+| Arm | Threshold | val/loss | ffs | gate |
+|---|---|---|---|---|
+| A | 0.75 (more SOAP) | 3.28083 | -1 (never reached 3.28) | MISS — catastrophic |
+| B | 0.95 (stricter trust / more raw-grad) | 3.27179 | 3050 | MISS (+0.00403 val, +50 ffs) |
+| baseline (#613) | 0.85 | 3.26776 (n=2) | 3000 (n=2) | — |
+
+**Results commentary**: Arm A (0.75) catastrophically misses — the model never reaches the 3.28 target in 3175 steps. Over-aggressive SOAP preconditioning at current β2=0.90 EMA timescale adds noise to the curvature estimates that actively hurts convergence. Arm B (0.95) is much closer — val=3.27179, ffs=3050, a narrow miss. The late-cooldown trajectory shows B converges faster than A in the final ~175 steps (B step 3000=3.28350 vs A step 3000=3.29203), suggesting that raw-gradient fallback is preferred during cooldown.
+
+**Asymmetric dose-response**: deviating to 0.75 costs 3× more val than deviating to 0.95 (0.013 vs 0.004). This is consistent with an asymmetric loss surface: applying too much preconditioning (noisy eigenbasis estimates) is far more harmful than applying too little.
+
+**Conclusion**: ATTN_SOAP_TRUST_THRESHOLD=0.85 (default) is locally optimal on c=20 stack. Combined with #634 ATTN_SOAP_BETA2 closure, both SOAP-on-attention preconditioner knobs are confirmed locally optimal. Suggested follow-up: cooldown-schedule form (0.85→0.95 ramp during last 5% of steps, motivated by Arm B's late-cooldown superiority).
