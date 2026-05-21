@@ -1,3 +1,70 @@
+## 2026-05-21 20:45 UTC — PR #689 CLOSED (askeladd): H41 AdEMAMix β3=0.9990 — NEG with calibration debt resolved + NEW "cooldown demands sharp updates on aux" mechanism rule
+
+- Branch: `g1r3-askeladd/adem-beta3-recalib`
+- Hypothesis: Recalibrate AdEMAMix β3 from 0.9999 → 0.9990 for 3325-step horizon. PR #567 closed AdEMAMix with β3=0.9999 → only 28% slow-EMA saturation at terminal (functionally inactive). β3=0.9990 gives memory horizon ~1000 steps, full saturation by ~2300 steps.
+
+### Results (3325 steps, n=1; 2 arms)
+
+| Arm | Run | val/loss | ffs | reached_target | Δ vs ctrl | Decision |
+|---|---|---|---|---|---|---|
+| 1 ctrl | `ygjxd459` | **3.27335** | 3150 | ✓ | — | baseline-match (dead-center of population μ≈3.273) |
+| 2 H-ADEM β3=0.9990 α=5 warmup=1000 | `5mycxoco` | **3.29148** | -1 | ✗ | **+0.01813** | NEG (decisively past merge bar 3.27039) |
+
+**Decision: CLOSED NEG** — does not clear merge bar; mechanism actively hurts at terminal.
+
+### Mechanism finding #1 — β3 calibration RESOLVED (closes PR #567's calibration debt)
+
+Telemetry confirmed slow_saturation at terminal = **0.9641** (target was 0.96 — matches theory). PR #567's claim that AdEMAMix is "horizon-calibrated" is confirmed: with proper β3, the slow EMA is fully populated as designed. **AdEMAMix calibration debt RESOLVED**.
+
+### Mechanism finding #2 (NEW RULE) — "Cooldown demands sharp updates on aux"
+
+**The crossover**: Hadem arm `5mycxoco` **LED** ctrl by up to 13 mLoss until step 1500 (slow_saturation ~0.76), then crossed over at step ~2250 (slow_saturation ~0.91) and finished +18 mLoss BEHIND ctrl.
+
+| Step | Ctrl val | Hadem val | Δ |
+|---|---|---|---|
+| 500 | 3.8991 | 3.8911 | **−0.0079** (Hadem leads) |
+| 1000 | 3.7258 | 3.7128 | **−0.0130** |
+| 1500 | 3.6158 | 3.6040 | **−0.0118** |
+| 2000 | 3.4805 | 3.4779 | **−0.0026** |
+| **2250** | **3.4340** | **3.4341** | **+0.0001 ← CROSSOVER** |
+| 2500 | 3.3718 | 3.3780 | +0.0062 |
+| 3000 | 3.2921 | 3.3066 | +0.0145 |
+| 3325 | 3.2734 | 3.2915 | **+0.0181** (Hadem behind) |
+
+**Mechanism interpretation**: aux groups (embed/lm_head/scalars) want **sharper, less-smoothed updates** during the cosine cooldown to converge to a low-loss minimum. The α=5 plateau doesn't decay with the LR schedule — so the slow-EMA perturbation becomes proportionally larger as the LR shrinks, preventing fine-grained convergence.
+
+**Generalizable rule**: "Cooldown demands sharp updates on aux." Any constant-magnitude long-horizon EMA/momentum injection on aux that doesn't decay with the LR schedule will hurt at terminal even if it helps mid-training. Joins the cooldown family:
+- PR #563: outer_momentum=0.9 catapulted overshoots in cooldown
+- PR #612: aux β1=0.8 acts as bulk-phase denoiser (less valuable in cooldown)
+- PR #616: MuonH inner momentum reset on sync — REVERSED phase (mid-help, cooldown-hurt)
+- **PR #689 (this)**: aux AdEMAMix slow-EMA injection — REVERSED phase
+
+### Implementation detail (formulation A: gradient blending)
+
+```python
+s.mul_(beta3).add_(p.grad, alpha=1.0 - beta3)  # post-AGC slow EMA update
+p.grad.add_(s, alpha=alpha_t)                  # blend slow EMA into grad
+# Then standard fused AdamW step on blended grad
+```
+
+This contaminates v_t with the blended grad (slight deviation from paper). Verified clean numerics; no NaN. Slow buffers held in fp32.
+
+### Side findings
+
+- Arm 3 (β3=0.9970) NOT pursued — faster saturation would amplify the late-training problem; student correctly self-rejected the arm 3 trigger condition
+- inject_norm at terminal ~0.04-0.06 (slow-EMA injection is 4-6% of raw grad magnitude at terminal) — small but non-negligible perturbation that prevents fine convergence
+
+### Axis status
+
+- **AdEMAMix on aux, constant α through cooldown**: CLOSED NEG (this PR)
+- **STILL OPEN**: AdEMAMix with α_t cosine-annealed during cooldown (PR #721 askeladd, just assigned)
+- **STILL OPEN**: AdEMAMix on MuonH (different group, different gradient distribution)
+- **STILL OPEN**: layer-selective slow EMA (per-aux-group)
+
+### Askeladd reassigned to H44 α_t cooldown variant (PR #721)
+
+---
+
 ## 2026-05-21 20:05 UTC — PR #700 CLOSED (fern): H42 SOAP-lite left-Kronecker preconditioning on MuonH — NEG; kill gate fired step 500 +0.242 gap, two clean mechanism findings logged
 
 - Branch: `g1r3-fern/soap-lite-left-precond`
