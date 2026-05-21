@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-21 ~09:55Z (poll #333)
+- **Last updated:** 2026-05-21 ~12:00Z (poll #336)
 - **🆕🆕🆕 NEW BASELINE (PR #571 MERGED poll #321):** mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75
   - **Mechanism: lr_scalars=0.03 + ns_iter=6 + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.263265 - mu) × √n ≥ 0.004`
@@ -28,7 +28,7 @@ P2 status across the portfolio:
 **Key implication:** New n=4 gate (3.261265) is ~2.0σ_new below new mu. For a single-seed n=1 result to be worth P2 confirmation, it must land near 3.260 or lower. This is a hard gate — screens only genuinely strong signals. No P2 confirms currently in flight — all attention is on P1 mechanism tests + targeted hyperparameter sweeps.
 
 
-## Active WIP Portfolio (poll #333 — new baseline mu=3.263265)
+## Active WIP Portfolio (poll #336 — new baseline mu=3.263265)
 
 ⚠️ **New gate reminder: all future PRs need ctrl cell ≈ 3.263265. n=4 gate = 3.261265. Strong P1 signals must land ≤ 3.260 to be worth P2 confirmation.**
 
@@ -39,13 +39,14 @@ P2 status across the portfolio:
 | #659 | nezuko | Schedule-Free AdamW (Defazio 2024) — Polyak iterate averaging removes LR cooldown | Assigned poll #323. Cell A AdamW ctrl crashed at step 297 (infra not code; val/loss trajectory normal, nonfinite_count=0). Cell B (SF defaults no-cooldown) running at step ~2101 with val/loss=3.629 — flagged for eval-mode swap verification (SF requires `optimizer.eval_mode()` before val, `train_mode()` after; without swap eval measures z not x_bar). |
 | #665 | tanjiro | NS iter SCHEDULE sweep — time-varying Newton-Schulz iteration count (5-cell) | Assigned poll #330. First time-varying NS schedule ever tested. Extends "less optimizer intensity late" theme to Muon polynomial depth. Mechanistically orthogonal to all in-flight AdamW-path optimizer tests. |
 | #649 | frieren | wd_scalars per-group WD sweep (5-cell: 0.0 ctrl / 0.0001 / 0.001 / 0.01 / 0.1) | Assigned poll #322. Cell A ctrl=0.0 done at 3.262853 (matches new baseline within noise). Cell B=1e-4 running at step ~1555. 5 earlier A-ctrl crashes attributed to shared-GPU OOM contention (same pattern as #648). |
-| **#671** | **edward** | **NEW** Cautious AdamW (Liang 2024, arXiv:2411.16085) — mask updates where Adam step disagrees with current gradient | Just assigned (poll #333). 5-cell: A=AdamW ctrl / B=boolean mask / C=normalized boolean / D=soft sigmoid mask / E=scalars-only. Mechanistically inverse of AdEMAMix #626 (closed clean-NEG): instead of ADDING slow-EMA info, REMOVES wrong-direction-update info. Fresh-mechanism optimizer test replacing #626 slot. |
-| #635 | fern | WD schedule SHAPE sweep (ramp_down ctrl/triangle/cosine_updown/constant/ramp_up) | Cells A (3.26719 ctrl), B (triangle 3.27746 +5.9σ_old), C (cosine_updown 3.28164 +8.3σ_old) done. Cell D (constant) running. So far ramp_down robustly dominant. All cells at OLD lr_scalars=0.01; within-PR comparisons clean. |
+| #671 | edward | Cautious AdamW (Liang 2024, arXiv:2411.16085) — mask updates where Adam step disagrees with current gradient | Assigned poll #333. 5-cell: A=AdamW ctrl / B=boolean mask / C=normalized boolean / D=soft sigmoid mask / E=scalars-only. Mechanistically inverse of AdEMAMix #626 (closed clean-NEG): instead of ADDING slow-EMA info, REMOVES wrong-direction-update info. Fresh-mechanism optimizer test replacing #626 slot. |
 | #645 | askeladd | Adan optimizer for AdamW groups (Xie 2022, gradient-difference 3-buffer) | Assigned poll #321. Cell A AdamW ctrl ~91% done. Student caught 2 mechanism-changing bugs in PR spec (β2 vs 1-β2 coefficient, step-1 prev_g init) by cross-checking official sail-sg/Adan; advisor approved official-faithful implementation. Fresh-mechanism optimizer test #3. |
+| **#679** | **fern** | **NEW (poll #336)** LR cooldown SHAPE sweep (linear ctrl/cosine/quadratic/sqrt/step, fixed LR peak) | Just assigned (poll #336). 5-cell analogue of fern's just-closed WD shape sweep (#635). All shapes fix LR peak; integrals vary (cosine=linear=0.5; quadratic=1/3; sqrt=2/3; step=0.9). Most likely candidate to beat: cosine (equal integral, smoother transition). LR cooldown shape axis never tested on r5. |
 
 
 ## Recent Closures
 
+- **#635 fern WD schedule SHAPE sweep** — CLOSED clean-NEUTRAL (poll #336). Ranking: A ramp_down (3.26719) > D constant (3.27126, +2.33σ) > E ramp_up (3.27722, +5.74σ) ≈ B triangle (3.27746, +5.88σ) > C cosine_updown (3.28164, +8.27σ). Three key findings: (1) **Early WD is the dominant lever** (+5σ): schedules with zero WD during first ~30% (B, C, E) all fail; (2) **Time-decay vs flat (+2.3σ)**: ramp_down beats constant within the "have-early-WD" family; (3) **Mid-peak is WORST**: B/C both lose to E despite E having zero WD until later — peak-WD coinciding with LR-cooldown-transition is uniquely bad. Pre-sweep prediction that E (ramp_up) would be catastrophic (+15σ) was wrong; E tied triangle. All cells at OLD lr_scalars=0.01 (no merge candidate vs new baseline). **WD axis now fully closed** (magnitude #594 + floor #548 + duration #321 + shape #635). Fern reassigned LR cooldown SHAPE sweep (#679).
 - **#626 edward AdEMAMix slow-EMA augmentation** — CLOSED clean-NEG (poll #333). All 5 cells monotonically hurt: A (α=0 ctrl no-op) +0.11σ_single vs old baseline 3.266120 (matches); B (α=2, β3=0.9999 paper defaults) +1.88σ_single vs A; C (α=5) +14.34σ_single; D (α=2, β3=0.999 faster slow-EMA) +32.65σ_single; E (α=10) +37.26σ_single. α-axis monotonic worsening (0→2→5→10); β3-axis hurts when faster (more slow-EMA contribution = more harm). **Joint closure with PR #581 Lookahead**: both "slow-signal" mechanisms — gradient-side (AdEMAMix) and parameter-side (Lookahead) — fail clean-NEG at this 3250-step horizon. AdamW dynamics here are robustly well-tuned and resistant to slow-signal augmentation; paper's claimed +20-50% sample efficiency requires the million-step horizon for slow-EMA accumulation to express. All cells used OLD lr_scalars=0.01 (Cell A at 3.26631 vs new baseline 3.263265 = +2.7σ_new gap explained). 3rd augmentation-based optimizer to fail clean-NEG (Lion #638, Lookahead #581, AdEMAMix #626). Edward reassigned Cautious AdamW (#671) — mechanistic *inverse*: instead of adding slow-EMA, REMOVES wrong-direction updates.
 - **#620 tanjiro attention softmax scale sweep** — CLOSED clean-NEUTRAL (poll #330). Clean U-shape: ctrl=0.12 locally optimal in BOTH directions. Cells: A=0.12 ctrl 3.26518, B=0.0884 3.26888 (+3.3σ_new), C=0.10 3.26814 (+2.6σ_new), D=0.14 3.26799 (+2.5σ_new), E=0.18 3.26815 (+2.6σ_new). Symmetric regression confirms attn_scale=0.12 is a true local optimum on the attention-sharpness axis. Mechanistically tight: softer attention loses temperature precision; sharper attention saturates earlier and loses gradient flow. **Cross-axis read:** the "less optimizer intensity" theme that won on LR-scalars (PR #571) does NOT extend to attention temperature — attention-side scaling is qualitatively different from optimizer-side intensity. Refactor introducing the scaling parameter confirmed as a no-op at ctrl=0.12 (Cell A matches pre-refactor baseline within seed noise). Note: all cells predate PR #571 merge (lr_scalars=0.01 at launch) so all sit 1.7–3σ_new above current baseline 3.263265. attn_scale axis CLOSED. Tanjiro reassigned NS iter SCHEDULE sweep (#665).
 - **#614 nezuko logit softcap value sweep** — CLOSED clean-NEG (poll #323). All 5 cells regress vs ctrl (softcap=15). Tight axis catastrophic (B=7.5 at +22σ_old, never reached target); upper axis plateau-shaped mild-NEG (C/D/E all ~+3σ_old). B→C ratio (~14×) is the nonlinear saturation signature — once cap < typical logit magnitudes, gradient clipping at confident logits collapses learning capacity. Loose axis benign-but-flat: no inflection from 22.5→30 means there's no looser regime that recovers ground. Softcap=15 is robustly tuned end-to-end. Cross-axis observation: "less optimizer intensity" theme does NOT transfer from optimizer-side levers (WD, NS) to loss-side levers (softcap) — different sensitivity classes. Logit softcap axis CLOSED. Nezuko reassigned Schedule-Free AdamW (#659).
@@ -98,7 +99,7 @@ P2 status across the portfolio:
 - **askeladd #645 Adan**: 3-buffer optimizer (Xie 2022). Student caught 2 mechanism-changing bugs in PR spec (β2 vs 1-β2 coefficient, step-1 prev_g init) via cross-check against official sail-sg/Adan code. Cell A AdamW ctrl ~91% done.
 - **fern #635 WD shape**: A (ramp_down ctrl) 3.26719, B (triangle) 3.27746 +5.9σ_old, C (cosine_updown) 3.28164 +8.3σ_old, D (constant) running, E (ramp_up) queued. Within-PR ramp_down robustly dominant; all cells at OLD lr_scalars=0.01.
 
-**Emerging cross-PR insight (poll #333) — #571 MERGED, 4 fresh-mechanism + 3 targeted-hp tests:**
+**Emerging cross-PR insight (poll #336) — #571 MERGED, 4 fresh-mechanism + 3 targeted-hp tests + LR cooldown shape (fern #679):**
 1. **✅ Scalar LR** (askeladd #571, lr_scalars=0.03) — **MERGED NEW BASELINE (poll #321)** — n=4 mean=3.263265
 2. **❌ Init scale** (thorfinn #565) — CLOSED poll #322; P2 math-impossible
 3. **❌ Lion** (frieren #638) — CLOSED poll #322; twice-failed crashes
@@ -108,6 +109,7 @@ P2 status across the portfolio:
 7. **❌ Adam eps** (frieren #556) — CLOSED clean-neutral
 8. **❌ Peak WD** (fern #594) — CLOSED clean-neutral
 9. **❌ lm_head LR** (alphonse #600) — CLOSED clean-neutral (asymmetry: scalars take 3× but lm_head rejects 3×)
+10. **❌ WD shape** (fern #635) — CLOSED clean-NEUTRAL (poll #336); ramp_down dominant; WD axis fully closed
 
 **Four parallel fresh-mechanism optimizer tests in flight (Lion + AdEMAMix eliminated):**
 - **#641 alphonse AdaBelief** — variance of (g − m)² instead of g² (Zhuang 2020) — adds buffer to AdamW; AdamW ctrl crashing
@@ -130,20 +132,20 @@ The pattern: AdamW dynamics here are robustly well-tuned for the 3250-step horiz
 Cross-PR insight: AdamW per-group LR landscape **fully mapped** — embed (#566 flat), lm_head (#600 flat), scalars (#571 3× wins → MERGED). Per-group LR asymmetry: small 20K scalar group can take aggressive LR; 39M lm_head proj cannot. Init magnitude axis CLOSED. Lion axis CLOSED. If any of the 3 mechanism tests beats the new hard gate (3.261265), compound with lr_scalars=0.03 (already in baseline) becomes natural next step.
 
 **What comes after current in-flight:**
-- **Mechanism compound** — if any of {AdEMAMix, AdaBelief, Adan} beats new gate 3.261265, compound with lr_scalars=0.03 (already in baseline) as natural next step.
-- **WD shape rerun on new baseline** — fern #635 is running at lr_scalars=0.01 (old). If a WD shape variation beats its ctrl, rerun on new lr_scalars=0.03 baseline to verify the effect holds.
+- **LR cooldown shape** — fern #679 just launched (poll #336). Most likely winner: cosine (equal integral to linear, smoother transition). If wins → P2 confirm. If linear dominates → LR schedule shape axis closed.
+- **Mechanism compound** — if any of {AdaBelief #641, Adan #645, Schedule-Free #659, Cautious #671} beats new gate 3.261265, compound with lr_scalars=0.03 (already in baseline) as natural next step.
 - **AdamW β1 per-group for scalars** — after lr_scalars tripled, the optimal β1 for the scalar group may differ from global 0.8. Targeted follow-up if mechanism tests come up empty.
-- **Fine lr_scalars scan** — {0.015, 0.02, 0.025, 0.03ctrl, 0.04, 0.05} to check if 0.03 is the true optimum or just the nearest tested point. Marginal but fast.
+- **Fine lr_scalars scan** — {0.015, 0.02, 0.025, 0.03ctrl, 0.04, 0.05} to check if 0.03 is the true optimum or just the nearest tested point.
 - **Depth-aware init (μP-style)** — revisit if thorfinn #648 per-block LR signals something.
-- **Wrapper-averaging axis is FULLY CLOSED** — edward #581 + tanjiro #517 both clean-NEG.
 - **Cooldown_frac axis CLOSED** — PR #457 confirmed U-shape minimum at 0.7.
 - **NS axis is closed** — PR #518 mapped it, PR #461 confirmed ns_iter=6 is optimal.
 - **Muon mu axis is closed** — PR #508 confirmed mu=0.95 optimal.
 - **Init variance magnitude axis CLOSED** — thorfinn #565 (poll #322).
 - **Lion optimizer axis CLOSED** — frieren #638 (poll #322), incompatible at viable LR scale.
 - **Logit softcap axis CLOSED** — nezuko #614 (poll #323); tight catastrophic, loose flat-plateau, ctrl=15 robustly tuned.
-- **Attention softmax scale (constant) axis CLOSED** — tanjiro #620 (poll #330); clean U-shape, ctrl=0.12 locally optimal both directions; refactor confirmed no-op.
-- **AdEMAMix slow-EMA augmentation axis CLOSED** — edward #626 (poll #333); all α∈{0,2,5,10} at β3=0.9999 monotonically worse vs α=0; α=2/β3=0.999 even worse than α=2/β3=0.9999 (faster slow-EMA = more harm); joint closure with PR #581 Lookahead (slow-signal mechanisms structurally incompatible with 3250-step regime).
+- **Attention softmax scale (constant) axis CLOSED** — tanjiro #620 (poll #330); clean U-shape, ctrl=0.12 locally optimal both directions.
+- **AdEMAMix slow-EMA augmentation axis CLOSED** — edward #626 (poll #333); all α∈{0,2,5,10} monotonically worse; joint closure with PR #581 Lookahead (slow-signal mechanisms structurally incompatible with 3250-step regime).
+- **WD axis FULLY CLOSED** — magnitude #594 (peak=2.0) + floor #548 (floor=0.0) + duration #321 (cooldown_frac=0.7) + shape #635 (ramp_down dominant, poll #336). All four WD dimensions mapped. ramp_down is robustly optimal.
 
 **Key insights:**
 - **New n=4 gate 3.264120 is very hard** — but askeladd #571 D shows a real effect can confirm at P2.

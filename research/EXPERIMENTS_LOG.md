@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 12:00 UTC — PR #635: fern WD schedule SHAPE sweep — **CLOSED clean-NEUTRAL**
+
+- Branch: `g1r5-fern/wd-schedule-shape-sweep`
+- Student: g1r5-fern
+- Hypothesis: All 4 WD schedule shape alternatives (triangle, cosine_updown, constant, ramp_up) already exist in code at `_wd_multiplier`. Holding integral=1.0 across all shapes isolates pure shape effect. Prior closures mapped WD magnitude (#594, #548) and duration (#321); this closes the shape dimension.
+
+| Cell | Schedule | val/loss | ffs | Δ vs A (ramp_down ctrl) | W&B run |
+|:----:|:--------:|---------:|----:|------------------------:|---------|
+| **A (ctrl)** | `ramp_down` | **3.26719** | 3100 | — | `ujdxl0v1` |
+| B | `triangle` | 3.27746 | 3200 | +0.01027 (+5.88σ_single) | `ysu7jadb` |
+| C | `cosine_updown` | 3.28164 | −1 | +0.01445 (+8.27σ_single) | `dq8i1wsj` |
+| D | `constant` | 3.27126 | 3150 | +0.00407 (+2.33σ_single) | `7h7fd6ky` |
+| E | `ramp_up` | 3.27722 | 3200 | +0.01003 (+5.74σ_single) | `e3bkfau5` |
+
+Final ranking: **A > D > E ≈ B > C**.
+
+- **Calibration**: All cells ran at OLD `--lr_scalars 0.01` (predates PR #571 merge). Cell A (3.26719) sits +3.5σ_new above current baseline (3.263265). Within-PR comparisons (B-E vs A) are the clean signal; absolute vs-new-baseline numbers are not meaningful for this PR.
+- **Key finding 1 — Early WD is the dominant lever**: Schedules with zero (or near-zero) WD during the first ~30% of training (B `triangle`, C `cosine_updown`, E `ramp_up`) all regress by +5.7 to +8.3σ. Schedules with non-zero early WD (A `ramp_down`, D `constant`) cluster close (+0 and +2.3σ). The ~5σ gap between these families is the largest single finding.
+- **Key finding 2 — Time-decay vs flat within early-WD family (+2.3σ)**: ramp_down (decaying from 2.0→0) beats constant (flat at 1.0) by +2.33σ. Both "having early WD" AND "decaying over time" contribute; the WD shape effect is not a single binary lever.
+- **Key finding 3 — Mid-peak placement is WORST, not late-peak**: Pre-sweep advisor prediction was that `ramp_up` (E) would be catastrophic (+15σ) because peak WD aligned with cooldown. Actual: E at +5.74σ tied with triangle B. The true worst family is mid-peak (B, C). Mechanistic refinement: the bad alignment isn't "WD during cooldown"; it's "peak WD coincident with the LR-cooldown-transition zone (~step 1700-2275 for cooldown_frac=0.7)", which is where B and C peak. E doesn't peak there.
+- **No merge candidate**: All cells above new baseline gate (3.261265). WD shape axis adds no improvement — ramp_down is robustly optimal.
+- **WD axis fully closed** by combining with prior closures: magnitude peak #594 (peak=2.0) + floor #548 (floor=0.0) + duration #321 (cooldown_frac=0.7) + shape #635 (ramp_down, this PR). All four WD scheduling dimensions are now mapped and frozen.
+- Decision: CLOSED clean-NEUTRAL (no merge candidate). Fern reassigned to **LR cooldown SHAPE sweep** (#679) — the natural parallel axis to this WD shape closure. LR cooldown is currently linear (peak→0); analogous shape sweep tests cosine/quadratic/sqrt/step.
+
 ## 2026-05-21 09:50 UTC — PR #626: edward AdEMAMix slow-EMA augmentation — **CLOSED clean-NEG**
 
 - Branch: `g1r5-edward/ademamix-slow-ema`
