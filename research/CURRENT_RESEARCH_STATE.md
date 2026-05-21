@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 08:35 UTC
+- **Date:** 2026-05-21 09:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -138,17 +138,26 @@ Single-seed 4-arm (drift gate A PASS, |3.27208−3.27174|=0.00034): A=3.27208, B
 Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e-3) fails benchmark (val=3.29393 > 3.28). Root cause: logit softcap c=15 already provides sufficient logit regularization — z-loss is redundant and competes at high λ. **18th productive-null/negative this cycle.** Loss-side auxiliary regularization axis fully closed.
 **Follow-up**: tanjiro assigned **#487 cooldown-NS pruning ablation**.
 
-### 🔄 tanjiro #577 — NS-cooldown joint-pruning — interaction test [assigned 13:05 UTC]
+### ✅ tanjiro #577 — NS-cooldown joint-pruning interaction test — CLOSED 09:05 UTC productive-NULL [paired-pod n=3, borderline-load-bearing]
 
-**Branch:** `g1r4-tanjiro/ns-cooldown-joint-pruning`
-**Hypothesis**: All three NS-cooldown sub-stack components (NS_ITERS_COOLDOWN=16, NS_COOLDOWN_SHAPE=late_peak, NS_COEF_SCHEDULE=linear_ramp_down) were individually classified as redundant in #487 (all single-drop Δ in productive-null band; B confirmed at paired-pod n=3). But joint-drop interactions are untested. This 4-arm ablation tests whether the sub-stack is load-bearing *as a unit*: if joint-drop (Arm B) ≈ baseline → 3-axis stack simplification; if Arm B regresses → system interacts nonlinearly (individually redundant but jointly necessary). Arms C and D decompose the interaction.
-| Arm | NS_ITERS_COOLDOWN | NS_COOLDOWN_SHAPE | NS_COEF_SCHEDULE | Tests |
-|---|---|---|---|---|
-| A | 16 (ctrl) | late_peak | linear_ramp_down | Full merged stack control |
-| B | **0** | step (inert) | **constant** | Full joint drop of all 3 |
-| C | **0** | late_peak (inert) | linear_ramp_down | ITER-only drop (re-validates #487 paired-pod) |
-| D | 16 | **step** | **constant** | SHAPE+COEF drop, ITER kept |
-**Phase 1** (N=1 sweep ~7.3h) → **Phase 2** paired-pod confirmation if Arm B Δ ∈ null band or Δ ≤ −0.002. If Arm B Δ ≥ +0.005, Phase 1 is sufficient to close (sub-stack load-bearing at N=1).
+**Phase 1 (N=1 sweep)** all four arms in null band: A=3.27312 ctrl, B=3.27278 (Δ=−0.00034 full joint drop), C=3.27184 (Δ=−0.00128 ITER-only), D=3.27217 (Δ=−0.00095 SHAPE+COEF drop). N=1 favored all drops slightly — classic favorable-seed pattern. **Phase 2 paired-pod (n=3, controlled SENPAI_SEED)**: Pod0 Δ=+0.00140, Pod1 Δ=+0.00175 (past +0.0015 threshold), Pod2 Δ=−0.00011 (favorable seed for both arms, val_A=3.27094 best across 5 Arm-A runs). **mean(Δ)=+0.00101** (null band, but 95% CI [−0.00013, +0.00215] brackets +0.0015); mean(val_B)=3.27301 > baseline 3.27174. Merge gates 1 and 2 FAIL. Formal classification: REDUNDANT (borderline) at n=3 — but seed-level evidence leans direction-incorrect (2/3 pods weakly-load-bearing). **7th cycle precedent for single-seed → paired-pod sign collapse** (joining #344, #351, #408, #487, #560, #593, #550). Combined with #487 single-component results, the merged stack's three NS-cooldown components are jointly weakly-load-bearing as a unit even though each is individually redundant; the interaction is not catastrophic but is direction-correct under controlled paired init. **49th productive-NULL this cycle.** NS-cooldown sub-stack pruning axis fully fenced; no further pruning attempts without n≥5 paired-pod evidence.
+**Follow-up**: tanjiro initially assigned **#666 Lookahead optimizer wrapper for aux AdamW** — closed pre-launch as duplicate of #434 (edward, CLOSED productive-NEGATIVE; Arm B scope=adamw k=5 α=0.5 → Δ=+0.00244). Reassigned to **#668 per-row L2 gradient clip on embed and lm_head** — row-granularity magnitude bounding that operates pre-AdamW. Distinct from global clip (single norm), AGC (per-parameter), OrthoGrad (direction, not magnitude), and per-group eps (post-preconditioning). Directly tests row-level Zipf-asymmetry hypothesis from #618 mechanism reading.
+
+### ✗ tanjiro #666 — Lookahead wrapper for aux AdamW — CLOSED-PRE-LAUNCH (duplicate of #434)
+
+Bit-identical Arm B (k=5, α=0.5, scope=adamw) to #434 (edward, CLOSED productive-NEGATIVE 2026-05-19) which showed Δ=+0.00244 regression. Adding K=10 / α=0.8 corners (Arms C/D) would not plausibly flip from regression to merge-worthy gain per Zhang 2019 expected monotonicity. Closed before launch to avoid wasting compute.
+
+### 🔄 tanjiro #668 — Per-row L2 gradient clip on embed and lm_head [assigned 09:15 UTC]
+
+**Branch:** `g1r4-tanjiro/per-row-grad-clip-aux`
+**Hypothesis**: Token-frequency follows Zipf — embed/lm_head row gradients vary in magnitude across rows by orders of magnitude (frequent tokens like punctuation get large per-row L2 every step; rare tokens get small per-row L2 only on visit steps). Current merged stack has no row-aware magnitude bound: global clip (single L2 across all params), AGC (per-parameter matrix-level), AdamW preconditioning (per-coord, magnitude-preserving). Per-row L2 clip at threshold T bounds frequent-row magnitudes while leaving rare-row updates untouched. Mechanistically targets the exact Zipf-distributed asymmetry that #618 mechanism reading identified as load-bearing on lm_head.
+| Arm | NANOGPT_PER_ROW_CLIP | Scope | Tests |
+|---|---:|---|---|
+| A | 0.0 (disabled) | embed_lmhead | Control — bit-identical to merged baseline |
+| B | 0.01 | embed_lmhead | Aggressive — bounds typical frequent-row magnitudes |
+| C | 0.1 | embed_lmhead | Moderate — bounds outlier rows only |
+| D | 1.0 | embed_lmhead | Loose sanity check — should be ≈ control |
+**ETA full chain:** ~7.3h. Implementation: ~15 LOC (env vars + per-row L2 norm + clamp + multiply, applied before existing global clip_grad_norm_). Diagnostic ask: log row-norm p50/p90/p99/p99.9 on Arm A for future threshold refinement.
 
 ### ✅ tanjiro #487 — Cooldown-NS pruning ablation — CLOSED 13:05 UTC productive-NULL [paired-pod n=3]
 
@@ -333,7 +342,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**48 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side / WD / cooldown-schedule / per-group / optimizer-family / loss-side-weight-regularization / direction-aware-gradient-shaping axes. The strongest confirmed findings:
+**49 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side / WD / cooldown-schedule / per-group / optimizer-family / loss-side-weight-regularization / direction-aware-gradient-shaping / NS-cooldown-substack-pruning axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)

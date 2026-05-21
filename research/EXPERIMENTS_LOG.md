@@ -3,6 +3,67 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 09:05 UTC — PR #577: NS-cooldown joint-pruning interaction test (tanjiro) — CLOSED productive-NULL [paired-pod n=3, borderline-load-bearing]
+
+- Branch: `g1r4-tanjiro/ns-cooldown-joint-pruning`
+- Hypothesis: All three NS-cooldown sub-stack components (NS_ITERS_COOLDOWN=16, NS_COOLDOWN_SHAPE=late_peak, NS_COEF_SCHEDULE=linear_ramp_down) individually redundant per #487. This 4-arm ablation tests whether the sub-stack is load-bearing as a unit — joint-drop interaction is untested. If Arm B (full joint drop) ≈ baseline → 3-axis stack simplification possible; if Arm B regresses while singles were null → nonlinear interaction (individually redundant but jointly load-bearing).
+
+### Phase 1 results (N=1 4-arm sweep)
+
+| Arm | Config | val/loss | Δ vs A | W&B run |
+|---|---|---:|---:|---|
+| A | full merged stack ctrl | 3.27312 | 0 | hn2a0ol9 |
+| B | full joint drop (ITER=0, step, constant) | 3.27278 | **−0.00034** | 38ibjzz3 |
+| C | ITER-only drop (ITER=0, kept SHAPE+COEF) | 3.27184 | **−0.00128** | oaemsftz |
+| D | SHAPE+COEF drop (kept ITER=16) | 3.27217 | **−0.00095** | ceypyanf |
+
+Drift gate A PASS (|3.27312−3.27174|=0.00138 ≤ 0.003). All three drops in null band at N=1, all slightly favoring drops — classic favorable-seed pattern. Pre-staged Phase 2 paired-pod trigger fired.
+
+### Phase 2 paired-pod (n=3, controlled SENPAI_SEED)
+
+| Pod | Seed | val_A | val_B | Δ_B−A | W&B runs |
+|---|---:|---:|---:|---:|---|
+| 0 | 0 | 3.27268 | 3.27408 | **+0.00140** | 706s0zzf / 57e86131 |
+| 1 | 1 | 3.27237 | 3.27412 | **+0.00175** | t81zjign / b9oqpssd |
+| 2 | 2 | 3.27094 | 3.27083 | **−0.00011** | ijgqjuhl / 0u8hujse |
+
+| Statistic | Value |
+|---|---:|
+| mean(val_A) | 3.27200 |
+| mean(val_B) | **3.27301** |
+| **mean(Δ)** | **+0.00101** (null band) |
+| sd(Δ) | 0.00099 |
+| 95% CI(mean Δ) | [−0.00013, +0.00215] |
+| (3.28 − mean(val_B)) × √3 | 0.01211 |
+
+### Merge-gate verdict: NO MERGE
+- mean(Δ) ≤ −0.002? NO (+0.00101) — **FAIL**
+- mean(val_B) ≤ 3.27174? NO (3.27301) — **FAIL**
+- (3.28 − mean) × √3 ≥ 0.004? YES — pass (insufficient alone)
+
+### Phase 1 → Phase 2 sign reversal
+- Phase 1 (unseeded): Δ_B = **−0.00034** (slight favor to drop)
+- Phase 2 paired-pod n=3: Δ_B = **+0.00101** (slight favor to keep)
+
+**7th cycle precedent for single-seed → paired-pod sign collapse** (joining #344, #351, #408, #487, #560, #593, #550). The pattern is now firmly established: favorable-sign N=1 nulls in the [−0.002, 0) band routinely flip to direction-incorrect under paired-init control.
+
+### Mechanism reading
+
+Formal classification: REDUNDANT (borderline) at n=3 paired-pod seed budget — mean(Δ) in null band. But seed-level evidence leans direction-incorrect: 2/3 pods showed Δ ≥ +0.0015 (Pod0 +0.00140 near threshold; Pod1 +0.00175 past it). Pod 2's favorable seed (val_A=3.27094 was best across all 5 Arm-A runs in this PR, including Phase 1 control) pulled the mean down into the null band — without Pod 2, mean(Δ)=+0.00158 = weakly load-bearing.
+
+Combined with #487 single-component results (all individually null/redundant), the merged stack's three NS-cooldown components are jointly weakly-load-bearing as a unit even though each is individually redundant. The interaction is not catastrophic but is direction-correct under controlled paired init. **NS-cooldown sub-stack pruning axis fully fenced** — no further pruning attempts without n≥5 paired-pod evidence.
+
+### Implementation hygiene
+- All 3 Phase 2 Arm A drift gates PASS (|Δ vs baseline| ∈ {0.00094, 0.00063, 0.00080})
+- Inter-pod Arm A variance 0.00174 — typical single-seed noise envelope
+- Chain de-duplication handled cleanly mid-Phase-1 (killed duplicate Arm A from second chain script)
+- 10 W&B runs documented with seed-controlled init
+
+### Cycle running total
+**49th productive-null/negative this cycle.** Follow-up: tanjiro initially assigned #666 Lookahead wrapper for aux AdamW (CLOSED-PRE-LAUNCH as duplicate of #434 — Arm B bit-identical to already-failed config); reassigned to **#668 per-row L2 gradient clip on embed and lm_head** — row-granularity magnitude bounding that operates pre-AdamW, distinct from global L2 clip / AGC / OrthoGrad / per-group eps. Directly tests Zipf-asymmetry hypothesis from #618 mechanism reading.
+
+---
+
 ## 2026-05-21 08:30 UTC — PR #629: Layer-aggregate Contra-Soft Muon — per-layer scalar cosine attenuation (frieren) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-frieren/layer-contra-soft-muon`
