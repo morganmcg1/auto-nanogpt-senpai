@@ -71,6 +71,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--gain_init_mean", type=float, default=1.0,
+                        help="Mean of RMSNorm gain init (default 1.0).")
+    parser.add_argument("--gain_init_std", type=float, default=0.0,
+                        help="Std of RMSNorm gain init (default 0.0 = deterministic).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +756,8 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "gain_init_mean": args.gain_init_mean,
+            "gain_init_std": args.gain_init_std,
         },
     )
 
@@ -778,9 +784,17 @@ for trial_idx in range(args.num_trials):
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
-            w.normal_(mean=1, std=0)
+            w.normal_(mean=args.gain_init_mean, std=args.gain_init_std)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    gain_params = [p for n, p in model.named_parameters() if n.endswith("gains")]
+    if gain_params:
+        gain_concat = torch.cat([p.data.flatten() for p in gain_params])
+        print0(f"[init] RMSNorm gains: n={gain_concat.numel()}, "
+               f"mean={gain_concat.mean().item():.4f} (target={args.gain_init_mean:.4f}), "
+               f"std={gain_concat.std().item():.4f} (target={args.gain_init_std:.4f})",
+               console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
