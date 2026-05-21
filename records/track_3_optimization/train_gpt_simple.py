@@ -529,6 +529,9 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
+NANOGPT_ADAMW_BETA1_EMBED = float(os.environ.get("NANOGPT_ADAMW_BETA1_EMBED", "0.8"))
+NANOGPT_ADAMW_BETA1_LM_HEAD = float(os.environ.get("NANOGPT_ADAMW_BETA1_LM_HEAD", "0.8"))
+NANOGPT_ADAMW_BETA1_SCALAR = float(os.environ.get("NANOGPT_ADAMW_BETA1_SCALAR", "0.8"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
@@ -742,6 +745,7 @@ print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
+print0(f"ADAMW_BETA1 per-group: embed={NANOGPT_ADAMW_BETA1_EMBED} lm_head={NANOGPT_ADAMW_BETA1_LM_HEAD} scalar={NANOGPT_ADAMW_BETA1_SCALAR}", console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 if NS_ITERS_COOLDOWN > 0:
@@ -803,6 +807,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
+            "nanogpt_adamw_beta1_embed": NANOGPT_ADAMW_BETA1_EMBED,
+            "nanogpt_adamw_beta1_lm_head": NANOGPT_ADAMW_BETA1_LM_HEAD,
+            "nanogpt_adamw_beta1_scalar": NANOGPT_ADAMW_BETA1_SCALAR,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
@@ -842,6 +849,18 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    for group in optimizer1.param_groups:
+        group_name = group.get("name", "")
+        b2 = group["betas"][1]
+        if group_name == "adam_embed":
+            group["betas"] = (NANOGPT_ADAMW_BETA1_EMBED, b2)
+        elif group_name == "adam_lm_head":
+            group["betas"] = (NANOGPT_ADAMW_BETA1_LM_HEAD, b2)
+        elif group_name == "adam_scalars":
+            group["betas"] = (NANOGPT_ADAMW_BETA1_SCALAR, b2)
+    if trial_idx == 0:
+        for group in optimizer1.param_groups:
+            print0(f"  Group {group.get('name', '?')}: betas={group['betas']}", console=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
