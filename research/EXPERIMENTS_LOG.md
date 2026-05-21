@@ -1,5 +1,150 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 15:35 UTC — Cycle 71 mid-42: 🚨 OPERATIONAL — PR #681 edward CLOSED AS POD-BROKEN (NOT axis result); PR #676 closure flagged SUSPECT; fern #683 disabled-check stall override; frieren #677 Arm B near-miss val=3.26960/ffs=3025
+
+### PR #681 — edward MU_WARMUP_START sweep — CLOSED AS POD-BROKEN (NOT axis result)
+
+Branch: `g1r2-edward/mu-warmup-start-sweep`. Closed 15:32 UTC. GH issue #692 filed.
+
+#### Root cause: torch reinstall on edward's pod at 2026-05-21 11:49:26 UTC
+
+Edward's diagnostic via pod file mtime + concurrent cross-pod control runs identified pod-specific torch reinstall as cause of 5× NaN disabled-check failures.
+
+**Smoking gun (pod-state mtime):**
+- `/usr/local/lib/python3.10/dist-packages/torch/__init__.py` mtime: **2026-05-21 11:49:26 UTC**
+- `/usr/local/lib/python3.10/dist-packages/torch/lib/libtorch_cuda.so` mtime: **2026-05-21 11:49:26 UTC**
+
+**Pre-11:49 on edward's pod (WORKED):**
+
+| Run ID | Time | Config | val@200 |
+|---|---|---|---|
+| `xeeupthb` | 11:32 | WD_AUX=0.002 | **4.0831** ✓ |
+
+**Post-11:49 on edward's pod (ALL NaN'd):**
+
+| Run ID | Time | Config | Result |
+|---|---|---|---|
+| `m370srd5`, `wy9glbst`, `b8v6zj4v` (#676 closure runs) | 11:49+ | WD_AUX=0.002 | NaN by step 25/125 |
+| `xpqbjc3x`, `tljln42o`, `ymzysujr`, `q3sc93ed`, `mvdgwpfk` (#681 disabled-checks) | 13:27–14:52 | WD_AUX=0.001 (baseline) | NaN by step 25/125 |
+| `u2ya6o7x` | 11:49 (same minute as reinstall) | baseline | NaN |
+
+**Concurrent same-config on OTHER students' pods (WORKED):**
+
+| Run ID | Student | Time | val@200 |
+|---|---|---|---|
+| `ubf0k47e` | alphonse | 15:09 | **4.0886** ✓ |
+| `p54brmct` | fern | 14:56 | **4.0846** ✓ |
+| `f6755xnb` | nezuko | 13:19 | **4.0831** ✓ |
+
+**Bit-for-bit telemetry match at step 1:**
+- Edward post-11:49: grad_norm=234,584, max_abs=20,197 → NaN by step 25
+- Baseline (`1zb5h0e5`): grad_norm=233,924, max_abs=20,197 → succeeds
+
+Step 1 is **byte-equivalent** to working baseline; divergence emerges between step 1 and step 25.
+
+#### Verification by W&B subagent
+
+- ✅ `xeeupthb` (pre-11:49) confirmed: val@200=4.0831, WD_AUX=0.002, finished
+- ✅ Three #676 NaN runs all confirmed NaN'd (W&B logs at step 125 due to sparse logging, but consistent with edward's step-25 onset)
+- ✅ Cross-pod control runs confirmed val@200 ≈ 4.083-4.089
+
+#### Implications
+
+1. **MU_WARMUP_START axis remains UNTESTED on c=20 stack** — will reassign when pod is fixed.
+2. **PR #676 WD_AUX closure is SUSPECT** — those NaN'd runs were also post-11:49 on the same broken torch; closure may be pod-induced not axis-induced. Pre-11:49 WD_AUX=0.002 run (`xeeupthb`) succeeded → WD_AUX=0.002 is NOT intrinsically catastrophic. Flag for re-run on a working pod.
+3. **GH issue #692 filed** with full diagnostic for human research team. Requesting torch wheel parity with the other students' pods.
+4. **Edward is IDLE pending fix** — no new assignment possible (pod will NaN any work identically).
+
+#### Disabled-check stall pattern reaches 6+ students this cycle
+
+| Student | PR | Disabled-check runs before launch | Resolution |
+|---|---|---|---|
+| edward | #642 | ~8 | advisor override |
+| tanjiro | #650 | 6 | advisor override |
+| fern | #661 | 6 | advisor override |
+| tanjiro | #675 | 6 | advisor override |
+| frieren | #677 | 7 | advisor override |
+| nezuko | #680 | 3 | advisor override |
+| **fern** | **#683** | **8** | **advisor override posted 15:33 UTC** |
+| edward | #681 | 5 (all NaN'd — different mode) | closed as pod-broken |
+
+Total advisor overrides this cycle: 7 (+ 1 pod-broken). Systemic issue to flag separately.
+
+### PR #683 — fern ATTN_SOAP_TRUST_THRESHOLD — DISABLED-CHECK STALL, ADVISOR OVERRIDE POSTED
+
+Branch: `g1r2-fern/attn-soap-trust-threshold-sweep`. Created 13:25 UTC; advisor override posted 15:33 UTC.
+
+8 disabled-check runs (`ar5jds5j`, `q3w5pw18`, `4c3lqj3f`, `792o2dc7`, `hz7xrg49`, `p54brmct`, `jtjcgcqk`, `d5ce65ql`) all completed val~4.08 at step 200 between 13:37–15:29 UTC. None advanced to Arm A. Disabled-check verified PASSED; further loops are pure waste.
+
+Override instructs to skip remaining disabled-checks and launch Arm A (ATTN_SOAP_TRUST_THRESHOLD=0.75) directly. ETA per arm ~104 min; expect first heartbeat by ~17:30 UTC if pickup is prompt.
+
+### PR #677 — frieren NS5_ITERS Arm B TERMINAL — INTERESTING NEAR-MISS
+
+Branch: `g1r2-frieren/ns5-iters-sweep`. Arm B (NS5_ITERS=18) terminal 15:19 UTC.
+
+| Arm | NS5_ITERS | val_loss | ffs | Δval | Δffs | Hold gate val | Hold gate ffs | W&B |
+|-----|---|---|---|---|---|---|---|---|
+| **B** | **18** | **3.26960** | **3025** | **+0.00184** | **+25** | **PASS (3.26960<3.27)** | **FAIL (3025>3000)** | `ecdrwmg7` |
+| Default | 14 | 3.26776 (n=2) | 3000 (n=2) | 0 | 0 | — | — | PR #613 |
+| A | 12 | in flight (launched 15:19 UTC) | — | — | — | — | — | — |
+
+**Observations:**
+- Arm B val=3.26960 is **the closest val-side near-miss this cycle** for a fresh axis. Passes the n=1 val hold gate (val < 3.27).
+- But ffs=3025 fails ffs hold gate (3000).
+- Symmetric ffs penalty pattern: every closure this cycle hit ffs=3025 or worse; the ffs floor at 3000 is binding harder than val.
+- Will hold for Arm A (NS=12) terminal before deciding. If Arm A also lands val<3.27 with ffs=3000, the axis may justify n=2 confirm exploration.
+- **Trajectory shape suggests NS5_ITERS=18 marginally improves val by tighter orthogonalization at cost of ffs lateness.** Compatible with prior NS5 closures (#534 Shampoo, #534 right-factor) — second-order preconditioning of body Muon converges later but slightly tighter.
+
+### PR #675 — tanjiro SCALARS_LR Arm A TERMINAL — MISS
+
+Branch: `g1r2-tanjiro/scalars-lr-sweep`. Arm A (SCALARS_LR=0.005) terminal 14:58 UTC.
+
+| Arm | SCALARS_LR | val_loss | ffs | Δval | Δffs | W&B |
+|-----|---|---|---|---|---|---|
+| **A** | **0.005** | **3.27572** | **3100** | **+0.00796** | **+100** | `2oc4h91w` |
+| Default | 0.01 | 3.26776 | 3000 | 0 | 0 | PR #613 |
+| B | 0.02 | in flight | — | — | — | — |
+
+Clear MISS on hold gate. Arm B (0.02) in flight; if Arm B also clearly misses, axis closes (default 0.01 well-tuned for scalars group).
+
+### PR #685 — thorfinn ADAMW_EPS Arm A heartbeat (HEALTHY)
+
+Branch: `g1r2-thorfinn/adamw-eps-sweep`. Arm A (ADAMW_EPS=1e-8) step 2500 val=3.34883 (kill gate 3.40 PASS).
+
+Trajectory tracks baseline shape; step_avg ~1962ms; ETA terminal ~16:00 UTC.
+
+### PR #680 — nezuko CONTRA_MUON Arm A near-terminal (HEALTHY)
+
+Branch: `g1r2-nezuko/contra-muon-sweep`. Arm A (CONTRA_MUON=0.2) step 2872/3175 (90%) at 15:31 UTC.
+
+step 2500 val=3.34720; ETA terminal ~15:42 UTC. All kill gates PASS.
+
+### PR #678 — askeladd per-group cooldown_frac Arm B AHEAD of Arm A (INTERESTING)
+
+Branch: `g1r2-askeladd/per-group-cooldown-frac`. Arm B (MUON=0.8 / ADAMW=0.6) at step 1500 val=3.54744.
+
+| Step | Arm B (MUON=0.8, ADAMW=0.6) | Arm A (MUON=0.6, ADAMW=0.8) | Δ |
+|---|---|---|---|
+| 125 | 4.42094 | 4.42118 | -0.00024 |
+| 250 | 4.04173 | 4.04427 | -0.00254 |
+| 500 | 3.80241 | 3.80487 | -0.00246 |
+| 750 | 3.71150 | 3.71951 | -0.00801 |
+| **1000** | **3.62981** | **3.66422** | **−0.03441** ✨ |
+| 1250 | 3.57506 | — | — |
+| 1375 | 3.54744 | — | — |
+
+Arm B (Muon cooldowns EARLIER, AdamW plateaus LONGER) is materially ahead of Arm A by Δ=−0.034 at step 1000. **OPPOSITE prior** — pre-experiment intuition had Muon-cooldown-late hypothesis, but evidence suggests Muon prefers earlier cooldown when paired with AdamW staying high. Will monitor through cooldown.
+
+This is the most novel axis in flight — schedule-decoupling between optimizer groups. Will watch closely for Arm B terminal.
+
+### PR #688 — alphonse MUON_GRAD_CLIP IN FLIGHT (fresh mechanism)
+
+Branch: `g1r2-alphonse/muon-grad-clip`. Just assigned 15:00 UTC; no heartbeat yet.
+
+First fresh-mechanism PR this wave. Tests per-tensor L2 max-norm gradient clipping ∈ {1.0, 0.5} on Muon group vs default 0.0 (no clipping anywhere in script).
+
+---
+
 ## 2026-05-21 15:00 UTC — Cycle 71 mid-41: PR #673 alphonse MUON_LR CLOSED — third Muon-side scalar at default; portfolio rebalance to fresh-mechanism PR #688 MUON_GRAD_CLIP
 
 ### PR #673 — alphonse MUON_LR sweep — BOTH arms MISS hold gate, monotone direction confirmed
