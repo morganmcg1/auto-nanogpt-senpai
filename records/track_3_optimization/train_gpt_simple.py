@@ -468,6 +468,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+NS5_COEF_A = float(os.environ.get("NS5_COEF_A", "2.0"))
+NS5_COEF_B = float(os.environ.get("NS5_COEF_B", "-1.5"))
+NS5_COEF_C = float(os.environ.get("NS5_COEF_C", "0.5"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -479,7 +482,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS5_COEF_A, NS5_COEF_B, NS5_COEF_C
     for _ in range(NS5_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -865,6 +868,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_coef_a": NS5_COEF_A,
+            "optimizer/ns5_coef_b": NS5_COEF_B,
+            "optimizer/ns5_coef_c": NS5_COEF_C,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
