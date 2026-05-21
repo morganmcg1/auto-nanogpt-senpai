@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -52,6 +53,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lr_schedule", type=str, default="wsd",
+                        choices=["wsd", "cosine", "cosine_wsd"],
+                        help="LR schedule family. wsd=stable+power-law-cooldown (default), "
+                             "cosine=cosine from step 0, cosine_wsd=stable-30pct+cosine-70pct")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -749,17 +754,36 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # learning rate schedule: WSD (stable + power-law cooldown), cosine, or cosine_wsd
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
-            eta = 1.0
-            cooldown_progress = 0.0
-        else:
-            cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
-            w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
-            eta = w ** COOLDOWN_POWER
+
+        if args.lr_schedule == "wsd":
+            # existing WSD logic (unchanged) — stable then power-law cooldown (gamma = COOLDOWN_POWER)
+            if progress < 1 - cooldown_frac:
+                eta = 1.0
+                cooldown_progress = 0.0
+            else:
+                cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
+                w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
+                eta = w ** COOLDOWN_POWER
+
+        elif args.lr_schedule == "cosine":
+            # pure cosine from step 0 — no stable plateau, no COOLDOWN_POWER
+            eta = 0.5 * (1.0 + math.cos(math.pi * progress))
+            cooldown_progress = progress  # cosmetic — used for telemetry only
+
+        elif args.lr_schedule == "cosine_wsd":
+            # 30% stable, then cosine over remaining 70%
+            stable_frac = 1.0 - cooldown_frac  # = 0.30 (same stable_frac as WSD default)
+            if progress < stable_frac:
+                eta = 1.0
+                cooldown_progress = 0.0
+            else:
+                cooldown_progress = (progress - stable_frac) / cooldown_frac  # ∈ [0, 1]
+                eta = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
+
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
@@ -915,6 +939,7 @@ for trial_idx in range(args.num_trials):
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
+                "train/cooldown/lr_schedule": args.lr_schedule,
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
