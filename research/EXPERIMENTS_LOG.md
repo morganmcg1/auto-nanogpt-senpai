@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~19:25 UTC — PR #671: edward Cautious AdamW (Liang 2024) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-edward/cautious-adamw`
+- Student: g1r5-edward
+- Hypothesis: Cautious AdamW (Liang 2024) — mask out parameter coordinates where the Adam step direction disagrees with the current batch gradient. Mechanistic *inverse* of AdEMAMix (#626): instead of adding slow-EMA signal, removes "wrong-direction" coordinates. 5-cell: A=ctrl / B=boolean paper-default / C=boolean+normalize / D=soft sigmoid γ=10 / E=boolean scalars-only.
+
+- **Results:**
+
+| Rank | Cell | Config | wandb_run_id | val/loss | ffs | Δ vs baseline μ=3.263265 |
+|:----:|:----:|--------|:------------:|---------:|----:|--------------------------:|
+| 1 | **A** | ctrl (mask_off, refactor no-op) | `gu48ocx7` | **3.26200** | 3025 | **−0.94σ_new (5th strong post-#571 ctrl)** |
+| 2 | E | boolean, scalars-only | `2rcg85cg` | 3.26376 | 3050 | +0.45σ_new (~noise) |
+| 3 | B | boolean (paper default) | `jaustwp2` | 3.27755 | 3200 | +12.72σ_new |
+| 4 | D | soft sigmoid γ=10 | `i2pjb89v` | 3.27781 | 3200 | +13.0σ_new |
+| 5 | C | boolean + mask_normalize | `oo93hchd` | 3.27831 | 3225 | +13.41σ_new |
+
+- **Key mechanistic findings:**
+  1. **Mask scope dominates mask shape.** B/C/D cluster at +12.7–13.4σ — hard boolean, normalized boolean, and soft sigmoid (γ=10 ≈ still hard) are all equivalent. Shape is irrelevant; gating direction is the harm. The disagreement coordinates ARE usable signal: the EMA correctly carries older gradient info that the current batch happens to flip.
+  2. **Cell E ≈ A confirms scope-not-mechanism.** Scalars-only mask (~few hundred params) barely perturbs the global trajectory (bulk of optimizer unchanged). Not a positive signal for scalars; a "null apply" result.
+  3. **Telemetry confirmed mechanism active** (pre-sweep smoke): mask density embed=45%, lm_head=66%, scalars=77%. ~50% on embed matches paper's prediction. High density on lm_head/scalars reflects structured-update nature of those groups.
+  4. **Symmetric closure with AdEMAMix (#626):** AdEMAMix ADDs slow-EMA signal; Cautious REMOVEs fast-disagreement signal. Both symmetrically fail by similar margins. Confirms that the fast-EMA Adam state is load-bearing and resistant to modification in both directions at this horizon.
+  5. **Cell A ctrl = 5th strong post-#571 single-seed ctrl.** Empirical ctrl distribution 5 recent CTRLs: mean ≈ 3.2624, SD ≈ 0.0005, n=5. Gate at 3.261265 is ~1.7σ_single below central trend.
+
+- **Decision:** CLOSED clean-NEG. Joins {Lion #638, Lookahead #581, AdEMAMix #626, SF #659, Adan #645, AdaBelief #641, Cautious #671} in the "AdamW-modification mechanism" closure cluster. Edward reassigned #714 RMSNorm gain init magnitude sweep (fresh init axis, scalars group).
+
+---
+
 ## 2026-05-21 ~18:35 UTC — PR #665: tanjiro NS iter SCHEDULE sweep — **CLOSED clean-NEG**
 
 - Branch: `g1r5-tanjiro/ns-iter-schedule-sweep`

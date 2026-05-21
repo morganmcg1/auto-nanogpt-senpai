@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-21 ~18:35Z (poll #350)
+- **Last updated:** 2026-05-21 ~19:25Z (poll #353)
 - **🆕🆕🆕 NEW BASELINE (PR #571 MERGED poll #321):** mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75
   - **Mechanism: lr_scalars=0.03 + ns_iter=6 + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.263265 - mu) × √n ≥ 0.004`
@@ -39,7 +39,7 @@ P2 status across the portfolio:
 | **#691** | **thorfinn** | **NEW (poll #342)** Per-group AdamW β1 sweep (embed/lm_head/scalars) | Assigned poll #342. First per-group β1 test since global mapping #537. 5-cell: A=global 0.8 ctrl / B=scalars 0.9 / C=scalars 0.7 / D=embed 0.9 / E=lm_head 0.9. |
 | **#687** | **askeladd** | **NEW (poll #341)** Atan2-AdamW bounded SNR normalization (StableAdamW, Wortsman 2023) | Assigned poll #341. Cell A ctrl finished at 3.2632; Cell B running (step ~216). Replaces AdamW update with `(2/π)*atan2(m_hat, sqrt(v_hat))` — smooth-bounded [-1,+1]. Structurally orthogonal to all closed augmentation classes. |
 | **#706** | **nezuko** | **NEW (poll #349)** Embedding init magnitude sweep — N(0,1) current vs GPT-2 default 0.02 | Just assigned. Fresh init axis: line 775 `w.normal_()` (std=1.0) never ablated. 5-cell: A=ctrl (1.0) / B=0.02 (GPT-2/3 default, 50× smaller) / C=0.1 / D=0.3 / E=3.0. Orthogonal to #699 alphonse (which tests residual-projection depth-aware init — different weight group). Mechanistic note: RMSNorm right after embed normalizes forward activations but gradient pathway through embed still depends on init scale; AdamW embed group has lr=0.3 (60× scalars) so magnitude co-adapts with high LR. |
-| #671 | edward | Cautious AdamW (Liang 2024, arXiv:2411.16085) — mask updates where Adam step disagrees with current gradient | Assigned poll #333. 5-cell: A=ctrl / B=boolean / C=normalized / D=soft sigmoid / E=scalars-only. |
+| **#714** | **edward** | **NEW (poll #353)** RMSNorm gain init magnitude/randomness sweep — mean/std of `w.normal_(mean=1,std=0)` at line 781 | Just assigned. Fresh init axis: gain init has NEVER been tested. 5-cell: A=ctrl (mean=1.0,std=0.0) / B=std=0.01 (tiny symmetry break) / C=std=0.1 (medium random) / D=mean=0.9 (smaller) / E=mean=1.1 (larger). Gains live in scalars group, lr_scalars=0.03 (tripled by #571). Orthogonal to #699 alphonse (proj residual init) and #706 nezuko (embed init). Completes init-magnitude map across all 3 parameter classes. |
 | **#707** | **tanjiro** | **NEW (poll #350)** Per-group AdamW β2 sweep (scalars/embed/lm_head, β2=0.999/0.85/0.95) | Just assigned. Fresh per-group axis: only global β2 has been swept (#537); per-group β2 never tested. 5-cell: A=global 0.95 ctrl / B=scalars 0.999 (slow) / C=scalars 0.85 (fast) / D=embed 0.999 / E=lm_head 0.999. Parallel to thorfinn #691 per-group β1. Scalars (tripled-LR group from #571) is the most likely candidate for asymmetric β2 sensitivity. |
 | **#679** | **fern** | **NEW (poll #336)** LR cooldown SHAPE sweep (linear ctrl/cosine/quadratic/sqrt/step, fixed LR peak) | Assigned poll #336. 5-cell: linear(ctrl)/cosine/quadratic/sqrt/step. First LR cooldown shape axis test. |
 
@@ -47,6 +47,8 @@ P2 status across the portfolio:
 ## Recent Closures
 
 - **#665 tanjiro NS iter SCHEDULE sweep** — CLOSED clean-NEG (poll #350). Strict monotone 5-cell ordering A=3.26170 < B=3.26722 < C=3.26880 < D=3.27085 < E=3.27138. Linear decay (B, +3.52σ_new) < step-at-cooldown (D, +6.76σ) < aggressive 6→2 (E, +7.23σ). Key finding: **"less optimizer intensity late" theme does NOT extend to NS polynomial depth** — NS iter depth controls update *direction quality* (orthonormality) not *magnitude*; removing polishing late leaves under-polished gradients, not "smaller" updates. Continuity beats discontinuity (B vs D same endpoint, B costs 3.24σ less). bf16 cliff below ns_iter=3 confirmed again. NS iter schedule axis fully closed. Tanjiro reassigned #707 per-group AdamW β2.
+
+- **#671 edward Cautious AdamW (Liang 2024)** — CLOSED clean-NEG (poll #353). A=3.26200 (5th strong post-#571 ctrl, −0.94σ); B=3.27755 (+12.72σ); C=3.27831 (+13.41σ); D=3.27781 (+13.0σ); E=3.26376 (+0.45σ ≈ noise — scalars-only barely applies). Three findings: (1) mask scope >> mask shape (B/C/D cluster, shape irrelevant); (2) symmetric failure with AdEMAMix — fast-EMA load-bearing in BOTH directions; (3) Cell E null-apply result confirms scope-not-mechanism. Edward reassigned #714 gain init magnitude.
 
 - **#659 nezuko Schedule-Free AdamW (Defazio 2024)** — CLOSED clean-NEG (poll #349). A=3.26153 (strongest post-#571 single-seed ctrl, −1.5σ_new), B=3.32702 (+57σ, paper default no-cooldown), C=3.33213 (+59σ, SF+cooldown worst — cooldown+averaging over-damped), D=3.31299 (+49σ, β=0.95 slower avg), E=3.28924 (+46σ best SF — **no-warmup surprise** beats warmup by Δ=−0.038). Eval-mode swap rigorously verified (commit `f6f176c`). **7th augmentation-class test closed** (6th clean-NEG). Cooldown is load-bearing; Polyak averaging and LR decay jointly incompatible. Nezuko reassigned #706 embed init magnitude.
 
@@ -123,26 +125,28 @@ P2 status across the portfolio:
 9. **❌ lm_head LR** (alphonse #600) — CLOSED clean-neutral (asymmetry: scalars take 3× but lm_head rejects 3×)
 10. **❌ WD shape** (fern #635) — CLOSED clean-NEUTRAL (poll #336); ramp_down dominant; WD axis fully closed
 
-**Active fresh-mechanism optimizer tests (poll #349 — 7 augmentation class tests done: 6 clean-NEG + 1 clean-NEUTRAL; orthogonal mechanisms + INIT axis in flight):**
-- **#671 edward Cautious AdamW** (poll #333) — masks updates where Adam step disagrees with current gradient (Liang 2024) — mechanistic *inverse* of AdEMAMix: removes wrong-direction info rather than adding slow-EMA info
-- **#687 askeladd Atan2-AdamW** (poll #341) — smooth bounded normalization via `(2/π)*atan2(m_hat, sqrt(v_hat))` — STRUCTURALLY ORTHOGONAL to all augmentation classes; replaces normalization kernel, not adds buffers
-- **#699 alphonse Depth-aware μP init** (NEW poll #345) — μP-style 1/√L or 1/L init on block residual-injection paths — FRESH INIT AXIS
-- **#706 nezuko Embed init magnitude** (NEW poll #349) — N(0,std) embed init magnitude sweep; current std=1.0 vs GPT-2 default 0.02 — ORTHOGONAL INIT AXIS (untouched by #565)
+**Active fresh-mechanism optimizer tests (poll #353 — 8 augmentation class tests done: 7 clean-NEG + 1 clean-NEUTRAL; orthogonal mechanisms + INIT axis in flight):**
+- **#687 askeladd Atan2-AdamW** (poll #341) — smooth bounded normalization via `(2/π)*atan2(m_hat, sqrt(v_hat))` — STRUCTURALLY ORTHOGONAL to all augmentation classes; replaces normalization kernel, not adds buffers. Cell B ≈ ctrl (atan2 neutral at default LR); Cells C/D/E testing higher LR variants.
+- **#699 alphonse Depth-aware μP init** (NEW poll #345) — μP-style 1/√L or 1/L init on block residual-injection paths — FRESH INIT AXIS (Cell A running)
+- **#706 nezuko Embed init magnitude** (NEW poll #349) — N(0,std) embed init magnitude sweep; current std=1.0 vs GPT-2 default 0.02 — ORTHOGONAL INIT AXIS
+- **#714 edward RMSNorm gain init** (NEW poll #353) — gain init mean (0.9/1.0ctrl/1.1) × std (0/0.01/0.1) — FRESH INIT AXIS (scalars group, lr_scalars=0.03 from #571)
 
 **Targeted hyperparameter sweeps on the new baseline:**
 - **#707 tanjiro per-group β2** — per-group AdamW β2 for scalars(0.999/0.85)/embed(0.999)/lm_head(0.999); natural complement to thorfinn #691 per-group β1
+- **#714 edward gain init** — RMSNorm gain init magnitude/randomness (mean=0.9/1.0/1.1; std=0/0.01/0.1); closes init-magnitude space across all 3 parameter classes with #699+#706
 - **#691 thorfinn per-group β1** — per-group AdamW β1 for embed/lm_head/scalars (5-cell: ctrl/scalars-0.9/scalars-0.7/embed-0.9/lmhead-0.9); first per-group β1 test since global mapping in #537; builds on post-#571 tripled-scalar-LR baseline
 - **#693 frieren Muon mu schedule** — time-varying Muon mu during cooldown (5-cell: const-0.95 ctrl / static-0.90 / static-0.98 / ramp_down 0.95→0.5 / ramp_down 0.95→0.0); third time-varying Muon hyperparameter axis
 
-**Mechanism class joint-closure — 7 AUGMENTATION-CLASS tests completed, 6 clean-NEG + 1 clean-NEUTRAL:**
+**Mechanism class joint-closure — 8 AUGMENTATION-CLASS tests completed, 7 clean-NEG + 1 clean-NEUTRAL:**
 | # | PR | Mechanism | Closure |
 |---|----|-----------|----|
 | 1 | #638 Lion | Sign-based momentum replacement | clean-NEG — incompatible at any viable LR |
 | 2 | #581 Lookahead | Parameter-side slow averaging | clean-NEG — cooldown disrupted |
 | 3 | #626 AdEMAMix | Gradient-side slow EMA | clean-NEG — slow EMA half-life >> training length |
-| 4 | **#659 SF AdamW** | **Polyak iterate averaging (LR removed)** | **clean-NEG (poll #349) — cooldown is load-bearing; SF+cooldown jointly incompatible (+46–59σ); no-warmup surprise** |
+| 4 | #659 SF AdamW | Polyak iterate averaging (LR removed) | clean-NEG — cooldown is load-bearing; SF+cooldown jointly incompatible |
 | 5 | #645 Adan | Gradient-difference 3-buffer | clean-NEG — slow-EMA-horizon mismatch |
-| **6** | **#641 AdaBelief** | **Variance estimator (g−m)²** | **clean-NEUTRAL — interchangeable with g² at L=12** |
+| 6 | #641 AdaBelief | Variance estimator (g−m)² | clean-NEUTRAL — interchangeable with g² at L=12 |
+| **7** | **#671 Cautious AdamW** | **Mask wrong-direction coordinates** | **clean-NEG (poll #353) — scope > shape; fast-EMA load-bearing in both directions (symmetric with #626)** |
 
 **The pattern:** AdamW + WSD linear cooldown is well-tuned for 3250 steps. "Improved AdamW" variants from literature fail or are neutral. Cautious AdamW #671 tests the mechanistic inverse (filter wrong-direction updates). Atan2-AdamW #687 exits augmentation paradigm (replaces normalization kernel). Depth-aware init #699 exits optimizer axis entirely (INIT axis).
 
