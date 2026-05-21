@@ -71,6 +71,13 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--use_adabelief", action="store_true",
+                        help="Use AdaBelief optimizer (Zhuang et al. 2020, arXiv:2010.07468) "
+                             "for the 3 AdamW-managed groups (embed, lm_head, scalars) "
+                             "instead of AdamW. Muon/SOAP unchanged.")
+    parser.add_argument("--adabelief_eps", type=float, default=1e-10,
+                        help="Epsilon for AdaBelief. Default 1e-10 matches current AdamW eps. "
+                             "Paper recommends 1e-8 to 1e-16 depending on task.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -554,6 +561,60 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief optimizer (Zhuang et al. 2020, arXiv:2010.07468).
+
+    Same as AdamW except v_t tracks variance of (g - m) instead of g^2:
+        m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+        v_t = beta2 * v_{t-1} + (1 - beta2) * (g_t - m_t)^2 + eps   # KEY DIFFERENCE
+        m_hat = m_t / (1 - beta1^t)
+        v_hat = v_t / (1 - beta2^t)
+        theta_t = theta_{t-1} * (1 - lr*wd) - lr * m_hat / (sqrt(v_hat) + eps)
+
+    AdaBelief uses the post-update m_t to compute (g_t - m_t), per the
+    original paper Algorithm 2.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-10, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_var"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                step = state["step"]
+                m, v = state["exp_avg"], state["exp_avg_var"]
+                bias_correction1 = 1 - beta1 ** step
+                bias_correction2 = 1 - beta2 ** step
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                grad_residual = grad - m
+                v.mul_(beta2).addcmul_(grad_residual, grad_residual, value=1 - beta2).add_(eps)
+                m_hat = m / bias_correction1
+                v_hat = v / bias_correction2
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.addcdiv_(m_hat, v_hat.sqrt().add_(eps), value=-lr)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
@@ -752,6 +813,8 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "use_adabelief": args.use_adabelief,
+            "adabelief_eps": args.adabelief_eps if args.use_adabelief else None,
         },
     )
 
@@ -783,10 +846,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.use_adabelief:
+        optimizer1 = AdaBelief([
+            dict(params=[model.embed.weight], lr=0.3, name="adabelief_embed"),
+            dict(params=[model.proj.weight], lr=1/320, name="adabelief_lm_head"),
+            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adabelief_scalars"),
+        ], betas=(0.8, 0.95), eps=args.adabelief_eps, weight_decay=0.0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
