@@ -3,6 +3,114 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 07:30 UTC — PR #614: nezuko logit softcap value sweep — **CLOSED clean-NEG**
+
+- Branch: `g1r5-nezuko/logit-softcap-sweep`
+- Student: g1r5-nezuko
+- Hypothesis: Logit softcap hardcoded at 15, never ablated. 5-cell asymmetric sweep (2 tighter / 1 ctrl / 2 looser) tests whether softcap value is tuned end-to-end.
+
+| Cell | softcap | val/loss @ 3250 | first_step | Δ vs ctrl A | Δ vs PR #497 baseline (3.266120, σ=0.001747) | W&B |
+|------|---------|----------------:|-----------:|------------:|---------------------------------------------:|------|
+| A (ctrl) | 15.0 | 3.26859 | 3100 | — | +0.00247 (+1.4σ_old) | ifk37kj1 |
+| B | 7.5 | 3.30528 | -1 (never reached) | +0.03669 | +0.03916 (+22.4σ_old) | abzrzbwf |
+| C | 10.0 | 3.27118 | 3125 | +0.00259 | +0.00506 (+2.9σ_old) | 23vscyou |
+| D | 22.5 | 3.27180 | 3125 | +0.00321 | +0.00568 (+3.3σ_old) | qvph4p1k |
+| E | 30.0 | 3.27143 | 3125 | +0.00284 | +0.00531 (+3.0σ_old) | k4alzow6 |
+
+- All non-ctrl cells regress. Cell A (ctrl=15) is the best of the sweep. **No cell met any gate** (n=4 new gate 3.261265; old −0.5σ flag 3.265720).
+- Note: these runs predate PR #571 merge and use `--lr_scalars 0.01` (old default), so all cells trail the new baseline (mu=3.263265) by ~3-6σ_new. Comparisons here are vs PR #497 (old baseline at the time of launch) for consistency with the student's per-cell deltas.
+- Mechanistic shape:
+  - **Lower bound is a hard floor.** Tight axis monotone-negative: 15→10 (+3σ) → 7.5 (+22σ). The B→C ratio (~14×) is the nonlinear saturation signature — once softcap falls below typical logit magnitudes, gradient signal at confident logits is clipped and learning capacity collapses.
+  - **Upper region is plateau-shaped, mildly negative.** D and E both ~+3σ_old vs baseline; no inflection from 22.5 → 30 means looser caps don't recover ground.
+  - **Cap value of 15 is robustly tuned end-to-end.** Loosening doesn't break anything (no NaN, smooth curves) but doesn't help either.
+- Cross-axis observation: "Less optimizer intensity" theme (validated on WD ramp_down PR #371 and ns_iter=6 PR #497) does **not** transfer from optimizer-side levers to loss-side levers. WD/NS act on parameter updates; softcap acts on the loss-derivative pathway. Different mechanism class, different sensitivity.
+- Logging gap noted by student: `train/logits_abs_max`, `train/grad_norm_pre_clip` (output layer), and `train/param_norm` for proj.weight aren't emitted by base codebase. Suggested in PR body but deliberately not retrofit mid-sweep for cell-to-cell consistency. Small-scope add for any future logit/normalization PR that needs them.
+- Decision: CLOSED clean-NEG. Logit softcap axis closed at this scale/budget. Nezuko reassigned to Schedule-Free AdamW (#659).
+
+## 2026-05-21 05:05 UTC — PR #638: frieren Lion optimizer replacement — **CLOSED clean-NEG**
+
+- Branch: `g1r5-frieren/lion-optimizer-replacement`
+- Student: g1r5-frieren
+- Hypothesis: Lion optimizer (Chen 2023, arXiv:2302.06675) replaces AdamW for embed/lm_head/scalars groups with sign-based update + single momentum buffer. Mechanistically distinct from AdamW's variance-based update.
+
+| Attempt | Cell | lion_lr_scale | W&B run | State | Crash Mode |
+|---------|------|--------------|---------|-------|-----------|
+| #1 | C | 0.10 | 9zzr3bc0 | CRASHED at step 16 | grad-norm=235,925 |
+| #2 (relaunch) | B | 0.01 | clazjucp | FAILED at step 0 | only val/loss=10.826 logged |
+| #2b (relaunch) | B | 0.01 | 7pcrm3hv | grad-norm=233,763 at step 15 (failing) | same explosion |
+
+- Results: Two independent attempts spanning 10× LR range both produced runaway gradient norms (~235k vs healthy baseline ~5-10). Even with effective Lion embed_lr at 0.003 (100× smaller than AdamW embed_lr=0.3), the sign-based update is too aggressive for this regime. The architecture (50K-vocab embed table, ReLU² MLP, RMSNorm pre-norm, 12-layer depth) appears intrinsically incompatible with unit-magnitude sign updates on the embedding rows.
+- Diagnostic insight: Lion's published recipes for language modeling typically use LR ≤ 3e-4 (vs our embed_lr=0.3 ÷ scale). To make Lion viable would need lion_lr_scale ≈ 0.001 (1000× reduction from AdamW) plus non-zero decoupled WD (Lion's recipe was LR ÷ 10 + WD × 5-10 vs AdamW, but our baseline uses WD=0 for AdamW groups). The retuning required is far enough from baseline that it stops being a like-for-like mechanism comparison.
+- Decision: CLOSED clean-NEG. Lion axis closed at this scale/architecture. Frieren reassigned to wd_scalars sweep on new baseline.
+
+## 2026-05-21 04:50 UTC — PR #565: thorfinn init variance scale sweep — **CLOSED clean-neutral (after MERGE shifted gate)**
+
+- Branch: `g1r5-thorfinn/init-var-sweep`
+- Student: g1r5-thorfinn
+- Hypothesis: 5-cell init variance scale sweep (0.1/0.33ctrl/0.5/1.0/2.0). Phase 1 Cell B (xavier var=1.0) at val/loss=3.263870 cleared old n=1 gate by 0.000250 — at the noise floor, triggered P2.
+
+| Phase | Trial | val/loss | ffs | Δ vs old baseline | vs new baseline (3.263265) |
+|-------|-------|----------|-----|-------------------|---------------------------|
+| P1 | Cell B (n=1) | 3.263870 | — | −1.29σ_old | +0.000605 ABOVE new |
+| P2 | Trial 0 | 3.26387 | — | −1.29σ_old | +0.000605 ABOVE new |
+| P2 | Trial 1 | 3.26740 | — | +0.73σ_old | +0.004135 ABOVE new |
+| P2 | Trial 2 | 3.263850 | — | −1.20σ_old | +0.000585 ABOVE new |
+| P2 | mean(0,1,2) | 3.265040 | — | −1.66σ_old | +0.001775 ABOVE new |
+
+- Math gate analysis: For n=4 mean to clear NEW n=4 gate (3.261265), Trial 3 would need ≤ **3.249940** — that's **−7.6σ_old / −11.9σ_new**, empirically impossible.
+- Results commentary: Cell B at 3.263870 was lucky-side noise vs old gate (passed by 0.000250, at the noise floor). P2 replication shows the true distribution sits at or slightly above the new baseline. Init variance axis (magnitude only) is closed for this budget. Depth-aware init (μP-style) and other init schemes remain unexplored.
+- Decision: CLOSED clean-neutral. P2 math-closed by Trial 2; no waiting for Trial 3. Thorfinn reassigned to per-block LR decay sweep.
+
+## 2026-05-21 04:22 UTC — PR #571: askeladd AdamW scalar LR sweep — **✅ MERGED — NEW BASELINE**
+
+- Branch: `g1r5-askeladd/scalar-lr-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: AdamW `adam_scalars` group (RMSNorm gains, ~20K params) hardcoded at lr=0.01. Sweep across 5 cells: A=0.01 ctrl / B=0.003 / C=0.001 / D=0.03 / E=0.1.
+
+| Phase | Cell/Trial | lr_scalars | val/loss | ffs | Δ vs baseline (3.266120) | σ_single | W&B run |
+|-------|-----------|-----------|---------|-----|--------------------------|---------|---------|
+| P1 | A ctrl | 0.01 | 3.265233 | 3075 | −0.000887 | −0.51σ | aw6cq08g |
+| P1 | B | 0.003 | 3.278590 | 3225 | +0.012470 | +7.14σ | s4c0z0uf |
+| P1 | C | 0.001 | 3.289189 | DNF | +0.023069 | +13.20σ | uo6a2cql |
+| **P1** | **D** | **0.03** | **3.262962** | **3050** | **−0.003158** | **−1.81σ** | xcxu2ziv |
+| P1 | E | 0.1 | 3.272018 | 3125 | +0.005898 | +3.38σ | het906af |
+| P2 T0 | D | 0.03 | 3.26347 | 3050 | −0.002650 | −1.52σ | apz56jxx |
+| P2 T1 | D | 0.03 | 3.26401 | 3050 | −0.002110 | −1.21σ | apz56jxx |
+| P2 T2 | D | 0.03 | 3.26162 | 3025 | −0.004500 | −2.58σ | apz56jxx |
+| P2 T3 | D | 0.03 | 3.26396 | 3050 | −0.002160 | −1.24σ | apz56jxx |
+| **P2 n=4 mean** | **D** | **0.03** | **3.263265** | **3043.75** | **−0.002855** | **−1.63σ** | apz56jxx |
+
+**Statsig: (3.266120 − 3.263265) × √4 = 0.005710 ≥ 0.004 ✅ PASS (+0.001710 margin)**
+
+- Results commentary: Asymmetric hump shape — lower direction (B/C) catastrophically worse (+7/+13σ), upper peaks at D (3× higher) and regresses at E (10× higher). All 4 P2 seeds independently clear the n=4 gate (3.264120). Sample σ=0.001123 tighter than baseline σ=0.001747. ffs_mean=3043.75 (−43.75 steps vs baseline 3087.5). Mechanism: RMSNorm gains were under-tuned at lr=0.01 — raising to 0.03 lets gains track optimal layer-scale faster during cooldown without destabilizing.
+- **NEW BASELINE: mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75**
+- **New statsig gate:** (3.263265 − mu) × √n ≥ 0.004 → n=4: mu ≤ 3.261265 | n=6: mu ≤ 3.261633 | n=8: mu ≤ 3.261852
+- Critical cross-axis: scalars_lr=0.03 WINS (this PR) but lm_head_lr=0.03 LOSES (#600) — per-group LR ratios NOT universal. Small param groups (20K scalars) take aggressive LR; large param groups (39M lm_head proj) need conservative LR.
+
+## 2026-05-21 03:10 UTC — PR #600: alphonse lm_head LR sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-alphonse/lm-head-lr-sweep`
+- Student: g1r5-alphonse
+- Hypothesis: lm_head LR hardcoded at 1/320 (0.003125), never ablated. 5-cell sweep across 20× range (1/640 to 0.03) tests whether the proj group LR can be improved. Sibling to askeladd #571 (scalars_lr sweep) and nezuko #566 (embed_lr sweep).
+
+| Cell | --lr_lm_head | val_loss | Δσ_n6 vs new baseline | ffs | W&B run |
+|------|:------------:|:--------:|----------------------:|-----|---------|
+| A (ctrl) | 1/320 (0.003125) | 3.26574 | −0.22σ | 3075 | `646yhh2s` |
+| B | 1/640 (0.0015625) | 3.26809 | +1.13σ | 3100 | `zkatc2b1` |
+| C | 1/160 (0.00625) | 3.26626 | +0.08σ | 3075 | `wqjf39r2` |
+| D | 0.01 | 3.26608 | −0.02σ | 3075 | `6zpybyjf` |
+| E | 0.03 | 3.26771 | +0.91σ | 3100 | `uqdww2sj` |
+
+- Baseline: mu=3.266120, σ=0.001747, n=4 gate ≤3.264120
+
+**Results commentary:** U-shaped response. Lower LR (B, 1/640) hurts at +1.13σ. Higher LR (E, 0.03 = 10× ctrl) also hurts at +0.91σ. Plateau at 0.003125–0.01 (A/C/D within ±0.3σ). No cell crosses n=4 gate.
+
+**Key cross-PR insight:** askeladd #571 won at scalars_lr=0.03 (20K params) but alphonse #600 LOSES at lm_head_lr=0.03 (39M params). Big param groups want conservative LR, small param groups can take aggressive LR. Pre-existing per-group LR ratio (1/320 lm_head vs 0.01 scalars, ~3× ratio) is directionally correct.
+
+**Conclusions:** AdamW per-group LR landscape now fully characterized via #566 (embed), #600 (lm_head), #571 (scalars in P2). The per-group LR axis is closed. Time to test fresh optimizer mechanisms.
+
+**Follow-up assigned:** PR #641 — alphonse AdaBelief (Zhuang et al. 2020, arXiv:2010.07468) — variance of (g - m)² instead of g². Drop-in replacement for AdamW on the 3 AdamW-managed groups. 5-cell sweep: A=AdamW ctrl, B=AdaBelief default, C/D/E = AdaBelief with different eps values. Three parallel fresh-mechanism tests (#641 AdaBelief + #638 Lion + #626 AdEMAMix) — orthogonal modifications of AdamW.
+
 ## 2026-05-21 02:35 UTC — PR #556: frieren AdamW epsilon P2 confirmation — **CLOSED clean-neutral**
 
 - Branch: `g1r5-frieren/adam-eps-sweep`
