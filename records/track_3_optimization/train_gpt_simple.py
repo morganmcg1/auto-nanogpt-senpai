@@ -535,6 +535,25 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Disable AdamW bias correction on selected aux groups by pre-scaling group LR by
+# bc_m/sqrt(bc_v) before optimizer1.step() and restoring after. PyTorch internals
+# untouched; net update becomes equivalent to uncorrected Adam.
+#   ""        => standard bias correction on all groups (default)
+#   "embed"   => disable bc on adam_embed
+#   "lm_head" => disable bc on adam_lm_head
+#   "all_aux" => disable bc on adam_embed + adam_lm_head + adam_scalars
+NANOGPT_ADAMW_NO_BIAS_CORR = os.environ.get("NANOGPT_ADAMW_NO_BIAS_CORR", "")
+_VALID_NO_BC_TARGETS = {
+    "": set(),
+    "embed": {"adam_embed"},
+    "lm_head": {"adam_lm_head"},
+    "all_aux": {"adam_embed", "adam_lm_head", "adam_scalars"},
+}
+if NANOGPT_ADAMW_NO_BIAS_CORR not in _VALID_NO_BC_TARGETS:
+    raise ValueError(
+        f"NANOGPT_ADAMW_NO_BIAS_CORR={NANOGPT_ADAMW_NO_BIAS_CORR!r}, "
+        f"must be one of {sorted(_VALID_NO_BC_TARGETS)}"
+    )
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -761,6 +780,12 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+_no_bc_target_names = sorted(_VALID_NO_BC_TARGETS[NANOGPT_ADAMW_NO_BIAS_CORR])
+print0(
+    f"ADAMW_NO_BIAS_CORR: '{NANOGPT_ADAMW_NO_BIAS_CORR}' "
+    f"(targets={_no_bc_target_names if _no_bc_target_names else 'none — bias correction standard'})",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -825,6 +850,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_adamw_no_bias_corr": NANOGPT_ADAMW_NO_BIAS_CORR,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -875,6 +901,15 @@ for trial_idx in range(args.num_trials):
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    if trial_idx == 0:
+        _opt1_names = [g.get("name") for g in optimizer1.param_groups]
+        print0(f"AdamW (optimizer1) param groups: {_opt1_names}", console=True)
+        _missing = _VALID_NO_BC_TARGETS[NANOGPT_ADAMW_NO_BIAS_CORR] - set(_opt1_names)
+        if _missing:
+            raise RuntimeError(
+                f"NANOGPT_ADAMW_NO_BIAS_CORR={NANOGPT_ADAMW_NO_BIAS_CORR!r} expects groups "
+                f"{sorted(_VALID_NO_BC_TARGETS[NANOGPT_ADAMW_NO_BIAS_CORR])}, missing: {sorted(_missing)}"
+            )
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
@@ -1061,8 +1096,53 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # ─── Pre-step: optionally disable AdamW bias correction on selected aux groups ───
+        # Pre-scale group LR by bc_m / sqrt(bc_v) so PyTorch's internal bias correction
+        # (m_hat = m / bc_m, v_hat = v / bc_v, update ∝ lr · m_hat / sqrt(v_hat))
+        # collapses to the uncorrected update: lr · m / sqrt(v). PyTorch internals are
+        # untouched. Telemetry above logged the scheduled (unmodified) LR; we restore
+        # below so out-of-loop reads also see the scheduled LR.
+        _no_bc_targets = _VALID_NO_BC_TARGETS[NANOGPT_ADAMW_NO_BIAS_CORR]
+        _bc_saved_lrs: dict[int, float] = {}
+        _no_bc_factor = 1.0
+        if _no_bc_targets:
+            _t = step + 1  # 1-indexed step matches optimizer1.state[p]["step"] after this call
+            _b1, _b2 = optimizer1.param_groups[0]["betas"]
+            _bc_m = 1.0 - _b1 ** _t
+            _bc_v = 1.0 - _b2 ** _t
+            _no_bc_factor = _bc_m / (_bc_v ** 0.5)
+            for _g in optimizer1.param_groups:
+                if _g.get("name") in _no_bc_targets:
+                    _bc_saved_lrs[id(_g)] = _g["lr"]
+                    _g["lr"] = _g["lr"] * _no_bc_factor
+
         for opt in optimizers:
             opt.step()
+
+        # Restore scheduled LR on compensated groups (telemetry-correctness; set_hparams
+        # would overwrite next iter regardless).
+        if _bc_saved_lrs:
+            for _g in optimizer1.param_groups:
+                _orig = _bc_saved_lrs.get(id(_g))
+                if _orig is not None:
+                    _g["lr"] = _orig
+            if dist.get_rank() == 0 and telemetry_due:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    # lr_multiplier = bc_m/sqrt(bc_v): the factor we MULTIPLY group LR by
+                    # to cancel PyTorch's bias correction. ≈1.0 at t=1, ≈1.58 at t=50.
+                    "no_bias_corr/lr_multiplier": _no_bc_factor,
+                    # bc_scale_factor / bc_effect_ratio = sqrt(bc_v)/bc_m: ratio of
+                    # corrected-update magnitude to uncorrected-update magnitude (i.e. how
+                    # much bias correction shrinks the update). Matches PR-body table:
+                    # ≈1.0 at t=1, ≈0.632 at t=50 for β1=0.9, β2=0.99.
+                    "no_bias_corr/bc_effect_ratio": 1.0 / _no_bc_factor,
+                    "no_bias_corr/bc_scale_factor": 1.0 / _no_bc_factor,
+                    "no_bias_corr/bc_m": _bc_m,
+                    "no_bias_corr/bc_v": _bc_v,
+                    "no_bias_corr/t": _t,
+                }, step=wandb_step)
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
