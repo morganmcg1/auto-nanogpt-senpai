@@ -1,5 +1,135 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 11:30 UTC — Cycle 71 mid-37: FOUR axes CLOSED + 5 new assignments diversifying portfolio off c=20-locked AdamW output cluster
+
+### PR #650 — tanjiro LOGIT_SOFTCAP extended sweep — Both arms MISS, c=20 is local PEAK
+
+Branch: `g1r2-tanjiro/logit-softcap-extended`. Closed 11:19 UTC.
+
+| Arm | LOGIT_SOFTCAP | val_loss (n=1) | ffs | Δ vs baseline (3.26776/3000) | n=1 hold gate (val≤3.27 AND ffs≤3000) | W&B |
+|-----|---------------|----------------|-----|------------------------------|--------------------------------------|------|
+| A | 25 | **3.2730** | 3050 | +0.00524 / +50 | MISS | `hk5yhvot` (canonical) |
+| B | 30 | MISS (worse) | — | — | MISS | — |
+
+**Run cleanup**: Earlier confusion with duplicate runs (`s5c9hy9c` step 0 fail, `i6qcfpf4` step 400 crash, `58it4mxw` pre-launch fail). Canonical Arm A run is `hk5yhvot`.
+
+**Mechanism interpretation**: c=20 is the local PEAK on the LOGIT_SOFTCAP axis. Combined with #613 closure (c=12 below merged c=20), the axis is now fully closed: c=12 MISS / c=15 default / c=20 MERGED ⭐ / c=25 MISS / c=30 MISS. The looser cap below 20 hurts (insufficient regularization), the tighter cap below 12 hurts (over-clipping), and going above 20 also hurts (logits drift toward saturation regime).
+
+**Decision**: CLOSE the axis. Tanjiro → #675 SCALARS_LR sweep (AdamW scalars group LR ∈ {0.005, 0.02} vs default 0.01 — fresh axis; 99/101 AdamW tensors are scalars per #580 AGC analysis).
+
+---
+
+### PR #642 — edward ADAMW_LR_FLOOR — CLOSED on stack-mismatched n=2 + Arm B MISS
+
+Branch: `g1r2-edward/adamw-lr-floor`. Closed 11:23 UTC.
+
+| Arm | FLOOR | Stack | val_loss | ffs | Notes |
+|-----|-------|-------|----------|-----|-------|
+| A seed 0 | 0.05 | OLD (c=15) | 3.26712 | 3000 | ⭐ "candidate" at the time, but on PRE-baseline stack |
+| A seed 1 | 0.05 | NEW (c=20) | **3.26988** | **3025** | RAN ON c=20 stack per advisor override |
+| A n=2 mean | 0.05 | mixed | 3.26850 | 3012.5 | MISS merge bar (val 3.26850 > 3.26776) |
+| B | 0.10 | NEW (c=20) | **3.26842** | **3000** | MISS by +0.00066 |
+
+**Mechanism interpretation**:
+- The seed 0 win on OLD stack (c=15) does NOT extrapolate to NEW stack (c=20). When seed 1 ran with c=20 in the mandatory stack, val=3.26988 — well above the bar.
+- Floor mechanism keeps embed+lm_head+scalars active in cooldown tail (3.5% active window for FLOOR=0.05, 7.0% for FLOOR=0.10). With c=20's larger logit magnitudes, this "extended cooldown activity" ANTAGONIZES the "let-it-settle" regime that c=20 needs. Cooldown decay should be MORE complete with c=20, not less.
+- Arm B's wider active window (7.0%) loses to Arm A's (3.5%) → monotone direction is "less floor activity preferred", consistent with c=20's want for full cooldown.
+
+**Decision**: CLOSE the axis. Edward → #676 WD_AUX sweep (auxiliary weight decay on embed+lm_head ∈ {0.0005, 0.002} vs default 0.001 — fresh output-side regularization axis).
+
+---
+
+### PR #654 — frieren LM_HEAD_LR_MULT — Both arms MISS, output LR locally optimal
+
+Branch: `g1r2-frieren/lm-head-lr-mult`. Closed 11:23 UTC.
+
+| Arm | LM_HEAD_LR_MULT | Effective lm_head LR | val_loss (n=1) | ffs | Δ vs baseline | n=1 hold gate | W&B |
+|-----|-----------------|---------------------|----------------|-----|---------------|---------------|------|
+| A | 2.0 | ~1.88e-3 | **3.2690** | 3025 | +0.00124 / +25 | MISS | (frieren run) |
+| B | 0.5 | ~4.69e-4 | also MISS | — | — | MISS | — |
+
+**Mechanism interpretation**:
+- The hypothesis "lm_head undertrained at c=20" (from the 3-winner convergence #541 askeladd + #613 tanjiro + #625 fern β2=0.99 candidate) is NOT supported by direct LR test.
+- Both 2× and 0.5× directions hurt → default ~9.4e-4 (= 0.3 × 1/320) is locally optimal.
+- Consistent with c=20-locked AdamW output cluster: small LR perturbations around the locked group hurt directionally.
+
+**Note**: The student initially had trouble with `mark_ready_for_review` failing due to invalid SENPAI-RESULT JSON parsed from my advisor template text containing `{...}`. Worked around with `gh pr ready` + label-swap manually. Memory saved [[feedback-senpai-result-template-in-advisor-comments]] to avoid this in future advisor instructions.
+
+**Decision**: CLOSE the axis. Frieren → #677 NS5_ITERS sweep (Muon NS iterations ∈ {12, 18} vs default 14 — fresh Muon-side axis on numerical-precision dimension).
+
+---
+
+### PR #656 — askeladd MU_COOLDOWN_END — Both arms MISS, default Δ=0.05 swing optimal
+
+Branch: `g1r2-askeladd/mu-cooldown-end`. Closed 11:24 UTC.
+
+| Arm | MU_COOLDOWN_END | Effective Δ (start-end) | val_loss (n=1) | ffs | Δ vs baseline | n=1 hold gate | W&B |
+|-----|-----------------|-------------------------|----------------|-----|---------------|---------------|------|
+| A | 0.85 | 0.10 (more swing) | **3.2706** | 3025 | +0.00284 / +25 | MISS | (askeladd run) |
+| B | 0.95 | 0.00 (no swing) | also MISS | — | — | MISS | — |
+
+**Mechanism interpretation**:
+- Default Δ=0.05 swing (MU_COOLDOWN_START=0.95 → MU_COOLDOWN_END=0.90) is locally optimal.
+- Both directions hurt: more aggressive swing (0.10) drops μ too far too fast → momentum too short in cooldown tail; no swing (0.00) keeps μ at 0.95 → too long memory through cooldown, no compression of variance-reduction effect.
+- Muon momentum schedule axis fully closed (front-end #608 + back-end #656).
+
+**Decision**: CLOSE the axis. Askeladd → #678 per-group cooldown_frac (decouple MUON_COOLDOWN_FRAC and ADAMW_COOLDOWN_FRAC — first axis testing the schedule-decoupling dimension).
+
+---
+
+### thorfinn #655 EMBED_LR_MULT — n=2 confirm AUTHORIZED, in-flight
+
+Branch: `g1r2-thorfinn/embed-lr-sweep`. Held for n=2 confirm.
+
+| Arm | EMBED_LR_MULT | Effective embed LR | val_loss (n=1) | ffs | Δ vs baseline | n=1 hold gate |
+|-----|---------------|--------------------|----------------|-----|---------------|---------------|
+| A seed 0 | 0.5 | 0.15 | **3.26866** | **3000** | +0.00090 | PASS (val ≤ 3.27 AND ffs ≤ 3000) |
+| B | 2.0 | 0.6 | 3.27060 | 3025 | +0.00284 | MISS |
+
+**n=2 merge math**:
+- Need val_mean<3.26776 → seed 1 val < 3.26686 (must beat seed 0 by ≥0.00180)
+- Need ffs_mean≤3000 → seed 1 ffs ≤ 3000 (no slack)
+
+**Seed-to-seed variance reference**: PR #613 c=20 had seed delta Δ=0.0001; edward #642 had Δ=0.003 (confounded by stack mismatch). Plausible but not guaranteed ~30-50% odds.
+
+**Advisor mistake**: Initial n=2 launch instructions included `--seed 1` but no `--seed` argparse arg exists in `train_gpt_simple.py` and no `torch.manual_seed` call. Student correctly flagged and dropped the literal — non-determinism comes from fresh-process random state (same approach as tanjiro #613 c=20 n=2 confirm). Acknowledged in comment 11:30 UTC.
+
+**Status**: seed 1 launched 11:28 UTC as `g1r2-thorfinn/embed-lr-A-mult05-n2-seed1`. ETA terminal ~13:12 UTC.
+
+---
+
+### fern #661 NORMUON_BETA2 — Arm B terminal MISS, Arm A pending
+
+Branch: `g1r2-fern/normuon-beta2-sweep`. Stalled in disabled-check loop 07:53-09:32 UTC (6 disabled-checks before advisor override). Arm B launched 09:32 UTC.
+
+| Arm | NORMUON_BETA2 | val_loss (n=1) | ffs | Δ vs baseline | n=1 hold gate | W&B |
+|-----|---------------|----------------|-----|---------------|---------------|------|
+| B | 0.99 | **3.27397** | **3075** | +0.00621 / +75 | MISS both | `7kdzl2e4` |
+| A | 0.90 | (in-flight, ETA 13:10 UTC) | — | — | — | (pending) |
+
+**Mechanism**: Higher NORMUON_BETA2 (0.99) → slower per-row variance EMA → smoother Muon update magnitudes but lags noisy gradient variations. Direct sign on val (+0.0062) suggests the current 0.95 default is well-tuned. Lower direction (0.90, faster EMA) might also miss given default's well-tuned status.
+
+**Decision pending**: If Arm A also misses, axis closes.
+
+---
+
+### nezuko #657 SCHEDULE_SHAPE — Arm A (cosine) CATASTROPHIC, Arm B pending
+
+Branch: `g1r2-nezuko/schedule-shape-sweep`. Arm A terminal 10:53 UTC.
+
+| Arm | SCHEDULE_SHAPE | val_loss (n=1) | ffs | n=1 hold gate | W&B |
+|-----|----------------|----------------|-----|---------------|------|
+| A | cosine | **3.28145** | **-1 (NEVER reached 3.28)** | CATASTROPHIC MISS | `a40adbuq` |
+| B | quadratic | (launching) | — | — | (pending) |
+
+**Trajectory inspection**: Cosine held val at ~3.281 in the last few hundred steps — near-zero LR plateau in the cosine tail prevented final descent. Linear's straight-line LR=0 transition (default) actually outperforms because the model can still make progress with the discrete final LR step → 0 update.
+
+**Mechanism**: Cosine's smooth `(1+cos)/2` envelope spends too much time at near-zero LR in the tail. The linear schedule's higher-near-end LR (LR/N at step N-1) is what enables the final descent on this benchmark. **First strong evidence that cooldown-tail LR profile matters more than the smoothness of the schedule.**
+
+**Decision pending**: Arm B quadratic has a steeper drop in late cooldown (less plateau) so may not catastrophe similarly. Will close axis after Arm B terminal.
+
+---
+
 ## 2026-05-21 10:05 UTC — Cycle 71 mid-36: PR #653 alphonse ADAMW_BETA1 CLOSED — axis flat, AdamW first-moment default β1=0.8 locally optimal
 
 ### PR #653 — alphonse AdamW β1 global sweep — Both arms MISS
