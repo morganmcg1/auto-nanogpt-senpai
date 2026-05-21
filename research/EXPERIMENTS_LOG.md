@@ -1,3 +1,58 @@
+## 2026-05-21 04:45 UTC — PR #636 CLOSED (fern): H36 Cooldown-gated MuonH momentum reset — NEG with PATH-DEPENDENCE mechanism finding
+
+- Branch: `g1r3-fern/muonh-reset-cooldown-gated`
+- Hypothesis: Can we capture PR #616's mid-training favorable Δ ≈ −0.02 (reset during main phase = noise removal) by gating reset OFF at cooldown onset (step 2493, 75% through training)?
+
+### Results (3325 steps, n=1 each)
+
+| Arm | run_id | val/loss | ffs | reached_target | nonfinite | Δ vs ctrl | Δ vs baseline `t1coza71` |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | 1 | — | — | — |
+| Arm 1 ctrl (reset-off) | `s4vuryin` (reused from PR #616, same flags) | **3.27383** | 3150 | 1 | 0 | — | +0.00264 (within σ band) |
+| Arm 2 gated-0p75 | `9ywys5bp` | **3.29226** | -1 | 0 | 0 | **+0.01843** (~18σ) | +0.02107 |
+| Reference PR #616 full-reset | `cdwha2oa` | 3.29693 | -1 | 0 | 0 | +0.02310 | +0.02574 |
+
+**Decision: NEG** — Δ = +0.01843 ≥ +0.001 → closes phase-gating axis on inner momentum.
+
+### Path-dependence mechanism (key finding)
+
+The mid-training favorable Δ ≈ −0.02 from PR #616 REPRODUCED PRECISELY:
+- Step 1000: Δ=−0.0399 (peak)
+- Step 1500: Δ=−0.0189
+- Step 2375: Δ=−0.0041 (gate ON winding down)
+- Step 2500: Δ=+0.0018 (gate just transitioned OFF)
+
+But cooldown reattachment did NOT occur:
+- Step 2625 (125 steps post-gate): Δ=+0.0159 (already wide open)
+- Step 3000: Δ=+0.0189
+- Step 3325 (terminal): Δ=+0.0184
+
+**Cooldown decomposition**:
+
+| | Arm 1 ctrl | Arm 2 gated |
+|---|---:|---:|
+| val at step 2500 | 3.37213 | 3.37389 |
+| val at step 3325 | 3.27383 | 3.29226 |
+| **cooldown Δ** | **−0.0983** | **−0.0816** (83% of ctrl) |
+
+Arm 2 achieves only 83% of ctrl's cooldown progress DESPITE identical optimizer structure post-gate. The deficit is fully attributable to the divergent parameter trajectory accumulated during steps 0–2493.
+
+### Refined rule (extends PR #616 closure)
+
+The PR #616 mid-training favorable Δ is a **per-step val difference, NOT a transferable improvement**. The MuLoCo+MuonH cooldown is a long-memory integrator that depends on the trajectory + accumulated state jointly — splitting them via phase-gating destroys terminal val.
+
+**Phase-gating axis on inner momentum: STRUCTURALLY CLOSED.** Future advisor planning should NOT propose phase-gated inner-state interventions (full or partial). The mid-training Δ in PR #616 was a path-dependent artifact, not a recoverable signal.
+
+### Smart compute reuse
+
+Student reused PR #616 ctrl `s4vuryin` (identical `--muonh_reset_on_sync 0` flag, same stack invariants, same fern pod) as arm 1 reference — saved ~3 GPU-hours. Valid comparison since configurations matched.
+
+### Next step
+
+Fern reassigned to **PR #646 H38 Adan optimizer (Xie et al 2022)** — fresh variance-reduction mechanism class (gradient-DIFFERENCE VR, distinct from the closed gradient-history triple-NEG: Cautious/AdEMAMix/MARS). Single FBP per step. ~60 LoC custom unfused Adan. Completes the VR-on-aux survey (history-based, difference-based, weight-averaging).
+
+---
+
 ## 2026-05-21 04:25 UTC — PR #631 CLOSED (askeladd): H35 Aux AdamW β2 pruning — NEG joint closure of β1+β2 axes
 
 - Branch: `g1r3-askeladd/aux-beta2-pruning`
