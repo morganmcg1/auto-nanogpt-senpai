@@ -1,5 +1,55 @@
 # SENPAI Research Results
 
+## 2026-05-21 16:42 UTC — PR #660 CLOSED: PMuon Nesterov ON vs OFF — NULL/NULL, 52nd axis (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/nesterov-onoff-pmuon`
+- Hypothesis: PMuon's whitening + polar orthogonalization pipeline might dominate the update direction enough that the Nesterov vs standard-momentum distinction becomes irrelevant. Arm A tests pure Nesterov contribution (nesterov=False, mu=0.95). Arm B tests whether Nesterov is "secretly equivalent" to a different mu (nesterov=False, mu=0.90 to roughly match Nesterov-ON effective g-weight of 0.0975).
+
+| Arm | nesterov | mu | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline** | True | 0.95 | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| **A** | False | 0.95 | z6sx2hkq | 3025 | 3.26949 | +87.5 | +0.00521 | NULL (within stat-sig) |
+| **B** | False | 0.90 | kdcbvbcm | 3150 | 3.27833 | +212.5 | +0.01405 | CLEAR NULL (fails single-run stat-sig 0.00167 < 0.004) |
+
+### Analysis & conclusion
+
+Both arms NULL — **Nesterov is load-bearing for PMuon**. The key insight is the asymmetry between Arm A and Arm B:
+
+**Hypothesized Nesterov→standard-momentum equivalence (FALSIFIED):**
+- Nesterov ON at mu=0.95: effective update = 0.0975·g + 0.9025·m_prev (approximately, via μ²·m_prev + (1-μ²)·g coupling)
+- Standard momentum at mu=0.90: effective update = 0.10·g + 0.90·m_prev
+
+These have nearly identical g-weight (0.0975 vs 0.10). If Nesterov were just a reweighting trick, Arm B should have matched baseline.
+
+**Actual result:** Arm B is WORSE than Arm A (+0.0141 vs +0.0052 val damage). The progression g-weight 0 → Nesterov(≈0.05 effective) → 0.10 is non-monotone: Nesterov helps, but moving toward higher g-weight without Nesterov's specific structure HURTS.
+
+**Mechanism:** Nesterov's cross-term coupling (μ²·m_prev + (1-μ²)·g blended via two stages: m updated first, then look-ahead) is fundamentally different from a single-step blend (1-mu)·g + mu·m_prev. The two stages interact with the PMuon pipeline:
+1. **Momentum-buffer evolution** is affected (Nesterov pre-mixes g into m before reading)
+2. **Whitening reads the pre-mixed buffer** which has different spectral properties than a less-mixed buffer
+3. **Newton-Schulz polar step** sees a different effective input matrix
+
+The "two-stage lookahead" structure cannot be replicated by simply retuning mu in a one-stage blend.
+
+**mu axis interaction:** PR #570 closed mu axis at mu=0.95 with Nesterov ON. This PR confirms mu=0.95 is STILL the optimal choice with Nesterov OFF (Arm B at mu=0.90 is worse than Arm A at mu=0.95). So the mu axis shape (peak at 0.95) doesn't flip with the Nesterov toggle. **Both nesterov=True AND mu=0.95 independently load-bearing.**
+
+### Closure semantics
+
+**Nesterov flag axis CLOSES — 52nd closed axis.** PMuon now FULLY PINNED on the body-momentum specification: γ_power=0.4 + β_cov=0.95 + NS_ITERS=12 + cubic-NS coefficients + ε=1e-12 + mu=0.95 + nesterov=True.
+
+### Natural follow-up: Quasi-Hyperbolic Momentum
+
+QHM (Ma & Yarats 2019) parameterizes momentum with two independent controls (ν, β):
+- update = ν·g_t + (1-ν)·m_t, where m_t = β·m_{t-1} + (1-β)·g_t
+- ν=0 → standard mu=β momentum; ν=1 → SGD; Nesterov ≈ ν=(1-β²)/(1-β) reweighted
+
+QHM at β=0.95 with ν ∈ {0.10, 0.20} spans the region "above Nesterov-equivalent g-weight" — assigned to alphonse as direct follow-up. If both arms NULL: Nesterov's specific cross-term structure is the sweet spot. If Arm A (ν=0.10) helps: there's headroom between Nesterov and standard.
+
+### Operational note
+
+Student handled two duplicate-torchrun fingerprints cleanly via pgrep sanity gate in the sequential launcher — both arms ran without GPU contamination. Wandb log-upload hygiene (wandb.save policy='live') noted as a useful nice-to-have followup but not blocking.
+
+---
+
 ## 2026-05-21 16:22 UTC — PR #651 CLOSED: LR warmup ∈ {100, 250 steps} — NULL/NULL, 51st axis (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/lr-warmup-phase`
