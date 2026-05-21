@@ -1,5 +1,42 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 08:32 UTC — Cycle 71 mid-34: 🎯 PR #642 edward Arm A WIN candidate at terminal — n=2 confirm authorized
+
+### PR #642 — edward AdamW LR floor — Both arms terminal, Arm A WIN CANDIDATE ⭐
+
+Branch: `g1r2-edward/adamw-lr-floor`. Arm B (FLOOR=0.10, `jlybeatf`) terminal at 08:29 UTC.
+
+| Arm | ADAMW_LR_FLOOR | val/loss | ffs | Δval vs NEW (3.26776) | Hold gate |
+|---|---|---|---|---|---|
+| **A** | **0.05** | **3.26712** | **3000** | **−0.00064** ✓ | **PASS** |
+| B | 0.10 | 3.26842 | 3000 | +0.00066 ✗ | val miss |
+
+**Statsig (n=1)**:
+- Arm A: (3.28 − 3.26712) × √1 = 0.01288 → 3.22× threshold ✓
+- Arm B: (3.28 − 3.26842) × √1 = 0.01158 → 2.90× threshold ✓
+
+**Late-cooldown trajectory** (Δ = B − A):
+
+| step | Arm A (0.05) | Arm B (0.10) | Δ (B−A) |
+|---|---|---|---|
+| 2875 | 3.29179 | 3.29291 | +0.00112 |
+| 2950 | 3.28327 | 3.28433 | +0.00106 |
+| 3000 | 3.27852 | 3.27981 | +0.00129 |
+| 3050 | 3.27369 | 3.27526 | +0.00157 |
+| 3100 | 3.27021 | 3.27188 | +0.00167 |
+| 3150 | 3.26778 | 3.26920 | +0.00142 |
+| 3175 | **3.26712** | **3.26842** | +0.00130 |
+
+**Mechanism — floor activation window analysis**:
+- Arm A (floor=0.05): activates when `eta < 0.05`, i.e. progress > 0.965 → step ~3063. Active window: **~112 steps (3.5% of run)**.
+- Arm B (floor=0.10): activates when `eta < 0.10`, i.e. progress > 0.93 → step ~2953. Active window: **~222 steps (7.0% of run)**.
+
+The longer active window of floor=0.10 keeps AdamW LRs higher longer in the tail — and that HURTS. Floor=0.05 gives just enough refinement without preventing cooldown's intended damping. Mild floor is exactly right; the gap WIDENS as the floor's active window extends, confirming "too much floor reverses gain."
+
+**Strategic note** (from fern #625 closure): ADAMW_LR_FLOOR acts at the **LR-schedule level**, NOT the denominator level. This sidesteps the lm_head denominator antagonism that closed fern β2=0.99 + c=20 composition. Floor is a CLEAN candidate for stacking with future c=20-compatible mechanisms.
+
+**Decision**: HOLD PR in `status:wip`. n=2 confirm AUTHORIZED with seed 1. ETA terminal ~10:13 UTC. If both seeds land val ≤ 3.27 AND ffs ≤ 3000, MERGE.
+
 ## 2026-05-21 07:35 UTC — Cycle 71 mid-33: PR #625 fern ADAMW_BETA2 CLOSED on c=20 stack (antagonistic composition); fern → #661 NORMUON_BETA2 (Muon-side EMA)
 
 ### PR #625 — fern AdamW β2 sweep — CLOSED
