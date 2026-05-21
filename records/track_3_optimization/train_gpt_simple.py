@@ -461,7 +461,7 @@ NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
-ATTN_SOAP_BETA2 = 0.90
+ATTN_SOAP_BETA2 = float(os.environ.get("ATTN_SOAP_BETA2", "0.90"))  # 0.90 = current default; lower = faster preconditioner adaptation; higher = slower/smoother
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
