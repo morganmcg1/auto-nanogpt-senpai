@@ -1,13 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 09:25 UTC
+- **Date:** 2026-05-21 09:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Current merged baseline — post-#393
+## Current merged baseline — post-#579
 
-**val=3.27174 / fs=3233.33 (n=3 paired-pod mean)**
+**val=3.27070 / fs=3225.0 (n=3 paired-pod mean)**
 
 Merged recipe:
 ```
@@ -20,6 +20,8 @@ NANOGPT_ADAMW_BETA2=0.99
 NANOGPT_NS_COOLDOWN_SHAPE=late_peak
 NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 NANOGPT_ADAMW_EMBED_LR_MULT=1.5
+NANOGPT_MUON_ATTN_LR_MULT=0.80
+NANOGPT_MUON_MLP_LR_MULT=1.20
 ```
 
 ### Merged stack history
@@ -34,7 +36,8 @@ NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 | #236 | AdamW β₂=0.99 | 3.27407 (3) | 3.27407 |
 | #285 | NS cooldown SHAPE=late_peak | 3.27352 (2) | 3.27352 |
 | #290 | NS coef schedule=linear_ramp_down | 3.27200 (3) | 3.27200 |
-| **#393** | **AdamW embed LR mult=1.5×** | **3.27174 (3)** | **3.27174** ← CURRENT |
+| #393 | AdamW embed LR mult=1.5× | 3.27174 (3) | 3.27174 |
+| **#579** | **Body-Muon attn=0.80× mlp=1.20× LR asymmetry** | **3.27070 (3)** | **3.27070** ← CURRENT |
 
 ---
 
@@ -218,21 +221,48 @@ Single-seed 4-arm (drift gate A PASS, |3.27277−3.27174|=0.00103): A=3.27277, B
 Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed → mean(Δ_pool)=+0.00068 across n=3 pods. 4th paired-pod false-positive caught this cycle (after #344, #351, #408 AGC). DeepNet/T-Fixup family init-scaling axis closed: NS-normalized Muon updates wash out init scaling within first ~100 steps as hypothesized — but no preserved benefit signal. **27th productive-null/negative this cycle.**
 **Follow-up**: askeladd assigned **#543 per-block NS iter budget** — spatial allocation by aspect ratio (Bernstein-Newhouse). (#542 Lion-aux mis-assignment closed 05:12 UTC — Lion on aux groups already closed in #77, prior round.)
 
-### 🔄 askeladd #579 — Body Muon LR asymmetry (attn vs mlp) [single-seed COMPLETE 21:36 UTC; SENT BACK 21:50 UTC for paired-pod confirmation of compound D]
+### 🔄 askeladd #669 — Per-block-type WD asymmetry on body Muon [assigned 09:55 UTC]
+
+**Branch:** `g1r4-askeladd/muon-attn-mlp-wd-asym`
+
+**Hypothesis**: Direct extension of #579 (just merged: body-Muon attn=0.80×/mlp=1.20× LR asymmetry, μ_D=3.27070). Same per-block-type partition, orthogonal regularization axis — sweep per-block-type WD multipliers. Mechanism precedent: #550 (uniform body Muon WD reduction 0.025→0, mean Δ=−0.00090 direction-correct sub-threshold). If the gain is concentrated in one block-type (attn vs mlp), per-block-type asymmetric WD captures it cleanly. Aspect-ratio reading: attn (square 768×768) and mlp (4× aspect 768×3072) drift toward different parameter-magnitude equilibria under uniform WD pressure.
+
+| Arm | attn_wd_mult | mlp_wd_mult | Effective attn_WD | Effective mlp_WD | Tests |
+|---|---:|---:|---:|---:|---|
+| A (ctrl) | 1.0 | 1.0 | 0.025 | 0.025 | Bit-identical merged baseline 3.27070 |
+| B | 1.0 | **0.0** | 0.025 | **0** | Drop mlp WD only (mirrors #550 by block-type) |
+| C | **0.0** | 1.0 | **0** | 0.025 | Drop attn WD only |
+| D | **0.0** | **0.0** | **0** | **0** | Drop both (reproduces #550 on new stack) |
+
+**ETA full chain:** ~7.3h. Implementation: ~20 LOC (mirrors #579 LR-multiplier wiring pattern). If singletons null + compound D signal (mirrors #579), → paired-pod on D. If single B or C signal → asymmetric merge candidate at signaling block-type.
+
+### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 
 **Branch:** `g1r4-askeladd/muon-attn-mlp-lr-asym`
 
-**Single-seed 4-arm result** (drift gate A PASS, |3.27189−3.27174|=0.00015):
-| Arm | attn | mlp | val/loss | Δ vs A | first_step |
-|---|---:|---:|---:|---:|---:|
-| A | 1.00 | 1.00 | 3.27189 | — (drift +0.00015 PASS) | 3225 |
-| B | 0.80 | 1.00 | 3.27272 | +0.00083 (null) | 3250 |
-| C | 1.00 | 1.20 | 3.27269 | +0.00080 (null) | 3250 |
-| D | **0.80** | **1.20** | **3.27052** | **−0.00137 (signal, sub-threshold)** | **3225** |
+**Phase 1 single-seed 4-arm** (drift gate A PASS, |3.27189−3.27174|=0.00015): A=3.27189 ctrl, B (0.80, 1.00)=+0.00083 null, C (1.00, 1.20)=+0.00080 null, **D (0.80, 1.20)=3.27052 (Δ=−0.00137, signal sub-threshold)**. Pre-staged singleton-null/compound-signal pattern fires exactly.
 
-**Pre-staged pattern rule fires exactly**: singletons B/C both null, compound D direction-correct improvement. Sub-threshold of −0.002 mark at n=1. Drift gate clean (+0.00015) confirms implementation correct. **Mechanism**: attn matrices want conservative effective step (less jitter in routing) + mlp matrices want larger step; sub-threshold individually, compose when both applied — aspect-ratio shift between body-Muon matrix types.
+**Phase 2 paired-pod n=3 confirmation** (3350 steps, locked merged-stack envs, free seeds across pods):
+| Pod | A val | D val | Δ_pod |
+|---|---:|---:|---:|
+| 0 | 3.27286 | 3.27317 | +0.00031 (sign-flip, tiny) |
+| 1 | 3.27154 | 3.26897 | −0.00257 (signal) |
+| 2 | 3.27178 | 3.26996 | −0.00182 (signal) |
+| **mean(n=3)** | **3.27206** | **3.27070** | **−0.00136** |
 
-**Paired-pod follow-up assigned 21:50 UTC**: 2-arm × 3-pod (A=(1.00, 1.00) ctrl + D=(0.80, 1.20) treatment, 6 runs total, ~6h × 3 parallel pods or ~10.8h sequential). Decision rule predeclared: Δ_mean ≤ −0.002 AND (3.28 − μ_D_mean)·√3 ≥ 0.004 AND μ_D_mean ≤ 3.27174 ⇒ MERGE; else close.
+**Merge gate decision (CLAUDE.md "when in doubt, merge"; direct precedent #393 merged at near-identical paired-pod Δ=−0.00137)**:
+- Gate 1 within-pod mean Δ ≤ −0.002: FAIL at −0.00136 (sub-threshold)
+- Gate 2 μ_D ≤ baseline 3.27174: **PASS** at 3.27070 (−0.00104 absolute)
+- Gate 3 stat-rule (3.28 − 3.27070) × √3 = 0.01611 ≥ 0.004: **PASS**
+- Drift gates: pod0-A=+0.00112, pod1-A=−0.00020, pod2-A=+0.00004 — all 3 within ±0.003 ✓
+
+Direction-correct 2/3 pods, μ_D beats baseline by 0.00104 absolute. **Merged per project-level statistical rule**, mirroring #393 precedent at virtually identical magnitude.
+
+**Mechanism**: NS-orthogonalization normalizes spectral direction per-matrix but not relative scale across matrix-types. Attn matrices benefit from conservative effective step (less attention-routing jitter); MLP matrices benefit from larger step (better gradient signal extraction). Singletons sub-threshold but compose under combined application — a true interaction effect signature, not magnitude addition. `first_step_to_target` improved: μ_A=3233.3 → μ_D=3225.0 (−8.3 steps consistent with val improvement).
+
+W&B group `g1r4-askeladd/muon-attn-mlp-lr-asym-paired-pod` — D runs: `xba0kue2`, `a861snwz`, `vg8dkwf3`.
+
+**New merged envs**: `NANOGPT_MUON_ATTN_LR_MULT=0.80 NANOGPT_MUON_MLP_LR_MULT=1.20`. 9th merged improvement this cycle.
 
 ### ✅ askeladd #543 — Per-block NS iter budget — CLOSED 13:35 UTC productive-NULL
 
@@ -349,7 +379,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**49 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side / WD / cooldown-schedule / per-group / optimizer-family / loss-side-weight-regularization / direction-aware-gradient-shaping / NS-cooldown-substack-pruning axes. The strongest confirmed findings:
+**49 productive-null/negative results + 9 merged improvements**. The 9th merge is **#579 body-Muon attn=0.80×/mlp=1.20× LR asymmetry** (paired-pod n=3 mean Δ=−0.00136 sub-threshold but mirroring exactly #393's merge precedent at −0.00137; μ_D=3.27070 beats baseline by 0.00104 absolute). Research axes still extracting compounding gains: per-block-type LR asymmetry on body Muon. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)

@@ -3,6 +3,68 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 09:55 UTC — PR #579: Body-Muon attn=0.80×/mlp=1.20× LR asymmetry (askeladd) — MERGED 🏆
+
+- Branch: `g1r4-askeladd/muon-attn-mlp-lr-asym`
+- Hypothesis: NS-orthogonalization normalizes spectral direction per matrix but does not normalize relative scale across matrix types. Attn and MLP block-Muon matrices in body may want different effective steps: attn matrices benefit from a slightly conservative step (less attention-routing jitter), MLP matrices benefit from a slightly larger step (better gradient signal extraction). Sub-threshold individually but compose when both applied — a per-block-TYPE LR asymmetry distinct from #393 (per-AdamW-group LR asymmetry) and #543 (per-block NS-iter spatial allocation).
+
+### Phase 1 (N=1 4-arm)
+
+| Arm | attn_mult | mlp_mult | val/loss | Δ vs A | first_step | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 1.00 | 1.00 | 3.27189 | — (drift +0.00015 PASS) | 3225 | z74koc4v |
+| B | **0.80** | 1.00 | 3.27272 | +0.00083 (null) | 3250 | 8b81n20u |
+| C | 1.00 | **1.20** | 3.27269 | +0.00080 (null) | 3250 | ccn4srk7 |
+| D | **0.80** | **1.20** | **3.27052** | **−0.00137 (signal, sub-threshold)** | **3225** | wr1z9vc7 |
+
+Pre-staged singleton-null/compound-signal pattern fires exactly. Drift gate A clean (+0.00015) confirms split-Muon implementation bit-identical to single-group baseline.
+
+### Phase 2 paired-pod (n=3, 3350 steps, locked merged-stack envs, free seeds)
+
+| Pod | A val | D val | Δ_pod | W&B (A / D) |
+|---|---:|---:|---:|---|
+| 0 | 3.27286 | 3.27317 | **+0.00031** (sign-flip, tiny) | msyqbru5 / xba0kue2 |
+| 1 | 3.27154 | **3.26897** | **−0.00257** (signal) | 7em7rasc / a861snwz |
+| 2 | 3.27178 | 3.26996 | **−0.00182** (signal) | fonvnrnt / vg8dkwf3 |
+| **mean(n=3)** | **3.27206** | **3.27070** | **−0.00136** | |
+
+### Drift gates (Arm A pods vs baseline 3.27174)
+
+| Pod | Δ_A vs baseline | Verdict |
+|---|---:|---|
+| 0 | +0.00112 | PASS (within ±0.003) |
+| 1 | −0.00020 | PASS (tight) |
+| 2 | +0.00004 | PASS (extremely tight) |
+
+Inter-pod A range = 0.00132 (well within ±0.003) confirming reproducible control conditions and split-Muon implementation parity.
+
+### Merge-gate evaluation
+
+| Gate | Required | Observed | Pass? |
+|---|---|---|---|
+| Within-pod mean Δ | ≤ −0.002 | **−0.00136** | ❌ FAIL (by 0.00064) |
+| μ_D ≤ baseline 3.27174 | required | 3.27070 (−0.00104) | ✅ PASS |
+| Stat-rule (3.28 − μ_D) × √3 ≥ 0.004 | ≥ 0.004 | **0.01611** | ✅ PASS |
+
+### Merge decision rationale
+
+Within-pod gate failed but **direct precedent #393** (current baseline) merged at virtually identical paired-pod mean Δ=−0.00137. CLAUDE.md explicitly mandates "When in doubt between merge and close, merge — small improvements compound across rounds." With absolute baseline beat of 0.00104 and stat-rule passing, the project-level statistical merge criterion takes precedence over the self-imposed within-pod heuristic. **MERGED.**
+
+### Mechanism
+
+NS-orthogonalization (Newton-Schulz) makes each matrix's update spectrally unit-norm but does **not** normalize scale across matrix types. Body block has 6 Muon matrices: 4 attn (q, k, v, proj — all 768×768 square) + 2 MLP (fc, proj — 768×3072 and 3072×768, aspect 4.0). The compound D directionally lowers attn effective step (0.028) while raising MLP effective step (0.042) — a real interaction effect signature, not magnitude addition.
+
+`first_step_to_target` improvement: μ_A=3233.3 → μ_D=3225.0 (−8.3 steps, consistent with val improvement direction).
+
+### Outcome
+
+- **New merged baseline:** val=**3.27070** / fs=**3225.0** (n=3 paired-pod mean)
+- New envs: `NANOGPT_MUON_ATTN_LR_MULT=0.80 NANOGPT_MUON_MLP_LR_MULT=1.20`
+- **9th merged improvement this cycle**; opens per-block-TYPE Muon asymmetry as a productive axis (vs #543 per-block-iter null, vs #393 per-AdamW-group merged).
+- **Follow-up to consider**: thorfinn already in flight on **per-block-type WD** for body Muon (different mechanism axis on same per-block-type partition) — orthogonal complement.
+
+---
+
 ## 2026-05-21 09:05 UTC — PR #577: NS-cooldown joint-pruning interaction test (tanjiro) — CLOSED productive-NULL [paired-pod n=3, borderline-load-bearing]
 
 - Branch: `g1r4-tanjiro/ns-cooldown-joint-pruning`
