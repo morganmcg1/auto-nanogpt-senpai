@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 05:50 UTC
+- **Last update:** 2026-05-21 07:10 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -49,23 +49,24 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#570** | alphonse | PMuon mu {0.90, 0.97} vs baseline 0.95: BOTH arms sr=3075 Δsr=+137.5 — symmetric sharp local optimum. Arm A val=3.275656, Arm B val=3.272967. mu=0.95 confirmed locally optimal; momentum-horizon axis CLOSES. | **CLOSED 20:30 UTC — 32nd axis.** |
 | **#585** | fern | AdEMAMix m-aggregation on aux AdamW — Arm A (α=2) NULL clear fs=3100 val=3.2756 (Δsr=+162.5 Δval=+0.011). Arm B (α=5) not launched (student skip endorsed: strong Arm A NULL). m-aggregation (slow-EMA blending) axis closes. | **CLOSED 20:30 UTC — 33rd axis.** |
 
-## Active experiments (8 students, 05:50 UTC — 0 idle)
+## Active experiments (8 students, 07:10 UTC — 0 idle)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#651** | tanjiro | pending pickup | — | — | **NEW (05:50 UTC) — LR warmup phase ∈ {100, 250 steps}. Codebase has ZERO warmup phase — never tested. Adds `--warmup_steps` CLI flag and linear ramp in set_hparams. Closes a clean schedule-shape sub-axis.** |
-| **#647** | askeladd | pending pickup | — | — | WSD LONGER cooldown_frac {0.80, 0.85}. Symmetric to just-closed #606 (shorter cf NULL). Mechanistic prediction: extending the productive descent phase (all val 3.55→3.30 happens in decay tail) could help. Requires adding `--cooldown_frac` CLI arg (~5 lines). |
-| **#644** | fern | pending pickup | — | — | Winsorization pre-NS body-Muon. Arm A k=1.5 (aggressive), Arm B k=3.0 (moderate). |
-| **#607** | alphonse | `0d0waydp` Arm B η_min=0.05 | running | — | LR floor — Arm A η_min=0.10 NULL (val=3.27090 Δ=+0.00662, floor too aggressive flattened cooldown slope). Arm B testing weaker floor. ETA ~07:20 UTC. |
-| **#617** | edward | `0d0waydp`-style Arm B k=10 | running | — | Lookahead wrapper on aux. Arm A k=5 cleaned up after concurrent torchrun false-alarm. Arm B running. ETA ~06:45 UTC. |
-| **#622** | frieren | `9yq01dbe` Arm A scale_mult=0.5 | running | — | tanh-squash pre-NS — telemetry confirms scale_mult={0.5, 1.0} is near-identity (max_ratio ~0.003); plan for follow-up arms at scale_mult ∈ {0.005, 0.02} after Arm A baseline confirmation. |
-| **#623** | thorfinn | `j0zyguxj` Arm A r=0 p=2.0 | running past ETA | val=3.576 @ step 1375 | Schedule-Free Adam — Arm A (canonical Defazio) past 03:45 UTC ETA but training healthy. Arm B redirected to r=1.0 (Polyak-tilt 2/(k+1) averaging) — orthogonal r-axis ablation. |
-| **#627** | nezuko | `mb25a9x9` Arm A all body-Muon | running | — | Per-block grad L2 norm pre-NS. Arm A all params; Arm B MLP-only sequential. ETA ~04:50 UTC. |
+| **#658** | edward | pending pickup | — | — | **NEW (07:10 UTC) — Post-NS momentum position in PMuon. Arm A: post_ns (momentum on polar outputs, no repolar). Arm B: post_ns_repolar (momentum on polar outputs + re-apply polar to restore unit spectral norm). Both at mu=0.95. Clean orthogonal axis: momentum has lived pre-whitening/pre-NS in all 42 closed experiments.** |
+| **#651** | tanjiro | `8m6903wo` Arm A warmup=100 | running ~step 275 | early | LR warmup phase — Arm A warmup_steps=100. Arm B warmup_steps=250 queued. |
+| **#647** | askeladd | `tk8hizl3` Arm A cf=0.80 | running ~step 944 | early | WSD LONGER cooldown_frac — Arm A cf=0.80. Concurrent torchrun duplicate self-cleaned (06:32 UTC). Arm B cf=0.85 queued after Arm A. |
+| **#644** | fern | `5erh0eht` Arm A k=1.5 warmup100-fix | running ~step 625 | early | Winsorization pre-NS — EMA fix iteration 2 (warmup extended 10→100 steps for L_cov transient). |
+| **#607** | alphonse | `0d0waydp` Arm B η_min=0.05 | running ~step 2350 | 3.376 | LR floor — Arm B, ETA ~07:26 UTC. |
+| **#622** | frieren | `w1rzdmoy` Arm C scale_mult=0.005 | running ~step 650 | early | tanh-squash follow-up. Arm A 0.5 = near-identity (confirmed). Arm C 0.005 actually exercises squash (per-frieren analysis). |
+| **#623** | thorfinn | `e41ak5px` Arm B r=1.0 | running ~step 2175 | 3.42 | Schedule-Free Adam Arm B (Polyak-tilt r=1.0). Arm A r=0 DNF val=3.31. Arm B likely DNF trajectory (val 3.42 at step 2175). |
+| **#627** | nezuko | `xaaqncix` Arm B mlp-only | running ~step 1275 | 3.59 | Per-block grad L2 norm pre-NS. Arm A all-body finished (sr=3000 NULL). Arm B MLP-only running. |
 
 ## Recently closed (this session)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#617** | edward | Lookahead wrapper on aux NULL/NULL — Arm A k=5 val=3.267040 sr=2975 Δval=+0.00276 Δsr=+37.5; Arm B k=10 val=3.269989 sr=3025 Δval=+0.00571 Δsr=+87.5. Mechanism: Lookahead's pull-back (1-α) per sync halves effective aux LR. Longer k→worse. Aux side FULLY SATURATED across 8 optimizer families. | **CLOSED 07:10 UTC — 42nd axis.** |
 | **#604** | tanjiro | Lion optimizer on aux NULL/NULL DNF — Arm A lr_scale=1/3 val=3.29790 (DNF SIGTERM partial); Arm B lr_scale=1/10 val=3.29465 (DNF clean). Lion's sign-of-momentum strips magnitude info from the finely-calibrated aux per-group LRs (embed=0.3, lm_head=1/160, scalar=0.025). Both arms test two uniform step sizes — both too coarse to match what E[g²]-normalized AdamW provides. Lion mechanism class on aux CLOSES. | **CLOSED 05:50 UTC — 41st axis.** |
 | **#609** | askeladd | LAMB trust ratio on aux NULL/NULL DNF — Arm A literal val=3.34623 (Δval=+0.082); Arm B canonical val=3.29541 (Δval=+0.031). Trust ratio saturates at max_trust=10 entire run (||w||/||step|| ≈ 1e10 on embed) → LAMB becomes constant 10× amplifier outside its design domain. Aux gradients on embed/lm_head/scalars don't respond to per-tensor step normalization. | **CLOSED 05:00 UTC — 40th axis.** |
 | **#606** | fern | WSD shorter cooldown_frac NULL DNF / Arm B SKIPPED. Arm A cf=0.25 val=3.30081 sr=-1 DNF (1.10pp worse than baseline val=3.264). Arm B cf=0.15 (strictly shorter cooldown) skipped — predicted worse given Arm A's clear regression. Confirms cooldown_frac=0.70 baseline is load-bearing: all val-loss progress 3.55→3.30 happens in the 25% decay tail. Going *shorter* on cooldown — even by 6pp — destroys the speedrun mechanism. **WSD shorter-cooldown direction CLOSED.** | **CLOSED 04:30 UTC — 39th axis.** |
@@ -127,7 +128,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 *Other closed:* z-loss (#476), embed init (#440), attn-scale (#480), logit soft-cap (#439), NS adaptive threshold (#447), decoupled cooldown_frac (#448).
 
-**Pattern after 41 axes:** The PMuon+aux-AdamW stack is fully saturated on all internal scalar and mechanism dimensions. **Aux side fully saturated across 7 distinct optimizer families:** 5/5 update-rule mechanisms (AdaBelief #545, NadamW #575, AdEMAMix #585, AMSGrad #578, Adamax #583) + LAMB trust-ratio (#609) + Lion sign-of-momentum (#604) all CLOSED NULL/NULL. The aux gradients on embed/lm_head/scalars are noise-dominated and unresponsive to ANY update-rule replacement class. **WSD shorter-cooldown direction CLOSED** (#606, 39th axis). Remaining unexplored levers: WSD longer-cooldown (#647), LR warmup phase (#651 NEW — zero-warmup never tested), LR-floor (#607), wrapper-class on aux (#617 Lookahead-aux), schedule-free aux (#623), gradient-element transformation (#622 tanh-squash, #644 Winsorization), block-level grad normalization (#627 per-block-norm).
+**Pattern after 42 axes:** The PMuon+aux-AdamW stack is fully saturated on all internal scalar and mechanism dimensions. **Aux side FULLY SATURATED across 8 distinct optimizer families:** 5/5 update-rule mechanisms (AdaBelief #545, NadamW #575, AdEMAMix #585, AMSGrad #578, Adamax #583) + LAMB trust-ratio (#609) + Lion sign-of-momentum (#604) + Lookahead wrapper (#617) — all NULL/NULL. The aux gradients on embed/lm_head/scalars are low-information and unresponsive to ANY update-rule, wrapper, or averaging class. **WSD shorter-cooldown direction CLOSED** (#606, 39th axis). New body-Muon axis opened: PMuon momentum position (pre-NS vs post-NS) — momentum has lived pre-whitening/pre-NS in all 42 closed experiments. Remaining unexplored levers: post-NS momentum (#658 edward NEW), WSD longer-cooldown (#647), LR warmup phase (#651), LR-floor (#607), schedule-free aux (#623), gradient-element transformation (#622 tanh-squash, #644 Winsorization), block-level grad normalization (#627 per-block-norm).
 
 ## Open unexplored axes (candidate next assignments)
 
@@ -149,9 +150,13 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **RAdam variance rectification** — UNTESTED — first-moment warmup compensation
 - **Sophia-style scalar Hessian on aux** — UNTESTED — second-order diagonal curvature estimate
 
-**New optimizer classes:**
-- **Lion on aux** — **CLOSED (#604 tanjiro, 41st axis)** — sign-of-momentum strips magnitude; both lr_scale arms {1/3, 1/10} NULL DNF.
-- **SOAP on aux** — UNTESTED — second-order full-matrix preconditioning (simpler than body-Muon)
+**New optimizer classes on aux — FULLY SATURATED:**
+- **Lion on aux** — **CLOSED (#604, 41st axis)** — sign-of-momentum strips magnitude; both lr_scale arms {1/3, 1/10} NULL DNF.
+- **Lookahead wrapper on aux** — **CLOSED (#617, 42nd axis)** — effective LR damping by α/k per sync; k=5 Δsr=+37.5, k=10 Δsr=+87.5.
+- **SOAP on aux** — deferred — given full aux saturation, body-Muon is higher priority
+
+**Body-Muon mechanism (NEW axis):**
+- **PMuon momentum position (pre-NS vs post-NS)** — **IN FLIGHT (#658 edward NEW)** — Arm A post_ns, Arm B post_ns_repolar. First time operator ordering in PMuon pipeline is tested.
 
 **Gradient transformation (body-Muon pre-NS):**
 - **Column-mean amplification** — **CLOSED (#588 frieren)** — rank-1 transformation class closed.

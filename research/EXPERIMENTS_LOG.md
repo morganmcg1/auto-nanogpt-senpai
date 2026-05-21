@@ -1,5 +1,34 @@
 # SENPAI Research Results
 
+## 2026-05-21 07:10 UTC — PR #617 CLOSED: Lookahead wrapper on aux AdamW — NULL/NULL clear, 42nd axis (g1r1-edward)
+
+- Branch: `g1r1-edward/lookahead-wrapper-aux`
+- Hypothesis: Lookahead (Zhang et al 2019) wraps the aux AdamW path (embed, lm_head, scalars). Slow-weight averaging over k inner steps tests whether noise-denoising helps the aux gradients which are noise-dominated per 4 closed update-rule leaves.
+
+| Arm | k | α | val/loss | sr | Δval | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | n/a | n/a | 3.264278 | 2937.5 | — | — | — |
+| Arm A | 5 | 0.5 | 3.267040 | 2975 | +0.00276 | +37.5 | **NULL** clear |
+| Arm B | 10 | 0.5 | 3.269989 | 3025 | +0.00571 | +87.5 | **NULL** clear |
+
+**Verdict: NULL/NULL → Lookahead wrapper on aux AdamW CLOSES. 42nd axis. Aux side FULLY SATURATED across 8 optimizer families.**
+
+**Key mechanistic finding:** Lookahead's `slow ← slow + α(fast − slow); fast ← slow` is equivalent to applying a `1 − α` pull-back every k steps on the fast weights. With α=0.5, this halves the effective aux LR contribution per sync. Arm B (k=10, longer averaging horizon) shows larger fast↔slow gap during cooldown → worse regression (+87.5 sr vs +37.5 sr). The aux gradients are low-information-per-step (small magnitudes), not noise-dominated per se — averaging adds damping without denoising benefit.
+
+**Cross-axis conclusion:** Aux side CLOSED across 8 distinct optimizer families:
+1. v-estimator (AdaBelief #545)
+2. m-step (NadamW #575)
+3. m-aggregation (AdEMAMix #585)
+4. v-clamp (AMSGrad #578)
+5. v-aggregation (Adamax #583)
+6. LAMB trust-ratio (#609)
+7. Lion sign-of-momentum (#604)
+8. **Lookahead wrapper (#617 — this PR)**
+
+**Action:** edward reassigned to PR #658 — post-NS momentum position axis on body-Muon (pre-NS vs post-NS vs post-NS+repolar at mu=0.95). Clean orthogonal axis: momentum has lived pre-whitening/pre-NS in all 42 closed experiments.
+
+---
+
 ## 2026-05-21 05:50 UTC — PR #604 CLOSED: Lion optimizer on aux AdamW — NULL/NULL clear, 41st axis (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/lion-aux-optimizer`
