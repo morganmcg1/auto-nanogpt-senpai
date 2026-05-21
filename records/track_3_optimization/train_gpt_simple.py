@@ -533,6 +533,14 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Spectral norm penalty added to the loss: lambda * sum_i sigma_max(W_i)^2 on body
+# Muon weight matrices. Scope is "all" (every 2D Muon body weight) or "attn_only"
+# (subset whose name contains "attn"). lambda=0 disables.
+NANOGPT_SPECTRAL_LAMBDA = float(os.environ.get("NANOGPT_SPECTRAL_LAMBDA", "0.0"))
+NANOGPT_SPECTRAL_SCOPE = os.environ.get("NANOGPT_SPECTRAL_SCOPE", "all").lower()
+assert NANOGPT_SPECTRAL_SCOPE in {"all", "attn_only"}, (
+    f"invalid NANOGPT_SPECTRAL_SCOPE: {NANOGPT_SPECTRAL_SCOPE!r}"
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -706,6 +714,38 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+def compute_spectral_penalty(spectral_params, v_dict, n_power_iters: int = 1):
+    """Power-iteration estimate of sum_i sigma_max(W_i)^2 with grad to each W_i.
+
+    For each (name, W) pair, the persistent vector v_dict[name] is updated
+    in-place with n_power_iters steps of power iteration under no_grad,
+    yielding detached unit vectors u, v that approximate the dominant left/
+    right singular vectors. sigma_max is estimated via the Rayleigh quotient
+    u^T (W v); the resulting `sigma_max**2` term differentiates through W
+    (gradient is the rank-1 outer product 2 * sigma_max * u v^T).
+
+    Persistent v across steps lets a single power iteration suffice once W
+    has been seen a few steps (standard SN-GAN practice). The 1e-12 eps
+    matches torch.nn.utils.spectral_norm.
+    """
+    total = None
+    for name, p in spectral_params:
+        v = v_dict[name]
+        with torch.no_grad():
+            for _ in range(n_power_iters):
+                u = p @ v
+                u = u / (u.norm() + 1e-12)
+                v = p.t() @ u
+                v = v / (v.norm() + 1e-12)
+            v_dict[name] = v
+            u_final = p @ v
+            u_final = u_final / (u_final.norm() + 1e-12)
+        sigma_max = (u_final * (p @ v)).sum()
+        sq = sigma_max * sigma_max
+        total = sq if total is None else (total + sq)
+    return total
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -752,6 +792,13 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_SPECTRAL_LAMBDA > 0:
+    print0(
+        f"SPECTRAL_PENALTY: lambda={NANOGPT_SPECTRAL_LAMBDA:.2e} scope={NANOGPT_SPECTRAL_SCOPE}",
+        console=True,
+    )
+else:
+    print0("SPECTRAL_PENALTY: disabled", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -769,6 +816,30 @@ model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
+
+# Build the list of parameters subject to the spectral norm penalty. We use id()
+# membership against the Muon body set so the filter matches the optimizer's
+# parameters exactly (substring filters on "lm_head" miss this model's
+# `model.proj.weight`, which is the lm_head here).
+_muon_body_ids = {id(p) for p in model.blocks.parameters() if p.ndim >= 2}
+spectral_params: list[tuple[str, Tensor]] = []
+_spectral_v: dict[str, Tensor] = {}
+if NANOGPT_SPECTRAL_LAMBDA > 0:
+    for _name, _p in model.named_parameters():
+        if id(_p) not in _muon_body_ids:
+            continue
+        if NANOGPT_SPECTRAL_SCOPE == "attn_only" and "attn" not in _name:
+            continue
+        spectral_params.append((_name, _p))
+    print0(
+        f"SPECTRAL_PENALTY: regularizing {len(spectral_params)} weight matrices",
+        console=True,
+    )
+    for _name, _p in spectral_params:
+        _v = torch.randn(_p.shape[1], device=_p.device, dtype=_p.dtype)
+        _v = _v / (_v.norm() + 1e-12)
+        _spectral_v[_name] = _v
+
 if dist.get_rank() == 0:
     tags = ["track-3-optimization", "senpai"] + args.wandb_tags
     if os.environ.get("RESEARCH_TAG"):
@@ -807,6 +878,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_spectral_lambda": NANOGPT_SPECTRAL_LAMBDA,
+            "nanogpt_spectral_scope": NANOGPT_SPECTRAL_SCOPE,
         },
     )
 
@@ -971,6 +1044,17 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        # Spectral norm penalty: lambda * sum_i sigma_max(W_i)^2 over body Muon
+        # weights. Backward is run after CE all_reduce and before grad clip so
+        # the penalty gradient is folded into the global-norm clip. Per-rank
+        # penalty gradients are identical (weights are kept consistent across
+        # ranks by the round-robin Muon all-gather), so no extra reduction is
+        # required.
+        spec_pen_raw = None
+        if NANOGPT_SPECTRAL_LAMBDA > 0:
+            spec_pen = compute_spectral_penalty(spectral_params, _spectral_v, n_power_iters=1)
+            (NANOGPT_SPECTRAL_LAMBDA * spec_pen).backward()
+            spec_pen_raw = float(spec_pen.detach())
         if NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
@@ -1018,6 +1102,21 @@ for trial_idx in range(args.num_trials):
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
             )
+        if (
+            dist.get_rank() == 0
+            and telemetry_due
+            and NANOGPT_SPECTRAL_LAMBDA > 0
+            and spec_pen_raw is not None
+        ):
+            n_spec = max(1, len(spectral_params))
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/spectral/penalty_raw": spec_pen_raw,
+                "train/spectral/penalty_scaled": NANOGPT_SPECTRAL_LAMBDA * spec_pen_raw,
+                "train/spectral/sigma_max_rms": (spec_pen_raw / n_spec) ** 0.5,
+                "train/spectral/n_matrices": n_spec,
+            }, step=wandb_step)
         # NS iteration schedule: cooldown shape controls how iters evolve during
         # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
         # is the legacy jump-to-cooldown behavior; other shapes are compute-neutral.
