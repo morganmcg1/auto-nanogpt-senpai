@@ -535,6 +535,9 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Per-block-type Muon WD multipliers (1.0 = bit-identical to single-group baseline at WD=0.025).
+NANOGPT_MUON_ATTN_WD_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_WD_MULT", "1.0"))
+NANOGPT_MUON_MLP_WD_MULT = float(os.environ.get("NANOGPT_MUON_MLP_WD_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -761,6 +764,8 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"MUON_WD_MULT: attn={NANOGPT_MUON_ATTN_WD_MULT:.3f} mlp={NANOGPT_MUON_MLP_WD_MULT:.3f}", console=True)
+print0(f"  Effective Muon WD: attn={0.025*NANOGPT_MUON_ATTN_WD_MULT:.5f} mlp={0.025*NANOGPT_MUON_MLP_WD_MULT:.5f}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -825,6 +830,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_muon_attn_wd_mult": NANOGPT_MUON_ATTN_WD_MULT,
+            "nanogpt_muon_mlp_wd_mult": NANOGPT_MUON_MLP_WD_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -869,12 +876,21 @@ for trial_idx in range(args.num_trials):
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
     optimizer2 = Muon(
-        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
-         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
+        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT,
+              weight_decay=0.025 * NANOGPT_MUON_ATTN_WD_MULT, name="muon_attn"),
+         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,
+              weight_decay=0.025 * NANOGPT_MUON_MLP_WD_MULT,  name="muon_mlp")],
         weight_decay=0.025,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    for _grp in optimizer2.param_groups:
+        print0(
+            f"MUON_GROUP_DIAG: name={_grp.get('name')} "
+            f"n_params={len(_grp['params'])} "
+            f"lr={_grp['lr']:.5f} weight_decay={_grp['weight_decay']:.6f}",
+            console=True,
+        )
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
