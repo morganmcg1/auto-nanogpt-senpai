@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 09:30 UTC — PR #620: tanjiro attention softmax scale sweep — **CLOSED clean-NEUTRAL**
+
+- Branch: `g1r5-tanjiro/attn-softmax-scale-sweep`
+- Student: g1r5-tanjiro
+- Hypothesis: Attention softmax scale=0.12 hardcoded in baseline (sdpa scale param), never ablated. 5-cell sweep (0.0884 / 0.10 / 0.12 ctrl / 0.14 / 0.18) tests whether the value is tuned end-to-end. Mechanistically: softer scale = flatter attention = lower confidence; sharper scale = sharper attention = earlier saturation.
+
+| Cell | attn_scale | val/loss (final 50) | Δ vs ctrl A | Δ vs PR #571 baseline (3.263265, σ_new=0.001123) | W&B group |
+|------|-----------|---------------------:|------------:|--------------------------------------------------:|-----------|
+| A (ctrl) | 0.12 | 3.26518 | — | +0.00191 (+1.7σ_new) | g1r5-tanjiro/attn-softmax-scale-sweep |
+| B | 0.0884 (−1/3) | 3.26888 | +0.00370 | +0.00561 (+5.0σ_new) | same |
+| C | 0.10 | 3.26814 | +0.00296 | +0.00488 (+4.3σ_new) | same |
+| D | 0.14 | 3.26799 | +0.00281 | +0.00472 (+4.2σ_new) | same |
+| E | 0.18 (+1/2) | 3.26815 | +0.00297 | +0.00489 (+4.4σ_new) | same |
+
+- All non-ctrl cells regress in a clean **U-shape**: B/C compress attention (softer), D/E dilate (sharper); both directions are symmetric +2.5–3.3σ_new vs ctrl.
+- Cell A (ctrl=0.12) is the local optimum on this axis. The symmetric response is the hallmark of a value sitting at a well-tuned minimum on a smooth landscape — not noise, not a winner being missed.
+- **Refactor confirmed no-op**: the PR introduced an `attn_scale` parameter where the previous codebase hardcoded scaling. Cell A (0.12) matches the pre-refactor baseline within seed noise (Cell A val/loss 3.26518 vs prior baseline at lr_scalars=0.01 epoch ≈ 3.265 band). Safe to keep the parameter as a non-default-modifying refactor; baseline behavior preserved.
+- **Calibration caveat**: all 5 cells launched before PR #571 (lr_scalars=0.03) merged, so they ran at the OLD lr_scalars=0.01 default. All cells therefore sit 1.7–5σ_new above current baseline mu=3.263265. The U-shape is internally consistent (all cells share the same lr_scalars=0.01 background), but absolute values cannot be compared to merged baseline.
+- **Mechanistic interpretation**:
+  - **Softer attention (B, C)** loses temperature precision — flatter softmax distributions reduce the gradient signal at the most informative tokens. Cells regress monotonically with sharpness reduction.
+  - **Sharper attention (D, E)** saturates earlier — softmax pushes more weight onto the top-1 token, reducing gradient flow to the long tail of relevant positions. Cells regress monotonically with sharpness increase.
+  - The fact that 0.12 is precisely between (1/√8 ≈ 0.354 standard / 0.12 ≈ 0.12 implies an aggressive 3× downscale from default) and both perturbations hurt suggests an architecture-coupled tuning: attention head dim, RMSNorm scale, and softcap together pin this value.
+- **Cross-axis read**: The "less optimizer intensity" theme that won on LR-scalars (PR #571) and WD ramp_down (PR #371) does NOT extend to attention temperature. Attention sharpness is a forward-pass / loss-landscape feature, not an optimizer-step magnitude feature. Different curvature class on the loss landscape.
+- Decision: CLOSED clean-NEUTRAL. attn_scale axis closed at this constant value. Tanjiro reassigned NS iter SCHEDULE sweep (#665) — extending the "less intensity late" theme to a time-varying schedule on Muon's NS polynomial iteration count.
+
 ## 2026-05-21 07:30 UTC — PR #614: nezuko logit softcap value sweep — **CLOSED clean-NEG**
 
 - Branch: `g1r5-nezuko/logit-softcap-sweep`
