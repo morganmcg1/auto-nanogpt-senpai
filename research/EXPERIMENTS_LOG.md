@@ -1,3 +1,47 @@
+## 2026-05-21 20:05 UTC — PR #700 CLOSED (fern): H42 SOAP-lite left-Kronecker preconditioning on MuonH — NEG; kill gate fired step 500 +0.242 gap, two clean mechanism findings logged
+
+- Branch: `g1r3-fern/soap-lite-left-precond`
+- Hypothesis: Replace NS5 Newton-Schulz orthogonalization inside MuonH with L = G G^T left-Kronecker preconditioner (Shampoo/SOAP-style), applied as L^{-1/2} G + Frobenius normalization. Tests whether Kronecker-factored curvature beats pure orthogonalization on this stack. ~20 LoC left-only variant.
+
+### Results (Phased — kill gate at step 500)
+
+| Run | Config | Steps | val/loss @ step 500 | Δ vs ctrl B | cond_num_max | Notes |
+|---|---|---|---:|---:|---:|---|
+| `rkuflmm9` smoke | d=1e-6 const | 200 | 4.86 (@200) | +0.21 | 34k | borderline kill gate (smoke window) |
+| `qptkoanx` ctrl A | NS5 | 1000 | 3.5448 (terminal) | — | — | code-clean |
+| `13cxhkmu` ctrl B | NS5 (2nd seed) | 1000 | 3.5422 (terminal) | — | — | σ≈0.0013 across 2 ctrls |
+| `9es22kul` arm 2 | d=1e-2 trace-relative | **509 (killed)** | **4.0647** | **+0.242** | **22k–92k** | killed @ step 509 (gap 24× threshold) |
+
+**Decision: CLOSED NEG** — kill gate fired with +0.242 gap (24× threshold).
+
+### Mechanism finding #1 — Trace-relative damping does NOT cap cond_num as predicted on L matrices with long-tail spectra
+
+Advisor predicted `d=1e-2 * mean(diag(L))` would cap cond_num at ~100. Actual cond_num was 22k–92k (200–900× higher). **Reason**: L spectrum is dominated by a few large eigenvalues; `mean(diag(L))` is biased upward by these and is a poor proxy for the "smallest eigenvalue floor". 1% of mean diagonal is still below the smallest meaningful eigenvalues.
+
+**Generalizable rule**: For long-tail spectra (transformer parameter L matrices), damping must be specified in *spectrum space* (eigenvalue clamp `D.clamp(min=threshold)` before `D^{-0.5}`), not in *matrix space* (`L + alpha*I`). The mathematical relationship is: spectrum-space clamp = `1/threshold` cap on cond_num exactly; matrix-space damping = `1 + λ_max/(alpha*trace_mean)` lower bound on cond_num which scales with κ(L).
+
+### Mechanism finding #2 — Left-only Kronecker preconditioning is double-rescaled by scale_invariant outer wrapper
+
+`scale_invariant` mode in MuonH applies a final Frobenius normalization to the update: `update *= p_norm / u_norm`. This step OVERWRITES the magnitude of `L^{-1/2} G`. The preconditioner's *direction* survives but its *magnitude* is replaced by the scale_invariant scaling.
+
+**Consequence**: a single-side preconditioner inherits the noise-amplification cost of L^{-1/2} (poorly-conditioned small eigenvalues) but loses the curvature-conditioning *magnitude* benefit. **Net effect**: strictly harmful when paired with scale_invariant outer.
+
+**Generalizable rule**: Any future single-side preconditioner on MuonH should be paired with `--muonh_mode standard` (not scale_invariant) — OR the preconditioner should be designed to preserve unit-Frobenius output by construction (e.g. normalize `L^{-1/2}` per layer to ‖·‖_2=1 before the multiplication).
+
+### Axis status
+
+- **SOAP/Shampoo-style preconditioning REPLACING NS5**: closed NEG on this stack at left-only variant
+- **STILL OPEN**: full two-sided SOAP (L^{-1/2} G R^{-1/2}) — much higher impl cost (~80 LoC, R is n×n where n=3072)
+- **STILL OPEN**: COSMOS-style hybrid (precondition in top-k eigensubspace, NS5 for the rest) — preserves NS5 path for most directions; bounds the noise-amplification by construction; most plausible to outperform pure NS5
+
+### Compute used
+- Total: ~82 min @ 1×H100 (4 runs: smoke 6 min, ctrl A 30 min, ctrl B 30 min, arm 2 killed 16 min)
+- Peak memory: 33–35 GB (well within 96 GB budget); SOAP-lite L_acc + L_inv_sqrt buffers ~+0.5 GB overhead vs NS5
+
+### Fern reassigned to H-CAT catapult LR burst (next PR)
+
+---
+
 ## 2026-05-21 17:00 UTC — PR #670 CLOSED (fern): H39 Per-group aux AdamW eps decoupling — NEG; per-group eps optimum migrated to shared 1e-6 plateau on mature stack
 
 - Branch: `g1r3-fern/aux-per-group-eps`
