@@ -1,5 +1,30 @@
 # SENPAI Research Results
 
+## 2026-05-21 21:42 UTC — PR #682 CLOSED: Body-Muon mu schedule — NULL/inconclusive, 55th axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/muon-mu-schedule`
+- Hypothesis: Time-varying mu (momentum coefficient) for body-Muon — Arm A cooldown ramp 0.95→0.85 (responsive in cooldown); Arm B warmup ramp 0→0.95 (avoid stale init momentum).
+
+| Arm | mechanism | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | static mu=0.95 | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| **A** | cooldown ramp 0.95→0.85 | 0uvvmh8p | 2925 | 3.26985 | −12.5 (marginal sr) | +0.00557 (regression) | inconclusive — sr meets n=1 first clause BUT val regression fails second clause; tradeoff effect |
+| **B** | warmup ramp 0→0.95 | uxi3dbgm | 3050 | 3.27239 | +112.5 | +0.00812 | clear NULL |
+
+### Analysis & mechanism findings
+
+**Finding 1 — Warmup ramp UP rejects the "random-init bias" hypothesis (clean negative).** Arm B is consistently behind baseline from step 125 onward and never recovers. The hypothesis (low mu early avoids stale random-init momentum) predicted Arm B would catch up by mid-training. Data shows the gap (+0.118 mnat at step 125, +0.154 at step 250) decreases by step 1000 to parity, then RE-EMERGES in cooldown as Arm A (which has cooldown mu ramp) pulls ahead. Reduced early momentum is a permanent loss, not a transient setup phase.
+
+**Finding 2 — Cooldown ramp DOWN shows real tradeoff (val for sr).** Arm A's −12.5 sr is in the marginal noise range but directionally consistent with the hypothesis (lower mu in cooldown → responsive tracking of small updates → faster threshold-cross). However val regression (+0.00557) suggests responsiveness comes at the cost of final smoothing. The mu schedule converts val/loss precision into sr speed at unfavorable ratio.
+
+**Decision logic for Arm A:** n=1 win rule's second clause `(sr=2925 AND val<3.264278)` is decisive — val regression alone disqualifies. Even at n=2 (which would test if −12.5 sr is real), the value tradeoff (gain ~12 steps but add +5.6 mnat) is a net loss by the benchmark's value function.
+
+**Combined with #660 Nesterov ON/OFF closure (Arm A nesterov=False mu=0.95 val=3.26949, essentially identical to #682 Arm A val=3.26985 within ±0.0004), this is the second piece of evidence that the body-Muon mu spec at 0.95 STATIC is at a robust optimum.**
+
+### Closure semantics
+
+**55th closed axis.** mu temporal-schedule sub-axis CLOSES across both warmup and cooldown directions. Combined with #660 (Nesterov ON/OFF), the body-Muon momentum mechanism is now PINNED at static (mu=0.95, nesterov=True, NS_ITERS=12) across 4 sub-axes. #697 alphonse (QHM) is the in-flight extension that tests if the (ν, β) plane beyond Nesterov has any signal.
+
 ## 2026-05-21 21:24 UTC — PR #684 CLOSED: Body-Muon Langevin noise post-NS — NULL/NULL, 54th axis (g1r1-frieren)
 
 - Branch: `g1r1-frieren/body-muon-langevin-noise`
