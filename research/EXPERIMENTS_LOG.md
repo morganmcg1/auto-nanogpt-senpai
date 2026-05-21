@@ -3,6 +3,52 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 02:50 UTC — PR #550: Muon WD cooldown reduction (edward) — CLOSED productive-NULL (paired-pod collapse)
+
+- Branch: `g1r4-edward/muon-wd-cooldown-reduction`
+- Hypothesis: Muon body uses constant WD=0.025; during cooldown LR shrinks linearly toward 0 while WD friction remains constant — WD/LR ratio grows in relative importance. Reducing Muon WD over the cooldown window (0.025 → 0 final) removes competing magnitude-shrinkage friction at the precision window. Structurally distinct from #483 (CLOSED NEGATIVE, early-phase WD warmup); this tests **late-phase WD reduction**.
+- Code: env var `NANOGPT_MUON_WD_COOLDOWN_FINAL`; Muon param group WD linearly anneals from 0.025 → `WD_COOLDOWN_FINAL` over the cooldown window (last 30%).
+
+**Round 1 — single-seed N=1 (4-arm)**: Arm D (WD_final=0) Δ=−0.00337 vs Arm A, val=3.26966 — passed all three single-seed gates. Non-linear axis response: only full cancellation (B=0.010 null, C=0.005 null, D=0.000 winner). Sent back for paired-pod n=3 confirmation per #487/#506 precedent.
+
+**Round 2 — paired-pod n=3 confirmation (drift gate A PASS, A mean +0.00064 vs baseline 3.27174):**
+
+| Pod | Arm A (WD=0.025) | Arm D (WD_final=0) | Δ within pod | W&B Arm A | W&B Arm D |
+|---|---:|---:|---:|---|---|
+| pod0 | 3.27328 | 3.27238 | −0.00090 | (per PR comment) | (per PR comment) |
+| pod1 | 3.27247 | 3.27119 | −0.00127 | (per PR comment) | (per PR comment) |
+| pod2 | 3.27138 | 3.27085 | −0.00054 | (per PR comment) | (per PR comment) |
+| **mean (n=3)** | **3.27238** | **3.27147** | **−0.00090** | — | — |
+
+**Merge gates**:
+
+| Gate | Threshold | Observed | Verdict |
+|---|---|---|---|
+| 1. Within-pod mean Δ ≤ −0.002 | −0.002 | **−0.00090** | **FAIL** (half threshold) |
+| 2. Mean val_D ≤ 3.27174 baseline | 3.27174 | 3.27147 | PASS |
+| 3. Stat-rule (3.28 − μ_D) × √n ≥ 0.004 | 0.004 | (3.28 − 3.27147) × √3 = 0.01477 | PASS |
+| Drift gate A | ±0.003 | +0.00064 | PASS |
+
+**Analysis**:
+- **Direction-correct 3/3 pods** (−0.00090 / −0.00127 / −0.00054) — not seed luck, this is a real mechanism. WD=0 during cooldown does extract a small but consistent improvement.
+- **Magnitude collapses from N=1 −0.00337 to n=3 mean −0.00090** — a 3.7× shrinkage. Single-seed pod was an exceptional draw; the actual effect size is sub-threshold.
+- **6th cycle precedent for single-seed→paired-pod collapse** (#344, #351, #408, #487, #506, #550). The pattern continues: any non-bilateral single-seed Δ in the −0.002 to −0.004 range is suspect until n=3 confirms.
+- **WD-axis now bilaterally fenced** on this stack:
+  - **ADDITION**: #554 (embed WD ADD cooldown) NEG, #593 (lm_head/scalar/joint WD ADD) NULL/NEG, #483 (Muon WD warmup ADD-early) NEG.
+  - **REDUCTION**: #550 (Muon body WD cooldown) sub-threshold NULL at mean Δ=−0.00090.
+  - The cooldown-window precision is **structural** (driven by NS coef ramp #290, NS cooldown shape #285, embed LR_MULT #393), not WD-friction-bound.
+- **`first_step_to_target` invariance** (where reported): no late-phase speedup either — confirming WD friction is not a meaningful bottleneck at this stage.
+
+**Strategic implications**:
+- This is the **second WD-axis closure that was direction-correct but magnitude-light** in the cycle. Combined with #487 (Muon NS coef pre-stage, paired-pod collapse on direction-mean) and #506 (NS iter warmup, paired-pod collapse with direction-reversal), the empirical pattern is: **single-seed sweeps on the merged stack inflate effect sizes by 2-4× via favorable-seed cooldown landings**. The paired-pod n=3 protocol is now established as load-bearing for any winner candidate with single-seed Δ < −0.005.
+- Per-group / per-axis WD modulation is now closed as a research direction. The next class of mechanisms to probe is **stack-component redundancy ablation** (testing whether merged components are jointly load-bearing or whether one subsumes another).
+
+**45th productive-null/negative on the merged stack post-#393.**
+
+**Follow-up**: edward assigned **#633 Embed-stack merged-component redundancy ablation** — testing whether EMBED_COOLDOWN_SHAPE=linear_floor (#235 merged) and ADAMW_EMBED_LR_MULT=1.5 (#393 merged) are jointly load-bearing or whether one is redundant given the other. No code changes required — pure env var permutation; structurally parallels #487/#577 NS-cooldown joint-pruning but on the embed-side LR pressure sub-stack.
+
+---
+
 ## 2026-05-21 01:10 UTC — PR #599: Per-group AdamW β₁ time-constant sweep (alphonse) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-alphonse/adamw-beta1-per-group`

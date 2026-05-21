@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 01:15 UTC
+- **Date:** 2026-05-21 03:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -279,28 +279,38 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=3.27419, B embed=+0.00386 (regression), C lm_head=+0.00038 (null), D all-aux=+0.00447 (regression). D ≈ B + 0.00061 — embed regression dominates; lm_head and scalars contribute marginally. Mechanism reading: Yogi's faster-additive v_t reaction destabilizes sparse-row embed at β₂=0.99 (regression grows monotonically through cooldown); dense lm_head indistinguishable from AdamW. Independent of AdaBelief mechanism (#474): Yogi accumulates g² same as AdamW. **Closes second-moment-update-rule axis** — joined with #474 AdaBelief, #442 Adam-atan2, #490 NAdam-aux. **29th productive-null/negative this cycle.**
 **Follow-up**: edward assigned **#550 Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 WD warmup which tested early reduction).
 
-### 🚨 edward #550 — Muon WD cooldown reduction [N=1 winner candidate, sent back to paired-pod 15:05 UTC]
+### 🔄 edward #639 — Embed-stack joint redundancy ablation: linear_floor × LR_MULT=1.5 [assigned 02:55 UTC]
 
-**Branch:** `g1r4-edward/muon-wd-cooldown-reduction`
-**Hypothesis**: Muon body uses constant WD=0.025; during cooldown LR shrinks linearly toward 0 while WD friction remains constant — WD/LR ratio grows in relative importance. Reducing Muon WD over the cooldown window (0.025 → lower) removes competing magnitude-shrinkage friction at the precision window. Structurally distinct from #483 (CLOSED NEGATIVE early-phase WD warmup); this tests late-phase WD reduction.
+**Branch:** `g1r4-edward/embed-stack-redundancy`
+**Hypothesis**: After 45 productive-NULL/NEGATIVE closures (per-group AdamW family fully exhausted; β₁/β₂/WD all closed-NEG), pivots from within-axis perturbation to **stack-component redundancy ablation**. Tests whether the two embed-side merged components — EMBED_COOLDOWN_SHAPE=linear_floor (#235; holds embed LR at 15% floor through cooldown) and ADAMW_EMBED_LR_MULT=1.5 (#393; raises embed base LR 50%) — are jointly load-bearing or one subsumes the other. Both raise late-phase embed effective LR via mechanistically distinct routes (geometric shape vs multiplicative scale); their interaction has never been tested (#235 landed pre-LR_MULT; #393 landed pre-LR_MULT-as-merged). Structurally parallels #487/#577 (NS-cooldown sub-stack joint pruning, tanjiro) on embed-side LR pressure sub-stack.
 
-**N=1 sweep results (drift gate A PASS, |3.27303−3.27174|=0.00129):**
-| Arm | WD_final | val/loss | Δ vs A | Δ vs baseline | first_step_to_target |
-|---|---:|---:|---:|---:|---:|
-| A | n/a (0.025 constant) | 3.27303 | — | +0.00129 (drift PASS) | 3250 |
-| B | 0.010 | 3.27277 | −0.00026 (null) | +0.00103 | 3225 |
-| C | 0.005 | 3.27308 | +0.00005 (null) | +0.00134 | 3225 |
-| **D** | **0.000** | **3.26966** | **−0.00337** ⭐ | **−0.00208** | **3175** |
+| Arm | EMBED_COOLDOWN_SHAPE | ADAMW_EMBED_LR_MULT | Mechanism tested |
+|---|---|---:|---|
+| A (ctrl) | `linear_floor` | 1.5 | Full merged stack (bit-identical baseline) |
+| B | `linear` | 1.5 | Drop linear_floor — does LR_MULT alone capture gain? |
+| C | `linear_floor` | 1.0 | Drop LR_MULT — does linear_floor alone capture gain? |
+| D | `linear` | 1.0 | Drop both — full ablation; reverts both #235+#393 |
+**No code changes** (pure env var permutation). **ETA full chain:** ~7.3h.
 
-**Arm D passes all three merge gates at N=1**: within-pod Δ ≤ −0.002 ✓, val ≤ 3.27174 ✓, stat-rule (3.28−3.26966)×√1=0.01034 ≥ 0.004 ✓. Non-linear response: only full WD cancellation (0.000) extracts gain; B/C partial reductions are null. Mechanism reading: WD≥0.005 still mechanistically tied to early-phase magnitude regularization; only WD=0 removes the late-phase friction term entirely, letting shrinking-LR gradient signal steer the final landing without competing magnitude pressure. Structurally orthogonal to #176/#285/#290 cooldown-NS work (friction vs orthogonalization budget axes).
+### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
-**Sent back for paired-pod n=3 confirmation (15:05 UTC)**: 3 paired A/D pods with controlled `SENPAI_SEED` per pod (same seed within pod). Identical merge gates to #487 paired-pod protocol. 4th-cycle single-seed→paired-pod collapse precedent (#344, #351, #408, #487) requires this confirmation before merge. ETA ~10h30m for 6 runs.
+**Single-seed N=1 winner** (Arm D WD=0 Δ=−0.00337) **collapsed to paired-pod sub-threshold**:
+
+| Pod | Arm A (WD=0.025) | Arm D (WD_final=0) | Δ |
+|---|---:|---:|---:|
+| pod0 | 3.27328 | 3.27238 | −0.00090 |
+| pod1 | 3.27247 | 3.27119 | −0.00127 |
+| pod2 | 3.27138 | 3.27085 | −0.00054 |
+| **mean (n=3)** | **3.27238** | **3.27147** | **−0.00090** |
+
+**Gates**: Gate 1 (within-pod mean Δ ≤ −0.002) **FAIL** at −0.00090 (half threshold). Gate 2 (mean val_D ≤ 3.27174) PASS at 3.27147. Gate 3 (stat-rule (3.28 − 3.27147) × √3 = 0.01477 ≥ 0.004) PASS. Drift gates: A mean 3.27238 vs baseline 3.27174 = +0.00064 (sub-drift PASS). Direction-correct 3/3 pods — real mechanism, not seed luck — but magnitude insufficient. **6th cycle precedent for single-seed→paired-pod collapse** (#344, #351, #408, #487, #506, #550). **WD-axis now bilaterally fenced** on this stack: ADDITION (#554 embed, #593 lm_head/scalar/joint, #483 Muon warmup) all NEG; REDUCTION (#550) sub-threshold NULL. Cooldown-window precision is structural, not WD-friction-bound. **45th productive-null/negative this cycle.**
+**Follow-up**: edward assigned **#639 Embed-stack joint redundancy ablation** — joint ablation of EMBED_COOLDOWN_SHAPE=linear_floor (#235 merged) and ADAMW_EMBED_LR_MULT=1.5 (#393 merged); both raise late-phase embed effective LR via different mechanisms, one may be redundant given the other. Pure env var permutation (no code).
 
 ---
 
 ## Research theme — current cycle
 
-**38 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side axes. The strongest confirmed findings:
+**45 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side / WD / cooldown-schedule / per-group axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
@@ -334,6 +344,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #550 | edward | Muon WD cooldown reduction (paired-pod) | CLOSED productive-NULL (mean Δ=−0.00090 FAIL Gate 1, val=3.27147 PASS Gate 2, stat-rule=0.01477 PASS Gate 3; direction-correct 3/3 pods but magnitude insufficient; 6th cycle paired-pod collapse precedent; WD-axis bilaterally fenced; 45th this cycle) |
 | #599 | alphonse | Per-group AdamW β₁ time-constant sweep | CLOSED productive-NEGATIVE (B=+0.00399 regression, C β₁=0=+0.00513, D β₁=0.90=+0.00177; both directions regress; per-group AdamW family fully exhausted; 44th this cycle) |
 | #560 | alphonse | Per-group AdamW β₂ asymmetric sweep (embed/lm_head decoupling) | CLOSED productive-NULL/NEGATIVE (B=+0.00089 null, C β₂_embed=0.999=+0.00359 regression, D inert; AdamW-internal family exhausted; 38th this cycle) |
 | #483 | thorfinn | Muon WD warmup frac∈{0.05,0.10,0.20} | CLOSED productive-NEGATIVE (monotone: +0.00080/+0.00258/+0.00400; body WD=0.025 is load-bearing from step 0; bilateral WD-level closure) |
@@ -361,7 +372,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 - **β₁ per-group: CLOSED productive-NEGATIVE** (#599; B=+0.00399/C=+0.00513/D=+0.00177; both directions; **per-group AdamW family fully exhausted** — β₁ + β₂ + WD all closed-NEGATIVE; only embed-LR-mult #393 extracted gain)
 - β₂ per-group asymmetry (embed swept 0.95/0.999, lm_head 0.999): CLOSED productive-NULL/NEGATIVE (#560; embed β₂=0.999 +0.00359 regression, β₂=0.95 +0.00089 null, D inert; AdamW-internal family substantially exhausted)
 - ε per-group: all swept, β₂=0.99/ε=1e-10 confirmed
-- WD per-group: all harmful, axis closed — WD-ADDITION bilaterally fenced across all AdamW+Muon groups; only REDUCTION direction (#550 in-flight) extracting gain
+- WD per-group: **bilaterally fenced — ADDITION (#554/#593/#483) all NEG; REDUCTION (#550, n=3 paired) sub-threshold NULL at mean Δ=−0.00090; cooldown-window precision is structural, not WD-friction-bound**
 - Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC, OrthoGrad: all closed
 - AdaBelief variance-of-prediction-error second moment: CLOSED productive-NEGATIVE (#474; embed sparsity pathology; `(g−m)²` fails on absent-row sparse groups)
 - Muon-WD warmup (all fracs 5-20%): CLOSED productive-NEGATIVE (#483; monotone worsening; body WD=0.025 is bilaterally optimal)
