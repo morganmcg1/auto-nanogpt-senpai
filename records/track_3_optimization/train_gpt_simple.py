@@ -67,6 +67,13 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--logit_softcap", type=float, default=15.0,
+                        help="Softcap value for logits at the model output. "
+                             "Logits are smoothly bounded to +/-softcap via "
+                             "softcap * x / sqrt(x^2 + softcap^2). "
+                             "Default 15.0 - hardcoded, never ablated. "
+                             "Lower = tighter regularization, less gradient signal "
+                             "at confident predictions. Higher = looser, more signal.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -443,20 +450,22 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, logit_softcap: float = 15.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.logit_softcap = logit_softcap
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        sc = self.logit_softcap
+        logits = sc * logits * (logits.square() + sc**2).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -702,7 +711,7 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768, logit_softcap=args.logit_softcap).cuda()
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -747,6 +756,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "logit_softcap": args.logit_softcap,
         },
     )
 
