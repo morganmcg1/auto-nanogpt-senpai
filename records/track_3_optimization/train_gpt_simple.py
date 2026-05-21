@@ -428,8 +428,14 @@ class GPT(nn.Module):
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
+        # PaLM-style z-loss is a TRAIN-only regularizer; val/loss stays pure CE.
+        if self.training and Z_LOSS_COEF > 0:
+            z_loss = Z_LOSS_COEF * logits.logsumexp(dim=-1).square().sum()
+        else:
+            z_loss = logits.new_zeros(())
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        ce_loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        return ce_loss + z_loss
 
 
 ########################################
@@ -467,6 +473,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+Z_LOSS_COEF = float(os.environ.get("Z_LOSS_COEF", "0.0"))  # PaLM-style logit z-loss; 0.0 = baseline (no-op)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -865,6 +872,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "model/embed_init_std": EMBED_INIT_STD,
+            "model/z_loss_coef": Z_LOSS_COEF,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
