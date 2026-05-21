@@ -3,6 +3,34 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~21:15 UTC — PR #679: fern LR cooldown SHAPE sweep — **CLOSED clean-NEG**
+
+- Branch: `g1r5-fern/lr-cooldown-shape-sweep`
+- Student: g1r5-fern
+- Hypothesis: LR cooldown shape axis sweep — fix LR peak and cooldown_frac=0.7, vary only the curve shape. First LR cooldown shape ablation. 5-cell: A=linear ctrl (1−c) / B=cosine 0.5(1+cos(πc)) / C=quadratic (1−c)² / D=sqrt (1−c)^0.5 / E=step (eta=1 until c=0.9, then cliff to 0). Equal-integral comparison: A and B both ∫=1/2, making A vs B the cleanest pure-shape test. Prior: cosine cooldown is the literature default (Chinchilla, speedrun papers); modded-nanogpt uses linear. Schedule layer counterpart to fern's WD shape closure (#635).
+
+- **Results (n=1 each, 3250 steps, post-#571 baseline μ=3.263265, σ=0.001123):**
+
+| Rank | Cell | Shape | ∫η dc | wandb_run_id | val/loss | ffs | Δ vs A | Δ vs baseline |
+|:----:|:----:|-------|:-----:|:------------:|---------:|:---:|-------:|---------------:|
+| 1 | **A (ctrl)** | linear | 1/2 | `p4ds3z6t` | **3.26480** | 3075 | — | **+1.37σ_single (6th post-#571 ctrl)** |
+| 2 | B | cosine | 1/2 | `7o895gje` | 3.27103 | 2950 | +5.54σ | +6.91σ_single |
+| 3 | C | quadratic | 1/3 | `96z1xekj` | 3.27378 | 2925 | +8.00σ | +9.36σ_single |
+| 4 | D | sqrt | 2/3 | `clezqjs9` | 3.27597 | 3250 | +9.95σ | +11.31σ_single |
+| 5 | E | step cliff @ c=0.9 | 0.9 | `6w7zeov1` | 3.41543 | never | +134.13σ | +135.49σ_single |
+
+- **Key mechanistic findings:**
+  1. **Shape ≠ integral (pure shape effect at equal integral = +5.54σ).** B cosine and A linear share ∫=1/2 but differ by +5.54σ. A's late linear approach to η=0 produces a different final-settle dynamic than B's smooth tail — the "linear cliff" in the last ~25 steps does real work that cosine's smooth tail cannot replicate at this fixed cooldown_frac=0.7.
+  2. **LR-area is non-monotonic.** Ordering by integral: C (∫=1/3, val=3.27378) < A (∫=1/2, val=3.26480) < B (∫=1/2, val=3.27103) < D (∫=2/3, val=3.27597). Moving integral either direction from A's ∫=1/2 degrades; D (MORE area) is *worse* than A, refuting "more late-LR = more convergence" prior. D's concave tail concentrates decay too late → truncated by 3250-step budget (D's val/loss still rapidly improving at step 3250, descent rate −0.020/100 steps).
+  3. **Cooldown is essential, not optional.** Cell E (peak LR for 93% of training, then cliff) lands at val=3.41543 — never reaches 3.28 target. With LR=0 for the final 228 steps, no parameter updates occur; the val_loss at the last gradient update (step 3025) was already 3.41543. Proves that gradual LR decay over extended cooldown is non-negotiable.
+  4. **Cell A = 6th strong post-#571 single-seed ctrl.** 3.26480 is within the empirical post-#571 ctrl band. Empirical ctrl distribution: mean ≈ 3.2624, SD ≈ 0.0014 across 6 reproductions.
+  5. **Mechanistic unifying story:** All losing shapes violate the principle of "true extended descent of LR that ends at 0." B ends at 0 but redistributes decay to the middle; C ends at 0 but concentrates decay early → stalls; D ends at 0 but concentrates decay late → truncated; E doesn't really cool down. Linear satisfies all three constraints.
+  6. **Schedule layer fully characterized** jointly with WD axis closure (5 dims). 12+ schedule axes now mapped end-to-end. Fern completes the schedule layer mapping.
+
+- **Decision:** CLOSED clean-NEG. Schedule layer fully characterized. Fern reassigned #722 lm_head init magnitude (fresh init axis — lm_head zero-init never independently swept; alphonse #699 holds lm_head zero-init constant).
+
+---
+
 ## 2026-05-21 ~19:25 UTC — PR #671: edward Cautious AdamW (Liang 2024) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-edward/cautious-adamw`
