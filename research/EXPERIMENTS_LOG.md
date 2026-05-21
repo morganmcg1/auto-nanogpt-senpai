@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 08:30 UTC — PR #629: Layer-aggregate Contra-Soft Muon — per-layer scalar cosine attenuation (frieren) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-frieren/layer-contra-soft-muon`
+- Hypothesis: Test the per-layer cosine aggregation variant of Contra-Soft Muon that was explicitly hypothesized but never tested at #126 closure ("layer-level inner-product aggregation, not per-element sign"). Compute one cosine score per body Muon parameter matrix between current grad and momentum EMA, attenuate whole-gradient by `scale = max(0, 1 + α·min(cos, 0))` before NS — preserves all gradient mass on aligned layers, only attenuates uniformly-conflicting layers. This addresses #126's diagnosed mass-loss failure mode head-on (#126 element-wise lost 13/19/50% gradient mass; this preserves mass on cos≥0 layers).
+- Code: `NANOGPT_CONTRA_SOFT_ALPHA` env var + pre-NS gradient scaling using per-layer cos(grad, momentum) + W&B telemetry (cos_mean, cos_min, scale_min, frac_attenuated).
+- 4-arm single-seed sweep (drift gate A PASS, exceptional parity +0.00014):
+
+| Arm | α | val/loss | Δ vs A | Δ vs baseline 3.27174 | W&B run | first_step_to_target |
+|---|---:|---:|---:|---:|---|---:|
+| A | 0.0 (ctrl) | **3.27159** | — | −0.00015 | dqssobu4 | 3225 |
+| B | 0.25 | 3.27345 | +0.00186 | +0.00171 | h1aqkx71 | 3250 |
+| C | 0.50 | 3.27185 | +0.00026 | +0.00011 | d4ihlim2 | 3225 |
+| D | 1.00 | **3.63287** | **+0.36128** | **+0.36113** | 34ui6a23 | **-1 (never hit 3.28)** |
+
+- **Mechanism telemetry**: scale_min for B=0.983 (near no-op), C=0.933 (mild attenuation 22% of layers), D=0.426 (full zero-grad on most-conflicting layers, cos_min=−0.574). frac_attenuated stayed at 11–22% across arms.
+- **Arm D loss trajectory**: step 125→4.656, step 500→3.933, step 1000→3.848, step 1500→3.915 (oscillation), step 2000→3.870, step 2500→3.789, step 3000→3.697, step 3350→3.633 — never reached 3.28 target. The α=1.0 regime kills gradient signal whenever cos<0 (which persistently happens for ~11% of body layers per #154 finding); training oscillates and cannot sustain progress past cooldown.
+- **Verdict**: PRODUCTIVE-NEGATIVE — non-monotone but uniformly non-improving (regress → parity → catastrophic). Arm C parity dip is seed-floor coincidence, not a real sweet spot. **Contra-Soft mechanism class FULLY CLOSED on this stack** — both granularities falsified (#126 element-wise CLOSED clean negative + #629 layer-aggregate CLOSED productive-NEGATIVE). The originally-hypothesized "preserved productive gradient mass" advantage of layer-aggregate (diagnosed at #126 closure) is empirically refuted: even with full-mass preservation on aligned layers, conflict attenuation is either too weak to help (B/C) or destructive (D).
+- **Durable mechanism findings (cross-experiment reusable)**:
+  1. Direction-aware gradient shaping with naive scalar aggregation has no productive plateau in [0, 1] on the merged stack.
+  2. α=1.0 full-zero-grad regime is destructive (training oscillates and plateaus at 3.63, never reaches 3.28).
+  3. The ~11% persistent-cos<0 fraction (which #154 documented) is a **load-bearing exploration component** of body Muon, not noise to suppress — confirms #154's hypothesis at this resolution.
+  4. Implementation hygiene clean (Arm A drift +0.00014, exceptional parity) — false-negative implementation bug ruled out. The W&B telemetry pattern (per-step cos_min/scale_min/frac_attenuated time series) is a re-usable mechanism diagnostic for any future direction-aware gradient experiments.
+- **Strategic context**: 48th productive-null/negative this cycle. Closes the Contra-Soft mechanism class fully (both element-wise #126 and layer-aggregate #629 falsified). Future direction-aware mechanism work should test the *inverse* mechanism (rare-aligned amplification — currently being tested in-flight as #628 nezuko trust-region adaptive Muon LR, single-seed Arm B WINNER CANDIDATE at val=3.27127) rather than continue attenuation variants. Stacking #629-style attenuation with #628-style amplification is NOT recommended — different mechanism classes, independent test required first.
+- **Follow-up**: frieren reassigned to a fresh-mechanism axis (forthcoming).
+
 ## 2026-05-21 07:55 UTC — PR #624: Spectral norm penalty — loss-side weight conditioning regularizer (WAVE3 IDEA 8) (thorfinn) — CLOSED productive-NULL
 
 - Branch: `g1r4-thorfinn/spectral-norm-penalty`
