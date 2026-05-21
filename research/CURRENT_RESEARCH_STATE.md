@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 16:52 UTC
+- **Last update:** 2026-05-21 20:46 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,18 +12,18 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Active experiments (8 students, 16:52 UTC — 0 idle)
+## Active experiments (8 students, 20:46 UTC — 0 idle)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#697** | alphonse | NEWLY ASSIGNED | — | — | **NEW 16:46 UTC — QHM (Quasi-Hyperbolic Momentum) on body-Muon. Arm A: ν=0.10 β=0.95; Arm B: ν=0.20 β=0.95 (both nesterov=False). Direct follow-up to #660 Nesterov closure — tests if there's headroom beyond Nesterov on the (ν,β) plane.** |
-| **#698** | nezuko | NEWLY ASSIGNED | — | — | **NEW 16:52 UTC — NAdam (Nesterov-AdamW) for aux groups. Arm A: β₁=0.8 unchanged; Arm B: β₁=0.9 retuned. Cross-family extension of #660 — is Nesterov load-bearing for AdamW too?** |
-| **#695** | thorfinn | NEWLY ASSIGNED | — | — | Polyak EMA short-window anti-centroid-lag. Arm A: β=0.9 EMA_WARMUP=2500; Arm B: β=0.95 EMA_WARMUP=2250. |
-| **#696** | tanjiro | NEWLY ASSIGNED | — | — | Contra-Muon contrarian momentum subtraction on body-Muon. Arm A: CONTRA_COEFF=0.2; Arm B: CONTRA_COEFF=0.1. |
-| **#690** | edward | `znxwk1om` Arm A SGDR-1-restart | 380+ | tracking baseline | SGDR wiring confirmed; cycle_idx/cycle_step/mult firing as designed. ETA ~17:30+. |
-| **#682** | askeladd | `0uvvmh8p` Arm A mu 0.95→0.85 | 1633 | 3.472 @ 1625 | **Early +30 mnat signal vs baseline at step 1625.** ETA 17:25. Arm B (mu 0→0.95) sequential. |
-| **#684** | frieren | `chhogu08` Arm A σ=0.01 | 1673 | 3.531 @ 1500 | Noise confirmed firing. Healthy. ETA ~17:25. Arm B sequential. |
-| **#686** | fern | `z6fo7pix` Arm A (warm-start) | 1233 | 3.51 | Arm A β_cov 0.90→0.95 warm-start running, ETA ~3h from 15:50. Arm B sequential. |
+| **#697** | alphonse | `wkfhw41d` Arm A QHM ν=0.10 β=0.95 | 1845+ | 3.457 @ 1750 | **Mid-run: −40 to −50 mnat ahead of #660 Arm A (nesterov=False mu=0.95) at every checkpoint. Vs nesterov=True baseline trajectory is ~equal mid-run.** ETA terminal ~22:30 UTC. Arm B (ν=0.20) queued via pgrep waiter PID 998647. |
+| **#698** | nezuko | `wwyxnxdy` Arm A NAdam-Aux β₁=0.8 (clean restart) | running | — | Clean restart at 17:57 UTC after duplicate-Arm-A cleanup. Pre-flight AuxAdamW math verified (max diff 2.4e-7). Pod healthy 35.9 GB/97%. Terminal ETA ~21:33 UTC. |
+| **#695** | thorfinn | `p4mm3e85` Arm B β=0.95 warmup=2250 | running | — | **Arm A TERMINAL NULL** val=3.26648 val_ema=3.26650 sr=2950. **Mechanism CONFIRMED:** peak EMA −5.02 mnat @ step 2625 (vs β=0.99's −63 mnat) = 12× reduction matching predicted lag-window scaling; terminal Δ_ema-live = +0.011 mnat (flat). Centroid-lag suppression worked but signal scaled down too. Arm B (intermediate window) terminal ETA ~00:09 UTC tomorrow. |
+| **#696** | tanjiro | `g1r1-tanjiro/contra-muon-arm-b-coeff0p1` Arm B running | step ~40 | — | **Arm A TERMINAL NULL** val=3.27599 sr=3125. **DECISIVE MECHANISM:** subtraction_magnitude steady-state ~3% (peak 3.7%) vs design target 15-25% — PMuon bilateral whitening compresses slow EMA ~10× more than designed. Arm B at coeff=0.1 → ~1.5% effective (even less). Terminal ETA ~00:00 UTC tomorrow. **Follow-up plan: contra_coeff=1.0 to reach the 15% design regime if both arms NULL.** |
+| **#690** | edward | `5n88a4qm` Arm B SGDR T_mult=2 (3 cycles) | running | — | **Arm A TERMINAL DNF** val=3.30605 sr=-1 (never reached 3.28). Mechanism: cycle-1 +0.10 advantage REAL, restart spike +0.17 unrecoverable in cycle-2's 1625 steps. Arm B even more frequent restarts → expected worse. Terminal ETA ~23:30 UTC. SGDR axis will close. |
+| **#682** | askeladd | `uxi3dbgm` Arm B mu warmup 0→0.95 | 2192/3250 | 3.40 @ 2125 | **Arm A TERMINAL marginal sr=2925 (−12.5) BUT val=3.26985 (+0.00557 regression).** Per win rule: sr=2925 meets first clause AND val<3.264278 → val regression fails second clause → NOT a confirmed win. Arm B mid-late ~30 mnat behind Arm A (Arm A had cooldown ramp, Arm B static). Terminal ETA ~21:24 UTC. |
+| **#684** | frieren | `olgik55z` Arm B σ=0.05 | 1898/3250 | 3.448 @ 1875 | **Arm A TERMINAL NULL** val=3.26641 sr=2975. Arm B 5× larger noise: ratio 5.94% (matches predicted ~5.5%) — noise scaling linear, PMuon polar NOT differentially damping. Arm B val trajectory tracks Arm A within ±3 mnat. Terminal ETA ~21:13 UTC. Langevin axis closure expected. |
+| **#686** | fern | `zh1xe1ci` Arm B β_cov 0.95→0.98 | 1367/3250 | 3.595 @ 1250 | **Arm A TERMINAL NULL** val=3.26763 sr=2975. Arm B (smoother-cooldown direction) tracks Arm A through step 1125 (pre-cooldown), β_cov ramps from step 975. Terminal ETA ~21:50 UTC. β_cov axis closure expected (static 0.95 optimal). |
 
 ## Recently closed (this session)
 
