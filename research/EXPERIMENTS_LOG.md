@@ -1,3 +1,48 @@
+## 2026-05-21 04:25 UTC — PR #631 CLOSED (askeladd): H35 Aux AdamW β2 pruning — NEG joint closure of β1+β2 axes
+
+- Branch: `g1r3-askeladd/aux-beta2-pruning`
+- Hypothesis: Is the aux AdamW β2=0.95 (variance preconditioner v_t EMA) load-bearing? Setting β2=0 → v_t = g_t² each step → update ≈ m_t / (|g_t| + ε) (signSGD-with-momentum). Natural complement to PR #612 β1=0 closure.
+
+### Results (3325 steps, n=1 each)
+
+| Arm | run_id | val/loss | ffs | reached_target | nonfinite | Δ vs ctrl | Δ vs baseline `t1coza71` |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | 1 | — | — | — |
+| Arm 1 ctrl (β2=0.95) | `kw8qfip2` | **3.27291** | 3125 | 1 | 0 | — | +0.00172 (within σ≈0.001 seed band) |
+| Arm 2 (β2=0.0) | `fdvg8gde` | **14.847** (killed step 627) | — | 0 | 0 | +11.58 | +11.58 (catastrophic divergence) |
+
+**Decision: NEG** — β2=0.95 IS load-bearing at current aux LRs.
+
+### Mechanism finding: v_t is implicit per-parameter LR normalization
+
+With β2=0, v_t = g_t² each step → update = m_t / (|g_t| + ε). Two failure modes per coord type:
+
+- **Dense-grad coords**: update ≈ sign(m_t) · |m_t/g_t| ≈ ±LR per step. Embed LR=0.3 → ±0.3/coord/step (orders of magnitude larger than AdamW's normalized step).
+- **Sparse-grad coords** (common in embed under token sparsity, lm_head under vocab sparsity): |g_t| → 0, update amplified by ~1/ε = 10⁶. Single-step move ≈ m_t · LR · 10⁶.
+
+Student's weight_max telemetry confirms the amplification mechanism:
+
+| step | weight_max (arm 2) | weight_max (ctrl) | ratio |
+|---:|---:|---:|---:|
+| 125 | 1.9×10⁸ | 23.4 | **8.1×10⁶×** |
+| 250 | 2.1×10⁸ | 31.6 | 6.7×10⁶× |
+| 500 | 2.1×10⁸ | 46.0 | 4.6×10⁶× |
+
+NC=0 throughout — this is NOT a NaN divergence; it's a useless high-magnitude regime that stays past the kill-gate threshold permanently. val=14.847 at step 600 vs ctrl ~3.9 (Δ+11) → 100× past the +0.10 kill-gate threshold.
+
+### Joint closure of the aux AdamW preconditioner axis
+
+- **β1=0.8** load-bearing (PR #612, NEG): bulk-phase gradient denoiser; momentum smoothing required, attenuates in cooldown.
+- **β2=0.95** load-bearing (this PR, NEG): per-parameter LR normalizer. Removing it un-normalizes the update; sparse-grad amplification reaches ~10⁶× in embed/lm_head groups.
+
+**Rule**: v_t serves as implicit per-parameter LR normalization at current aux LRs (embed=0.3, lm_head=1/320, scalars=0.01). Removing it requires re-tuning aux LRs by ~2 orders of magnitude. Both EMAs (β1, β2) are now established as load-bearing — full AdamW is the right floor for aux. Future aux-side pruning should target eps / lr / lr_scaling / step / scheduling axes rather than the betas pair.
+
+### Next step
+
+Askeladd reassigned to **PR #643 H37 PAdam — generalized v_t power for aux AdamW** (the **third leg** of the preconditioner closure: holding β1/β2 fixed, is the geometric exponent in `m_t / (v_t^p + ε)` load-bearing?). 2 arms: p=0.5 ctrl vs p=0.25 (paper recommendation, partial preconditioning). Credible WIN-candidate per Chen et al 2018 ImageNet results.
+
+---
+
 ## 2026-05-21 02:55 UTC — PR #621 HELD (nezuko): pod transitioned to broken state mid-experiment
 
 - Branch: `g1r3-nezuko/muonh-hyperball-pruning`
