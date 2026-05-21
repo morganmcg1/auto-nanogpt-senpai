@@ -52,6 +52,17 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument(
+        "--per_block_grad_norm_mode",
+        choices=["off", "all", "mlp_only"],
+        default="off",
+        help=(
+            "Per-block gradient L2 normalization mode for body-Muon (PR #627). "
+            "'all' = normalize all body-Muon params per-block; "
+            "'mlp_only' = normalize only MLP sublayer per-block, attn pass-through; "
+            "'off' = baseline (no normalization)."
+        ),
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -523,17 +534,51 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 param_meta: dict | None = None, per_block_grad_norm_mode: str = "off"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
+        # PR #627: per-block grad L2 normalization pre-NS.
+        # param_meta: dict mapping id(param) -> (block_idx: int, sublayer: str in {"attn", "mlp"}).
+        self.param_meta = dict(param_meta) if param_meta else {}
+        self.per_block_grad_norm_mode = per_block_grad_norm_mode
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # PR #627: per-block gradient L2 normalization BEFORE PMuon update (in-place on p.grad).
+        # Mode "all":      group all body-Muon params per-block, normalize together (flat Frobenius).
+        # Mode "mlp_only": normalize per-block MLP sublayer only; attn params pass-through.
+        # Mode "off":      no normalization (baseline).
+        # Diagnostic dict surfaced as self._block_norm_diag for telemetry.
+        block_norm_diag: dict = {}
+        if self.per_block_grad_norm_mode != "off" and self.param_meta:
+            blocks_map: dict = {}
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    meta = self.param_meta.get(id(p))
+                    if meta is None:
+                        continue
+                    block_idx, sublayer = meta
+                    if self.per_block_grad_norm_mode == "all":
+                        key = (block_idx, "all")
+                    else:  # "mlp_only"
+                        if sublayer != "mlp":
+                            continue
+                        key = (block_idx, "mlp")
+                    blocks_map.setdefault(key, []).append(p)
+            for key, params_in_block in blocks_map.items():
+                flat = torch.cat([p.grad.detach().float().flatten() for p in params_in_block])
+                g_norm = flat.norm() + 1e-12
+                block_norm_diag[key] = float(g_norm.item())
+                for p in params_in_block:
+                    p.grad.div_(g_norm)
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
         TARGET_UW = 0.35
         floor_fired_count = 0
@@ -575,6 +620,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._block_norm_diag = block_norm_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,6 +750,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #627: per-block gradient L2 normalization pre-NS.
+            "per_block_grad_norm_mode": args.per_block_grad_norm_mode,
         },
     )
 
@@ -739,8 +787,16 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # PR #627: build id(param) -> (block_idx, sublayer) map for per-block grad norm.
+    body_param_meta: dict = {}
+    for _bp_name, _bp in model.named_parameters():
+        if _bp_name.startswith("blocks.") and _bp.ndim >= 2:
+            _bp_parts = _bp_name.split(".")
+            body_param_meta[id(_bp)] = (int(_bp_parts[1]), _bp_parts[2])
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      param_meta=body_param_meta,
+                      per_block_grad_norm_mode=args.per_block_grad_norm_mode)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -912,6 +968,22 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            block_norm_diag = getattr(optimizer2, "_block_norm_diag", None)
+            if block_norm_diag:
+                values = [float(v) for v in block_norm_diag.values()]
+                bn_metrics: dict = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon/block_norm/mode": args.per_block_grad_norm_mode,
+                    "pmuon/block_norm/count": len(values),
+                    "pmuon/block_norm/min": min(values),
+                    "pmuon/block_norm/max": max(values),
+                    "pmuon/block_norm/mean": sum(values) / len(values),
+                    "pmuon/block_norm/ratio_max_over_min": max(values) / max(min(values), 1e-12),
+                }
+                for (blk_idx, sublayer), val in block_norm_diag.items():
+                    bn_metrics[f"pmuon/block_norm/{sublayer}/block_{blk_idx:02d}"] = val
+                wandb.log(bn_metrics, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
