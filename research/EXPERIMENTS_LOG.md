@@ -3,6 +3,36 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~18:30 UTC — PR #659: nezuko Schedule-Free AdamW (Defazio 2024) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-nezuko/schedule-free-adamw`
+- Student: g1r5-nezuko
+- Hypothesis: Schedule-Free AdamW (Defazio 2024) removes the LR cooldown by accumulating a Polyak-averaged iterate `x_bar` and evaluating on it rather than the inner iterate `z`. At test time, `x_bar` (the averaged point) should behave like the terminal-cooldown point of a scheduled AdamW run — allowing AdamW to operate at a flat LR throughout. 5-cell sweep: A=AdamW ctrl / B=SF paper defaults (β=0.9, warmup=400, no cooldown) / C=SF + cooldown retained / D=SF β=0.95, no cooldown / E=SF β=0.9, no warmup, no cooldown.
+
+- **Results:**
+
+| Rank | Cell | Config | wandb_run_id | val/loss | ffs | Δ vs baseline μ=3.263265 |
+|:----:|:----:|--------|:------------:|---------:|----:|--------------------------:|
+| 1 | **A** | AdamW ctrl + cooldown | `76g76344` | **3.26153** | 3025 | **−1.5σ_new (best post-#571 single-seed ctrl)** |
+| 2 | E | SF β=0.9, **no warmup**, no cooldown | `oafuw2cd` | 3.28924 | −1 | +46σ_new |
+| 3 | D | SF β=0.95, w=400, no cooldown | `axgw720x` | 3.31299 | −1 | +49σ_new |
+| 4 | B | SF β=0.9, w=400, no cooldown (paper default) | `o8fps2oz` | 3.32702 | −1 | +57σ_new |
+| 5 | C | SF β=0.9, w=400, WITH cooldown | `lgfxkziv` | 3.33213 | −1 | +59σ_new (worst) |
+
+- **Key mechanistic findings:**
+  1. **Cell C surprise — cooldown + SF fight each other.** Predicted that SF+cooldown (C) would outperform SF-no-cooldown (B). Data says the opposite: C at 3.33213 is +0.005 *worse* than B at 3.32702. The cooldown shrinks per-step contribution; SF averaging adds another smoothing layer — combined dampening is over-damped and the model can't make sufficient end-game updates. SF removes the cooldown not just for theoretical reasons but because the two are *jointly incompatible* mechanistically.
+  2. **Cell E surprise — no-warmup beats warmup.** At β=0.9 with no cooldown, removing the 400-step warmup *helps* by Δ=−0.038 (E=3.28924 vs B=3.32702). At this 3250-step horizon, the 400-step warmup eats ~12% of the budget that SF iterate-averaging needs to integrate signal. Without warmup, `z` reaches a useful region faster and `x_bar` accumulates more "good" iterates. Still +46σ above baseline.
+  3. **β sensitivity (D=0.95 vs B=0.9):** Slower averaging (β=0.95) helps slightly (D=3.31299 vs B=3.32702, ~12σ_single). Slower averaging keeps `x_bar` closer to recent `z` — better tracks late-training improvement. All SF variants remain far above baseline.
+  4. **Eval-mode swap verified rigorously.** Student pushed commit `f6f176c` with full triplet: `set_y_before_forward()` at L1126 (gradient at `y = lerp(z, x_bar, β)`); `eval_mode()` at L1075–76 (swap to `x_bar` before val); `train_mode()` at L1085–86 (restore `z` after val). Cell B's 3.327 IS measuring the Polyak average, not the noisy inner iterate.
+  5. **Cell A is the strongest single-seed control on record post-#571.** A at 3.26153 lands −1.5σ_new below baseline μ — tighter than any recent single-seed control (askeladd 3.2632, frieren 3.2639, thorfinn 3.2628). Confirms the single-seed control band is 3.261–3.265.
+  6. **6th augmentation-class closure (7th if counting AdaBelief).** SF joins Lion (#638), Lookahead (#581), AdEMAMix (#626), Adan (#645), AdaBelief (#641) as tested augmentation-class optimizers. All literature "improved AdamW" variants fail or are neutral at 3250-step horizon. The pattern: **AdamW + WSD linear cooldown is robustly tuned for this regime** and any mechanism that replaces, removes, or augments the cooldown-phase dynamics underperforms.
+
+- **Operational note:** Excellent execution — chain-script orchestration with single-runner discipline, clean infrastructure-crash diagnosis and relaunch (Cell A SIGTERM at step 297), code-level eval-swap verification on request, detailed mechanistic write-up in terminal comment.
+
+- **Decision:** CLOSED clean-NEG. Nezuko reassigned #706 embedding init magnitude sweep (fresh init axis — N(0,1) embed init vs GPT-2 default 0.02, never ablated despite being 50× larger).
+
+---
+
 ## 2026-05-21 ~16:53 UTC — PR #641: alphonse AdaBelief optimizer (Zhuang 2020) — **CLOSED clean-NEUTRAL**
 
 - Branch: `g1r5-alphonse/adabelief-optimizer`
