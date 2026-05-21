@@ -535,6 +535,12 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Per-block-type body Muon beta2 (second-moment variance window).
+# 0.999 = bit-identical to Muon default; lower values shorten the variance window.
+NANOGPT_MUON_ATTN_BETA2 = float(os.environ.get("NANOGPT_MUON_ATTN_BETA2", "0.999"))
+NANOGPT_MUON_MLP_BETA2 = float(os.environ.get("NANOGPT_MUON_MLP_BETA2", "0.999"))
+assert 0.0 < NANOGPT_MUON_ATTN_BETA2 < 1.0
+assert 0.0 < NANOGPT_MUON_MLP_BETA2 < 1.0
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -761,6 +767,8 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"MUON_BODY_BETA2: attn={NANOGPT_MUON_ATTN_BETA2:.4f} mlp={NANOGPT_MUON_MLP_BETA2:.4f}", console=True)
+print0(f"  Variance window ~1/(1-beta2) steps: attn~{1/(1-NANOGPT_MUON_ATTN_BETA2):.0f} mlp~{1/(1-NANOGPT_MUON_MLP_BETA2):.0f}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -825,6 +833,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_muon_attn_beta2": NANOGPT_MUON_ATTN_BETA2,
+            "nanogpt_muon_mlp_beta2": NANOGPT_MUON_MLP_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -869,8 +879,8 @@ for trial_idx in range(args.num_trials):
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
     optimizer2 = Muon(
-        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
-         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
+        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, beta2=NANOGPT_MUON_ATTN_BETA2, name="muon_attn"),
+         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  beta2=NANOGPT_MUON_MLP_BETA2,  name="muon_mlp")],
         weight_decay=0.025,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
