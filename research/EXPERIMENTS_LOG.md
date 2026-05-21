@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 UTC — Cycle 71 mid-26: PR #610 CLOSED (edward NS5 cooldown precision — val~3.269/ffs=3025 noise basin, both arms miss merge bar); edward → #642 AdamW LR floor (4th corner of schedule envelope; ADAMW_LR_FLOOR ∈ {0.05, 0.10})
+
+### PR #610 — edward NS5 cooldown precision ramp — CLOSED (noise basin, both arms miss)
+
+Branch: `g1r2-edward/ns5-cooldown-precision`. Scheduled NS5_ITERS ramp from 14 to 18/20 during the last 70% of training.
+
+| Arm | NS5_COOLDOWN_ITERS | val@3175 | ffs | Δval | Δffs | Verdict |
+|---|---|---|---|---|---|---|
+| A | 14 → 18 | 3.26905 | 3025 | -0.000135 | +12.5 | val beat within noise (0.0001≪0.004), ffs MISS |
+| B | 14 → 20 | 3.27003 | 3025 | +0.000846 | +12.5 | both MISS |
+| Baseline | 14 (fixed) | 3.269185 | 3012.5 | — | — | — |
+
+W&B runs: `8uwj4n0u` (A n=1), `lcu99t2n` (B n=1).
+
+**Decision**: This is the **third orthogonal arm** landing at val~3.269/ffs=3025 this cycle (joins thorfinn #615 Arm A val=3.268967/ffs=3025 [Muon LR floor=0.05] and this arm). Confirmed STACK NOISE BASIN — repeated landing at (val=3.268-3.270, ffs=3025) across entirely different mechanisms. Val beat of 0.000135 is 30× below statsig threshold.
+
+**Context**: tanjiro #613 Arm B (LOGIT_SOFTCAP=20) hit val=3.26781/ffs=3000 (10× larger val margin AND ffs improvement). That's the real signal. NS5 precision ramp yields real-but-tiny val improvement indistinguishable from seed noise.
+
+**Schedule-side closure**: All 4 corners of schedule envelope now tested: AdamW warmup (#598 closed), Muon warmup (#608 closed), Muon LR floor (#615 closed), NS5 precision ramp (#610 closed). **edward → #642 AdamW LR floor** — the literal remaining fourth corner.
+
+### Assignment: edward → PR #642 (AdamW LR floor)
+
+**Hypothesis**: The schedule envelope cube has 3/4 corners closed (AdamW warmup #598, Muon warmup #608, Muon LR floor #615). The **fourth corner — AdamW group LR floor in cooldown tail** — has never been tested. Currently `eta = (1-progress)/cooldown_frac` decays to exactly 0 at terminal for ALL groups (Muon AND AdamW). Muon floor was closed as unproductive (#615). But AdamW group (embed+lm_head+scalars) is a DIFFERENT parameter class — sparse-gradient, vocab-aligned — and may benefit from continued small updates in tail. Also contextually relevant: tanjiro's c=20 win (n=2 confirm in flight) shows lm_head is newly important; continued AdamW updates may refine the soft-cap regime exploitation. Two arms: ADAMW_LR_FLOOR ∈ {0.05, 0.10} (symmetric to closed Muon brackets).
+
 ## 2026-05-21 UTC — Cycle 71 mid-25: 🎯 PR #613 tanjiro logit soft-cap — Arm B (c=20) WIN CANDIDATE at n=1; n=2 confirm requested
 
 ### PR #613 — Logit soft-cap sweep (c ∈ {12, 20} vs default 15) — n=2 IN FLIGHT
