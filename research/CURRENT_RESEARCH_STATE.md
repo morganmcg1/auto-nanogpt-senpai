@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-21 ~00:45Z (poll #316)
+- **Last updated:** 2026-05-21 ~02:35Z (poll #318)
 - **🆕🆕 NEW BASELINE (PR #497 MERGED):** mu=3.266120, std=0.001747, n=6, ffs_mean=3087.5
   - **Mechanism: ns_iter=6 (Newton-Schulz 6 iterations) + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.266120 - mu) × √n ≥ 0.004`
@@ -9,15 +9,15 @@
 - **Previous baseline (PR #371):** mu=3.267948, std=0.000823 — still used for old Δσ comparisons on in-flight PRs
 
 
-## 🔥🔥 Three gate-beating single-seed signals across orthogonal axes — P2 STATUS DIVERGING (poll #316)
+## 🔥🔥 Three gate-beating single-seed signals across orthogonal axes — P2 STATUS RESOLVED (poll #318)
 
-P2 status across the portfolio (poll #316 update — major data shift):
+P2 status across the portfolio (poll #318 update — 1 closed, 1 strengthening, 1 winding down):
 
 | PR | Cell | Config | val/loss | Δσ_n6 (σ=0.001747) | Margin vs n=4 gate | P2 Status (Trials Done) |
 |----|------|--------|---------:|--------------------:|--------------------:|-----------|
 | #571 | D | lr_scalars=0.03 | **3.262962** | **−1.81σ** | beats gate by **0.001158** 🔥🔥 | **🔥 STRENGTHENING: Trial 0=3.26347, Trial 1=3.26401.** Mean(0,1)=**3.26374** clears gate by **0.000380**. Both trials independently clear gate. Trial 2 running. **ON TRACK** — strongest single-axis signal in portfolio. |
 | #565 | B | init_var_scale=1.0 (xavier) | 3.263870 | −1.29σ | beats gate by 0.000250 | **⚠️ WEAKENING: Trial 1=3.26740** (+0.73σ above baseline, ABOVE gate by 0.00328). 0.000250 margin gone. Trial 2 tracking Trial 1 trajectory. For n=4 gate, mean(2,3) must be ≤3.26296 — unlikely. Likely closes clean-neutral. |
-| #556 | C | adam_eps=1e-6 | 3.263690 | −1.39σ | beats gate by 0.000430 | **❌ MOSTLY CLOSED: Trial 2=3.26430** (best of P2 so far, but mean(0,1,2)=3.26663). For n=4 gate, Trial 3 must be ≤3.25660 — below ANY single trial yet seen. Math gate effectively closed. |
+| #556 | C | adam_eps=1e-6 | 3.263690 | −1.39σ | beats gate by 0.000430 | **❌ CLOSED clean-neutral (poll #318): n=4 mean = 3.265823 (−0.17σ).** Fails n=4 gate by 0.001703, fails +0.5σ borderline by 0.000103. Bimodal pattern: Trials 0/1 = +1σ, Trials 2/3 = −1σ. Adam eps axis fully flat across 8 decades. |
 
 Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Across ~30 cells tested in the current portfolio, expected gate-passers under null ≈ 3.8 — so 3 hits is **not surprising under noise alone**. But each lives on a mechanistically distinct axis (eps, init, scalar LR), with theoretical motivation.
 
@@ -36,7 +36,7 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 | #571 | askeladd | AdamW scalar param LR sweep (RMSNorm gains) — **🔥 P2 STRENGTHENING** | **Trial 0=3.26347, Trial 1=3.26401.** Mean(0,1)=**3.26374** clears n=4 gate by **0.000380**. Both trials independently clear gate. Trial 2 running. ON TRACK — variation Trial 0/1 = 0.054 val units (~0.3σ_single, tight clustering). Strongest signal in portfolio. |
 | #614 | nezuko | Logit softcap value sweep (7.5/10/15ctrl/22.5/30) — hardcoded, never ablated | Assigned poll #311. **0 student comments yet — fresh, stale_wip flag is mechanical.** Ack'd by advisor poll #314. Student should start Cell A ctrl. |
 | #565 | thorfinn | Init variance scale sweep — **⚠️ P2 WEAKENING** | **Trial 1=3.26740** (+0.73σ above baseline, ABOVE gate by 0.00328). Original single-seed 0.000250 margin gone. Trial 2 tracking same trajectory. For n=4 gate, mean(2,3) must be ≤3.26296 — unlikely. P2 likely closes clean-neutral. |
-| #556 | frieren | AdamW epsilon sweep — **❌ P2 MOSTLY CLOSED** | **Trial 2=3.26430** best of P2 so far, but mean(0,1,2)=3.26663 essentially baseline. Trial 3 must be ≤3.25660 (below any single trial yet) for n=4 gate. Math gate effectively closed. Trial 3 ETA ~02:25 UTC May 21. |
+| #638 | frieren | **NEW** Lion optimizer replacement for AdamW groups (Chen 2023) | Just assigned (poll #318). Lion replaces AdamW for embed/lm_head/scalars (1D params); Muon/SOAP unchanged. Sign-based update with single momentum buffer — mechanistically distinct from everything tried. 5-cell LR-scale sweep: A=AdamW ctrl / B=0.05 / C=0.10 (Lion default) / D=0.20 / E=0.30. |
 | #626 | edward | **NEW** AdEMAMix slow-EMA augmentation of AdamW (α-sweep) | Just assigned (poll #315). AdEMAMix (Pagliardini 2024) augments AdamW with slow gradient EMA (β3=0.9999, α controls contribution). With α=0 = vanilla AdamW. Cells A(α=0 ctrl)/B(α=2)/C(α=5)/D(α=2,β3=0.999)/E(α=10). Mechanistically distinct from Lookahead #581 (averages GRADIENTS not params). |
 | #635 | fern | **NEW** WD schedule SHAPE sweep — ramp_down(ctrl)/triangle/cosine_updown/constant/ramp_up | Just assigned (poll #317). All 5 shapes have integral mean WD=1.0 — shape-only comparison. Zero code changes (all schedules already coded). Tests whether WD TIMING matters or only mean magnitude. |
 
@@ -46,6 +46,7 @@ Under pure null with σ=0.001747, single-seed P(val ≤ 3.264120) ≈ 12.5%. Acr
 - **#566 nezuko embed_lr sweep** — CLOSED clean-neutral (poll #311). Cell E (1.0) at −0.62σ doesn't beat n=4 gate; plateau 0.3→1.0 is flat. Lower direction (0.05) catastrophic (+8.1σ), confirming sparse-gradient hypothesis for lower bound. embed_lr ctrl=0.3 confirmed robustly tuned. Cross-PR insight: askeladd #571 (scalars 3×) + this (embed hint 3.3×) both suggest AdamW group LRs slightly conservative; compound test post P2.
 - **#552 alphonse LR warmup sweep** — CLOSED clean-NEG (poll #306). Monotonic worsening: even 2% warmup (~65 steps) costs +5.3σ vs new baseline. ffs slips 50 steps. Mechanism: Muon NS orthogonalization structurally caps update magnitude so warmup provides no safety; 3250-step horizon makes every early high-LR step load-bearing. LR-warmup axis closed.
 - **#581 edward Lookahead** — CLOSED clean-NEG (poll #315). Wrapper-averaging axis CLOSED. Cell E refutes "sync disrupts cooldown" hypothesis — base optimizer co-adapts to periodic resets; disabling sync mid-run worsens trajectory. Gradient-side follow-up: PR #626 AdEMAMix.
+- **#556 frieren AdamW eps P2** — CLOSED clean-neutral (poll #318). n=4 mean=3.265823 (−0.17σ) fails both n=4 and +0.5σ borderline gates. Bimodal trial split (0/1 at +1σ, 2/3 at −1σ) averages to baseline. Adam eps axis flat across 8 decades. Follow-up: PR #638 Lion optimizer replacement.
 - **#594 fern peak_wd_mult sweep** — CLOSED clean-neutral (poll #317). WD magnitude axis fully mapped. D (peak=2.5) barely flags −0.26σ (within noise). Lower peak hurts +1.5σ; current peak=2.0 is optimal. Follow-up #635 WD shape sweep assigned.
 - **#596 tanjiro tied embedding** — CLOSED clean-NEG (poll #313). All 4 tied cells killed (lr 0.3→0.01). Root cause: init mismatch — tied uses embed's std=1 init for LM head → step-0 val≈23 vs untied zero-init → val≈10.8. Optimizer never recovers in 3250 steps. Tied axis closed at this budget/init.
 - **#558 tanjiro Z-loss regularizer sweep** — CLOSED clean-NEG (poll #305). Monotonic worsening across 3 decades (1e-5 → 1e-4 → diverged). Mechanism: existing logit softcap already bounds logits to ±15, making z-loss fully redundant. Z-loss axis closed.

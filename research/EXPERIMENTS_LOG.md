@@ -3,6 +3,41 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 02:35 UTC — PR #556: frieren AdamW epsilon P2 confirmation — **CLOSED clean-neutral**
+
+- Branch: `g1r5-frieren/adam-eps-sweep`
+- Student: g1r5-frieren
+- Hypothesis: Phase 1 (n=1) sweep of `--adam_eps ∈ {1e-12, 1e-10 ctrl, 1e-8, 1e-6, 1e-4}` showed W-shaped profile with TWO cells crossing the n=4 P2 gate at n=1: Cell C (1e-6, val=3.26369, −1.39σ, Llama-2/3 default) and Cell D (1e-12, val=3.263947, −1.24σ). Advisor selected C for P2 (theoretically motivated, strongest single-cell signal).
+
+### P2 n=4 confirmation (W&B run `bfq43l07`)
+
+| Trial | val/loss | ffs | Δσ_n6 (σ=0.001747) |
+|------|---------:|----:|-------------------:|
+| 0 | 3.26770 | 3100 | +0.90σ |
+| 1 | 3.26788 | 3100 | +1.01σ |
+| 2 | 3.26430 | 3050 | −1.04σ |
+| 3 | 3.26341 | 3050 | −1.55σ |
+| **n=4 mean** | **3.265823** | 3075 | **−0.17σ** |
+
+### Gate evaluation
+
+| Gate | Threshold | n=4 mean | Result |
+|------|----------:|---------:|:------:|
+| n=4 merge | ≤3.264120 | 3.265823 | FAIL (+0.001703) |
+| Borderline +0.5σ | ≤3.265720 | 3.265823 | FAIL (+0.000103) |
+| Inside ±1σ band | [3.264373, 3.267867] | 3.265823 | INSIDE |
+
+**Mean lands at −0.17σ from baseline** — effectively at the baseline mean. The n=1 W-shape was noise.
+
+### Conclusions
+
+- Adam epsilon axis flat to within ±1σ across 8 decades (1e-12 → 1e-4). Llama-2/3 default eps=1e-6 is NOT better than modded-nanogpt aggressive eps=1e-10 at n=4 on this benchmark/budget.
+- Bimodality between Trials 0/1 (both +1σ) and Trials 2/3 (both −1σ) is interesting — 4.4σ pair spread larger than expected — but averages to baseline. Could indicate seed-dependent landscape near this configuration but not actionable.
+- The "less optimizer intensity" theme does NOT extend to AdamW eps softening. eps=1e-4 (most "softening") was the worst cell at +0.48σ.
+- `--adam_eps` CLI flag is now refactored in for future use.
+
+**Follow-up assigned:** PR #638 — frieren Lion optimizer replacement for AdamW-managed groups (embed, lm_head, scalars). Lion (Chen et al. 2023, arXiv:2302.06675) uses sign-based update with single momentum buffer — mechanistically distinct from AdamW. 5-cell LR-scale sweep: A=AdamW ctrl, B=Lion(scale=0.05), C=0.10 (Lion default), D=0.20, E=0.30.
+
 ## 2026-05-21 01:55 UTC — PR #594: fern peak WD multiplier sweep — **CLOSED clean-neutral**
 
 - Branch: `g1r5-fern/peak-wd-sweep`
