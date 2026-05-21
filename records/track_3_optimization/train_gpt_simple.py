@@ -71,6 +71,17 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--per_block_lr_schedule", type=str, default="const",
+                        choices=["const", "decay", "growth", "bottom_heavy", "top_heavy"],
+                        help="Per-block multiplier applied to Muon LRs "
+                             "(lr_mlp/lr_attn) on the 2D weight matrices of each "
+                             "transformer block. "
+                             "const=1.0 (baseline); "
+                             "decay=0.95^i (early blocks faster); "
+                             "growth=1.05^i (later blocks faster); "
+                             "bottom_heavy=1.0 for i<6 else 0.7 (slow late half); "
+                             "top_heavy=0.7 for i<6 else 1.0 (slow early half). "
+                             "AdamW groups (embed, lm_head, scalars) unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -81,6 +92,32 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NUM_BLOCKS = 12
+
+
+def per_block_lr_multiplier(block_idx: int, schedule: str) -> float:
+    """Multiplier applied to per-block Muon LRs (lr_mlp/lr_attn).
+
+    See parse_args() for the schedule menu. Defined at module scope so the
+    optimizer setup inside the trial loop can call it.
+    """
+    if schedule == "const":
+        return 1.0
+    if schedule == "decay":
+        return 0.95 ** block_idx
+    if schedule == "growth":
+        return 1.05 ** block_idx
+    if schedule == "bottom_heavy":
+        return 0.7 if block_idx >= 6 else 1.0
+    if schedule == "top_heavy":
+        return 1.0 if block_idx >= 6 else 0.7
+    raise ValueError(f"Unknown per_block_lr_schedule: {schedule}")
+
+
+def _block_idx_from_name(name: str) -> int:
+    """Parse the block index from a name produced by model.blocks.named_parameters(),
+    e.g. '3.mlp.fc.weight' -> 3."""
+    return int(name.split(".", 1)[0])
 
 
 def clean_metric_name(name: str) -> str:
@@ -752,6 +789,11 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "per_block_lr_schedule": args.per_block_lr_schedule,
+            "per_block_lr_multipliers": [
+                per_block_lr_multiplier(b, args.per_block_lr_schedule)
+                for b in range(NUM_BLOCKS)
+            ],
         },
     )
 
@@ -793,11 +835,30 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
-    optimizer2 = Muon(
-        [
+    if args.per_block_lr_schedule == "const":
+        muon_groups = [
             dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
-        ],
+        ]
+    else:
+        muon_groups = []
+        for b in range(NUM_BLOCKS):
+            mult = per_block_lr_multiplier(b, args.per_block_lr_schedule)
+            b_mlp = [(n, p) for n, p in mlp_named if _block_idx_from_name(n) == b]
+            b_attn = [(n, p) for n, p in attn_named if _block_idx_from_name(n) == b]
+            assert b_mlp, f"No MLP params found for block {b}"
+            assert b_attn, f"No attn params found for block {b}"
+            muon_groups.append(dict(named_params=b_mlp,
+                                    lr=args.lr_mlp * mult, weight_decay=args.wd_mlp,
+                                    name=f"muon_mlp_b{b:02d}"))
+            muon_groups.append(dict(named_params=b_attn,
+                                    lr=args.lr_attn * mult, weight_decay=args.wd_attn,
+                                    name=f"muon_attn_b{b:02d}"))
+        total_params = sum(len(g["named_params"]) for g in muon_groups)
+        assert total_params == len(named_blocks), \
+            f"per-block split lost params: {total_params} vs {len(named_blocks)}"
+    optimizer2 = Muon(
+        muon_groups,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
     optimizers = [optimizer1, optimizer2]
