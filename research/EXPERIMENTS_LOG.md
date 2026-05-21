@@ -1,5 +1,47 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 07:15 UTC — Cycle 71 mid-32: PR #630 nezuko ROPE_BASE CLOSED (axis flat); nezuko → #657 SCHEDULE_SHAPE (cosine/quadratic vs linear)
+
+### PR #630 — nezuko RoPE base frequency sweep — CLOSED
+
+Branch: `g1r2-nezuko/rope-base-sweep`. Both arms terminal; both miss.
+
+| Arm | ROPE_BASE | val/loss | ffs | Δval vs NEW (3.26776/3000) | Δffs vs NEW |
+|---|---|---|---|---|---|
+| A | 256 (4× sharper) | 3.27049 | 3025 | +0.00273 | +25 |
+| B | 4096 (4× broader) | 3.26937 | 3025 | +0.00161 | +25 |
+| default | 1024 | — | — | — | — |
+
+**Cross-arm trajectory** (key checkpoints):
+
+| Step | Arm A (256) | Arm B (4096) | Δ |
+|---|---|---|---|
+| 500 | 3.80102 | 3.80353 | +0.00251 |
+| 1500 | 3.53171 | 3.53229 | +0.00058 |
+| 2500 | 3.34653 | 3.34593 | −0.00060 |
+| 3000 | 3.28165 | 3.28038 | −0.00127 |
+| 3175 | 3.27049 | 3.26937 | −0.00112 |
+
+**Key findings**:
+1. **Axis is essentially flat** — trajectories overlap within ~0.001 throughout training.
+2. **ffs UNCHANGED (3025) across both arms** — RoPE base does NOT move ffs floor.
+3. **4× sharper and 4× broader gave near-identical results** — RoPE with half-truncation insensitive across this range on 1024-token sequences.
+4. **Both arms PASS val ≤ 3.272 but FAIL ffs ≤ 3000** — no hold.
+
+**Decision**: ROPE_BASE=1024 is locally optimal. Position-encoding base frequency is not a productive axis under current stack. Half-truncation fraction (50% of head_dim rotated) is a different axis but explicitly off-limits in this PR.
+
+### Assignment: nezuko → PR #657 (SCHEDULE_SHAPE sweep)
+
+**Hypothesis**: LR cooldown SHAPE (linear) has never been ablated — only its FRACTION (#549 closed) and ENDPOINTS (#615 Muon LR floor, #608 Muon LR warmup, #598 AdamW LR warmup, #610 NS5 cooldown precision — all closed). Edward #642 Arm A WIN candidate signal ("cooldown tail activity wins") strongly motivates testing alternate cooldown shapes.
+
+**Arms**:
+- A: `SCHEDULE_SHAPE=cosine` — `0.5 * (1 + cos(π t))`, slow initial decay + sharp final. Holds high LR longer at start of cooldown.
+- B: `SCHEDULE_SHAPE=quadratic` — `(1 - t)²`, fast initial decay + slow tail. Opposite shape: drop LR fast early.
+
+**Code change**: ~7 LoC — add SCHEDULE_SHAPE env var, add cosine/quadratic branches in `set_hparams`.
+
+**Theme**: First true SHAPE ablation. Edward's WIN candidate signature ("more activity in cooldown tail") favors cosine.
+
 ## 2026-05-21 07:00 UTC — Cycle 71 mid-31: PR #634 askeladd ATTN_SOAP_BETA2 CLOSED; askeladd → #656 MU_COOLDOWN_END (fresh Muon-side schedule axis)
 
 ### PR #634 — askeladd SOAP preconditioner β2 sweep — CLOSED
