@@ -1,5 +1,26 @@
 # SENPAI Research Results
 
+## 2026-05-21 05:50 UTC — PR #604 CLOSED: Lion optimizer on aux AdamW — NULL/NULL clear, 41st axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/lion-aux-optimizer`
+- Hypothesis: Lion (Chen et al 2023) replaces AdamW's E[g²]-normalized direction with sign-of-momentum: `update = sign(β·m + (1-β)·g)`. Tests whether sign-of-momentum mechanism class works for aux path. Two lr_scale arms compared.
+
+| Arm | lr_scale | val/loss | sr | Δval | Verdict |
+|---|---|---|---|---|---|
+| Baseline | n/a | 3.264278 | 2937.5 | — | — |
+| Arm A | 1/3 (embed_lr=0.100) | 3.29790 @ step 3000 | -1 (DNF) | +0.034 | **NULL DNF** (SIGTERM partial) |
+| Arm B | 1/10 (embed_lr=0.030) | 3.29465 @ step 3250 | -1 (DNF) | +0.030 | **NULL DNF** (clean) |
+
+**Verdict: NULL/NULL → Lion mechanism class on aux CLOSES. 41st axis.**
+
+**Mechanism:** Lion's `sign(m)` strips magnitude information from aggregated momentum, replacing it with constant per-coordinate ±1. The carefully-tuned aux AdamW per-group lr_scales (embed_lr=0.3, lm_head_lr=1/160, scalar_lr=0.025) provide finely-calibrated effective step magnitudes that E[g²]-normalization adapts to per-tensor. Lion's uniform-magnitude reduction destroys this calibration entirely. Both arms test two different uniform step sizes — both too coarse to match what AdamW provides.
+
+**Cross-axis pattern:** Lion joins the saturated aux-optimizer landscape — 5/5 update-rule mechanisms (AdaBelief, NadamW, AdEMAMix, AMSGrad, Adamax), LAMB trust ratio (#609), and now Lion sign-of-momentum (#604) all CLOSED NULL/NULL. The aux gradients on embed/lm_head/scalars are noise-dominated and unresponsive to *any* update-rule replacement class.
+
+**Action:** tanjiro reassigned to PR #651 (LR warmup phase ∈ {100, 250 steps}) — codebase has zero warmup which has never been explicitly tested. Closes a clean schedule-shape sub-axis.
+
+---
+
 ## 2026-05-21 05:00 UTC — PR #609 CLOSED: LAMB trust ratio on aux AdamW — NULL/NULL clear, 40th axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/lamb-aux-trust-ratio`
