@@ -3,6 +3,50 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 07:55 UTC — PR #624: Spectral norm penalty — loss-side weight conditioning regularizer (WAVE3 IDEA 8) (thorfinn) — CLOSED productive-NULL
+
+- Branch: `g1r4-thorfinn/spectral-norm-penalty`
+- Hypothesis: Add `λ·Σᵢ σ_max(Wᵢ)²` loss-side regularization on body Muon 2-D weights using persistent-v power-iteration σ_max estimator (SN-GAN style). Tests whether NS orthogonalization homogenizes per-step direction but leaves dominant-singular-value drift unconstrained over training — adding an explicit penalty would correct this. First loss-side weight regularization experiment this cycle.
+- Code: `NANOGPT_SPECTRAL_LAMBDA` × `NANOGPT_SPECTRAL_SCOPE ∈ {all, attn_only}` + power-iteration buffers + `train/spectral/sigma_max_rms` telemetry.
+
+| Arm | λ | Scope | n_matrices | W&B | val/loss | Δ vs A | Δ vs baseline 3.27174 |
+|---|---:|---|---:|---|---:|---:|---:|
+| A | 0.0 | (disabled) | 0 | `vrv71kle` | 3.27261 | — | +0.00087 (drift PASS) |
+| B | 1e-5 | all | 72 | `e2c1frx3` | 3.27216 | −0.00045 | +0.00042 |
+| C | 5e-5 | all | 72 | `e0o3xlz8` | **3.27155** | **−0.00106** | **−0.00019** |
+| D | 1e-5 | attn_only | 48 | `b5lebau5` | 3.27408 | +0.00147 | +0.00234 |
+
+### Verdict
+
+**Productive-NULL.** Best arm C dips marginally below baseline (3.27155 < 3.27174 by 0.00019) but Δ_vs_A=−0.00106 is sub-threshold (~half the −0.002 signal floor). 2/3 single-seed gates pass (absolute val ✓, stat-rule ✓, Δ_vs_A ✗) → near-miss, not a paired-pod confirmation candidate (would need Δ_vs_A ≤ −0.002 to overcome typical inter-seed variance ~±0.001).
+
+### Mechanism findings (durable)
+
+1. **Monotone-favorable in λ at full scope**: 0 → 1e-5 → 5e-5 produced val 3.27261 → 3.27216 → 3.27155. Loss-side dominant-singular-value pressure adds something beyond NS orthogonalization — but the magnitude is small. Log-scale slope: Δ ≈ −0.00045 per ~5× λ increase, suggesting saturation between 5e-5 and 1e-4 (extrapolated win range ~−0.0015 at λ=2e-4).
+2. **Scope localization — body MLPs > attention matrices**: At matched λ=1e-5, scope=all (3.27216) strictly beats scope=attn_only (3.27408) by Δ=+0.00192. The conditioning benefit is **NOT localized to attention** — most of the favorable signal lives in body MLP matrices (`mlp.fc`, `mlp.proj`). The PR-body mechanism reading (attn head-locking onto high-frequency tokens) is **disconfirmed**.
+3. **Power-iteration σ_max estimator stable**: persistent v vector with n_power_iters=1 produced clean telemetry across all arms (`train/spectral/sigma_max_rms` consistent, no NaN/blow-up). Validates SN-GAN-style estimator for this codebase — durable for future spectral-side experiments.
+4. **Overhead benign**: +0.40% step at scope=all (72 matrices), +0.16% at attn_only. PR-body 3-5% estimate was conservative.
+
+### Closed axes
+
+- Loss-side spectral norm regularization on body Muon 2-D weights within λ ∈ [0, 5e-5] at N=1.
+- Attn-only scope at λ=1e-5 (strictly worse than full body — definitively scope-restricted).
+
+### Untested (low-priority follow-ups)
+
+- λ ∈ [1e-4, 2e-4] at full scope (extrapolated trend likely saturates)
+- MLP-only scope as complement to attn_only (would confirm MLP localization)
+- Alternative spectral measures: nuclear norm Σᵢσᵢ vs σ_max² vs condition number σ_max/σ_min
+- Paired-pod n=3 on Arm C (Δ_vs_A=−0.00106 magnitude is too small to elevate to merge candidate)
+
+### Strategic context
+
+**47th productive-null/negative on the merged stack post-#393.** Joins the 46-count cluster from #618 (Muon for lm_head), #550 (paired-pod cooldown WD), #599 (per-group β₁), #560 (per-group β₂), #593 (per-group WD), and earlier closures.
+
+Implementation note (durable across this programme): student's id()-intersection `_is_body_2d_weight` filter (versus the spec's substring match) is the robust pattern for body-scope identification — matches Muon optimizer's body parameter set exactly, avoids missing `model.proj.weight` (no "lm_head" substring). Recommend reuse for future spectral/scope-restricted experiments.
+
+**Follow-up**: thorfinn assigned **body Muon block-out init scale sweep** — fresh init-axis explicitly flagged untouched in #543 closure note (was queued for askeladd but reassigned to LR-asymmetry #579). Tests whether the current `w.zero_()` init on `attn.proj`/`mlp.proj` (lines 826-828 of train_gpt_simple.py) is uniquely optimal (per #380 lm_head proj finding) or whether small nonzero init helps initial residual-stream gradient flow.
+
 ## 2026-05-21 06:00 UTC — PR #618: Muon² for lm_head — replace AdamW with NS-orthogonalized momentum on output projection (fern) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-fern/muon-lm-head`

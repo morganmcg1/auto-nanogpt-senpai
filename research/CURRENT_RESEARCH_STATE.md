@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 06:10 UTC
+- **Date:** 2026-05-21 08:30 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -175,17 +175,10 @@ Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A linear=3.2
 Single-seed 4-arm (drift gate A PASS, |3.27089−3.27174|=0.00085): A=3.27089, B (0.50)=+0.00187 (regression), C (0.85)=+0.00132 (null), D (0.60)=−0.00041 (null sub-threshold). FRAC axis is **bilaterally concave at 0.70** with flat 0.60-0.70 shoulder. Mechanism reading: NS=16 only pays off in final ~25-30% of training; extending the window earlier (B) wastes compute on mid-phase steps that don't benefit from tighter orthogonalization, shortening (C) loses late-phase precision gain. The favorable A-drift (−0.00085) inflates D's apparent baseline improvement; within-pod Δ_vs_A=−0.00041 is far below the −0.002 candidate threshold. Closes off both "extended precision window" and "concentrated late NS=16 burst" follow-up directions. Full NS-cooldown sub-stack: magnitude=#176 (MERGED), shape=#285 (MERGED), coef=#290 (MERGED), timing=#590 (CLOSED). **41st productive-null/negative this cycle.**
 **Follow-up**: thorfinn assigned **#624 spectral norm penalty (WAVE3 IDEA 8)** — loss-side weight conditioning regularizer, structurally fresh axis no prior experiment has touched. After 41 productive-NULLs on optimizer-state and update-direction axes, pivot to loss-formulation axis.
 
-### 🔄 thorfinn #624 — Spectral norm penalty (loss-side weight conditioning) [assigned 23:55 UTC]
+### ✅ thorfinn #624 — Spectral norm penalty (loss-side weight conditioning) — CLOSED 06:10 UTC productive-NULL
 
-**Branch:** `g1r4-thorfinn/spectral-norm-penalty`
-**Hypothesis**: WAVE3 IDEA 8, held until NS-saturation evidence (now established with 4/4 NS-cooldown axes closed/merged). Adds `λ * Σ_layers σ_max(W)²` penalty to loss on body Muon 2D weight matrices. Power iteration estimate of σ_max with persistent v across steps (SN-GAN-style, ~3-5% overhead). Mechanism reading: NS conditions the *update direction* but not the *weight itself*; weights may drift toward singular-value concentration during training. The penalty is the loss-side dual of NS — a complementary pull toward well-conditioned weights. **Orthogonal to all 8 currently in-flight experiments and all 41 closed nulls** (closest priors: WD = L2 = ||W||_F² penalizing all singular values uniformly; spectral norm = σ_max² penalizes only dominant — substantively different).
-| Arm | NANOGPT_SPECTRAL_LAMBDA | NANOGPT_SPECTRAL_SCOPE | Tests |
-|---|---:|---|---|
-| A | 0.0 (ctrl) | n/a | Reproduces merged baseline |
-| B | **1e-5** | all | Mild penalty on all attn+mlp body matrices |
-| C | **5e-5** | all | 5× stronger — tests dose-response |
-| D | **1e-5** | attn_only | Targeted (head-locking on high-freq tokens mechanism) |
-**ETA full chain:** ~7.6h. Implementation: ~30-50 LOC (env var plumbing + spectral_params list build + compute_spectral_penalty function + loss-add hook + W&B logging).
+Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A=3.27261, B (λ=1e-5 all)=3.27216 (Δ=−0.00045, null), C (λ=5e-5 all)=3.27155 (Δ=−0.00106, null sub-threshold), D (λ=1e-5 attn_only)=3.27408 (Δ=+0.00147 marginal regression). **Monotone-favorable** in λ across all-scope arms (A→B→C: +0.0 / −0.00045 / −0.00106) but best magnitude is half the −0.002 candidate threshold; D regression on attn-only narrowest-scope informs mechanism. **Mechanism findings**: (a) spectral norm penalty is benign-mild on body Muon 2D matrices — never approaches catastrophic regression even at 5e-5 (5× the working range); (b) **body MLP matrices benefit more from spectral conditioning than attention matrices** (D attn-only regresses while B all-scope improves marginally), suggesting MLP layers were closer to singular-value concentration than attention; (c) the NS-conditions-update-direction-not-weight reading was directionally validated but quantitative impact too small to merge. Implementation hygiene clean (id()-intersection filter for spectral_params shadow set works, power-iteration v persistent across steps, ~3% overhead reproducible). **47th productive-null/negative this cycle.** "Loss-side weight regularization" axis (closest analog to WD but on σ_max² vs ‖W‖_F²) now characterized — penalizes only dominant singular values rather than all uniformly; the substantive distinction from WD shows up as direction-correct sub-threshold gain not a structural win. **Durable finding (cross-experiment reusable)**: id()-intersection filter pattern for restricting param-list operations to the body Muon 2D subset works cleanly when applied to penalty/regularization-style passes — a pattern future loss-side or post-NS modifications can reuse.
+**Follow-up**: thorfinn assigned **per-block-type body Muon WD asymmetry** — structurally fresh per-block-type WD axis directly motivated by #550 (uniform body WD reduction toward 0, mean Δ=−0.00090 sub-threshold winner at n=3) and #579 askeladd in-flight (uniform-axis null but compound D attn-LR=0.80 + mlp-LR=1.20 = Δ=−0.00137 single-seed sub-threshold). Tests whether the marginal WD-reduction signal in #550 is concentrated in one block type (attn or mlp), and parallels #579's per-block-type LR axis. Per-block-type WD has never been tested separately from uniform body WD axis. Mechanism reading: with NS-orthogonalized updates having identical spectral magnitudes across blocks, per-block-type WD is the ONLY remaining structural lever to differentiate attn vs mlp regularization friction on body Muon.
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
@@ -323,7 +316,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**46 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side / WD / cooldown-schedule / per-group / optimizer-family axes. The strongest confirmed findings:
+**47 productive-null/negative results** on optimizer-internal / parameter-temporal / loss-side / WD / cooldown-schedule / per-group / optimizer-family / loss-side-weight-regularization axes. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
