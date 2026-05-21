@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_padam_power", type=float,
+                        default=float(os.environ.get("AUX_PADAM_POWER", "0.5")),
+                        help="PAdam geometric exponent for v_t in the denominator. "
+                             "Standard AdamW is 0.5 (sqrt(v_t)). PAdam recommends 0.25. "
+                             "If >= 0.5, uses fused AdamW (default). If < 0.5, switches "
+                             "to custom unfused PAdamW implementation. Tests whether the "
+                             "geometric exponent in m_t / (v_t^p + eps) is load-bearing.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +676,59 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class PAdamW(torch.optim.Optimizer):
+    """PAdam-W: AdamW with generalized v_t power in the denominator.
+
+    Update: ``update_t = m_t / (v_t^p + eps)``, where ``p in (0, 0.5]``.
+    ``p=0.5`` reduces to standard AdamW (modulo fused-vs-unfused float order).
+    Chen et al. 2018 introduced PAdam at ``p=0.25`` as partial preconditioning
+    that closes the generalization gap of adaptive methods on ImageNet.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, power=0.5):
+        if not (0.0 < power <= 0.5):
+            raise ValueError(f"power must be in (0, 0.5], got {power}")
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, power=power)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            power = group["power"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                if wd > 0:
+                    p.mul_(1 - lr * wd)
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                # v_hat^p + eps  (power=0.5 ⇒ sqrt(v_hat) + eps, i.e. AdamW)
+                denom = (v / bc2).pow_(power).add_(eps)
+                p.addcdiv_(m, denom, value=-lr / bc1)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +773,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_padam_power < 0.5:
+    print0(f"PAdam ENABLED on aux groups: power={args.aux_padam_power} (unfused custom PAdamW)", console=True)
+else:
+    print0(f"PAdam DISABLED (power={args.aux_padam_power} ≥ 0.5 → fused AdamW)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +830,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_padam_power": args.aux_padam_power,
         },
     )
 
@@ -812,10 +877,16 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    aux_param_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_padam_power >= 0.5:
+        optimizer1 = AdamW(aux_param_groups,
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    else:
+        optimizer1 = PAdamW(aux_param_groups,
+                            betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0,
+                            power=args.aux_padam_power)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
