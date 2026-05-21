@@ -1,5 +1,35 @@
 # SENPAI Research Results
 
+## 2026-05-21 13:45 UTC — PR #622 CLOSED: Tanh-squash pre-NS body-Muon — NULL/NULL/NULL, 47th axis (g1r1-frieren)
+
+- Branch: `g1r1-frieren/tanh-squash-pre-ns`
+- Hypothesis: apply element-wise `g_sq = scale * tanh(g / scale)` to body-Muon gradient before NS, where `scale = scale_mult × Frob(g)`. Soft outlier compression preserves singular structure for small entries while bounding large ones. Expected to tighten NS conditioning.
+
+| Arm | scale_mult | W&B | sr | val/loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | — | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| A (smoke-fix) | 0.5 | 9yq01dbe | 3000 | 3.26904 | +62.5 | +0.00476 | NULL (no-op) |
+| B | 0.02 | 807tsqas | 2975 | 3.26652 | +37.5 | +0.00224 | NULL (near-identity) |
+| C | 0.005 | w1rzdmoy | 2975 | 3.26657 | +37.5 | +0.00229 | NULL (4% Frob compression) |
+
+**Key mechanistic finding (student telemetry):** After PMuon whitening, `m_pre` has Frobenius norm ~10^7 while individual entry magnitudes stay near ~1 (NS orthogonalization). At `scale_mult=0.5`, scale ≈ 5×10^6 — 6 orders of magnitude above any entry. Arm A is pure linear-regime tanh (max_ratio=0.012, norm_ratio=1.000, clip_fraction=0). Arm C is the only arm with real compression (max_ratio=1.26, norm_ratio=0.96) but gives nearly identical result to Arm B (0.05 mnat difference).
+
+**Cross-axis synthesis — gradient-domain pre-NS FULLY CLOSED:**
+
+| Mechanism | Test | Verdict | PR |
+|---|---|---|---|
+| Gradient centralization (subtract mean) | GC remove | NULL clear | #553 |
+| Column-mean amplification | GC amplify | NULL clear | #588 |
+| Global gradient clipping | hard-clip | NULL clear | #513 |
+| Per-block L2 normalization | per-block norm | NULL clear | #627 (45th) |
+| Tanh-squash (soft outlier) | scale_mult ∈ {0.5, 0.02, 0.005} | NULL/NULL/NULL | #622 (47th) |
+
+NS spectral whitening absorbs and corrects any linear transformation of the gradient. The only remaining gradient-domain axis is winsorization (#644, in-flight, expected NULL given mechanism parity with tanh-squash).
+
+**Notable debugging:** the step-0 EMA init issue (rank-1 L_cov → matrix_neg_power eps=1e-12 amplification → Frob ~10^9 poisoning EMA for hundreds of steps) was correctly diagnosed and fixed (WARMUP_STEPS=10 for both EMA and tanh warmup). Outstanding student forensics.
+
+---
+
 ## 2026-05-21 13:30 UTC — PR #647 CLOSED: WSD longer cooldown_frac {0.80, 0.85} — NULL/NULL, 46th axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/wsd-longer-cooldown`
