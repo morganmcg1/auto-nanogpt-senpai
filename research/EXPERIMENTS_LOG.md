@@ -1,5 +1,72 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 17:05 UTC — Cycle 71 mid-45: PR #677 frieren NS5_ITERS CLOSED — both arms miss hold gate (NS=14 well-tuned, unimodal); 🎯 PR #675 tanjiro Arm B PASSES n=1 HOLD GATE (val=3.26853/ffs=3000, +0.00077 vs baseline), n=2 confirm authorized
+
+### PR #677 — frieren NS5_ITERS sweep — BOTH ARMS MISS HOLD GATE; non-monotonic peak at NS=14
+
+Branch: `g1r2-frieren/ns5-iters-sweep`. Closed 17:05 UTC.
+
+| Arm | NS5_ITERS | val_loss | ffs | hold gate (val ≤ 3.27 AND ffs ≤ 3000) | vs baseline (3.26776/3000) | W&B |
+|-----|---|---|---|---|---|---|
+| Disabled-check | 18 | 4.0818@200 | — | ✓ pass | — | `7ch5a04n` |
+| **A** | **12** | **3.27138** | **3025** | ❌ both legs (val +0.00138, ffs +25) | +0.00362 / +25 | `biqejhg9` |
+| Baseline | 14 | 3.26776 (n=2) | 3000 | — | — | (PR #613) |
+| **B** | **18** | **3.26960** | **3025** | ❌ ffs only (val ✅ ≤ 3.27, ffs +25) | +0.00184 / +25 | `ecdrwmg7` |
+
+**Step-by-step trajectory comparison (uniformly B better than A):**
+
+| step | A (12) | B (18) | Δ (A − B) |
+|---|---|---|---|
+| 500  | 3.80272 | 3.79964 | +0.00308 |
+| 1000 | 3.66566 | 3.65981 | +0.00585 |
+| 1500 | 3.53426 | 3.53230 | +0.00196 |
+| 2500 | 3.34738 | 3.34605 | +0.00133 |
+| 3175 | 3.27138 | 3.26960 | +0.00178 |
+
+**Mechanism verdict — unimodal optimum AT NS=14**: The terminal val ordering is { A(12)=3.27138 > B(18)=3.26960 > baseline(14)=3.26776 }. The +2 extra iters (14 vs default 12) buy ~0.004 val improvement; +4 extra (14→18) give NO further benefit and actually regress. Non-monotonic axis with peak at the mandatory-stack value 14.
+
+**Compute cost note**: Arm A (12 iters) ≈ 1967ms/step, Arm B (18 iters) ≈ 1991ms/step — only ~1.2% slower for +4 iters. Benchmark uses ffs not wall-clock, so step_avg differences don't affect contract.
+
+**Joins near-miss cluster** (5th fresh-axis result this cycle landing exactly ffs=3025): Arm B val=3.26960 is the CLOSEST val to 3.27 hold gate this cycle (-0.00040 below). Pattern persists strongly: ffs=3025 is the natural single-seed n=1 floor on c=20 stack.
+
+**Direction inference for downstream**: NS5_ITERS axis closed; NS=14 locked. **NS5 polynomial coefficients (axis already in flight as #694 askeladd) remains the open NS5-class lever** — coefficient (a,b,c) variation may matter more than iteration count at this saturation point.
+
+**Frieren → #NEW WD_AUX cross-pod RE-RUN** — verification of suspect #676 closure (pod-broken hypothesis per GH issue #692).
+
+### PR #675 — tanjiro SCALARS_LR Arm B passes n=1 HOLD GATE; n=2 confirm AUTHORIZED
+
+Branch: `g1r2-tanjiro/scalars-lr-sweep`. Arm B terminal posted 16:54 UTC, advisor n=2 authorization posted 16:55 UTC.
+
+| Arm | SCALARS_LR | val_loss | ffs | hold gate (val ≤ 3.27 AND ffs ≤ 3000) | vs baseline (3.26776/3000) | W&B |
+|-----|---|---|---|---|---|---|
+| **A** | **0.005** | **3.27572** | **3100** | ❌ both legs (+0.00796 val, +100 ffs) | clear MISS | `2oc4h91w` |
+| Baseline | 0.010 | 3.26776 (n=2) | 3000 | — | — | (PR #613) |
+| **B (seed 0)** | **0.020** | **3.26853** | **3000** | ✅ PASS (val 3.26853 ≤ 3.27, ffs 3000 ≤ 3000) | +0.00077 / 0 | `vdv6djua` |
+
+**Arm B trajectory (uniformly ahead of Arm A from step 250 onward):**
+
+| step | A (0.005) | B (0.020) | Δ (A − B) |
+|---|---|---|---|
+| 500  | 3.79683 | 3.79683* | — |
+| 1500 | ~3.53   | 3.53089 | small |
+| 2500 | 3.35576 | 3.34429 | +0.01147 |
+| 3000 | n/a     | 3.27985 | — |
+| 3175 | 3.27572 | **3.26853** | +0.00719 |
+
+* (matched at step 500; diverged after)
+
+**Decision math for n=2**:
+- Merge bar: `val_mean < 3.26776 AND ffs_mean ≤ 3000`
+- Arm B seed 0: val=3.26853, ffs=3000
+- For n=2 mean to beat baseline: seed 1 val must be < 3.26699 (= 2×3.26776 − 3.26853)
+- Narrow target — ~0.0015 below seed 0. Possible but requires favorable noise excursion.
+- Historical pattern: past n=1 hold-gate passes within ±0.0009 of baseline (e.g. #642 edward FLOOR=0.05 seed 0 3.26712 → seed 1 regression; #655 thorfinn EMBED_LR_MULT=0.5 seed 0 3.26866 → seed 1 3.27217 regression). Bayesian prior leans MISS at n=2.
+
+**Advisor authorized seed 1 of SCALARS_LR=0.02**: command in PR comment. ETA terminal ~1h45min.
+
+If seed 1 < 3.26699 → n=2 mean ≤ baseline → flag for merge.
+If seed 1 ≥ 3.26699 → n=2 mean misses baseline → close axis (default 0.010 confirmed optimal).
+
 ## 2026-05-21 16:10 UTC — Cycle 71 mid-43: PR #678 askeladd per-group cooldown_frac CLOSED — OPPOSITE-prior signal; #694 askeladd NS5_COEFS assigned; near-miss cluster (ffs=3025 boundary)
 
 ### PR #678 — askeladd Per-group cooldown_frac — BOTH ARMS MISS; OPPOSITE-PRIOR MECHANISM FINDING
