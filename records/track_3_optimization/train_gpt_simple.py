@@ -52,6 +52,9 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--momentum_position", type=str, default="pre_ns",
+                        choices=["pre_ns", "post_ns", "post_ns_repolar"],
+                        help="Where to apply Muon momentum: before or after NS orthogonalization")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -488,46 +491,83 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    momentum_position: str = "pre_ns",
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    scale = max(1, grad.size(-2) / grad.size(-1)) ** 0.5
 
-    L_neg = matrix_neg_power(L_cov, gamma, eps)
-    R_neg = matrix_neg_power(R_cov, gamma, eps)
-    m_pre = (L_neg @ update.float()) @ R_neg
+    if momentum_position == "pre_ns":
+        momentum.lerp_(grad, 1 - mu)
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
-    # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
-    # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
-    if polar_diag is not None and "residual" not in polar_diag:
-        X = polar
-        m, n = X.shape[-2], X.shape[-1]
-        Xf = X.float()
-        if m <= n:
-            gram = Xf @ Xf.T
-            eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+        L_neg = matrix_neg_power(L_cov, gamma, eps)
+        R_neg = matrix_neg_power(R_cov, gamma, eps)
+        m_pre = (L_neg @ update.float()) @ R_neg
+
+        polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+        # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
+        # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
+        if polar_diag is not None and "residual" not in polar_diag:
+            X = polar
+            m, n = X.shape[-2], X.shape[-1]
+            Xf = X.float()
+            if m <= n:
+                gram = Xf @ Xf.T
+                eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+            else:
+                gram = Xf.T @ Xf
+                eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
+            polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
+            polar_diag["sample_rows"] = m
+            polar_diag["sample_cols"] = n
+        update = polar * scale
+    else:
+        # post_ns / post_ns_repolar: whiten+polar instantaneous grad, then EMA over polar outputs.
+        L_neg = matrix_neg_power(L_cov, gamma, eps)
+        R_neg = matrix_neg_power(R_cov, gamma, eps)
+        m_pre = (L_neg @ grad.float()) @ R_neg
+
+        polar_g = zeropower_via_newtonschulz5(m_pre.to(grad.dtype), a=ns_a, b=ns_b, c=ns_c)
+        if polar_diag is not None and "residual" not in polar_diag:
+            X = polar_g
+            m, n = X.shape[-2], X.shape[-1]
+            Xf = X.float()
+            if m <= n:
+                gram = Xf @ Xf.T
+                eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+            else:
+                gram = Xf.T @ Xf
+                eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
+            polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
+            polar_diag["sample_rows"] = m
+            polar_diag["sample_cols"] = n
+        # NS function returns bf16; momentum buffer matches param dtype (float32 here).
+        # Cast polar_g to momentum.dtype to keep the EMA accumulation in full precision.
+        polar_g_scaled = (polar_g * scale).to(momentum.dtype)
+        momentum.lerp_(polar_g_scaled, 1 - mu)
+        if polar_diag is not None and "momentum_spec_norm" not in polar_diag:
+            polar_diag["momentum_spec_norm"] = float(torch.linalg.norm(momentum.float(), ord=2).item())
+        if momentum_position == "post_ns_repolar":
+            m_pre2 = momentum.float() / scale
+            repolar = zeropower_via_newtonschulz5(m_pre2.to(momentum.dtype), a=ns_a, b=ns_b, c=ns_c)
+            update = repolar * scale
         else:
-            gram = Xf.T @ Xf
-            eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
-        polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
-        polar_diag["sample_rows"] = m
-        polar_diag["sample_cols"] = n
-    update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
+            # Clone so the caller's in-place uw-floor multiply does not corrupt the EMA buffer.
+            update = momentum.clone()
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, momentum_position="pre_ns"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, momentum_position=momentum_position)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -562,6 +602,7 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        momentum_position=group.get("momentum_position", "pre_ns"),
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -704,6 +745,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "momentum_position": args.momentum_position,
         },
     )
 
@@ -740,7 +782,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      momentum_position=args.momentum_position)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -911,6 +954,12 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            if polar_diag and "momentum_spec_norm" in polar_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon/momentum_spec_norm": polar_diag["momentum_spec_norm"],
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
