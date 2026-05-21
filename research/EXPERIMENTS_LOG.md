@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-21 23:35 UTC — PR #690 CLOSED: SGDR cosine restarts — NULL/NULL, 57th axis (g1r1-edward)
+
+- Branch: `g1r1-edward/sgdr-cosine-restarts`
+- Hypothesis: SGDR warm cosine restarts on body-Muon LR — tests whether periodic LR resets help escape sharp minima that WSD's monotone decay cannot escape. Two arms: Arm A (1 restart, T_mult=1, 2× 1625-step cycles), Arm B (2 restarts, T_mult=1, 3× 1083-step cycles).
+
+| Arm | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A (1 restart) | znxwk1om | -1 (never hit 3.28) | 3.30605 | -∞ | +0.0418 | NULL |
+| Arm B (2 restarts) | 5n88a4qm | -1 (never hit 3.28) | 3.32263 | -∞ | +0.0584 | NULL (WORSE than A) |
+| Pair mean | — | -1 | 3.31434 | — | +0.0501 | NULL |
+
+- **Stat-sig test:** Arm A: (3.28−3.30605)·√1=−0.026 FAIL. Arm B: (3.28−3.32263)·√1=−0.043 FAIL. Both fail +0.004 rule decisively.
+
+- **Mechanism (4 findings):**
+  1. **Cycle-0 advantage real and reproducible.** Both arms beat baseline by ≥0.10 val/loss at cycle 0 bottom (Arm A step 1000: val=3.553 vs base 3.657; Arm B step 1000: val=3.545 vs base 3.657). Cosine-to-zero LR finds better local minima at same step count.
+  2. **Each restart costs +0.13 to +0.17 val/loss spike.** Arm A restart 1: +0.174. Arm B restart 1: +0.132. Arm B restart 2: +0.166. Spike is structural — NS/whitening buffers converged to prior LR scale; restart invalidates them.
+  3. **More restarts → worse final loss.** 3× 1083-step cycles (Arm B) worse than 2× 1625-step cycles (Arm A). Each successive cycle finds deeper bottom (3.545 → 3.379 → 3.323) but rate slows; spike costs compound.
+  4. **Cooldown-erosion instance #3.** Arm B mid-cycle-1 at step 2125 showed −0.019 advantage vs baseline, eroded to +0.058 final regression. Third documented cooldown-erosion instance after #697 QHM (−50 mnat mid → +7 mnat terminal) and #686 β_cov schedule.
+
+- **WSD comparison:** WSD's monotone cooldown (cooldown_frac=0.30, COOLDOWN_POWER=1.4) already well-tuned. Non-monotone/restart LR cannot pay back restart cost on 3250-step budget.
+- **Conclusion:** SGDR on body-Muon FULLY CLOSED. Body-Muon LR schedule shape axis (monotone cooldown direction) CLOSED across restart count = {1, 2}.
+
 ## 2026-05-21 22:02 UTC — PR #686 CLOSED: PMuon β_cov schedule — symmetric NULL, 56th axis (g1r1-fern)
 
 - Branch: `g1r1-fern/pmuon-beta-cov-schedule`
