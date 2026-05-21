@@ -533,6 +533,13 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Per-layer trust-region modulator on Muon LR.
+# Boost layer LR by (1 + boost * max(cos_ema, 0)) where cos_ema is an EMA of
+# cos(grad, momentum_prev) per param tensor. Only positive cos_ema (alignment
+# = rare-productive layer) is amplified; cos_ema <= 0 leaves trust_scale=1.0.
+# disabled when NANOGPT_MUON_TRUST_BOOST == 0.0 (baseline).
+NANOGPT_MUON_TRUST_BOOST = float(os.environ.get("NANOGPT_MUON_TRUST_BOOST", "0.0"))
+NANOGPT_MUON_TRUST_BETA = float(os.environ.get("NANOGPT_MUON_TRUST_BETA", "0.97"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -680,6 +687,27 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    # Trust-region per-layer LR modulator: cosine EMA of
+                    # (grad, momentum_prev). Computed before muon_update because
+                    # muon_update mutates both grad and momentum in place.
+                    if NANOGPT_MUON_TRUST_BOOST > 0.0:
+                        if "cos_ema" not in state:
+                            state["cos_ema"] = torch.zeros((), device=p.device, dtype=torch.float32)
+                        g_flat = p.grad.detach().to(torch.float32).flatten()
+                        m_flat = state["momentum"].detach().to(torch.float32).flatten()
+                        g_norm = g_flat.norm()
+                        m_norm = m_flat.norm()
+                        if m_norm.item() > 0.0 and g_norm.item() > 0.0:
+                            cos = (g_flat * m_flat).sum() / (g_norm * m_norm)
+                            cos = cos.clamp(-1.0, 1.0)
+                            state["cos_ema"].mul_(NANOGPT_MUON_TRUST_BETA).add_(
+                                cos, alpha=(1.0 - NANOGPT_MUON_TRUST_BETA)
+                            )
+                        trust_scale = 1.0 + NANOGPT_MUON_TRUST_BOOST * max(
+                            state["cos_ema"].item(), 0.0
+                        )
+                    else:
+                        trust_scale = 1.0
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
@@ -702,7 +730,7 @@ class Muon(torch.optim.Optimizer):
                         except Exception:
                             self.spectral_stats = None
                     p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    p.add_(update, alpha=-group["lr"] * trust_scale)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
@@ -752,6 +780,11 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_MUON_TRUST_BOOST > 0.0:
+    print0(f"MUON_TRUST: boost={NANOGPT_MUON_TRUST_BOOST} beta={NANOGPT_MUON_TRUST_BETA}",
+           console=True)
+else:
+    print0("MUON_TRUST: disabled", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +840,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_trust_boost": NANOGPT_MUON_TRUST_BOOST,
+            "nanogpt_muon_trust_beta": NANOGPT_MUON_TRUST_BETA,
         },
     )
 
@@ -1033,6 +1068,35 @@ for trial_idx in range(args.num_trials):
             ns_cumulative_iters += ns_iters_this_step
         for opt in optimizers:
             opt.step()
+        # Per-layer Muon trust-region telemetry. Logs cos_ema distribution
+        # (sign-distribution diagnostic per #154) and the realized LR-scale.
+        if (
+            dist.get_rank() == 0
+            and telemetry_due
+            and NANOGPT_MUON_TRUST_BOOST > 0.0
+        ):
+            cos_emas: list[float] = []
+            for body_param in optimizer2.param_groups[0]["params"]:
+                body_state = optimizer2.state.get(body_param, {})
+                if "cos_ema" in body_state:
+                    cos_emas.append(float(body_state["cos_ema"].item()))
+            if cos_emas:
+                trust_scales = [
+                    1.0 + NANOGPT_MUON_TRUST_BOOST * max(c, 0.0) for c in cos_emas
+                ]
+                pos_frac = sum(1 for c in cos_emas if c > 0) / len(cos_emas)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon_trust/cos_ema_mean": sum(cos_emas) / len(cos_emas),
+                    "muon_trust/cos_ema_max": max(cos_emas),
+                    "muon_trust/cos_ema_min": min(cos_emas),
+                    "muon_trust/cos_ema_pos_frac": pos_frac,
+                    "muon_trust/lr_scale_mean": sum(trust_scales) / len(trust_scales),
+                    "muon_trust/lr_scale_max": max(trust_scales),
+                    "muon_trust/lr_scale_min": min(trust_scales),
+                    "muon_trust/n_params": len(cos_emas),
+                }, step=wandb_step)
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
