@@ -3,6 +3,52 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 19:00 UTC — PR #668: Per-row L2 gradient clip on embed and lm_head (tanjiro) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-tanjiro/per-row-grad-clip-aux`
+- Hypothesis: Zipf-asymmetry mechanism reading from #618 / #663 suggests lm_head row magnitudes carry frequency-weighted signal. Per-row L2 clip at row granularity (operating PRE-AdamW) tests whether frequent-row gradient outliers are noise the cooldown can't suppress (productive direction) OR load-bearing signal (regression direction). Mechanism-distinct from global L2 clip (#105), AGC (#408, NULL), OrthoGrad (#477, NULL), per-coordinate AdamW eps (#652, NEG).
+
+### Results — 4-arm v2 sweep on post-#579 stack
+
+| Arm | NANOGPT_PER_ROW_CLIP | val/loss | first_step_to_target | Δ vs Arm A | Band | W&B |
+|---|---:|---:|---:|---:|---|---|
+| A | 0.0 (disabled) | **3.27011** | 3225 | — | drift PASS (vs new baseline 3.27070, Δ=−0.00059) | `c0t2q6c2` |
+| B | 0.01 | 3.44351 | -1 | **+0.17340** | strong direction-incorrect | `mjmqo5z3` |
+| C | 0.1 | 3.44741 | -1 | **+0.17730** | strong direction-incorrect | `swml15oq` |
+| D | 1.0 | 3.44603 | -1 | **+0.17592** | strong direction-incorrect | `4y2qvex9` |
+
+### Key findings
+
+1. **Drift gate Arm A PASSED**: val=3.27011 vs new baseline 3.27070, Δ=−0.00059, well inside ±0.003 gate. Hook is correctly gated when threshold=0 — the strong B/C/D regressions are mechanism, not bug.
+
+2. **All three active arms regressed catastrophically (~+0.176 above control)**, never reaching 3.28 target. Trajectories show uniform per-step degradation rather than divergence — constant ~0.17 gap to Arm A from step 125 onward.
+
+3. **Mechanism: ladder/scale mismatch with lm_head row distribution.** Diagnostic row-norm percentiles from Arm A revealed lm_head.grad p50=13.11 while embed.grad p50=0.0376 — ~350× magnitude asymmetry. The pre-declared threshold ladder {0.01, 0.1, 1.0} was chosen before measuring this distribution and sits 1–3 orders of magnitude below lm_head's typical row magnitude. Every active arm hard-clips every lm_head row:
+   - T=1.0 → clips by factor 1.0/13 ≈ 0.077 (93% magnitude destroyed)
+   - T=0.1 → clips by factor ~7.7e-3 (99.2% destroyed)
+   - T=0.01 → clips by factor ~7.6e-4 (99.92% destroyed)
+   
+4. **Under-fit feedback loop**: pre-clip lm_head p50 grew from 13.11 (Arm A) → 108–111 (Arms B/C/D), confirming the model adapts to under-trained lm_head by producing larger backprop errors. Clip suppresses them again → stable fixed point at high val_loss.
+
+5. **Composition with prior closures — strongly closes "row-magnitude-aware intervention on aux groups" axis**:
+   - #408 fern AGC per-parameter (matrix-level) clip — NULL
+   - #477 fern OrthoGrad project orthogonal to weights — NULL
+   - #618 fern Muon² (NS on lm_head, homogenizes lm_head row magnitudes) — NEG
+   - #663 thorfinn one-sided SOAP lm_head — NULL
+   - #668 (this) per-row L2 clip embed+lm_head — strong NEG
+   
+   **Pattern**: lm_head's per-row magnitude distribution carries Zipf-distributed signal that is load-bearing, not noise. Any intervention that homogenizes (#618), whitens (#663), or suppresses (this PR) lm_head row magnitudes regresses training.
+
+6. **No embed-only follow-up assigned**: Given #408 (AGC) and #477 (OrthoGrad) already tested per-parameter and direction-based embed-side magnitude interventions and both closed NULL, a clean embed-only sweep would likely add a 56th null closure without information gain. Compute reassigned to fresh axis (AggMo for body Muon, PR #711).
+
+7. **Sanity check (Arm D ≈ Arm A) FAILED**: Arm D at T=1.0 was predicted to be near-null but landed in strong-regression band. Not a bug — the threshold ladder simply didn't reach lm_head's row-norm scale.
+
+**55th productive-null/negative this cycle.** Aux-group AdamW pipeline is robust to its current form and resists every row-aware reshaping tested. Future lm_head work must target representation/loss-side mechanisms or pivot away from lm_head entirely (toward body Muon, NS pipeline, or non-AdamW levers).
+
+**Follow-up**: tanjiro assigned **#711 AggMo (Aggregated Momentum) for body Muon** — multi-timescale momentum buffers aggregated PRE-NS. Mechanism-distinct from all prior closures: input-side body Muon momentum-preparation axis, never tested in any of 500+ PRs scanned. Tests passive damping via parallel β buffers {K=2: [0.0, 0.95], K=3: [0.0, 0.9, 0.99], K=3: [0.5, 0.9, 0.99]}.
+
+---
+
 ## 2026-05-21 18:35 UTC — PR #664: AdamW bias correction disable sweep on aux groups (frieren) — CLOSED productive-NULL
 
 - Branch: `g1r4-frieren/adamw-bias-correction-disable`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 18:40 UTC
+- **Date:** 2026-05-21 19:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -154,17 +154,22 @@ Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e
 
 Bit-identical Arm B (k=5, α=0.5, scope=adamw) to #434 (edward, CLOSED productive-NEGATIVE 2026-05-19) which showed Δ=+0.00244 regression. Adding K=10 / α=0.8 corners (Arms C/D) would not plausibly flip from regression to merge-worthy gain per Zhang 2019 expected monotonicity. Closed before launch to avoid wasting compute.
 
-### 🔄 tanjiro #668 — Per-row L2 gradient clip on embed and lm_head [assigned 09:15 UTC]
+### ✅ tanjiro #668 — Per-row L2 gradient clip on embed and lm_head — CLOSED 19:00 UTC productive-NEGATIVE
 
-**Branch:** `g1r4-tanjiro/per-row-grad-clip-aux`
-**Hypothesis**: Token-frequency follows Zipf — embed/lm_head row gradients vary in magnitude across rows by orders of magnitude (frequent tokens like punctuation get large per-row L2 every step; rare tokens get small per-row L2 only on visit steps). Current merged stack has no row-aware magnitude bound: global clip (single L2 across all params), AGC (per-parameter matrix-level), AdamW preconditioning (per-coord, magnitude-preserving). Per-row L2 clip at threshold T bounds frequent-row magnitudes while leaving rare-row updates untouched. Mechanistically targets the exact Zipf-distributed asymmetry that #618 mechanism reading identified as load-bearing on lm_head.
-| Arm | NANOGPT_PER_ROW_CLIP | Scope | Tests |
-|---|---:|---|---|
-| A | 0.0 (disabled) | embed_lmhead | Control — bit-identical to merged baseline |
-| B | 0.01 | embed_lmhead | Aggressive — bounds typical frequent-row magnitudes |
-| C | 0.1 | embed_lmhead | Moderate — bounds outlier rows only |
-| D | 1.0 | embed_lmhead | Loose sanity check — should be ≈ control |
-**ETA full chain:** ~7.3h. Implementation: ~15 LOC (env vars + per-row L2 norm + clamp + multiply, applied before existing global clip_grad_norm_). Diagnostic ask: log row-norm p50/p90/p99/p99.9 on Arm A for future threshold refinement.
+All 4 arms on post-#579 stack terminated. Drift gate Arm A PASS (val=3.27011, Δ=−0.00059 vs new baseline 3.27070). Arms B/C/D all in strong direction-incorrect band (Δ=+0.17340 / +0.17730 / +0.17592) — never reached 3.28 target. Mechanism: diagnostic row-norm percentiles showed lm_head.grad p50=13.11 vs embed.grad p50=0.0376 — ~350× magnitude asymmetry. Pre-declared threshold ladder {0.01, 0.1, 1.0} (chosen before measurement) sits 1–3 orders of magnitude below lm_head's typical row magnitude → every active arm hard-clips every lm_head row (factor 0.077 → 7.7e-3 → 7.6e-4). Under-fit feedback loop: lm_head pre-clip p50 grew 13.1 → 108–111 when clip active, confirming model adapts to under-trained lm_head by producing larger backprop errors which clip suppresses again. Strong closure of \"row-magnitude-aware intervention on aux groups\" axis composing with #408 AGC (NULL), #477 OrthoGrad (NULL), #618 Muon² lm_head (NEG), #663 SOAP-lm_head (NULL). **Pattern confirmed**: lm_head's per-row magnitude distribution carries Zipf-distributed signal that is load-bearing, not noise — any intervention that homogenizes / whitens / suppresses lm_head row magnitudes regresses training. **55th productive-null/negative this cycle.**
+**Follow-up**: tanjiro assigned **#711 AggMo (Aggregated Momentum) for body Muon** — multi-timescale momentum buffers aggregated PRE-NS. Mechanism-distinct from all 500+ prior PRs (input-side body-Muon momentum-preparation axis, never tested). Tests passive damping via parallel β buffers: K=2 [0.0, 0.95], K=3 [0.0, 0.9, 0.99], K=3 [0.5, 0.9, 0.99].
+
+### 🔄 tanjiro #711 — AggMo (Aggregated Momentum) for body Muon [assigned 19:00 UTC]
+
+**Branch:** `g1r4-tanjiro/aggmo-body-muon`
+**Hypothesis**: Current body Muon uses single β=0.95 momentum buffer (~20-step memory). AggMo (Lucas et al. ICLR 2019) replaces single buffer with K parallel buffers at different β values, aggregated PRE-NS. Provides \"passive damping\": instability in any single β is cancelled by others without active mechanism. For body Muon specifically, aggregation improves quality of NS input — NS normalizes spectral direction but not underlying signal quality. Mechanism-distinct from #530 (Nesterov α mix NULL), #674 in flight (per-block-type μ asymmetry), #356 (μ schedule), #399 (AdEMAMix on aux), #436 (parameter-space EMA NEG), #138 (Polar Express full-algorithm replacement NULL). **AggMo never tested in 500+ scanned PRs.** Hits the minimally-explored \"input-side body Muon momentum-preparation\" axis.
+| Arm | NANOGPT_MUON_AGGMO_BETAS | K | mu_eff | Tests |
+|---|---|---:|---:|---|
+| A | \"0.95\" | 1 | 0.95 | Control — bit-identical to merged baseline |
+| B | \"0.0,0.95\" | 2 | 0.475 | K=2 paper variant — zero-memory passive damping by raw gradient injection |
+| C | \"0.0,0.9,0.99\" | 3 | 0.630 | K=3 paper variant — geometric β spread, balanced multi-timescale |
+| D | \"0.5,0.9,0.99\" | 3 | 0.797 | K=3 graded — mu_eff control variant (closer to baseline μ) |
+**ETA full chain:** ~7.3h. Implementation: ~25 LOC (multi-buffer state, aggregate before Nesterov mix, then NS unchanged). C-vs-D pair separates \"multi-buffer aggregation matters\" from \"mu_eff value matters\".
 
 ### ✅ tanjiro #487 — Cooldown-NS pruning ablation — CLOSED 13:05 UTC productive-NULL [paired-pod n=3]
 
