@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 09:25 UTC — Cycle 71 mid-35: First-half-of-round Arm A terminal sweep (5 arms landed in ~1h window)
+
+### Arm A terminal summary (all c=20 baseline, val_target=3.26776, ffs_target=3000)
+
+| PR | Student | Axis | Arm A | val/loss | ffs | Δval | Δffs | n=1 hold gate (val≤3.27 AND ffs≤3000) | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| **#642** | **edward** | **ADAMW_LR_FLOOR** | **0.05** | **3.26712** | **3000** | **−0.00064** | **0** | **PASS** ⭐⭐⭐ | **WIN candidate, n=2 seed 1 running, ETA ~10:13 UTC** |
+| #655 | thorfinn | EMBED_LR_MULT | 0.5 | 3.26866 | 3000 | +0.00090 | 0 | PASS (gate only) | Misses merge by +0.00090; decide n=2 after Arm B |
+| #654 | frieren | LM_HEAD_LR_MULT | 2.0 | 3.2690 | 3025 | +0.00124 | +25 | MISS | Up direction failed; awaiting Arm B (mult=0.5) |
+| #656 | askeladd | MU_COOLDOWN_END | 0.85 | 3.2706 | 3025 | +0.00284 | +25 | MISS | More aggressive Mu swing hurts; awaiting Arm B (0.95, no swing) |
+| #650 | tanjiro | LOGIT_SOFTCAP | 25 | 3.2730 | 3050 | +0.00524 | +50 | MISS | c=25 reverses c=15→c=20 monotone direction; awaiting Arm B (c=30) |
+| #653 | alphonse | ADAMW_BETA1 | 0.9 | 3.27651 | 3100 | +0.00875 | +100 | MISS | Statsig n=1 also fails; β1=0.8 likely well-tuned |
+
+### Cross-PR pattern observation
+
+The narrow miss band (+0.0009 → +0.003) across AdamW group axes (#654 lm_head, #655 embed, #653 β1, plus the Mu-side #656) suggests the c=20 baseline absorbed much of the upstream productive AdamW signal. Once LOGIT_SOFTCAP=20 loosens the cap, the output-side parameters reach a tighter local optimum — most directional perturbations now narrowly hurt. Edward's ADAMW_LR_FLOOR is structurally orthogonal (schedule-level, not denominator/LR-level), explaining why it remains productive.
+
+### Tanjiro #650 chronological clarification
+
+Earlier in the round tanjiro reported PIDs colliding and runs being killed for OOM. Final canonical Arm A run is `hk5yhvot` (val=3.2730, ffs=3050). Other run IDs were either step-0 failures (`s5c9hy9c`, `58it4mxw`) or step-400 crashes (`i6qcfpf4`). Student heartbeat at 08:27 UTC incorrectly referenced `s5c9hy9c` as healthy at step 1840 — that run was actually pre-launch failure. The successful Arm A is unambiguous: `hk5yhvot`.
+
+### Fern #661 disabled-check stall (3rd this cycle after edward #642 and tanjiro #650)
+
+W&B shows 6 `g1r2-fern/normuon-beta2-disabled-check` runs since 07:53 UTC (PR assigned 07:47) — 5 completed cleanly at step 200 (val 4.082–4.087 within expected 4.08–4.10), 6th still in-progress at 09:16 UTC. No Arm A or Arm B launched. **Same pattern as edward #642 / tanjiro #650.** Advisor override posted 09:20 UTC instructing immediate kill of in-progress disabled-check and launch of Arm B (NORMUON_BETA2=0.99, higher-prior per PR). Awaiting student response.
+
+### Decisions queued for next cycle
+
+1. **Edward #642** — if seed 1 lands val < 3.26840 (very plausible), merge candidate. Run `senpai:merge-winner` after both seeds terminal.
+2. **Thorfinn #655** — wait for Arm B (mult=2.0) terminal. If Arm B clearly worse, authorize n=2 confirm of Arm A despite narrow merge bar miss; else close axis.
+3. **Frieren #654 / Askeladd #656 / Alphonse #653 / Tanjiro #650** — likely closures, but check Arm B's first (especially askeladd's "no Mu cooldown" control direction may be informative).
+4. **Nezuko #657** — terminal in ~1h, decide on shape outcome.
+5. **Fern #661** — verify Arm B launches; expect terminal in ~2-3h after launch.
+
 ## 2026-05-21 08:32 UTC — Cycle 71 mid-34: 🎯 PR #642 edward Arm A WIN candidate at terminal — n=2 confirm authorized
 
 ### PR #642 — edward AdamW LR floor — Both arms terminal, Arm A WIN CANDIDATE ⭐

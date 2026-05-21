@@ -1,5 +1,15 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-21 09:25 UTC — Cycle 71 mid-35: First-half-of-round terminal sweep — five Arm A's now landed (all on c=20 stack):
+  - **#642 edward Arm A** (FLOOR=0.05): val=3.26712/ffs=3000 ⭐ **WIN candidate** (Δval=-0.00064) — n=2 seed 1 running (step 100 at 09:25 UTC), ETA terminal ~10:13 UTC
+  - **#655 thorfinn Arm A** (EMBED_LR_MULT=0.5): val=3.26866/ffs=3000 — passes n=1 hold gate (val≤3.27 AND ffs=3000) but misses merge bar by +0.00090. Arm B (mult=2.0) running step 675. Hold n=2 decision until Arm B terminal.
+  - **#654 frieren Arm A** (LM_HEAD_LR_MULT=2.0): val=3.2690/ffs=3025 — MISS both legs (+0.00124 val, +25 ffs). Arm B (mult=0.5) running step 200.
+  - **#656 askeladd Arm A** (MU_COOLDOWN_END=0.85): val=3.2706/ffs=3025 — MISS both legs (+0.00284 val, +25 ffs). Arm B (END=0.95, no cooldown control) running step 75.
+  - **#653 alphonse Arm A** (ADAMW_BETA1=0.9): val=3.27651/ffs=3100 — clear MISS (+0.00875 val, +100 ffs); statsig n=1 fails. Arm B (β1=0.95) running step ~800.
+  - **#650 tanjiro Arm A** (LOGIT_SOFTCAP=25, canonical run hk5yhvot): val=3.2730/ffs=3050 — MISS both legs. Earlier confusion with duplicate runs (s5c9hy9c step 0 fail, i6qcfpf4 step 400 crash). Arm B (c=30) running step 318.
+  - **#657 nezuko Arm A** (cosine schedule): step 1271/3175 mid-cooldown, healthy after stale_wip nudge.
+  - **#661 fern stalled in disabled-check loop** — 6 disabled-checks since 07:53 UTC, no Arm B launched. ADVISOR OVERRIDE posted 09:20 UTC instructing to kill in-progress disabled-check and launch Arm B (NORMUON_BETA2=0.99) immediately. Same pattern as edward #642 and tanjiro #650.
+  - **Pattern observation**: ALL four Arm A's around the lm_head/embed AdamW group cluster (#654 lm_head 2.0×, #655 embed 0.5×, #656 mu_end 0.85, #653 β1 0.9) miss the merge bar but mostly by +0.0009 to +0.003 — narrow miss band suggests the c=20 baseline absorbed much of the upstream productive AdamW signal. Edward's floor (schedule-level, not denominator) remains structurally orthogonal.**
 - **2026-05-21 08:32 UTC — Cycle 71 mid-34: 🎯🎯🎯 PR #642 edward Arm A WIN CANDIDATE CONFIRMED at terminal — Arm A (FLOOR=0.05): val=3.26712/ffs=3000 BEATS new baseline by Δval=-0.00064 AND ffs tie at 3000. Arm B (FLOOR=0.10): val=3.26842/ffs=3000 — misses val bar by +0.00066, gap widens uniformly through cooldown (mild floor wins, too much floor reverses gain). Floor-activation windows are sharp: Arm A 3.5%, Arm B 7.0%. n=2 confirm AUTHORIZED with seed 1 (ETA ~10:13 UTC). Mechanism note from fern #625 closure: ADAMW_LR_FLOOR acts at LR-schedule level (orthogonal to c=20's denominator-touching mechanisms) — cleanest candidate for stacking. Also nudged nezuko #657 stale_wip (no heartbeats since assignment 1h ago). 8/8 students assigned.**
 - **2026-05-21 07:35 UTC — Cycle 71 mid-33: PR #625 fern ADAMW_BETA2 CLOSED on c=20 stack (β2=0.99 + c=20 antagonistic — n=1 val=3.27064/ffs=3025; +0.0036 stable penalty across 12 cooldown checkpoints, std <0.0001; mechanism: both touch lm_head — c=20 loosens cap, β2=0.99 over-smooths denominator on freer gradient magnitudes; β2=0.99 was baseline-specific win not generally additive). Fern → #661 NORMUON_BETA2 sweep (Muon per-row variance EMA ∈ {0.90, 0.99} vs default 0.95 hardcoded; fresh Muon-side EMA axis never ablated; orthogonal to AdamW β2 — different update geometry per-row vs per-coord). 8/8 students assigned.**
 - **2026-05-21 07:15 UTC — Cycle 71 mid-32: PR #630 nezuko ROPE_BASE CLOSED (axis flat — A 256: val=3.27049/ffs=3025; B 4096: val=3.26937/ffs=3025; 4× sharper and 4× broader gave near-identical results; positional encoding insensitive on 1024-token sequences). Nezuko → #657 SCHEDULE_SHAPE sweep (cosine vs quadratic vs default linear — first ablation of LR cooldown SHAPE; only FRACTION + ENDPOINTS were tested before; motivated by edward #642 "cooldown tail activity wins" signal). 8/8 students assigned.**
@@ -49,23 +59,22 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Notes |
 |---|---|---|---|---|
-| **#642** ⭐⭐⭐ | **edward** | **ADAMW_LR_FLOOR — Arm A (0.05) WIN at terminal: val=3.26712/ffs=3000; Arm B (0.10) miss val by +0.00066** | **n=2 confirm AUTHORIZED, seed 1 launching** | **ETA ~10:13 UTC; MERGE candidate** |
-| **#653** ⭐ NEW | **alphonse** | **AdamW β1 sweep — ADAMW_BETA1 ∈ {0.9, 0.95} vs default 0.8 (momentum length)** | **Just assigned** | **Mirror to fern β2 candidate; 4th AdamW productive-side axis** |
-| **#654** ⭐ NEW | **frieren** | **lm_head LR multiplier — LM_HEAD_LR_MULT ∈ {2.0, 0.5} vs default 1/320 ≈ 0.003125** | **Just assigned** | **Direct test of "lm_head undertrained" from 3-winner convergence** |
-| **#650** | **tanjiro** | **Logit softcap extended — LOGIT_SOFTCAP ∈ {25, 30}** | **In disabled-check stall — nudged 06:31 UTC** | **Monitor for Arm A launch** |
-| **#661** ⭐ NEW | **fern** | **NORMUON_BETA2 sweep — Muon per-row variance EMA ∈ {0.90, 0.99} vs default 0.95** | **Just assigned** | **Fresh Muon-side EMA axis, never ablated** |
-| **#655** ⭐ NEW | **thorfinn** | **Embed LR mult — EMBED_LR_MULT ∈ {0.5, 2.0} vs default lr=0.3 (mirror to #654)** | **Just assigned** | **2×2 dissection with frieren #654 lm_head LR** |
-| **#656** ⭐ NEW | **askeladd** | **MU_COOLDOWN_END sweep — ∈ {0.85, 0.95} vs default 0.90 (Muon momentum cooldown swing)** | **Just assigned** | **Fresh Muon-side schedule axis; mirrors edward #642 cooldown-tail theme** |
-| **#657** ⭐ NEW | **nezuko** | **SCHEDULE_SHAPE — cosine vs quadratic vs default linear (LR cooldown curve shape)** | **Just assigned** | **First shape ablation; ~7 LoC; motivated by edward #642 "tail activity wins"** |
+| **#642** ⭐⭐⭐ | **edward** | **ADAMW_LR_FLOOR=0.05 — Arm A val=3.26712/ffs=3000 WIN candidate; Arm B (0.10) val=3.26842/ffs=3000 miss** | **n=2 seed 1 running step 100 at 09:25 UTC** | **ETA ~10:13 UTC; MERGE candidate if seed 1 lands < 3.26840** |
+| **#653** | **alphonse** | **ADAMW_BETA1 sweep — Arm A (0.9) val=3.27651/ffs=3100 MISS clear (+0.00875 val)** | **Arm B (β1=0.95) running step ~800** | **β1=0.8 likely tuned; axis closing direction** |
+| **#654** | **frieren** | **LM_HEAD_LR_MULT sweep — Arm A (2.0×) val=3.2690/ffs=3025 MISS (+0.00124 val, +25 ffs)** | **Arm B (mult=0.5) running step 200** | **Up direction failed; down direction may also fail** |
+| **#650** | **tanjiro** | **Logit softcap extended — Arm A (c=25, canonical hk5yhvot) val=3.2730/ffs=3050 MISS** | **Arm B (c=30) running step 318** | **Monotone direction REVERSED above c=20; axis likely closing** |
+| **#661** | **fern** | **NORMUON_BETA2 sweep — stalled in disabled-check loop (6 since 07:53)** | **Override posted 09:20 UTC: launch Arm B (0.99) immediately** | **Waiting for launch confirmation** |
+| **#655** | **thorfinn** | **EMBED_LR_MULT sweep — Arm A (0.5×) val=3.26866/ffs=3000 — passes n=1 hold gate but +0.00090 misses merge** | **Arm B (mult=2.0) running step 675** | **Borderline candidate; decide n=2 after Arm B terminal** |
+| **#656** | **askeladd** | **MU_COOLDOWN_END sweep — Arm A (0.85) val=3.2706/ffs=3025 MISS both legs** | **Arm B (0.95, no Mu cooldown) running step 75** | **More aggressive Mu cooldown swing hurts; control direction will inform closure** |
+| **#657** | **nezuko** | **SCHEDULE_SHAPE — Arm A (cosine) running step 1271/3175 healthy** | **Healthy after stale_wip nudge** | **Monitor for terminal** |
 
 ## Top merge candidates / watching closely
 
-1. **EDWARD #642 ADAMW_LR_FLOOR=0.05 ⭐ WIN candidate** — Arm A val=3.26712/ffs=3000 BEATS new baseline (Δval=-0.00064) at n=1; hold gate val≤3.27 AND ffs≤3000 PASSES. Arm B (0.10) running for comparison. After Arm B terminal, authorize n=2 confirm of Arm A. Strongest WIN candidate of cycle so far.
-2. **ALPHONSE #653 ADAMW_BETA1 (just assigned)** — β1 ∈ {0.9, 0.95} vs default 0.8. Direct mirror to fern's β2 candidate (longer momentum across all AdamW groups). 4th AdamW productive-side axis.
-3. **FRIEREN #654 lm_head LR multiplier (just assigned)** — LM_HEAD_LR_MULT ∈ {2.0, 0.5} vs default 1/320. Tests whether lm_head specifically is undertrained at lr=0.003125 — direct test of 3-winner convergence theme.
-4. **FERN #625 ADAMW_BETA2=0.99 re-run** — re-confirm seed0=3.26704 on new c=20 stack. If lands, candidate for n=2 confirm.
-5. **TANJIRO #650 LOGIT_SOFTCAP extended (c=25, c=30)** — if monotone direction continues from c=15 → c=20 winner, c=25 could push baseline further. Currently in disabled-check stall.
-6. **ASKELADD #634 SOAP β2** — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs 0.90. EMA timescale of Kronecker-factor estimates for attention SOAP.
+1. **EDWARD #642 ADAMW_LR_FLOOR=0.05 ⭐⭐⭐ WIN candidate** — Arm A seed 0 val=3.26712/ffs=3000 BEATS new baseline (Δval=-0.00064) at n=1. n=2 seed 1 running step 100 at 09:25 UTC, ETA terminal ~10:13 UTC. Merge math: need seed 1 val < 3.26840 for n=2 mean to clear 3.26776 — very plausible given seed 0 already 0.00064 below bar. **If both seeds pass: MERGE.**
+2. **THORFINN #655 EMBED_LR_MULT=0.5 — narrow miss** — Arm A val=3.26866/ffs=3000 passes n=1 hold gate but misses merge bar by +0.00090. Decide n=2 confirm only after Arm B (mult=2.0) terminal. Math: need seed 1 < 3.26686 to clear merge bar — wider gap than edward but still within seed variance.
+3. **TANJIRO #650 LOGIT_SOFTCAP (c=25)** — Arm A val=3.2730/ffs=3050 MISS. c=25 hurt vs c=20 — monotone direction REVERSED above c=20. Awaiting Arm B (c=30) to confirm closure direction.
+4. **ALPHONSE / FRIEREN / ASKELADD Arm B's** — all running, all expected to land in next 1-2 hours. Likely closures based on Arm A misses, but Arm B may surprise (especially askeladd's "no cooldown" control direction).
+5. **NEZUKO #657 cosine schedule** — mid-cooldown step 1271 of 3175. Cosine vs default linear — first shape ablation. Outcome will be informative regardless.
 
 ## Mechanism categories (cycle 71 active)
 
