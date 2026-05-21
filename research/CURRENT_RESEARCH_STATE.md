@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 09:05 UTC
+- **Date:** 2026-05-21 09:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -120,18 +120,25 @@ Single-seed 4-arm (drift gate A PASS, |3.27121−3.27174|=0.00053): A=3.27121, B
 Single-seed 4-arm (drift gate A PASS, |3.27208−3.27174|=0.00034): A=3.27208, B (β₁_embed=0.50)=+0.00399 (regression), C (β₁_embed=0.00, RMSProp-mode)=+0.00513 (regression), D (β₁_embed=0.90)=+0.00177 (regression marginal). All B/C/D regress past +0.0015 within-pod threshold. Magnitude-up direction (β₁ 0.80→0.50→0.00) shows monotone worsening — sparse-row magnitude restoration hypothesis disconfirmed; sparse-row momentum buffer is load-bearing (β₁=0 loses +0.005 vs ctrl). Smoothing-up direction (β₁=0.90) also marginal regression. **Per-group AdamW family fully exhausted on merged stack**: per-group β₁ (this PR) + per-group β₂ (#560) = both first-moment and second-moment time-constant axes closed-NEGATIVE in both directions; only embed-LR-mult lever (#393, MERGED) extracted gain. **44th productive-NEGATIVE this cycle.**
 **Follow-up**: alphonse assigned **#632 Tunable post-NS aspect-ratio exponent** — post-NS-side modification targeting the canonical `max(1, fan_out/fan_in)**0.5` scaling in `muon_update()`. Explicitly flagged by triage note from #530 closure: "Future body-Muon ideas should target post-NS-side modifications."
 
-### 🔄 alphonse #632 — Tunable post-NS aspect-ratio exponent [assigned 01:10 UTC]
+### 🔄 alphonse #632 — Tunable post-NS aspect-ratio exponent [N=1 sweep COMPLETE 08:54 UTC; SENT BACK 09:08 UTC for paired-pod n=3 confirmation of Arm D winner candidate]
 
 **Branch:** `g1r4-alphonse/muon-post-ns-aspect-exp`
-**Hypothesis**: Canonical post-NS scaling `update *= max(1, grad.size(-2) / grad.size(-1))**0.5` at line 642 applies a fixed aspect-ratio exponent of 0.5 from Bernstein-Newhouse (2024) modular norm theory. On the merged stack with NS_COEF_SCHEDULE=linear_ramp_down and NS_COOLDOWN_SHAPE=late_peak, the effective orthogonalization deviates from theory assumptions — making a different exponent potentially more effective. Tests exp=0 (no scaling, uniform body magnitudes), exp=0.25 (gentler), and exp=1.0 (full linear aspect-ratio amplification). This is one of the few remaining unexplored **post-NS-side modification** axes (flagged explicitly after #530 body-Muon mechanism closure).
 
-| Arm | NANOGPT_MUON_POST_NS_EXP | Scale on QKV (fan_out/fan_in=3) | Scale on MLP-expand (4) | Tests |
-|---|---:|---:|---:|---|
-| A | 0.50 (ctrl) | ×√3≈1.73 | ×2.0 | Canonical, reproduces merged baseline |
-| B | **0.00** | ×1.0 (no scaling) | ×1.0 | No aspect-ratio bias — unifies body magnitudes |
-| C | **0.25** | ×3^0.25≈1.32 | ×4^0.25≈1.41 | Gentler aspect bias, interior sweet spot |
-| D | **1.00** | ×3.0 | ×4.0 | Full linear aspect scaling — amplified bias |
-**ETA full chain:** ~7.3h. Implementation: ~5 LOC (env var + replace `**0.5` with `**NANOGPT_MUON_POST_NS_EXP` + print0 + W&B config).
+**Phase 1 (N=1 4-arm sweep) results**:
+| Arm | exp | val/loss | Δ vs A | Δ vs baseline | W&B run |
+|---|---:|---:|---:|---:|---|
+| A | 0.5 (ctrl) | 3.27421 | — | +0.00247 (drift PASS upper edge) | v7q5nij3 |
+| B | 0.0 | 3.27344 | −0.00077 (null) | +0.00170 | 32cjrhjd |
+| C | 0.25 | 3.27463 | +0.00042 (null) | +0.00289 | qn112qgi |
+| **D** | **1.0** | **3.27147** | **−0.00274** ⭐ | **−0.00027** | xs4uapkg |
+
+**Arm D = WINNER CANDIDATE at N=1**: passes all three single-seed gates (within-pod Δ=−0.00274, val=3.27147 < baseline 3.27174 by 0.00027 absolute, stat-rule 0.00853 ≥ 0.004). Landscape: wide flat plateau exp ∈ [0.0, 0.5] (all within ±0.0008 of A), single-arm jump at exp=1.0.
+
+**Honest seed-correction caveat**: Arm A's +0.00247 drift is at upper edge of ±0.003 band. Seed-corrected D gain over baseline is only −0.00027 — within the magnitude range where prior N=1 winners have collapsed under paired-pod control. Now **7 cycle precedents for single-seed → paired-pod sign collapse** (#344, #351, #408, #487, #506, #550, #577 today).
+
+**Pre-staged Phase 2 paired-pod n=3 (mandatory before merge)**: Sequential chain, 6 paired runs with SENPAI_SEED ∈ {0, 1, 2}, comparing Arm A (exp=0.5 ctrl) vs Arm D (exp=1.0). Group: `g1r4-alphonse/muon-post-ns-aspect-exp-paired`. Merge gate (all 3 must pass): mean(Δ) ≤ −0.002 AND mean(val_D) ≤ 3.27174 AND (3.28 − mean) × √3 ≥ 0.004.
+
+**ETA full paired-pod chain:** ~11h. Triton compile fix during Phase 1 (Python int-literal-0 issue with `libdevice.pow(... 0 ...)` inside Triton — guarded with `if NANOGPT_MUON_POST_NS_EXP != 0.0:`) verified to have no semantic effect on arms A/C/D. Parallel winner candidate: #628 nezuko Arm B (val=3.27127) also awaiting paired-pod — orthogonal mechanism (per-layer cos-EMA LR boost pre-NS vs aspect exponent post-NS); if both confirm, may compound.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
