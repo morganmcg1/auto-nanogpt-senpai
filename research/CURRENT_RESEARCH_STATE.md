@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 19:00 UTC
+- **Date:** 2026-05-21 19:20 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -365,18 +365,23 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 4-arm 2×2 factorial (N=1, ran on OLD pre-#579 stack — #579 merged mid-experiment): A (full)=3.27438, B (drop floor)=3.27285 (Δ=−0.00153), **C (drop mult)=3.27222 (Δ=−0.00216 best)**, D (drop both)=3.27487 (Δ=+0.00049). **All 4 arms above NEW baseline 3.27070** — C closest at +0.00152. Mechanism finding: **mutual antagonism / saturation** — A ≈ D, single-component drops each help slightly. Effective late-phase embed LR: A=0.0675 (saturated) > C=0.045 (sweet spot) > B=0.45→0 > D=0.30→0. Both #235 and #393 push embed LR past sweet spot; stacking saturates surface. Arm C's −0.00216 within-pod signal at threshold edge but Arm A drift +0.00264 baked-in — paired-pod confirmation cannot land mean(val_C) below 3.27070. Cannot merge; stack simplification not viable. **Future embed-side experiments should target joint surface** rather than individual axes. **51st productive-null/negative this cycle.**
 **Follow-up**: edward assigned **#674 per-block-type Muon momentum asymmetry** — direct extension of #579/#669 mechanism family on 3rd Muon hparam axis. 4-arm sweep (attn_mu × mlp_mu): A=(0.95,0.95) ctrl, B=(0.90,0.95) attn-faster, C=(0.95,0.99) mlp-slower, D=(0.90,0.99) compound. Mirror #579 4-arm pattern. Mechanism: attn-prefer-faster-tracking (less stale routing signal), mlp-prefer-slower-tracking (lower variance feature gradient). Completes per-block-TYPE Muon hparam family (LR ✓#579 / WD #669 / momentum #674).
 
-### 🔄 edward #674 — Per-block-type Muon momentum asymmetry [assigned 11:15 UTC]
+### ✅ edward #674 — Per-block-type Muon momentum asymmetry — CLOSED 19:20 UTC productive-NULL/NEGATIVE
 
-**Branch:** `g1r4-edward/muon-attn-mlp-momentum-asym`
-**Hypothesis**: Direct extension of #579 mechanism family — if per-block-TYPE LR asymmetry productive, momentum-buffer time-constant asymmetry is natural orthogonal axis. attn benefits from faster-tracking (mu=0.90, ~10-step memory) — attention routing patterns shift fast; stale momentum carries outdated co-activation signal. mlp benefits from slower-tracking (mu=0.99, ~100-step memory) — feature representation gradients more stable; longer averaging reduces variance. Current uniform mu=0.95 (~20-step) untested per-block-TYPE.
+4-arm single-seed sweep (drift gate Arm A PASS at +0.00053): A=(0.95,0.95)=3.27123, B=(0.90,0.95)=3.27066 (Δ=−0.00057 sub-threshold direction-correct), **C=(0.95,0.99)=3.27986 (Δ=+0.00863 strong regression, fst=3350)**, D=(0.90,0.99)=3.27915 (Δ=+0.00792, tiny B-rescue from additive prediction +0.00806). No winner-candidate. **Per-block-TYPE momentum axis does NOT mirror #579 LR asymmetry pattern.** mlp_mu=0.99's ~100-step window staleness dominates variance reduction benefit. Mechanism refinement: #579's productive interaction is specifically about step-size magnitude (LR axis), NOT about gradient-averaging time-constant — the two per-block-TYPE Muon hparam axes are mechanistically distinct. **56th productive-null/negative this cycle.** Per-block-TYPE Muon family characterization: LR ✓#579 MERGED / WD #669 in flight / mu ✗ NULL (this) / NS_ITERS,β₂,ε unexplored.
+**Follow-up**: edward assigned **#712 Per-block-TYPE body Muon β₂ asymmetry** — second-moment variance-estimator window per block type. Orthogonal to mu (first moment), LR (step magnitude), WD (regularization). β₂ already a per-group field in Muon class; trivial ~5 LOC env-var change. 4-arm: A=(0.999,0.999) ctrl, B=(0.99,0.999) attn-shorter, C=(0.999,0.99) mlp-shorter, D=(0.99,0.99) uniform-shorter control separating per-TYPE asymmetry from "just shorter everywhere". Distinct from #97 (global β₂ sweep at 0.999 optimal) and #560 (per-aux-group AdamW β₂ NEG, structurally different because no NS).
 
-| Arm | NANOGPT_MUON_ATTN_MU | NANOGPT_MUON_MLP_MU | Mechanism tested |
-|---|---:|---:|---|
-| A (ctrl) | 0.95 | 0.95 | Reproduces merged baseline (bit-identical) |
-| B | **0.90** | 0.95 | attn faster-tracking only — singleton test |
-| C | 0.95 | **0.99** | mlp slower-tracking only — singleton test |
-| D | **0.90** | **0.99** | Compound — directly mirrors #579 4-arm pattern |
-**ETA full chain:** ~7h. Implementation: ~15 LOC (env vars + per-group mu in `muon_update()`, mirrors #579 param-group split). Completes 3-axis per-block-TYPE Muon family.
+### 🔄 edward #712 — Per-block-TYPE body Muon β₂ asymmetry [assigned 19:20 UTC]
+
+**Branch:** `g1r4-edward/muon-attn-mlp-beta2-asym`
+**Hypothesis**: 4th axis of per-block-TYPE Muon family. β₂ controls Adam-style second-moment variance-estimator window in `muon_update()` line 638-643 (`v.mul_(beta2).addcmul_(update, update, value=1-beta2); update = update/(v.sqrt()+eps)`); v then feeds NS orthogonalization. β₂=0.999 globally established by #97 (Muon² global β₂ sweep) — never tested per-block-TYPE. Mechanism: attn Q/K/V/proj gradients have high-variance directional spikes from attention re-routing; shorter β₂ (~100-step) may track these faster. mlp fc/proj gradients more stable via channel-mixing integration; standard ~1000-step window may be near-optimal.
+
+| Arm | NANOGPT_MUON_ATTN_BETA2 | NANOGPT_MUON_MLP_BETA2 | attn window | mlp window | Tests |
+|---|---:|---:|---:|---:|---|
+| A ctrl | 0.999 | 0.999 | ~1000 | ~1000 | Bit-identical control |
+| B | **0.99** | 0.999 | **~100** | ~1000 | Singleton attn-shorter |
+| C | 0.999 | **0.99** | ~1000 | **~100** | Singleton mlp-shorter |
+| D | **0.99** | **0.99** | **~100** | **~100** | Uniform shorter — controls for asymmetry vs just-shorter |
+**ETA full chain:** ~7h. Implementation: ~5 LOC (Muon class already supports per-group β₂; just env-var reads + dict kwarg). Closure of #674 mu axis means per-block-TYPE 2nd-moment axis is the natural next test in the family.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 

@@ -3,6 +3,47 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 19:20 UTC — PR #674: Per-block-TYPE Muon momentum asymmetry (attn vs mlp mu) (edward) — CLOSED productive-NULL/NEGATIVE
+
+- Branch: `g1r4-edward/muon-attn-mlp-momentum-asym`
+- Hypothesis: Extension of #579 (per-block-TYPE Muon LR asymmetry MERGED) to the momentum axis. Predicted: attn benefits from faster tracking (lower mu) + mlp benefits from longer averaging (higher mu) — parallel to LR pattern.
+
+### Results — 4-arm single-seed sweep
+
+| Arm | attn_mu | mlp_mu | val/loss | Δ vs A | first_step_to_target | Verdict | W&B |
+|---|---:|---:|---:|---:|---:|---|---|
+| A ctrl | 0.95 | 0.95 | 3.27123 | — | 3225 | drift PASS (+0.00053 vs 3.27070) | `t5ifplk2` |
+| B | 0.90 | 0.95 | 3.27066 | **−0.00057** | 3225 | sub-threshold productive direction | `7p8nii0m` |
+| C | 0.95 | **0.99** | 3.27986 | **+0.00863** | 3350 | strong regression | `es4ddq2u` |
+| D | 0.90 | **0.99** | 3.27915 | +0.00792 | 3325 | regression (tiny B-rescue) | `ufw93wpe` |
+
+### Key findings
+
+1. **Drift gate Arm A PASS**: val=3.27123, Δ=+0.00053 within ±0.003. Implementation is correct (advisor's 13:20 UTC drift alarm was a false alarm — intermediate-trajectory val=3.30 at step 3025 was the standard pre-cooldown trajectory, not actual drift).
+
+2. **Per-block-TYPE momentum axis does NOT mirror #579 LR asymmetry.** Singleton B (attn faster tracking) is direction-correct but sub-threshold (−0.00057). Singleton C (mlp slower tracking) is strongly counterproductive (+0.00863). No winner-candidate.
+
+3. **Mechanism — mlp_mu=0.99 (~100-step window) staleness dominates**: at this window length, gradient direction is changing faster than the buffer can track. The expected variance-reduction benefit is dwarfed by staleness cost. first_step_to_target degraded 3225 → 3350 (125 steps slower).
+
+4. **Tiny interaction-rescue in Arm D** (D=+0.00792 < A+B+C additive prediction=+0.00806). attn_mu=0.90 partially rescues mlp_mu=0.99 harm by reducing effective step-size variance, but rescue magnitude is clinically meaningless.
+
+5. **#579 mechanism refinement**: The two per-block-TYPE Muon axes diverge mechanistically.
+   - **LR axis (#579 MERGED)**: attn=0.80× conservative + mlp=1.20× aggressive → productive interaction
+   - **mu axis (this PR, NULL)**: attn=0.90 faster-tracking + mlp=0.99 slower-tracking → no productive interaction
+   - **Conclusion**: #579's "step-size asymmetry" is specifically about step magnitude, NOT about effective-gradient-averaging time constant. The two mechanisms are distinct.
+
+6. **Per-block-TYPE Muon family characterization continues**:
+   - #579 LR axis: **MERGED**
+   - #669 WD axis: in flight (impl drift gate fixing)
+   - #674 mu axis: **CLOSED NULL** (this)
+   - Future: NS_ITERS, β₂, ε per-TYPE asymmetries unexplored
+
+**56th productive-null/negative this cycle.** Per-block-TYPE Muon mu axis closed.
+
+**Follow-up**: edward assigned **#712 Per-block-TYPE body Muon β₂ asymmetry** — second-moment variance-estimator window per block type. Orthogonal to mu (first moment), LR (step magnitude), WD (regularization). β₂ already a per-group field in Muon class; trivial ~5 LOC env-var-gated change. 4-arm: A=(0.999,0.999) ctrl, B=(0.99,0.999), C=(0.999,0.99), D=(0.99,0.99) uniform-shorter control. Distinct from #97 (global β₂ sweep, established 0.999 optimal) and #560 (per-aux-group AdamW β₂, NEG, structurally different because no NS).
+
+---
+
 ## 2026-05-21 19:00 UTC — PR #668: Per-row L2 gradient clip on embed and lm_head (tanjiro) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-tanjiro/per-row-grad-clip-aux`
