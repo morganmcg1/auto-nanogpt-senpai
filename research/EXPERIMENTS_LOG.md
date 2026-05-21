@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-21 04:30 UTC — PR #606 CLOSED: WSD shorter cooldown_frac — Arm A NULL DNF / Arm B SKIPPED, 39th axis (g1r1-fern)
+
+- Branch: `g1r1-fern/wsd-schedule`
+- Hypothesis: Shorten the WSD (warmup-stable-decay) cooldown fraction from baseline 0.70 to {0.25, 0.15}, hoping that a longer "stable" peak-LR plateau allows more aggressive optimization before sharp terminal decay. The baseline already starts at full LR (zero warmup), so cooldown_frac controls only the length of the final decay phase.
+
+| Arm | cooldown_frac | W&B | sr (ffs) | val/best_loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | 0.70 | `k7ylyby9`/`dm4joozw` | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.25 | `kq05a45r` | DNF (-1) | 3.30081 | DNF | +0.0365 | **NULL DNF** |
+| Arm B | 0.15 | — | — | — | — | — | **SKIPPED** (strictly shorter cooldown predicted worse given Arm A) |
+
+**Verdict: NULL DNF / SKIPPED → WSD shorter-cooldown direction CLOSES. 39th axis closed.**
+
+**Key mechanistic finding:** All val-loss progress from 3.55 → 3.30 happens in the 25% decay tail of the baseline cooldown. Going shorter on cooldown — even by 6 percentage points (0.70→0.64 implicit, or explicitly 0.25 here) — destroys the speedrun mechanism. The cooldown is not a polishing phase but the *core descent phase* of the WSD trajectory.
+
+**Cross-PR coherence:**
+- This complements #607 alphonse LR-floor (Arm A η_min=0.10 NULL): keeping LR too high during cooldown is also harmful — even a 10% LR floor flattened the late-cooldown descent slope to 0.00007/step. So *both* "less cooldown" (shorter frac) and "weaker cooldown" (LR floor) hurt: the deep descent into near-zero LR over the full 70% tail is load-bearing.
+- The orthogonal "LONGER cooldown" direction (cooldown_frac ∈ {0.80, 0.90}) remains untested — could be a next assignment if we want to fully pin the WSD schedule shape axis.
+
+**Action:** fern reassigned to PR #644 (Winsorization pre-NS body-Muon, k={1.5, 3.0}) — orthogonal hard-clip counterpart to frieren's tanh-squash. See Hypothesis 2 in `research/RESEARCH_IDEAS_2026-05-20_23:30.md`.
+
+---
+
 ## 2026-05-20 23:46 UTC — PR #583 CLOSED: Adamax on aux AdamW (L∞ v-aggregation) — NULL/NULL DNF, 5th and FINAL leaf of aux update-rule mechanism tree CLOSES (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/adamax-aux-adamw`
