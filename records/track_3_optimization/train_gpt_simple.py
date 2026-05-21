@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -64,6 +65,14 @@ def parse_args():
                              "triangle=linear 0->2x->0 with peak at midpoint; "
                              "cosine_updown=cosine 0->2x->0 (smooth triangle). "
                              "Only applies to Muon param groups; AdamW aux is unaffected.")
+    parser.add_argument("--cooldown_shape", type=str, default="linear",
+                        choices=["linear", "cosine", "quadratic", "sqrt", "step"],
+                        help="Shape of the LR cooldown curve over the cooldown phase. "
+                             "All shapes start at eta=1 at cooldown start and end at eta=0 at training end. "
+                             "linear=(1-c) [ctrl]; cosine=0.5*(1+cos(pi*c)); "
+                             "quadratic=(1-c)^2 [convex, faster early]; "
+                             "sqrt=(1-c)^0.5 [concave, slower early]; "
+                             "step=1.0 if c<0.9 else 0 [hold-then-cliff].")
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
@@ -819,7 +828,6 @@ for trial_idx in range(args.num_trials):
         elif schedule == "triangle":
             return 4.0 * p if p < 0.5 else 4.0 * (1.0 - p)
         elif schedule == "cosine_updown":
-            import math
             return 1.0 - math.cos(2 * math.pi * p)
         else:
             raise ValueError(f"Unknown wd_schedule: {schedule}")
@@ -831,7 +839,20 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            # cooldown-phase progress in [0, 1]
+            c = (progress - (1 - cooldown_frac)) / cooldown_frac
+            if args.cooldown_shape == "linear":
+                eta = 1.0 - c
+            elif args.cooldown_shape == "cosine":
+                eta = 0.5 * (1.0 + math.cos(math.pi * c))
+            elif args.cooldown_shape == "quadratic":
+                eta = (1.0 - c) ** 2
+            elif args.cooldown_shape == "sqrt":
+                eta = (1.0 - c) ** 0.5
+            elif args.cooldown_shape == "step":
+                eta = 1.0 if c < 0.9 else 0.0
+            else:
+                raise ValueError(f"Unknown cooldown_shape: {args.cooldown_shape}")
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
