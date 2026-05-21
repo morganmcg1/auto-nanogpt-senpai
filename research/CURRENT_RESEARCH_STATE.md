@@ -1,6 +1,7 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-21 02:20 UTC
+- **Last updated:** 2026-05-21 02:55 UTC
+- **🚨 NEZUKO POD BROKEN ~01:00-01:25 UTC**: PR #621 ctrl arm `58rw98w0` ran healthy for 1920 steps (NC=0) then crashed; 4 subsequent attempts all show canonical 147M nonfinite fingerprint at step 125. esc#31 posted on Issue #164. **6 of 8 pods now broken; throughput down to 2/8 productive (askeladd, fern only)**. PR #621 HELD on broken pod (status:wip).
 - **🆕 PR #636 fern ASSIGNED 02:20 UTC — H36 Cooldown-gated MuonH momentum reset**: Highest-EV follow-up from PR #616 phase-localized mechanism finding. Reset arm was BETTER than ctrl by 0.005–0.035 during the entire main training phase, then LOST during cooldown. Hypothesis: gate reset OFF at cooldown onset (~75% through training, step 2493/3325) → capture mid-training favorable Δ without cooldown loss. 2 arms: ctrl vs `--muonh_reset_until_frac 0.75`. ~3 LoC. Credible merge candidate if mid-training Δ ≈ −0.02 transfers to terminal.
 - **🆕 PR #616 CLOSED NEG 02:15 UTC — H33 fern MuonH momentum reset on sync, phase-localized mechanism finding**: ctrl `s4vuryin` 3.27383 (code-clean), arm 2 reset-on `cdwha2oa` **3.29693** (NEG, Δ+0.02310). **Two regimes, opposite signs**: main phase (high LR) → reset BETTER than ctrl by 0.005–0.035 (stale momentum is noise); cooldown phase (low LR) → reset LOSES progressively (cuts optimizer memory when long-horizon directional momentum is needed). Sharp phase boundary at step ~2500 (cooldown onset). Provisional rule: "inner optimizer memory is more valuable during cooldown than main training." Fern reassigned to H36 cooldown-gated variant (PR #636).
 - **🆕 PR #631 askeladd ASSIGNED 01:05 UTC — H35 Aux AdamW β2 pruning**: Tests whether the aux AdamW second moment (v_t EMA, β2=0.95) is load-bearing. PR #612 (just closed) confirmed β1=0.8 IS load-bearing; this tests the other half. Setting β2=0 → v_t = g_t² each step → update ≈ signSGD-with-momentum. 2 arms: ctrl (β2=0.95) vs arm 2 (`--aux_adamw_beta2 0.0`). ~2 LoC. Three decisive outcomes: win/match → v_t dead weight (simplify); NEG → full AdamW floor confirmed (both β1 AND β2 load-bearing).
@@ -69,7 +70,7 @@
 |---|---|---|---|
 | **#636** | fern | **H36: Cooldown-gated MuonH momentum reset** (NEW 02:20 UTC) | Assigned. ~3 LoC. 2 arms: ctrl vs arm 2 (`--muonh_reset_on_sync 1 --muonh_reset_until_frac 0.75`). Phase-gated reset: ON during steps 0-2493, OFF during 2493-3325. Tries to capture PR #616 mid-training favorable Δ ≈ −0.02 without cooldown loss. Credible merge candidate. |
 | **#631** | askeladd | **H35: Aux AdamW β2 pruning** (NEW 01:05 UTC) | Assigned. ~2 LoC. 2 arms: ctrl (β2=0.95), arm 2 (`--aux_adamw_beta2 0.0` = signSGD-with-momentum). Tests if v_t EMA is load-bearing. Natural complement to PR #612 β1 pruning (just closed NEG). |
-| **#621** | nezuko | **H34: MuonH hyperball projection pruning** (NEW 23:18 UTC) | Assigned. ~5 LoC. 2 arms: ctrl (hyperball=1), arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM, no norm constraint). Tests if SI projection is load-bearing. Ctrl arm `58rw98w0` running step ~1525 at 01:10 UTC. |
+| **#621** | nezuko | **H34: MuonH hyperball projection pruning** | **HELD — POD BROKEN ~01:00-01:25 UTC.** Ctrl arm `58rw98w0` crashed at step 1920 (val=3.5110, did not reach target). 4 subsequent retries all canonical 147M NaN fingerprint at step 125. Smoke `mxfijegc` hyperball=0 ran clean (val=4.5520) BEFORE pod broke — code is sound. esc#31 posted. |
 | **#592** | edward | **H28: Gradient Centralization on aux AdamW** | **HELD — POD STILL BROKEN.** esc#27/28/29 posted on Issue #164. |
 | **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD ON OTHER BRANCHES** — orphaned PR. |
@@ -169,12 +170,14 @@
 | H35 | Aux AdamW β2 pruning — variance preconditioner (v_t EMA) ablation | **PR #631 askeladd ASSIGNED 01:05 UTC** — ~2 LoC. 2 arms: ctrl (β2=0.95) vs arm 2 (`--aux_adamw_beta2 0.0` = signSGD-with-momentum). Natural complement to PR #612 β1 pruning (just closed NEG). Tests if v_t EMA is load-bearing or dead weight. |
 | H36 | Cooldown-gated MuonH momentum reset — phase-gated structural intervention | **PR #636 fern ASSIGNED 02:20 UTC** — ~3 LoC. 2 arms: ctrl vs `--muonh_reset_on_sync 1 --muonh_reset_until_frac 0.75` (reset ON during steps 0–2493, OFF during 2493–3325). Tries to capture PR #616 mid-training favorable Δ ≈ −0.02 without cooldown loss. Credible merge candidate. |
 
-## Research direction (02:20 UTC 2026-05-21)
+## Research direction (02:55 UTC 2026-05-21)
 
 **Primary active mechanism directions:**
 1. **Cooldown-gated MuonH reset** (PR #636 fern, NEW — credible merge candidate): Can we capture PR #616's mid-training favorable Δ ≈ −0.02 (reset during main phase = noise removal) without the cooldown loss (reset during cooldown = memory loss)? Gate reset at step 2493 (75% through training, just before cooldown onset).
-2. **Aux β2=0 pruning** (PR #631 askeladd, assigned): Is the aux v_t EMA load-bearing? Natural complement to PR #612 (β1=0 NEG). Three structural outcomes.
-3. **MuonH hyperball ablation** (PR #621 nezuko, in flight): Does the always-active Frobenius-sphere SI projection drive PR #443's win, or is it incidental? Ctrl arm running step ~1525.
+2. **Aux β2=0 pruning** (PR #631 askeladd, assigned, ctrl arm running step ~1140): Is the aux v_t EMA load-bearing? Natural complement to PR #612 (β1=0 NEG). Three structural outcomes.
+3. **MuonH hyperball ablation** (PR #621 nezuko, HELD on broken pod): Will resume when pod rotates. The H34 hypothesis is still well-motivated and the implementation is verified via the smoke `mxfijegc` (clean hyperball=0 run before pod broke).
+
+**Throughput crisis**: 6 of 8 pods broken. Only askeladd and fern productive. ~644 GPU-hours of lost throughput. esc#31 posted on Issue #164. No software fix available from inside the containers.
 4. **Gradient Centralization** (PR #592 edward): HELD on broken pod. esc#27/28 posted. Implementation likely sound — will re-run when pod is healthy.
 5. **Outer side CLOSED**: Nesterov formulation (PR #597 NEG), outer_momentum schedule (PR #563 NEG), outer wrapper (PR #536 NEG). Nothing further to test on outer optimizer.
 6. **🆕 TENTATIVE FUSED-STATE RULE (PR #572 closure, DOWNGRADED)**: β1 ramp NaN may have been pod failure, not kernel incompatibility. Conservative posture: still don't propose β1/β2/eps schedule interventions on fused AdamW until tested on a healthy pod. Pre-step `p.grad` modification (MARS-style, GC-style) remains unconditionally safe.

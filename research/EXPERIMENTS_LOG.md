@@ -1,3 +1,12 @@
+## 2026-05-21 02:55 UTC — PR #621 HELD (nezuko): pod transitioned to broken state mid-experiment
+
+- Branch: `g1r3-nezuko/muonh-hyperball-pruning`
+- **Pod state transition observed**: ctrl arm `58rw98w0` ran healthy for 79.6 min / 1920 steps (NC=0 throughout), then crashed (val=3.5110, did not reach target). 4 subsequent retries (`01482w39`, `n2lbd0lw`, `nkbkntp7`, `ht3vzgrc`) ALL show canonical 147M nonfinite fingerprint at step 125 — same pattern as 5 already-broken pods.
+- **Code verified sound**: smoke `mxfijegc` with `--muonh_hyperball 0` ran clean for 200 steps (val=4.5520, NC=0) BEFORE the pod broke. Hyperball=0 implementation is correct.
+- **Action**: PR sent back to student with diagnostic + hold instruction. esc#31 posted on Issue #164 (now 6 of 8 r3 pods broken). H34 hypothesis stays valid; will resume when pod rotates.
+
+---
+
 ## 2026-05-21 02:20 UTC — PR #636 ASSIGNED (fern): H36 Cooldown-gated MuonH momentum reset — recover the mid-training Δ
 
 - Branch: `g1r3-fern/muonh-reset-cooldown-gated`
