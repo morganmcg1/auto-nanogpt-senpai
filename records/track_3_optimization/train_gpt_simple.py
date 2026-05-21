@@ -67,6 +67,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--attn_scale", type=float, default=0.12,
+                        help="Softmax temperature scale in scaled_dot_product_attention. "
+                             "Default 0.12 — hardcoded, never ablated. "
+                             "Standard would be 1/sqrt(head_dim) = 1/sqrt(128) ≈ 0.0884. "
+                             "Lower = softer attention (higher entropy); higher = sharper attention.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -402,6 +407,7 @@ class CausalSelfAttention(nn.Module):
         self.v = Linear(dim, hdim)
         self.proj = Linear(hdim, dim)
         self.rotary = Rotary(head_dim)
+        self.attn_scale = args.attn_scale
 
     def forward(self, x: Tensor):
         B, T = x.size(0), x.size(1)
@@ -411,7 +417,7 @@ class CausalSelfAttention(nn.Module):
         q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),))
         q, k = self.rotary(q), self.rotary(k)
         y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2),
-                                           v.transpose(1, 2), scale=0.12, is_causal=True).transpose(1, 2)
+                                           v.transpose(1, 2), scale=self.attn_scale, is_causal=True).transpose(1, 2)
         y = y.contiguous().view(B, T, self.num_heads * self.head_dim)
         y = self.proj(y)
         return y
@@ -747,6 +753,7 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "attn_scale": args.attn_scale,
         },
     )
 
