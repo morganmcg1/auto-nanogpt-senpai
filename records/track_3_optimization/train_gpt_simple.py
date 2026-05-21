@@ -533,6 +533,7 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+NANOGPT_MUON_POST_NS_EXP = float(os.environ.get("NANOGPT_MUON_POST_NS_EXP", "0.5"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -639,7 +640,8 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    if NANOGPT_MUON_POST_NS_EXP != 0.0:
+        update *= max(1, grad.size(-2) / grad.size(-1))**NANOGPT_MUON_POST_NS_EXP
     return update
 
 class Muon(torch.optim.Optimizer):
@@ -752,6 +754,7 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"MUON_POST_NS_EXP: {NANOGPT_MUON_POST_NS_EXP} (post-NS aspect-ratio scale = max(1, fan_out/fan_in)**{NANOGPT_MUON_POST_NS_EXP})", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +810,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_post_ns_exp": NANOGPT_MUON_POST_NS_EXP,
         },
     )
 
