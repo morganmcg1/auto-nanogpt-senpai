@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 22:10 UTC — Cycle 71 mid-51: PR #703 thorfinn MUON_NESTEROV CLOSED — both arms LOSE; cooldown × Nesterov interaction is failure mechanism; post-NS5 mechanisms are the bottleneck
+
+### PR #703 — thorfinn MUON_NESTEROV ∈ {1=strong, 2=classical} vs default 0 — BOTH ARMS LOSE
+
+Branch: `g1r2-thorfinn/muon-nesterov`. Closed 22:10 UTC.
+
+| Arm | MUON_NESTEROV | val_loss | ffs | hold gate | vs baseline (3.26776/3000) | W&B |
+|-----|---|---|---|---|---|---|
+| Disabled-check | 0 | (baseline reproduces) | — | ✓ plumbing | — | `zfucjfaz` |
+| **A** | **1** (strong form) | **3.27493** | **3075** | ❌ both legs | +0.00717 / +75 | `x2xwp2r3` |
+| Baseline | 0 | 3.26776 (n=2) | 3000 | — | — | (PR #613) |
+| **B** | **2** (classical form) | **3.31668** | **-1** | ❌ CATASTROPHIC | +0.04892 / never reached 3.28 | `pou93iuy` |
+
+**Diagnostic (thorfinn):**
+- Arm A trails baseline by ~0.01-0.03 throughout — *consistent drag*, not a localized failure. Nesterov lookahead before NS5 changes the direction of the orthogonalized update in a way that compounds against c=20 tuning.
+- Arm B converges *faster* mid-region then *stalls in cooldown* — qualitatively different loss curve shape. Classical Nesterov gets early momentum gains but `mu_cooldown × Nesterov-correction` interaction breaks late-trajectory dynamics.
+- Diagnostic conclusion: "Post-NS5 mechanisms are the more likely constraints on breaking through the plateau."
+
+**Strategic significance:** Both arms losing with *qualitatively different* failure modes is a clean falsification — confirms the Muon update direction at the NS5 input is already near-optimal under the current stack. Aligns with the ffs=3025 floor pattern (10+ axes this cycle) and our pivot to post-NS5 fresh mechanisms (#715 NORMUON_2D, #718 MUON_BIAS_CORR, #720 MUON_COOLDOWN_SHAPE).
+
+**Thorfinn → #728 EMBED_LR_WARMUP** (researcher Candidate 3) — targets the *early-trajectory* bottleneck specifically. Arm A: 100-step cosine warmup starting at 10% of full embed LR; Arm B: 200-step warmup starting at 5%. Mechanism: EMBED_INIT_STD=0.1 shrinks initial embed norms, making AdamW second-moment cold for first ~100 steps; targeted warmup damps initial update spike without touching `lm_head` or scalar groups (strictly more targeted than PR #598 which warmed ALL AdamW groups).
+
+---
+
 ## 2026-05-21 17:55 UTC — Cycle 71 mid-46b: PR #680 nezuko CONTRA_MUON CLOSED — both arms MISS (asymmetric penalty: 0.6 hurts ~2.5× more than 0.2; default 0.4 locally optimal); crossover trajectory pattern (more contra wins early, less contra wins late)
 
 ### PR #680 — nezuko CONTRA_MUON sweep — BOTH ARMS MISS, asymmetric penalty + crossover
