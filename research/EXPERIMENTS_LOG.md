@@ -4825,3 +4825,27 @@ vs. old baseline (PR #288): val Δ=−0.000967, ffs Δ=−18.75. statsig: (3.28�
 **Asymmetric dose-response**: deviating to 0.75 costs 3× more val than deviating to 0.95 (0.013 vs 0.004). This is consistent with an asymmetric loss surface: applying too much preconditioning (noisy eigenbasis estimates) is far more harmful than applying too little.
 
 **Conclusion**: ATTN_SOAP_TRUST_THRESHOLD=0.85 (default) is locally optimal on c=20 stack. Combined with #634 ATTN_SOAP_BETA2 closure, both SOAP-on-attention preconditioner knobs are confirmed locally optimal. Suggested follow-up: cooldown-schedule form (0.85→0.95 ramp during last 5% of steps, motivated by Arm B's late-cooldown superiority).
+
+---
+
+## 2026-05-21 20:40 UTC — PR #694: NS5_COEFS — Newton-Schulz polynomial coefficients sweep (CLOSED — both arms MISS)
+
+- `g1r2-askeladd/ns5-coefs-sweep`
+- Hypothesis: The hardcoded NS5 polynomial coefficients (a=2.0, b=-1.5, c=0.5) were never ablated. Test Polar Express minimax-optimal (3.4445, -4.7750, 2.0315) and conservative (1.5, -1.0, 0.4) to see if different coefficient choices accelerate orthogonalization convergence.
+- W&B runs: `q2qvi4wu` (disabled-check), `sd173nmy` (Arm A Polar Express), `uawvh67m` (Arm B Conservative)
+
+| Arm | (a, b, c) | val/loss | ffs | gate |
+|---|---|---|---|---|
+| A | (3.4445, -4.7750, 2.0315) — Polar Express | 3.27082 | 3025 | MISS (+0.00306 val, +25 ffs) |
+| B | (1.5, -1.0, 0.4) — Conservative | 3.27160 | 3025 | MISS (+0.00384 val, +25 ffs) |
+| baseline (#613) | (2.0, -1.5, 0.5) — default | 3.26776 (n=2) | 3000 (n=2) | — |
+
+**Results commentary**: Both arms narrowly miss merge bar (+0.003-0.004 val, +25 ffs). Trajectories track baseline closely throughout — no early/late asymmetry from Polar Express's theoretical "minimax-optimal convergence" — it actually performed slightly worse than default. Conservative coefficients were slightly worse still.
+
+**Mechanism interpretation (askeladd)**: "The NS5 coefficient surface is flat in our regime. With NS5_ITERS=14 (deep iteration count) any reasonable polynomial reaches effective orthogonality. The c=20 stack's 'different gradient spectral distribution' hypothesis did not produce coefficient sensitivity — 14 iterations of any of the three tested coefficient triples saturates orthogonality at numerical precision."
+
+This is consistent with: at deep iteration counts, even suboptimal-per-iteration polynomial choices reach the orthogonal projection effectively. Polar Express's minimax theoretical advantage is invisible past iteration ~8-10.
+
+**Conclusion**: Default (2.0, -1.5, 0.5) confirmed locally optimal at NS5_ITERS=14. Axis closed. Joins the ffs=3025 near-miss cluster (now 10+ axes this cycle). Frobenius pre-normalization at line 480 successfully bounds σ_max ≤ 1, so even aggressive coefficients converge cleanly (no instability seen in Arm A despite Polar Express's higher coefficient magnitudes).
+
+**Strategic implication**: 10+ axes landing at ffs=3025 strongly suggests the early-trajectory bottleneck (first ~3025 steps) is governed by a mechanism that scalar coefficient tuning cannot reach. Future wins must come from mechanism-level changes (cooldown shape, per-block geometry, etc.) — askeladd's own suggestion #2 articulates this insight precisely.
