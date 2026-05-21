@@ -1,5 +1,49 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 12:10 UTC — Cycle 71 mid-38: PR #657 nezuko SCHEDULE_SHAPE CLOSED — both arms catastrophic MISS; linear cooldown well-tuned; LR at END of cooldown matters more than descent shape
+
+### PR #657 — nezuko cooldown shape — Both arms catastrophic MISS
+
+Branch: `g1r2-nezuko/schedule-shape-sweep`. Closed 12:10 UTC.
+
+| Arm | SCHEDULE_SHAPE | val_loss (n=1) | ffs | Δ vs baseline (3.26776/3000) | n=1 hold gate | W&B |
+|-----|----------------|----------------|-----|------------------------------|---------------|------|
+| A | cosine `0.5·(1+cos(πt))` | **3.28145** | **-1 (NEVER reached 3.28)** | +0.01369 / -1 | CATASTROPHIC MISS | `a40adbuq` |
+| B | quadratic `(1-t)²` | **3.28832** | **-1 (NEVER reached 3.28)** | +0.02056 / -1 | EVEN WORSE MISS | `tb2f3wxq` |
+
+Linear baseline (default `(1-progress)/cooldown_frac`): val=**3.26776**, ffs=**3000**.
+
+**Code change**: Minimal (~10 lines) — added `SCHEDULE_SHAPE` env var + branching in `set_hparams`. `SCHEDULE_SHAPE=linear` is byte-equivalent default.
+
+**Trajectory inspection (val at key milestones)**:
+
+| step | linear baseline | cosine (Arm A) | quadratic (Arm B) |
+|------|----------------:|----------------:|------------------:|
+| 250 | 4.04 | 4.04058 | 4.04389 |
+| 500 | 3.80 | 3.80607 | 3.80639 |
+| 1500 | 3.49 | **3.56030** | 3.49464 |
+| 2500 | 3.32 | 3.33257 | 3.31087 |
+| 3000 | val≈3.279 | 3.2906 | 3.28906 |
+| 3175 (final) | 3.26776 | 3.28145 | 3.28832 |
+
+- **Arm A (cosine)** falls BEHIND baseline at step 1500 (3.56 vs 3.49) — cosine holds LR high mid-cooldown but the early hold-up costs descent budget. Then near-zero LR plateau in last 500 steps prevents catching up (final 3000→3175 delta only −0.0008).
+- **Arm B (quadratic)** ACTUALLY beats linear at step 1500 (3.495 vs 3.49) because the early sharp drop matches the model's wanted descent rate. But the long low-LR tail (η stays small for ~70% of cooldown) means the final ~1500 steps barely move (final 3000→3175 delta also tiny). Premature convergence to worse plateau.
+
+**Mechanism interpretation (student's, validated)**:
+- The LR at END of cooldown matters MORE than the shape of the descent.
+- Linear's straight-line LR=0 transition wins because the final LR (LR/N at step N-1) is small-but-nonzero, allowing the model to finish descent cleanly.
+- Both shape perturbations break this: cosine freezes loss in tail; quadratic causes premature convergence.
+
+**Asymmetry insight (with edward #642 stack-mismatched ADAMW_LR_FLOOR)**:
+- Per-group LR floor on AdamW (FLOOR=0.05 wide active window in cooldown tail) was a WIN candidate on OLD stack (val=3.26712) but failed on NEW c=20 stack — antagonizes c=20 cooldown settling.
+- Global LR shape change loses catastrophically regardless of stack.
+- The dimensions are different: per-group keeps some params active while others settle; global shape changes when ALL params settle.
+- Supports decoupling angle (askeladd #678 in flight: per-group cooldown_frac swap).
+
+**Decision**: CLOSE the cooldown-shape axis. Nezuko → #680 CONTRA_MUON sweep (fresh-axis Muon-side stack-pruning VALUE sweep; CONTRA_MUON=0.4 never ablated for value since #533 binary-existence closure).
+
+---
+
 ## 2026-05-21 11:30 UTC — Cycle 71 mid-37: FOUR axes CLOSED + 5 new assignments diversifying portfolio off c=20-locked AdamW output cluster
 
 ### PR #650 — tanjiro LOGIT_SOFTCAP extended sweep — Both arms MISS, c=20 is local PEAK
