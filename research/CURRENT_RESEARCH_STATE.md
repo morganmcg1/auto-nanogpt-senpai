@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 09:55 UTC
+- **Date:** 2026-05-21 10:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -76,7 +76,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27141−3.27174|=0.00033): A=3.27141 ct
 **Monotonic-LR pattern**: higher Muon LR → smaller regression. No interior minimum in 0.002–0.010; optimum (if any) lies at LR ≥ 0.010 but +0.00730 gap is too wide to plausibly close. Mechanism: **NS-orthogonalization homogenizes the vocabulary-frequency Hessian structure** lm_head needs. AdamW's `m/√v` preserves Zipf-distributed per-coordinate magnitude scaling; Muon's unit-singular-value post-NS update has only LR-controlled spectral magnitude (no per-vocab-direction scaling). Block-heterogeneity analysis (Zhang et al. 2024) consistent: lm_head's Hessian is qualitatively distinct from inner-block Hessians, and spectral conditioning that helps inner blocks actively harms output projection. Implementation hygiene clean (drift +0.00139, NS transpose-trick verified for (50257, 768) tall matrix, wall-clock parity ±0.4%). **46th productive-null/negative this cycle. \"Replace AdamW for lm_head\" axis fully closed.**
 **Follow-up**: fern assigned **#652 Per-group AdamW eps sweep on lm_head** — within-AdamW axis directly motivated by #618 mechanism reading. eps controls per-coordinate magnitude scaling (the exact mechanism #618 implicates as lm_head's bottleneck). Last untested per-group AdamW hyperparameter (β₁/β₂/WD/LR-mult all swept).
 
-### 🔄 fern #652 — Per-group AdamW eps sweep on lm_head [assigned 06:10 UTC]
+### 🔄 fern #652 — Per-group AdamW eps sweep on lm_head [SENT BACK 10:55 UTC for rebase + relaunch on NEW stack]
 
 **Branch:** `g1r4-fern/adamw-eps-per-group`
 **Hypothesis**: After #618 closed "replace AdamW for lm_head with Muon" productive-NEGATIVE (mechanism: NS homogenizes Zipf-distributed per-coordinate magnitude scaling), the mirror question is whether AdamW's per-coordinate magnitude scaling on lm_head needs adjustment via the **eps denominator floor**. Currently uniform `eps=1e-10` across all AdamW groups — well below standard PyTorch default 1e-8. Per-group eps modulates rare-token-row update behavior: small eps → pure preconditioning (homogenizes magnitudes via `m/√v`); large eps → SGD-like updates (preserves magnitude differences). Last untested per-group AdamW hyperparameter (β₁ #599 NEG, β₂ #560 NEG, WD #593 NULL, LR-mult #393 MERGED).
@@ -87,7 +87,9 @@ Single-seed 4-arm (drift gate A PASS, |3.27141−3.27174|=0.00033): A=3.27141 ct
 | B | 1e-8 | Standard PyTorch default; rare-token coords near eps → mild magnitude-damping |
 | C | 1e-6 | Aggressive damping; rare-token coords strongly SGD-like |
 | D | 1e-12 | Opposite direction; even purer preconditioning |
-**ETA full chain:** ~7.3h. Implementation effort: ~10 LOC (env var + per-group eps in dict, mirrors #593 WD per-group). Embed/scalar groups stay at 1e-10 (mechanism is lm_head-specific).
+**ETA full chain:** ~7h post-rebase. Implementation effort: ~10 LOC (env var + per-group eps in dict, mirrors #593 WD per-group). Embed/scalar groups stay at 1e-10 (mechanism is lm_head-specific).
+
+**Rebase note (2026-05-21 10:55 UTC)**: PR conflicting after #579 merge (overlapping AdamW param-group setup region). OLD-stack data preserved as mechanism evidence: **Arms A (eps=1e-10) and B (eps=1e-8) both finished at val=3.27211 — IDENTICAL to ~6 dp**. This cleanly confirms #618's Zipf-mechanism prediction (eps inert in {1e-10, 1e-8} range because `sqrt(v_t)` dominates the denominator for all lm_head coords). Arm C (eps=1e-6, expected regression at SGD-like transition) and D (eps=1e-12, expected null/purer-precond) cancelled — to be relaunched on NEW stack with post-#579 baseline 3.27070. Mechanism reading: stack-INDEPENDENT (operates on AdamW aux denominator, not body Muon). If NEW-stack A=B repeats the identity, that's bilateral confirmation.
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
@@ -321,7 +323,7 @@ Single-seed 4-arm (drift gate A PASS exceptional parity |3.27167−3.27174|=0.00
 Single-seed 4-arm (drift gate A PASS, exceptional parity +0.00014): A=3.27159, B (α=0.25)=3.27345 (Δ=+0.00186, regression band), C (α=0.50)=3.27185 (Δ=+0.00026, null), D (α=1.00)=**3.63287** (Δ=+0.36128, **catastrophic — FAILS 3.28 target**). W&B runs: dqssobu4 (A), h1aqkx71 (B), d4ihlim2 (C), 34ui6a23 (D). Non-monotone (regress→parity→catastrophic) but uniformly non-improving. Mechanism telemetry: scale_min D=0.426 (cos_min=−0.574), D's α=1.0 full-zero-grad on conflict layers kills gradient signal; training oscillates and val plateaus at 3.63 (never reaching 3.28). **Contra-Soft mechanism class FULLY CLOSED**: #126 element-wise + #629 layer-aggregate both falsified. The load-bearing ~11% persistent-cos<0 fraction is productive exploration, not noise. **48th productive-null/negative this cycle.**
 **Follow-up**: frieren assigned **#664 AdamW bias correction disable sweep** — genuinely fresh mechanism axis: with merged β2=0.99 (#236), bias correction scales mid-training aux updates down by sqrt(bc_v)/bc_m = 0.63–0.80× during steps 50–100; disabling it tests whether this implicit LR suppression limits mid-phase learning. Tests 3 scopes (embed-only, lm_head-only, all-aux).
 
-### 🔄 frieren #664 — AdamW bias correction disable sweep [assigned 08:35 UTC]
+### 🔄 frieren #664 — AdamW bias correction disable sweep [SENT BACK 10:55 UTC for rebase + relaunch on NEW stack]
 
 **Branch:** `g1r4-frieren/adamw-bias-correction-sweep`
 **Hypothesis**: Standard AdamW bias correction (m_hat=m/(1-β1^t), v_hat=v/(1-β2^t)) scales updates by `sqrt(1-β2^t)/(1-β1^t)` relative to uncorrected Adam. At merged β2=0.99, this factor is sqrt(0.01)/0.1=1.0 at step 1 (no net effect) but drops to 0.63 at step 50 and 0.80 at step 100 — making mid-training updates ~20–37% smaller than uncorrected Adam. This implicit LR suppression during the mid-training phase (steps 10–200) was introduced by the β2=0.99 merge (#236) and has never been explicitly tested. Disabling bias correction on selected aux groups restores the original (larger) mid-phase update magnitudes. Implementation: pre-multiply LR by `bc_m/sqrt(bc_v)` before each optimizer1.step(), restore after — exactly cancels the per-step bias correction factor.
@@ -331,7 +333,9 @@ Single-seed 4-arm (drift gate A PASS, exceptional parity +0.00014): A=3.27159, B
 | B | **"embed"** | embed group only | Larger mid-phase embed updates (interacts with clip=10, LR_mult=1.5) |
 | C | **"lm_head"** | lm_head group only | Larger mid-phase lm_head updates |
 | D | **"all_aux"** | embed + lm_head + scalar | Compound: tests whether per-group interaction matters |
-**ETA full chain:** ~7.3h. Implementation: ~20 LOC (pre/post-step LR patch, no subclassing). Smoke diagnostic: at step 1 bc_scale_factor should be 1.0; at step 50 should be ≈0.632.
+**ETA full chain:** ~7h post-rebase. Implementation: ~20 LOC (pre/post-step LR patch, no subclassing). Smoke diagnostic: at step 1 bc_scale_factor should be 1.0; at step 50 should be ≈0.632.
+
+**Rebase note (2026-05-21 10:55 UTC)**: PR conflicting after #579 merge (overlapping AdamW param-group setup region). OLD-stack data preserved as mechanism evidence: **Arm A (ctrl) finished at val=3.27237** (+0.00063 drift vs OLD baseline 3.27174 — PASS; +0.00167 vs NEW baseline 3.27070). Arm B (embed) was just-launched at 10:40 UTC step 0 after two prior smoke-crash debug iterations — cancelled with minimal compute lost. Mechanism reading: stack-INDEPENDENT (operates on AdamW aux denominator/bias-correction math, not body Muon). Full 4-arm chain to be relaunched on NEW stack with post-#579 envs locked.
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
