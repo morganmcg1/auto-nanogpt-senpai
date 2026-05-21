@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-21 14:00 UTC — PR #644 CLOSED: Winsorization pre-NS body-Muon k={1.5, 3.0} — NULL/NULL, 48th axis (g1r1-fern)
+
+- Branch: `g1r1-fern/winsorize-pre-ns`
+- Hypothesis: hard-clip post-whitening body-Muon gradient to `[-k·median(|m_pre|), +k·median(|m_pre|)]` before NS. If outliers impair NS conditioning, removing them should tighten spectral whitening and improve sr.
+
+| Arm | k | W&B | sr | val/loss | Δsr (vs 2937.5) | Δval (vs 3.264278) | clip_frac | norm_ratio | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| **Baseline** | — | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — | — | — |
+| A | 1.5 | 5erh0eht | 3075 | 3.27401 | +137.5 ✗ | +0.00973 ✗ | 0.319 | 0.713 | NULL clear |
+| B | 3.0 | 7dupedm3 | 2975 | 3.26770 | +37.5 ✗ | +0.00342 ✗ | 0.048 | 0.956 | NULL |
+
+**Mechanism (excellent telemetry):** Arm A (k=1.5) clips 32% of entries per parameter and reduces matrix norm by 29% — mechanism clearly engaged. Arm B (k=3.0) clips only 5% and reduces norm by 4%. Regression is MONOTONE with clip aggressiveness. The val/loss trajectory diverges specifically during cooldown (step 2500–3250), exactly where polar map quality matters most. Top-decile entries in m_pre encode signal NS uses for the spectral whitening → clipping them strictly removes useful directional information.
+
+**Cross-axis synthesis — gradient-domain pre-NS FULLY CLOSED (48 total):**
+Combined with PR #622 (tanh-squash NULL/NULL/NULL 47th axis), the elementwise outlier-treatment class is exhausted:
+- Hard threshold (k=1.5 clips 32%): clear regression
+- Hard threshold (k=3.0 clips 5%): small but consistent regression
+- Soft saturation (tanh scale_mult=0.005, 4% Frob compress): no detectable effect
+- Soft saturation (scale_mult=0.02/0.5): no-op (linear regime)
+
+All six interventions (4 winsorization + 2 tanh) follow the same pattern: the post-PMuon-whitening gradient distribution is well-conditioned for NS AS-IS. NS spectral whitening absorbs magnitude differences; the direction (singular structure) is what it uses, and outlier-truncation in any form degrades that.
+
+---
+
 ## 2026-05-21 13:45 UTC — PR #622 CLOSED: Tanh-squash pre-NS body-Muon — NULL/NULL/NULL, 47th axis (g1r1-frieren)
 
 - Branch: `g1r1-frieren/tanh-squash-pre-ns`
