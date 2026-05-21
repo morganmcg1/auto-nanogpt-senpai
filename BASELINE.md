@@ -8,6 +8,53 @@ require `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Current advisor-branch baseline (updated)
 
+### 2026-05-21 05:24 — PR #613: LOGIT_SOFTCAP=20.0 — Logit soft-cap loosened from c=15 to c=20 (squash-merged) ⭐ NEW WINNER
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3175 |
+| Key change | `LOGIT_SOFTCAP=20.0` — soft-cap value in `f(x)=c·x/√(x²+c²)` raised from hardcoded 15 → 20. Default still 15 in code; must be set explicitly. The sweep showed monotone direction: c=12 misses (val=3.27030/ffs=3025), c=15 is baseline, c=20 wins (val=3.26781/ffs=3000). Post-EMBED_INIT_STD=0.1, the c=15 cap was over-regularizing logit magnitudes; c=20 allows richer final-step logit dynamics during cooldown. |
+| **LOGIT_SOFTCAP** | **20.0** (mandatory for all future runs) |
+| Full mandatory stack | `NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1 LOGIT_SOFTCAP=20.0 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85` |
+| W&B runs (n=2 confirm) | `1zb5h0e5` (trial 0), `4v5jsjk9` (trial 1) |
+| **n=2 mean val/loss** | **3.26776** |
+| **n=2 statsig margin** | **0.01731** ≥ 0.004 — PASSES (4.33×) |
+| **ffs mean (n=2)** | **3000** (both trials) |
+| **Δ vs PR #541** | val Δ=**−0.001425**; ffs Δ=**−12.5** |
+
+Per-trial results (n=2 confirm):
+| Trial | val/loss | ffs |
+| --- | --- | --- |
+| T0 (seed0) | 3.26781 | 3000 |
+| T1 (seed1) | 3.26771 | 3000 |
+
+**Mechanism insight**: The logit soft-cap `f(x) = c·x/√(x²+c²)` asymptotes to ±c. At c=15, logits above ~15 are progressively dampened. At c=20, the damping activates later, allowing broader logit dynamic range in the final output distribution. With EMBED_INIT_STD=0.1 (10× smaller embed), the model's internal representation magnitudes are scaled differently — c=15 was implicitly tight for this regime. Both seeds land ffs=3000 (zero variance), confirming the soft-cap loosening is pulling seeds that previously crossed 3.28 at step 3025 to now cross at step 3000.
+
+**Fern #625 context**: ADAMW_BETA2=0.99 also hit val=3.26704/ffs=3000 (better val than tanjiro) but was run on the OLD c=15 baseline. Fern must re-run on c=20 baseline to confirm stacking additivity. The two mechanisms are orthogonal (logit constraint vs optimizer memory scale).
+
+**New merge bar**: val mean < **3.26776** AND ffs_mean ≤ **3000** (ffs tie accepted if val strictly improves).
+
+**All new experiments MUST include the updated mandatory stack**:
+```
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1 LOGIT_SOFTCAP=20.0
+MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90
+ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
+```
+
+Reproduce (from advisor branch, single GPU):
+```bash
+cd target/
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1 LOGIT_SOFTCAP=20.0 \
+MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90 \
+ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85 \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --train_steps 3175 --num_trials 2 \
+  --wandb_name 'baseline-repro-pr613'
+```
+
+---
+
 ### 2026-05-20 20:20 — PR #541: EMBED_INIT_STD=0.1 — Input embedding non-zero init magnitude (squash-merged) ⭐ NEW WINNER
 
 | Field | Value |
