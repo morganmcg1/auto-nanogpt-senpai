@@ -52,6 +52,7 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--warmup_steps", type=int, default=0)
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -703,6 +704,7 @@ if dist.get_rank() == 0:
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
+            "warmup_steps": args.warmup_steps,
             "muon_method": MUON_METHOD,
         },
     )
@@ -749,11 +751,14 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
-    # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
-    def set_hparams(step, cooldown_frac=0.7):
+    # learning rate schedule: optional linear warmup, then stable, then power-law cooldown (gamma = COOLDOWN_POWER)
+    def set_hparams(step, cooldown_frac=0.7, warmup_steps=0):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        if warmup_steps > 0 and step < warmup_steps:
+            eta = (step + 1) / warmup_steps  # linear ramp 0 → 1 over warmup_steps
+            cooldown_progress = 0.0
+        elif progress < 1 - cooldown_frac:
             eta = 1.0
             cooldown_progress = 0.0
         else:
@@ -852,7 +857,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step, warmup_steps=args.warmup_steps)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
