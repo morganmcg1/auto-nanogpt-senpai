@@ -67,6 +67,15 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ademamix_alpha", type=float, default=0.0,
+                        help="AdEMAMix slow-EMA contribution coefficient. "
+                             "Default 0.0 = vanilla AdamW (refactor no-op). "
+                             "alpha > 0 augments AdamW update with alpha * slow_ema, "
+                             "where slow_ema is computed with decay beta3.")
+    parser.add_argument("--ademamix_beta3", type=float, default=0.9999,
+                        help="AdEMAMix slow-EMA decay rate. Paper recommendation 0.9999. "
+                             "Higher = slower EMA (longer memory). Only used if "
+                             "--ademamix_alpha > 0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -550,6 +559,65 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+class AdEMAMix(torch.optim.Optimizer):
+    """AdEMAMix: AdamW + slow-EMA augmentation (Pagliardini et al. 2024, arXiv:2409.03137).
+
+    Update rule (per parameter, decoupled WD):
+        fast  = beta1 * fast + (1 - beta1) * g
+        slow  = beta3 * slow + (1 - beta3) * g    # NEW slow EMA, beta3 >> beta1
+        v     = beta2 * v + (1 - beta2) * g^2
+        update = (fast / (1 - beta1^t) + alpha * slow) / (sqrt(v / (1 - beta2^t)) + eps)
+        p     *= (1 - lr * wd)
+        p     -= lr * update
+
+    With alpha=0, behaves identically to torch.optim.AdamW (slow_ema is computed but
+    contributes 0 to the update — refactor no-op gate). The slow EMA is NOT bias-corrected
+    (paper choice — slow term acts as accumulation, not as a moment estimator).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.8, 0.95), eps=1e-10,
+                 beta3=0.9999, alpha=0.0, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, beta3=beta3,
+                        alpha=alpha, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            beta3 = group["beta3"]
+            alpha = group["alpha"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["fast_ema"] = torch.zeros_like(p)
+                    state["slow_ema"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                state["step"] += 1
+                step = state["step"]
+                fast = state["fast_ema"]
+                slow = state["slow_ema"]
+                v = state["v"]
+                fast.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                slow.mul_(beta3).add_(grad, alpha=1.0 - beta3)
+                v.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                bc1 = 1.0 - beta1 ** step
+                bc2 = 1.0 - beta2 ** step
+                denom = (v / bc2).sqrt_().add_(eps)
+                update = (fast / bc1 + alpha * slow) / denom
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+        return loss
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
@@ -747,6 +815,8 @@ if dist.get_rank() == 0:
             "lr_attn": args.lr_attn,
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
+            "ademamix_alpha": args.ademamix_alpha,
+            "ademamix_beta3": args.ademamix_beta3,
         },
     )
 
@@ -778,10 +848,11 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AdEMAMix([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                           dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                          betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+                          beta3=args.ademamix_beta3, alpha=args.ademamix_alpha)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
