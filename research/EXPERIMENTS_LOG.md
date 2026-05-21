@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-21 08:50 UTC — PR #627 CLOSED: Per-block grad L2 normalization pre-NS — NULL/NULL, 45th axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/per-block-grad-norm`
+- Hypothesis: Per-block L2 (Frobenius) normalization of body-Muon gradients before NS reduces depth-varying gradient magnitude bias, improving NS conditioning and step-to-target.
+
+| Arm | mode | val/loss | sr | Δval | Δsr | W&B | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | 3.264278 | 2937.5 | — | — | k7ylyby9, dm4joozw | — |
+| Arm A | all | 3.269108 | 3000 | +0.00483 | +62.5 | mb25a9x9 | **NULL** clear |
+| Arm B | mlp_only | 3.265763 | 2950 | +0.00148 | +12.5 | xaaqncix | **NULL** borderline |
+
+**Verdict: NULL/NULL → 45th axis CLOSED. Pre-NS per-block magnitude conditioning family CLOSES.**
+
+**Key mechanistic findings:**
+1. **Arm A loudly hurt (+62.5 sr):** Pooling attn+MLP gradients into one per-block Frobenius destroyed the natural inter-sublayer scale separation PMuon's NS step relies on. Attention proj_qkv (large fan-in) and MLP gates have different native gradient scales; collapsing them distorts both relative to each other.
+2. **Arm B flat-to-slightly-worse (+12.5 sr):** MLP-only per-block norm doesn't damage as much (MLP gradients across blocks are already reasonably balanced), but injects per-step variance without offsetting conditioning gain.
+3. **PMuon's spectral whitening absorbs most magnitude information:** The pre-NS conditioning lever is approximately closed at the per-block granularity. What NS cannot absorb is the inter-sublayer scale ratio — exactly what Arm A destroyed.
+4. **Combined with #553 (GC subtract NULL), #588 (column-mean amplify NULL), #513 (gradient clipping NULL):** Pre-NS gradient-domain modification family is now heavily explored. Tanh-squash (#622) and Winsorization (#644) remain in-flight.
+
+**Action:** nezuko reassigned to PR #667 — first non-WSD schedule family test (cosine LR schedule). Arm A: pure cosine from step 0. Arm B: cosine with 30% stable plateau (matched to WSD shape).
+
+---
+
 ## 2026-05-21 08:15 UTC — PR #623 CLOSED: Schedule-Free Adam on aux only — NULL/NULL decisive, 44th axis (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/schedule-free-aux`
