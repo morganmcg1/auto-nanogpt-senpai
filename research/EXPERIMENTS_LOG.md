@@ -3,6 +3,34 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~18:35 UTC — PR #665: tanjiro NS iter SCHEDULE sweep — **CLOSED clean-NEG**
+
+- Branch: `g1r5-tanjiro/ns-iter-schedule-sweep`
+- Student: g1r5-tanjiro
+- Hypothesis: Time-varying Newton-Schulz iteration count (ns_iter schedule) across training. ns_iter=6 is the confirmed optimal constant (PR #461/#497). The "less optimizer intensity late" theme has won across 5 axes — testing if reducing NS polishing late (when gradients are small) yields another gain. 5-cell: A=const 6 ctrl / B=linear_decay 6→3 / C=linear_growth 3→6 / D=step_at_cooldown 6→3 / E=linear_decay_aggressive 6→2.
+
+- **Results:**
+
+| Rank | Cell | Schedule | wandb_run_id | val/loss | Δ vs baseline μ=3.263265 |
+|:----:|:----:|----------|:------------:|---------:|--------------------------:|
+| 1 | **A** | const ns_iter=6 (ctrl) | `b9btbx8x` | **3.26170** | **−1.40σ_new** |
+| 2 | B | linear_decay 6→3 | `xc6q7jae` | 3.26722 | +3.52σ_new |
+| 3 | C | linear_growth 3→6 | `hoglm94h` | 3.26880 | +4.93σ_new |
+| 4 | D | step_at_cooldown 6→3 | `ha0uv6di` | 3.27085 | +6.76σ_new |
+| 5 | E | linear_decay_aggressive 6→2 | `1h5wl295` | 3.27138 | +7.23σ_new |
+
+- **Key mechanistic findings:**
+  1. **Monotone strict 5-cell ordering A < B < C < D < E** — probability of seeing this by chance under null = 1/120 ≈ 0.8%. NS iter schedule is a firmly closed axis.
+  2. **The "less optimizer intensity late" theme is now bounded.** Wins on LR-magnitude knobs (lr_scalars=0.03, WD ramp_down) but NOT on iteration-count knobs. Newton-Schulz polynomial depth controls *direction quality* (is the update orthonormal?), not *step magnitude* — reducing it late leaves under-polished raw gradients, not "smaller" updates.
+  3. **Continuity beats steps at the same endpoint:** B (smooth linear decay, ends at 3) costs +3.52σ vs A; D (discontinuous step at cooldown to 3) costs +6.76σ vs A — same endpoint, 3.24σ worse for the step. Optimizer state takes time to re-calibrate to a new operating point.
+  4. **Below ns_iter=3 hits bf16 cliff:** E (decay 6→2) is +7.23σ vs A vs B's +3.52σ for 6→3. Consistent with PR #496 (edward LOW sweep) where ns_iter=2/3 as constants also regressed.
+  5. **Step_avg spread tiny:** B fastest at 1902.6ms (−1.24% vs ctrl 1926.5ms); E at 1894.4ms (−1.66%). NS iter compute is essentially free — the quality cost of any schedule far outweighs any compute savings.
+  6. **Cell A ctrl at 3.26170 = 4th strong post-#571 ctrl single-seed** (after #648 thorfinn 3.26167, #659 nezuko 3.26153, now this 3.26170). Empirical single-seed ctrl band: 3.261–3.264.
+
+- **Decision:** CLOSED clean-NEG. NS iter schedule axis fully closed. Tanjiro reassigned #707 per-group AdamW β2 sweep.
+
+---
+
 ## 2026-05-21 ~18:30 UTC — PR #659: nezuko Schedule-Free AdamW (Defazio 2024) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-nezuko/schedule-free-adamw`
