@@ -225,6 +225,8 @@ def log_training_telemetry(
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
             if "mu" in group:
                 metrics[f"train/mu/{group_name}"] = group["mu"]
+            if group_name == "muon_blocks":
+                metrics["optimizer/muon_lr"] = group["lr"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -455,6 +457,7 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+MUON_LR_FLOOR = float(os.environ.get("MUON_LR_FLOOR", "0.0"))  # 0.0 = current linear-to-zero; >0 = clamp Muon-group eta to floor during cooldown
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -932,9 +935,12 @@ for trial_idx in range(args.num_trials):
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
+                    muon_eta = max(eta, MUON_LR_FLOOR) if MUON_LR_FLOOR > 0 else eta
+                    group["lr"] = group["initial_lr"] * muon_eta
                     group["mu"] = cur_mu
+                else:
+                    group["lr"] = group["initial_lr"] * eta
 
 
     ########################################
