@@ -71,6 +71,21 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--use_adan", action="store_true",
+                        help="Use Adan optimizer (Xie 2022) for the 3 AdamW-managed "
+                             "param groups (embed, lm_head, scalars) instead of AdamW. "
+                             "Muon/SOAP on 2D matrices unchanged.")
+    parser.add_argument("--adan_betas", type=float, nargs=3, default=[0.98, 0.92, 0.99],
+                        metavar=("B1", "B2", "B3"),
+                        help="Adan betas (β1, β2, β3). Paper defaults: 0.98 0.92 0.99.")
+    parser.add_argument("--adan_lr_scale", type=float, default=1.0,
+                        help="LR multiplier for Adan groups relative to the AdamW ctrl "
+                             "(embed=0.3, lm_head=1/320, scalars=args.lr_scalars). "
+                             "Paper suggests Adan runs at 5-10x AdamW LR. Default 1.0.")
+    parser.add_argument("--adan_max_grad_norm", type=float, default=0.0,
+                        help="Internal global gradient clip for Adan (matches official "
+                             "max_grad_norm). 0.0 disables clipping (paper default). "
+                             "Set >0 if zero-init lm_head produces unstable first step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,8 +767,148 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "use_adan": bool(args.use_adan),
+            "adan_betas": list(args.adan_betas) if args.use_adan else None,
+            "adan_lr_scale": float(args.adan_lr_scale) if args.use_adan else None,
+            "adan_max_grad_norm": float(args.adan_max_grad_norm) if args.use_adan else None,
         },
     )
+
+class Adan(torch.optim.Optimizer):
+    """Adan optimizer (Xie et al. 2022, arXiv:2208.06677, CVPR 2023).
+
+    Faithful port of the official sail-sg/Adan reference. Uses code β
+    convention (β=0.98 means 98% retain prior, slow EMA — matches the official
+    `betas=(0.98, 0.92, 0.99)`):
+
+        m_t  = β1 * m_{t-1} + (1 - β1) * g_t                # first moment of g
+        diff = g_t - g_{t-1}                                # 0 on step 1
+        v_t  = β2 * v_{t-1} + (1 - β2) * diff               # first moment of diff (LINEAR!)
+        n_t  = β3 * n_{t-1} + (1 - β3) * (g_t + β2 * diff)² # second moment of g+β2·diff
+        denom = sqrt(n_t / (1 - β3^t)) + ε
+        p   -= (lr / (1 - β1^t))     * m_t / denom
+        p   -= (lr * β2 / (1 - β2^t)) * v_t / denom
+
+    Note: `exp_avg_diff` (v_t here) in the official code is the **linear** EMA
+    of `diff`, NOT the squared EMA. The squared interaction is in n_t via
+    (g + β2·diff)². Implementing v as diff² causes explosive updates when an
+    initialization (e.g. zero-init lm_head) produces a huge first gradient.
+
+    Weight decay: proximal (paper Algorithm 1 default, `p / (1 + lr·wd)`).
+    `max_grad_norm > 0` enables global pre-step gradient clipping across all
+    params managed by this optimizer (matches the official API).
+    """
+
+    def __init__(
+        self,
+        params,
+        lr: float = 1e-3,
+        betas: tuple = (0.98, 0.92, 0.99),
+        eps: float = 1e-8,
+        weight_decay: float = 0.0,
+        max_grad_norm: float = 0.0,
+        no_prox: bool = False,
+    ):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay,
+                        max_grad_norm=max_grad_norm, no_prox=no_prox)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        max_grad_norm = self.defaults["max_grad_norm"]
+        if max_grad_norm > 0:
+            # Compute global grad norm across all Adan-managed params.
+            device = self.param_groups[0]["params"][0].device
+            global_grad_norm = torch.zeros(1, device=device)
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is not None:
+                        global_grad_norm.add_(p.grad.detach().pow(2).sum())
+            global_grad_norm = global_grad_norm.sqrt_()
+            clip_global_grad_norm = torch.clamp(
+                torch.tensor(max_grad_norm, device=device)
+                / (global_grad_norm + 1e-6),
+                max=1.0,
+            ).item()
+        else:
+            clip_global_grad_norm = 1.0
+
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2, beta3 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            no_prox = group["no_prox"]
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                # Apply optional global gradient clip (matches official Adan).
+                g = p.grad if clip_global_grad_norm == 1.0 else (
+                    p.grad * clip_global_grad_norm)
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["v"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["n"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    # neg_pre_grad = -g_1 so diff = g + neg_pre_grad = 0 on step 1.
+                    # Use the (possibly clipped) g to match official semantics.
+                    state["neg_pre_grad"] = (-g).clone(
+                        memory_format=torch.preserve_format)
+
+                state["step"] += 1
+                t = state["step"]
+                m, v, n = state["m"], state["v"], state["n"]
+                neg_pre_grad = state["neg_pre_grad"]
+
+                # diff = g_t - g_{t-1} = g + neg_pre_grad  (0 on step 1)
+                diff = g.add(neg_pre_grad)
+
+                # m_t = β1 * m + (1 - β1) * g
+                m.mul_(beta1).add_(g, alpha=1.0 - beta1)
+                # v_t = β2 * v + (1 - β2) * diff   (LINEAR EMA, not squared)
+                v.mul_(beta2).add_(diff, alpha=1.0 - beta2)
+                # u_t = g + β2 * diff
+                u = g.add(diff, alpha=beta2)
+                # n_t = β3 * n + (1 - β3) * u²
+                n.mul_(beta3).addcmul_(u, u, value=1.0 - beta3)
+
+                # Bias corrections: 1 - β^t
+                bc1 = 1.0 - beta1 ** t
+                bc2 = 1.0 - beta2 ** t
+                bc3 = 1.0 - beta3 ** t
+
+                # Step sizes (matches official: step_size = lr/bc1, step_size_diff = lr*β2/bc2)
+                step_size = lr / bc1
+                step_size_diff = lr * beta2 / bc2
+                denom = (n / bc3).sqrt_().add_(eps)
+
+                if no_prox:
+                    # AdamW-style decoupled WD
+                    if wd != 0.0:
+                        p.mul_(1.0 - lr * wd)
+                    p.addcdiv_(m, denom, value=-step_size)
+                    p.addcdiv_(v, denom, value=-step_size_diff)
+                else:
+                    # Proximal WD (paper Algorithm 1 default)
+                    p.addcdiv_(m, denom, value=-step_size)
+                    p.addcdiv_(v, denom, value=-step_size_diff)
+                    if wd != 0.0:
+                        p.div_(1.0 + lr * wd)
+
+                # Stash -g_t for next step's diff.
+                state["neg_pre_grad"].copy_(g).neg_()
+
+        return loss
+
 
 for trial_idx in range(args.num_trials):
 
@@ -783,10 +938,24 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    _base_embed_lr   = 0.3
+    _base_lm_head_lr = 1.0 / 320
+    _base_scalars_lr = args.lr_scalars
+    if args.use_adan:
+        _s = args.adan_lr_scale
+        optimizer1 = Adan(
+            [dict(params=[model.embed.weight], lr=_base_embed_lr * _s,   name="adan_embed"),
+             dict(params=[model.proj.weight],  lr=_base_lm_head_lr * _s, name="adan_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2],
+                  lr=_base_scalars_lr * _s, name="adan_scalars")],
+            betas=tuple(args.adan_betas), eps=1e-8, weight_decay=0.0,
+            max_grad_norm=args.adan_max_grad_norm,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=_base_embed_lr, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=_base_lm_head_lr, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=_base_scalars_lr, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
