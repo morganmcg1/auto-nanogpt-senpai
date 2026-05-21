@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 05:24 UTC — Cycle 71 mid-28: ✅ PR #613 MERGED (tanjiro LOGIT_SOFTCAP=20.0); fern #625 n=2 sent back; tanjiro → #NEW logit-softcap-extended
+
+### PR #613 — tanjiro Logit soft-cap sweep — MERGED ✅ ⭐
+
+Branch: `g1r2-tanjiro/logit-softcap-sweep`. n=2 confirmation complete. LOGIT_SOFTCAP=20.0 (c=20) is now the merged baseline.
+
+| Metric | Trial 0 (seed0, `1zb5h0e5`) | Trial 1 (seed1, `4v5jsjk9`) | n=2 mean | vs Old Baseline | vs New Bar | Verdict |
+|---|---|---|---|---|---|---|
+| val/loss@3175 | 3.26781 | 3.26771 | **3.26776** | Δ−0.001425 | **NEW BASELINE** | ✅ MERGED |
+| ffs | 3000 | 3000 | **3000** | Δ−12.5 | **NEW BASELINE** | ✅ MERGED |
+| statsig | — | — | **(3.28−3.26776)×√2 = 0.01731** | — | 4.33× ≥ 0.004 ✓ | — |
+
+**Mechanism**: LOGIT_SOFTCAP=20.0 loosens the output cap `f(x)=c·x/√(x²+c²)` from c=15 → c=20. Post-EMBED_INIT_STD=0.1, pre-cap logit magnitudes shifted; c=15 was over-regularizing. Both seeds land ffs=3000 (zero variance) — the cap loosening pulls seeds that previously crossed 3.28 at step 3025 to step 3000.
+
+**Decision**: SQUASH-MERGED to advisor branch. New baseline: val=3.26776, ffs=3000. LOGIT_SOFTCAP=20.0 added to mandatory stack.
+
+### PR #625 — fern AdamW β2 sweep — n=2 SENT BACK ↩️
+
+n=2 final results posted at 05:27 UTC (3 min after #613 merge shifted baseline):
+
+| Metric | Seed 0 (`dprue0mx`) | Seed 1 (`snunl6nt`) | n=2 mean | vs New Baseline (3.26776/3000) | Verdict |
+|---|---|---|---|---|---|
+| val/loss@3175 | 3.26704 | 3.26940 | 3.26822 | +0.00046 | ❌ MISS |
+| ffs | 3000 | 3025 | 3012.5 | +12.5 | ❌ MISS |
+
+**Analysis**: Seeds split: seed0 is exceptional (3.26704, beats even new baseline); seed1 regressed to 3.26940 (above both old and new bars). High inter-seed variance (Δ=0.00236) swamps the win margin. Mechanism is REAL — seed0 demonstrates β2=0.99 can reach 3.26704 (Δ−0.0008 vs new baseline). 
+
+**Decision**: SENT BACK. Re-run Arm A (β2=0.99) with LOGIT_SOFTCAP=20.0 in stack. If orthogonal mechanisms stack additively, expected n=1 seed result ~3.266-3.267.
+
+### Assignment: tanjiro → PR #NEW (logit-softcap-extended)
+
+**Hypothesis**: LOGIT_SOFTCAP direction is MONOTONE INCREASING (c=12 miss → c=15 old baseline → c=20 WIN). Optimum unknown. Testing c=25 (Arm A) and c=30 (Arm B) to find peak or close axis. At these values, the cap is near-identity for typical logit magnitudes (~10-15); main effect is on tail logits.
+
 ## 2026-05-21 UTC — Cycle 71 mid-26: PR #610 CLOSED (edward NS5 cooldown precision — val~3.269/ffs=3025 noise basin, both arms miss merge bar); edward → #642 AdamW LR floor (4th corner of schedule envelope; ADAMW_LR_FLOOR ∈ {0.05, 0.10})
 
 ### PR #610 — edward NS5 cooldown precision ramp — CLOSED (noise basin, both arms miss)

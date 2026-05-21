@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-21 UTC — Cycle 71 mid-28: 🎉 PR #613 tanjiro LOGIT_SOFTCAP=20.0 MERGED — val=3.26776/ffs=3000 (n=2 mean, statsig 4.33×). NEW BASELINE. Fern #625 n=2 POSTED (val=3.26822/ffs=3012.5) but MISSES new bar — seed variance (3.26704+3.26940)/2=3.26822 vs new baseline 3.26776. β2=0.99 mechanism REAL (seed0 3.26704 beats new baseline alone), needs re-run with LOGIT_SOFTCAP=20.0 in stack. Fern #625 sent back. Tanjiro → #NEW logit-softcap-extended (c=25, c=30) — closes the axis or finds optimum above 20.**
 - **2026-05-21 UTC — Cycle 71 mid-27: 🎯🎯 PR #625 fern AdamW β2 sweep Arm A (β2=0.99) HIT val=3.26704/ffs=3000 at n=1 — SECOND winner this cycle, BETTER on val than tanjiro #613 (3.26704 vs 3.26781). Two ORTHOGONAL mechanisms (AdamW β2 EMA timescale + lm_head soft-cap c) BOTH breaking the val~3.269/ffs=3025 noise basin AND both hitting ffs=3000. Holding fern #625 PR for Arm B (β2=0.999) terminal before n=2 confirm decision. Both candidates point to AdamW group / output side as the productive frontier post-EMBED_INIT_STD=0.1.**
 - **2026-05-21 UTC — Cycle 71 mid-26: PR #610 edward NS5 cooldown precision CLOSED (third arm in val~3.269/ffs=3025 noise basin; val beat 0.000135 = 30× below statsig; both arms miss). edward → #642 AdamW LR floor (4th corner of schedule envelope cube — only uncovered corner; ADAMW_LR_FLOOR ∈ {0.05, 0.10}; mirror to closed Muon LR floor #615).**
 - **2026-05-21 UTC — Cycle 71 mid-25: 🎯 PR #613 tanjiro logit soft-cap Arm B (LOGIT_SOFTCAP=20) WIN CANDIDATE at n=1 — val=3.26781/ffs=3000 BEATS baseline on BOTH legs (Δval=-0.00138, Δffs=-12.5). First val+ffs joint pass since #541 merge. Arm A (c=12, tighter) misses on both legs (+0.0011, +12.5) — monotone direction toward LOOSER soft-cap with the new EMBED_INIT_STD=0.1 baseline. n=2 confirm authorized (one more seed of c=20), PR sent back to status:wip. If trial 1 confirms, this is a merge candidate. Architecture-side output-transform axis productive at last.**
@@ -20,35 +21,36 @@
 - **2026-05-20 16:10 UTC — PR #561 frieren Lookahead CLOSED (both arms MISS, discrete sync damps cooldown); frieren → #591 ortho-embed-init (decorrelation-side dissection of askeladd's magnitude winner).**
 - **2026-05-20 16:00 UTC — PR #541 askeladd Arm B (EMBED_INIT_STD=0.1) WINNER AT n=1 (val=3.26773, ffs=3000); n=2 confirm authorized; ETA terminal ~18:14 UTC.**
 
-## Current baseline ⭐⭐ (PR #541 MERGED 2026-05-20 20:20)
+## Current baseline ⭐⭐⭐ (PR #613 MERGED 2026-05-21 05:24)
 
-**EMBED_INIT_STD=0.1** — val=**3.269185**, ffs=**3012.5** @ train_steps=3175 (n=2 mean, statsig 3.82×).
+**LOGIT_SOFTCAP=20.0** on top of **EMBED_INIT_STD=0.1** — val=**3.26776**, ffs=**3000** @ train_steps=3175 (n=2 mean, statsig 4.33×).
 
-**MERGE BAR**: val mean < **3.269185** AND ffs_mean ≤ **3012.5** (ffs tie at 3012.5 accepted if val strictly improves).
+**MERGE BAR**: val mean < **3.26776** AND ffs_mean ≤ **3000** (ffs tie at 3000 accepted if val strictly improves).
 
 **Mandatory stack on ALL experiments** (omitting any line invalidates the run):
 ```
-NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1
+NS5_ITERS=14 WD_AUX=0.001 CONTRA_MUON=0.4 MUON_LR=0.04 EMBED_INIT_STD=0.1 LOGIT_SOFTCAP=20.0
 MU_COOLDOWN_START=0.95 MU_COOLDOWN_END=0.90
 ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 ```
 
 **Statsig**: `(3.28 − mean_val) × √n ≥ 0.004` (independent of bar).
-**ffs floor**: 3012.5. Cracking to ffs≤3000 is the primary research priority.
+**ffs floor**: 3000. Next milestone: ffs≤2975.
+
+**⚠️ NOTE for in-flight students**: Experiments launched WITHOUT LOGIT_SOFTCAP=20 are on old c=15 stack. If they pass new bar 3.26776/3000 anyway, they're strong wins. If they narrowly miss, re-run with LOGIT_SOFTCAP=20 added.
 
 ## Active PRs (8/8 students assigned)
 
-| PR | Student | Axis | Status | Terminal ETA |
+| PR | Student | Axis | Status | Notes |
 |---|---|---|---|---|
-| **#634** | **askeladd** | **SOAP preconditioner β2 sweep — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs default 0.90 (EMA timescale of Kronecker-factors; ffs floor attack)** | **Just assigned** | **~4h both arms** |
-| **#642** | **edward** | **AdamW LR floor — 4th corner of schedule envelope; ADAMW_LR_FLOOR ∈ {0.05, 0.10} vs linear-to-zero for embed+lm_head+scalars** | **Just assigned (#610 NS5 precision CLOSED)** | **~4h both arms** |
-| **#637** | **thorfinn** | **Internal block weight init multiplier — INTERNAL_INIT_MULT ∈ {0.5, 2.0} vs torch default 1.0 for QKV + fc weights; first internal init ablation; motivated by asymmetric-init trifecta** | **Just assigned (#615 Muon LR floor CLOSED)** | **~4h both arms** |
-| **#630** | **nezuko** | **RoPE base frequency sweep — ROPE_BASE ∈ {256, 4096} vs default 1024 (positional encoding, first ablation on this stack)** | **Just assigned — disabled-check + Arm A smoke first** | **~4h both arms** |
-| **#613** ⭐ | **tanjiro** | **Logit soft-cap value sweep — Arm B (c=20) val=3.26781/ffs=3000 BEATS baseline n=1; n=2 confirm in flight** | **Trial 1 of n=2 launching; PR back to status:wip** | **~110 min trial 1** |
-| **#619** | **frieren** | **z-loss regularization — Z_LOSS_COEF ∈ {1e-4, 1e-3}; PaLM-style logsumexp² penalty on PRE-cap logits** | **Step 2375, val=3.368 — mid-run** | **~50 min** |
-| **#608** | **alphonse** | **Muon LR warmup — MUON_LR_WARMUP_STEPS ∈ {100, 300}; symmetric to #598 on Muon side** | **Arm A terminal (val=3.2712, ffs=3025 — narrow miss); waiting SENPAI-RESULT + Arm B launch** | **Waiting student post** |
-| **#625** ⭐⭐ | **fern** | **AdamW β2 sweep — Arm A (β2=0.99) val=3.26704/ffs=3000 BEATS baseline n=1 (STRONGEST val of cycle); Arm B (β2=0.999) running** | **Arm A terminal WIN; Arm B in flight** | **~1.5h Arm B** |
-| **#633** | **alphonse** | **Attention scale sweep — ATTN_SCALE ∈ {0.088, 0.15} vs hardcoded 0.12 (1.36× textbook, never ablated)** | **Just assigned (#608 Muon LR warmup CLOSED — Muon well-conditioned from step 0)** | **~4h both arms** |
+| **#NEW** ⭐ | **tanjiro** | **Logit softcap extended — LOGIT_SOFTCAP ∈ {25, 30} (c=25, c=30 follow-up from merged c=20 win)** | **Freshly assigned** | **Monotone direction; c=25/c=30 follow-up** |
+| **#625** | **fern** | **AdamW β2=0.99 re-confirm on c=20 stack — Arm A re-run with LOGIT_SOFTCAP=20** | **Sent back; needs re-run on new mandatory stack** | **n=2 missed new bar by +0.00046; mechanism real (seed0=3.26704 beats new baseline)** |
+| **#637** | **thorfinn** | **Internal init mult — INTERNAL_INIT_MULT ∈ {0.5, 2.0}; Arm A miss (val=3.27156/ffs=3025); Arm B (mult=2.0) in flight** | **Arm B `8fy097oa` at step 625 ~05:11 UTC** | **~06:34 UTC terminal** |
+| **#642** | **edward** | **AdamW LR floor — ADAMW_LR_FLOOR ∈ {0.05, 0.10}; Arm A at step 972 ~05:08 UTC** | **Arm A `ya3c7lzs` in progress** | **~06:18 UTC terminal** |
+| **#633** | **alphonse** | **Attention scale sweep — ATTN_SCALE ∈ {0.088, 0.15} vs hardcoded 0.12** | **In flight** | **New bar: 3.26776/3000** |
+| **#634** | **askeladd** | **SOAP preconditioner β2 — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs default 0.90** | **In flight** | **New bar: 3.26776/3000** |
+| **#630** | **nezuko** | **RoPE base frequency — ROPE_BASE ∈ {256, 4096} vs default 1024** | **In flight** | **New bar: 3.26776/3000** |
+| **#619** | **frieren** | **z-loss regularization — Z_LOSS_COEF ∈ {1e-4, 1e-3}** | **In flight** | **New bar: 3.26776/3000** |
 
 ## Top merge candidates / watching closely
 
