@@ -46,6 +46,12 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_hyperball", type=int,
+                        default=int(os.environ.get("MUONH_HYPERBALL", "1")),
+                        help="Hyperball projection on MuonH 2D weights. Default 1 (baseline: "
+                             "always-active Frobenius-sphere projection when mode=scale_invariant). "
+                             "Set 0 to prune the projection entirely — falls through to vanilla "
+                             "Muon-SGDM with no norm constraint.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -704,7 +710,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape} warmup_steps={args.muonh_warmup_steps} hyperball={bool(args.muonh_hyperball)}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -756,6 +762,7 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "muonh_hyperball": bool(args.muonh_hyperball),
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -818,7 +825,8 @@ for trial_idx in range(args.num_trials):
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
+                       hyperball=bool(args.muonh_hyperball),
+                       budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
