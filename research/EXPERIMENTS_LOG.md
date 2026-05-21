@@ -3,6 +3,37 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~16:53 UTC — PR #641: alphonse AdaBelief optimizer (Zhuang 2020) — **CLOSED clean-NEUTRAL**
+
+- Branch: `g1r5-alphonse/adabelief-optimizer`
+- Student: g1r5-alphonse
+- Hypothesis: AdaBelief (Zhuang 2020) replaces AdamW's `v_t = g²` (raw second moment) with `v_t = (g − m)²` (variance of the gradient's *residual from momentum*). Prediction: when gradient direction is consistent with momentum, AdaBelief's denominator is smaller → larger adaptive steps in reliably-tracked directions → should outperform AdamW on well-aligned gradient regimes. 5-cell sweep of the eps axis (1e-10/1e-8/1e-16/1e-6) against AdamW ctrl.
+
+- **Results:**
+
+| Rank | Cell | eps | val/loss | ffs | Δ vs A ctrl | Δ vs baseline μ=3.263265 |
+|:----:|:----:|----:|---------:|----:|------------:|--------------------------:|
+| 1 | **B** | **1e-10 (paper default)** | **3.26344** | 3050 | **−0.4σ_single** | **+0.16σ_new** |
+| 2 | A | — (AdamW ctrl) | 3.26388 | 3050 | — | +0.55σ_new |
+| 3 | C | 1e-8 | 3.26438 | 3050 | +0.4σ | +0.99σ_new |
+| 4 | D | 1e-16 | 3.26442 | 3050 | +0.5σ | +1.03σ_new |
+| 5 | E | 1e-6 | 3.26491 | 3050 | +0.9σ | +1.46σ_new |
+
+- W&B runs: A=`w36rrko1`, B=`ecnl3ull`, C=`syyofitz`, D=`bhzqvj0j`, E=`hh0trx24`
+
+- **Key mechanistic findings:**
+  1. **AdaBelief ≈ AdamW at this scale.** B − A = −0.00044 (0.4σ_single), within seed noise. Whether you adapt to gradient magnitude (g²) or gradient-residual-from-momentum ((g−m)²) produces essentially the same effective step sizes here. At 12L/d_model=768 with Muon handling 2D matrices, the AdamW-managed groups (embed/lm_head/scalars) see gradients so consistent with momentum that `(g−m)² ≈ g²` numerically.
+  2. **Eps sweep minimum at paper default (1e-10).** AdaBelief's natural denominator `(g−m)²` runs orders-of-magnitude smaller than AdamW's `g²` (because m tracks g well), so eps=1e-6 dominates the denominator on small-variance directions and kills adaptive scaling. Below 1e-10, fp32 clips at ~1e-12, so D (1e-16) ties C (1e-8) rather than improving.
+  3. **Generalizes to denominator-axis saturation thesis.** AdamW eps flat across 8 decades (#556); AdaBelief eps optimal at 1e-10 (not 1e-16). Both formulations are eps-insensitive once below their respective operating floors. "Denominator loosening" tests have now all closed clean-neutral: #556 (AdamW eps), #614 (logit softcap — 3rd closure), #641 (AdaBelief eps — 4th closure).
+  4. **6th augmentation-class closure.** AdaBelief is the first to close clean-NEUTRAL (rather than clean-NEG), suggesting variance-estimator modifications are the *least* destructive augmentation class — they affect step *magnitude* (denominator) rather than step *direction* or *temporal aggregation*. Step magnitude has more slack at this scale than direction/aggregation.
+  5. **Step_avg overhead: +0.2% (1907.8 vs 1903.6 ms).** PyTorch fused `(g − m)` efficiently. VRAM unchanged (35.03 GiB identical across all 5 cells).
+
+- **Operational note:** Student demonstrated exemplary execution — baseline-drift catch (PR launched before #571 merged, student wired `--lr_scalars 0.03` into both paths), early crash diagnosis (orphaned commit + overlapping-launcher OOM), detached-daemon serialization with `setsid`. The AdaBelief code kept in branch behind `--use_adabelief` (default off) for future ablation use.
+
+- **Decision:** CLOSED clean-NEUTRAL. Variance formulation (g² vs (g−m)²) interchangeable at this scale. No P2 candidate (B beats A by only 0.4σ_single). Alphonse reassigned #699 depth-aware μP-style init (fresh INIT axis, never tested at per-layer depth-aware scale).
+
+---
+
 ## 2026-05-21 ~16:00 UTC — PR #649: frieren wd_scalars sweep — **CLOSED clean-NEUTRAL**
 
 - Branch: `g1r5-frieren/wd-scalars-sweep`
