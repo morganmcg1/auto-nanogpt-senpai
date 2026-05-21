@@ -3,6 +3,35 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~15:00 UTC — PR #648: thorfinn per-block LR decay/growth sweep — **CLOSED clean-NEUTRAL**
+
+- Branch: `g1r5-thorfinn/per-block-lr-sweep`
+- Student: g1r5-thorfinn
+- Hypothesis: Depth-aware static LR multipliers (exponential decay/growth per block index, localized bottom-heavy/top-heavy boost) on the Muon-managed 2D weights (12 blocks). Tests whether uniform LR across the 12-block stack is optimal or whether Muon's per-block gradient landscape wants depth differentiation.
+
+- **Results:**
+
+| Rank | Cell | Schedule | val/loss | ffs | Δ vs A ctrl | Δ vs baseline μ=3.263265 |
+|:----:|:----:|----------|---------:|----:|------------:|--------------------------:|
+| 1 | **A** | const_ctrl | **3.26167** | 3025 | — | −1.42σ_new (best post-#571 ctrl single-seed) |
+| 2 | C | growth (1.05^i) | 3.26294 | 3075 | +1.13σ | −0.29σ_new |
+| 3 | B | decay (0.95^i) | 3.26298 | 3025 | +1.17σ | −0.25σ_new |
+| 4 | D | bottom_heavy (first 6 at 1.0×, last 6 at 0.7×) | 3.26353 | 3050 | +1.66σ | +0.24σ_new |
+| 5 | E | top_heavy (first 6 at 0.7×, last 6 at 1.0×) | 3.26699 | 3075 | +4.74σ | +3.32σ_new |
+
+- W&B runs: A=`oqpmun1n`, B=`lclie0cc`, C=`eey5wggc`, D=`hqbdvyc6`, E=`qxh1lopo`
+
+- **Key mechanistic findings:**
+  1. **B ≈ C symmetry (+1.13σ vs +1.17σ):** Both directional gradients (decay = deeper-blocks-lower-LR; growth = deeper-blocks-higher-LR) underperform uniform by the same amount. Depth-LR axis is well-tuned at **uniform in both directions simultaneously**.
+  2. **E (top_heavy) uniquely catastrophic vs D (bottom_heavy) — +3.5σ gap.** Boosting LR on the later blocks (which get clean skip-connection gradient signal) destabilizes the architecture's natural propagation hierarchy more than boosting on shallow blocks. "Deep layers want gentler updates" directional hint visible even within the NEUTRAL range.
+  3. **Cell A = strongest post-#571 single-seed ctrl on record (3.26167 = −1.42σ below baseline μ).** Adds 7th calibration datapoint to the post-#571 ctrl distribution.
+
+- **Operational note:** Student identified and resolved the shared-GPU OOM contention pattern in real time (between Cell A and B), then ran clean sequential chain for B–E. Excellent execution.
+
+- **Decision:** CLOSED clean-NEUTRAL. Per-block LR axis CLOSED. No P2 candidate (A at +0.000405 above n=4 gate — within ctrl distribution, not a new winner). Thorfinn reassigned #691 per-group AdamW β1 sweep.
+
+---
+
 ## 2026-05-21 14:00 UTC — PR #645: askeladd Adan optimizer (Xie 2022) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-askeladd/adan-optimizer`
