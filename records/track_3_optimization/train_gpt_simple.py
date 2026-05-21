@@ -350,8 +350,8 @@ class Linear(nn.Linear):
 class Rotary(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
-        # half-truncate RoPE (w/ base freq tuning)
-        angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=dim//4, dtype=torch.float32)
+        # half-truncate RoPE (w/ base freq tuning) — base controllable via ROPE_BASE env var
+        angular_freq = (1.0 / ROPE_BASE) ** torch.linspace(0, 1, steps=dim//4, dtype=torch.float32)
         self.register_buffer("angular_freq", torch.cat([angular_freq, angular_freq.new_zeros(dim//4)]))
 
     def forward(self, x_BTHD: Tensor):
@@ -467,6 +467,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+ROPE_BASE = float(os.environ.get("ROPE_BASE", "1024"))  # 1024 = current default; <1024 sharpens nearby positions; >1024 broadens to longer contexts
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +867,7 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "model/rope_base": ROPE_BASE,
         },
     )
 
