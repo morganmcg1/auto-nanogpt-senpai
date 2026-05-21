@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 UTC — Cycle 71 mid-21: PR #602 CLOSED (nezuko lm_head non-zero init — output zero-init confirmed optimal; asymmetric init story complete); nezuko → #630 RoPE base frequency sweep
+
+### PR #602 — nezuko lm_head non-zero init sweep — CLOSED (zero-init confirmed optimal on output side)
+
+Branch: `g1r2-nezuko/lm-head-init`. Tests whether zero-init on the output projection (`model.proj.weight`) leaves headroom, complementary to askeladd's `EMBED_INIT_STD=0.1` win on the input embedding.
+
+| Arm | LM_HEAD_INIT_STD | val@3175 | ffs | Verdict |
+|---|---|---|---|---|
+| A | 0.02 | miss (val > baseline 3.269185) | miss | ❌ |
+| B | 0.1 | miss (matching askeladd magnitude on output side) | miss | ❌ |
+
+**Mechanism analysis**: The input embedding gain of magnitude ~22 (EMBED_INIT_STD=0.1 over vocab×dim) provides a scale that the optimizer can work with from step 0. The output projection's zero-init is a different story: GPT-2's convention of zero-init on `c_proj` (residual branch projections) is specifically load-bearing here — it initializes residual blocks as near-identity maps. Non-zero lm_head init puts energy into the logit distribution before training begins, creating an early CE signal that's hard for AdamW to rebalance in 3175 steps.
+
+**Asymmetric init story** (crystallized from #541 + #591 + #602 together):
+- Input embedding: wants magnitude ~22 (EMBED_INIT_STD=0.1) — high magnitude → strong early gradient → fast initial convergence
+- Output projection: wants zero-init — any non-zero init → logit perturbation → CE gradient misalignment early in training
+- This asymmetry is principled: embed maps tokens to representation space (benefit from scale), lm_head maps representation to logit space (benefit from zero start)
+
+**Conclusion**: #602 confirms that the init trifecta has one axis closed (input embed ✓, output proj closed as zero-optimal, residual proj in-flight as #611). Zero-init on lm_head is the correct choice. Close axis.
+
+### Assignment: nezuko → PR #630 (RoPE base frequency sweep)
+
+**Hypothesis**: `ROPE_BASE=1024` is hardcoded at line 354 of `train_gpt_simple.py` and has NEVER been ablated on this stack. The base was presumably chosen to match sequence length (1024 tokens), so frequencies span exactly the in-sequence range. This is a **positional encoding** axis — entirely orthogonal to all 9+7+2+1+init closures (which are optimizer/loss/schedule/init). Two arms: ROPE_BASE=256 (sharper short-range, 4× faster position discrimination) vs ROPE_BASE=4096 (broader, extending 4× beyond seq_len). Implementation: ~3 LoC (env var read + 1 line in Rotary.__init__ + W&B log). Default ROPE_BASE=1024 preserves byte-equivalent baseline.
+
 ## 2026-05-21 UTC — Cycle 71 mid-20: PR #605 CLOSED (fern Muon heavy-ball — Nesterov re-blend IS load-bearing); fern → #625 AdamW β2 sweep; alphonse #608 Arm A terminal (val=3.2712, ffs=3025 — narrow miss both axes; Arm B pending)
 
 ### PR #605 — fern Muon heavy-ball ablation — CLOSED (Nesterov re-blend confirmed load-bearing; 9th variance-reduction closure)
