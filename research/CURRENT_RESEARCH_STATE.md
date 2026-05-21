@@ -1,5 +1,6 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-21 06:35 UTC — Cycle 71 mid-29: 🎯🎯🎯 PR #642 edward Arm A WIN CANDIDATE — ADAMW_LR_FLOOR=0.05 val=3.26712/ffs=3000 BEATS new baseline (Δval=-0.00064) on BOTH legs at n=1. Strong cooldown-tail descent (step 3000=3.27852 → step 3175=3.26712). Edward Arm B (FLOOR=0.10) launched 06:31 UTC, ETA ~08:15 UTC. THIRD winner this cycle on output-side AdamW group (after tanjiro #613 LOGIT_SOFTCAP, fern #625 β2 candidate). PR #633 alphonse ATTN_SCALE CLOSED (both arms miss, 0.12 is local optimum on attention temperature axis). PR #619 frieren z-loss CLOSED (mechanism overlaps with LOGIT_SOFTCAP saturation — soft regularizer redundant with deterministic cap). NEW: #653 alphonse ADAMW_BETA1 sweep (β1 ∈ {0.9, 0.95} vs default 0.8 — 4th AdamW productive-side axis); #654 frieren LM_HEAD_LR_MULT sweep (∈ {2.0, 0.5} vs default 1/320 — direct test of "lm_head undertrained" hypothesis from 3-winner convergence). 8/8 students fully assigned.**
 - **2026-05-21 UTC — Cycle 71 mid-28: 🎉 PR #613 tanjiro LOGIT_SOFTCAP=20.0 MERGED — val=3.26776/ffs=3000 (n=2 mean, statsig 4.33×). NEW BASELINE. Fern #625 n=2 POSTED (val=3.26822/ffs=3012.5) but MISSES new bar — seed variance (3.26704+3.26940)/2=3.26822 vs new baseline 3.26776. β2=0.99 mechanism REAL (seed0 3.26704 beats new baseline alone), needs re-run with LOGIT_SOFTCAP=20.0 in stack. Fern #625 sent back. Tanjiro → #NEW logit-softcap-extended (c=25, c=30) — closes the axis or finds optimum above 20.**
 - **2026-05-21 UTC — Cycle 71 mid-27: 🎯🎯 PR #625 fern AdamW β2 sweep Arm A (β2=0.99) HIT val=3.26704/ffs=3000 at n=1 — SECOND winner this cycle, BETTER on val than tanjiro #613 (3.26704 vs 3.26781). Two ORTHOGONAL mechanisms (AdamW β2 EMA timescale + lm_head soft-cap c) BOTH breaking the val~3.269/ffs=3025 noise basin AND both hitting ffs=3000. Holding fern #625 PR for Arm B (β2=0.999) terminal before n=2 confirm decision. Both candidates point to AdamW group / output side as the productive frontier post-EMBED_INIT_STD=0.1.**
 - **2026-05-21 UTC — Cycle 71 mid-26: PR #610 edward NS5 cooldown precision CLOSED (third arm in val~3.269/ffs=3025 noise basin; val beat 0.000135 = 30× below statsig; both arms miss). edward → #642 AdamW LR floor (4th corner of schedule envelope cube — only uncovered corner; ADAMW_LR_FLOOR ∈ {0.05, 0.10}; mirror to closed Muon LR floor #615).**
@@ -43,23 +44,23 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Notes |
 |---|---|---|---|---|
-| **#650** ⭐ | **tanjiro** | **Logit softcap extended — LOGIT_SOFTCAP ∈ {25, 30} (c=25, c=30 follow-up from merged c=20 win)** | **Freshly assigned** | **Monotone direction; c=25/c=30 follow-up** |
-| **#625** | **fern** | **AdamW β2=0.99 re-confirm on c=20 stack — Arm A re-run with LOGIT_SOFTCAP=20** | **Sent back; needs re-run on new mandatory stack** | **n=2 missed new bar by +0.00046; mechanism real (seed0=3.26704 beats new baseline)** |
-| **#637** | **thorfinn** | **Internal init mult — INTERNAL_INIT_MULT ∈ {0.5, 2.0}; Arm A miss (val=3.27156/ffs=3025); Arm B (mult=2.0) in flight** | **Arm B `8fy097oa` at step 625 ~05:11 UTC** | **~06:34 UTC terminal** |
-| **#642** | **edward** | **AdamW LR floor — ADAMW_LR_FLOOR ∈ {0.05, 0.10}; Arm A at step 972 ~05:08 UTC** | **Arm A `ya3c7lzs` in progress** | **~06:18 UTC terminal** |
-| **#633** | **alphonse** | **Attention scale sweep — ATTN_SCALE ∈ {0.088, 0.15} vs hardcoded 0.12** | **In flight** | **New bar: 3.26776/3000** |
+| **#642** ⭐ | **edward** | **AdamW LR floor — ADAMW_LR_FLOOR ∈ {0.05, 0.10}; Arm A val=3.26712/ffs=3000 WIN candidate** | **Arm B `jlybeatf` running, ETA ~08:15 UTC** | **Hold PR for n=2 confirm after Arm B terminal** |
+| **#653** ⭐ NEW | **alphonse** | **AdamW β1 sweep — ADAMW_BETA1 ∈ {0.9, 0.95} vs default 0.8 (momentum length)** | **Just assigned** | **Mirror to fern β2 candidate; 4th AdamW productive-side axis** |
+| **#654** ⭐ NEW | **frieren** | **lm_head LR multiplier — LM_HEAD_LR_MULT ∈ {2.0, 0.5} vs default 1/320 ≈ 0.003125** | **Just assigned** | **Direct test of "lm_head undertrained" from 3-winner convergence** |
+| **#650** | **tanjiro** | **Logit softcap extended — LOGIT_SOFTCAP ∈ {25, 30}** | **In disabled-check stall — nudged 06:31 UTC** | **Monitor for Arm A launch** |
+| **#625** | **fern** | **AdamW β2=0.99 re-confirm on c=20 stack** | **Re-running with LOGIT_SOFTCAP=20** | **Mechanism real (seed0=3.26704 beats new baseline)** |
+| **#637** | **thorfinn** | **Internal init mult — INTERNAL_INIT_MULT ∈ {0.5, 2.0}; Arm A miss (val=3.27156/ffs=3025); Arm B in flight** | **Arm B `8fy097oa` ETA ~06:34 UTC** | **Likely miss new bar** |
 | **#634** | **askeladd** | **SOAP preconditioner β2 — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs default 0.90** | **In flight** | **New bar: 3.26776/3000** |
-| **#630** | **nezuko** | **RoPE base frequency — ROPE_BASE ∈ {256, 4096} vs default 1024** | **In flight** | **New bar: 3.26776/3000** |
-| **#619** | **frieren** | **z-loss regularization — Z_LOSS_COEF ∈ {1e-4, 1e-3}** | **In flight** | **New bar: 3.26776/3000** |
+| **#630** | **nezuko** | **RoPE base — Arm A miss (val=3.27049/ffs=3025), Arm B in flight (4096)** | **Arm B running, ETA ~07:00 UTC** | **Needs rebase if Arm B passes** |
 
 ## Top merge candidates / watching closely
 
-1. **EDWARD #610 NS5 cooldown precision (in-flight)** — NS5 iters 14→18/20 during last 70% of training. Schedule-side, plausible ffs floor attack.
-2. **FRIEREN #619 z-loss regularization (in-flight, trial 2)** — Z_LOSS_COEF ∈ {1e-4, 1e-3}. PaLM/Chinchilla standard. Trial 1 val=3.272 miss, trial 2 running for n=2 confirmation.
-3. **ALPHONSE #633 attention scale (just assigned)** — ATTN_SCALE ∈ {0.088, 0.15} vs 0.12. First ablation on attention temperature axis.
-4. **ASKELADD #634 SOAP β2 (just assigned)** — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs 0.90. EMA timescale of Kronecker-factor estimates for attention SOAP.
-5. **NEZUKO #630 RoPE base frequency (running)** — fresh positional encoding axis, never tested. If ROPE_BASE=256 sharpens short-range position discrimination, this opens a new class.
-6. **THORFINN #637 internal init mult (just assigned)** — first ablation on internal block weight init (QKV + fc); motivated by asymmetric-init trifecta conclusion.
+1. **EDWARD #642 ADAMW_LR_FLOOR=0.05 ⭐ WIN candidate** — Arm A val=3.26712/ffs=3000 BEATS new baseline (Δval=-0.00064) at n=1; hold gate val≤3.27 AND ffs≤3000 PASSES. Arm B (0.10) running for comparison. After Arm B terminal, authorize n=2 confirm of Arm A. Strongest WIN candidate of cycle so far.
+2. **ALPHONSE #653 ADAMW_BETA1 (just assigned)** — β1 ∈ {0.9, 0.95} vs default 0.8. Direct mirror to fern's β2 candidate (longer momentum across all AdamW groups). 4th AdamW productive-side axis.
+3. **FRIEREN #654 lm_head LR multiplier (just assigned)** — LM_HEAD_LR_MULT ∈ {2.0, 0.5} vs default 1/320. Tests whether lm_head specifically is undertrained at lr=0.003125 — direct test of 3-winner convergence theme.
+4. **FERN #625 ADAMW_BETA2=0.99 re-run** — re-confirm seed0=3.26704 on new c=20 stack. If lands, candidate for n=2 confirm.
+5. **TANJIRO #650 LOGIT_SOFTCAP extended (c=25, c=30)** — if monotone direction continues from c=15 → c=20 winner, c=25 could push baseline further. Currently in disabled-check stall.
+6. **ASKELADD #634 SOAP β2** — ATTN_SOAP_BETA2 ∈ {0.80, 0.95} vs 0.90. EMA timescale of Kronecker-factor estimates for attention SOAP.
 
 ## Mechanism categories (cycle 71 active)
 

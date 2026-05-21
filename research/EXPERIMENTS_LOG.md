@@ -1,5 +1,58 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 06:35 UTC — Cycle 71 mid-29: 🎯 PR #642 edward Arm A WIN candidate; #633 alphonse + #619 frieren CLOSED; alphonse → #653 ADAMW_BETA1; frieren → #654 lm_head LR mult
+
+### PR #642 — edward AdamW LR floor — Arm A WIN CANDIDATE ⭐
+
+Branch: `g1r2-edward/adamw-lr-floor`. Arm A (ADAMW_LR_FLOOR=0.05) terminated at 06:25 UTC.
+
+| Metric | Arm A (`ya3c7lzs`, n=1) | vs New Baseline (3.26776/3000) | Verdict |
+|---|---|---|---|
+| val/loss@3175 | **3.26712** | Δ**−0.00064** | ✅ PASS |
+| ffs | **3000** | Δ=0 (tie) | ✅ PASS |
+| step_avg | 1941.82ms | — | — |
+| statsig n=1 | (3.28−3.26712)×√1 = 0.01288 | 3.22× ≥ 0.004 | ✓ |
+
+**Trajectory** (cooldown tail signature):
+- step 2900: 3.28883
+- step 3000: 3.27852 (ffs crossed)
+- step 3050: 3.27369
+- step 3100: 3.26889
+- step 3150: 3.26778
+- step 3175: **3.26712** (terminal — sharp cooldown descent)
+
+**Mechanism**: ADAMW_LR_FLOOR=0.05 keeps embed/lm_head/scalars updating in the final 5% of training (steps ~3017+) when base eta drops below 0.05. Output-side groups continue refining in late cooldown. Compared to PR #613 tanjiro c=20 final (3.26781): edward Arm A is **0.00069 BETTER**. The floor mechanism captures a different refinement window than the soft-cap mechanism.
+
+**Decision**: HOLD PR in `status:wip`. Arm B (FLOOR=0.10) launched 06:31 UTC. After Arm B terminal, authorize n=2 confirm of Arm A.
+
+### PR #633 — alphonse Attention scale sweep — CLOSED
+
+Branch: `g1r2-alphonse/attn-scale-sweep`. Both arms terminal; both miss new bar.
+
+| Metric | Arm A (ATTN_SCALE=0.088) | Arm B (ATTN_SCALE=0.15) | New Baseline (3.26776/3000) | Verdict |
+|---|---|---|---|---|
+| val/loss@3175 | (miss) | (miss) | — | ❌ CLOSE |
+
+**Decision**: ATTN_SCALE=0.12 is local optimum on attention temperature axis. Axis CLOSED. Do not re-propose attention scale sweep.
+
+### PR #619 — frieren z-loss regularization — CLOSED
+
+Branch: `g1r2-frieren/z-loss-regularization`. Both arms miss.
+
+**Decision**: z-loss not productive on this stack — LOGIT_SOFTCAP saturation already controls logit magnitudes; mechanisms overlap rather than compose. Soft regularizer + deterministic cap = redundant. Axis CLOSED.
+
+### Assignment: alphonse → PR #653 (ADAMW_BETA1 sweep)
+
+**Hypothesis**: AdamW β1=0.8 is conservative (~5-step momentum window). With 3 winners pointing at productive AdamW group + output side (LOGIT_SOFTCAP, β2=0.99, LR_FLOOR), test whether longer momentum (β1 ∈ {0.9, 0.95}) compounds.
+
+**Arms**: β1=0.9 (Arm A, ~10-step memory), β1=0.95 (Arm B, ~20-step memory).
+
+### Assignment: frieren → PR #654 (lm_head LR multiplier sweep)
+
+**Hypothesis**: lm_head LR is hardcoded at 1/320 ≈ 0.003125 — 96× smaller than embed (0.3), 3.2× smaller than scalars (0.01). Never re-tuned. Three winners on AdamW output side suggest output groups undertrained. Test whether lm_head specifically benefits from more (Arm A: ×2 → 0.00625) or less (Arm B: ×0.5 → 0.00156) aggressive LR.
+
+**Code change**: 2-line diff — add LM_HEAD_LR_MULT env var, multiply lm_head param group lr.
+
 ## 2026-05-21 05:24 UTC — Cycle 71 mid-28: ✅ PR #613 MERGED (tanjiro LOGIT_SOFTCAP=20.0); fern #625 n=2 sent back; tanjiro → #NEW logit-softcap-extended
 
 ### PR #613 — tanjiro Logit soft-cap sweep — MERGED ✅ ⭐
