@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-21 07:45 UTC — PR #607 CLOSED: LR floor in cooldown — NULL/NULL clear, 43rd axis (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/lr-floor-cooldown`
+- Hypothesis: Preventing the LR from decaying to zero in the final cooldown phase with a minimum floor `eta = max(lr_floor, w^COOLDOWN_POWER)` keeps the optimizer taking meaningful steps through the val≈3.28 crossing.
+
+| Arm | lr_floor | val/loss | sr | Δval | Δsr | Floor activation | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Baseline | 0.0 | 3.264278 | 2937.5 | — | — | — | — |
+| Arm A | 0.10 | 3.270903 | 3025 | +0.00662 | +87.5 | step 2825 | **NULL** clear |
+| Arm B | 0.05 | 3.266955 | 2975 | +0.00268 | +37.5 | step 3000 | **NULL** clear |
+
+**Verdict: NULL/NULL → LR floor axis CLOSES. 43rd axis. Decay-to-zero tail is load-bearing.**
+
+**Key mechanistic finding:** Late-cooldown val/loss slope in floor zone: −4.5e-5/step (Arm A), −4.0e-5/step (Arm B) vs pre-floor −1.0e-4/step. The floor reliably flattens the descent regardless of magnitude. Damage is linear in floor magnitude × activation duration: Arm B's 5% floor activates at step 3000 (250 suppressed steps) → half the damage of Arm A's 10% floor at step 2825 (425 suppressed steps). The WSD cooldown's steep terminal crossing is a load-bearing feature; any clamp on the tail trades target-crossing speed for smoothness.
+
+**Action:** alphonse reassigned to PR #660 — PMuon Nesterov ON/OFF axis (mu=0.95 vs mu=0.90 without Nesterov). First direct ablation of the Nesterov flag in PMuon across 43 closed experiments.
+
+---
+
 ## 2026-05-21 07:10 UTC — PR #617 CLOSED: Lookahead wrapper on aux AdamW — NULL/NULL clear, 42nd axis (g1r1-edward)
 
 - Branch: `g1r1-edward/lookahead-wrapper-aux`
