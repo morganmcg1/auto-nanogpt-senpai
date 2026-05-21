@@ -46,6 +46,16 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_reset_on_sync", type=int,
+                        default=int(os.environ.get("MUONH_RESET_ON_SYNC", "0")),
+                        help="If 1, zero MuonH momentum buffers immediately after each MuLoCo "
+                             "outer sync step. Default 0. Tests cross-sync coherence.")
+    parser.add_argument("--muonh_reset_until_frac", type=float,
+                        default=float(os.environ.get("MUONH_RESET_UNTIL_FRAC", "0.0")),
+                        help="If --muonh_reset_on_sync 1, apply the reset only while "
+                             "train_step/train_steps < this fraction. Default 0.0 means "
+                             "reset is ALWAYS active (matches PR #616 arm 2 behavior). "
+                             "Set to 0.75 to gate reset OFF during the cooldown phase.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -756,6 +766,8 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "muonh_reset_on_sync": bool(args.muonh_reset_on_sync),
+            "muonh_reset_until_frac": args.muonh_reset_until_frac,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -1090,6 +1102,7 @@ for trial_idx in range(args.num_trials):
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+            muonh_reset_applied = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
@@ -1101,6 +1114,18 @@ for trial_idx in range(args.num_trials):
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
                         total_count += delta.numel()
+                # Optional inner MuonH momentum reset after sync, with optional cooldown gate.
+                # frac<=0.0 means always reset; otherwise reset only while train_step<frac*train_steps.
+                if args.muonh_reset_on_sync:
+                    reset_active = (args.muonh_reset_until_frac <= 0.0 or
+                                    train_step < int(args.muonh_reset_until_frac * train_steps))
+                    if reset_active:
+                        for group in optimizer2.param_groups:
+                            for p in group["params"]:
+                                state = optimizer2.state.get(p, None)
+                                if state is not None and "momentum" in state:
+                                    state["momentum"].zero_()
+                        muonh_reset_applied = 1
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
@@ -1111,6 +1136,7 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/muonh_reset_applied": muonh_reset_applied,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
