@@ -1,3 +1,63 @@
+## 2026-05-21 02:20 UTC — PR #636 ASSIGNED (fern): H36 Cooldown-gated MuonH momentum reset — recover the mid-training Δ
+
+- Branch: `g1r3-fern/muonh-reset-cooldown-gated`
+- Hypothesis: PR #616 NEG showed reset arm was BETTER than ctrl by 0.005–0.035 during the entire main training phase (steps 500–2125), then progressively LOST during cooldown (Δ+0.023 terminal). Phase boundary sharp at step ~2500. **If we gate reset OFF at cooldown onset (~75% through training), we may capture the mid-training favorable Δ without the cooldown loss.**
+- Two arms: ctrl (reset off entirely) vs arm 2 (`--muonh_reset_on_sync 1 --muonh_reset_until_frac 0.75` = reset during steps 0–2493, no-op during 2493–3325).
+- ~3 LoC change (add `--muonh_reset_until_frac` flag, add gate condition to PR #616's reset block).
+- Three decisive outcomes: win (val<3.27039) → mid-training Δ transfers, merge candidate; marginal → partial benefit, sweep intermediate gates; NEG → cooldown needs full un-reset history. Highest-EV follow-up from PR #616 closure (student's own suggestion #1).
+
+---
+
+## 2026-05-21 02:15 UTC — PR #616 CLOSED (fern): H33 MuonH momentum reset on sync — NEG with phase-localized mechanism finding
+
+- Branch: `g1r3-fern/muonh-reset-on-sync`
+- Hypothesis: Is cross-sync MuonH momentum coherence load-bearing? MuonH mu=0.95 buffer (half-life ~14 steps) persists across MuLoCo sync (every 30 inner steps), carrying stale history from pre-kick parameter neighborhood.
+
+### Results (3325 steps, n=1 each)
+
+| Arm | run_id | val/loss | ffs | reached_target | nonfinite | Δ vs ctrl | Δ vs baseline `t1coza71` |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Baseline `t1coza71` | — | 3.27119 | 3100 | 1 | — | — | — |
+| Arm 1 ctrl (reset-off) | `s4vuryin` | **3.27383** | 3150 | 1 | 0 | — | +0.00264 |
+| Arm 2 reset-on | `cdwha2oa` | **3.29693** | -1 | 0 | 0 | **+0.02310** | +0.02574 |
+
+SENPAI-RESULT: `{"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["s4vuryin","cdwha2oa"],"primary_metric":{"name":"val/loss","value":3.29693}}`
+
+### Phase-localized mechanism (sharp finding)
+
+| Step | ctrl | reset-on | Δ | Phase |
+|---:|---:|---:|---:|---|
+| 875 | 3.7702 | 3.7348 | **−0.0354** | main (favorable) |
+| 1500 | 3.6137 | 3.5944 | **−0.0193** | main (favorable) |
+| 1875 | 3.5110 | 3.4903 | **−0.0207** | main (favorable) |
+| 2125 | 3.4497 | 3.4446 | **−0.0051** | main (favorable) |
+| 2500 | 3.3721 | 3.3733 | +0.0012 | cooldown begins |
+| 3175 | 3.2778 | 3.3003 | +0.0225 | cooldown |
+| 3325 | 3.27383 | 3.29693 | **+0.0231** | terminal |
+
+**Two regimes, opposite signs:**
+
+1. **Main phase (high LR)**: fresh gradient signal dominates each update; mu=0.95 EMA buffer is a small noise source. Stale momentum after sync adds ~0.02 val noise — resetting REMOVES this noise → favorable Δ.
+2. **Cooldown phase (low LR)**: LR shrinks → momentum buffer's relative contribution grows. Resetting cuts the optimizer's memory exactly when long-horizon directional momentum is needed → Δ opens to +0.023 by terminal.
+
+Phase boundary almost exactly at step 2500 (cooldown onset). Cleanest cooldown-vs-main mechanism split observed in this round.
+
+### Telemetry sanity (PR-required)
+
+- `muonh/active_fraction = 1.0` at every sampled step in BOTH arms (reset did not perturb NS5 saturation; gate ±5% met at ~0%).
+- `muloco/delta_rms` and `velocity_rms` essentially identical between arms throughout (<1% deviation). PR's prior expectation ("reset arm should have HIGHER delta_rms early") did NOT materialize, because mu=0.95 half-life (14 steps) is short relative to sync interval (30 steps).
+- All kill gates passed during training. NEG comes entirely from cooldown.
+
+### Rule (provisional)
+
+"Inner optimizer memory is more valuable during cooldown than during main training."  
+Consistent with PR #563 (outer_momentum=0.9 NEG during cooldown), but direction on inner-side OPPOSITE: main training tolerates / benefits from frequent resets.
+
+### Follow-up
+Fern reassigned to H36 cooldown-gated reset (PR #636). The mid-training favorable Δ ≈ −0.02 is large and consistent — if it transfers to terminal, val could land below merge bar.
+
+---
+
 ## 2026-05-21 01:05 UTC — PR #631 ASSIGNED (askeladd): H35 Aux AdamW β2 pruning — is the variance preconditioner load-bearing?
 
 - Branch: `g1r3-askeladd/aux-beta2-pruning`

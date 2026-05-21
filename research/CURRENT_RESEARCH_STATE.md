@@ -1,6 +1,8 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-21 01:05 UTC
+- **Last updated:** 2026-05-21 02:20 UTC
+- **🆕 PR #636 fern ASSIGNED 02:20 UTC — H36 Cooldown-gated MuonH momentum reset**: Highest-EV follow-up from PR #616 phase-localized mechanism finding. Reset arm was BETTER than ctrl by 0.005–0.035 during the entire main training phase, then LOST during cooldown. Hypothesis: gate reset OFF at cooldown onset (~75% through training, step 2493/3325) → capture mid-training favorable Δ without cooldown loss. 2 arms: ctrl vs `--muonh_reset_until_frac 0.75`. ~3 LoC. Credible merge candidate if mid-training Δ ≈ −0.02 transfers to terminal.
+- **🆕 PR #616 CLOSED NEG 02:15 UTC — H33 fern MuonH momentum reset on sync, phase-localized mechanism finding**: ctrl `s4vuryin` 3.27383 (code-clean), arm 2 reset-on `cdwha2oa` **3.29693** (NEG, Δ+0.02310). **Two regimes, opposite signs**: main phase (high LR) → reset BETTER than ctrl by 0.005–0.035 (stale momentum is noise); cooldown phase (low LR) → reset LOSES progressively (cuts optimizer memory when long-horizon directional momentum is needed). Sharp phase boundary at step ~2500 (cooldown onset). Provisional rule: "inner optimizer memory is more valuable during cooldown than main training." Fern reassigned to H36 cooldown-gated variant (PR #636).
 - **🆕 PR #631 askeladd ASSIGNED 01:05 UTC — H35 Aux AdamW β2 pruning**: Tests whether the aux AdamW second moment (v_t EMA, β2=0.95) is load-bearing. PR #612 (just closed) confirmed β1=0.8 IS load-bearing; this tests the other half. Setting β2=0 → v_t = g_t² each step → update ≈ signSGD-with-momentum. 2 arms: ctrl (β2=0.95) vs arm 2 (`--aux_adamw_beta2 0.0`). ~2 LoC. Three decisive outcomes: win/match → v_t dead weight (simplify); NEG → full AdamW floor confirmed (both β1 AND β2 load-bearing).
 - **🆕 PR #612 CLOSED NEG 00:52 UTC — H32 askeladd aux AdamW β1=0 pruning, sharp mechanism finding**: ctrl `oaviz82w` 3.27217 (code-clean), arm 2 β1=0 `s4tdvmcn` **3.28724** (NEG, Δ+0.01507). Gap-narrowing: +0.0783 step 500 → +0.0151 terminal. **β1=0.8 acts as bulk-phase gradient denoiser — most valuable at high LR, attenuates in cooldown. Aux β1 axis FULLY CLOSED (can't prune, can't extend, can't ramp).** Askeladd reassigned to H35 β2 pruning (PR #631).
 - **🆕 PR #621 nezuko ASSIGNED 23:18 UTC — H34 MuonH hyperball projection pruning**: Tests whether the always-active Frobenius-sphere SI projection (`hyperball=True`, mode=scale_invariant) is load-bearing. PR #443 introduced mode=scale_invariant as the baseline but never ablated the projection mechanism itself. 2 arms: ctrl (hyperball=1) vs arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM with no norm constraint). ~5 LoC. Three decisive outcomes.
@@ -61,13 +63,13 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (01:05 UTC 2026-05-21)
+## Active experiments (02:20 UTC 2026-05-21)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
+| **#636** | fern | **H36: Cooldown-gated MuonH momentum reset** (NEW 02:20 UTC) | Assigned. ~3 LoC. 2 arms: ctrl vs arm 2 (`--muonh_reset_on_sync 1 --muonh_reset_until_frac 0.75`). Phase-gated reset: ON during steps 0-2493, OFF during 2493-3325. Tries to capture PR #616 mid-training favorable Δ ≈ −0.02 without cooldown loss. Credible merge candidate. |
 | **#631** | askeladd | **H35: Aux AdamW β2 pruning** (NEW 01:05 UTC) | Assigned. ~2 LoC. 2 arms: ctrl (β2=0.95), arm 2 (`--aux_adamw_beta2 0.0` = signSGD-with-momentum). Tests if v_t EMA is load-bearing. Natural complement to PR #612 β1 pruning (just closed NEG). |
-| **#621** | nezuko | **H34: MuonH hyperball projection pruning** (NEW 23:18 UTC) | Assigned. ~5 LoC. 2 arms: ctrl (hyperball=1), arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM, no norm constraint). Tests if SI projection is load-bearing. |
-| **#616** | fern | **H33: MuonH momentum reset on MuLoCo sync** | ctrl arm `s4vuryin` running (~89% at 23:58 UTC, ETA terminal ~00:15 UTC). Reset arm (`--muonh_reset_on_sync 1`) queued. Smoke `5ypng2n0` verified clean. |
+| **#621** | nezuko | **H34: MuonH hyperball projection pruning** (NEW 23:18 UTC) | Assigned. ~5 LoC. 2 arms: ctrl (hyperball=1), arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM, no norm constraint). Tests if SI projection is load-bearing. Ctrl arm `58rw98w0` running step ~1525 at 01:10 UTC. |
 | **#592** | edward | **H28: Gradient Centralization on aux AdamW** | **HELD — POD STILL BROKEN.** esc#27/28/29 posted on Issue #164. |
 | **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD ON OTHER BRANCHES** — orphaned PR. |
@@ -75,6 +77,8 @@
 | **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 
 ## Recently closed PRs
+
+- **PR #616 fern MuonH momentum reset (CLOSED 02:15 UTC 2026-05-21)** — ctrl `s4vuryin` 3.27383 (code-clean), arm 2 reset-on `cdwha2oa` **3.29693** (NEG, Δ+0.02310). **Phase-localized mechanism (sharp finding)**: reset arm was BETTER than ctrl by 0.005–0.035 during the entire main training phase (steps 500–2125), then LOST progressively during cooldown. Phase boundary at step ~2500. **Two regimes, opposite signs**: main phase → stale momentum is noise (reset helps); cooldown → momentum is signal (reset hurts). Provisional rule: "inner optimizer memory is more valuable during cooldown than main training." Fern reassigned to H36 cooldown-gated variant (PR #636), highest-EV merge candidate.
 
 - **PR #612 askeladd β1 pruning (CLOSED 00:52 UTC 2026-05-21)** — ctrl `oaviz82w` 3.27217 (code-clean), arm 2 β1=0 `s4tdvmcn` 3.28724 (NEG, Δ+0.01507). Gap-narrowing: +0.0783 step 500 → +0.0151 terminal. **Sharp mechanism finding: β1=0.8 is a bulk-phase gradient denoiser — most valuable at high LR/variance, attenuates in cooldown as LR decays.** Narrow load-bearing band: required non-zero (PR #612 NEG) AND cannot be extended (triple-NEG #544/#567/#582) AND cannot be scheduled (PR #572). Aux β1 axis fully closed in all directions. Askeladd reassigned to H35 β2 pruning (PR #631).
 
@@ -160,16 +164,17 @@
 | H29 | AGC pruning ablation (aux + muonh inner sides) | **PR #595 nezuko ACTIVE 16:28 UTC** — 0 LoC pruning experiment. 3 arms test if AGC is dead code, harmful, or load-bearing on each side. Aligned with launch directive on stack pruning. |
 | H30 | Catapult initialization (large initial LR step before cooldown) | Pending. Schedule idea, inner-side complement to outer momentum |
 | H31 | MuLoCo outer Nesterov pruning ablation — Nesterov vs vanilla SGD-momentum | **CLOSED PR #597 21:46 UTC** — ctrl 3.27332 vs nesterov-off 3.27774 (Δ+0.00443 NEG). Nesterov IS load-bearing. Operating-regime ratio β+g/v more nuanced than steady-state bound 2×. Axis CLOSED.
-| H33 | MuonH momentum reset on MuLoCo sync — cross-sync coherence ablation | **PR #616 fern ASSIGNED 21:49 UTC** — ~8 LoC. 2 arms: ctrl vs `--muonh_reset_on_sync 1`. Tests if mu=0.95 buffer coherence across 30-step sync events is load-bearing. |
+| H33 | MuonH momentum reset on MuLoCo sync — cross-sync coherence ablation | **CLOSED PR #616 NEG 02:15 UTC 2026-05-21** — ctrl 3.27383 vs reset-on 3.29693 (Δ+0.02310). Phase-localized mechanism: main phase favorable Δ ≈ −0.02 (stale momentum is noise), cooldown phase LOSES (cuts memory). Phase boundary at step ~2500. |
 | H34 | MuonH hyperball projection pruning — Frobenius-sphere constraint ablation | **PR #621 nezuko ASSIGNED 23:18 UTC** — ~5 LoC. 2 arms: ctrl vs `--muonh_hyperball 0` (vanilla Muon-SGDM, no SI projection). Tests if PR #443's mode=scale_invariant win was from the hyperball mechanism or incidental. |
 | H35 | Aux AdamW β2 pruning — variance preconditioner (v_t EMA) ablation | **PR #631 askeladd ASSIGNED 01:05 UTC** — ~2 LoC. 2 arms: ctrl (β2=0.95) vs arm 2 (`--aux_adamw_beta2 0.0` = signSGD-with-momentum). Natural complement to PR #612 β1 pruning (just closed NEG). Tests if v_t EMA is load-bearing or dead weight. |
+| H36 | Cooldown-gated MuonH momentum reset — phase-gated structural intervention | **PR #636 fern ASSIGNED 02:20 UTC** — ~3 LoC. 2 arms: ctrl vs `--muonh_reset_on_sync 1 --muonh_reset_until_frac 0.75` (reset ON during steps 0–2493, OFF during 2493–3325). Tries to capture PR #616 mid-training favorable Δ ≈ −0.02 without cooldown loss. Credible merge candidate. |
 
-## Research direction (01:05 UTC 2026-05-21)
+## Research direction (02:20 UTC 2026-05-21)
 
 **Primary active mechanism directions:**
-1. **Aux β2=0 pruning** (PR #631 askeladd, NEW): Is the aux v_t EMA (β2=0.95) load-bearing? Natural complement to PR #612 (β1=0 NEG). If β2=0 also NEG → full AdamW is the floor. If match → architectural simplification.
-2. **Inner-outer coupling ablation** (PR #616 fern, in flight): Does MuonH's mu=0.95 long-horizon buffer need resetting at each MuLoCo sync? ctrl arm `s4vuryin` terminal ~00:15 UTC; reset arm queued.
-3. **MuonH hyperball ablation** (PR #621 nezuko, assigned): Does the always-active Frobenius-sphere SI projection drive PR #443's win, or is it incidental?
+1. **Cooldown-gated MuonH reset** (PR #636 fern, NEW — credible merge candidate): Can we capture PR #616's mid-training favorable Δ ≈ −0.02 (reset during main phase = noise removal) without the cooldown loss (reset during cooldown = memory loss)? Gate reset at step 2493 (75% through training, just before cooldown onset).
+2. **Aux β2=0 pruning** (PR #631 askeladd, assigned): Is the aux v_t EMA load-bearing? Natural complement to PR #612 (β1=0 NEG). Three structural outcomes.
+3. **MuonH hyperball ablation** (PR #621 nezuko, in flight): Does the always-active Frobenius-sphere SI projection drive PR #443's win, or is it incidental? Ctrl arm running step ~1525.
 4. **Gradient Centralization** (PR #592 edward): HELD on broken pod. esc#27/28 posted. Implementation likely sound — will re-run when pod is healthy.
 5. **Outer side CLOSED**: Nesterov formulation (PR #597 NEG), outer_momentum schedule (PR #563 NEG), outer wrapper (PR #536 NEG). Nothing further to test on outer optimizer.
 6. **🆕 TENTATIVE FUSED-STATE RULE (PR #572 closure, DOWNGRADED)**: β1 ramp NaN may have been pod failure, not kernel incompatibility. Conservative posture: still don't propose β1/β2/eps schedule interventions on fused AdamW until tested on a healthy pod. Pre-step `p.grad` modification (MARS-style, GC-style) remains unconditionally safe.
