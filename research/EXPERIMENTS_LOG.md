@@ -4785,3 +4785,23 @@ vs. old baseline (PR #288): val Δ=−0.000967, ffs Δ=−18.75. statsig: (3.28�
 **NEW BASELINE**: val=3.274383 / ffs=3068.75. ALL subsequent experiments must compare against this harder bar. ffs<3068.75 requires ≥2 of 4 trials at ffs=3050 (or equivalent mean). This is a significant tightening — most current in-flight experiments on CONTRA_MUON=0.5 will miss.
 
 **Conclusions**: CONTRA_MUON axis has headroom below 0.5. 0.4 is confirmed better; 0.3 is the next test. Pipeline stack: CONTRA_MUON=0.4 is now the required base for all new experiments.
+
+---
+
+## 2026-05-21 19:35 UTC — PR #688: MUON_GRAD_CLIP — Gradient clipping for Muon group (CLOSED — both arms MISS)
+
+- `g1r2-alphonse/muon-grad-clip`
+- Hypothesis: Gradient clipping of the Muon parameter group (group-norm L2, clip_grad_norm_) before NS5 orthogonalization could provide a stability scaffold, widening the c=20 stack's stability window and allowing other axes (WD_AUX, etc.) to re-open.
+- W&B runs: `6ku5c9af` (Arm A, clip=1.0), `bzsdsxnz` (Arm B, clip=0.5)
+
+| Arm | MUON_GRAD_CLIP | val/loss | ffs | gate |
+|---|---|---|---|---|
+| A | 1.0 | 3.27252 | 3050 | MISS (+0.00252 val, +50 ffs) |
+| B | 0.5 | 3.27232 | 3050 | MISS (+0.00232 val, +50 ffs) |
+| baseline (#613) | — (no clip) | 3.26776 (n=2) | 3000 (n=2) | — |
+
+**Results commentary**: Both arms miss the n=1 hold gate (val≤3.27 AND ffs≤3000). The dose-response between A and B is effectively null — B (tighter clip) is lower val by only 0.0002, well below the n=1 noise floor of ~0.003. Both arms hit the 3.28 target at ffs=3050 (50 steps behind baseline's ffs=3000), suggesting the clip acts as a mild damper on Muon convergence speed even when not visibly perturbing val.
+
+**Implementation detail**: Student correctly used `clip_grad_norm_` over the Muon block as a group (not per-tensor), which fires on most steps at thresholds {1.0, 0.5} since the per-block group-norm is ~1.5-5. This means the mechanism is a near-constant damper rather than an outlier-filtering safety net.
+
+**Conclusion**: Group-norm gradient clipping at {0.5, 1.0} is not productive on the c=20 stack. The stability-widening mechanism had no live instability to suppress (c=20 trains cleanly without clip). Axis closed. A per-tensor form (strict max-norm per tensor) or cooldown-only clip remain untested if revisiting this class.
