@@ -71,6 +71,9 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--muonh_grad_centralization", type=int, default=0,
+                        choices=[0, 1],
+                        help="If 1, subtract per-row mean from MuonH 2D weight gradients before NS5.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,6 +769,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_grad_centralization": args.muonh_grad_centralization,
         },
     )
 
@@ -1018,6 +1022,36 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # GC on inner MuonH gradient: subtract per-row mean from 2D weight grads
+        # BEFORE NS5 orthogonalization. No-op (bit-identical) when flag is 0.
+        # Operates on MuonH params (transformer blocks ndim>=2). Skips aux.
+        gc_log_due = (
+            args.muonh_grad_centralization
+            and dist.get_rank() == 0
+            and (step + 1) % 50 == 0
+        )
+        if args.muonh_grad_centralization:
+            pre_norm_sq = None
+            post_norm_sq = None
+            for p in muonh_params_for_agc:
+                if p.grad is not None and p.grad.ndim >= 2:
+                    if gc_log_due:
+                        sq = p.grad.float().square().sum()
+                        pre_norm_sq = sq if pre_norm_sq is None else pre_norm_sq + sq
+                    mean = p.grad.mean(dim=tuple(range(1, p.grad.ndim)), keepdim=True)
+                    p.grad.sub_(mean)
+                    if gc_log_due:
+                        sq = p.grad.float().square().sum()
+                        post_norm_sq = sq if post_norm_sq is None else post_norm_sq + sq
+            if gc_log_due and pre_norm_sq is not None:
+                pre_norm = float(pre_norm_sq.sqrt().item())
+                post_norm = float(post_norm_sq.sqrt().item())
+                ratio = post_norm / max(pre_norm, 1e-30)
+                wandb.log({
+                    "train/muonh_gc/pre_norm_sum": pre_norm,
+                    "train/muonh_gc/post_norm_sum": post_norm,
+                    "train/muonh_gc/norm_ratio": ratio,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
