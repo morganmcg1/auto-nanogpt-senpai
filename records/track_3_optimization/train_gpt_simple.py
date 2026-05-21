@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--winsorize_k", type=float, default=0.0,
+                        help="Hard-clip post-whitening gradient entries to [-k*median(|g|), +k*median(|g|)] before NS; 0 disables (PR #644).")
+    parser.add_argument("--winsorize_median_beta", type=float, default=0.99,
+                        help="EMA beta for per-tensor median(|g|) tracking used by --winsorize_k.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -488,6 +492,11 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    winsorize_k: float = 0.0,
+    winsorize_median_beta: float = 0.99,
+    median_abs_ema: Tensor | None = None,
+    winsorize_step_state: list | None = None,
+    winsorize_diag: list | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -500,6 +509,57 @@ def pmuon_update(
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
+
+    # Winsorization pre-NS (PR #644): hard-clip post-whitening gradient entries
+    # to [-k*median(|m_pre|), +k*median(|m_pre|)] before the polar map. Median is
+    # sample-approximated (256 entries) and tracked per-tensor with a FP32 EMA.
+    if winsorize_k > 0.0 and median_abs_ema is not None:
+        flat = m_pre.flatten()
+        if flat.numel() > 256:
+            idx = torch.randint(0, flat.numel(), (256,), device=m_pre.device)
+            sampled = flat[idx]
+        else:
+            sampled = flat
+        cur_median = sampled.abs().float().median().clamp_min(1e-8)
+
+        step_idx = winsorize_step_state[0] if winsorize_step_state is not None else 0
+        # Warmup: first WINSORIZE_WARMUP steps use current-step median directly for
+        # threshold; EMA initialization is deferred to WINSORIZE_WARMUP. First attempt
+        # used 10 steps but telemetry from j9h3p3l5 showed EMA was poisoned for >>100
+        # steps: at step 125, ema_median=5e5 while cur_median=2e-5 (10 orders of magnitude
+        # gap) and clip_fraction_mean = 5e-5 (functionally zero). The m_pre transient
+        # from the cold matrix_neg_power eps clamp lasts much longer than 10 steps
+        # because L_cov needs many gradient samples to reach a stable spectrum, so
+        # EMA init at step 10 captured the transient. Extending the warmup lets the
+        # spectrum stabilize first, and any residual cur_median noise is then smoothed
+        # by the β=0.99 EMA from step WINSORIZE_WARMUP onward.
+        WINSORIZE_WARMUP = 100
+        if step_idx < WINSORIZE_WARMUP:
+            threshold = winsorize_k * cur_median
+        elif step_idx == WINSORIZE_WARMUP:
+            median_abs_ema.fill_(cur_median.item())
+            threshold = winsorize_k * median_abs_ema
+        else:
+            median_abs_ema.mul_(winsorize_median_beta).add_(cur_median, alpha=1.0 - winsorize_median_beta)
+            threshold = winsorize_k * median_abs_ema
+        if winsorize_step_state is not None:
+            winsorize_step_state[0] = step_idx + 1
+
+        m_pre_clipped = m_pre.clamp(min=-threshold, max=threshold)
+
+        if winsorize_diag is not None:
+            clip_fraction = (m_pre.abs() > threshold).float().mean()
+            pre_norm = m_pre.norm()
+            post_norm = m_pre_clipped.norm()
+            norm_ratio = post_norm / (pre_norm + 1e-12)
+            winsorize_diag.append({
+                "clip_fraction": float(clip_fraction.item()),
+                "norm_ratio": float(norm_ratio.item()),
+                "threshold": float(threshold.item()) if torch.is_tensor(threshold) else float(threshold),
+                "cur_median": float(cur_median.item()),
+                "ema_median": float(median_abs_ema.item()),
+            })
+        m_pre = m_pre_clipped
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
@@ -523,11 +583,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 winsorize_k=0.0, winsorize_median_beta=0.99):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        winsorize_k=winsorize_k, winsorize_median_beta=winsorize_median_beta)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -539,6 +601,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        winsorize_diag: list = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -550,6 +613,10 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        # PR #644: per-tensor median(|m_pre|) EMA buffer + step counter for warmup gating.
+                        # FP32 to avoid BF16 rounding small EMA deltas to zero at beta=0.99.
+                        state["median_abs_ema"] = torch.tensor(1.0, device=p.device, dtype=torch.float32)
+                        state["winsorize_step"] = [0]
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -562,6 +629,11 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        winsorize_k=group["winsorize_k"],
+                        winsorize_median_beta=group["winsorize_median_beta"],
+                        median_abs_ema=state["median_abs_ema"],
+                        winsorize_step_state=state["winsorize_step"],
+                        winsorize_diag=winsorize_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -575,6 +647,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._winsorize_diag = winsorize_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -704,6 +777,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "winsorize_k": args.winsorize_k,
+            "winsorize_median_beta": args.winsorize_median_beta,
         },
     )
 
@@ -740,7 +815,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      winsorize_k=args.winsorize_k, winsorize_median_beta=args.winsorize_median_beta)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -911,6 +987,29 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            winsorize_diag = getattr(optimizer2, "_winsorize_diag", None)
+            if winsorize_diag:
+                n = len(winsorize_diag)
+                mean_clip = sum(d["clip_fraction"] for d in winsorize_diag) / n
+                mean_norm_ratio = sum(d["norm_ratio"] for d in winsorize_diag) / n
+                mean_threshold = sum(d["threshold"] for d in winsorize_diag) / n
+                mean_cur_median = sum(d["cur_median"] for d in winsorize_diag) / n
+                mean_ema_median = sum(d["ema_median"] for d in winsorize_diag) / n
+                max_clip = max(d["clip_fraction"] for d in winsorize_diag)
+                min_norm_ratio = min(d["norm_ratio"] for d in winsorize_diag)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "winsorize/clip_fraction_mean": mean_clip,
+                    "winsorize/clip_fraction_max": max_clip,
+                    "winsorize/norm_ratio_mean": mean_norm_ratio,
+                    "winsorize/norm_ratio_min": min_norm_ratio,
+                    "winsorize/threshold_mean": mean_threshold,
+                    "winsorize/cur_median_mean": mean_cur_median,
+                    "winsorize/ema_median_mean": mean_ema_median,
+                    "winsorize/k": args.winsorize_k,
+                    "winsorize/n_params": n,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
