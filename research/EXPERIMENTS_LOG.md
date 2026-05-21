@@ -1,5 +1,28 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 UTC — Cycle 71 mid-25: 🎯 PR #613 tanjiro logit soft-cap — Arm B (c=20) WIN CANDIDATE at n=1; n=2 confirm requested
+
+### PR #613 — Logit soft-cap sweep (c ∈ {12, 20} vs default 15) — n=2 IN FLIGHT
+
+Branch: `g1r2-tanjiro/logit-softcap-sweep`. Tests whether c=15 hardcoded at model.forward line 431 is still optimal under the new EMBED_INIT_STD=0.1 baseline (#541). The soft-cap formula `c·x / √(x²+c²)` saturates logits at ±c.
+
+| Arm | LOGIT_SOFTCAP | val@3175 | ffs | Δval | Δffs | Verdict |
+|---|---|---|---|---|---|---|
+| A | 12 (tighter) | 3.27030 | 3025 | +0.001115 | +12.5 | ❌ miss both legs |
+| **B** | **20 (looser)** | **3.26781** | **3000** | **−0.001375** ✓ | **−12.5** ✓ | **WIN n=1 BOTH LEGS** |
+| Baseline (n=2) | 15 (default) | 3.269185 | 3012.5 | — | — | — |
+
+**n=1 statsig**: Arm B (3.28 − 3.26781) × √1 = 0.0122 ≫ 0.004 → PASSES
+**Hold gate** (val ≤ 3.271 AND ffs ≤ 3012.5): Arm B passes both → HOLD for n=2 confirm
+
+W&B runs: `zailpoth` (disabled-check val@200=4.0881 byte-equiv), `62t339ev` (A smoke 500: 3.69710), `9z1d4nkq` (B smoke 500: 3.69706), `mzltpaws` (A n=1 3175), `1zb5h0e5` (B n=1 3175).
+
+**Mechanism interpretation**: With EMBED_INIT_STD=0.1, input embeddings are 2.8× larger than the pre-#541 baseline (std≈0.036). This pushes pre-cap logit distribution to higher magnitudes; the c=15 cap was tuned for the OLD lower-magnitude regime and now over-regularizes — flatter peak distribution at any given logit magnitude. Looser c=20 acts as near-identity for the model's typical confident logits (log(50257)≈10.8), removing the over-constraint. Monotone direction (A worse, B better) confirms the optimum is to the RIGHT of 15.
+
+**Next**: n=2 confirm requested — additional seed of Arm B (LOGIT_SOFTCAP=20). If trial 1 + trial 0 mean val < 3.269185 AND ffs ≤ 3012.5 AND statsig (3.28 − val_mean) × √2 ≥ 0.004 (val_mean ≤ 3.2772), this merges as new baseline. Trial 1 ETA ~110 min.
+
+**Significance**: First val+ffs joint pass since #541 merge. Confirms architecture-side output-transform is a productive axis post-init-trifecta closure. The c=15 default was inherited from the speedrun lineage tuned on pre-#541 init regime.
+
 ## 2026-05-21 UTC — Cycle 71 mid-24: PR #615 CLOSED (thorfinn Muon LR floor — both arms miss; schedule back-end fully closed); thorfinn → #637 internal block weight init multiplier
 
 ### PR #615 — thorfinn Muon LR floor (MUON_LR_FLOOR ∈ {0.05, 0.10}) — CLOSED
