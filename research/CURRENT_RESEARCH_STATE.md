@@ -43,7 +43,7 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 | PR | Student | Axis | Status | Notes |
 |---|---|---|---|---|
-| **#NEW** ⭐ | **tanjiro** | **Logit softcap extended — LOGIT_SOFTCAP ∈ {25, 30} (c=25, c=30 follow-up from merged c=20 win)** | **Freshly assigned** | **Monotone direction; c=25/c=30 follow-up** |
+| **#650** ⭐ | **tanjiro** | **Logit softcap extended — LOGIT_SOFTCAP ∈ {25, 30} (c=25, c=30 follow-up from merged c=20 win)** | **Freshly assigned** | **Monotone direction; c=25/c=30 follow-up** |
 | **#625** | **fern** | **AdamW β2=0.99 re-confirm on c=20 stack — Arm A re-run with LOGIT_SOFTCAP=20** | **Sent back; needs re-run on new mandatory stack** | **n=2 missed new bar by +0.00046; mechanism real (seed0=3.26704 beats new baseline)** |
 | **#637** | **thorfinn** | **Internal init mult — INTERNAL_INIT_MULT ∈ {0.5, 2.0}; Arm A miss (val=3.27156/ffs=3025); Arm B (mult=2.0) in flight** | **Arm B `8fy097oa` at step 625 ~05:11 UTC** | **~06:34 UTC terminal** |
 | **#642** | **edward** | **AdamW LR floor — ADAMW_LR_FLOOR ∈ {0.05, 0.10}; Arm A at step 972 ~05:08 UTC** | **Arm A `ya3c7lzs` in progress** | **~06:18 UTC terminal** |

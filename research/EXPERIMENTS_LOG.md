@@ -29,7 +29,7 @@ n=2 final results posted at 05:27 UTC (3 min after #613 merge shifted baseline):
 
 **Decision**: SENT BACK. Re-run Arm A (β2=0.99) with LOGIT_SOFTCAP=20.0 in stack. If orthogonal mechanisms stack additively, expected n=1 seed result ~3.266-3.267.
 
-### Assignment: tanjiro → PR #NEW (logit-softcap-extended)
+### Assignment: tanjiro → PR #650 (logit-softcap-extended)
 
 **Hypothesis**: LOGIT_SOFTCAP direction is MONOTONE INCREASING (c=12 miss → c=15 old baseline → c=20 WIN). Optimum unknown. Testing c=25 (Arm A) and c=30 (Arm B) to find peak or close axis. At these values, the cap is near-identity for typical logit magnitudes (~10-15); main effect is on tail logits.
 
