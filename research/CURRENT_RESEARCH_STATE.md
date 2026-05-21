@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 20:46 UTC
+- **Last update:** 2026-05-21 20:54 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -16,7 +16,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **#697** | alphonse | `wkfhw41d` Arm A QHM ν=0.10 β=0.95 | 1845+ | 3.457 @ 1750 | **Mid-run: −40 to −50 mnat ahead of #660 Arm A (nesterov=False mu=0.95) at every checkpoint. Vs nesterov=True baseline trajectory is ~equal mid-run.** ETA terminal ~22:30 UTC. Arm B (ν=0.20) queued via pgrep waiter PID 998647. |
+| **#697** | alphonse | `oxy20p9p` Arm B QHM ν=0.20 β=0.95 (clean restart 20:48 UTC) | running | — | **Arm A TERMINAL NULL** val=3.27137 sr=3025 (+0.0071 val, +87.5 sr). Mid-run −40/−50 mnat advantage at steps 1000-1750 EROSION during cooldown to NULL terminal. **2nd instance today of "mid-run advantage erased by cooldown"** (1st was #690 SGDR cycle-1). Arm B launcher incident: pgrep -x torchrun gate failed (argv[0]=python3); 2 duplicate W&B runs deleted, clean restart. Terminal ETA ~00:24 UTC. |
 | **#698** | nezuko | `wwyxnxdy` Arm A NAdam-Aux β₁=0.8 (clean restart) | running | — | Clean restart at 17:57 UTC after duplicate-Arm-A cleanup. Pre-flight AuxAdamW math verified (max diff 2.4e-7). Pod healthy 35.9 GB/97%. Terminal ETA ~21:33 UTC. |
 | **#695** | thorfinn | `p4mm3e85` Arm B β=0.95 warmup=2250 | running | — | **Arm A TERMINAL NULL** val=3.26648 val_ema=3.26650 sr=2950. **Mechanism CONFIRMED:** peak EMA −5.02 mnat @ step 2625 (vs β=0.99's −63 mnat) = 12× reduction matching predicted lag-window scaling; terminal Δ_ema-live = +0.011 mnat (flat). Centroid-lag suppression worked but signal scaled down too. Arm B (intermediate window) terminal ETA ~00:09 UTC tomorrow. |
 | **#696** | tanjiro | `g1r1-tanjiro/contra-muon-arm-b-coeff0p1` Arm B running | step ~40 | — | **Arm A TERMINAL NULL** val=3.27599 sr=3125. **DECISIVE MECHANISM:** subtraction_magnitude steady-state ~3% (peak 3.7%) vs design target 15-25% — PMuon bilateral whitening compresses slow EMA ~10× more than designed. Arm B at coeff=0.1 → ~1.5% effective (even less). Terminal ETA ~00:00 UTC tomorrow. **Follow-up plan: contra_coeff=1.0 to reach the 15% design regime if both arms NULL.** |
@@ -90,7 +90,8 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 - **PMuon spectral whitening absorbs magnitude info:** per-block grad norm, gradient clipping, GC operations all NULL
 - **COOLDOWN_POWER=1.4 near-optimal within WSD:** NS, scalar scans all optimum-confirmed
 - **Pre-NS momentum placement LOAD-BEARING:** direction of polar(EMA(grads)) qualitatively better than post-NS (#658 49th)
-- **Polyak EMA centroid-lag:** β=0.99 100-step window gives real −63 mnat mid-cooldown advantage; terminal failure is centroid-lag (not LMC) as LR→0; narrower window (β=0.9, 10-step) should have 5-step lag only
+- **Polyak EMA centroid-lag:** β=0.99 100-step window gives real −63 mnat mid-cooldown advantage; terminal failure is centroid-lag (not LMC) as LR→0; narrower window (β=0.9, 10-step) should have 5-step lag only — VERIFIED in #695 Arm A: peak −5.02 mnat (12× reduction matches predicted scaling), terminal +0.011 mnat (cure killed the patient)
+- **Cooldown-erosion pattern (NEW 20:54):** mid-run optimizer-mechanism advantages erode during WSD cooldown. Two instances today: #690 SGDR cycle-1 (+0.10 mid → DNF terminal); #697 QHM ν=0.10 (−40 to −50 mnat at steps 1000-1750 → +0.0071 val terminal). Mechanism hypothesis: WSD cooldown's monotone LR decay is the rate-limiting step for the last ~750 steps; optimizer-blend differences compress toward zero as LR → 0. Implication: optimizer ideas that change momentum dynamics mid-training are less likely to win because they don't affect the cooldown-dominated final phase. Better targets: ideas that affect cooldown-phase dynamics (e.g., post-cooldown averaging) or initialization-phase dynamics (e.g., warmup, init noise).
 
 ## Statistical rule reminder
 
