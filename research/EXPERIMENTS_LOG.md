@@ -1,5 +1,51 @@
 # SENPAI Research Results
 
+## 2026-05-21 16:22 UTC — PR #651 CLOSED: LR warmup ∈ {100, 250 steps} — NULL/NULL, 51st axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/lr-warmup-phase`
+- Hypothesis: LR warmup from zero allows optimizer state (PMuon covariance EMAs, aux v-state) to stabilize before full-LR training, potentially improving convergence.
+
+| Arm | warmup | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | 0 | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| A | 100 | b7tnbh0k | 3000 | 3.26926 | +62.5 | +0.005 | NULL |
+| B | 250 | xhjudzj3 | 3050 | 3.27341 | +112.5 | +0.009 | NULL |
+
+**Mechanism (clean read with telemetry):** First-decile training slope (steps 0-325) is steeper with warmup (Arm A +56%, Arm B +82%) — the hypothesis is mechanically confirmed: optimizer states DO benefit from gradual LR introduction. But cost > benefit: steps spent at low LR during ramp are not recovered. By step 650 slopes converge, and runs stay behind baseline throughout. Slope-at-first-decile is NOT a reliable proxy for final speedrun performance.
+
+**Monotonic closure:** Baseline (warmup=0) < Arm A (warmup=100) < Arm B (warmup=250) in terms of sr. Same conclusion as #647 cooldown_frac — WSD stable-phase startup is precious, any deviation costs more than it gains.
+
+**WSD schedule shape now FULLY PINNED across 6 sub-axes:** shorter-cooldown, LR floor, NS_ITERS ramp, decoupled aux cooldown, longer-cooldown, warmup phase. All confirmed NULL; zero-warmup, cf=0.70, COOLDOWN_POWER=1.4 are global optima within monotone WSD family.
+
+---
+
+## 2026-05-21 16:22 UTC — PR #662 CLOSED: Polyak EMA β=0.99 warmup=975 — NULL (centroid-lag), 50th axis (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/polyak-ema-body`
+- Hypothesis: β=0.99 with cooldown-start warmup avoids LMC failure (prior β=0.999 failed) while keeping single-basin during parameter-space averaging.
+
+| Arm | β | EMA_WARMUP | W&B | val_live | val_ema | Δ_ema-live (terminal) | sr_ema | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline** | — | — | k7ylyby9/dm4joozw | 3.264278 | — | — | 2937.5 | — |
+| C (only to terminal) | 0.99 | 975 | f6ekm47z | 3.266663 | 3.267219 | **+0.000556** | 2925 | NULL (+2.9 mnat) |
+
+**Peak EMA advantage:** step 1625 → Δ_ema-live = −63 mnat (REAL, reproducible, in-single-basin). This is the cleanest positive EMA signal found in the project.
+
+**Terminal failure mechanism — centroid-lag (NOT LMC failure):**
+- β=0.99 → effective window ~100 steps → centroid lags live params by ~50 steps
+- Near terminal (steps 3100-3250): LR = ~0-2% of peak; params nearly stationary
+- Monotone-descending near-stationary trajectory → EMA mean over last 100 steps is STRICTLY above live (terminal) point
+- Δ sign flipped at step 3100: from −63 mnat (peak) → +0.6 mnat (terminal)
+
+**This is different from β=0.999 LMC failure:** β=0.999 failed because window > basin width (multi-basin traversal). β=0.99 stays in single basin throughout; it fails for a purely geometric/arithmetic reason at low LR.
+
+**Cross-axis implications:**
+- Mid-cooldown Polyak EMA IS mechanically sound at β=0.99 (single-basin confirmed)
+- Centroid-lag can be reduced by: shorter window (β=0.9 → 10-step lag), later warmup start (EMA_WARMUP=2500 → start when LR already low)
+- Follow-up #695 (thorfinn): β=0.9 + EMA_WARMUP=2500 directly tests whether 5-step lag is small enough to preserve mid-cooldown advantage at terminal
+
+---
+
 ## 2026-05-21 15:15 UTC — PR #658 CLOSED: Post-NS momentum in PMuon — NULL/NULL, 49th axis (g1r1-edward)
 
 - Branch: `g1r1-edward/post-ns-momentum`
