@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 17:55 UTC — Cycle 71 mid-46b: PR #680 nezuko CONTRA_MUON CLOSED — both arms MISS (asymmetric penalty: 0.6 hurts ~2.5× more than 0.2; default 0.4 locally optimal); crossover trajectory pattern (more contra wins early, less contra wins late)
+
+### PR #680 — nezuko CONTRA_MUON sweep — BOTH ARMS MISS, asymmetric penalty + crossover
+
+Branch: `g1r2-nezuko/contra-muon-sweep`. Closed 17:55 UTC.
+
+| Arm | CONTRA_MUON | val_loss | ffs | hold gate | vs baseline (3.26776/3000) | W&B |
+|-----|---|---|---|---|---|---|
+| Disabled-check | 0.4 | 4.08773@200 | — | ✓ plumbing | — | `j6c4df73` |
+| **A** | **0.2** (half) | **3.27071** | **3025** | ❌ both legs | +0.00295 / +25 | `kau6grse` |
+| Baseline | 0.4 | 3.26776 (n=2) | 3000 | — | — | (PR #613) |
+| **B** | **0.6** (1.5×) | **3.27522** | **3075** | ❌ both legs | +0.00746 / +75 | `26c2nrct` |
+
+**Crossover trajectory — informative mechanism signal:**
+
+| step | A (0.2) | B (0.6) | Δ (B − A) | Phase |
+|---|---|---|---|---|
+| 250  | 4.04841 | 4.04053 | −0.008 | B ahead (high-noise early) |
+| 500  | 3.80902 | 3.80136 | −0.008 | B ahead |
+| 1000 | 3.66584 | 3.66208 | −0.004 | B ahead (compressing) |
+| 1500 | 3.53540 | 3.53173 | −0.004 | B ahead (final lead) |
+| 2500 | 3.34720 | 3.35581 | **+0.009** | **A pulls ahead** |
+| 3000 | 3.28203 | 3.28667 | +0.005 | A ahead |
+| 3175 | **3.27071** | 3.27522 | +0.005 | A wins final |
+
+**Mechanism verdict — contra-correction is a stability scaffold for early training, hurts late cooldown**: More contra-correction (B=0.6) regularizes against full orthogonalization → wins in high-gradient-noise early phase but slows late-cooldown convergence when full Muon orthogonality is needed. Less contra-correction (A=0.2) is opposite — slightly worse early but slightly better late. Default 0.4 is the balanced sweet spot.
+
+**Asymmetric penalty (down 2.5× less harmful than up)**: A miss=+0.00295; B miss=+0.00746. If axis ever re-opens after major stack shift, **only 0.3 worth probing**. Not now — expected gain ≤ 0.001 < n=1 noise floor ~0.004.
+
+**Joins near-miss cluster** (7th fresh-axis result this cycle, ffs=3025-3075): CONTRA_MUON joins NS5_ITERS, ADAMW_EPS, MUON_GRAD_CLIP, per-group cooldown_frac, ATTN_SOAP_TRUST? all closing at ffs=3025-3050. Plateau pattern overwhelming.
+
+**Direction inference for downstream**: 5th Muon-side scalar this cycle confirmed locally optimal on c=20 stack (MUON_LR=0.04, MU_COOLDOWN_END=0.90, MU_WARMUP_STEPS=200, NS5_ITERS=14, now CONTRA_MUON=0.4). c=20 stack's scalar surface is a tight local optimum. Next: **#NEW nezuko assignment via researcher-agent — needs fresh mechanism, NOT scalar tune.**
+
 ## 2026-05-21 17:33 UTC — Cycle 71 mid-46: PR #685 thorfinn ADAMW_EPS CLOSED — both arms MISS (Arm A 1e-8 val=3.27119/ffs=3025; Arm B 1e-12 val=3.26903/ffs=3025 — val passes hold gate but ffs misses); current default 1e-10 well-tuned across 100× range
 
 ### PR #685 — thorfinn ADAMW_EPS sweep — BOTH ARMS MISS; default 1e-10 locally optimal
