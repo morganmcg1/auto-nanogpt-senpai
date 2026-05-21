@@ -71,6 +71,16 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # SOAP-lite: replace NS5 inside MuonH with L^{-1/2} G where L = mean(g g^T) is
+    # accumulated over training. Combines naturally with --muonh_mode scale_invariant
+    # because the outer wrapper rescales update direction by p_norm/u_norm.
+    parser.add_argument("--muonh_soap_lite", type=int, default=int(os.environ.get("MUONH_SOAP_LITE", "0")),
+                        help="1 = use left-Kronecker preconditioner (L^{-1/2} G) instead of NS5 inside MuonH. 0 = baseline NS5.")
+    parser.add_argument("--muonh_soap_precond_interval", type=int, default=int(os.environ.get("MUONH_SOAP_PRECOND_INTERVAL", "50")),
+                        help="Steps between L^{-1/2} recomputation (amortizes eigh cost).")
+    parser.add_argument("--muonh_soap_damping", type=float, default=float(os.environ.get("MUONH_SOAP_DAMPING", "1e-2")),
+                        help="Trace-relative damping: L + damping * mean(diag(L)) * I. "
+                             "1e-2 caps cond_num ~100 (Shampoo/SOAP convention).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -493,6 +503,63 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def soap_lite_update(grad, state, mu, soap_precond_interval, soap_damping, nesterov=True):
+    """SOAP-lite update: momentum + Nesterov + L^{-1/2} G, unit-Frobenius normalized.
+
+    Replaces NS5 inside MuonH with a left Kronecker preconditioner. L = mean(g g^T)
+    is accumulated in fp32 from step 1 onward, where g is the post-momentum,
+    Nesterov-blended update (i.e. the same tensor NS5 currently consumes).
+
+    Before the first L^{-1/2} is computed (steps < soap_precond_interval), the
+    update path falls back to NS5 + aspect-ratio scaling so the early run mirrors
+    the NS5 baseline while we accumulate enough samples for a stable eigh.
+
+    Pairs naturally with mode='scale_invariant': the outer wrapper renormalises the
+    update direction by p_norm/u_norm, so the unit-Frobenius output of this
+    function is bit-identical in direction to a sqrt(min(m,n))-norm output.
+    """
+    # Momentum + Nesterov blend (matches muon_update). update is the same tensor
+    # as grad after lerp_ — we use it for both accumulation and downstream apply.
+    momentum = state["momentum"]
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+
+    g_fp32 = update.to(torch.float32)
+    m = g_fp32.shape[0]
+
+    state["soap_L_acc"].add_(g_fp32 @ g_fp32.T)
+    state["soap_step"] += 1
+
+    if state["soap_step"] % soap_precond_interval == 0:
+        L_raw = state["soap_L_acc"] / state["soap_step"]
+        # Trace-based damping (Shampoo/SOAP convention): scale damping to the L
+        # spectrum via the mean diagonal. With damping=1e-2 this caps cond_num at
+        # ~100 instead of the constant-1e-6 path's 15k+, so L^{-1/2} stops
+        # amplifying noisy small-eigenvalue directions.
+        trace_L_mean = L_raw.diag().mean()
+        eye_m = torch.eye(m, device=L_raw.device, dtype=L_raw.dtype)
+        L_damp = L_raw + soap_damping * trace_L_mean * eye_m
+        # fp32 accumulation drifts; enforce exact symmetry before eigh.
+        L_damp = 0.5 * (L_damp + L_damp.T)
+        D, V = torch.linalg.eigh(L_damp)
+        D_inv_sqrt = D.clamp(min=0.0).pow(-0.5)
+        D_inv_sqrt[~D_inv_sqrt.isfinite()] = 0.0
+        # (V * D_inv_sqrt.unsqueeze(0)) avoids materialising diag(D); faster for 3072x3072.
+        state["soap_L_inv_sqrt"] = (V * D_inv_sqrt.unsqueeze(0)) @ V.T
+        D_pos = D[D > 1e-10]
+        state["soap_last_cond_num"] = float((D.max() / D_pos.min()).item()) if D_pos.numel() > 0 else float("inf")
+        state["soap_recompute_step"] = state["soap_step"]
+
+    if state["soap_L_inv_sqrt"] is not None:
+        g_precond = state["soap_L_inv_sqrt"] @ g_fp32
+        g_norm = g_precond.norm().clamp_min(1e-12)
+        return (g_precond / g_norm).to(update.dtype)
+    # Fallback during the first precond_interval steps: NS5 + aspect-ratio scaling.
+    update_ns5 = zeropower_via_newtonschulz5(update)
+    update_ns5 *= max(1, update.size(-2) / update.size(-1))**0.5
+    return update_ns5
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -591,16 +658,22 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 soap_lite=False, soap_precond_interval=50, soap_damping=1e-6):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        soap_lite=soap_lite,
+                        soap_precond_interval=soap_precond_interval,
+                        soap_damping=soap_damping)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_soap_cond_num_max = float("nan")
+        self._last_soap_recompute_step = -1
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +683,20 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        soap_cond_num_max_local = 0.0
+        soap_recompute_step_local = -1
+        any_soap_lite = False
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            soap_lite = group["soap_lite"]
+            soap_precond_interval = group["soap_precond_interval"]
+            soap_damping = group["soap_damping"]
+            if soap_lite:
+                any_soap_lite = True
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +705,27 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if soap_lite and p.ndim >= 2:
+                            m = p.shape[0]
+                            state["soap_L_acc"] = torch.zeros(m, m, device=p.device, dtype=torch.float32)
+                            state["soap_L_inv_sqrt"] = None
+                            state["soap_step"] = 0
+                            state["soap_last_cond_num"] = float("nan")
+                            state["soap_recompute_step"] = -1
+                    if soap_lite and p.ndim >= 2:
+                        update = soap_lite_update(
+                            p.grad, state, mu=group["mu"],
+                            soap_precond_interval=soap_precond_interval,
+                            soap_damping=soap_damping,
+                        )
+                        if state["soap_recompute_step"] > soap_recompute_step_local:
+                            soap_recompute_step_local = state["soap_recompute_step"]
+                        cond_num_val = state["soap_last_cond_num"]
+                        # finite-NaN-aware max
+                        if cond_num_val == cond_num_val and cond_num_val > soap_cond_num_max_local:
+                            soap_cond_num_max_local = cond_num_val
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -659,14 +760,30 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            if any_soap_lite:
+                soap_tensor = torch.tensor(
+                    [soap_cond_num_max_local, float(soap_recompute_step_local)],
+                    device="cuda", dtype=torch.float64,
+                )
+                dist.all_reduce(soap_tensor, op=dist.ReduceOp.MAX)
+                soap_cond_num_max = float(soap_tensor[0].item())
+                soap_recompute_step = int(soap_tensor[1].item())
+            else:
+                soap_cond_num_max = soap_cond_num_max_local
+                soap_recompute_step = soap_recompute_step_local
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            soap_cond_num_max = soap_cond_num_max_local
+            soap_recompute_step = soap_recompute_step_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if any_soap_lite:
+            self._last_soap_cond_num_max = soap_cond_num_max if soap_cond_num_max > 0 else float("nan")
+            self._last_soap_recompute_step = soap_recompute_step
 
 
 ########################################
@@ -713,6 +830,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_soap_lite:
+    print0(f"SOAP-lite ENABLED on MuonH 2D params: precond_interval={args.muonh_soap_precond_interval} "
+           f"damping={args.muonh_soap_damping}", console=True)
+else:
+    print0("SOAP-lite DISABLED on MuonH (using NS5)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +888,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_soap_lite": bool(args.muonh_soap_lite),
+            "muonh_soap_precond_interval": args.muonh_soap_precond_interval,
+            "muonh_soap_damping": args.muonh_soap_damping,
         },
     )
 
@@ -819,7 +944,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       soap_lite=bool(args.muonh_soap_lite),
+                       soap_precond_interval=args.muonh_soap_precond_interval,
+                       soap_damping=args.muonh_soap_damping)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1164,12 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.muonh_soap_lite:
+                            cond_max = opt._last_soap_cond_num_max
+                            # only log finite cond numbers; NaN before first recompute
+                            if cond_max == cond_max and math.isfinite(cond_max):
+                                muonh_metrics["train/soap/cond_num_max"] = cond_max
+                            muonh_metrics["train/soap/recompute_step"] = opt._last_soap_recompute_step
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
