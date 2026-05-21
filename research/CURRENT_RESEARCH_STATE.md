@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 16:43 UTC
+- **Last update:** 2026-05-21 16:52 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. Public record was 3030 steps — LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,23 +12,24 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Active experiments (8 students, 16:43 UTC — 1 idle: alphonse)
+## Active experiments (8 students, 16:52 UTC — 0 idle)
 
 | PR | Student | Run | Step/3250 | val | Status |
 |---|---|---|---|---|---|
-| **NEW** | alphonse | TO BE ASSIGNED | — | — | **Just closed #660. New assignment: QHM (Quasi-Hyperbolic Momentum) on PMuon — direct follow-up to Nesterov axis closure.** |
+| **#697** | alphonse | NEWLY ASSIGNED | — | — | **NEW 16:46 UTC — QHM (Quasi-Hyperbolic Momentum) on body-Muon. Arm A: ν=0.10 β=0.95; Arm B: ν=0.20 β=0.95 (both nesterov=False). Direct follow-up to #660 Nesterov closure — tests if there's headroom beyond Nesterov on the (ν,β) plane.** |
+| **#698** | nezuko | NEWLY ASSIGNED | — | — | **NEW 16:52 UTC — NAdam (Nesterov-AdamW) for aux groups. Arm A: β₁=0.8 unchanged; Arm B: β₁=0.9 retuned. Cross-family extension of #660 — is Nesterov load-bearing for AdamW too?** |
 | **#695** | thorfinn | NEWLY ASSIGNED | — | — | Polyak EMA short-window anti-centroid-lag. Arm A: β=0.9 EMA_WARMUP=2500; Arm B: β=0.95 EMA_WARMUP=2250. |
 | **#696** | tanjiro | NEWLY ASSIGNED | — | — | Contra-Muon contrarian momentum subtraction on body-Muon. Arm A: CONTRA_COEFF=0.2; Arm B: CONTRA_COEFF=0.1. |
-| **#690** | edward | PICKED UP | — | — | SGDR cosine restarts picked up ~15:23. No interim telemetry yet. |
+| **#690** | edward | `znxwk1om` Arm A SGDR-1-restart | 380+ | tracking baseline | SGDR wiring confirmed; cycle_idx/cycle_step/mult firing as designed. ETA ~17:30+. |
 | **#682** | askeladd | `0uvvmh8p` Arm A mu 0.95→0.85 | 1633 | 3.472 @ 1625 | **Early +30 mnat signal vs baseline at step 1625.** ETA 17:25. Arm B (mu 0→0.95) sequential. |
 | **#684** | frieren | `chhogu08` Arm A σ=0.01 | 1673 | 3.531 @ 1500 | Noise confirmed firing. Healthy. ETA ~17:25. Arm B sequential. |
 | **#686** | fern | `z6fo7pix` Arm A (warm-start) | 1233 | 3.51 | Arm A β_cov 0.90→0.95 warm-start running, ETA ~3h from 15:50. Arm B sequential. |
-| **#667** | nezuko | `3qn5btoq` Arm B cosine+stable | ~2900+ | — | Arm A NULL. Arm B cosine+30% stable terminal IMMINENT (was step 2743 at 15:50). |
 
 ## Recently closed (this session)
 
 | PR | Student | Result | Decision |
 |---|---|---|---|
+| **#667** | nezuko | Cosine schedule NULL/NULL — Arm A (pure cosine) val=3.276601 sr=3000 (+62.5); Arm B (cosine_wsd 30% stable + cosine 70%) val=3.272568 sr=3000 (+62.5). **Mechanism (two findings):** (1) stable plateau is REQUIRED — Arm B beats Arm A by Δval=0.004 at identical sr; (2) WSD power-1.4 tail beats cosine tail by +62.5 sr-steps when stable phase is fixed. Both arms cross 3.28 at step 3000. **Schedule family WSD-LOCKED across 7 sub-axes.** | **CLOSED 16:47 UTC — 53rd axis.** |
 | **#660** | alphonse | Nesterov ON/OFF NULL/NULL — Arm A (nesterov=False mu=0.95) val=3.26949 sr=3025 (+87.5 sr); Arm B (nesterov=False mu=0.90) val=3.27833 sr=3150 (+212.5 sr). **Mechanism:** Arm B was designed to match Nesterov's effective g-weight (1-0.90=0.10 ≈ 0.0975 Nesterov) by lowering mu. Instead it diverged FURTHER. Proves Nesterov lookahead is NOT equivalent to (1-mu) reweighting — cross-term μ²·m_prev + (1-μ²)·g coupling matters. **mu=0.95 AND nesterov=True both independently load-bearing.** | **CLOSED 16:42 UTC — 52nd axis.** |
 | **#662** | thorfinn | Polyak EMA β=0.99 NULL — val_ema=3.267219 (+2.9 mnat) sr=2925 (−12.5 marginal). Peak EMA −63 mnat at step 1625 REAL, but centroid-lag (50-step lag at near-zero LR) FLIPPED sign at step 3100 → terminal EMA slightly WORSE than live. **Centroid-lag kills at terminal, NOT LMC failure.** | **CLOSED 16:22 UTC — 50th axis.** |
 | **#651** | tanjiro | LR warmup NULL/NULL — warmup=100 sr=3000 val=3.26926, warmup=250 sr=3050 val=3.27341. Monotonic: longer warmup → worse. Zero-warmup load-bearing (same conclusion as cooldown_frac). WSD schedule shape FULLY PINNED (6 sub-axes). | **CLOSED 16:22 UTC — 51st axis.** |
@@ -49,19 +50,20 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 ## Current research focus (updated 16:25 UTC)
 
-**Six active frontiers after 52 closed axes:**
+**Six active frontiers after 53 closed axes:**
 
 **1. Parameter-space averaging (deep investigation):**
 - Polyak EMA β=0.99 (#662 CLOSED 50th axis): NULL via centroid-lag at terminal — peak −63 mnat mid-cooldown is REAL but terminal EMA flips sign at step 3100 when LR → 0
 - **#695 thorfinn** (NEW): β=0.9 + EMA_WARMUP=2500 anti-lag test; β=0.95 + EMA_WARMUP=2250. Direct ablation: is centroid-lag the killer?
 
 **2. LR schedule family (non-WSD / non-monotone):**
-- Cosine #667 nezuko: Arm A NULL (sr=3000 Δval=+0.012). Arm B cosine+30% stable plateau ETA ~16:40 — key test of decay-shape vs stable-phase.
-- SGDR restarts #690 edward: 1 restart / 2 restart arms. First non-monotone test.
+- Cosine #667 nezuko CLOSED 53rd: both arms NULL — schedule family WSD-LOCKED. Stable plateau REQUIRED; WSD power-1.4 tail > cosine tail by +62.5 sr.
+- SGDR restarts #690 edward: 1 restart / 2 restart arms. First non-monotone test. Arm A running step 380+ at 16:00 UTC.
 
 **3. Mechanism exploration:**
 - **#696 tanjiro** (NEW): Contra-Muon contrarian momentum subtraction (CONTRA_COEFF ∈ {0.2, 0.1}). Known mechanism in public Track 3 records. First time testing on PMuon stack.
-- **Nesterov axis CLOSED (#660 52nd)** — both arms NULL. Arm B (mu=0.90 nesterov=False, designed to match Nesterov's effective g-weight) was WORSE than Arm A (mu=0.95 nesterov=False), proving Nesterov's lookahead cross-term is non-trivially different from a (1-mu) reweighting. Natural follow-up: QHM (Quasi-Hyperbolic Momentum) decouples ν,β to span this space.
+- **#697 alphonse** (NEW): QHM body-Muon ν ∈ {0.10, 0.20} at β=0.95. Direct follow-up to #660 Nesterov closure — decouple ν,β to span the gradient-blend space beyond Nesterov.
+- **#698 nezuko** (NEW): NAdam (Nesterov-AdamW) for aux groups. Cross-family extension — is Nesterov load-bearing for AdamW too? Arm A β₁=0.8 unchanged; Arm B β₁=0.9 retuned.
 
 **4. Temporal mu schedule:**
 - Body-Muon mu schedule #682 askeladd: **EARLY +30 mnat signal at step 1625!** Arm A mu 0.95→0.85 ramp at 50%, ETA 17:25. Signal growing monotonically from step 1000 (+0.7 mnat) to step 1625 (+30 mnat).
@@ -72,14 +74,14 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 **6. PMuon covariance:**
 - β_cov schedule #686 fern: responsive-early (0.90→0.95) vs smoother-cooldown (0.95→0.98). In flight.
 
-**Pattern after 52 axes:**
-- Aux side FULLY SATURATED (9 optimizer families + all scalars all NULL)
+**Pattern after 53 axes:**
+- Aux side FULLY SATURATED (9 optimizer families + all scalars all NULL; NAdam #698 first test of Nesterov family on aux)
 - Body-Muon gradient-domain pre-NS FULLY CLOSED (all 6 families)
 - Body-Muon operator ordering FULLY CLOSED: post-NS CLOSED (#658 49th)
-- WSD schedule FULLY PINNED (6 sub-axes, now including LR warmup #651 51st)
-- **Nesterov axis CLOSED (#660 52nd)**: nesterov=True AND mu=0.95 BOTH independently load-bearing; cross-term coupling non-trivial → QHM natural follow-up
+- WSD schedule FULLY PINNED across 7 sub-axes (cooldown_frac, cooldown_power, LR floor, warmup, cosine NULL #667, longer cf both directions)
+- **Nesterov axis CLOSED (#660 52nd)**: nesterov=True AND mu=0.95 BOTH independently load-bearing; cross-term coupling non-trivial → QHM natural follow-up (#697 alphonse) + cross-family NAdam test (#698 nezuko)
 - Polyak EMA: centroid-lag mechanism confirmed (not LMC) → short-window + late-start test next (#695)
-- **Contra-Muon** UNTESTED in PMuon stack — first big new mechanism in 10 closures
+- **Contra-Muon** UNTESTED in PMuon stack — first big new mechanism in 10 closures (#696 in flight)
 
 ## Key mechanisms confirmed to date
 

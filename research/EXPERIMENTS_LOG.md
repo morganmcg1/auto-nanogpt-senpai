@@ -1,5 +1,62 @@
 # SENPAI Research Results
 
+## 2026-05-21 16:47 UTC — PR #667 CLOSED: Cosine LR schedule vs WSD — NULL/NULL, 53rd axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/cosine-schedule`
+- Hypothesis: Test whether the WSD-style schedule (stable plateau + concave power-1.4 cooldown) can be replaced with a cosine schedule. Two arms tease apart the stable-plateau effect from the decay-shape effect: Arm A pure cosine from step 0; Arm B 30% stable + cosine 70% cooldown.
+
+| Arm | schedule | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Baseline** | wsd + power-1.4 | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| **A** | pure cosine | r5p6b5fc | 3000 | 3.276601 | +62.5 | +0.012323 | NULL (val just above stat-sig 3.276) |
+| **B** | cosine_wsd (30% stable + cosine 70%) | 3qn5btoq | 3000 | 3.272568 | +62.5 | +0.008290 | NULL (val under stat-sig, both metrics worse than baseline) |
+
+### Analysis & two clean mechanism findings
+
+**Finding 1 — Stable plateau is load-bearing.** Arm B (with 30% stable) beats Arm A (pure cosine) by Δval=0.004 at identical sr=3000. Holding cooldown shape fixed, adding a stable plateau improves val loss. This confirms what the prior WSD sub-axis sweeps suggested: peak-LR time matters; pure cosine spends too little time at peak LR.
+
+**Finding 2 — WSD power-1.4 tail beats cosine tail (Arm B vs baseline).** Holding the stable phase at 70%, swapping the WSD concave (power-1.4) cooldown for a cosine S-curve cooldown costs +62.5 sr-steps and +0.0083 val. The aggressive-early/gentle-late shape of power-1.4 outperforms cosine's gentle-early/steep-late shape on this benchmark.
+
+### Val/loss trajectory near 3.28 crossing (Arm B)
+
+| step | val_loss |
+|---|---|
+| 2950 | 3.2826 |
+| 2975 | 3.2808 |
+| **3000** | **3.2791** (first crossing) |
+| 3025 | 3.2775 |
+| 3100 | 3.2743 |
+| 3250 | 3.2726 final |
+
+Both arms first cross 3.28 at step 3000. Arm B finishes lower than Arm A (3.2726 vs 3.2766) due to cosine slope remaining at end, but can't recover the 62.5-step deficit.
+
+### Closure semantics
+
+**Schedule family axis CLOSES — 53rd closed axis.** Combined with prior WSD sub-axes (cooldown_frac=0.7 pinned, cooldown_power=1.4 pinned, LR floor=0 pinned, warmup=0 pinned, longer cf brackets NULL #647), the LR schedule axis is now WSD-LOCKED across 7 sub-axes:
+
+1. Family: WSD (not cosine, not cosine+stable)
+2. Stable plateau: REQUIRED (Arm B vs Arm A finding)
+3. cooldown_frac: 0.7 STATIC
+4. cooldown_power: 1.4 STATIC (concave tail shape)
+5. LR floor: 0 STATIC
+6. LR warmup: 0 STATIC
+7. Tail shape: power-1.4 > cosine (this PR's Arm B vs baseline finding)
+
+### No n=2 needed
+
+Δsr=62.5 is far above the 25-step marginal threshold. Δval=0.0083 is far above the 0.001 marginal threshold. Both arms clear NULL on n=1.
+
+### Operational note
+
+Arm A's 70 GiB peak memory reflects an early-run zombie-torchrun contention episode (Arm A's W&B run start window overlapped a leftover process). Optimizer state / val_loss curves not contaminated; only wall-clock for early steps. Arm B was clean at 35 GiB single-process throughout.
+
+### Follow-ups assigned
+
+- **#697 alphonse QHM (β-ν decoupled momentum on body-Muon)** — direct extension of #660 Nesterov closure
+- **#698 nezuko NAdam (Nesterov-AdamW for aux)** — cross-family Nesterov mechanism test
+
+---
+
 ## 2026-05-21 16:42 UTC — PR #660 CLOSED: PMuon Nesterov ON vs OFF — NULL/NULL, 52nd axis (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/nesterov-onoff-pmuon`
