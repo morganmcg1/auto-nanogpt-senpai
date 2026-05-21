@@ -533,6 +533,17 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# lm_head optimizer choice. "adamw" (default) preserves the merged baseline path
+# exactly. "muon" replaces AdamW for the lm_head param group with a separate
+# Muon optimizer using NS-orthogonalized momentum updates.
+NANOGPT_LM_HEAD_OPTIMIZER = os.environ.get("NANOGPT_LM_HEAD_OPTIMIZER", "adamw").lower()
+_VALID_LM_HEAD_OPTIMIZERS = ("adamw", "muon")
+if NANOGPT_LM_HEAD_OPTIMIZER not in _VALID_LM_HEAD_OPTIMIZERS:
+    raise ValueError(
+        f"NANOGPT_LM_HEAD_OPTIMIZER={NANOGPT_LM_HEAD_OPTIMIZER!r}, must be one of {_VALID_LM_HEAD_OPTIMIZERS}"
+    )
+NANOGPT_MUON_LM_HEAD_LR = float(os.environ.get("NANOGPT_MUON_LM_HEAD_LR", "0.005"))
+NANOGPT_MUON_LM_HEAD_NS_ITERS = int(os.environ.get("NANOGPT_MUON_LM_HEAD_NS_ITERS", "12"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -744,6 +755,11 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+print0(f"LM_HEAD_OPTIMIZER: {NANOGPT_LM_HEAD_OPTIMIZER}"
+       + (f" (muon_lr={NANOGPT_MUON_LM_HEAD_LR}, muon_ns_iters={NANOGPT_MUON_LM_HEAD_NS_ITERS}; "
+          f"NANOGPT_ADAMW_LM_HEAD_LR_MULT={NANOGPT_ADAMW_LM_HEAD_LR_MULT} is INERT)"
+          if NANOGPT_LM_HEAD_OPTIMIZER == "muon" else ""),
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -807,6 +823,10 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_lm_head_optimizer": NANOGPT_LM_HEAD_OPTIMIZER,
+            "nanogpt_muon_lm_head_lr": NANOGPT_MUON_LM_HEAD_LR,
+            "nanogpt_muon_lm_head_ns_iters": NANOGPT_MUON_LM_HEAD_NS_ITERS,
+            "muon_lm_head_active": int(NANOGPT_LM_HEAD_OPTIMIZER == "muon"),
         },
     )
 
@@ -838,9 +858,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+    adamw_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+    ]
+    if NANOGPT_LM_HEAD_OPTIMIZER == "adamw":
+        adamw_param_groups.append(
+            dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head")
+        )
+    adamw_param_groups.append(
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")
+    )
+    optimizer1 = AdamW(adamw_param_groups,
                        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025)
@@ -852,6 +880,17 @@ for trial_idx in range(args.num_trials):
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
     optimizers = [optimizer1, optimizer2]
+    if NANOGPT_LM_HEAD_OPTIMIZER == "muon":
+        # Replace AdamW for the lm_head param group with a dedicated Muon
+        # optimizer. WD=0 to avoid confounding with the WD axis. NS iter count
+        # is fixed via NANOGPT_MUON_LM_HEAD_NS_ITERS (no separate cooldown).
+        optimizer3 = Muon([model.proj.weight],
+                          lr=NANOGPT_MUON_LM_HEAD_LR, weight_decay=0)
+        optimizer3.param_groups[0]["name"] = "muon_lm_head"
+        optimizer3.set_ns_iters_this_step(NANOGPT_MUON_LM_HEAD_NS_ITERS)
+        optimizers.append(optimizer3)
+    else:
+        optimizer3 = None
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
