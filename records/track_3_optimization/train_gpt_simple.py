@@ -533,6 +533,10 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Layer-aggregate Contra-Soft Muon: per-parameter scalar cosine between grad and momentum.
+# When cos < 0 (overall conflict), attenuate the whole gradient by (1 + alpha * cos).
+# At alpha=0 this is a no-op (control). At alpha=1.0 with cos=-1, gradient is fully zeroed.
+NANOGPT_CONTRA_SOFT_ALPHA = float(os.environ.get("NANOGPT_CONTRA_SOFT_ALPHA", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -657,6 +661,9 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Layer-aggregate Contra-Soft telemetry: list of per-parameter scalar cosines
+        # collected during step(), accessible after step() for W&B logging.
+        self.contra_soft_cos: list[float] = []
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -670,6 +677,8 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        # Reset contra-soft telemetry; populated per-parameter when alpha > 0.
+        contra_soft_cos_tensors: list[Tensor] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -680,6 +689,21 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    if NANOGPT_CONTRA_SOFT_ALPHA > 0:
+                        # Layer-aggregate Contra-Soft: per-parameter scalar cosine
+                        # between gradient and momentum direction. Attenuate the
+                        # whole gradient when cos<0 (overall conflict); pass through
+                        # unchanged when cos>=0 (overall aligned).
+                        g_flat = p.grad.flatten()
+                        m_flat = state["momentum"].flatten()
+                        g_norm = g_flat.norm() + 1e-12
+                        m_norm = m_flat.norm() + 1e-12
+                        # On step 0 momentum=0, dot=0 -> cos=0 -> scale=1 (no-op).
+                        cos = ((g_flat * m_flat).sum() / (g_norm * m_norm)).clamp(-1.0, 1.0)
+                        # scale = 1 + alpha * min(0, cos), clamped to [0, 1]
+                        scale = (1.0 + NANOGPT_CONTRA_SOFT_ALPHA * cos.clamp(max=0.0)).clamp(min=0.0)
+                        p.grad.mul_(scale)
+                        contra_soft_cos_tensors.append(cos.detach())
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
@@ -704,6 +728,11 @@ class Muon(torch.optim.Optimizer):
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # Materialize per-parameter cosines once per step (single device->host sync).
+        if contra_soft_cos_tensors:
+            self.contra_soft_cos = torch.stack(contra_soft_cos_tensors).cpu().tolist()
+        else:
+            self.contra_soft_cos = []
 
 
 ########################################
@@ -752,6 +781,10 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+if NANOGPT_CONTRA_SOFT_ALPHA > 0:
+    print0(f"CONTRA_SOFT: alpha={NANOGPT_CONTRA_SOFT_ALPHA} (layer-aggregate gradient shaping on body Muon)", console=True)
+else:
+    print0("CONTRA_SOFT: disabled (alpha=0.0)", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +840,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_contra_soft_alpha": NANOGPT_CONTRA_SOFT_ALPHA,
         },
     )
 
@@ -1089,6 +1123,25 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Layer-aggregate Contra-Soft telemetry: per-layer cosine stats.
+            # `frac_attenuated` tracks the fraction of body params with cos<0 at this step.
+            cs_cos = optimizer2.contra_soft_cos
+            if NANOGPT_CONTRA_SOFT_ALPHA > 0 and len(cs_cos) > 0:
+                cs_n = len(cs_cos)
+                cs_cos_mean = sum(cs_cos) / cs_n
+                cs_cos_min = min(cs_cos)
+                cs_cos_max = max(cs_cos)
+                cs_scales = [max(0.0, 1.0 + NANOGPT_CONTRA_SOFT_ALPHA * min(0.0, c)) for c in cs_cos]
+                cs_scale_mean = sum(cs_scales) / cs_n
+                cs_scale_min = min(cs_scales)
+                cs_frac_attenuated = sum(1 for c in cs_cos if c < 0) / cs_n
+                ns_metrics["contra_soft/cos_mean"] = cs_cos_mean
+                ns_metrics["contra_soft/cos_min"] = cs_cos_min
+                ns_metrics["contra_soft/cos_max"] = cs_cos_max
+                ns_metrics["contra_soft/scale_mean"] = cs_scale_mean
+                ns_metrics["contra_soft/scale_min"] = cs_scale_min
+                ns_metrics["contra_soft/frac_attenuated"] = cs_frac_attenuated
+                ns_metrics["contra_soft/num_params"] = cs_n
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
