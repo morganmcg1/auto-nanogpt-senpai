@@ -38,6 +38,16 @@ NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
+def _str_to_bool(s):
+    if isinstance(s, bool):
+        return s
+    if s.lower() in ("true", "t", "yes", "y", "1"):
+        return True
+    if s.lower() in ("false", "f", "no", "n", "0"):
+        return False
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got {s!r}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -52,6 +62,13 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--nesterov", type=_str_to_bool, default=True,
+                        help="Use Nesterov lookahead in PMuon body optimizer (default True). "
+                             "Set false when using --qhm_nu to avoid double-counting g.")
+    parser.add_argument("--qhm_nu", type=float, default=0.0,
+                        help="Quasi-Hyperbolic Momentum nu in PMuon body optimizer "
+                             "(default 0.0 = standard momentum; 0.10/0.20 are test values; "
+                             "must be combined with --nesterov false to avoid double-counting g)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -484,6 +501,7 @@ def pmuon_update(
     gamma: float = PMUON_GAMMA,
     eps: float = 1e-12,
     nesterov: bool = True,
+    qhm_nu: float = 0.0,
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
@@ -495,7 +513,13 @@ def pmuon_update(
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if nesterov:
+        update = grad.lerp(momentum, mu)
+    elif qhm_nu > 0.0:
+        # Quasi-Hyperbolic Momentum: update = (1-nu)*m + nu*g (returns new tensor; does NOT mutate momentum).
+        update = momentum.lerp(grad, qhm_nu)
+    else:
+        update = momentum
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
@@ -523,11 +547,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, nesterov=True, qhm_nu=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, nesterov=nesterov, qhm_nu=qhm_nu)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -558,6 +582,8 @@ class Muon(torch.optim.Optimizer):
                         mu=group["mu"],
                         beta_cov=group["beta_cov"],
                         gamma=group["gamma"],
+                        nesterov=group.get("nesterov", True),
+                        qhm_nu=group.get("qhm_nu", 0.0),
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
@@ -704,6 +730,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "muon_mu": 0.95,
+            "muon_nesterov": args.nesterov,
+            "muon_qhm_nu": args.qhm_nu,
         },
     )
 
@@ -740,7 +769,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      nesterov=args.nesterov, qhm_nu=args.qhm_nu)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
