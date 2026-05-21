@@ -52,6 +52,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--use_schedule_free_aux", action="store_true",
+                        help="Replace aux AdamW with ScheduleFreeAdamW. Disables explicit aux LR cooldown.")
+    parser.add_argument("--sf_weight_lr_power", type=float, default=2.0,
+                        help="Power p in lr_weight = lr^p * k^r for schedule-free iterate averaging.")
+    parser.add_argument("--sf_polyak_r", type=float, default=0.0,
+                        help="Polyak-tilt exponent r in lr_weight = lr^p * k^r. r=0 is canonical schedule-free; r=1 emphasizes later iterates (2/(k+1) under constant LR).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -521,6 +527,95 @@ def pmuon_update(
     return update
 
 
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    # Schedule-Free AdamW (Defazio & Mishchenko 2024). Simplified variant per PR #623:
+    # p.data holds x (averaged iterate, used for forward); state holds z (gradient-step iterate)
+    # and v (Adam second-moment EMA). No first-moment EMA; iterate averaging replaces momentum.
+    # The averaging coefficient ckp1 = lr_weight / lr_weight_sum, where lr_weight = lr^p * k^r,
+    # supplies an implicit cooldown — averaging IS the cooldown.
+    # BF16-safe: z, v, and x are stored in FP32 state and the FP32 x is cast to p.data each step.
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0, weight_lr_power=2.0, r=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        weight_lr_power=weight_lr_power, r=r)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            lr = group['lr']
+            beta1, beta2 = group['betas']  # beta1 unused in this simplified variant
+            eps = group['eps']
+            wd = group['weight_decay']
+            p_pow = group['weight_lr_power']
+            r = group['r']
+
+            group['k'] = group.get('k', 0) + 1
+            k = group['k']
+            lr_weight = (lr ** p_pow) * (max(k, 1) ** r)
+            group['lr_weight_sum'] = group.get('lr_weight_sum', 0.0) + lr_weight
+            ckp1 = lr_weight / group['lr_weight_sum'] if group['lr_weight_sum'] > 0 else 0.0
+            group['ckp1'] = ckp1
+            group['lr_weight'] = lr_weight
+
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad.float()
+                state = self.state[p]
+                if 'z' not in state:
+                    state['z'] = p.data.detach().clone().float()
+                    state['exp_avg_sq'] = torch.zeros_like(p.data, dtype=torch.float)
+                    state['x_fp32'] = p.data.detach().clone().float()
+
+                z = state['z']
+                v = state['exp_avg_sq']
+                x_fp32 = state['x_fp32']
+
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                v_hat = v / (1 - beta2 ** k)
+                denom = v_hat.sqrt().add_(eps)
+
+                z.addcdiv_(grad, denom, value=-lr)
+                if wd > 0:
+                    z.mul_(1 - lr * wd)
+
+                x_fp32.mul_(1 - ckp1).add_(z, alpha=ckp1)
+                p.data.copy_(x_fp32.to(p.data.dtype))
+        return None
+
+
+def schedule_free_diag(opt: torch.optim.Optimizer) -> dict[str, float]:
+    # SF telemetry: per-group ckp1 and lr_weight_sum, plus aggregate z/x-z norms over aux params.
+    if not isinstance(opt, ScheduleFreeAdamW):
+        return {}
+    metrics: dict[str, float] = {}
+    z_norm_total = 0.0
+    x_minus_z_norm_total = 0.0
+    count = 0
+    for group in opt.param_groups:
+        group_name = group.get("name", "sf")
+        metrics[f"aux/sf/c_t/{group_name}"] = float(group.get("ckp1", 0.0))
+        metrics[f"aux/sf/lr_weight_sum/{group_name}"] = float(group.get("lr_weight_sum", 0.0))
+        metrics[f"aux/sf/k/{group_name}"] = float(group.get("k", 0))
+        for p in group["params"]:
+            state = opt.state.get(p, None)
+            if not state or "z" not in state:
+                continue
+            z = state["z"]
+            x_fp32 = state["x_fp32"]
+            z_norm_total += float(z.norm().item())
+            x_minus_z_norm_total += float((x_fp32 - z).norm().item())
+            count += 1
+    if count > 0:
+        metrics["aux/sf/z_norm_mean"] = z_norm_total / count
+        metrics["aux/sf/x_minus_z_norm"] = x_minus_z_norm_total / count
+    if opt.param_groups:
+        metrics["aux/sf/c_t"] = float(opt.param_groups[0].get("ckp1", 0.0))
+        metrics["aux/sf/lr_weight_sum"] = float(opt.param_groups[0].get("lr_weight_sum", 0.0))
+    return metrics
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -704,6 +799,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "use_schedule_free_aux": args.use_schedule_free_aux,
+            "sf_weight_lr_power": args.sf_weight_lr_power,
+            "sf_polyak_r": args.sf_polyak_r,
         },
     )
 
@@ -735,10 +833,15 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+    aux_param_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")]
+    if args.use_schedule_free_aux:
+        optimizer1 = ScheduleFreeAdamW(aux_param_groups, betas=(0.8, 0.95), eps=1e-10,
+                                       weight_decay=0, weight_lr_power=args.sf_weight_lr_power,
+                                       r=args.sf_polyak_r)
+    else:
+        optimizer1 = AdamW(aux_param_groups, betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -762,7 +865,11 @@ for trial_idx in range(args.num_trials):
             eta = w ** COOLDOWN_POWER
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
+                # SF aux: keep LR at peak (the iterate average supplies the cooldown).
+                if args.use_schedule_free_aux and opt is optimizer1:
+                    group["lr"] = group["initial_lr"]
+                else:
+                    group["lr"] = group["initial_lr"] * eta
         return progress, cooldown_progress, eta
 
 
@@ -920,6 +1027,11 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            sf_metrics = schedule_free_diag(optimizer1)
+            if sf_metrics:
+                sf_metrics["trial"] = trial_idx
+                sf_metrics["train/step"] = train_step
+                wandb.log(sf_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
