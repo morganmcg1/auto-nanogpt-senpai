@@ -1,5 +1,51 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 13:35 UTC — Cycle 71 mid-39: PR #676 edward WD_AUX axis FULLY CLOSED via symmetric early-warmup gradient explosion — first closure of this type
+
+### PR #676 — edward WD_AUX sweep — BOTH directions diverge with identical failure mode
+
+Branch: `g1r2-edward/wd-aux-sweep`. Closed 13:30 UTC.
+
+| Direction | WD_AUX | Attempts | Outcome | Step at first NaN |
+|---|---|---|---|---|
+| Up (×2) | 0.002 | 2× (`wy9glbst`, `m370srd5`) | NaN | step 25 grad, step 125 val |
+| Default | 0.001 | baseline | val=3.26776 / ffs=3000 | — |
+| Down (÷2) | 0.0005 | 1× (`b8v6zj4v`) | NaN | step 25 grad, step 125 val |
+| Disabled-check (200 steps) WD_AUX=0.002 | — | 2× (`xeeupthb` healthy, `u2ya6o7x` NaN) | 1/2 healthy | step 125 NaN in failed |
+
+**Aggregate**: WD_AUX=0.002 → 3/4 NaN. WD_AUX=0.0005 → 1/1 NaN. Default 0.001 → 0/2 NaN.
+
+### Failure mode — early-warmup gradient explosion
+
+Edward's `train/grad/all/finite_elements` telemetry:
+
+| Run | WD_AUX | Step 1 finite grads | Step 25 finite grads | Finite fraction @ 25 |
+|-----|--------|---------------------|----------------------|---------------------|
+| `wy9glbst` | 0.002 | 162,354,816 / 162,354,816 | ~14.6 M / 162.3 M | **~9%** |
+| `b8v6zj4v` | 0.0005 | 162,354,816 / 162,354,816 | ~14.6 M / 162.3 M | **~9%** |
+
+By step 25 (during MU_WARMUP_STEPS=200 phase), ~91% of all gradient elements are NaN. The val_loss NaN at step 125 is just the first validation interval after the explosion.
+
+### Mechanism interpretation — symmetric failure points to coupling
+
+**The most informative finding**: BOTH ×2 AND ÷2 from default fail the SAME way at the SAME step. Failure mode cannot be "WD is too aggressive" (would be one-sided) or "WD is too weak" (would be other one-sided). Must be a **non-linear coupling** between WD_AUX and another stack parameter that is tuned precisely at default 0.001:
+
+- **WD_AUX × MU_WARMUP coupling hypothesis**: aggressive decay (×2) AND aggressive relaxation (÷2) both push embed/lm_head into a parameter-magnitude regime where Muon momentum warmup's directional updates explode in early steps. The default 0.001 is the empirical sweet spot where embed magnitude evolution lines up with MU_WARMUP_STEPS=200 trajectory.
+- **Alternative**: bifurcation at default — perturbations in either direction cross a stability boundary in (embed_magnitude, muon_step_magnitude, lm_head_magnitude) phase space.
+
+### Implications for portfolio
+
+- **WD_AUX axis is permanently CLOSED** — both directions destabilize, no narrower bracket worth GPU time given symmetric failure pattern.
+- **Disabled-check non-determinism is real** at this stack — same args (WD_AUX=0.002, 200 steps) gave one healthy + one NaN. The c=20 stack lives close to bifurcation boundaries; future PRs touching embed/lm_head magnitudes must watch for early-warmup grad explosions.
+- **Telemetry canary**: `train/grad/all/finite_elements` is the right metric for early-warmup divergence detection. Recommended kill gate for future PRs touching embed/lm_head: <99% finite gradients by step 25 → kill immediately.
+- **WD_AUX × warmup coupling** as a follow-up: cheap 1-arm test at WD_AUX=0.002 with MU_WARMUP_STEPS=400 (gentler warmup) would test the warmup-coupling hypothesis cheaply. Deferred for now — portfolio better spent on fresh axes.
+
+### Decision
+
+CLOSE the WD_AUX axis entirely. Edward → #681 MU_WARMUP_START value sweep (LAST untested value on the Muon momentum schedule envelope — adjacent axes #608 warmup STEPS and #656 cooldown END both closed).
+
+---
+
 ## 2026-05-21 12:10 UTC — Cycle 71 mid-38: PR #657 nezuko SCHEDULE_SHAPE CLOSED — both arms catastrophic MISS; linear cooldown well-tuned; LR at END of cooldown matters more than descent shape
 
 ### PR #657 — nezuko cooldown shape — Both arms catastrophic MISS
