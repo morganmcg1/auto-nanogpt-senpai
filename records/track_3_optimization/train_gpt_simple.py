@@ -38,6 +38,49 @@ NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
 
+class Lookahead:
+    # Lookahead wrapper (Zhang, Lucas, Hinton, Ba — NeurIPS 2019). Wraps an inner
+    # optimizer with slow weights: every k inner steps, slow += alpha*(fast - slow);
+    # fast := slow. Slow weights live in fp32 so small slow-weight deltas on bf16
+    # embed/lm_head don't round to zero.
+    def __init__(self, inner_optimizer, k=5, alpha=0.5):
+        self.inner = inner_optimizer
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self._step = 0
+        self._sync_count = 0
+        self._slow = []
+        for group in self.inner.param_groups:
+            slow_group = []
+            for p in group["params"]:
+                slow_group.append(p.data.detach().clone().float())
+            self._slow.append(slow_group)
+
+    @property
+    def param_groups(self):
+        return self.inner.param_groups
+
+    @property
+    def state(self):
+        return self.inner.state
+
+    def zero_grad(self, set_to_none=True):
+        self.inner.zero_grad(set_to_none=set_to_none)
+
+    @torch.no_grad()
+    def step(self):
+        self.inner.step()
+        self._step += 1
+        if self.k > 0 and self._step % self.k == 0:
+            for group_idx, group in enumerate(self.inner.param_groups):
+                for p_idx, p in enumerate(group["params"]):
+                    slow = self._slow[group_idx][p_idx]
+                    fast_fp32 = p.data.float()
+                    slow.add_(fast_fp32.sub(slow), alpha=self.alpha)
+                    p.data.copy_(slow.to(p.data.dtype))
+            self._sync_count += 1
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -52,6 +95,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--lookahead_k", type=int, default=0, help="Lookahead inner-step interval k; 0 disables the wrapper.")
+    parser.add_argument("--lookahead_alpha", type=float, default=0.5, help="Lookahead slow-weight mixing coefficient alpha.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -236,6 +281,11 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+        if isinstance(opt, Lookahead):
+            metrics[f"lookahead/opt{opt_idx}/inner_step"] = opt._step
+            metrics[f"lookahead/opt{opt_idx}/sync_count"] = opt._sync_count
+            metrics[f"lookahead/opt{opt_idx}/k"] = opt.k
+            metrics[f"lookahead/opt{opt_idx}/alpha"] = opt.alpha
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -704,6 +754,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "lookahead_k": args.lookahead_k,
+            "lookahead_alpha": args.lookahead_alpha,
+            "lookahead_enabled": bool(args.lookahead_k > 0),
         },
     )
 
@@ -735,10 +788,14 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    inner_optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                              dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                              dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                             betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.lookahead_k > 0:
+        optimizer1 = Lookahead(inner_optimizer1, k=args.lookahead_k, alpha=args.lookahead_alpha)
+    else:
+        optimizer1 = inner_optimizer1
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
