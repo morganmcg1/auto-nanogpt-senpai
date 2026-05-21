@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 00:15 UTC
+- **Date:** 2026-05-21 01:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -102,17 +102,23 @@ Single-seed 4-arm (drift gate A PASS, |3.27226−3.27174|=0.00052): A=3.27226, B
 Single-seed 4-arm (drift gate A PASS, |3.27121−3.27174|=0.00053): A=3.27121, B (β₂_embed=0.95)=+0.00089 (null), C (β₂_embed=0.999)=+0.00359 (regression), D (B + β₂_lm_head=0.999)=+0.00097 (null). No arm beats merged baseline within-pod. Longer embed memory clearly harmful (v_t anchors to early-training stats for ~700-step half-life in 3350-step run); shorter embed memory null (hypothesized sparse-row v_t reset benefit doesn't materialize). D ≈ B within ±0.0001 — lm_head β₂=0.999 inert. **AdamW-internal axis family substantially exhausted**: per-group β₂ joins #442 (magnitude), #474 (AdaBelief formulation), #516 (Yogi update rule), #490 (NAdam first-moment lookahead) as closed. Embed sparse-row gradient statistics on this benchmark are well-served by uniform β₂=0.99 in the 0.95–0.999 range. **38th productive-null/negative this cycle.**
 **Follow-up**: alphonse assigned **per-group AdamW β₁ time-constant sweep** — first-moment time constant, structurally distinct from this PR's second-moment axis. Mechanism: at β₁=0.8 with sparse embed rows, momentum decays to near-zero between visits (`0.8^50 ≈ 0`), effectively scaling sparse-row step magnitude down by ~0.2 vs dense groups; ADAMW_EMBED_LR_MULT=1.5 partially compensates via LR; lowering β₁_embed tests whether it's a more principled magnitude restorer.
 
-### 🔄 alphonse #599 — Per-group AdamW β₁ time-constant sweep [assigned 17:15 UTC]
+### ✅ alphonse #599 — Per-group AdamW β₁ time-constant sweep — CLOSED 01:10 UTC productive-NEGATIVE
 
-**Branch:** `g1r4-alphonse/adamw-beta1-per-group`
-**Hypothesis**: β₁=0.8 uniform across embed/lm_head/scalar (`betas=(0.8, β₂)` hardcoded at line 844). For sparse embed rows seen every ~50 steps, momentum decays `0.8^50 ≈ 1.4e-5` between visits — so m_t at the second visit ≈ `0.2 · g_visit2`, effectively 5× smaller than a dense-group update. Lower β₁_embed restores full sparse-row update magnitude (β₁=0.0 → `m_t = g_visit`, 5× larger than current); higher β₁_embed extends momentum across visits. Untested. Mechanistic complement to #560 (second-moment time constant — disconfirmed) on the first-moment axis.
-| Arm | β₁_embed | β₁_lm_head | β₁_scalar | Effective step magnitude on sparse row | Hypothesis |
-|---|---:|---:|---:|---|---|
-| A | 0.80 (ctrl) | 0.80 | 0.80 | ~0.2·g (current) | Reproduces merged baseline |
-| B | **0.50** | 0.80 | 0.80 | ~0.5·g (2.5× boost) | Less smoothing, larger sparse-row updates |
-| C | **0.00** | 0.80 | 0.80 | 1.0·g (5× boost) | No momentum — direct gradient step on each visit |
-| D | **0.90** | 0.80 | 0.80 | ~0.1·g (0.5× of A) | More smoothing — extend momentum across visits (opposite direction) |
-**ETA full chain:** ~7.3h.
+Single-seed 4-arm (drift gate A PASS, |3.27208−3.27174|=0.00034): A=3.27208, B (β₁_embed=0.50)=+0.00399 (regression), C (β₁_embed=0.00, RMSProp-mode)=+0.00513 (regression), D (β₁_embed=0.90)=+0.00177 (regression marginal). All B/C/D regress past +0.0015 within-pod threshold. Magnitude-up direction (β₁ 0.80→0.50→0.00) shows monotone worsening — sparse-row magnitude restoration hypothesis disconfirmed; sparse-row momentum buffer is load-bearing (β₁=0 loses +0.005 vs ctrl). Smoothing-up direction (β₁=0.90) also marginal regression. **Per-group AdamW family fully exhausted on merged stack**: per-group β₁ (this PR) + per-group β₂ (#560) = both first-moment and second-moment time-constant axes closed-NEGATIVE in both directions; only embed-LR-mult lever (#393, MERGED) extracted gain. **44th productive-NEGATIVE this cycle.**
+**Follow-up**: alphonse assigned **#632 Tunable post-NS aspect-ratio exponent** — post-NS-side modification targeting the canonical `max(1, fan_out/fan_in)**0.5` scaling in `muon_update()`. Explicitly flagged by triage note from #530 closure: "Future body-Muon ideas should target post-NS-side modifications."
+
+### 🔄 alphonse #632 — Tunable post-NS aspect-ratio exponent [assigned 01:10 UTC]
+
+**Branch:** `g1r4-alphonse/muon-post-ns-aspect-exp`
+**Hypothesis**: Canonical post-NS scaling `update *= max(1, grad.size(-2) / grad.size(-1))**0.5` at line 642 applies a fixed aspect-ratio exponent of 0.5 from Bernstein-Newhouse (2024) modular norm theory. On the merged stack with NS_COEF_SCHEDULE=linear_ramp_down and NS_COOLDOWN_SHAPE=late_peak, the effective orthogonalization deviates from theory assumptions — making a different exponent potentially more effective. Tests exp=0 (no scaling, uniform body magnitudes), exp=0.25 (gentler), and exp=1.0 (full linear aspect-ratio amplification). This is one of the few remaining unexplored **post-NS-side modification** axes (flagged explicitly after #530 body-Muon mechanism closure).
+
+| Arm | NANOGPT_MUON_POST_NS_EXP | Scale on QKV (fan_out/fan_in=3) | Scale on MLP-expand (4) | Tests |
+|---|---:|---:|---:|---|
+| A | 0.50 (ctrl) | ×√3≈1.73 | ×2.0 | Canonical, reproduces merged baseline |
+| B | **0.00** | ×1.0 (no scaling) | ×1.0 | No aspect-ratio bias — unifies body magnitudes |
+| C | **0.25** | ×3^0.25≈1.32 | ×4^0.25≈1.41 | Gentler aspect bias, interior sweet spot |
+| D | **1.00** | ×3.0 | ×4.0 | Full linear aspect scaling — amplified bias |
+**ETA full chain:** ~7.3h. Implementation: ~5 LOC (env var + replace `**0.5` with `**NANOGPT_MUON_POST_NS_EXP` + print0 + W&B config).
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -328,6 +334,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #599 | alphonse | Per-group AdamW β₁ time-constant sweep | CLOSED productive-NEGATIVE (B=+0.00399 regression, C β₁=0=+0.00513, D β₁=0.90=+0.00177; both directions regress; per-group AdamW family fully exhausted; 44th this cycle) |
 | #560 | alphonse | Per-group AdamW β₂ asymmetric sweep (embed/lm_head decoupling) | CLOSED productive-NULL/NEGATIVE (B=+0.00089 null, C β₂_embed=0.999=+0.00359 regression, D inert; AdamW-internal family exhausted; 38th this cycle) |
 | #483 | thorfinn | Muon WD warmup frac∈{0.05,0.10,0.20} | CLOSED productive-NEGATIVE (monotone: +0.00080/+0.00258/+0.00400; body WD=0.025 is load-bearing from step 0; bilateral WD-level closure) |
 | #474 | edward | AdaBelief aux scope sweep | CLOSED productive-NEGATIVE (B=+0.041/D=+0.035 catastrophic embed sparsity; C=+0.002 mild; second-moment-formulation axis closed) |
@@ -351,10 +358,10 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 ## Closed axes (do not re-assign)
 
 **Optimizer-internal / Adam-family**:
-- β₁ per-group: in-flight (alphonse follow-up to #560)
+- **β₁ per-group: CLOSED productive-NEGATIVE** (#599; B=+0.00399/C=+0.00513/D=+0.00177; both directions; **per-group AdamW family fully exhausted** — β₁ + β₂ + WD all closed-NEGATIVE; only embed-LR-mult #393 extracted gain)
 - β₂ per-group asymmetry (embed swept 0.95/0.999, lm_head 0.999): CLOSED productive-NULL/NEGATIVE (#560; embed β₂=0.999 +0.00359 regression, β₂=0.95 +0.00089 null, D inert; AdamW-internal family substantially exhausted)
 - ε per-group: all swept, β₂=0.99/ε=1e-10 confirmed
-- WD per-group: all harmful, axis closed
+- WD per-group: all harmful, axis closed — WD-ADDITION bilaterally fenced across all AdamW+Muon groups; only REDUCTION direction (#550 in-flight) extracting gain
 - Gradient noise injection, GC, Cautious, AdEMAMix, Lookahead, Weight-EMA, AGC, OrthoGrad: all closed
 - AdaBelief variance-of-prediction-error second moment: CLOSED productive-NEGATIVE (#474; embed sparsity pathology; `(g−m)²` fails on absent-row sparse groups)
 - Muon-WD warmup (all fracs 5-20%): CLOSED productive-NEGATIVE (#483; monotone worsening; body WD=0.025 is bilaterally optimal)

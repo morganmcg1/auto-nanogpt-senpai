@@ -3,6 +3,43 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 01:10 UTC — PR #599: Per-group AdamW β₁ time-constant sweep (alphonse) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-alphonse/adamw-beta1-per-group`
+- Hypothesis: β₁=0.8 is hardcoded uniformly for all AdamW groups (embed/lm_head/scalar). For sparse embed rows visited every ~50 steps, momentum decays `0.8^50 ≈ 1.4e-5` between visits — effectively 5× smaller update magnitude than dense groups. Hypothesis: lower β₁_embed restores sparse-row update magnitude (analogous to ADAMW_EMBED_LR_MULT=1.5 but via momentum scaling). Complement to #560 (per-group β₂, closed productive-NULL/NEGATIVE).
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS |3.27208−3.27174|=0.00034):**
+
+| Arm | β₁_embed | β₁_lm_head | β₁_scalar | val/loss | Δ vs A | W&B run | Verdict |
+|---|---:|---:|---:|---:|---:|---|---|
+| A | 0.80 (ctrl) | 0.80 | 0.80 | 3.27208 | — | `mbl1mtf7` | drift PASS +0.00034 |
+| B | **0.50** | 0.80 | 0.80 | 3.27607 | **+0.00399** | `uw9r2ols` | regression |
+| C | **0.00** (RMSProp-mode) | 0.80 | 0.80 | 3.27721 | **+0.00513** | `sosvtmq2` | regression |
+| D | **0.90** | 0.80 | 0.80 | 3.27385 | **+0.00177** | `466pizvt` | regression (marginal) |
+
+**Analysis**:
+- **Magnitude-up direction (β₁_embed: 0.80→0.50→0.00) shows monotone worsening**: 3.27208 → 3.27607 → 3.27721. Sparse-row magnitude restoration hypothesis disconfirmed. Reducing β₁_embed below 0.80 consistently hurts, with RMSProp-mode (β₁=0) worst.
+- **Momentum buffer on embed rows is load-bearing**: Arm C (β₁=0 → pure per-step gradient) loses ~+0.005 vs ctrl, confirming momentum accumulation from prior sparse-row visits genuinely informs later steps.
+- **Smoothing-up direction (β₁=0.90) also marginal regression** (Δ=+0.00177, past +0.0015 threshold). The optimum sits at or very near 0.80 in both directions → bilateral concavity at the merged value.
+- **1.5× ADAMW_EMBED_LR_MULT already near-optimal**: the LR boost from #393 appears well-calibrated with β₁=0.80; reducing β₁ (implying LR compensates for sparse-row magnitude deficit) is counterproductive — the embed group is already operating at the optimum with the existing LR×momentum combination.
+
+**Cumulative state of per-group AdamW family:**
+
+| Axis | PR | Result |
+|---|---|---|
+| Per-group embed LR mult | #393 | **MERGED** (1.5× win) |
+| Per-group β₂ (second moment) | #560 | closed-NEGATIVE |
+| Per-group WD | #593 | closed-NULL (WD-ADDITION bilaterally fenced) |
+| **Per-group β₁ (first moment)** | **#599** | **closed-NEGATIVE (this PR)** |
+
+**Per-group AdamW family is now fully exhausted.** Both first-moment and second-moment time-constant axes are closed-NEGATIVE in both directions. Only the embed-LR-mult lever (#393) extracted gain; the uniform β₁=0.80 + β₂=0.99 + LR-mult=1.5 combination is bilaterally optimal.
+
+**44th productive-null/negative on the merged stack post-#393.**
+
+**Follow-up**: alphonse assigned **#632 Tunable post-NS aspect-ratio exponent** — one of the few remaining unexplored post-NS-side modifications. Tests `max(1, fan_out/fan_in)**exp` with exp ∈ {0.0, 0.25, 0.50 (ctrl), 1.0}. Arms cover no-scaling, gentler, canonical, and stronger aspect-ratio policies.
+
+---
+
 ## 2026-05-21 00:10 UTC — PR #603: AdamW second-moment warmstart via ghost steps (nezuko) — CLOSED broken-chain + productive-NEGATIVE
 
 - Branch: `g1r4-nezuko/ghost-step-warmstart`
