@@ -467,6 +467,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+INTERNAL_INIT_MULT = float(os.environ.get("INTERNAL_INIT_MULT", "1.0"))  # 1.0 = current default; multiplies torch-default std=0.33**0.5/sqrt(fan_in) for QKV + fc
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -865,6 +866,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "model/embed_init_std": EMBED_INIT_STD,
+            "model/internal_init_mult": INTERNAL_INIT_MULT,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -888,7 +891,7 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=INTERNAL_INIT_MULT * 0.33**0.5 / w.size(-1)**0.5)  # INTERNAL_INIT_MULT scales QKV + MLP fc init
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
