@@ -3,6 +3,65 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 21:00 UTC — PR #632: Tunable post-NS aspect-ratio exponent — Muon update scaling (alphonse) — CLOSED productive-NULL
+
+- Branch: `g1r4-alphonse/muon-post-ns-aspect-exp`
+- Hypothesis: Post-NS-side modification of Muon update via `update *= max(1, fan_out/fan_in)**exp`. Currently `exp=0.5` (canonical spectral-norm preservation after rescaling). Phase 1 N=1 winner candidate Arm D (exp=1.0) showed Δ_D_vs_A=−0.00274 against OLD baseline 3.27174; sent back for mandatory paired-pod n=3 confirmation against NEW post-#579 baseline 3.27070.
+
+### Phase 2 — paired-pod n=3 (group `g1r4-alphonse/muon-post-ns-aspect-exp-paired`)
+
+| Pod | Seed | Arm A (exp=0.5) val | Arm D (exp=1.0) val | Δ_D_vs_A | A-drift vs base 3.27070 | W&B (A, D) |
+|---|---|---:|---:|---:|---:|---|
+| 0 | 0 | 3.27205 | 3.27203 | **−0.00002** | +0.00135 (mid PASS) | `f2fyfups`, `pvsxw7uy` |
+| 1 | 1 | 3.27049 | 3.27175 | **+0.00126** | −0.00021 (bullseye PASS) | `i793ei0g`, `zagy84ul` |
+| 2 | 2 | 3.27295 | **3.26913** | **−0.00382** | +0.00225 (upper PASS) | `v06cutf6`, `s5argpey` |
+| **mean (n=3)** | — | **3.27183** | **3.27097** | **−0.00086** (sd=0.00264) | — | — |
+
+### Merge gate verdict (against NEW baseline 3.27070)
+
+| Gate | Rule | Result | Status |
+|---|---|---:|---|
+| 1 | mean(Δ_D_vs_A, n=3) ≤ −0.002 | −0.00086 | **FAIL** |
+| 2 | mean(val_D, n=3) ≤ 3.27070 | 3.27097 (+0.00027) | **FAIL** |
+| 3 | (3.28 − mean(val_D)) × √3 ≥ 0.004 | 0.01564 | PASS |
+
+Gates 1+2 FAIL → **NO merge**. mean(Δ)=−0.00086 falls within pre-staged productive-NULL band [−0.002, +0.0015]. 95% CI for Δ: [−0.00742, +0.00570] (t-df=2, brackets both productive-merge and productive-negative).
+
+### Analysis
+
+**Phase 1 → Phase 2 collapse**: Phase 1 N=1 Δ_D_vs_A=−0.00274 → n=3 mean Δ=−0.00086 (~31% retention). Phase 1 Arm A drift was +0.00247 (upper edge of ±0.003 band) — favorable-seed pattern. Under paired-init across drift-band-spanning seeds, the mechanism's true contribution surfaces at −0.00086, in the noise floor.
+
+**10th N=1→paired-pod collapse precedent** post-#579 (joining #344, #351, #408, #487, #506, #550, #577, #595, #628-trending).
+
+**Pod-Δ tracks A-drift monotonically**:
+- Pod 0 (A drift +0.00135 mid): Δ=−0.00002 flat
+- Pod 1 (A drift −0.00021 bullseye): Δ=+0.00126 sign-flip
+- Pod 2 (A drift +0.00225 upper): Δ=−0.00382 D rescues
+
+This is the canonical seed-coupling signature: exp=1.0 vs exp=0.5 modifies post-NS update magnitude by ~1.3× for largest aspect-ratio matrices, variably interacting with each seed's optimization trajectory — rescuing slow trajectories and overshooting fast ones, but with expected value ≈0 across seed-pool.
+
+### Mechanism characterization
+
+**Post-NS aspect-ratio exponent on post-#579 merged stack is locally flat at canonical default 0.5.** Both directions (toward 1.0 and toward 0.0) yield seed-dependent variance with mean Δ in null band. The default 0.5 (spectral norm preservation after rescaling) is robust to ±0.5 perturbations on average.
+
+**Body-Muon update-magnitude-modification family verdict**: 
+- LR ✓ #579 MERGED (canonical per-block-type tuning)
+- WD ✗ #669 NEGATIVE (mlp WD load-bearing)
+- μ ✗ #674 NULL
+- aspect-exp ✗ #632 NULL (this)
+- β₂ 🔄 #712 in flight
+- NS_ITERS per-type: unexplored
+
+Post-#579 attn=0.80×/mlp=1.20× LR asymmetry has effectively done the per-block-type magnitude tuning that aspect-ratio scaling could have provided. **Further work in update-magnitude family is unpromising.**
+
+**58th productive-null/negative this cycle.**
+
+Closing comment: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/632#issuecomment-4512549125
+
+Follow-up: alphonse assigned **#719 pruning ablation of schedule mechanisms** — 4-arm N=1 + gated paired-pod testing whether NS_COOLDOWN_SHAPE (#285), NS_COEF_SCHEDULE (#290), or EMBED_COOLDOWN_SHAPE (#235) is now redundant or net-negative on post-#579 stack. Pruning ablation directly invited by research constraint.
+
+---
+
 ## 2026-05-21 19:40 UTC — PR #669: Per-block-type WD asymmetry on body Muon (attn vs mlp) (askeladd) — CLOSED productive-NEGATIVE
 
 - Branch: `g1r4-askeladd/muon-attn-mlp-wd-asym`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 19:40 UTC
+- **Date:** 2026-05-21 21:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -120,23 +120,38 @@ Single-seed 4-arm (drift gate A PASS, |3.27121−3.27174|=0.00053): A=3.27121, B
 Single-seed 4-arm (drift gate A PASS, |3.27208−3.27174|=0.00034): A=3.27208, B (β₁_embed=0.50)=+0.00399 (regression), C (β₁_embed=0.00, RMSProp-mode)=+0.00513 (regression), D (β₁_embed=0.90)=+0.00177 (regression marginal). All B/C/D regress past +0.0015 within-pod threshold. Magnitude-up direction (β₁ 0.80→0.50→0.00) shows monotone worsening — sparse-row magnitude restoration hypothesis disconfirmed; sparse-row momentum buffer is load-bearing (β₁=0 loses +0.005 vs ctrl). Smoothing-up direction (β₁=0.90) also marginal regression. **Per-group AdamW family fully exhausted on merged stack**: per-group β₁ (this PR) + per-group β₂ (#560) = both first-moment and second-moment time-constant axes closed-NEGATIVE in both directions; only embed-LR-mult lever (#393, MERGED) extracted gain. **44th productive-NEGATIVE this cycle.**
 **Follow-up**: alphonse assigned **#632 Tunable post-NS aspect-ratio exponent** — post-NS-side modification targeting the canonical `max(1, fan_out/fan_in)**0.5` scaling in `muon_update()`. Explicitly flagged by triage note from #530 closure: "Future body-Muon ideas should target post-NS-side modifications."
 
-### 🔄 alphonse #632 — Tunable post-NS aspect-ratio exponent [paired-pod n=3 in progress — Pod 2 Arm D running, ETA ~20:26 UTC, trending productive-NULL]
+### ✅ alphonse #632 — Tunable post-NS aspect-ratio exponent — CLOSED 21:00 UTC productive-NULL
 
 **Branch:** `g1r4-alphonse/muon-post-ns-aspect-exp`
 
-**Phase 1 (N=1 4-arm sweep)**: Arm D (exp=1.0) winner candidate at N=1 (val=3.27147, Δ=−0.00274 vs A, Δ=−0.00027 vs OLD baseline 3.27174). Sent back for mandatory paired-pod n=3.
+Paired-pod n=3 terminal — Pod 2 Arm D `s5argpey` finished val=3.26913 (Δ_D_vs_A=−0.00382 strong winner direction on Pod 2 alone):
 
-**Phase 2 (paired-pod n=3) — live** — group `g1r4-alphonse/muon-post-ns-aspect-exp-paired`:
+| Pod | Arm A (exp=0.5 ctrl) | Arm D (exp=1.0) | Δ_D_vs_A | A-drift vs base 3.27070 |
+|---|---:|---:|---:|---:|
+| 0 | `f2fyfups` 3.27205 | `pvsxw7uy` 3.27203 | **−0.00002** | +0.00135 (mid, PASS) |
+| 1 | `i793ei0g` 3.27049 | `zagy84ul` 3.27175 | **+0.00126** | −0.00021 (bullseye, PASS) |
+| 2 | `v06cutf6` 3.27295 | `s5argpey` 3.26913 | **−0.00382** | +0.00225 (upper, PASS) |
+| **mean** | **3.27183** | **3.27097** | **−0.00086** | sd=0.00264 |
 
-| Pod | Arm A (exp=0.5 ctrl) | Arm D (exp=1.0) | Δ_D_vs_A | Drift gate |
-|---|---|---|---:|---|
-| 0 | `f2fyfups` val=3.27205 | `pvsxw7uy` val=3.27203 | **−0.00002** (null) | A drift +0.00135, PASS |
-| 1 | `i793ei0g` val=3.27049 | `zagy84ul` val=3.27175 | **+0.00126** (sign-flip) | A drift −0.00021, PASS (bullseye) |
-| 2 | `v06cutf6` val=3.27295 ✅ | `s5argpey` 🔄 step ~1750/3350 ETA ~20:26 UTC | TBD | A drift +0.00225, PASS |
+**Gates**: Gate 1 (mean Δ ≤ −0.002) FAIL at −0.00086. Gate 2 (mean(val_D) ≤ 3.27070) FAIL at 3.27097 (+0.00027 above baseline). Gate 3 stat-rule (3.28−3.27097)×√3=0.01564 ≥ 0.004 PASS. **No merge.**
 
-**Running mean(Δ, n=2): +0.00062** — firmly in productive-NULL band. Mean(val_D, n=2)=3.27189 → above NEW baseline 3.27070 (Gate 2 failing). Terminal verdict trending: **productive-NULL** (9th N=1→paired-pod collapse precedent). Phase 1 N=1 advantage explained by favorable A seed (A drift +0.00247 at upper edge of ±0.003 band). Post-NS aspect-ratio exponent axis flat around canonical 0.5 on new stack.
+**Phase 1 N=1 → paired-pod collapse**: Phase 1 Δ_D_vs_A=−0.00274 → n=3 mean Δ=−0.00086 (~31% retention). 10th N=1→paired-pod collapse precedent post-#579. Pod-Δ tracks A-drift monotonically (D regresses when A favorable, D rescues when A unfavorable, D=A when A neutral) — canonical seed-coupling signature. Post-NS aspect-ratio exponent axis is **locally flat with high seed sensitivity** on post-#579 stack; default 0.5 is robust to ±0.5 perturbations on average. **Body-Muon update-magnitude-modification family uniformly null post-#579** (LR✓#579 / WD✗#669 / μ✗#674 / aspect-exp✗#632 / β₂🔄#712).
 
-**Final SENPAI-RESULT expected ~20:30 UTC** after Pod 2 Arm D terminal.
+**58th productive-null/negative this cycle.**
+
+### 🔄 alphonse #719 — Pruning ablation of schedule mechanisms (4-arm N=1 + gated paired-pod) [assigned 21:00 UTC]
+
+**Branch:** `g1r4-alphonse/prune-schedule-mechs`
+**Hypothesis**: With 9 mechanisms merged on post-#579 stack, additivity is not guaranteed. Three schedule mechanisms — `NS_COOLDOWN_SHAPE=late_peak` (#285), `NS_COEF_SCHEDULE=linear_ramp_down` (#290), `EMBED_COOLDOWN_SHAPE=linear_floor` (#235) — all operate in the cooldown phase with potentially overlapping effects. Per-block-type LR asymmetry (#579) changed step magnitudes substantially; one or more schedule mechanism may now be redundant or net-negative. **Pruning ablation directly invited by research constraint.**
+
+| Arm | NS_COOLDOWN_SHAPE | NS_COEF_SCHEDULE | EMBED_COOLDOWN_SHAPE | Tests |
+|---|---|---|---|---|
+| A (ctrl) | late_peak | linear_ramp_down | linear_floor | Bit-identical post-#579 stack |
+| B | **step** (default) | linear_ramp_down | linear_floor | Ablate #285 |
+| C | late_peak | **constant** (default) | linear_floor | Ablate #290 |
+| D | late_peak | linear_ramp_down | **linear** (default) | Ablate #235 |
+
+**Pre-staged gating**: any arm Δ ≤ −0.001 → paired-pod n=3 confirmation; Δ ∈ (−0.001, +0.0015) → productive-null close with characterization; Δ ≥ +0.0015 → confirms essential merge. Phase 1 ETA ~14h sequential. Distinct from prior pruning #487 (NS-cooldown sub-stack drop) and #577 (joint NS-cooldown drop): this targets distinct SCHEDULE mechanisms, not just NS variants. High information value regardless of outcome — identifies prune target OR confirms stack well-composed.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
