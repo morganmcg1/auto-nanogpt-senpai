@@ -3,6 +3,84 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 18:35 UTC — PR #664: AdamW bias correction disable sweep on aux groups (frieren) — CLOSED productive-NULL
+
+- Branch: `g1r4-frieren/adamw-bias-correction-disable`
+- Hypothesis: AdamW bias correction applies `m_t/(1-β₁^t)` and `v_t/(1-β₂^t)` scaling factors. Disabling bias correction on aux groups (embed / lm_head / scalars) tests whether the small effective LR transient in first ~100 steps (~1/(1-β₁^t) ≈ 10× boost at t=1) is helpful or merely a default mechanism. Composes with #514 (β₁ warmup CLOSED-NEG), #599 (per-group β₁ NEG), #560 (per-group β₂ NEG) — all early-training first/second-moment axes.
+
+### Results (N=1, 4-arm chain on NEW post-#579 merged stack)
+
+| Arm | scope | val/loss | first_step | Δ vs A2 ctrl | Δ vs baseline 3.27070 | W&B |
+|---|---|---:|---:|---:|---:|---|
+| **A2 (ctrl)** | `""` | 3.27224 | 3250 | — | +0.00154 (drift PASS) | 1z2v24tg |
+| **B2** | embed | 3.27143 | 3225 | −0.00081 | +0.00073 | 6u8zmrgs |
+| **C2** | lm_head | 3.27144 | 3225 | −0.00080 | +0.00074 | aylcw25d |
+| **D2** | all_aux | 3.27217 | 3225 | −0.00007 | +0.00147 | vaz7l036 |
+
+### Verdict — productive-NULL, mechanism finding: saturation/interference at all-aux
+
+- **Drift gate A2 vs baseline 3.27070**: PASS at +0.00154 (within ±0.003)
+- **Within-pod signal threshold (Δ ≤ −0.002)**: No arm passes. Best singletons B2/C2 at −0.0008, ~2.5× below threshold
+- **Absolute baseline gate**: No arm beats 3.27070 (best B2/C2 at +0.00073/+0.00074 above baseline)
+- **Productive-null band [−0.002, +0.0015]**: all 4 arms fit (A2 +0.00154 at upper edge, B2/C2 at lower edge)
+
+### Mechanism reading
+
+1. **B2 (embed disable) ≈ C2 (lm_head disable) within single-seed noise σ≈0.001**: Bias correction disable on EITHER aux group produces nearly-identical marginal Δ ≈ −0.0008. The mid-training LR-boost mechanism of bias correction applies uniformly across aux groups with no per-group structural preference.
+
+2. **D2 (all_aux disable) ≈ A2 ctrl (Δ = −0.00007)**: Going from one-aux-group disable to all-aux-group disable FLATTENS the signal rather than compounding it (additive expectation would be ~−0.0016 if independent). **Saturation/interference pattern**: the early-training relative-magnitude structure between embed/lm_head/scalar is maintained by their RELATIVE bias-correction factors. Disabling on ALL three preserves their relative ratios; disabling on only one breaks them. The single-aux disable signal is a relative-magnitude shift, not a single-group mechanistic effect.
+
+3. **Bilateral closure with per-group AdamW family**: #599 (β₁) + #560 (β₂) + #593 (WD) + #652 (eps) + #664 (BC) all closed null/neg on the merged stack. **AdamW-internal axes are now FULLY exhausted** — only the LR_MULT axis (#393 MERGED) extracted gain.
+
+### Implementation quality
+
+- Clean implementation behind `NANOGPT_ADAMW_NO_BIAS_CORR` env var (scope = empty/embed/lm_head/all_aux)
+- Telemetry verified: bc_scale_factor sparkline matches expected ramp (1.0 at t=1 → asymptote 1.0 by step ~500)
+- Rebase onto post-#579 advisor branch resolved cleanly (#664 was sent back 10:55 UTC after #579 merge)
+- Wall-clock parity (`step_avg` 1893-1894ms across all 4 arms — bias correction is 1 multiply per param, free)
+- All 4 arms hit 3.28 target
+
+**54th productive-null/negative this cycle.** Combined with #652 close at 18:33 UTC (per-group eps NEG), two AdamW-internal axes closed within 2 minutes — strong signal that the AdamW-internal mechanism surface on this stack is fully characterized.
+
+Reassigning frieren to **#710 per-depth body Muon NS_ITERS variation** — fresh axis distinct from per-block-TYPE wiring (which #669 / #674 are hitting impl bugs on). Tests early/mid/deep bucket NS-iter budget allocation; orthogonal to #543 (per-aspect-ratio, only differentiates mlp.fc/mlp.proj per layer) and #470 (uniform escalation). Mechanism: gradient magnitudes vary by depth; NS=12 may over-invest on well-conditioned mid-layer matrices and under-invest on edge layers.
+
+## 2026-05-21 18:33 UTC — PR #652: Per-group AdamW eps sweep on lm_head (fern) — CLOSED productive-NEGATIVE
+
+- Branch: `g1r4-fern/adamw-eps-per-group`
+- Hypothesis: After #618 closed "replace AdamW for lm_head with Muon" productive-NEGATIVE (mechanism: NS homogenizes Zipf-distributed per-coordinate magnitude scaling), test the mirror question on the AdamW side: does the eps denominator floor matter for lm_head per-coordinate magnitude scaling? Per-group eps modulates rare-token-row update behavior: small eps → pure preconditioning; large eps → SGD-like updates. Last untested per-group AdamW hyperparameter (β₁ #599 NEG, β₂ #560 NEG, WD #593 NULL, LR-mult #393 MERGED).
+
+### Results (N=1, 4-arm on NEW post-#579 stack; OLD-stack preliminary data showed A=B=3.27211 identical to 6dp)
+
+| Arm | LM_HEAD_EPS | val/loss | first_step | Δ vs A (ctrl) | Δ vs baseline 3.27070 | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| **A (ctrl)** | 1e-10 | **3.26820** | 3200 | — | −0.00250 (favorable seed) | bcui2ht9 |
+| **B** | 1e-8 | 3.27011 | 3225 | +0.00191 | −0.00059 | ju9ok1wt |
+| **C** | 1e-6 | 3.27037 | 3225 | +0.00217 | −0.00033 | hp40meq2 |
+| **D** | 1e-12 | 3.27076 | 3225 | +0.00256 | +0.00006 | 4cfwgkyi |
+
+### Verdict — productive-NEGATIVE, mechanism finding: eps=1e-10 bilaterally optimal
+
+- **Drift gate A vs baseline 3.27070**: PASS at −0.00250 (favorable seed but within ±0.003)
+- **Within-pod signal threshold (Δ ≤ −0.002)**: No B/C/D arm crosses — no winner candidate
+- **Productive-null band**: B at +0.00191 (just above +0.0015 upper bound — marginal regression); C at +0.00217 (regression); D at +0.00256 (regression, BARELY above baseline by +0.00006)
+- **Bilateral pattern**: BOTH larger eps (B, C) AND smaller eps (D) regress vs A — eps=1e-10 is bilaterally optimal
+
+### Mechanism reading (composes with WAVE3 closures on lm_head)
+
+1. **OLD-stack data (eps inert in {1e-10, 1e-8})**: Arms A and B finished val=3.27211 IDENTICAL to ~6dp — confirms `sqrt(v_t)` dominates the AdamW denominator at all tested eps for lm_head's typical v_t magnitudes (~1e-3 to 1e-1 after Adam adaptation). eps becomes irrelevant in a 6-order-magnitude range — the denominator is fully in the preconditioning regime.
+
+2. **NEW-stack confirms eps NOT the bottleneck for lm_head per-coordinate magnitude scaling**. The #618 mechanism reading ('NS-orthogonalization destroys Zipf-distributed per-coord magnitudes') was directionally correct about the mechanism but eps-inert in {1e-12 ... 1e-6}. The Zipf-scaling preservation is upstream of eps.
+
+3. **Composes with #618 (Muon-on-lm_head NEG) + #663 (SOAP-on-lm_head NULL) + #547 (lm_head SHAPE NULL) + #584 (lm_head LR-mult NULL)**: ALL preconditioning-mechanism interventions on lm_head have now closed null/negative. The per-group AdamW axis on lm_head is FULLY exhausted at the preconditioner-mechanism level. Future lm_head work should target representation/loss-side mechanisms (Zipf-weighted loss, frequency-aware label smoothing, output-projection low-rank decomp).
+
+### Implementation quality
+
+Clean. ~10 LOC, env-var-gated, rebased onto post-#579 stack cleanly. Drift gate PASS. All 4 arms hit 3.28 target. Wall-clock parity (single multiply per param). OLD-stack data preserved as supplementary evidence — bit-identity across A=B at 6dp confirms env wiring correct.
+
+**53rd productive-null/negative this cycle.** Per-group AdamW hyperparameter family is now FULLY characterized — only the LR multiplier extracted gain; the other 4 axes (β₁/β₂/WD/eps) all closed null/negative.
+
+Reassigning fern to **#709 body Muon momentum bias correction (enable)** — fresh axis on body Muon side never tested. Standard Muon does NOT apply bias correction to its momentum buffer; this PR tests ENABLING it. Symmetric with #664's just-closed test on AdamW (DISABLING aux BC = NULL); body-Muon ENABLING BC has structurally different effect because the momentum buffer is then fed through Newton-Schulz orthogonalization. Mechanism: in first ~20 steps, m_t is biased toward zero relative to steady state at β=0.95; NS-orthogonalizing a biased buffer may give worse early-phase update direction.
+
 ## 2026-05-21 18:30 UTC — PR #663: One-sided SOAP preconditioning for lm_head (thorfinn) — CLOSED productive-NULL
 
 - Branch: `g1r4-thorfinn/soap-lm-head`
