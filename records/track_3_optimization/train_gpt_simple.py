@@ -458,6 +458,8 @@ MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
+NORMUON_2D = bool(int(os.environ.get("NORMUON_2D", "0")))
+NORMUON_2D_HARMONIC = bool(int(os.environ.get("NORMUON_2D_HARMONIC", "0")))
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
@@ -504,8 +506,13 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, second_moment_col=None, beta2=NORMUON_BETA2):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    When second_moment_col is provided, a second variance EMA is tracked along the
+    opposite axis and combined (geometric mean by default, harmonic when
+    NORMUON_2D_HARMONIC=1) before the per-element rsqrt rescale.
+    """
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
@@ -513,14 +520,29 @@ def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
     update = update - CONTRA_MUON / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
-    # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
+    # NorMuon-lite per-row (or per-col) variance EMA along the long axis.
     if update.size(-2) >= update.size(-1):
         per_row_var = (update * update).mean(dim=-1, keepdim=True)
     else:
         per_row_var = (update * update).mean(dim=-2, keepdim=True)
     second_moment.lerp_(per_row_var.float(), 1 - beta2)
-    vnorm = update.norm()
-    update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
+    if second_moment_col is not None:
+        # 2D mode: also track the OTHER axis.
+        if update.size(-2) >= update.size(-1):
+            per_col_var = (update * update).mean(dim=-2, keepdim=True)
+        else:
+            per_col_var = (update * update).mean(dim=-1, keepdim=True)
+        second_moment_col.lerp_(per_col_var.float(), 1 - beta2)
+        if NORMUON_2D_HARMONIC:
+            combined_var = (2 * second_moment * second_moment_col /
+                            (second_moment + second_moment_col + 1e-10))
+        else:
+            combined_var = (second_moment * second_moment_col).sqrt()
+        vnorm = update.norm()
+        update = update * combined_var.clamp_min(1e-10).rsqrt().to(update.dtype)
+    else:
+        vnorm = update.norm()
+        update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
     vnorm_new = update.norm().clamp_min(1e-10)
     update = update * (vnorm / vnorm_new)
     return update
@@ -674,10 +696,18 @@ class Muon(torch.optim.Optimizer):
                             state["second_moment"] = torch.zeros(
                                 (*p.shape[:-1], 1), dtype=torch.float32, device=p.device
                             )
+                            if NORMUON_2D:
+                                state["second_moment_col"] = torch.zeros(
+                                    (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
+                                )
                         else:
                             state["second_moment"] = torch.zeros(
                                 (*p.shape[:-2], 1, p.shape[-1]), dtype=torch.float32, device=p.device
                             )
+                            if NORMUON_2D:
+                                state["second_moment_col"] = torch.zeros(
+                                    (*p.shape[:-1], 1), dtype=torch.float32, device=p.device
+                                )
                         if p in self.soap_params or p in self.attn_soap_params:
                             m, n = p.size(0), p.size(1)
                             state["row_gg"] = torch.zeros(m, m, dtype=torch.float32, device=p.device)
@@ -701,7 +731,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    sm_col = state.get("second_moment_col")
+                    update = contra_normuon_update(momentum_update, state["second_moment"], second_moment_col=sm_col)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
