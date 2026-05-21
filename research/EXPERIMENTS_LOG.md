@@ -1,5 +1,29 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 UTC — Cycle 71 mid-24: PR #615 CLOSED (thorfinn Muon LR floor — both arms miss; schedule back-end fully closed); thorfinn → #637 internal block weight init multiplier
+
+### PR #615 — thorfinn Muon LR floor (MUON_LR_FLOOR ∈ {0.05, 0.10}) — CLOSED
+
+Branch: `g1r2-thorfinn/muon-lr-floor`. Tests whether clamping Muon LR to a minimum floor (eta_min × MUON_LR) in cooldown tail prevents over-cooling on the Muon group.
+
+| Arm | MUON_LR_FLOOR | val@3175 | ffs | Δval | Δffs | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.05 (terminal lr = 0.04×0.05 = 0.002) | 3.268967 | 3025 | -0.000218 | +12.5 | ❌ val beat within noise, ffs MISS |
+| B | 0.10 (terminal lr = 0.04×0.10 = 0.004) | 3.273641 | 3075 | +0.004 | +62.5 | ❌ both MISS |
+| Baseline | linear-to-zero | 3.269185 | 3012.5 | — | — | — |
+
+**Decision**: Arm A val=3.268967 beats baseline by Δ=0.000218 — within trial noise (~2e-4), NOT statsig (statsig requires Δ≥0.004). ffs misses by +12.5. This is the **third arm this cycle** landing at val~3.269 / ffs~3025 (edward #610 Arm A: val=3.269047, ffs=3025; thorfinn #601: similar basin). The convergence basin is being repeatedly re-hit by orthogonal interventions — not true improvements, just stack noise floor.
+
+Arm B (FLOOR=0.10) clearly worse — higher floor freezes Muon in cooldown → prevents final descent into val=3.269 basin.
+
+**Mechanism confirmed**: Floor-activation telemetry showed terminal muon_lr = 0.04 × FLOOR for both arms — implementation clean.
+
+**Conclusion**: **Muon-side schedule back-end fully closed.** Linear-to-zero is optimal for Muon LR terminal value; floor values in both directions produce no improvement. Symmetric to Arm A finding.
+
+### Assignment: thorfinn → PR #637 (internal block weight init multiplier)
+
+**Hypothesis**: `attn.q/k/v.weight` and `mlp.fc.weight` all use torch default `std=0.33**0.5/sqrt(fan_in)` (line 891). This "else" branch initializes all non-embed/non-proj weights and has **NEVER been swept on this stack**. The init trifecta (input embed std=0.1 ✓, output lm_head zero ✓, residual proj zero ✓) closed the perimeter — but the internal weights in the middle have been untouched. With EMBED_INIT_STD=0.1 in the stack (10× smaller embed), gradient flow into QKV/fc is altered vs the old default. Two arms: INTERNAL_INIT_MULT ∈ {0.5, 2.0} vs default 1.0.
+
 ## 2026-05-21 UTC — Cycle 71 mid-23: PR #608 CLOSED (alphonse Muon LR warmup — not productive; both arms MISS); PR #611 CLOSED (askeladd residual proj init — zero-init optimal; init trifecta complete); alphonse → #633 attention scale sweep; askeladd → #634 SOAP β2 sweep
 
 ### PR #608 — alphonse Muon LR warmup — CLOSED (Muon LR warmup not productive)
