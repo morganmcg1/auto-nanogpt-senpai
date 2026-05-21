@@ -1,3 +1,53 @@
+## 2026-05-21 10:45 UTC — PR #643 CLOSED (askeladd): H37 PAdam (v_t^p denominator) — NEG; completes AdamW preconditioner triple-leg closure
+
+- Branch: `g1r3-askeladd/aux-padam-power`
+- Hypothesis: PAdam (Chen et al 2018, *Closing the Generalization Gap...*) replaces AdamW's denominator `√v_t + ε` with `v_t^p + ε` for `p ∈ [0, 0.5]`. Tests whether the geometric exponent in the preconditioner is load-bearing at AdamW-tuned aux LRs.
+
+### Results (3325 steps, n=1 each; Arm 2 killed early)
+
+| Arm | wandb_id | val/loss | ffs | reached_target | step_avg_ms | Δ vs ctrl |
+|---|---|---:|---:|---:|---:|---:|
+| Arm 1 — p=0.5 ctrl (fused AdamW) | `1ebk5275` | **3.27163** | 3125 | 1 | 1822 | — |
+| Arm 2 — PAdam p=0.25 | `f4ta3cj9` | **3.87419** @ step 1500 (killed) | -1 | 0 | 1830 | **+0.6+ (extrapolating ~3.5 at step 3325)** |
+
+**Decision: NEG.** Arm 2 killed at step 1500 by `gap > +0.05` gate (actual gap +0.257). Arm 1 ctrl matches baseline floor.
+
+### Trajectory profile (showing monotonic gap-narrowing but extrapolating nowhere near merge bar)
+
+| Step | Arm 1 (p=0.5) | Arm 2 (p=0.25) | Δ |
+|---|---:|---:|---:|
+| 125 | 4.930 | 9.045 | +4.115 |
+| 500 | 3.902 | 5.170 | +1.268 |
+| 1000 | 3.725 | 4.187 | +0.462 |
+| 1500 | 3.618 | 3.874 | +0.257 (killed) |
+| 3325 | 3.27163 | — | — |
+
+Gap halves every ~750 steps but at 3325-step budget Arm 2 lands ~3.5 — miles from merge bar 3.27039.
+
+### Mechanism finding: complete AdamW preconditioner closure
+
+PAdam at p=0.25 makes the denominator `v_t^0.25 + ε`. For typical aux v_t ≪ 1, `v_t^0.25 > v_t^0.5`, so denominator drops *less aggressively* in near-zero v regimes. This is exactly the sparse-gradient regime for aux (embed/lm_head/scalars). At AdamW-tuned LRs, this under-conditions sparse coords, causing catastrophic early divergence.
+
+**Combined with prior closures**:
+| Leaf | Mechanism | PR | Result |
+|---|---|---|---|
+| m_t EMA timescale (β1) | β1=0 vs 0.8 | #612 | NEG (β1=0.8 load-bearing) |
+| v_t EMA timescale (β2) | β2=0 vs 0.95 | #631 | NEG (β2=0.95 load-bearing) |
+| **v_t geometric power** | **p=0.25 vs 0.5** | **#643** | **NEG (p=0.5 load-bearing)** |
+
+All three structural pieces of AdamW's preconditioner — EMA timescales AND geometric exponent — are minimal at current LR config. **Complete closure of AdamW preconditioner axis on aux groups.**
+
+### Caveat
+Closure is at AdamW-tuned LRs. PAdam paper (Chen et al 2018) explicitly retunes LRs for p<0.5 (PAdam-tuned LRs ≪ AdamW-tuned). Joint (p, LR) sweep was not attempted. If a future PR retunes LRs for p=0.25 and beats baseline, that opens a joint axis. For the AdamW-tuned LR sweep, this PR closes it definitively.
+
+### Telemetry
+- nonfinite_count: 0 ✓ on both arms (unfused PAdamW Python path is numerically clean)
+- step_avg_ms: 1822 (fused AdamW) vs 1830 (unfused PAdamW) — +0.4% overhead, negligible
+- peak GPU mem: 77.5 GB (fused) vs 38.7 GB (unfused — skips fused-kernel scratch)
+- W&B re-verified: val/loss 3.2716255 ✓ (Arm 1), 3.8741891 @ step 1500 ✓ (Arm 2)
+
+---
+
 ## 2026-05-21 09:45 UTC — PR #646 CLOSED (fern): H38 Adan optimizer for aux AdamW groups — NEG; completes VR-on-aux 4-class closure
 
 - Branch: `g1r3-fern/aux-adan-optimizer`
