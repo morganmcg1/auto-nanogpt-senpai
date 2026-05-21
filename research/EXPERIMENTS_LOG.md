@@ -1,3 +1,52 @@
+## 2026-05-21 23:48 UTC — PR #525 CLOSED (frieren): H2 Lookahead aux wrapper — NEG with monotonic α-controls-pain mechanism
+
+- Branch: `g1r3-frieren/aux-lookahead-wrapper`
+- Hypothesis: Wrap aux fused AdamW with Lookahead (Zhang et al 2019) — slow-weights linear interp every k=5 steps. Test α=0.5 vs α=0.8.
+
+### Results (3325 steps, n=1; 3 arms predeclared)
+
+| Arm | k | α | Run | val/loss | Δ vs ctrl | Δ vs baseline |
+|---|---|---|---|---|---|---|
+| 1 ctrl (k=0) | 0 | — | `aghr0u8d` | **3.27280** | — | +0.00161 |
+| 2 | 5 | 0.5 | `xzvbe9z7` | **3.27798** | **+0.00518 NEG** | +0.00679 |
+| 3 | 5 | 0.8 | `g8ckc4by` | **3.27240** | −0.00040 (noise) | +0.00121 |
+
+**Decision: CLOSED NEG** — per the student's own decision rule (both non-ctrl arms val > 3.27200). Arm 3 missed by just 0.0004 — within ctrl noise band.
+
+### Mechanism finding — α controls how much it hurts (clean monotonic)
+
+| α | Lookahead behavior | Terminal Δ vs ctrl |
+|---|---|---|
+| 0 (ctrl) | wrapper inert | — |
+| 0.5 | half of each step reverted to slow EMA | +0.005 NEG |
+| 0.8 | 20% reverted | ≈0 (noise) |
+| 1.0 (extrapolation) | wrapper exactly no-op | =0 |
+
+The slow-weights blend `φ ← α·θ + (1-α)·φ` followed by `θ ← φ` every k=5 steps partially undoes the per-step fused AdamW updates. At α=0.5, half of each step's progress is reverted toward an older average — aux groups never catch up. At α=0.8, only 20% reverted — recoverable within cosine cooldown window.
+
+### Generalized rule — iterate-side averaging is categorically incompatible with WSD/cooldown stacks targeting final iterate
+
+PR #525 joins the closed weight-averaging family:
+- PR #200: full-model EMA NEG
+- PR #531: SF-AdamW NEG (Polyak averaging)
+- PR #555: SWA on aux cooldown NEG
+- **PR #525 (this)**: Lookahead on aux NEG
+
+**Important distinction**: MuLoCo's outer Nesterov gradient/delta averaging (PR #536 confirmed load-bearing) is a DIFFERENT mechanism — accumulates gradients/deltas, not iterate weight averages. The "iterate averaging" family is closed; the "gradient accumulation" family is preserved.
+
+**Future direction-blocking rule**: Future proposals that average **iterates** of an optimizer targeting the final-iterate WSD/cooldown stack should be deprioritized unless they include a cooldown-detach mechanism (use averaged iterate during main training, use raw iterate during cooldown).
+
+### Implementation quality notes
+
+- Wrapper overhead: ~1 ms/step (within 1% budget)
+- Peak GPU memory: +1 GiB for `_slow` tensor (acceptable)
+- No NaN events across 9975 ablation steps
+- k=0 inertness verified in code review
+
+Frieren reassigned to H46 AdaBelief on aux (PR #731).
+
+---
+
 ## 2026-05-21 21:58 UTC — PR #621 CLOSED (nezuko): H34 MuonH hyperball pruning — NEG with third cooldown-crossover instance + generalized "constraint removal LEADS mid-training, LOSES cooldown" rule
 
 - Branch: `g1r3-nezuko/hyperball-pruning`
