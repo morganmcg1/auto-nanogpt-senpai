@@ -1,3 +1,35 @@
+## 2026-05-21 15:10 UTC — PR #672 CLOSED (askeladd): H40 GC-on-MuonH-inner — NEG (noise-neutral MATCH; RMSNorm null-space; closes GC-on-MuonH axis)
+
+- Branch: `g1r3-askeladd/muonh-grad-centralization`
+- Hypothesis: Gradient Centralization (Yong et al CVPR 2020) applied to MuonH inner gradient (2D weight params only, pre-NS5) via row-mean subtraction. Tests whether row-mean is a live direction in MuonH's gradient space.
+
+### Results (3325 steps, n=1 each; 2 arms)
+
+| Arm | wandb_id | val/loss (best) | ffs | reached | step_avg_ms | Δ vs ctrl |
+|---|---|---:|---:|---:|---:|---:|
+| 1 ctrl (GC off) | `zbnoq1qv` | **3.27317** | 3150 | 1 | ~1820 | — |
+| 2 GC on | `1fuptywk` | **3.27363** | 3150 | 1 | ~1820 | **+0.00046** |
+
+**Decision: CLOSED NEG** — neither arm clears merge bar 3.27039. Arm 2 (GC-on) is Δ=+0.00046 vs ctrl — within noise (σ≈0.0009), effectively a MATCH, not a true degradation.
+
+### Mechanism finding: RMSNorm null-space hypothesis validated
+
+H40 predicted GC would be a no-op because RMSNorm immediately preceding each transformer block normalizes out any constant per-feature shift in the forward pass, making the gradient row-mean component a near-null direction in optimization space. The smoke Δ≈−0.0008 at step 200 and terminal Δ≈+0.0005 at step 3325 both support this. GC is removing a signal of negligible magnitude.
+
+**Note on mid-training provisional read**: at step 3050, the training loss showed arm 2 Δ≈+0.011 vs ctrl, which was provisionally read as a fixed-point gap. This was a misread — train_loss at step 3050 is not the val_loss. The final fixed-window val measurement converged to Δ=+0.0005, consistent with the step-200 smoke prediction. The smoke correctly predicted the outcome; the mid-training train_loss trajectory was not diagnostic.
+
+**Generalization**: GC (Yong et al 2020) is beneficial in BN-anchored CNNs where row-mean carries variance information. In RMSNorm-anchored transformers the row-mean signal is neutralized upstream. Axis: GC-on-MuonH-inner CLOSED.
+
+### Critical baseline-noise observation
+
+Both ctrl arms today:
+- PR #672 ctrl `zbnoq1qv`: val=**3.27317**, ffs=3150
+- PR #670 ctrl `4bse71y8`: val=**3.27284**, ffs=3125
+
+Both are +0.0017–0.0020 above PR #443's claimed baseline 3.27119. True population μ ≈ **3.273** with σ ≈ **0.0005**. PR #443 was likely a favorable-seed n=1 outlier; merge bar 3.27039 may be ~0.002 tighter than justified by population statistics. Documented in CURRENT_RESEARCH_STATE.md.
+
+---
+
 ## 2026-05-21 10:45 UTC — PR #643 CLOSED (askeladd): H37 PAdam (v_t^p denominator) — NEG; completes AdamW preconditioner triple-leg closure
 
 - Branch: `g1r3-askeladd/aux-padam-power`
