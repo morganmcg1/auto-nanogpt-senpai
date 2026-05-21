@@ -1,5 +1,122 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-21 13:50 UTC — Cycle 71 mid-40: PR #655 thorfinn EMBED_LR_MULT n=2 CONFIRM CLOSED — symmetric quadratic well confirmed; PR #661 fern NORMUON_BETA2 CLOSED — default 0.95 locally optimal
+
+### PR #655 — thorfinn EMBED_LR_MULT n=2 confirm — CLEAN MISS on both axes
+
+Branch: `g1r2-thorfinn/embed-lr-sweep`. Closed 13:45 UTC after Arm A seed 1 terminal at val=3.27217/ffs=3050.
+
+| Run | Arm / seed | EMBED_LR_MULT | Effective embed LR | val_loss | ffs | Outcome | W&B |
+|-----|---|---|---|---|---|---|---|
+| seed 0 | A | 0.5 | 0.15 | 3.26866 | 3000 | n=1 hold gate PASSED | `c7bpfkqn` |
+| seed 1 | A | 0.5 | 0.15 | **3.27217** | **3050** | n=2 confirm — MISS | `o779hd5a` |
+| **n=2 mean** | **A** | **0.5** | **0.15** | **3.270415** | **3025** | **MISSES merge bar by +0.00266 / +25** | — |
+| baseline | — | 1.0 | 0.3 | 3.26776 (n=2) | 3000 (n=2) | — | PR #613 |
+| seed 0 | B | 2.0 | 0.6 | 3.27060 | 3025 | n=1 hold gate MISS | `hdkz3b4c` |
+
+**n=2 merge math:**
+- val: needed seed 1 < 2×3.26776 − 3.26866 = 3.26686 (must beat seed 0 by ≥0.00180)
+- Actual seed 1: 3.27217 (+0.00351 vs seed 0, opposite direction) — **off by 0.00531 from needed swing**
+- ffs: needed seed 1 ≤ 3000; actual 3050 — **+50 over cap**
+
+**Seed-1 vs seed-0 trajectory comparison (Arm A, EMBED_LR_MULT=0.5):**
+
+| step | seed 0 | seed 1 | Δ (s1 − s0) |
+|---|---|---|---|
+| 125 | 4.40195 | 4.41365 | +0.01170 |
+| 500 | 3.80205 | 3.80076 | −0.00129 |
+| 1000 | 3.65741 | 3.66010 | +0.00269 |
+| 1500 | 3.52901 | 3.53210 | +0.00309 |
+| 2000 | 3.42747 | 3.43020 | +0.00273 |
+| 2500 | 3.34415 | 3.34729 | +0.00314 |
+| 2750 | 3.30820 | 3.31163 | +0.00343 |
+| 3125 | 3.27488 | 3.27366 | −0.00122 |
+| 3150 | 3.27200 | 3.27261 | +0.00061 |
+| **3175 (final)** | **3.26866** | **3.27217** | **+0.00351** |
+
+Seed 1 tracked +0.0017 to +0.0053 above seed 0 throughout mid-training (steps 875-2750) with no cooldown rescue — consistent persistent offset.
+
+### Combined directional analysis
+
+| Direction | EMBED_LR_MULT | val_loss | Δval vs baseline (3.26776) |
+|---|---|---|---|
+| Down (Arm A n=2 mean) | 0.5 | 3.270415 | **+0.00266** |
+| Default | 1.0 | 3.26776 | 0 |
+| Up (Arm B n=1) | 2.0 | 3.27060 | **+0.00284** |
+
+**Both directions lose by SYMMETRIC ~0.0027** — embed LR=0.3 sits in a **quadratic well at local optimum**, not on a flat ridge. The asymmetric "Arm A wins n=1 at +0.0009" was a favorable-tail seed-noise excursion that the n=2 confirm correctly disambiguated from a real effect.
+
+### Mechanism interpretation
+
+**The "embed undertrained" hypothesis from 3-winner AdamW-output convergence is NOT supported.** The recent stack winners (EMBED_INIT_STD=0.1 #541, LOGIT_SOFTCAP=20 #613, ADAMW_LR_FLOOR=0.05 #642 closed, ADAMW_BETA1/BETA2) operate via different mechanisms:
+- #541: input magnitude (data-flow geometry)
+- #613: output logit cap (loss surface curvature)
+- #642 closed: cooldown-tail activity (schedule-level, antagonistic to c=20)
+
+None of these involve "embed group has wrong LR" — they're orthogonal interventions. Frieren #654 (lm_head LR sweep) closed similarly. **Output-side AdamW LR rebalancing is fully closed.**
+
+### Why n=2 confirm was the right call
+
+Spending one extra run to disambiguate noise from real effect on a borderline n=1 hold gate (val=3.26866 at the 3.27 cap, ffs=3000 hits cap exactly, +0.00090 vs baseline at seed-noise edge ~±0.0015-0.003) is exactly the textbook use case. The investment paid off — got a confident closure rather than a marginal merge that would have been undone on the next baseline shift.
+
+### Asymmetric mistake of note
+
+Advisor (me) included `--seed 1` in the n=2 confirm instructions, but `train_gpt_simple.py` has no `--seed` argparse arg and no `torch.manual_seed`. Student correctly flagged and dropped the flag — fresh-process non-determinism produces the seed-to-seed variation, identical to how tanjiro #613 c=20 n=2 confirm was run. No GPU time wasted; advisor acknowledged the mistake. **Lesson: verify CLI flags against the script before posting instructions to students.**
+
+### Thorfinn → #685 ADAMW_EPS sweep
+
+Default ADAMW_EPS = 1e-10 (hardcoded line 904) is **100× smaller** than PyTorch / AdamW-paper convention (1e-8). Fresh untested axis on the AdamW group — **the last untested AdamW knob**. Arms: 1e-8 (conventional) and 1e-12 (more extreme). Mechanism: eps sits in `lr × m̂ / (sqrt(v̂) + eps)`; affects rare-token channels where v̂ is small. Stack inherits LOGIT_SOFTCAP=20 + EMBED_INIT_STD=0.1 + full mandatory stack.
+
+---
+
+### PR #661 — fern NORMUON_BETA2 sweep — BOTH arms MISS, default 0.95 well-tuned
+
+Branch: `g1r2-fern/normuon-beta2-sweep`. Closed 13:40 UTC.
+
+| Arm | NORMUON_BETA2 | val_loss | ffs | Δval vs baseline | Outcome |
+|-----|---|---|---|---|---|
+| A | 0.90 (shorter EMA) | **3.27198** | **3050** | +0.00422 | MISS both legs |
+| Default | 0.95 (hardcoded) | 3.26776 | 3000 | 0 | — |
+| B | 0.99 (longer EMA) | 3.27397 | 3075 | +0.00621 | MISS both legs |
+
+**Asymmetric loss profile**: Arm A (faster EMA) misses by +0.00422; Arm B (slower EMA) misses MORE at +0.00621. **Monotone direction**: slower EMA hurts more than faster. Default 0.95 is locally optimal but Arm A is closer to the optimum than Arm B.
+
+### Mechanism interpretation — post-NS5 numerical noise
+
+NORMUON_BETA2 controls the EMA timescale for the **per-row second moment** of the Muon update (lines 507, 523-524 in `contra_normuon_update`):
+
+```python
+update = update * second_moment.clamp_min(1e-10).rsqrt().to(update.dtype)
+```
+
+The update has already been **NS5-orthogonalized** before this step — meaning row-magnitudes are largely homogenized to ~1.0 by the orthogonalization. The per-row variance EMA primarily captures:
+1. **Real signal**: residual row-magnitude differences after NS5 boundary effects
+2. **Numerical noise**: NS5 polynomial coefficient interactions with fp32/bf16 mixed precision
+
+Longer memory (β2=0.99): integrates 1/(1−β2) ≈ 100 steps of post-NS5 noise. Adds latency without filtering signal — slow EMA tracks already-noisy estimates more conservatively. Result: **+0.00621 worse**.
+
+Shorter memory (β2=0.90): integrates ~10 steps. Captures local noise spikes that haven't been smoothed yet. Result: **+0.00422 worse** but less bad than longer memory.
+
+Default 0.95: ~20 steps integration — balances signal extraction vs noise filtering.
+
+### Cross-cluster comparison — EMA-timescale axes
+
+| PR | EMA | Default | Geometry | Verdict |
+|---|---|---|---|---|
+| #625 fern | ADAMW_BETA2 | 0.95 | Per-coordinate | CLOSED — c=20 antagonistic |
+| #634 askeladd | ATTN_SOAP_BETA2 | 0.90 | Kronecker factor | CLOSED — flat |
+| **#661 fern** | **NORMUON_BETA2** | **0.95** | **Per-row (post-NS5)** | **CLOSED — monotone asymmetric** |
+
+Three orthogonal EMA-timescale axes now closed across all preconditioner classes. The conclusion: **EMA timescales are well-tuned at their hardcoded defaults across all variance-tracking mechanisms** — the post-NS5 / per-row case (#661) mirrors the per-coordinate (#625, #634) finding.
+
+### Fern → #683 ATTN_SOAP_TRUST_THRESHOLD sweep
+
+Fresh SOAP preconditioner axis (line 466, default 0.85, used at lines 557, 720). Trust-gate controls cosine-similarity threshold for applying SOAP preconditioning vs falling back to raw gradient. Arms: 0.75 (permissive, more SOAP usage) and 0.95 (stricter, more fallback). Mechanism class: per-step preconditioner selection at attention Q/K/V/proj.
+
+Also acknowledged fern's recurring 6× disabled-check loop pattern in close comment — same pattern as edward #642, tanjiro #650/675. Documented in feedback memory for future assignments.
+
+---
+
 ## 2026-05-21 13:35 UTC — Cycle 71 mid-39: PR #676 edward WD_AUX axis FULLY CLOSED via symmetric early-warmup gradient explosion — first closure of this type
 
 ### PR #676 — edward WD_AUX sweep — BOTH directions diverge with identical failure mode
