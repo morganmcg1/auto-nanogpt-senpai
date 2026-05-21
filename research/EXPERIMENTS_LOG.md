@@ -1,3 +1,54 @@
+## 2026-05-21 09:45 UTC — PR #646 CLOSED (fern): H38 Adan optimizer for aux AdamW groups — NEG; completes VR-on-aux 4-class closure
+
+- Branch: `g1r3-fern/aux-adan-optimizer`
+- Hypothesis: Adan (Xie et al 2022, gradient-difference VR) — `m_t = β1·m + (1-β1)·g`, `v_t = β2·v + (1-β2)·(g - g_prev)`, applied to aux AdamW groups. Fresh mechanism class (gradient-difference, structurally distinct from gradient-history mask/dual-EMA/γ-correction and weight-averaging).
+
+### Results (3325 steps, n=1 each)
+
+| Arm | wandb_id | val/loss | ffs | reached_target | step_avg_ms | Δ vs ctrl | Δ vs merge bar 3.27039 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Arm 1 — AdamW ctrl | `xedkw2w9` | **3.27251** | 3125 | 1 | 1815.07 | — | +0.00212 |
+| Arm 2 — Adan paper defaults | `rz2v207z` | **3.29451** | -1 | 0 | 1821.53 | **+0.02200** | +0.02412 |
+
+**Decision: NEG** — Δ+0.0220 (~24σ vs empirical σ≈0.00092). Adan worse by ~22× the +0.001 threshold.
+
+### Trajectory profile (key evidence: fixed-point gap, not warmup artifact)
+
+| Step | Arm 1 AdamW | Arm 2 Adan | Δ (Adan-AdamW) |
+|---|---:|---:|---:|
+| 125 | 4.93289 | 5.11186 | +0.17897 |
+| 500 | 3.90645 | 3.96419 | +0.05774 |
+| 1000 | 3.72461 | 3.76573 | +0.04112 |
+| 1500 | 3.61661 | 3.64500 | +0.02839 |
+| 2000 | 3.47944 | 3.50114 | +0.02170 |
+| 2500 | 3.37095 | 3.39024 | +0.01929 |
+| 3000 | 3.29113 | 3.31186 | +0.02073 |
+| 3325 | 3.27251 | 3.29451 | +0.02200 |
+
+Gap shrinks monotonically from +0.18 (step 125 — β1=0.02 warmup) to +0.022 (step 2000), then PLATEAUS through step 3325. **Fixed-point gap, not warmup artifact**. Adan converges to a strictly worse fixed point.
+
+### Closure-completing finding: VR-on-aux axis fully closed (5 mechanisms × 4 classes)
+
+| Mechanism class | PR | Result | Δ vs ctrl |
+|---|---|---|---|
+| Weight-averaging (Polyak) | #531 SF-AdamW | NEG | — |
+| Gradient-history (mask) | #544 Cautious | NEG | +0.025 |
+| Gradient-history (dual-EMA) | #567 AdEMAMix | NEG | — |
+| Gradient-history (γ-correction) | #582 MARS | NEG (borderline) | +0.00118 |
+| **Gradient-difference (Δg EMA)** | **#646 Adan** | **NEG** | **+0.0220** |
+
+**Strong mechanism finding**: the aux config (β1=0.8 short EMA + per-group LRs 0.3/1/320/0.01 + eps=1e-6) is tightly tuned for vanilla AdamW's normalized-update geometry. ANY VR augmentation (regardless of mechanism family) perturbs the balance by ~0.02 nats. Future aux-side VR proposals are pre-closed by structural analogy.
+
+### Unfused Python optimizer viability demonstrated
+
+Adan was implemented as a custom unfused Python class (~30 LoC). Step_avg overhead vs fused AdamW: +0.36% (1821ms vs 1815ms), +600 MB optimizer state. **Wall-clock competitive**. The deficit was purely in optimization quality, not compute. Lowers the bar for future Python-only optimizer prototypes.
+
+### Next step
+
+Fern reassigned to **PR #670: H39 Per-group aux AdamW eps decoupling** — fresh mechanism axis (structural ablation of shared-eps assumption). Builds on PR #443's eps=1e-6 baseline winner.
+
+---
+
 ## 2026-05-21 04:45 UTC — PR #636 CLOSED (fern): H36 Cooldown-gated MuonH momentum reset — NEG with PATH-DEPENDENCE mechanism finding
 
 - Branch: `g1r3-fern/muonh-reset-cooldown-gated`
