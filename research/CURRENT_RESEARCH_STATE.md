@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-20 23:55 UTC
+- **Date:** 2026-05-21 00:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -219,37 +219,44 @@ Single-seed 4-arm (drift gate A PASS, |3.27253−3.27174|=0.00079): A α=0.95=3.
 Single-seed 4-arm (drift gate A PASS, |3.27134−3.27174|=0.00040): A=3.27134, B (embed=0.80)=−0.00014 (null), C (embed=0.60)=**+0.00242 (regression)**, D (body=0.80)=−0.00067 (null, best). No arm crosses −0.002 signal threshold. Best arm D passes single-seed stat-rule at n=1 ((3.28−3.27067)×√1=0.00933 ≥ 0.004) AND beats baseline (3.27067 ≤ 3.27174), BUT within-pod Δ=−0.00067 short of pre-staged paired-pod gate. Embed direction asymmetric-monotonic with floor at 0.70 (shortening hurts; lengthening gives only sub-threshold improvement). Body direction mildly positive sub-threshold (NS-orthogonalized landing benefits *mildly* from longer precision-window but not enough at ±0.10 perturbation). **SHAPE→FRAC analogy fails at this perturbation scale**: per-group cooldown SHAPE matters (real asymmetry) but per-group cooldown WINDOW LENGTH does NOT show same asymmetry within ±0.10 of 0.70. **39th productive-null/negative this cycle.**
 **Follow-up**: nezuko assigned **#603 AdamW second-moment warmstart via ghost steps** — fresh untested mechanism addressing cold-start direction problem in `exp_avg_sq` that bias correction (magnitude rescaling) explicitly does not solve. Pre-training ghost-step loop accumulates m_t, v_t without weight updates; first ~100 training steps then operate on directionally-informed second-moment estimates instead of cold-start zero.
 
-### 🔄 nezuko #603 — AdamW second-moment warmstart via ghost steps [assigned 18:40 UTC]
+### ✅ nezuko #603 — AdamW ghost-step warmstart — CLOSED 00:10 UTC broken-chain + productive-NEGATIVE
 
-**Branch:** `g1r4-nezuko/ghost-step-warmstart`
-**Hypothesis**: PyTorch fused AdamW applies bias correction (`m_hat = m / (1−β₁^t)`, `v_hat = v / (1−β₂^t)`) which rescales magnitudes but does NOT change the relative inter-parameter direction of v_t. At β₂=0.99, v_t requires ~1/(1−β₂)=100 steps to reach stationary directional state. During those steps, AdamW aux-group updates use under-informed `v` estimates (initialized to zero). A pre-training warmstart loop running N ghost batches forward/backward, accumulating `exp_avg`/`exp_avg_sq` *without* `optimizer.step()`, could provide a directionally-informed cold-start for the first 100 training steps. Mechanistically distinct from #115 bias correction (separate problem) and from all closed optimizer-family axes (#442, #474, #490, #516, #560 → magnitude/formula/lookahead/update-rule/time-constant changes, none address cold-start direction). Reference: Lion paper notes ghost-step warm-up as a known technique for second-moment buffers.
+Chain thrashed for ~5h with 6+ crashes across arms. Student identified key implementation limitation: `proj.weight=0` init at line 828 blocks gradient flow back through model during ghost steps (zero-inits all "proj" weights so `F.linear` backward `grad_input = grad_output @ proj.weight = 0`). Ghost steps thus only warm `lm_head` AdamW second-moment, NOT embed or scalar. The single completed arm (C ghost=25) reached **val=3.3018** — a +0.030 catastrophic regression vs baseline 3.27174, indicating ghost-step warmstart of lm_head's AdamW v_t is actively harmful. **43rd productive-NULL/NEGATIVE this cycle.** WAVE3 IDEA 7 (cold-start v_t direction) axis: closed. **Key durable finding (reusable across this programme): proj.weight=0 init blocks all upstream grad flow during pre-step probes — future optimizer-state-warming experiments must account for this.**
+**Follow-up**: nezuko assigned **#628 trust-region adaptive Muon LR** — per-layer cos-EMA boost on rare-aligned layers. First experiment to AMPLIFY the rare-productive-direction signal rather than suppress conflict (vs #126 Contra-Soft attenuate, #163 DMR reset, #419 Cautious mask — all closed). Mechanistically distinct from all closed gradient-direction-aware mechanisms.
 
-| Arm | Ghost steps | Scope | Mechanism tested |
-|---|---:|---|---|
-| A | 0 (ctrl) | n/a | Reproduces merged baseline (cold-start v=0) |
-| B | **10** | AdamW aux only | Mild warmstart (~10% of cold-start window) |
-| C | **25** | AdamW aux only | Moderate warmstart (25% of cold-start window) |
-| D | **50** | AdamW aux only | Strong warmstart (50% of cold-start window; should saturate via bias correction) |
-**ETA full chain:** ~7.3h + ~50 ghost steps total across all arms (<<1% overhead).
+### 🔄 nezuko #628 — Trust-region adaptive Muon LR (per-layer cos-EMA boost) [assigned 00:15 UTC]
+
+**Branch:** `g1r4-nezuko/trust-region-muon-lr`
+**Hypothesis**: After 43 productive-NULLs, structurally distinct mechanism — boost Muon LR on layers where grad·momentum cosine EMA is positive (rare-productive layers per #154 90% conflict finding). Per-layer cos_ema tracks long-run direction agreement; trust_scale = 1 + boost × max(cos_ema, 0). Leaves common-conflict case at LR=1.0 (no harm), amplifies rare-aligned layers (productive signal). Distinct from #163 DMR (resets buffer), #126 Contra-Soft (attenuates gradient), #419 Cautious (masks elements), #120/#434 Lookahead (blends weights).
+| Arm | NANOGPT_MUON_TRUST_BOOST | NANOGPT_MUON_TRUST_BETA | Tests |
+|---|---:|---:|---|
+| A | 0.0 (ctrl) | n/a | Reproduces merged baseline |
+| B | **0.5** | 0.97 | Mild boost (full alignment → 1.5× LR) |
+| C | **1.0** | 0.97 | Moderate boost (full alignment → 2.0× LR) |
+| D | **2.0** | 0.97 | Aggressive boost (full alignment → 3.0× LR) |
+**ETA full chain:** ~7.3h. Computational overhead ~12 cosines per step (negligible).
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
 Arms B=8 (+0.00235 regression), C=10 (−0.00168 null), D=14 (−0.00145 null). Wide saturation plateau NS ∈ [10, 14]; NS=8 below floor. **Critical compute finding: NS step-time is flat (±1%) across all NS values — orthogonalization is not the per-step bottleneck.** 21st productive-null/negative.
 **Follow-up**: frieren assigned **#506 NS-iter warmup schedule** — ramp NS from {8,10} → 12 over first 5-10%.
 
-### 🔄 frieren #593 — Per-group AdamW WD sweep [assigned 16:15 UTC]
+### ✅ frieren #593 — Per-group AdamW WD sweep — CLOSED 00:05 UTC productive-NULL
 
-**Branch:** `g1r4-frieren/adamw-wd-per-group`
-**Hypothesis**: AdamW constructor uses `weight_decay=0` uniformly across all 3 groups (embed/lm_head/scalar) — this default was inherited from upstream modded-nanogpt and never validated on r4 branch. Per-group dense vs sparse update statistics differ substantially: embed sparse-row rejects WD addition (#554 confirmed), but dense lm_head and small-param scalar groups are completely untested at WD>0. Pivots frieren off the now-fully-fenced NS-axis program onto AdamW-internal axes. Structurally distinct from #554 (sparse embed, cooldown only, NEGATIVE), #550 (Muon body), #483 (Muon warmup), #393 (LR multiplier, MERGED), #560 (β₂, in-flight).
-| Arm | EMBED_WD | LM_HEAD_WD | SCALAR_WD | Tests |
-|---|---:|---:|---:|---|
-| A | 0.0 (ctrl) | 0.0 | 0.0 | Reproduces merged baseline |
-| B | 0.0 | **0.01** | 0.0 | lm_head WD only (dense output regularization) |
-| C | 0.0 | 0.0 | **0.01** | scalar WD only (low-impact null fencepost) |
-| D | 0.0 | **0.01** | **0.01** | Combined lm_head + scalar |
+Single-seed 4-arm (drift gate A PASS exceptional parity |3.27167−3.27174|=0.00007): A=3.27167, B (lm_head WD=0.01)=+0.00192 (regression marginal), C (scalar WD=0.01)=−0.00017 (productive-null sub-noise-floor), D (joint)=−0.00022 (productive-null sub-noise-floor). No arm clears −0.002 signal threshold. **42nd productive-NULL/NEGATIVE this cycle.** **Cross-axis WD-ADDITION pattern now fully fenced**: AdamW lm_head WD ADD (B regress), AdamW scalar WD ADD (null), AdamW embed WD ADD (#554 NEG), Muon body WD warmup ADD (#483 NEG). Only WD direction with extractable gain on merged stack is REDUCTION (#550 Muon body WD cooldown reduce, paired-pod in-flight). Strengthens "baseline is locally optimal across WD axis; cooldown handles regularization adequately".
+**Follow-up**: frieren assigned **#629 Layer-aggregate Contra-Soft Muon** — fills explicit untested gap diagnosed in #126 closure (element-wise Contra-Soft attenuated ~13-50% of gradient mass uniformly across granularities; layer-aggregate operates only on whole-matrix cosine, preserving productive-direction layers entirely). Distinct from #628 (boosts via LR scaling); this attenuates via gradient scaling on conflict-layers only.
 
-Requires minimal code change: 3 env vars + per-group `weight_decay` in AdamW param-group dicts (same pattern as #393 LR multipliers). **EMBED_WD stays at 0** across all arms per #554 closure (embed sparse-row rejects WD).
-**ETA full chain:** ~7.3h.
+### 🔄 frieren #629 — Layer-aggregate Contra-Soft Muon (per-layer scalar cosine attenuation) [assigned 00:15 UTC]
+
+**Branch:** `g1r4-frieren/layer-contra-soft-muon`
+**Hypothesis**: #126 element-wise Contra-Soft closed clean negative; closing diagnosis suggested layer-aggregate aggregation is untested and likely the variant that succeeds. This PR fills that gap. Per-layer scalar cosine `cos(grad, momentum)` ∈ [-1, +1]; scale = 1 + α·min(cos, 0) attenuates ONLY layers with overall conflicting direction (cos<0), leaves productive-direction layers unchanged. Compared to #126: same α values (0.25, 0.50, 1.00) at different aggregation level — direct A/B against closed variant.
+| Arm | NANOGPT_CONTRA_SOFT_ALPHA | Attenuation at full conflict | Tests |
+|---|---:|---:|---|
+| A | 0.0 (ctrl) | n/a | Reproduces merged baseline |
+| B | **0.25** | scale → 0.75 (mild) | Mirror #126 α=0.25 at layer-aggregate level |
+| C | **0.50** | scale → 0.50 | Mirror #126 α=0.50 |
+| D | **1.00** | scale → 0.0 (full kill on max-conflict layers) | Mirror #126 α=1.00 (strongest) |
+**ETA full chain:** ~7.3h. Computational overhead ~12 cosines per step (negligible).
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 

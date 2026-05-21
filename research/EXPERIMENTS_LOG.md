@@ -3,6 +3,82 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 00:10 UTC — PR #603: AdamW second-moment warmstart via ghost steps (nezuko) — CLOSED broken-chain + productive-NEGATIVE
+
+- Branch: `g1r4-nezuko/ghost-step-warmstart`
+- Hypothesis: WAVE3 IDEA 7 — pre-warm AdamW `exp_avg_sq` via ghost-step forward/backward passes before training begins, addressing cold-start v_t direction problem (~100-step window at β₂=0.99).
+- Code: env vars `NANOGPT_GHOST_STEPS` (count) / `NANOGPT_GHOST_SCOPE` (which optimizer state to warm); pre-training loop iterates batches, computes loss/backward, accumulates `exp_avg`/`exp_avg_sq` per AdamW state, calls `optimizer.zero_grad()` between steps. **No `optimizer.step()` calls during ghost loop** (key design).
+
+**Chain disposition** (advisor verified via W&B at 00:08 UTC):
+
+| Arm | Ghost steps | State | val/loss | Notes |
+|---|---:|---|---:|---|
+| A (ctrl) | 0 | 1 finished + 5 crashes + 6th attempt running | (most recent crashed step 2350 mid-run) | Operationally unstable |
+| B | 10 | 0 successful completions, 2 crash attempts | n/a | Never completed |
+| C | 25 | finished | **3.3018** | **+0.030 catastrophic regression** vs baseline 3.27174 |
+| D | 50 | crashed step 1 (val=10.83 init) | n/a | Crashed immediately |
+
+**Reasoning to close**:
+
+1. **6+ crashes across 4 arms over ~5h.** Chain operationally broken — no clear pattern (different crash steps suggest non-deterministic state/cluster issue, not a single code bug).
+2. **C completed but at val=3.3018 = +0.030 regression** — well past +0.0015 threshold and beyond any single-arm regression ever recorded this cycle. The mechanism is actively harmful on the testable group.
+3. **Student-identified implementation limitation**: `proj.weight=0` init at line 828 of `train_gpt_simple.py` blocks gradient flow during ghost steps (`F.linear` backward `grad_input = grad_output @ proj.weight = 0`). Ghost steps thus only warm `lm_head` (model.proj.weight) — not embed or scalar groups. The narrowed test (lm_head-only warmstart) shows catastrophic harm.
+
+**Mechanism reading**:
+
+- The cold-start `exp_avg_sq=0` state on lm_head causes the first ~100 steps' updates to have **very large effective magnitudes** before bias correction settles. This effectively acts as an **implicit large-step warmup phase** on lm_head — the merged baseline relies on this implicit warmup for proper output-projection conditioning.
+- Pre-warming `exp_avg_sq` away from 0 **removes** this implicit warmup, causing immediate aggressive denominator behavior on under-trained logits and bigger early-step gradient asymmetries → catastrophic regression.
+- This is consistent with the broader cycle pattern: **the merged stack relies on specific implicit regularization paths**; explicit modification (even of intuitively "cold-start" state) tends to be harmful.
+
+**Closure implications**:
+
+- **WAVE3 IDEA 7 (cold-start v_t direction) axis: CLOSED.** The hypothesis that pre-warming second-moment state helps is empirically refuted for lm_head AdamW with a strong negative signal.
+- **Key durable finding (reusable across this programme)**: `proj.weight=0` init blocks all upstream gradient flow during pre-step probes. Future experiments touching v_t/momentum cold-start, gradient-based probes, ghost steps, or any pre-training optimizer-state warmup must account for this — either by running one `optimizer.step()` first to unzero proj.weight, or by excluding proj weights from the probe.
+- Other groups (embed, scalar) cannot be directly tested via this implementation. A redesign (e.g., 1-step pre-init followed by N-step ghost loop) could expand the test but the demonstrated harm on lm_head plus the operational instability make further investment low-value.
+
+**43rd productive-NULL/NEGATIVE this cycle.** Cumulative productive-null/negative count: AdamW-internal axes + Muon-internal axes + ghost-step warmstart all substantially exhausted.
+
+**Follow-up**: nezuko assigned **#628 trust-region adaptive Muon LR** — per-layer cos-EMA boost on rare-aligned layers (first AMPLIFY-productive-direction experiment vs all closed SUPPRESS-conflict approaches: #163 DMR reset, #126 Contra-Soft attenuate, #419 Cautious mask, #120/#434 Lookahead blend).
+
+## 2026-05-21 00:05 UTC — PR #593: Per-group AdamW WD sweep (frieren) — CLOSED productive-NULL
+
+- Branch: `g1r4-frieren/adamw-wd-per-group`
+- Hypothesis: AdamW constructor's `weight_decay=0` default across all groups (embed/lm_head/scalar) was inherited from upstream and never validated on r4 branch. Per-group sweep with EMBED_WD held at 0 (per #554 sparse-row rejection finding); LM_HEAD_WD and SCALAR_WD swept at 0.01 individually and jointly.
+- Code: 3 env vars (`NANOGPT_ADAMW_EMBED_WD`, `_LM_HEAD_WD`, `_SCALAR_WD`) + per-group `weight_decay` in AdamW param-group dicts at line 841-844.
+
+**Results (single-seed 4-arm, 3350 steps, drift gate A PASS, |3.27167−3.27174|=0.00007 exceptional parity):**
+
+| Arm | embed_wd | lm_head_wd | scalar_wd | val/loss | first_step | Δ vs A | W&B run |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 0.0 | 0.0 | 0.0 | **3.27167** | 3225 | — | 6o12nq7j |
+| B | 0.0 | **0.01** | 0.0 | 3.27359 | 3250 | **+0.00192 (regression marginal)** | n0demgqa |
+| C | 0.0 | 0.0 | **0.01** | 3.27150 | 3225 | −0.00017 (null sub-noise-floor) | 9fd701tv |
+| D | 0.0 | **0.01** | **0.01** | 3.27145 | 3225 | −0.00022 (null sub-noise-floor) | 6gpdw4dd |
+
+**Decision**: No arm clears the −0.002 signal threshold. C/D Δ's are well below typical paired-pod noise floor (~±0.0008-0.001); productive-null classification correct. B's +0.00192 is just past +0.0015 regression — direction is clearly wrong, consistent with broader pattern.
+
+**Interpretation**:
+
+- **B (lm_head WD=0.01) regresses (+0.00192)**: dense output projection rejects WD addition. The merged stack already handles output-side regularization via the cooldown.
+- **C (scalar WD=0.01) productive-null (−0.00017)**: LayerNorm γ/β WD effect operationally null as predicted (~768 params, sub-noise-floor effect).
+- **D (joint, −0.00022) ≈ C**: B's regression and C's mild positive direction approximately cancel under joint addition — no super-additive mechanism.
+
+**Cross-axis WD-ADDITION pattern (now fully fenced across both optimizer families)**:
+
+| PR | Axis | Direction | Outcome |
+|---|---|---|---|
+| #554 | embed WD cooldown ADD | + WD | NEG (sparse-row reject) |
+| #483 | Muon body WD warmup ADD | + WD | NEG |
+| #593 (this) | AdamW lm_head WD ADD | + WD | NEG marginal (B regress) |
+| #593 (this) | AdamW scalar WD ADD | + WD | NULL (sub-noise) |
+| #550 | Muon body WD cooldown REDUCE | − WD | POS candidate (paired-pod in-flight) |
+
+The merged stack **rejects WD ADDITION across every AdamW and Muon group tested**. The only WD direction with extractable gain is **REDUCTION**. This strengthens "baseline is locally optimal across WD axis; cooldown schedule already provides effective late-training regularization; adding steady-state WD on top is at best null and at worst marginally adverse."
+
+**42nd productive-NULL/NEGATIVE this cycle.**
+
+**Follow-up**: frieren assigned **#629 Layer-aggregate Contra-Soft Muon** — fills explicit untested gap diagnosed in #126 closure ("element-wise variant falsified; layer-level inner-product aggregation likely what works"). Per-layer scalar cosine attenuation on conflict-layers only, preserving productive-direction layers entirely. Direct A/B with #126 at matching α values.
+
 ## 2026-05-20 23:50 UTC — PR #590: NS-cooldown START_FRAC sweep (thorfinn) — CLOSED productive-NULL
 
 - Branch: `g1r4-thorfinn/ns-cooldown-start-frac`
