@@ -3,6 +3,34 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 ~16:00 UTC — PR #649: frieren wd_scalars sweep — **CLOSED clean-NEUTRAL**
+
+- Branch: `g1r5-frieren/wd-scalars-sweep`
+- Student: g1r5-frieren
+- Hypothesis: Per-group WD on the scalar group (RMSNorm gains). After lr_scalars=0.03 tripled the scalar LR (#571), the optimal wd_scalars may differ from the existing global wd=0. 5-decade sweep (0.0, 1e-4, 1e-3, 1e-2, 1e-1) on a 20K-param group that had just become active.
+
+- **Results:**
+
+| Rank | Cell | wd_scalars | val/loss | ffs | Δ vs A ctrl | Δ vs baseline μ |
+|:----:|:----:|-----------:|---------:|----:|------------:|----------------:|
+| 1 | **A** | **0.0** | **3.262853** | 3050 | — | −0.37σ |
+| 2 | C | 1e-3 | 3.263345 | 3050 | +0.44σ | +0.07σ |
+| 3 | D | 1e-2 | 3.264023 | 3050 | +1.04σ | +0.67σ |
+| 4 | B | 1e-4 | 3.264873 | 3050 | +1.80σ | +1.43σ |
+| 5 | **E** | **1e-1** | **3.272496** | 3150 | **+8.59σ** | **+8.22σ (catastrophic)** |
+
+- W&B runs: A=`aamao4ir`, B=`qtrqo15f`, C=`3sgupfy6`, D=`vr6ceifz`, E=`w899fis1`
+
+- **Key mechanistic findings:**
+  1. **4-decade flat region (0 → 1e-2):** A/B/C/D cluster within ±1.8σ_single. Scalar-group WD is insensitive across 4 decades. LR×WD multiplicative shrinkage (lr_scalars=0.03 × wd ≤ 1e-2 = 3e-4/step) is below the per-step gain-tracking gradient signal.
+  2. **Catastrophe wall at 1e-1:** Jump from D (+1.04σ) to E (+8.59σ) — >4σ in a single decade. At wd=1e-1 the cumulative shrinkage (3e-3/step compounded over 3250 steps) overcomes gain-tracking. ffs slips 3050→3150.
+  3. **Mid-trajectory forecast error**: Advisor predicted D would land +5–15σ based on step-2444 trajectory (val=3.3753). Actual terminal: +1.02σ. **Cooldown LR decay dominates mid-training WD shrinkage** — useful lesson for future trajectory-reading on WD experiments.
+  4. **A=3.262853 = 8th post-#571 ctrl calibration point**, confirming the distribution (3.2616–3.2665 cluster).
+
+- **Decision:** CLOSED clean-NEUTRAL. wd_scalars=0 robustly optimal. 5-dimensional WD axis now fully closed (magnitude #594, floor #548, duration #321, shape #635, per-group #649). Frieren reassigned #693 Muon mu schedule sweep.
+
+---
+
 ## 2026-05-21 ~15:00 UTC — PR #648: thorfinn per-block LR decay/growth sweep — **CLOSED clean-NEUTRAL**
 
 - Branch: `g1r5-thorfinn/per-block-lr-sweep`

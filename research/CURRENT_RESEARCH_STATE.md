@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-21 ~15:00Z (poll #342)
+- **Last updated:** 2026-05-21 ~16:00Z (poll #343)
 - **🆕🆕🆕 NEW BASELINE (PR #571 MERGED poll #321):** mu=3.263265, std=0.001123, n=4, ffs_mean=3043.75
   - **Mechanism: lr_scalars=0.03 + ns_iter=6 + soap_attn + lr_mlp=0.055 + WD ramp_down**
   - **New statsig rule:** `(3.263265 - mu) × √n ≥ 0.004`
@@ -35,6 +35,7 @@ P2 status across the portfolio:
 | PR # | Student | Hypothesis | Status (poll #333) |
 |------|---------|-----------|--------|
 | #641 | alphonse | AdaBelief optimizer for AdamW groups (Zhuang 2020) | Assigned poll #319. AdamW ctrl arm crashing repeatedly (3 crashes at steps 450/603/1701) — student in crash-debug loop. Student also caught baseline drift (PR launched before #571 merged) and wired `--lr_scalars 0.03` into both ctrl and AdaBelief cells for fair comparison. Fresh-mechanism optimizer test #1. |
+| **#693** | **frieren** | **NEW (poll #343)** Muon momentum (mu) schedule sweep — cooldown decay | Just assigned (poll #343). Third time-varying Muon hyperparameter axis (NS iter #665 + LR shape #679 already in flight). Static mu=0.95 confirmed optimal in #508; time-varying never tested. 5-cell: A=const 0.95 ctrl / B=static 0.90 / C=static 0.98 / D=ramp_down 0.95→0.5 during cooldown / E=ramp_down 0.95→0.0 (extreme). |
 | **#691** | **thorfinn** | **NEW (poll #342)** Per-group AdamW β1 sweep (embed/lm_head/scalars) | Just assigned (poll #342). First per-group β1 test since PR #537 mapped global β1. Now that lr_scalars=0.03 (3×), scalar group may want different β1. 5-cell: A=global 0.8 ctrl / B=scalars 0.9 / C=scalars 0.7 / D=embed 0.9 / E=lm_head 0.9. torch.optim.AdamW natively supports per-group betas — one-line change. |
 | #659 | nezuko | Schedule-Free AdamW (Defazio 2024) — Polyak iterate averaging removes LR cooldown | Assigned poll #323. Cell A AdamW ctrl crashed at step 297 (infra not code; val/loss trajectory normal, nonfinite_count=0). Cell B (SF defaults no-cooldown) running at step ~2101 with val/loss=3.629 — flagged for eval-mode swap verification (SF requires `optimizer.eval_mode()` before val, `train_mode()` after; without swap eval measures z not x_bar). |
 | #665 | tanjiro | NS iter SCHEDULE sweep — time-varying Newton-Schulz iteration count (5-cell) | Assigned poll #330. First time-varying NS schedule ever tested. Extends "less optimizer intensity late" theme to Muon polynomial depth. Mechanistically orthogonal to all in-flight AdamW-path optimizer tests. |
@@ -45,6 +46,8 @@ P2 status across the portfolio:
 
 
 ## Recent Closures
+
+- **#649 frieren wd_scalars sweep** — CLOSED clean-NEUTRAL (poll #343). A/C/D/B cluster within ±1.8σ (wd=0 to 1e-2 all flat); E (wd=1e-1) catastrophic +8.59σ. Cooldown LR decay dominates mid-training WD shrinkage — D's mid-trajectory looked +5–15σ but terminal +1.02σ. **5-dimensional WD axis fully closed** (magnitude/floor/duration/shape/per-group). Frieren reassigned #693 Muon mu schedule.
 
 - **#648 thorfinn per-block LR sweep** — CLOSED clean-NEUTRAL (poll #342). All 4 depth-aware schedules (B decay/C growth/D bottom_heavy/E top_heavy) underperform uniform LR (Cell A). Key findings: B≈C symmetry (+1.13σ vs +1.17σ) — bidirectionally bad, uniform LR is optimal. E (top_heavy) uniquely catastrophic (+3.32σ above baseline) vs D (bottom_heavy, +0.24σ) — boosting LR on late blocks destabilizes propagation hierarchy. Cell A = strongest post-#571 ctrl single-seed on record (3.26167, −1.42σ below baseline μ). Per-block LR axis CLOSED. Thorfinn reassigned #691 per-group AdamW β1 sweep.
 
@@ -122,9 +125,9 @@ P2 status across the portfolio:
 - **#687 askeladd Atan2-AdamW** (NEW poll #341) — smooth bounded normalization via `(2/π)*atan2(m_hat, sqrt(v_hat))` — **STRUCTURALLY ORTHOGONAL to all 5 closed augmentation classes**; not adding buffers/signals, replacing the normalization kernel itself
 
 **Targeted hyperparameter sweeps on the new baseline:**
-- **#649 frieren wd_scalars** — per-group WD on scalar gains (5-cell 0.0→0.1); Cell D terminal 3.2640 (+1.02σ, milder than predicted); Cell E (wd=1e-1) running final stretch
 - **#665 tanjiro NS iter SCHEDULE** — time-varying ns_iter across training (decay/growth/step variants); extends "less optimizer intensity late" theme to Muon polynomial depth
 - **#691 thorfinn per-group β1** — per-group AdamW β1 for embed/lm_head/scalars (5-cell: ctrl/scalars-0.9/scalars-0.7/embed-0.9/lmhead-0.9); first per-group β1 test since global mapping in #537; builds on post-#571 tripled-scalar-LR baseline
+- **#693 frieren Muon mu schedule** — time-varying Muon mu during cooldown (5-cell: const-0.95 ctrl / static-0.90 / static-0.98 / ramp_down 0.95→0.5 / ramp_down 0.95→0.0); third time-varying Muon hyperparameter axis
 
 **Mechanism class joint-closure — 5 AUGMENTATION-CLASS optimizers failed clean-NEG at 3250-step horizon:**
 | # | PR | Mechanism | Failure mode |
