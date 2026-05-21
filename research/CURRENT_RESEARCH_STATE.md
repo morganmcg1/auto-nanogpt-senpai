@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 10:55 UTC
+- **Date:** 2026-05-21 11:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -352,18 +352,23 @@ Arms B (embed: +0.04081), C (lm_head: +0.00188), D (all-aux: +0.03479). D ≈ B 
 Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=3.27419, B embed=+0.00386 (regression), C lm_head=+0.00038 (null), D all-aux=+0.00447 (regression). D ≈ B + 0.00061 — embed regression dominates; lm_head and scalars contribute marginally. Mechanism reading: Yogi's faster-additive v_t reaction destabilizes sparse-row embed at β₂=0.99 (regression grows monotonically through cooldown); dense lm_head indistinguishable from AdamW. Independent of AdaBelief mechanism (#474): Yogi accumulates g² same as AdamW. **Closes second-moment-update-rule axis** — joined with #474 AdaBelief, #442 Adam-atan2, #490 NAdam-aux. **29th productive-null/negative this cycle.**
 **Follow-up**: edward assigned **#550 Muon WD cooldown reduction** — first late-phase WD axis (structurally distinct from #483 WD warmup which tested early reduction).
 
-### 🔄 edward #639 — Embed-stack joint redundancy ablation: linear_floor × LR_MULT=1.5 [assigned 02:55 UTC]
+### ✅ edward #639 — Embed-stack joint redundancy ablation: linear_floor × LR_MULT=1.5 — CLOSED 11:10 UTC productive-NULL
 
-**Branch:** `g1r4-edward/embed-stack-redundancy`
-**Hypothesis**: After 45 productive-NULL/NEGATIVE closures (per-group AdamW family fully exhausted; β₁/β₂/WD all closed-NEG), pivots from within-axis perturbation to **stack-component redundancy ablation**. Tests whether the two embed-side merged components — EMBED_COOLDOWN_SHAPE=linear_floor (#235; holds embed LR at 15% floor through cooldown) and ADAMW_EMBED_LR_MULT=1.5 (#393; raises embed base LR 50%) — are jointly load-bearing or one subsumes the other. Both raise late-phase embed effective LR via mechanistically distinct routes (geometric shape vs multiplicative scale); their interaction has never been tested (#235 landed pre-LR_MULT; #393 landed pre-LR_MULT-as-merged). Structurally parallels #487/#577 (NS-cooldown sub-stack joint pruning, tanjiro) on embed-side LR pressure sub-stack.
+4-arm 2×2 factorial (N=1, ran on OLD pre-#579 stack — #579 merged mid-experiment): A (full)=3.27438, B (drop floor)=3.27285 (Δ=−0.00153), **C (drop mult)=3.27222 (Δ=−0.00216 best)**, D (drop both)=3.27487 (Δ=+0.00049). **All 4 arms above NEW baseline 3.27070** — C closest at +0.00152. Mechanism finding: **mutual antagonism / saturation** — A ≈ D, single-component drops each help slightly. Effective late-phase embed LR: A=0.0675 (saturated) > C=0.045 (sweet spot) > B=0.45→0 > D=0.30→0. Both #235 and #393 push embed LR past sweet spot; stacking saturates surface. Arm C's −0.00216 within-pod signal at threshold edge but Arm A drift +0.00264 baked-in — paired-pod confirmation cannot land mean(val_C) below 3.27070. Cannot merge; stack simplification not viable. **Future embed-side experiments should target joint surface** rather than individual axes. **51st productive-null/negative this cycle.**
+**Follow-up**: edward assigned **#674 per-block-type Muon momentum asymmetry** — direct extension of #579/#669 mechanism family on 3rd Muon hparam axis. 4-arm sweep (attn_mu × mlp_mu): A=(0.95,0.95) ctrl, B=(0.90,0.95) attn-faster, C=(0.95,0.99) mlp-slower, D=(0.90,0.99) compound. Mirror #579 4-arm pattern. Mechanism: attn-prefer-faster-tracking (less stale routing signal), mlp-prefer-slower-tracking (lower variance feature gradient). Completes per-block-TYPE Muon hparam family (LR ✓#579 / WD #669 / momentum #674).
 
-| Arm | EMBED_COOLDOWN_SHAPE | ADAMW_EMBED_LR_MULT | Mechanism tested |
-|---|---|---:|---|
-| A (ctrl) | `linear_floor` | 1.5 | Full merged stack (bit-identical baseline) |
-| B | `linear` | 1.5 | Drop linear_floor — does LR_MULT alone capture gain? |
-| C | `linear_floor` | 1.0 | Drop LR_MULT — does linear_floor alone capture gain? |
-| D | `linear` | 1.0 | Drop both — full ablation; reverts both #235+#393 |
-**No code changes** (pure env var permutation). **ETA full chain:** ~7.3h.
+### 🔄 edward #674 — Per-block-type Muon momentum asymmetry [assigned 11:15 UTC]
+
+**Branch:** `g1r4-edward/muon-attn-mlp-momentum-asym`
+**Hypothesis**: Direct extension of #579 mechanism family — if per-block-TYPE LR asymmetry productive, momentum-buffer time-constant asymmetry is natural orthogonal axis. attn benefits from faster-tracking (mu=0.90, ~10-step memory) — attention routing patterns shift fast; stale momentum carries outdated co-activation signal. mlp benefits from slower-tracking (mu=0.99, ~100-step memory) — feature representation gradients more stable; longer averaging reduces variance. Current uniform mu=0.95 (~20-step) untested per-block-TYPE.
+
+| Arm | NANOGPT_MUON_ATTN_MU | NANOGPT_MUON_MLP_MU | Mechanism tested |
+|---|---:|---:|---|
+| A (ctrl) | 0.95 | 0.95 | Reproduces merged baseline (bit-identical) |
+| B | **0.90** | 0.95 | attn faster-tracking only — singleton test |
+| C | 0.95 | **0.99** | mlp slower-tracking only — singleton test |
+| D | **0.90** | **0.99** | Compound — directly mirrors #579 4-arm pattern |
+**ETA full chain:** ~7h. Implementation: ~15 LOC (env vars + per-group mu in `muon_update()`, mirrors #579 param-group split). Completes 3-axis per-block-TYPE Muon family.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
@@ -383,7 +388,7 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 
 ## Research theme — current cycle
 
-**49 productive-null/negative results + 9 merged improvements**. The 9th merge is **#579 body-Muon attn=0.80×/mlp=1.20× LR asymmetry** (paired-pod n=3 mean Δ=−0.00136 sub-threshold but mirroring exactly #393's merge precedent at −0.00137; μ_D=3.27070 beats baseline by 0.00104 absolute). Research axes still extracting compounding gains: per-block-type LR asymmetry on body Muon. The strongest confirmed findings:
+**51 productive-null/negative results + 9 merged improvements**. The 9th merge is **#579 body-Muon attn=0.80×/mlp=1.20× LR asymmetry** (paired-pod n=3 mean Δ=−0.00136 sub-threshold but mirroring exactly #393's merge precedent at −0.00137; μ_D=3.27070 beats baseline by 0.00104 absolute). 50th was #639 (edward embed-stack joint redundancy: mutual antagonism / saturation finding on embed-LR pressure surface). 51st was reserved for #639's productive-null close. Research axes still extracting compounding gains: per-block-type LR asymmetry on body Muon. The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)

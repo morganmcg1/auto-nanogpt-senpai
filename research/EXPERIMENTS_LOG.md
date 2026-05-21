@@ -3,6 +3,46 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-21 11:10 UTC — PR #639: Embed-stack joint redundancy ablation (edward) — CLOSED productive-NULL
+
+- Branch: `g1r4-edward/embed-stack-redundancy`
+- Hypothesis: 2×2 factorial of `EMBED_COOLDOWN_SHAPE` (linear_floor #235 vs linear) × `ADAMW_EMBED_LR_MULT` (1.5 #393 vs 1.0). Test whether both embed-side merged components are jointly load-bearing, asymmetrically subsumed, or jointly redundant on the merged stack.
+
+### Results (N=1, 4-arm, ran on OLD pre-#579 stack — #579 merged 09:55 UTC mid-experiment)
+
+| Arm | linear_floor | LR_MULT | val/loss | first_step | Δ vs A | Δ vs OLD 3.27174 | Δ vs NEW 3.27070 | W&B |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| A (full stack) | ON | 1.5 | 3.27438 | 3275 | — | +0.00264 (drift PASS upper edge) | +0.00368 | 77wizohf |
+| B (drop floor) | OFF | 1.5 | 3.27285 | 3225 | −0.00153 | +0.00111 | +0.00215 | 501c7rpo |
+| C (drop mult) | ON | 1.0 | **3.27222** ⭐ | 3225 | **−0.00216** | +0.00048 | +0.00152 | 23bpz1vt |
+| D (drop both) | OFF | 1.0 | 3.27487 | 3250 | +0.00049 | +0.00313 | +0.00417 | x5y869it (relaunch after chain-script bug) |
+
+### Verdict — productive-NULL, mechanism finding: mutual antagonism
+
+- **Drift gate A vs OLD 3.27174**: PASS (+0.00264 at upper edge of ±0.003)
+- **Merge gates against NEW 3.27070**: ALL 4 arms above baseline; C closest at +0.00152 → Gate 2 FAILS
+- **Within-pod signal**: Arm C Δ_C_vs_A = −0.00216 marginally passes within-pod threshold (≤ −0.002), but absolute val_C = 3.27222 cannot land below 3.27070 even under paired-pod confirmation (Arm A drift +0.00264 baked into the signal)
+
+**Pattern**: A (both ON) ≈ D (both OFF) (Δ_A_vs_D = +0.00049), and B/C (each single drop) help slightly. Effective late-phase embed LR: A=0.0675 (saturated) > C=0.045 (sweet spot) > B=0.45→0 > D=0.30→0. **Both #235 and #393 push embed effective LR past a sweet spot when stacked** — diminishing returns at the saturated operating point. This is the OPPOSITE of joint load-bearing.
+
+### Mechanism reading
+
+The embed-LR pressure surface is **locally optimal at a saturated operating point**. Both linear_floor (#235) and LR_MULT=1.5 (#393) independently push in the same direction (raise late-phase embed LR), and stacking saturates the surface. Individually each component lands closer to optimal than the full stack, but on this seed neither individual drop produces a merge-eligible absolute improvement against the new baseline (which #579 tightened by −0.00104 mid-experiment).
+
+This explains why per-group AdamW β₁ (#599), β₂ (#560), and WD (#593) all closed null/negative on the embed group: the embed-LR pressure axis is saturated; single-axis perturbations produce flat-to-mild noise. **Future embed-side mechanism experiments should target the joint surface** (`EMBED_LR × COOLDOWN_SHAPE × MUON_BODY_RATIO`) rather than individual axes.
+
+### Caveats
+
+- N=1 per arm; with 7 prior single-seed → paired-pod sign collapses this cycle (#344, #351, #408, #487, #506, #550, #577), Arm C's Δ=−0.00216 at the threshold edge would likely collapse to ~0 under paired-pod n=3.
+- Stack simplification (drop LR_MULT=1.5 to retire #393's hparam) is not viable: even confirmed Δ_C_vs_A would land at ~3.27222 absolute, +0.00152 above NEW baseline.
+- Experiment launched on OLD stack (pre-#579); a paired-pod re-test on NEW stack would also need to account for body-Muon LR rebalancing affecting embed/body ratio.
+
+### Bug recovery
+
+Initial Arm D launch crashed at step 1400 due to chain-script `tee` capturing both log output and PID variable (bash gotcha — `$(launch_arm ...)` evaluated stdout including PID line). Student diagnosed and fixed with pidfile + regex validation + `>>` append pattern. Arm D relaunch `x5y869it` ran clean.
+
+**51st productive-null/negative this cycle.** Compute used: ~9.4h total. Closing axis; reassigning edward to **#674 per-block-type Muon momentum asymmetry** — direct extension of #579 / #669 mechanism family on the 3rd Muon hparam axis (momentum/mu).
+
 ## 2026-05-21 09:55 UTC — PR #579: Body-Muon attn=0.80×/mlp=1.20× LR asymmetry (askeladd) — MERGED 🏆
 
 - Branch: `g1r4-askeladd/muon-attn-mlp-lr-asym`
