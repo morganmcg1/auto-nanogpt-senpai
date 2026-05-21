@@ -3,6 +3,29 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 09:50 UTC — PR #626: edward AdEMAMix slow-EMA augmentation — **CLOSED clean-NEG**
+
+- Branch: `g1r5-edward/ademamix-slow-ema`
+- Student: g1r5-edward
+- Hypothesis: AdEMAMix (Pagliardini, El-Nouby, Sandler, Defazio 2024) augments AdamW with a second slow EMA on gradients (β3=0.9999, α∈{0,2,5,10}). Paper-claimed +20-50% sample efficiency on LM pretraining. With α=0 reduces exactly to AdamW (refactor no-op gate).
+
+| Cell | α | β3 | val/loss | Δ vs Cell A | Δ vs old baseline (μ=3.266120, σ_old=0.001747) | Δ vs new baseline (μ=3.263265, σ_new=0.001123) | W&B run | first_step |
+|------|---|----|---------:|------------:|------------------------------------------------:|------------------------------------------------:|---------|----------:|
+| A (ctrl) | 0.0 | 0.9999 | 3.26631 | — | +0.00019 (+0.11σ_old) | +0.003045 (+2.7σ_new) | f26favd0 | 3075 |
+| B | 2.0 | 0.9999 | 3.26959 | +1.88σ_single | +0.00147 (+0.84σ_old) | +0.006325 (+5.6σ_new) | fvuelt5l | 3100 |
+| C | 5.0 | 0.9999 | 3.29136 | +14.34σ_single | +0.02524 (+14.45σ_old) | +0.028095 (+25.0σ_new) | xbsdpgwu | -1 (never) |
+| D | 2.0 | 0.999 | 3.32335 | +32.65σ_single | +0.05723 (+32.76σ_old) | +0.060085 (+53.5σ_new) | 1rcdtdtf | -1 (never) |
+| E | 10.0 | 0.9999 | 3.33141 | +37.26σ_single | +0.06529 (+37.37σ_old) | +0.068145 (+60.7σ_new) | 3k643ttd | -1 (never) |
+
+- Cell A (α=0 refactor no-op) at +0.11σ_old vs old baseline — **gate PASSED**, AdEMAMix optimizer class with α=0 reduces exactly to AdamW.
+- **All α > 0 cells monotonically worse**: 0→2 (+1.88σ_single), 2→5 (+12.46σ_single), 5→10 (+22.81σ_single). No cell beats baseline.
+- **β3 axis hurts when faster**: at fixed α=2, β3=0.999 (Cell D) is +30.77σ_single worse than β3=0.9999 (Cell B). Faster slow-EMA = more accumulation in available steps = more harm.
+- **Calibration**: All cells ran at OLD `--lr_scalars 0.01` (predates PR #571 merge). Cell A at 3.26631 is +2.7σ_new above current merged baseline (3.263265) — explained by missing `--lr_scalars 0.03`. Within-PR comparisons (B-E vs A) remain the clean signal.
+- **Mechanistic interpretation**: At 3250-step horizon, slow-EMA half-life (β3=0.9999 → ~7000 steps) exceeds total training, so the slow buffer cannot accumulate meaningful signal. Adding α·slow to the AdamW numerator injects partial cumulative gradient history that the bias-corrected fast EMA has already accounted for, pushing updates into the "too large" regime on well-tuned coordinates. With β3=0.999 (half-life ~700, well within horizon), slow_ema reaches steady-state → catastrophic +30σ regression.
+- **Joint closure with #581 Lookahead**: Both "slow-signal" mechanisms — gradient-side (AdEMAMix) and parameter-side (Lookahead) — fail clean-NEG on this speedrun. AdamW dynamics here are robustly well-tuned for the 3250-step regime and resistant to slow-signal augmentation. Paper-claimed benefits require million-step pretraining horizons.
+- **Cross-mechanism observation**: This is the 3rd "augmentation-based" optimizer mechanism to fail clean-NEG (Lion #638 — sign-based momentum replacement; Lookahead #581 — parameter-side slow average; AdEMAMix #626 — gradient-side slow EMA). Paper-tuned hyperparameters from million-step LM pretraining do not transfer to 3250-step speedrun.
+- Decision: CLOSED clean-NEG. AdEMAMix axis closed at this benchmark. Edward reassigned to **Cautious AdamW** (#671) — the mechanistic *inverse*: rather than ADDING slow-EMA, REMOVES wrong-direction updates via mask. Tests whether filtering (subtracting noise) succeeds where augmentation (adding signal) failed.
+
 ## 2026-05-21 09:30 UTC — PR #620: tanjiro attention softmax scale sweep — **CLOSED clean-NEUTRAL**
 
 - Branch: `g1r5-tanjiro/attn-softmax-scale-sweep`
