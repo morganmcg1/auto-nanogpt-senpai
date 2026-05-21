@@ -533,6 +533,17 @@ NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT"
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Ghost-step warmstart: run N forward-backward passes BEFORE training begins, updating
+# only AdamW (and optionally Muon) optimizer state — no param updates, no LR schedule
+# advance. Tests whether pre-warming exp_avg/exp_avg_sq removes the ~1/(1-β₂) cold-start
+# directional-stationarity window.
+NANOGPT_GHOST_STEPS = int(os.environ.get("NANOGPT_GHOST_STEPS", "0"))
+NANOGPT_GHOST_SCOPE = os.environ.get("NANOGPT_GHOST_SCOPE", "adamw")
+_VALID_GHOST_SCOPES = ("adamw", "all")
+if NANOGPT_GHOST_SCOPE not in _VALID_GHOST_SCOPES:
+    raise ValueError(
+        f"NANOGPT_GHOST_SCOPE={NANOGPT_GHOST_SCOPE!r}, must be one of {_VALID_GHOST_SCOPES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -752,6 +763,7 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"GHOST_STEPS: {NANOGPT_GHOST_STEPS} (scope={NANOGPT_GHOST_SCOPE})", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -807,6 +819,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_ghost_steps": NANOGPT_GHOST_STEPS,
+            "nanogpt_ghost_scope": NANOGPT_GHOST_SCOPE,
         },
     )
 
@@ -895,6 +909,132 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # Ghost-step warmstart (IDEA 7 / WAVE3): consume NANOGPT_GHOST_STEPS forward-backward
+    # passes that update optimizer EMA state but NOT model parameters and NOT the LR
+    # schedule. Goal is to pre-warm AdamW exp_avg/exp_avg_sq past the directional
+    # cold-start window (~1/(1-β₂) steps). Timing of ghost steps is excluded from
+    # training_time. Note: state["step"] *is* incremented so subsequent bias correction
+    # reflects the warmed buffer; if we reset it the first real step would over-amplify
+    # m_hat = m / (1-β₁^1) on a non-zero exp_avg.
+    if NANOGPT_GHOST_STEPS > 0:
+        # NOTE on which params get warmed by ghost steps:
+        # The model uses `w.zero_()` init for every "proj" weight (model.proj and
+        # also Block.attn.proj / Block.mlp.proj — see init loop above). With
+        # proj.weight=0, the gradient flowing back through `F.linear` is
+        # `grad_out @ proj.weight = 0`, blocking grad flow to upstream params.
+        # Since ghost steps never call optimizer.step(), proj.weight stays at 0
+        # for the entire ghost loop, and ONLY model.proj.weight (lm_head) ends up
+        # with a non-zero gradient (computed from `grad_logits.T @ proj_input`,
+        # which doesn't depend on proj.weight itself). All other AdamW params
+        # (embed, scalars/gains) and all Muon (block) params receive zero grad
+        # during ghost steps. The same effect is visible in baseline runs:
+        # `train/grad_param/embed/weight/norm` is 0 at training step 1 — embed
+        # grad only becomes non-zero once optimizer.step() has nudged proj weights
+        # off zero. So this experiment effectively warms exp_avg/exp_avg_sq for
+        # the lm_head group only; the test is whether warming lm_head's
+        # second-moment buffer (which is where grad magnitude is largest from
+        # step 1) helps training.
+        model.train()
+        ghost_t0 = time.perf_counter()
+        for ghost_idx in range(NANOGPT_GHOST_STEPS):
+            inputs, targets = next(train_loader)
+            assert len(inputs) % mbs == 0
+            for i in range(len(inputs) // mbs):
+                loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+                loss.backward()
+            for name, p in model.named_parameters():
+                assert p.grad is not None, name
+                dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+            # Update AdamW state in place: no optimizer.step(), no parameter mutation.
+            # IMPORTANT: skip params whose grad is all-zero. Due to proj.weight=0 init,
+            # most params (embed, scalars, Muon block params) get zero grad through the
+            # ghost loop. Incrementing state["step"] for them would inflate the bias
+            # correction denominator at training step 1 (e.g., 1-β₂^26 vs 1-β₂^1) on
+            # top of an exp_avg_sq that's still effectively zero, causing massively
+            # over-amplified embed/scalar updates in the first ~100 real training steps.
+            for group in optimizer1.param_groups:
+                beta1, beta2 = group["betas"]
+                for p in group["params"]:
+                    if p.grad is None or not bool(p.grad.any().item()):
+                        continue
+                    state = optimizer1.state[p]
+                    if "exp_avg" not in state:
+                        # Match PyTorch fused AdamW's _init_group: zero-dim float32
+                        # tensor on the param's device for state["step"], plus
+                        # zeros_like buffers preserving memory format.
+                        state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                        state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                        state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg"].mul_(beta1).add_(p.grad, alpha=1.0 - beta1)
+                    state["exp_avg_sq"].mul_(beta2).addcmul_(p.grad, p.grad, value=1.0 - beta2)
+                    state["step"].add_(1)
+            if NANOGPT_GHOST_SCOPE == "all":
+                # Also warm Muon momentum on rank-owned params (matches Muon.step
+                # sharding: param at index base_i + rank is owned by this rank).
+                # Same zero-grad skip applies: most Muon (block) params receive zero
+                # grad through the ghost loop because proj.weight=0 blocks the residual
+                # path; warming a zero-grad momentum buffer is a no-op anyway, but we
+                # skip explicitly so the diagnostic state is honest.
+                ws = dist.get_world_size()
+                rk = dist.get_rank()
+                for group in optimizer2.param_groups:
+                    mu = group["mu"]
+                    params = group["params"]
+                    for base_i in range(0, len(params), ws):
+                        if base_i + rk < len(params):
+                            p = params[base_i + rk]
+                            if p.grad is None or not bool(p.grad.any().item()):
+                                continue
+                            state = optimizer2.state[p]
+                            if "momentum" not in state:
+                                state["momentum"] = torch.zeros_like(p)
+                                state["v"] = torch.zeros_like(p)
+                            # Mirror muon_update's momentum lerp: m = mu*m + (1-mu)*grad
+                            state["momentum"].lerp_(p.grad, 1.0 - mu)
+            model.zero_grad(set_to_none=True)
+        ghost_elapsed = time.perf_counter() - ghost_t0
+        print0(
+            f"GHOST_STEPS: completed {NANOGPT_GHOST_STEPS} forward-backward passes "
+            f"(scope={NANOGPT_GHOST_SCOPE}, ghost_wall={ghost_elapsed:.2f}s); "
+            f"training begins with warmed optimizer state, train-step counter at 0",
+            console=True,
+        )
+        if dist.get_rank() == 0:
+            # Log warmed-state diagnostics for the AdamW groups so we can confirm
+            # what actually got warmed. With proj=0 init, only lm_head receives
+            # non-zero grad during ghost steps; embed and scalar groups stay at
+            # zero exp_avg/exp_avg_sq AND state["step"] stays at 0 (per the
+            # zero-grad skip in the ghost update). Reporting state["step"] per
+            # group lets us verify the skip is working.
+            embed_state = optimizer1.state.get(model.embed.weight, {})
+            lmh_state = optimizer1.state.get(model.proj.weight, {})
+            embed_m = float(embed_state["exp_avg"].detach().float().norm().item()) \
+                if "exp_avg" in embed_state else 0.0
+            embed_v = float(embed_state["exp_avg_sq"].detach().float().norm().item()) \
+                if "exp_avg_sq" in embed_state else 0.0
+            embed_step = float(embed_state["step"].item()) if "step" in embed_state else 0.0
+            lmh_m = float(lmh_state["exp_avg"].detach().float().norm().item()) \
+                if "exp_avg" in lmh_state else 0.0
+            lmh_v = float(lmh_state["exp_avg_sq"].detach().float().norm().item()) \
+                if "exp_avg_sq" in lmh_state else 0.0
+            lmh_step = float(lmh_state["step"].item()) if "step" in lmh_state else 0.0
+            print0(
+                f"GHOST_STEPS state probe: "
+                f"embed step={embed_step:.0f} exp_avg_norm={embed_m:.4e} exp_avg_sq_norm={embed_v:.4e} | "
+                f"lm_head step={lmh_step:.0f} exp_avg_norm={lmh_m:.4e} exp_avg_sq_norm={lmh_v:.4e}",
+                console=True,
+            )
+            wandb.log({
+                "trial": trial_idx,
+                "ghost/embed_exp_avg_norm": embed_m,
+                "ghost/embed_exp_avg_sq_norm": embed_v,
+                "ghost/embed_step": embed_step,
+                "ghost/lmhead_exp_avg_norm": lmh_m,
+                "ghost/lmhead_exp_avg_sq_norm": lmh_v,
+                "ghost/lmhead_step": lmh_step,
+                "ghost/steps_completed": NANOGPT_GHOST_STEPS,
+            }, step=trial_idx * (train_steps + 1))
     # start the clock
     training_time = 0
     last_val_step = 0
