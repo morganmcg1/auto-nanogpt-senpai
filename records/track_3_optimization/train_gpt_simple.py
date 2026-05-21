@@ -37,6 +37,17 @@ NS_C = 0.0
 NS_ITERS = 12
 MUON_METHOD = "pmuon-uw-floor-power-cool-1p2-ns-coef-cubic-gamma-power-0p4"
 
+# Phase-aware schedule for PMuon's bilateral covariance EMA decay beta_cov.
+# "none"  -> static 0.95 baseline (default).
+# "arm_a" -> responsive early: 0.90 -> 0.95 linearly over first 500 steps.
+# "arm_b" -> smoother cooldown: 0.95 -> 0.98 linearly across cooldown_progress in [0,1].
+BETA_COV_SCHEDULE = "none"
+BETA_COV_ARM_A_WARMUP_STEPS = 500
+BETA_COV_ARM_A_START = 0.90
+BETA_COV_ARM_A_END = 0.95
+BETA_COV_ARM_B_BASE = 0.95
+BETA_COV_ARM_B_END = 0.98
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
@@ -52,6 +63,9 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--beta_cov_schedule", type=str, default="none",
+                        choices=["none", "arm_a", "arm_b"],
+                        help="PMuon beta_cov phase schedule: 'none' (static 0.95) | 'arm_a' (responsive early) | 'arm_b' (smoother cooldown)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -61,6 +75,7 @@ def parse_args():
 
 
 args = parse_args()
+BETA_COV_SCHEDULE = args.beta_cov_schedule
 
 
 def clean_metric_name(name: str) -> str:
@@ -693,6 +708,7 @@ if dist.get_rank() == 0:
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
             "pmuon_beta_cov": 0.95,
+            "pmuon_beta_cov_schedule": BETA_COV_SCHEDULE,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
@@ -760,10 +776,24 @@ for trial_idx in range(args.num_trials):
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
+        if BETA_COV_SCHEDULE == "arm_a":
+            if step < BETA_COV_ARM_A_WARMUP_STEPS:
+                new_beta_cov = BETA_COV_ARM_A_START + (BETA_COV_ARM_A_END - BETA_COV_ARM_A_START) * step / BETA_COV_ARM_A_WARMUP_STEPS
+            else:
+                new_beta_cov = BETA_COV_ARM_A_END
+        elif BETA_COV_SCHEDULE == "arm_b":
+            new_beta_cov = BETA_COV_ARM_B_BASE + (BETA_COV_ARM_B_END - BETA_COV_ARM_B_BASE) * cooldown_progress
+        else:
+            new_beta_cov = None
+        current_beta_cov = None
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+                if "beta_cov" in group:
+                    if new_beta_cov is not None:
+                        group["beta_cov"] = new_beta_cov
+                    current_beta_cov = group["beta_cov"]
+        return progress, cooldown_progress, eta, current_beta_cov
 
 
     ########################################
@@ -852,7 +882,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_beta_cov = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -912,14 +942,17 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
-            wandb.log({
+            schedule_log = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
-            }, step=wandb_step)
+            }
+            if sched_beta_cov is not None:
+                schedule_log["train/pmuon/beta_cov"] = float(sched_beta_cov)
+            wandb.log(schedule_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
