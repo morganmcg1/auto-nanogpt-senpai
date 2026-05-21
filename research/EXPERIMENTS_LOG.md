@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-21 01:55 UTC — PR #594: fern peak WD multiplier sweep — **CLOSED clean-neutral**
+
+- Branch: `g1r5-fern/peak-wd-sweep`
+- Student: g1r5-fern
+- Hypothesis: The `ramp_down` WD schedule starts at a peak multiplier of 2.0 (hardcoded, never ablated). This PR sweeps peak_wd_mult ∈ {1.0, 1.5, 2.0 ctrl, 2.5, 3.0} to determine if the WD magnitude is well-tuned. Also adds `--peak_wd_mult` CLI flag extending PR #548's `--wd_floor`.
+
+| Cell | peak_wd_mult | Mean WD | val/loss | Δσ_n6 | ffs | W&B run |
+|------|:------------:|:-------:|:--------:|------:|----:|---------|
+| A (ctrl) | 2.0 | 1.00 | 3.26621 | +0.05σ | 3075 | `kkd3n63n` |
+| B | 1.0 | 0.50 | 3.26874 | +1.50σ | 3075 | `umuimm7q` |
+| C | 1.5 | 0.75 | 3.26875 | +1.50σ | 3100 | `41jyo5xc` |
+| **D** | **2.5** | **1.25** | **3.26567** | **−0.26σ** | 3075 | `rbx6uayo` |
+| E | 3.0 | 1.50 | 3.26760 | +0.85σ | 3100 | `0h42kou1` |
+
+- Baseline: mu=3.266120, σ=0.001747, n=4 gate ≤3.264120
+
+**Results commentary:** Cell D (peak=2.5, mean=1.25) crosses the -0.5σ soft flag (3.265720) by 0.00005, but n=1 noise floor dominates — Cell D's gap from ctrl is only 0.00054, well within single-sample variation. Non-monotonic response curve (B/C: lower peak hurts; D: slight improve; E: reverses). No cell crosses the n=4 P2 gate. Cell A refactor confirmed clean no-op (3.26621 vs baseline 3.266120).
+
+**Conclusions:** WD magnitude axis fully characterized (combined with PR #548 floor closure). Lower peak unambiguously hurts (B/C +1.5σ each). Current peak=2.0 is well-tuned. Higher peak up to 2.5 provides negligible gain within noise. `--peak_wd_mult` CLI flag added for future use.
+
+**Follow-up assigned:** PR #635 — WD schedule shape sweep (ramp_down ctrl / triangle / cosine_updown / constant / ramp_up). All 5 shapes have integral mean=1.0, isolating shape from magnitude. Zero code changes required — all schedules already implemented.
+
 ## 2026-05-20 23:42 UTC — PR #581: edward Lookahead optimizer wrapper — **CLOSED clean-NEG**
 
 - Branch: `g1r5-edward/lookahead-wrapper`
