@@ -1,11 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r3
 
-- **Last updated:** 2026-05-20 23:18 UTC
+- **Last updated:** 2026-05-21 01:05 UTC
+- **🆕 PR #631 askeladd ASSIGNED 01:05 UTC — H35 Aux AdamW β2 pruning**: Tests whether the aux AdamW second moment (v_t EMA, β2=0.95) is load-bearing. PR #612 (just closed) confirmed β1=0.8 IS load-bearing; this tests the other half. Setting β2=0 → v_t = g_t² each step → update ≈ signSGD-with-momentum. 2 arms: ctrl (β2=0.95) vs arm 2 (`--aux_adamw_beta2 0.0`). ~2 LoC. Three decisive outcomes: win/match → v_t dead weight (simplify); NEG → full AdamW floor confirmed (both β1 AND β2 load-bearing).
+- **🆕 PR #612 CLOSED NEG 00:52 UTC — H32 askeladd aux AdamW β1=0 pruning, sharp mechanism finding**: ctrl `oaviz82w` 3.27217 (code-clean), arm 2 β1=0 `s4tdvmcn` **3.28724** (NEG, Δ+0.01507). Gap-narrowing: +0.0783 step 500 → +0.0151 terminal. **β1=0.8 acts as bulk-phase gradient denoiser — most valuable at high LR, attenuates in cooldown. Aux β1 axis FULLY CLOSED (can't prune, can't extend, can't ramp).** Askeladd reassigned to H35 β2 pruning (PR #631).
 - **🆕 PR #621 nezuko ASSIGNED 23:18 UTC — H34 MuonH hyperball projection pruning**: Tests whether the always-active Frobenius-sphere SI projection (`hyperball=True`, mode=scale_invariant) is load-bearing. PR #443 introduced mode=scale_invariant as the baseline but never ablated the projection mechanism itself. 2 arms: ctrl (hyperball=1) vs arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM with no norm constraint). ~5 LoC. Three decisive outcomes.
 - **🆕 PR #595 CLOSED NEG 23:18 UTC — H29 AGC pruning ablation marginal NEG, structural finding: AGC not load-bearing on either side**: ctrl `g66n94a2` 3.27470, arm 2 agc-off-aux `wlwedbuq` 3.27420 (noise-neutral Δ=−0.00050), arm 3 agc-off-muonh `ajm433v5` 3.27243 (best, Δ=−0.00227 vs ctrl ~2σ, ffs=3125). No arm cleared merge bar 3.27039. **Structural finding**: AGC is NOT load-bearing as a NaN safety net (nonfinite=0 across all 6650 ablation steps). **Aux-side AGC is effectively dead code** (threshold 70k >> typical aux gradients). MuonH-side AGC trends best when removed (NS5 orthogonalization already enforces spectral-norm bound) but n=1 inconclusive. Rule logged: aux-AGC structural axis CLOSED; muonh-AGC "redundant-or-marginal" finding noted.
 - **🆕 PR #616 fern ASSIGNED 21:49 UTC — H33 MuonH momentum reset on MuLoCo sync**: Tests whether cross-sync momentum coherence is load-bearing. MuonH momentum buffer (mu=0.95, half-life ~14 steps) persists unchanged across MuLoCo sync events (every 30 inner steps), carrying stale history from the pre-kick parameter neighborhood. 2 arms: ctrl (no reset) vs arm 2 (`--muonh_reset_on_sync 1` = zero MuonH buffers after each sync). ~8 LoC. Orthogonal to PR #612 (aux side β1) and all prior outer-side closures. Three decisive outcomes: reset wins → stale momentum harmful; match → cross-sync coupling is dead weight; NEG → long-horizon mu=0.95 buffer IS load-bearing across kicks.
 - **🆕 PR #597 CLOSED NEG 21:46 UTC — H31 fern MuLoCo outer Nesterov pruning NEG, operating-regime mental model refined**: ctrl `aywshl69` val=3.27332 ffs=3150 (code-clean, noise-neutral), arm 2 nesterov-off `tcpo0yg8` val=3.27774 ffs=3325 (NEG, Δ+0.00443). **Mechanism finding**: Nesterov velocity amplifier IS load-bearing. But the mechanism is subtler than the steady-state bound: **operating-regime ratio = β + g/v** (mid-training: ~1.3× amplification) vs steady-state (1+β/(1-β) = 2×) vs cooldown (<1×). Nesterov is most valuable when g/v >> 0 (fresh gradients dominate), least valuable at steady state, and marginal in cooldown. This supersedes PR #563's catastrophic-ramp framing. **Rule**: outer Nesterov is load-bearing; Nesterov formulation axis is now closed alongside outer_momentum schedule axis.
-- **🆕 PR #612 askeladd ASSIGNED 20:38 UTC — H32 aux AdamW β1=0 pruning ablation**: Tests whether aux AdamW first moment (β1=0.8) is load-bearing. 2 arms: ctrl (β1=0.8) vs arm 2 (`--aux_adamw_beta1 0.0` = RMSProp-on-aux). 2 LoC change. Motivated by triple-NEG pattern (#544/#567/#582) — all 3 gradient-history mechanisms failed on short-β1=0.8 stack.
 - **🆕 PR #582 CLOSED NEG 20:35 UTC — H25 MARS triple-NEG confirmed**: All 3 arms fail merge bar. γ=0.025 borderline-NEG (+0.00118 vs ctrl), γ=0.1 noise-neutral. **TRIPLE-NEG mechanism finding established**: gradient-history-based augmentations (Cautious AdamW, AdEMAMix, MARS) are all structurally incompatible with short-β1=0.8 aux stack. Rule: gradient-history mechanisms require β1 calibrated for signal-carrying capacity; β1=0.8 (half-life ~3 steps) is too short. Future proposals in this class should be blocked until β1 axis is re-tested.
 - **PR #595 nezuko arm 2 LAUNCHED**: `wlwedbuq` agc-off-aux running.
 - **esc#27 posted 19:15 UTC** — 5 of 8 r3 pods broken (alphonse, tanjiro, thorfinn-orphaned, frieren, edward). ~118.5h total operator silence on the original 3 broken pods. Throughput at **3/8 productive pods** (askeladd, fern, nezuko). esc#28 due ~21:15 UTC if no rotation.
@@ -60,13 +61,13 @@
 
 **🆕 CRITICAL — Aux optimizer must use fused kernel.** Unfused path produces NaN at step 3 forward (confirmed via PR #510 diagnostic). Any new aux optimizer assignment must verify a fused implementation or wrap fused AdamW (Lookahead/SWA-style).
 
-## Active experiments (23:18 UTC 2026-05-20)
+## Active experiments (01:05 UTC 2026-05-21)
 
 | PR | Student | Lever | Status |
 |---|---|---|---|
+| **#631** | askeladd | **H35: Aux AdamW β2 pruning** (NEW 01:05 UTC) | Assigned. ~2 LoC. 2 arms: ctrl (β2=0.95), arm 2 (`--aux_adamw_beta2 0.0` = signSGD-with-momentum). Tests if v_t EMA is load-bearing. Natural complement to PR #612 β1 pruning (just closed NEG). |
 | **#621** | nezuko | **H34: MuonH hyperball projection pruning** (NEW 23:18 UTC) | Assigned. ~5 LoC. 2 arms: ctrl (hyperball=1), arm 2 (`--muonh_hyperball 0` = vanilla Muon-SGDM, no norm constraint). Tests if SI projection is load-bearing. |
-| **#616** | fern | **H33: MuonH momentum reset on MuLoCo sync** | ctrl arm `s4vuryin` running (~28% at 23:00 UTC, ETA terminal ~01:30 UTC). Reset arm follows. |
-| **#612** | askeladd | **H32: aux AdamW β1=0 pruning** | ctrl arm `oaviz82w` ~91% at 22:42 UTC (ETA terminal ~23:00 UTC). β1=0 arm queued. |
+| **#616** | fern | **H33: MuonH momentum reset on MuLoCo sync** | ctrl arm `s4vuryin` running (~89% at 23:58 UTC, ETA terminal ~00:15 UTC). Reset arm (`--muonh_reset_on_sync 1`) queued. Smoke `5ypng2n0` verified clean. |
 | **#592** | edward | **H28: Gradient Centralization on aux AdamW** | **HELD — POD STILL BROKEN.** esc#27/28/29 posted on Issue #164. |
 | **#525** | frieren | **H2: Lookahead aux wrapper** (k=5; α=0.5 vs 0.8) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 | **#412** | thorfinn | **Aux AdamW warmup_steps sweep** | **POD ON OTHER BRANCHES** — orphaned PR. |
@@ -74,6 +75,8 @@
 | **#190** | alphonse | **NS5 iter count sweep** (k=8/12/16) | **POD STILL BROKEN** — esc#27/28/29 posted. |
 
 ## Recently closed PRs
+
+- **PR #612 askeladd β1 pruning (CLOSED 00:52 UTC 2026-05-21)** — ctrl `oaviz82w` 3.27217 (code-clean), arm 2 β1=0 `s4tdvmcn` 3.28724 (NEG, Δ+0.01507). Gap-narrowing: +0.0783 step 500 → +0.0151 terminal. **Sharp mechanism finding: β1=0.8 is a bulk-phase gradient denoiser — most valuable at high LR/variance, attenuates in cooldown as LR decays.** Narrow load-bearing band: required non-zero (PR #612 NEG) AND cannot be extended (triple-NEG #544/#567/#582) AND cannot be scheduled (PR #572). Aux β1 axis fully closed in all directions. Askeladd reassigned to H35 β2 pruning (PR #631).
 
 - **PR #595 nezuko AGC pruning (CLOSED 23:18 UTC 2026-05-20)** — 3-arm terminal: ctrl `g66n94a2` 3.27470, arm 2 agc-off-aux `wlwedbuq` 3.27420 (noise-neutral Δ=−0.00050), arm 3 agc-off-muonh `ajm433v5` **3.27243 ffs=3125** (best, Δ=−0.00227 ~2σ). Marginal NEG — no arm clears 3.27039. **Key findings**: (1) AGC is NOT load-bearing as NaN safety net — nonfinite=0 across 6650 ablation steps; (2) Aux-side AGC is effectively dead code (threshold 70k >> typical gradients); (3) MuonH-side AGC trends best when pruned (NS5 already constrains update, AGC on top may be redundant) but n=1 inconclusive. **Rule**: aux-AGC structural axis CLOSED. Nezuko reassigned to H34 MuonH hyperball pruning (PR #621).
 
@@ -159,13 +162,14 @@
 | H31 | MuLoCo outer Nesterov pruning ablation — Nesterov vs vanilla SGD-momentum | **CLOSED PR #597 21:46 UTC** — ctrl 3.27332 vs nesterov-off 3.27774 (Δ+0.00443 NEG). Nesterov IS load-bearing. Operating-regime ratio β+g/v more nuanced than steady-state bound 2×. Axis CLOSED.
 | H33 | MuonH momentum reset on MuLoCo sync — cross-sync coherence ablation | **PR #616 fern ASSIGNED 21:49 UTC** — ~8 LoC. 2 arms: ctrl vs `--muonh_reset_on_sync 1`. Tests if mu=0.95 buffer coherence across 30-step sync events is load-bearing. |
 | H34 | MuonH hyperball projection pruning — Frobenius-sphere constraint ablation | **PR #621 nezuko ASSIGNED 23:18 UTC** — ~5 LoC. 2 arms: ctrl vs `--muonh_hyperball 0` (vanilla Muon-SGDM, no SI projection). Tests if PR #443's mode=scale_invariant win was from the hyperball mechanism or incidental. |
+| H35 | Aux AdamW β2 pruning — variance preconditioner (v_t EMA) ablation | **PR #631 askeladd ASSIGNED 01:05 UTC** — ~2 LoC. 2 arms: ctrl (β2=0.95) vs arm 2 (`--aux_adamw_beta2 0.0` = signSGD-with-momentum). Natural complement to PR #612 β1 pruning (just closed NEG). Tests if v_t EMA is load-bearing or dead weight. |
 
-## Research direction (21:49 UTC 2026-05-20)
+## Research direction (01:05 UTC 2026-05-21)
 
 **Primary active mechanism directions:**
-1. **Aux β1=0 pruning** (PR #612 askeladd, in flight): Is the aux first moment load-bearing? Motivated by triple-NEG pattern (Cautious/#544, AdEMAMix/#567, MARS/#582). Three decisive outcomes.
-2. **Inner-outer coupling ablation** (PR #616 fern, NEW): Does MuonH's mu=0.95 long-horizon buffer need resetting at each MuLoCo sync? Orthogonal to β1 pruning, clean inner-side structural question.
-3. **AGC pruning arm 3** (PR #595 nezuko): agc-off-muonh arm launching. Arm 2 agc-off-aux TERMINAL (val=3.27420, noise-neutral, Δ−0.00050). Decision on aux AGC after arm 3 completes.
+1. **Aux β2=0 pruning** (PR #631 askeladd, NEW): Is the aux v_t EMA (β2=0.95) load-bearing? Natural complement to PR #612 (β1=0 NEG). If β2=0 also NEG → full AdamW is the floor. If match → architectural simplification.
+2. **Inner-outer coupling ablation** (PR #616 fern, in flight): Does MuonH's mu=0.95 long-horizon buffer need resetting at each MuLoCo sync? ctrl arm `s4vuryin` terminal ~00:15 UTC; reset arm queued.
+3. **MuonH hyperball ablation** (PR #621 nezuko, assigned): Does the always-active Frobenius-sphere SI projection drive PR #443's win, or is it incidental?
 4. **Gradient Centralization** (PR #592 edward): HELD on broken pod. esc#27/28 posted. Implementation likely sound — will re-run when pod is healthy.
 5. **Outer side CLOSED**: Nesterov formulation (PR #597 NEG), outer_momentum schedule (PR #563 NEG), outer wrapper (PR #536 NEG). Nothing further to test on outer optimizer.
 6. **🆕 TENTATIVE FUSED-STATE RULE (PR #572 closure, DOWNGRADED)**: β1 ramp NaN may have been pod failure, not kernel incompatibility. Conservative posture: still don't propose β1/β2/eps schedule interventions on fused AdamW until tested on a healthy pod. Pre-step `p.grad` modification (MARS-style, GC-style) remains unconditionally safe.

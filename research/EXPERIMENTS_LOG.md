@@ -1,3 +1,56 @@
+## 2026-05-21 01:05 UTC — PR #631 ASSIGNED (askeladd): H35 Aux AdamW β2 pruning — is the variance preconditioner load-bearing?
+
+- Branch: `g1r3-askeladd/aux-beta2-pruning`
+- Hypothesis: The aux AdamW uses `betas=(0.8, 0.95)`. PR #612 (just closed) showed β1=0.8 IS load-bearing. This PR tests the OTHER half: setting β2=0.0 prunes the v_t EMA entirely. When β2=0, v_t = g_t² each step → update ≈ m_t / (|g_t| + ε) ≈ signSGD-with-momentum.
+- Two arms: ctrl (β2=0.95, default), arm 2 (`--aux_adamw_beta2 0.0` = variance EMA pruned).
+- Three informative outcomes: win → v_t dead weight (merge + simplify); match → v_t dead weight (simplify future stacks); NEG → β2=0.95 IS load-bearing → full AdamW floor confirmed both sides (β1 AND β2).
+- ~2 LoC change (add `--aux_adamw_beta2` flag, update fused AdamW betas tuple). Natural complement to PR #612 (β1=0 NEG). Directly aligned with launch directive "pruning ablations of complex stacks".
+
+---
+
+## 2026-05-21 00:52 UTC — PR #612 CLOSED (askeladd): H32 aux AdamW β1=0 pruning — NEG, β1=0.8 is load-bearing
+
+- Branch: `g1r3-askeladd/aux-beta1-pruning`
+- Hypothesis: Is aux AdamW first moment (β1=0.8) load-bearing? Motivated by triple-NEG pattern: Cautious (PR #544), AdEMAMix (PR #567), MARS (PR #582) all failed on short-β1=0.8 aux stack. Does removing β1 entirely help (RMSProp-on-aux)?
+
+### Results (3325 steps, n=1 each)
+
+| Arm | run_id | β1 | val/loss | ffs | reached_target | nonfinite | Δ vs ctrl |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Baseline `t1coza71` | — | 0.8 | 3.27119 | 3100 | 1 | — | — |
+| Arm 1 ctrl (β1=0.8) | `oaviz82w` | 0.8 | **3.27217** | 3125 | 1 | 0 | — |
+| Arm 2 prune (β1=0) | `s4tdvmcn` | 0.0 | **3.28724** | -1 | 0 | 0 | **+0.01507** |
+
+- Arm 1 ctrl reproduces baseline cleanly (Δ vs `t1coza71` = +0.00098, within σ≈0.001). Flag `--aux_adamw_beta1 0.8` pass-through behaves identically to prior hardcoded `betas=(0.8, 0.95)`.
+- Arm 2 (β1=0) val=3.28724, **+0.01507 above ctrl** (well outside σ≈0.001). Fails to reach speedrun target (val > 3.28). ffs=-1.
+- SENPAI-RESULT: `{"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["oaviz82w","s4tdvmcn"],"primary_metric":{"name":"val/loss","value":3.28724},"test_metric":{"name":"val/loss","value":3.28724}}`
+
+### Trajectory (gap-narrowing pattern)
+
+| Step | Arm 1 (β1=0.8) | Arm 2 (β1=0) | Δ |
+|---:|---:|---:|---:|
+| 500 | 3.90309 | 3.98139 | +0.0783 |
+| 1500 | 3.61779 | 3.65332 | +0.0355 |
+| 2500 | 3.37092 | 3.38767 | +0.0168 |
+| 3325 | 3.27217 | 3.28724 | **+0.0151** |
+
+Gap NARROWS from +0.0783 (step 500) → +0.0151 (terminal). β1 EMA denoising is most valuable when per-step gradient variance is high (bulk training); benefit attenuates during cooldown as LR decays.
+
+### Mechanism findings
+
+**Sharp finding: aux β1=0.8 is in a narrow load-bearing band — required non-zero AND cannot be extended.**
+
+| PR | Mechanism | Direction tested | Result |
+|---|---|---|---|
+| #612 (this) | β1 pruning to 0 | SHORTEN to extreme | NEG (+0.0151) — too short |
+| #544 (fern) | Cautious AdamW | LENGTHEN effective horizon | NEG (+0.025) — too long for filter |
+| #567 (fern) | AdEMAMix β3=0.9999 | ADD long-horizon EMA on top | NEG (+0.00150) — horizon mismatch |
+| #582 (askeladd) | MARS variance reduction | LENGTHEN via control variate | NEG (+0.00118) — m_{t-1} too stale |
+
+**Rule**: β1=0.8 acts as a bulk-phase gradient denoiser. Future planning must NOT propose: β1=0 / first-moment-free aux optimizers; gradient-history-extending mechanisms; β1 mid-training ramps (fused-kernel incompatible per PR #572). The aux β1 axis is fully closed in ALL directions.
+
+---
+
 ## 2026-05-20 23:18 UTC — PR #621 ASSIGNED (nezuko): H34 MuonH hyperball projection pruning ablation — is the Frobenius-sphere projection load-bearing?
 
 - Branch: `g1r3-nezuko/muonh-hyperball-pruning`
