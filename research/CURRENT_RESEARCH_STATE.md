@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-21 21:40 UTC
+- **Date:** 2026-05-22 02:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -81,10 +81,29 @@ Single-seed 4-arm (drift gate A PASS, |3.27141−3.27174|=0.00033): A=3.27141 ct
 Single-seed 4-arm on NEW post-#579 stack (drift gate A PASS at favorable seed −0.00250): A eps=1e-10=**3.26820** ctrl, B eps=1e-8=+0.00191 (marginal regression), C eps=1e-6=+0.00217 (regression), D eps=1e-12=+0.00256 (regression, BARELY above baseline +0.00006). **Bilateral pattern**: both larger eps (B, C: SGD-like rare-token transitions) AND smaller eps (D: purer preconditioning) regress vs A — eps=1e-10 is bilaterally optimal on lm_head. No arm passes within-pod −0.002 threshold; best non-ctrl arm B at +0.00191 just above productive-null upper bound. OLD-stack rebase data preserved (A=B=3.27211 to 6dp) cleanly confirmed `sqrt(v_t) >> eps` dominates denominator for lm_head's typical v_t magnitudes ~1e-3 to 1e-1; eps inert across {1e-12, 1e-10, 1e-8, 1e-6} — confirming Zipf-scaling preservation is UPSTREAM of eps. Mechanism reading: per-group AdamW eps is NOT the bottleneck for lm_head per-coord magnitude scaling. Composes with #618 (Muon NEG) + #663 (SOAP NULL) + #547 (SHAPE NULL) + #584 (LR-mult NULL): ALL preconditioning-mechanism interventions on lm_head closed null/neg. **Per-group AdamW axis on lm_head is FULLY exhausted at the preconditioner level.** Future lm_head work should target representation/loss-side mechanisms. Implementation hygiene clean (10 LOC, env-var-gated, rebased cleanly, drift gate PASS, all 4 arms hit 3.28 target). **53rd productive-null/negative this cycle.** Per-group AdamW hyperparameter family is now fully characterized: β₁ #599 NEG, β₂ #560 NEG, WD #593 NULL, eps #652 NEG, BC #664 NULL — only LR-mult #393 MERGED extracted gain.
 **Follow-up**: fern assigned **#709 body Muon momentum bias correction (enable)** — fresh axis on body Muon side never tested. Standard Muon does NOT apply bias correction `m_t/(1-β^t)` to its momentum buffer; this PR tests ENABLING it. Symmetric with #664's DISABLING AdamW BC (= NULL); body-Muon ENABLING BC has structurally different effect because the momentum buffer is then fed through Newton-Schulz orthogonalization. Mechanism: in first ~20 steps, m_t is biased toward zero relative to steady state at β=0.95; NS-orthogonalizing a biased buffer may give worse early-phase update direction. 4-arm sweep: A (off, ctrl), B (full training, decays naturally), C (first 50 steps only, aggressive early), D (first 200 steps, covers convergence to steady state). Mechanism: bias factor at step 1 is ~20× scaling; by step 50 ~1.05×; by step ~140 essentially 1.0.
 
-### 🔄 fern #709 — Body Muon momentum bias correction (enable) [assigned 18:30 UTC]
+### ✅ fern #709 — Body Muon momentum bias correction (enable) — CLOSED 02:50 UTC productive-NULL
 
 **Branch:** `g1r4-fern/muon-momentum-bias-correction`
-**Hypothesis**: Standard Muon's momentum update is `m_t = β*m_{t-1} + g_t` with β=0.95, with NS-orthogonalization applied to `m_t` to produce update direction. **Muon does NOT currently apply bias correction** — there's no `m_hat = m_t/(1-β^t)` rescaling step before NS. Consequence: in first ~20 steps, `m_t` is biased toward zero relative to its steady-state magnitude (1/(1-β) ≈ 20-step memory window at β=0.95); NS operates on this biased-toward-zero buffer in early training. Because NS normalizes spectral direction (not magnitude), the bias affects WHICH dominant singular value gets projected to unit-norm — meaning early-step update direction may be qualitatively different from steady-state. Symmetric with #664 (DISABLING aux AdamW BC = NULL); body-Muon ENABLING BC has structurally different effect because momentum is then fed through NS. 4-arm: A (off, ctrl, bit-identical), B (full training), C (first 50 steps), D (first 200 steps). Distinct from #356 (μ-schedule SHAPE NEG), #530 (Nesterov-Muon current-grad mix NULL), #102 (LR warmup body NULL). **ETA full chain:** ~7.3h. Implementation: ~12 LOC.
+
+Single-seed 4-arm (drift gate A PASS, Δ=−0.00008):
+
+| Arm | BC | window | val/loss | Δ_vs_A | Δ_vs_baseline |
+|---|:--:|:---:|---:|---:|---:|
+| A (ctrl) | 0 | — | 3.27062 | — | −0.00008 |
+| B | 1 | full | **3.26918** | **−0.00144** | **−0.00152** |
+| C | 1 | 50 | 3.27174 | +0.00113 | +0.00104 |
+| D | 1 | 200 | 3.26958 | −0.00104 | −0.00112 |
+
+**Mechanism reading**: BC factor 1/(1−μ^t) at μ=0.95: 20× at t=1, 1.0834× at t=50, 1.0060× at t=100, **1.0000 by step ~200**. The BC mechanism is effectively a first-200-step rescaling of the pre-NS momentum buffer. B (full) ≈ D (window=200) Δ_vs_A confirms — the BC effect is concentrated in the first ~200 steps regardless of window setting. Beyond step ~200, B and D are bit-identical to A.
+
+**Verdict**: Sub-threshold (Δ_vs_baseline=−0.00152, below −0.002 winner threshold) AND mechanism-understood (early-step magnitude-only intervention; NS-orthogonalization absorbs the magnitude perturbation, leaving only second-order trajectory effects). Adds to "body Muon early-step magnitude rescaling" closed class (#126 Lookahead, #163 warmup-rescale, #419 init scale). NS-orthogonalization fundamentally compresses pre-NS magnitude information for body Muon. **60th productive-null/negative this cycle.**
+
+**Follow-up**: fern assigned **#751 Cautious Optimizers** — sign-agreement mask on body Muon + aux AdamW (Liang et al. 2024). Fresh mechanism: per-coordinate update direction agreement, orthogonal to magnitude (clip, LR) and time (schedule) axes.
+
+### 🔄 fern #751 — Cautious Optimizers (sign-agreement mask on body Muon + aux AdamW) [assigned 02:50 UTC]
+
+**Branch:** `g1r4-fern/cautious-optimizers`
+**Hypothesis**: Cautious Optimizers (Liang et al. 2024, arXiv:2411.16085) apply a sign-agreement mask before the optimizer step: `mask = (g * u > 0).float(); u_cautious = u * mask / mask.mean().clamp_min(eps)`. Zero out per-coordinate updates where the optimizer's proposed direction disagrees with the immediate gradient sign, then rescale by the mask's mean to preserve step magnitude on average. Demonstrated improvements on Lion, AdamW, Adam across LLM pretraining. **For body Muon**: post-NS the polar-decomposed update direction can differ substantially from grad sign-by-sign — cautious masking zeros NS-direction coordinates that disagree with grad-sign, combining NS's spectral conditioning with gradient-aware coordinate filtering. **For aux AdamW**: mask zeros stale-momentum updates where m/√v direction disagrees with current gradient. **Conceptually orthogonal to all merged mechanisms**: grad clip (#165, #708) on gradient norms; per-group LR (#393, #579) on update magnitude; NS schedule (#290, #285) on time; cautious masking on **per-coordinate update direction agreement** — third axis distinct from magnitude and time. 4-arm: A (ctrl, both off), B (Muon only), C (AdamW only), D (both). ~15 LOC. ETA ~7.3h.
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
@@ -219,17 +238,22 @@ Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A=3.27261, B
 Single-seed 4-arm on NEW merged stack post-#579 (drift gate A' PASS, |3.26762−3.27070|=0.00308 at upper edge but within envelope): A'=3.26762, B (FREQ=50)=+0.00174 (regression), C (FREQ=25)=+0.00325 (regression, worst), **D (FREQ=100)=3.26666 (Δ_D_vs_A'=−0.00096 sub-threshold, val=−0.00404 below baseline)**. **Monotone frequency trend**: less SOAP rotation = better; optimum extrapolates to FREQ→∞ (= AdamW, no rotation). Δ_D_vs_A' = −0.00096 sub-threshold (well below −0.002 within-pod gate); single-seed magnitude inside 8+ paired-pod-collapse range this cycle. Mechanism: AdamW's coord-basis is near-optimal for lm_head — SOAP's eigenbasis rotation perturbs a basis the optimizer has already self-tuned via β₂=0.99 + LR_MULT=1.0 over Zipf-distributed vocabulary structure. **Composes with #618 NEG (full Muon for lm_head, NS destroys Zipf scaling): both spectral conditioning interventions on lm_head — orthogonalization and eigenbasis rotation — failed**. lm_head's Hessian is structurally distinct from inner-block Hessians and resists every form of spectral conditioning intervention tested. Future lm_head work should target representation/loss-side mechanisms (Zipf-weighted loss, frequency-aware label smoothing, output-projection low-rank decomp), not preconditioner replacements. Extreme aspect ratio (65:1) wrong regime for SOAP — left/right preconditioner stale-eigenvector amortization assumes near-square matrices. Implementation hygiene clean (108 LOC additive behind NANOGPT_SOAP_LM_HEAD_FREQ env var, +0.32% wall-clock at FREQ=100, all 4 arms hit 3.28 target). **52nd productive-null/negative this cycle. WAVE3 IDEA-by-IDEA portfolio fully closed** (7/8 ideas tested; only IDEA 1 Polar Express never assigned; 4 of 7 NULL/NEGATIVE, 1 of 7 MERGED via #579 — but #579 was a NEW axis discovered during WAVE3 execution, not on the WAVE3 list). Strong signal: **mechanism progress now from per-block-TYPE asymmetry family** (#669 WD / #674 momentum testing) rather than aux-group preconditioner replacements.
 **Follow-up**: thorfinn assigned **#708 per-group gradient clip threshold asymmetry** — fresh axis distinct from per-block-TYPE wiring (avoids the impl-bug class seen in #669 / #674). Tests body-Muon clip vs aux-AdamW clip split (currently uniform NANOGPT_GRAD_CLIP=10.0). Body gradients pass through NS-orthogonalization (which renormalizes spectral magnitudes); aux gradients are sparse-row Zipf-distributed and AdamW preserves per-coord magnitude — these two distributions have different "natural" outlier ranges and a single global threshold is suboptimal.
 
-### 🔄 thorfinn #708 — Per-group gradient clip threshold asymmetry [assigned 18:30 UTC]
+### 📋 thorfinn #708 — Per-group gradient clip threshold asymmetry [SENT BACK 02:50 UTC for paired-pod n=3]
 
 **Branch:** `g1r4-thorfinn/per-group-grad-clip-asym`
-**Hypothesis**: Single global NANOGPT_GRAD_CLIP=10.0 applies uniformly to body-Muon and aux-AdamW groups, but the two have structurally different gradient distributions. Body Muon (768×768 attn / 768×3072 mlp) passes through NS-orthogonalization which renormalizes spectral magnitudes — pre-NS norm matters less; aux AdamW (50304×768 embed/lm_head) preserves per-coord magnitude via m/√v and outlier rows propagate directly into updates. Historical progression `#105 clip=5.0 MERGED → #165 clip=10.0 MERGED` shows looser global helps, implying body-Muon bottlenecked at 5.0 — but at cost of looser aux clip. Per-group split lets us **tighten aux while keeping or loosening body**.
-| Arm | BODY_CLIP | AUX_CLIP | Tests |
-|---|---:|---:|---|
-| A (ctrl) | 10.0 | 10.0 | Bit-identical merged baseline (both = global=10.0) |
-| B | 10.0 | **5.0** | Tighter aux only — bounds embed/lm_head outliers |
-| C | **20.0** | 10.0 | Looser body only — more headroom for NS conditioning |
-| D | **20.0** | **5.0** | Compound: looser body + tighter aux |
-**ETA full chain:** ~7.3h. Implementation: ~15 LOC (split single `clip_grad_norm_` into two — one over body-Muon param list, one over aux-AdamW param list). Distinct from #408 AGC (per-PARAMETER clip — not per-GROUP), #168 (global single-threshold sweep), and in-flight #668 tanjiro per-row L2 clip embed/lm_head (row-granularity, not group-granularity). Mechanism: stack-INDEPENDENT (operates on gradient norms pre-optimizer, orthogonal to all Muon param-group LR/WD/momentum splits and all aux AdamW per-group hyperparameters). Telemetry ask on Arm A: log pre-clip body/aux grad norms + clip trigger counts every 50 steps to inform future clip-related design regardless of this PR's outcome.
+
+**Phase 1 — single-seed 4-arm screening (terminal 02:39 UTC)**:
+
+| Arm | BODY | AUX | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 10.0 | 10.0 | 3.27183 | — | +0.00113 | 3225 | `9rq5kavj` |
+| **B** | 10.0 | **5.0** | **3.26630** | **−0.00553** | **−0.00440** | **3175** | `gt0tjaha` |
+| C | **20.0** | 10.0 | 3.27057 | −0.00126 | −0.00013 | 3225 | `cfob7yav` |
+| D | **20.0** | **5.0** | 3.26798 | −0.00385 | −0.00272 | 3200 | `cf9gzm3f` |
+
+**Mechanism reading matches "aux-outliers-bottleneck" prediction**: B (aux-only-tight) wins decisively (Δ_vs_A=−0.00553 clears −0.002 winner threshold); C (body-only-loose) is flat (NS absorbs body magnitude as predicted); D (compound) underperforms B (body=20 adds noise once aux=5 is in place). Drift gate A Δ=+0.00113 → PASS. STRONGEST winner candidate of this round.
+
+**Phase 2: paired-pod n=3 confirmation on Arm B** (BODY=10, AUX=5, NANOGPT_SEED∈{1,2,3}, group `g1r4-thorfinn/per-group-grad-clip-asym-paired-pod`). Magnitude comparable to or stronger than recent merges (#393 Δ=−0.00137, #579 Δ=−0.00136). If paired-pod confirms, expected mean(B,n=3) ≈ 3.268-3.270 → merge.
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
@@ -400,17 +424,22 @@ Single-seed 4-arm (drift gate A PASS, exceptional parity +0.00014): A=3.27159, B
 Single-seed 4-arm on NEW post-#579 stack (drift gate A2 PASS, +0.00154 within ±0.003): A2 ""=3.27224 ctrl, B2 embed=3.27143 (Δ=−0.00081 sub-threshold null), C2 lm_head=3.27144 (Δ=−0.00080 sub-threshold null), D2 all_aux=3.27217 (Δ=−0.00007, **saturation/interference**). No arm passes within-pod −0.002 winner threshold; best singletons B2/C2 at −0.0008 ~2.5× below threshold. **B2 ≈ C2 within single-seed noise σ≈0.001**: bias-correction disable on EITHER aux group produces nearly-identical marginal effect — the mid-training LR-boost mechanism applies uniformly across aux groups with no per-group structural preference. **D2 (all_aux) flattens to ctrl** rather than compounding additively (~−0.0016 expected if independent) — **saturation/interference**: the early-training relative-magnitude structure between embed/lm_head/scalar is maintained by their RELATIVE bias-correction factors; disabling on ALL three preserves the relative ratios while disabling on only one breaks them. The single-aux disable signal is a relative-magnitude shift, not a single-group mechanistic effect. Implementation clean (telemetry verified bc_scale_factor ramp matches expected curve, rebased onto post-#579 cleanly, wall-clock parity 1893-1894ms across all 4 arms). All 4 arms hit 3.28 target. **54th productive-null/negative this cycle.** Bilateral closure with per-group AdamW family: #599 β₁ NEG + #560 β₂ NEG + #593 WD NULL + #652 eps NEG + #664 BC NULL — AdamW-internal axes now FULLY exhausted on merged stack; only LR-mult #393 MERGED extracted gain.
 **Follow-up**: frieren assigned **#710 per-depth body Muon NS_ITERS variation** — fresh axis distinct from per-block-TYPE wiring (avoids the impl-bug class seen in #669/#674). Tests early/mid/deep bucket NS-iter budget allocation; orthogonal to #543 (per-aspect-ratio, only differentiates mlp.fc/mlp.proj per layer because q/k/v/attn.proj are 1× aspect square 768×768) and #470 (uniform escalation) and #506 (time-axis warmup CLOSED-NEG). Mechanism: gradient magnitudes vary by depth (early layers diluted by backward chain depth; mid layers full backward flow / capacity bottleneck; deep layers closer to output); NS=12 uniform may over-invest on well-conditioned mid-layer matrices and under-invest on edge layers. 4-arm: A (12,12,12) ctrl, B (10,14,10) mid-heavy, C (14,12,10) front-loaded, D (10,12,14) back-loaded.
 
-### 🔄 frieren #710 — Per-depth body Muon NS_ITERS variation [assigned 18:40 UTC]
+### 📋 frieren #710 — Per-depth body Muon NS_ITERS variation [SENT BACK 02:50 UTC for paired-pod n=3]
 
 **Branch:** `g1r4-frieren/per-depth-muon-ns-iters`
-**Hypothesis**: Body Muon `NANOGPT_NS_ITERS=12` is uniform across all 12 transformer layers (72 body Muon matrices total). Gradient magnitude distributions vary by depth: early layers diluted by backward chain (12 layers of gradient flow); mid layers full backward flow at capacity bottleneck; deep layers closer to output. NS convergence rate depends on input matrix's singular value distribution — uniform NS=12 may over-invest on well-conditioned mid layers and under-invest on edge layers. Per-depth bucket allocation tests depth-aware budgeting (distinct from #543 per-aspect-ratio NULL where only 2-of-6 matrices per layer have aspect>1).
-| Arm | NS_EARLY | NS_MID | NS_DEEP | Effect tested |
-|---|:---:|:---:|:---:|---|
-| A (ctrl) | 12 | 12 | 12 | Bit-identical merged baseline |
-| B | 10 | 14 | 10 | Mid-heavy: invest in capacity bottleneck, save on edges (−6% FLOPs net) |
-| C | 14 | 12 | 10 | Front-loaded: max quality early (gradient flow conditioning), decreasing toward output (FLOP-neutral) |
-| D | 10 | 12 | 14 | Back-loaded: max quality deep (output-side precision), decreasing toward input (FLOP-neutral) |
-**ETA full chain:** ~7.3h (Arm B may be ~5% faster). Implementation: ~25 LOC (regex-based layer-to-bucket map at init + 3 env-var reads + per-param iter lookup). Distinct from #543 (per-aspect-ratio, only differentiates mlp matrices), #470 (uniform escalation), #506 (TIME-axis warmup NEG), #388 (NS_ITERS_COOLDOWN — orthogonal phase). Composes with #543 finding: per-aspect-ratio NULL but per-depth different. Smoke verification ask first comment: report exact regex pattern identifying layer indices in this codebase + sanity-check of 72 body Muon params with (layer_idx, block_type) tuples.
+
+**Phase 1 — single-seed 4-arm screening (terminal 02:39 UTC)**:
+
+| Arm | NS (E/M/D) | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
+|---|:---:|---:|---:|---:|---:|---|
+| A (ctrl) | 12/12/12 | 3.26910 | — | −0.00160 | 3200 | `aigxob1c` |
+| B | 10/14/10 | 3.26933 | +0.00023 | −0.00137 | 3200 | `2iz8vbk0` |
+| **C** | **14/12/10** | **3.26772** | **−0.00138** | **−0.00298** | **3200** | `3c8ccu1l` |
+| D | 10/12/14 | 3.27098 | +0.00188 | +0.00028 | 3225 | `14hjt028` |
+
+**Monotone front-vs-back NS quality bias** (C > A > B > D) — front-loading NS budget for early layers (where backward-chain gradient dilution is worst) is the load-bearing direction. Mechanistically clean. Drift gate A Δ=−0.00160 (favorable seed) → PASS within ±0.003. Arm C Δ_vs_A=−0.00138 is sub-threshold-but-direction-correct per pre-staged plan.
+
+**Phase 2: paired-pod n=3 confirmation on Arm C** (NS_E=14, M=12, D=10, NANOGPT_SEED∈{1,2,3}, group `g1r4-frieren/per-depth-muon-ns-iters-paired-pod`). Risk acknowledged: sub-threshold signal collapse precedent (#628, #632, #669, #674) suggests possible productive-NULL outcome — but front-load mechanism is mechanistically distinct from prior sub-threshold collapses.
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 

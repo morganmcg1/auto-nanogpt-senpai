@@ -3,6 +3,57 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 02:50 UTC — PR #708: Per-group gradient clip threshold asymmetry — body Muon vs aux AdamW (thorfinn) — SENT BACK for paired-pod n=3
+
+- Branch: `g1r4-thorfinn/per-group-grad-clip-asym`
+- Hypothesis: Split single `NANOGPT_GRAD_CLIP` into per-group thresholds `_BODY` (body Muon params) and `_AUX` (embed/lm_head/scalar AdamW). Predicts aux-outlier bottleneck — tighter aux clip should help (B), looser body clip should be inert (C; NS absorbs body magnitude per #206/#618/#663).
+- Single-seed 4-arm screening result (group `g1r4-thorfinn/per-group-grad-clip-asym`, NANOGPT_SEED=0):
+
+| Arm | BODY | AUX | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 10.0 | 10.0 | 3.27183 | — | +0.00113 | 3225 | `9rq5kavj` |
+| **B** | 10.0 | **5.0** | **3.26630** | **−0.00553** | **−0.00440** | **3175** | `gt0tjaha` |
+| C | **20.0** | 10.0 | 3.27057 | −0.00126 | −0.00013 | 3225 | `cfob7yav` |
+| D | **20.0** | **5.0** | 3.26798 | −0.00385 | −0.00272 | 3200 | `cf9gzm3f` |
+
+Mechanism reading matches the PR's "aux-outliers-bottleneck" prediction: B wins decisively (Δ_vs_A=−0.00553 clears −0.002 winner threshold), C is flat (NS absorbs body magnitude as predicted), D underperforms B (body=20 adds noise once aux=5 is in place). Drift gate A Δ=+0.00113 → PASS.
+
+**Action: SENT BACK to thorfinn for n=3 paired-pod confirmation on Arm B** (BODY=10, AUX=5, NANOGPT_SEED∈{1,2,3}, group `g1r4-thorfinn/per-group-grad-clip-asym-paired-pod`). Strongest winner candidate of this round — magnitude is comparable to or stronger than recent merges (#393 embed LR mult Δ=−0.00137, #579 Muon LR asym Δ=−0.00136). If paired-pod confirms, expected mean(B,n=3) ≈ 3.268-3.270 → merge.
+
+## 2026-05-22 02:50 UTC — PR #710: Per-depth body Muon NS_ITERS — early/mid/deep bucket budget allocation (frieren) — SENT BACK for paired-pod n=3
+
+- Branch: `g1r4-frieren/per-depth-muon-ns-iters`
+- Hypothesis: Reallocate NS_ITERS across depth buckets (early=layers 0-3, mid=4-7, deep=8-11). FLOP-neutral budget shift (total stays at 36 = 12×3) tests whether per-depth NS quality bias matters.
+- Single-seed 4-arm screening result (group `g1r4-frieren/per-depth-muon-ns-iters`, NANOGPT_SEED=0):
+
+| Arm | NS (E/M/D) | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
+|---|:---:|---:|---:|---:|---:|---|
+| A (ctrl) | 12/12/12 | 3.26910 | — | −0.00160 | 3200 | `aigxob1c` |
+| B | 10/14/10 | 3.26933 | +0.00023 | −0.00137 | 3200 | `2iz8vbk0` |
+| **C** | **14/12/10** | **3.26772** | **−0.00138** | **−0.00298** | **3200** | `3c8ccu1l` |
+| D | 10/12/14 | 3.27098 | +0.00188 | +0.00028 | 3225 | `14hjt028` |
+
+**Monotone front-vs-back NS quality bias** (C > A > B > D) — front-loading NS budget for early layers (where backward-chain gradient dilution is worst) is the load-bearing direction. Mechanistically clean. Drift gate A Δ=−0.00160 (favorable seed) → PASS within ±0.003. Arm C Δ_vs_A=−0.00138 is sub-threshold-but-direction-correct per pre-staged plan.
+
+**Action: SENT BACK to frieren for n=3 paired-pod confirmation on Arm C** (NS_E=14, M=12, D=10, NANOGPT_SEED∈{1,2,3}, group `g1r4-frieren/per-depth-muon-ns-iters-paired-pod`). Risk acknowledged: sub-threshold signal collapse precedent (#628, #632, #669, #674) suggests possible productive-NULL outcome — but front-load mechanism is mechanistically distinct from prior sub-threshold collapses.
+
+## 2026-05-22 02:50 UTC — PR #709: Body Muon momentum bias correction — early-step NS input rescaling (fern) — CLOSED productive-NULL (60th cycle)
+
+- Branch: `g1r4-fern/muon-momentum-bias-correction`
+- Hypothesis: Add bias-correction term `1/(1-μ^t)` to body Muon momentum buffer before NS-orthogonalization. Predicts early-step magnitude rescaling improves NS conditioning during warmup.
+- Single-seed 4-arm result (group `g1r4-fern/muon-momentum-bias-correction`, NANOGPT_SEED=0):
+
+| Arm | BC | window | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
+|---|:--:|:---:|---:|---:|---:|---:|---|
+| A (ctrl) | 0 | — | 3.27062 | — | −0.00008 | 3225 | `woeinhxh` |
+| **B** | 1 | full | **3.26918** | **−0.00144** | **−0.00152** | **3200** | `8uzm4ch4` |
+| C | 1 | 50 | 3.27174 | +0.00113 | +0.00104 | 3225 | `r85440kf` |
+| D | 1 | 200 | 3.26958 | −0.00104 | −0.00112 | 3200 | `gynlza9d` |
+
+**Mechanism reading**: BC factor 1/(1−μ^t) at μ=0.95: 20× at t=1, 1.0834× at t=50, 1.0060× at t=100, **1.0000 by step ~200**. The BC mechanism is effectively a first-200-step rescaling of the pre-NS momentum buffer. The fact that B (full) ≈ D (window=200) Δ_vs_A confirms this — the BC effect is concentrated in the first ~200 steps regardless of window setting. Beyond step ~200, B and D are bit-identical to A. Drift gate A Δ=−0.00008 → PASS.
+
+**Verdict**: Sub-threshold (Δ_vs_baseline=−0.00152, below −0.002 winner threshold) AND mechanism-understood (early-step magnitude-only intervention; NS-orthogonalization absorbs the magnitude perturbation, leaving only second-order trajectory effects). **CLOSED productive-NULL.** Adds to "body Muon early-step magnitude rescaling" closed class (#126 Lookahead, #163 warmup-rescale, #419 init scale). NS-orthogonalization fundamentally compresses pre-NS magnitude information for body Muon.
+
 ## 2026-05-21 21:40 UTC — PR #628: Trust-region adaptive Muon LR — per-layer cos-EMA boost (nezuko) — CLOSED productive-NULL
 
 - Branch: `g1r4-nezuko/trust-region-muon-lr`
