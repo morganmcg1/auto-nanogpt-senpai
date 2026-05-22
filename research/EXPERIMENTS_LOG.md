@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 11:15 UTC — Cycle 71 mid-89: PR #771 thorfinn ATTN_SOAP_TRUST_RAMP CLOSED — 26th floor axis, dynamic SOAP trust gate falsified
+
+### PR #771 — thorfinn ATTN_SOAP_TRUST_RAMP 0.85→0.95 (RAMP_FRAC 0.05/0.10)
+
+Branch: `g1r2-thorfinn/attn-soap-trust-ramp`. Closed 2026-05-22 11:10 UTC.
+
+| Arm | RAMP_FRAC | val_loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|-----------|----------|-----|-----------|---------------|-----|
+| disabled-check | — | val@200=4.08308 (in band) | — | bit-equivalent verify | — | (same run) |
+| Arm A | 0.05 | **3.27078** | **3025** | MISS (+0.00302 val, +25 ffs) | +0.00302, +25 ffs | `cs6p9db0` |
+| Arm B | 0.10 | **3.27023** | **3025** | MISS (+0.00247 val, +25 ffs) | +0.00247, +25 ffs | `nv2jimy2` |
+
+**Result: AXIS CLOSED as MISS.** Both arms land in close-miss floor cluster.
+
+#### Mechanism falsification
+
+- Direction is correct (Arm B 10pct ramp marginally better than A 5pct ramp): wider ramp gives the dynamic preconditioner more cooldown window with stabilized eigenbases.
+- Lever magnitude is too small to cross the ffs=3025 floor.
+- Combined with PR #683 (static ATTN_SOAP_TRUST_THRESHOLD sweep) closure, **dynamic-vs-static SOAP trust-gate mechanism class is now closed bilaterally**. Attention-side preconditioner aggressiveness during cooldown is NOT the binding constraint for ffs unlock.
+- 26th axis joining ffs=3025+ floor cluster (val≈3.27).
+
+#### Reassignment: thorfinn → #788 MARS-M VARIANCE-REDUCED MUON
+
+Priority 2 from researcher batch 2026-05-22 10:15. **First per-step gradient transformation tested on this stack in 189 PRs.**
+
+Mechanism: STORM-style control-variate correction `c_t = g_t + γ * (μ/(1-μ)) * (g_t - g_{t-1})` applied BEFORE Muon's momentum aggregation/NS5/contra/NorMuon. Arms: A=γ=0.025 (paper-optimal), B=γ=0.1.
+
+- Yuan et al. 2024 (arxiv 2411.10438): proves O(T^-1/4) → O(T^-1/3) convergence rate.
+- Variant: MARS-approx (cache previous step's raw grad, no extra fwd/bwd).
+- Memory overhead: ~6MB extra per Muon param group (one fp32 grad copy).
+- **Mechanistically orthogonal** to all 26 closed axes — variance reduction operates on the gradient estimator itself, not on scalars, schedules, or per-group LR.
+
+---
+
 ## 2026-05-22 11:00 UTC — Cycle 71 mid-88: PR #764 fern MUON_COOLDOWN_SHAPE CLOSED — both arms terminal in W&B, 25th floor axis, post-completion student stall
 
 ### PR #764 — fern MUON_COOLDOWN_SHAPE (per-group cosine/sqrt cooldown on Muon LR)
