@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Schedule-Free AdamW (Defazio 2024, arxiv 2405.15682). Replaces optimizer1 (embed + lm_head + scalars)
+# with primal-dual averaging optimizer: maintains y (query, what model sees), z (gradient target), and
+# x (running average, used at validation). When enabled, optimizer1's LR is held constant — SF provides
+# its own implicit cooldown via the averaging.
+SF_ADAMW_ENABLED = int(os.environ.get("SF_ADAMW_ENABLED", "0"))  # 0 = baseline AdamW (identity)
+SF_ADAMW_WARMUP_STEPS = int(os.environ.get("SF_ADAMW_WARMUP_STEPS", "0"))
+SF_ADAMW_R = float(os.environ.get("SF_ADAMW_R", "0.0"))  # polynomial averaging exponent (0 = uniform 1/k)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -777,6 +784,109 @@ class Muon(torch.optim.Optimizer):
         return out
 
 
+class ScheduleFreeAdamW(torch.optim.Optimizer):
+    """Schedule-Free AdamW (Defazio 2024, arxiv 2405.15682) — primal-dual averaging.
+
+    Maintains three iterate sequences:
+      - z: gradient target (AdamW update is applied to z, not the params).
+      - x: running c_k-weighted average (state["x"]), used at validation.
+      - y: query point seen by forward pass, where gradients are computed.
+        y = (1 - beta1) * z + beta1 * x. y lives in p.data during train_mode.
+
+    Call optimizer.train() before training step, optimizer.eval() before validation.
+    In eval mode p.data holds x; in train mode p.data holds y. The swap uses the
+    invariant y = (1-beta1)*z + beta1*x so no extra full-param buffer is needed
+    for the swap itself (z is reused).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0,
+                 warmup_steps=0, r=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        warmup_steps=warmup_steps, r=r, k=0, ck_sum=0.0, train_mode=True)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def train(self):
+        # Swap p.data from x (eval mode) -> y (train mode). p.data currently = x.
+        # y = (1 - beta1) * z + beta1 * x => p.data <- (1-beta1)*z + beta1 * p.data.
+        for group in self.param_groups:
+            if group["train_mode"]:
+                continue
+            beta1, _ = group["betas"]
+            for p in group["params"]:
+                state = self.state[p]
+                if "z" not in state:
+                    continue
+                p.data.mul_(beta1).add_(state["z"], alpha=1.0 - beta1)
+            group["train_mode"] = True
+
+    @torch.no_grad()
+    def eval(self):
+        # Swap p.data from y (train mode) -> x (eval mode). p.data currently = y.
+        # x = (y - (1 - beta1) * z) / beta1 => p.data <- (p.data - (1-beta1)*z) / beta1.
+        for group in self.param_groups:
+            if not group["train_mode"]:
+                continue
+            beta1, _ = group["betas"]
+            for p in group["params"]:
+                state = self.state[p]
+                if "z" not in state:
+                    continue
+                p.data.sub_(state["z"], alpha=1.0 - beta1).div_(beta1)
+            group["train_mode"] = False
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            assert group["train_mode"], "ScheduleFreeAdamW.step requires train mode"
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            warmup = group["warmup_steps"]
+            r = group["r"]
+            group["k"] = group["k"] + 1
+            k = group["k"]
+            sched = (k / warmup) if (warmup > 0 and k < warmup) else 1.0
+            # polynomial averaging weight: c_k = (k+1)^r / sum_{j=1..k} (j+1)^r
+            ck_num = ((k + 1) ** r) if r > 0 else 1.0
+            group["ck_sum"] = group["ck_sum"] + ck_num
+            c_k = ck_num / group["ck_sum"]
+            eff_lr = lr * sched
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["z"] = p.data.clone()
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                    state["x"] = p.data.clone()
+                z, m, v, x = state["z"], state["m"], state["v"], state["x"]
+                y = p.data
+                # Adam moments on g(y).
+                m.mul_(beta1).add_(grad, alpha=1 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                denom = v.sqrt().add_(eps)
+                # AdamW update applied to z, with weight decay evaluated at y.
+                z.addcdiv_(m, denom, value=-eff_lr)
+                if wd != 0:
+                    z.add_(y, alpha=-eff_lr * wd)
+                # x is the running c_k-weighted average of z (post-update), per Defazio 2024 Alg.1:
+                # x_{k+1} = (1 - c_{k+1}) x_k + c_{k+1} z_{k+1}. Averaging y instead of z makes the
+                # effective averaging weight c_k(1-beta1), which (with beta1=0.8) is 5x too slow
+                # and causes x to lag behind z severely.
+                x.mul_(1 - c_k).add_(z, alpha=c_k)
+                # y_new = (1 - beta1) * z + beta1 * x.
+                p.data.copy_(z).mul_(1 - beta1).add_(x, alpha=beta1)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -866,6 +976,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/sf_adamw_enabled": SF_ADAMW_ENABLED,
+            "optimizer/sf_adamw_warmup_steps": SF_ADAMW_WARMUP_STEPS,
+            "optimizer/sf_adamw_r": SF_ADAMW_R,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +1011,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if SF_ADAMW_ENABLED:
+        optimizer1 = ScheduleFreeAdamW(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+            betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+            warmup_steps=SF_ADAMW_WARMUP_STEPS, r=SF_ADAMW_R)
+        optimizer1.train()
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -932,7 +1054,13 @@ for trial_idx in range(args.num_trials):
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
+            sf_opt = SF_ADAMW_ENABLED and isinstance(opt, ScheduleFreeAdamW)
             for group in opt.param_groups:
+                if sf_opt:
+                    # Schedule-Free maintains its own implicit cooldown via primal-dual averaging;
+                    # keep optimizer1's LR constant.
+                    group["lr"] = group["initial_lr"]
+                    continue
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
@@ -968,6 +1096,8 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            if SF_ADAMW_ENABLED:
+                optimizer1.eval()  # swap p.data y -> x for validation
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -1002,6 +1132,8 @@ for trial_idx in range(args.num_trials):
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
+            if SF_ADAMW_ENABLED:
+                optimizer1.train()  # swap p.data x -> y for training
             # start the clock again
             dist.barrier()
             t0 = time.perf_counter()
