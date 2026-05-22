@@ -16,7 +16,6 @@ from pathlib import Path
 
 import torch
 from torch import Tensor, nn
-from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
@@ -468,6 +467,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# NAdam-style Nesterov first-moment correction on AdamW (PR #739). 0=off (standard AdamW),
+# 1=full Nesterov throughout, 2=cooldown-only (progress >= MU_COOLDOWN_START).
+ADAMW_NESTEROV = int(os.environ.get("ADAMW_NESTEROV", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -624,6 +626,73 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class AdamW(torch.optim.Optimizer):
+    """Standard AdamW with optional NAdam-style (Nesterov) first-moment correction.
+
+    When ADAMW_NESTEROV=0 the update is identical to standard decoupled AdamW.
+    Set ADAMW_NESTEROV=1 for full one-step Nesterov throughout, or =2 for
+    cooldown-only activation (progress >= MU_COOLDOWN_START).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0,
+                 total_steps=None, fused=True):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.total_steps = total_steps  # used by ADAMW_NESTEROV=2 progress check
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                # Pre-increment step count matches set_hparams's `progress = step / train_steps`.
+                progress_step = state["step"]
+                state["step"] += 1
+                step = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                # AdamW decoupled weight decay
+                if weight_decay != 0:
+                    p.mul_(1 - lr * weight_decay)
+
+                # First and second moment EMA updates
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                # Decide whether Nesterov is active this step
+                if ADAMW_NESTEROV == 1:
+                    use_nesterov = True
+                elif ADAMW_NESTEROV == 2 and self.total_steps is not None and self.total_steps > 0:
+                    progress = progress_step / self.total_steps
+                    use_nesterov = progress >= MU_COOLDOWN_START
+                else:
+                    use_nesterov = False
+
+                if use_nesterov:
+                    # NAdam (Dozat 2016): one-step look-ahead m_hat = β1 * m_t + (1 - β1) * g_t
+                    update_first_moment = exp_avg.mul(beta1).add(grad, alpha=1 - beta1)
+                else:
+                    update_first_moment = exp_avg
+
+                bias_correction1 = 1 - beta1 ** step
+                bias_correction2 = 1 - beta2 ** step
+                step_size = lr / bias_correction1
+                denom = (exp_avg_sq.sqrt() / (bias_correction2 ** 0.5)).add_(eps)
+                p.addcdiv_(update_first_moment, denom, value=-step_size)
 
 
 class Muon(torch.optim.Optimizer):
@@ -866,6 +935,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/adamw_nesterov": ADAMW_NESTEROV,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -901,7 +971,8 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True,
+                       total_steps=train_steps)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
