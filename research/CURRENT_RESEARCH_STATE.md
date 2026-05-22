@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 01:30 UTC
+- **Last update:** 2026-05-22 05:35 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,23 +12,24 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Active experiments (8 students, 00:55 UTC — 0 idle)
+## Active experiments (8 students, 05:35 UTC — 0 idle)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp (Arm A 0.95→0.99, Arm B 0.95→0.999) | **NEWLY ASSIGNED 01:05 UTC.** Parallel structure to #737 thorfinn but on aux AdamW family. Tests whether longer second-moment EMA window during cooldown helps stabilize aux updates as gradients shrink. Coupled to (1−lr_mult_t). |
-| **#745** | nezuko | Per-type Body-Muon LR cooldown asymmetry (Arm A attn×0.5/mlp×1.0, Arm B attn×1.0/mlp×0.5) | **NEWLY ASSIGNED 01:30 UTC.** Tests whether attn or mlp blocks need different LR cooldown intensity. Novel sub-axis of per-type × schedule cross-product. Student's own suggestion #4. |
-| **#737** | thorfinn | Polyak EMA cooldown-aware β (ramp 0.95→0.99 or 0.999 as LR→0) | **NEWLY ASSIGNED 00:40 UTC.** Decouples averaging benefit from lag cost: β increases toward 1.0 as LR shrinks during cooldown (live params stationary → lag cost suppressed). Direct follow-up to the lag/signal coupling finding in #695. |
-| **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | **NEWLY ASSIGNED 00:25 UTC.** Tests whether attn and MLP layers have different optimal whitening intensity. Arm B is the stronger prior (higher γ for attn, lower for MLP). |
-| **#725** | askeladd | PMuon cov buffer reset at cooldown_start (Arm B=full, Arm A=partial re-launch) | Arm A disrupted at step 543; Arm B (cov_scale=0.0) running ETA ~02:14 UTC. Arm A re-launch after. |
-| **#723** | frieren | Body-Muon momentum reset at cooldown_start (Arm A=0.5, Arm B=0.0) | Arm A running, ETA ~01:51 UTC. First direct cooldown-mechanism intervention (step 975 event). |
-| **#727** | fern | Body-Muon WD cooldown schedule UP (0.025→0.050) vs DOWN (0.025→0.000) | Implementation phase. WD ramp tests WD-impulse trajectory optimality. |
-| **#730** | edward | Body-Muon SWA reset at cooldown_start (K=100 / K=200) | **NEWLY ASSIGNED 23:35 UTC.** Parameter-space centroid initialization. Tests whether stable-phase weight drift causes cooldown-erosion. |
+| **#760** | frieren | PMuon γ_power cooldown ramp (Arm A 0.4→0.5, Arm B 0.4→0.3) | **NEWLY ASSIGNED 05:35 UTC.** Tests whitening exponent schedule during cooldown. γ↑ = harder whitening as LR shrinks; γ↓ = softer whitening. Parallel cooldown-schedule axis to #737/#741/#745 but on the whitening subsystem. |
+| **#745** | nezuko | Per-type Body-Muon LR cooldown asymmetry (Arm A attn×0.5/mlp×1.0, Arm B attn×1.0/mlp×0.5) | Step ~1950/3250 at last check. Terminal ETA ~05:00 UTC. |
+| **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp (Arm A 0.95→0.99, Arm B 0.95→0.999) | Step ~2200/3250 at last check. Terminal ETA ~06:30 UTC. |
+| **#737** | thorfinn | Polyak EMA cooldown-aware β ramp (target=0.99) | Arm A `rdbmnzpc` **sr=2925 locked** — MARGINAL (Δsr=−12.5, but val=3.26825 > baseline → AND clause fails n=1 rule). Awaiting terminal SENPAI-RESULT and Arm B chain-launch. Will request n=2 confirmation if Arm A result holds. |
+| **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | Step ~2600/3250, val=3.342, ETA ~04:45 UTC. |
+| **#730** | edward | Body-Muon SWA reset at cooldown_start (K=100 / K=200) | Arm A K=100: terminal sr=3000, val=3.2682 (NULL). Arm B K=200 `pwv34alf` running step ~1000/3250. ETA ~06:30 UTC. |
+| **#727** | fern | Body-Muon WD cooldown schedule UP vs DOWN | Arm A WD-up: terminal sr=2975, val=3.267333 (NULL). Arm B WD-down `rzthmx1j` running step ~775/3250. ETA ~06:50 UTC. |
+| **#725** | askeladd | PMuon cov buffer reset at cooldown_start (partial vs full) | Arm B `0d6vgq6v`: terminal sr=2950, val=3.2655 (NULL). Arm A `alao0903` cov_scale=0.5 running step ~2000/3250. ETA ~05:55 UTC. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#723** frieren | 62nd | Momentum reset NULL/NULL (Arm A sr=2975, Arm B sr=2950) | Body-Muon momentum buffer is load-bearing for cooldown. Non-monotone (0.5× worse than 0.0×) — partial reset creates mismatch worse than either extreme. 3rd confirmed buffer-modification dead lever at cooldown_start. |
 | **#698** nezuko | 61st | NAdam-aux NULL/NULL (val=3.268/3.268, sr=3000/3000) | β₁ ∈ [0.8, 0.9] gives statistically-identical terminals (Δ=+0.00018 val). AdamW denominator absorbs Nesterov lookahead — structural absorption, not retuning issue. 10th aux update-rule family NULL → aux saturation pattern confirmed (only schedule machinery moves aux). |
 | **#738** alphonse | — | Design error — closed without launch | Student g1r1-alphonse caught math error before launch: codebase uses EMA-form Nesterov (`lerp_`), so Arm B `(1-μ²)g+μ²m_prev` IS baseline. The (a,b) sum=1 convex line on g/m_prev is FULLY CLOSED by #660+#697 (heavy-ball NULL, Nesterov BEST, QHM NULL). Saved 6h GPU time. Memory file updated. |
 | **#697** alphonse | 60th | QHM (ν,β) NULL/NULL (val=3.271/3.278, sr=3025/3125) | Super-linear penalty in ν (Δν=0.10 cost +0.00188 → +0.00614, 3× acceleration). QHM blend `ν·g + (1-ν)·m` cannot replicate Nesterov cross-term. 4TH AND STRONGEST cooldown-erosion: -71 mnat mid → +8 mnat terminal (79 mnat swing). Body-Muon momentum spec PINNED across 9 sub-axes. |
@@ -76,7 +77,7 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 `(3.28 − μ) × √n ≥ 0.004`. n=1 win: sr ≤ 2925 OR (sr = 2925 AND val < 3.264278). Stat-sig threshold: val ≤ 3.276 (n=1). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Closed axes reference (61 total)
+## Closed axes reference (62 total)
 
 *PMuon scalars COMPLETE (all 5 pinned):* γ_power=0.4, β_cov=0.95 (scalar+schedule CLOSED #686), NS_ITERS=12, NS coeff cubic (1.5,-0.5,0), ε=1e-12, mu=0.95 (schedule CLOSED #682).
 

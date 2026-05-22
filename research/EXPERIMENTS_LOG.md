@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-22 05:30 UTC — PR #723 CLOSED: Body-Muon momentum reset at cooldown_start — NULL/NULL, 62nd axis (g1r1-frieren)
+
+- Branch: `g1r1-frieren/muon-cooldown-momentum-reset`
+- Hypothesis: Resetting or weakening the body-Muon momentum buffer at cooldown_start_step (step 975) to allow the optimizer to follow current gradients during deterministic LR-decay, rather than being dragged by accumulated mid-training inertia.
+
+| Arm | scale | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | 1.0 (no reset) | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | — |
+| **Arm A** | 0.5 (partial) | bvnxlq25 | 2975 | 3.26604 | +37.5 | +0.00176 | NULL — clearly worse |
+| **Arm B** | 0.0 (full reset) | ek4zebyw | 2950 | 3.26487 | +12.5 | +0.000592 | NULL — marginally worse |
+
+- **Win threshold (n=1):** sr ≤ 2925 — neither arm wins. Neither arm close.
+- **No n=2 needed:** Arm A is non-marginal (Δsr=+37.5 > 25). Arm B is marginal but both metrics worse simultaneously — n=2 unlikely to flip sign.
+
+- **Key mechanism finding — body-Muon momentum buffer is load-bearing for cooldown.** Both arms worse confirms the mid-training momentum trajectory carries information that cooldown LR-decay relies on.
+
+- **Non-monotonic surprise:** 0.5× WORSE than 0.0×. If "less inertia = better" were the story, we'd expect monotone improvement as scale → 0. Instead, partial reset creates a worse magnitude/direction mismatch than either extreme. Rules out scale-based single-event resets as a useful lever.
+
+- **Reset events confirmed firing:** Arm A: step=975, n_scaled=72, frob 205.75 → 102.88 (0.5×). Arm B: step=975, n_scaled=72, frob 212.29 → 0.0000 (0.0×). 72 body-Muon tensors scaled in both arms.
+
+- **Joint implication with prior axes:** 3rd confirmed instance of buffer-modification at cooldown_start being harmful (#690 SGDR warm restart, #697 QHM body-Muon, now #723 momentum reset). Stable-phase trajectory state is valuable — discarding/perturbing it consistently costs steps.
+
+- **Next steps for cooldown-erosion:** Remaining levers must be schedule-side, not buffer-side:
+  - Cooldown β ramp (in-flight: #737 thorfinn, sr=2925 provisional)
+  - Aux β2 ramp (in-flight: #741 alphonse)
+  - Per-type LR ramp (in-flight: #745 nezuko)
+  - γ_power whitening ramp (newly assigned: #760 frieren)
+
 ## 2026-05-22 01:30 UTC — PR #698 CLOSED: NAdam (Nesterov-AdamW) for aux groups — NULL/NULL, 61st axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/nadam-aux`
