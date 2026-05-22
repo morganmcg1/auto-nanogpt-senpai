@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--num_steps", type=int, default=None,
+        help="Override default train_steps (3250). For debug/smoke tests only; does not change the benchmark contract.")
+    parser.add_argument("--muon_wd_cooldown_end", type=float, default=None,
+        help="Body-Muon WD value at end of cooldown (linear ramp from stable WD over cooldown). None=no schedule (baseline). Examples: 0.050 for UP ramp, 0.000 for DOWN ramp.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +708,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "muon_wd_cooldown_end": args.muon_wd_cooldown_end,
+            "override_num_steps": args.num_steps,
         },
     )
 
@@ -715,7 +721,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = args.num_steps if args.num_steps is not None else 3250
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -748,8 +754,12 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+            group["initial_weight_decay"] = group.get("weight_decay", 0.0)
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    # Optional Body-Muon weight-decay schedule (PR #727): from --muon_wd_cooldown_end,
+    # linearly ramp the muon_blocks group's weight_decay from its initial value to the
+    # cooldown-end target over the cooldown phase. None disables (baseline behavior).
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -763,7 +773,17 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        muon_wd_t = None
+        for group in optimizer2.param_groups:
+            stable_wd = group["initial_weight_decay"]
+            if args.muon_wd_cooldown_end is None:
+                wd_t = stable_wd
+            else:
+                wd_t = stable_wd + (args.muon_wd_cooldown_end - stable_wd) * cooldown_progress
+            group["weight_decay"] = wd_t
+            if group.get("name") == "muon_blocks" or muon_wd_t is None:
+                muon_wd_t = wd_t
+        return progress, cooldown_progress, eta, muon_wd_t
 
 
     ########################################
@@ -852,7 +872,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_muon_wd_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -912,14 +932,19 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
-            wandb.log({
+            cooldown_log = {
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/cooldown/progress": sched_progress,
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
-            }, step=wandb_step)
+                "train/muon_wd/wd_t": sched_muon_wd_t if sched_muon_wd_t is not None else 0.0,
+                "train/muon_wd/cooldown_end": (args.muon_wd_cooldown_end
+                                               if args.muon_wd_cooldown_end is not None
+                                               else float("nan")),
+            }
+            wandb.log(cooldown_log, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
