@@ -2563,6 +2563,51 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 
 ## 2026-05-22 ~09:45 UTC — PR #776: askeladd Muon/SOAP update RMS normalization — **ASSIGNED (P1 sweep in flight)**
 
+---
+
+## 2026-05-22 ~09:15 UTC — PR #691: thorfinn per-group β1 stacked (β1_embed=0.9, β1_scalars=0.9, β1_lm_head=0.8) — **CLOSED clean-NEG (P2 μ_n=4 +1.195mNat above gate)**
+
+- Branch: `g1r5-thorfinn/per-group-beta1-stacked`
+- Student: g1r5-thorfinn
+- Hypothesis: Stack two P1 findings from #667 (β1_embed=0.9 best) and #676 (β1_scalars=0.9 best) while holding β1_lm_head=0.8. Per-group β1 asymmetry exploits different gradient smoothing needs across AdamW groups.
+
+- **P2 n=4 terminal (Cell B config: β1_embed=0.9, β1_scalars=0.9, β1_lm_head=0.8):**
+
+| Trial | val/loss | ffs |
+|------:|---------:|----:|
+| 0 | 3.262342 | — |
+| 1 | 3.263042 | — |
+| 2 | 3.262077 | — |
+| 3 | 3.262380 | — |
+| **μ_{n=4}** | **3.26246** | — |
+| σ_single | ~0.00047 | — |
+
+- **Gate math**: μ_n=4 = 3.26246 = +0.001195 above merge gate (3.261265), +0.000460 above clean-NEG cutoff (3.262). Clean-NEG verdict.
+
+- **Key mechanism finding**: Student's additive prediction (B+D projection = 3.26125, combining β1_embed+β1_scalars individually) vs observed μ_n=4=3.26246 = +1.21mNat additive overshoot. Stacking partial-group β1 gains does NOT add linearly — the two axes compete at the gain-scalars interface, which uses both embed and scalars statistics. Cross-term interference explains the ceiling.
+
+- **Decision**: CLOSED clean-NEG. Per-group β1 axis fully exhausted (individual group B1 sweeps + stacked combination all closed). **Thorfinn reassigned #781 per-group AdamW ε sweep (gradient sparsity asymmetry mechanism, orthogonal to all closed β1 work).**
+
+---
+
+## 2026-05-22 ~09:20 UTC — PR #781: thorfinn per-group AdamW ε sweep — **ASSIGNED**
+
+- Branch: `g1r5-thorfinn/per-group-adamw-eps`
+- Student: g1r5-thorfinn
+- Hypothesis: Per-group ε on AdamW — raise eps_embed (sparse ~3-5% rows/step) while holding/lowering eps_lm_head (dense every step). PR #556 closed global ε as flat (uniform scalar); this decouples the two groups to expose asymmetry.
+
+- **5-cell P1 sweep:**
+
+| Cell | eps_embed | eps_lm_head | Role |
+|:----:|:---------:|:-----------:|:-----|
+| A | 1e-10 | 1e-10 | ctrl — validates AdamW split refactor |
+| B | 1e-8 | 1e-10 | embed↑ 100× |
+| C | 1e-7 | 1e-10 | embed↑↑ 1000× |
+| D | 1e-8 | 1e-11 | full asymmetry (embed↑, lm_head↓) |
+| E | 1e-9 | 1e-10 | moderate embed raise |
+
+- **Implementation**: refactor optimizer1 (single fused AdamW, lines 786-789) into 3 separate AdamW instances (PyTorch fused AdamW does not accept per-group eps); add `--eps_embed` and `--eps_lm_head` CLI flags with defaults 1e-10.
+
 - Branch: `g1r5-askeladd/muon-update-rms-norm`
 - Student: g1r5-askeladd
 - Hypothesis: Normalize post-NS Muon/SOAP update matrix to a fixed target RMS per matrix. Decouples update direction (NS) from update magnitude (explicit RMS). Analogue of LARS/LAMB for orthogonalization-based optimizers.
