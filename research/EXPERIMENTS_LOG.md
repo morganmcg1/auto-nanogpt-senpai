@@ -1,3 +1,41 @@
+## 2026-05-22 19:50 UTC — PR #829 ASSIGNED (tanjiro): H69 MuLoCo Outer-Cautious masking — NS5-coupling failure mode generality test
+
+- Branch: `g1r3-tanjiro/muloco-outer-cautious`
+- Hypothesis: Apply Cautious sign-agreement masking at the MuLoCo outer aggregation step (Nesterov-SGD on 30-step accumulated `delta`), NOT on NS5-orthogonalized inner updates. Direct mechanism-pair complement to tanjiro's own PR #795 H62 closure: "In Muon-class methods the anti-gradient coords are coupled by NS5 to the rest of the update — you can't zero them independently." H69 is the smallest possible test of that claim — same masking mechanism, same code structure, applied to a step where there is NO NS5.
+- Sharp falsifiable question: is the H62 masking failure NS5-specific (then outer-Cautious should work or at least not catastrophically fail) or structural-update general (then outer-Cautious will also fail because the velocity vector encodes a 30-step direction history that the fresh `delta` partially contradicts)?
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--cautious_outer 0` (current MuLoCo)
+  - arm_b (PRIMARY): `--cautious_outer 1 --cautious_outer_rescale 1`
+  - arm_c: `--cautious_outer 1 --cautious_outer_rescale 0`
+- Telemetry: `outer/cautious_mask_mean` per sync step — direct analog of H62's `muonh/cautious_mask_mean` ~0.75 stable. Mask-mean band [0.4, 0.95] required for valid mechanism comparison.
+- Smoke gate (mandatory): 300-step smoke arm_b must hit val ≈ 4.30-4.45 AND mask_mean ∈ [0.4, 0.95]. If degenerate (≤0.05 or ≥0.99) → debug before full runs.
+- ~15 LoC: CLI flags + masking branch in MuLoCo outer step + telemetry. Near-clone of H62 inner-Cautious mask logic applied to a different code path.
+- W&B group `h69_muloco_outer_cautious`.
+- **Bit-identical invariant**: `--cautious_outer 0` (default) must produce results bit-identical to current MuLoCo behavior.
+- Four-quadrant decision tree: arm_b WIN → H62 failure is NS5-specific; arm_b ≈ arm_a → outer aggregation eliminates noise-filtering need (boundary finding); arm_b NEG like H62 → masking incompatible with momentum-aggregated updates (generalizes H62).
+
+---
+
+## 2026-05-22 19:45 UTC — PR #795 CLOSED NEG (tanjiro): H62 Cautious-MuonH — NS5 structural coupling load-bearing
+
+- Branch: `g1r3-tanjiro/muonh-cautious-masking`
+- Hypothesis: Apply Cautious sign-agreement masking (Liang et al. 2024) on the post-NS5-orthogonalized MuonH update, masking anti-gradient coords whose sign disagrees with the EMA gradient.
+- Arms (3, n=1, 3325 steps):
+
+| arm | rule | val/loss @ 3325 | ffs | reached_target | Δ vs arm_a |
+|---|---|---|---|---|---|
+| arm_a (ctrl) | no masking | **3.27397** | 3175 | ✓ | — |
+| arm_b (cautious+rescale) **PRIMARY** | mask + scale | **3.28177** | **-1 FAILED** | ✗ | **+0.00780 (~14.6σ NEG)** |
+| arm_c (cautious no rescale) | mask only | **3.28295** | **-1 FAILED** | ✗ | **+0.00898 (~16.6σ NEG)** |
+
+- **Verdict: STRONGLY NEG — Cautious masking incompatible with NS5-orthogonalized updates.**
+- **CRITICAL mechanism finding**: `muonh/cautious_mask_mean` ~0.75 stable across training — meaning ~25% of post-NS5 coords were anti-gradient and got zeroed. Yet both arms failed to reach the target. This is mechanism-informative:
+  - In AdamW the anti-gradient coords come from EMA staleness or noise — zeroing them is harmless (Cautious's original demonstrated domain).
+  - In Muon-class methods the anti-gradient coords are coupled by NS5 to the rest of the update — you can't zero them independently. NS5's polynomial orthogonalization redistributes anti-gradient information across the update structure; surgical removal destroys the orthogonalized direction.
+- Closes Cautious-on-NS5 as a sub-axis. Directly motivates H69 (PR #829) — apply same mechanism at outer aggregation step where there is NO NS5.
+
+---
+
 ## 2026-05-22 19:30 UTC — PR #820 ASSIGNED (alphonse): H68 MuLoCo Outer Lion — sign-with-momentum direction-only test
 
 - Branch: `g1r3-alphonse/muloco-outer-lion`
