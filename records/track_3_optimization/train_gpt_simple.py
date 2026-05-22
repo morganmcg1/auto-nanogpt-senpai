@@ -536,6 +536,16 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Distance-from-init WD anchor for body Muon params. "zero" preserves bit-identical
+# merged-stack behavior (standard L2 toward origin); "init" penalizes ‖θ − θ₀‖
+# instead of ‖θ‖, anchoring the equilibrium of regularization at the random init.
+NANOGPT_BODY_WD_ANCHOR = os.environ.get("NANOGPT_BODY_WD_ANCHOR", "zero")
+_VALID_BODY_WD_ANCHORS = ("zero", "init")
+if NANOGPT_BODY_WD_ANCHOR not in _VALID_BODY_WD_ANCHORS:
+    raise ValueError(
+        f"NANOGPT_BODY_WD_ANCHOR={NANOGPT_BODY_WD_ANCHOR!r}, must be one of {_VALID_BODY_WD_ANCHORS}"
+    )
+NANOGPT_BODY_MUON_WD = float(os.environ.get("NANOGPT_BODY_MUON_WD", "0.025"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -672,6 +682,10 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Optional dict {id(p): init_tensor} for distance-from-init weight decay.
+        # When None (default), WD shrinks toward zero (bit-identical to legacy).
+        # When set, WD shrinks toward the snapshotted init for params in the dict.
+        self.init_snapshots: dict[int, Tensor] | None = None
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -716,7 +730,16 @@ class Muon(torch.optim.Optimizer):
                             }
                         except Exception:
                             self.spectral_stats = None
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                    # Standard WD: p ← (1 - lr*wd) * p (shrink toward 0).
+                    # Distance-from-init WD: p ← (1 - lr*wd) * p + lr*wd * p_init
+                    # (shrink toward θ₀). When init_snapshots is None or p is not
+                    # registered, falls through to the legacy bit-identical path.
+                    init_snap = self.init_snapshots
+                    if init_snap is not None and id(p) in init_snap:
+                        decay = group["lr"] * group["weight_decay"]
+                        p.mul_(1 - decay).add_(init_snap[id(p)], alpha=decay)
+                    else:
+                        p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
@@ -761,6 +784,7 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"BODY_WD: anchor={NANOGPT_BODY_WD_ANCHOR} wd={NANOGPT_BODY_MUON_WD}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -826,6 +850,8 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_body_wd_anchor": NANOGPT_BODY_WD_ANCHOR,
+            "nanogpt_body_muon_wd": NANOGPT_BODY_MUON_WD,
         },
     )
 
@@ -871,7 +897,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = Muon(
         [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
          dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
-        weight_decay=0.025,
+        weight_decay=NANOGPT_BODY_MUON_WD,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
@@ -925,6 +951,28 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Snapshot body Muon init weights for distance-from-init weight decay.
+    # Snapshot happens AFTER custom init and broadcast so every rank captures the
+    # same post-broadcast values. The body Muon scope mirrors optimizer2's groups
+    # (muon_attn_params + muon_mlp_params).
+    body_muon_init_snapshots: dict[int, Tensor] = {}
+    if NANOGPT_BODY_WD_ANCHOR == "init":
+        for p in muon_attn_params + muon_mlp_params:
+            body_muon_init_snapshots[id(p)] = p.data.clone().detach()
+        optimizer2.init_snapshots = body_muon_init_snapshots
+        if dist.get_rank() == 0:
+            snap_count = len(body_muon_init_snapshots)
+            snap_elements = sum(t.numel() for t in body_muon_init_snapshots.values())
+            print0(f"BODY_WD_ANCHOR=init: snapshotted {snap_count} body Muon params "
+                   f"({snap_elements} elements, ~{4*snap_elements/(1024**2):.1f}MB fp32)",
+                   console=True)
+            wandb.log({
+                "trial": trial_idx,
+                "body_muon_init/snapshot_count": snap_count,
+                "body_muon_init/total_params": snap_elements,
+            }, step=trial_idx * (train_steps + 1))
+    else:
+        optimizer2.init_snapshots = None
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1177,13 +1225,28 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
-        wandb.log({
+        final_log = {
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        }
+        if NANOGPT_BODY_WD_ANCHOR == "init" and body_muon_init_snapshots:
+            with torch.no_grad():
+                dist_norms = []
+                for p in muon_attn_params + muon_mlp_params:
+                    if id(p) in body_muon_init_snapshots:
+                        p_init = body_muon_init_snapshots[id(p)]
+                        d = (p.data.float() - p_init.float()).norm()
+                        dist_norms.append(float(d.item()))
+                if dist_norms:
+                    final_log["body_muon_init/final_dist_from_init_norm_mean"] = (
+                        sum(dist_norms) / len(dist_norms)
+                    )
+                    final_log["body_muon_init/final_dist_from_init_norm_max"] = max(dist_norms)
+                    final_log["body_muon_init/final_dist_from_init_norm_min"] = min(dist_norms)
+        wandb.log(final_log, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
     wandb.finish()
