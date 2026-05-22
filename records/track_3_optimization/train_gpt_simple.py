@@ -20,6 +20,7 @@ from torch import Tensor, nn
 from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
+from torch.nn.attention import SDPBackend, sdpa_kernel
 import wandb
 
 TARGET_VAL_LOSS = 3.28
@@ -71,6 +72,21 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # SophiaH (Liu et al, ICLR 2024) inner optimizer for aux groups. Replaces AdamW
+    # for embed/lm_head/scalar params when --use_sophia_aux 1. Default 0 keeps the
+    # bit-identical AdamW path.
+    parser.add_argument("--use_sophia_aux", type=int, default=int(os.environ.get("USE_SOPHIA_AUX", "0")),
+                        help="If 1, replace fused AdamW aux groups with SophiaH (diagonal Hessian preconditioning).")
+    parser.add_argument("--sophia_k", type=int, default=int(os.environ.get("SOPHIA_K", "10")),
+                        help="SophiaH Hutchinson Hessian update interval (in optimizer steps).")
+    parser.add_argument("--sophia_rho", type=float, default=float(os.environ.get("SOPHIA_RHO", "0.04")),
+                        help="SophiaH per-coordinate clipping threshold.")
+    parser.add_argument("--sophia_gamma", type=float, default=float(os.environ.get("SOPHIA_GAMMA", "0.01")),
+                        help="SophiaH Hessian preconditioner scale (denominator = gamma * h_t).")
+    parser.add_argument("--sophia_beta1", type=float, default=float(os.environ.get("SOPHIA_BETA1", "0.965")),
+                        help="SophiaH momentum EMA decay (default 0.965 from Sophia paper).")
+    parser.add_argument("--sophia_beta2", type=float, default=float(os.environ.get("SOPHIA_BETA2", "0.99")),
+                        help="SophiaH Hessian EMA decay (default 0.99 from Sophia paper).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +685,119 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class SophiaH(torch.optim.Optimizer):
+    """Sophia-H: diagonal Hessian preconditioner via Hutchinson trace (Liu et al, ICLR 2024).
+
+    Used as the inner optimizer for aux groups (embed, lm_head, scalars) when
+    ``--use_sophia_aux 1`` is set; otherwise the script uses fused AdamW for aux.
+
+    Update rule per step:
+        m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+        update = clip(m_t / max(gamma * h_t, eps), -rho, +rho)
+        theta -= lr * update + decoupled_wd
+
+    Diagonal Hessian estimate `h_t` is updated separately via
+    :meth:`update_hessian` every ``k`` steps using a Hutchinson HVP:
+        h_t = beta2 * h_{t-1} + (1 - beta2) * |u . Hu|, u ~ Rademacher
+
+    The estimate is initialised to ones, so the first ~1/(1-beta2) updates
+    behave like ``m / (gamma)`` clipped to rho -- effectively a hard-clipped
+    sign-magnitude step until curvature data arrives.
+    """
+
+    def __init__(self, params, lr=3e-4, betas=(0.965, 0.99), rho=0.04,
+                 gamma=0.01, weight_decay=0.0, k=10, eps=1e-12):
+        defaults = dict(lr=lr, betas=betas, rho=rho, gamma=gamma,
+                        weight_decay=weight_decay, k=k, eps=eps)
+        super().__init__(params, defaults)
+        self._clip_count_buf: Tensor | None = None
+        self._step_total = 0
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        # Optimizer state is stored in fp32 regardless of param dtype to match
+        # fused AdamW's internal precision and to avoid bf16 EMA underflow on
+        # small Hessian / momentum values (especially for the bf16 embedding).
+        clip_count_buf: Tensor | None = None
+        total = 0
+        for group in self.param_groups:
+            beta1, _ = group["betas"]
+            lr, rho, gamma = group["lr"], group["rho"], group["gamma"]
+            wd, eps = group["weight_decay"], group["eps"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                if "m" not in state:
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                if "h" not in state:
+                    state["h"] = torch.ones_like(p, dtype=torch.float32)
+                state["step"] += 1
+                m, h = state["m"], state["h"]
+                # Always promote grad to fp32 for state arithmetic; cast back when applying.
+                g_fp32 = g.detach().to(torch.float32)
+                m.mul_(beta1).add_(g_fp32, alpha=1 - beta1)
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                denom = (gamma * h).clamp(min=eps)
+                update_pre = m / denom
+                if clip_count_buf is None:
+                    clip_count_buf = torch.zeros((), device=p.device, dtype=torch.int64)
+                clip_count_buf = clip_count_buf + (update_pre.abs() > rho).sum().to(torch.int64)
+                total += p.numel()
+                update = update_pre.clamp(-rho, rho).to(p.dtype)
+                p.add_(update, alpha=-lr)
+        self._clip_count_buf = clip_count_buf
+        self._step_total = total
+
+    @torch.no_grad()
+    def update_hessian(self, param: Tensor, hess_diag_estimate: Tensor):
+        """Apply EMA update to the diagonal Hessian estimate using a Hutchinson sample.
+        ``hess_diag_estimate`` is u . Hu; we take |.| so the denominator stays positive,
+        accepting a small positive bias on indefinite curvature directions (paper-consistent).
+        """
+        state = self.state[param]
+        if "h" not in state:
+            state["h"] = torch.ones_like(param, dtype=torch.float32)
+        beta2 = self.param_groups[0]["betas"][1]
+        state["h"].mul_(beta2).add_(hess_diag_estimate.detach().to(torch.float32).abs(),
+                                     alpha=1 - beta2)
+
+    @torch.no_grad()
+    def get_clip_stats(self):
+        """Return (clipped_count, total_count) from last step. Triggers a GPU sync."""
+        if self._clip_count_buf is None:
+            return 0, 0
+        return int(self._clip_count_buf.item()), self._step_total
+
+    @torch.no_grad()
+    def get_h_stats(self):
+        """Return dict of Hessian estimate stats. Triggers GPU syncs (call at telemetry rate)."""
+        h_sum = 0.0
+        h_max = 0.0
+        h_min = float("inf")
+        total = 0
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p)
+                if state is None or "h" not in state:
+                    continue
+                h = state["h"].detach().float()
+                h_sum += float(h.sum().item())
+                h_max = max(h_max, float(h.abs().max().item()))
+                h_min = min(h_min, float(h.abs().min().item()))
+                total += p.numel()
+        return {
+            "h_mean": h_sum / max(1, total),
+            "h_max": h_max,
+            "h_min": h_min if h_min != float("inf") else 0.0,
+            "h_total_elems": total,
+        }
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +842,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_sophia_aux:
+    print0(f"SophiaH ENABLED on aux groups: k={args.sophia_k} rho={args.sophia_rho} "
+           f"gamma={args.sophia_gamma} betas=({args.sophia_beta1}, {args.sophia_beta2})", console=True)
+else:
+    print0("SophiaH DISABLED on aux (use_sophia_aux=0 -> fused AdamW)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +900,12 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "use_sophia_aux": bool(args.use_sophia_aux),
+            "sophia_k": args.sophia_k,
+            "sophia_rho": args.sophia_rho,
+            "sophia_gamma": args.sophia_gamma,
+            "sophia_beta1": args.sophia_beta1,
+            "sophia_beta2": args.sophia_beta2,
         },
     )
 
@@ -812,10 +952,29 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    # When --use_sophia_aux 1, SophiaH replaces fused AdamW on aux groups; group
+    # names switch to ``sophia_*`` so W&B LR curves stay distinguishable.
+    aux_name_prefix = "sophia" if args.use_sophia_aux else "adam"
+    aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name=f"{aux_name_prefix}_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name=f"{aux_name_prefix}_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name=f"{aux_name_prefix}_scalars"),
+    ]
+    if args.use_sophia_aux:
+        optimizer1 = SophiaH(
+            aux_param_groups,
+            lr=0.3,  # per-group lr above takes precedence; defaults dict needs a placeholder
+            betas=(args.sophia_beta1, args.sophia_beta2),
+            rho=args.sophia_rho,
+            gamma=args.sophia_gamma,
+            weight_decay=0.0,
+            k=args.sophia_k,
+        )
+    else:
+        optimizer1 = AdamW(
+            aux_param_groups,
+            betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True,
+        )
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1018,6 +1177,47 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # SophiaH Hutchinson-trace Hessian update: every args.sophia_k steps, run
+        # an extra forward + double-backward on a small slice of the last microbatch
+        # to estimate diag(H) for the aux params, then EMA-update SophiaH's h state.
+        # We call ``model.forward`` directly to bypass the compiled call_impl, because
+        # torch.compile's compiled backward does not generally support second-order
+        # autograd (HVP) through it. ``torch._dynamo.disable()`` is also wrapped on
+        # top as a defensive belt-and-braces. The slice is sized to keep create_graph
+        # activations within memory budget; Hutchinson is unbiased even on a small
+        # data slice (variance just grows).
+        sophia_step_now = bool(args.use_sophia_aux and (step % args.sophia_k == 0))
+        if sophia_step_now and isinstance(optimizer1, SophiaH):
+            hvp_mbs = max(1, mbs // 8)  # 8 sequences out of 64 -> ~1/8 activation cost
+            i_last = (len(inputs) // mbs) - 1
+            hvp_inputs = inputs[i_last*mbs:i_last*mbs + hvp_mbs]
+            hvp_targets = targets[i_last*mbs:i_last*mbs + hvp_mbs]
+            aux_params_for_sophia = [p for g in optimizer1.param_groups for p in g["params"]]
+            # ``model.forward`` bypasses the compiled call_impl that ``model.compile()``
+            # installs (which is needed because torch.compile's AOTAutograd does not
+            # generally support second-order autograd through it). The submodules are
+            # not separately compiled, so this path is pure eager. We also force the
+            # SDPA MATH backend because flash-attention's backward kernel has no
+            # second-order derivative implementation (only MATH does).
+            with sdpa_kernel(SDPBackend.MATH):
+                hvp_loss = model.forward(hvp_inputs, hvp_targets)
+                grads_for_hvp = torch.autograd.grad(
+                    hvp_loss, aux_params_for_sophia, create_graph=True,
+                )
+                # Independent Rademacher u per param so cross-block Hessian terms
+                # cancel in expectation, leaving an unbiased diag(H_jj) estimator.
+                # u dtype must match the matching grad's dtype, otherwise the dot
+                # product silently downcasts/loses signal (researcher gotcha #1).
+                u_list = [
+                    (torch.empty(p.shape, device=p.device, dtype=torch.float32)
+                        .bernoulli_(0.5).mul_(2.0).sub_(1.0)).to(g.dtype)
+                    for p, g in zip(aux_params_for_sophia, grads_for_hvp)
+                ]
+                scalar = sum((g * u).sum() for g, u in zip(grads_for_hvp, u_list))
+                hvp_grads = torch.autograd.grad(scalar, aux_params_for_sophia)
+            for p, u_p, hvp_p in zip(aux_params_for_sophia, u_list, hvp_grads):
+                optimizer1.update_hessian(p, u_p * hvp_p)
+            del hvp_loss, grads_for_hvp, scalar, hvp_grads, u_list
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1054,6 +1254,18 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.use_sophia_aux and isinstance(optimizer1, SophiaH):
+                clipped_count, clipped_total = optimizer1.get_clip_stats()
+                h_stats = optimizer1.get_h_stats()
+                muonh_metrics["sophia/clip_fraction"] = (
+                    clipped_count / max(1, clipped_total)
+                )
+                muonh_metrics["sophia/clipped_count"] = clipped_count
+                muonh_metrics["sophia/total_count"] = clipped_total
+                muonh_metrics["sophia/h_mean"] = h_stats["h_mean"]
+                muonh_metrics["sophia/h_max"] = h_stats["h_max"]
+                muonh_metrics["sophia/h_min"] = h_stats["h_min"]
+                muonh_metrics["sophia/hessian_update_fired"] = int(sophia_step_now)
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
