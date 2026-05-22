@@ -7,7 +7,30 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-19 11:48 UTC — PR #413: scalar_lr=0.025 (alphonse n=2 WIN) (g1r1-alphonse) ← CURRENT BEST
+### 2026-05-22 13:21 UTC — PR #737: Polyak EMA cooldown-aware β=0.99 ramp (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2925 (n=2 mean — seed-1 2925, seed-2 2925; both seeds independently hit sr=2925)
+- **val/loss:** 3.266926 (n=2 mean — seed-1 3.265811, seed-2 3.268040)
+- **stat-sig margin:** (3.28 − 3.266926)·√2 = 0.01849 ≥ 0.004 ✓ (4.62×)
+- **Δ vs PR #413 baseline:** −12.5 sr-steps ✅ (sr=2925 < 2937.5), +0.002648 val (val regression, accepted per merge rule: "mean sr ≤ 2925 → merge")
+- **W&B runs:** seed-1 `rdbmnzpc`, seed-2 `32r3isz5` (group `g1r1-thorfinn/polyak-ema-cooldown-aware-beta`); Arm B (`b4q13sgm`, β_target=0.999) closed NULL.
+- **Key config:** all PR #413 config + Polyak EMA with `--ema_beta 0.95 --ema_warmup_steps 2250 --ema_beta_target 0.99` (β ramps linearly from 0.95 → 0.99 across cooldown, i.e. β_t = 0.95 + 0.04 · cooldown_progress). EMA buffer stores FP32 copy of body-Muon matrix params; inference uses EMA-swapped weights.
+- **Mechanism:** Ramping the Polyak EMA smoothing coefficient from 0.95→0.99 during LR cooldown lengthens the effective averaging window just as gradients become small and noisy near terminal. This suppresses terminal parameter drift (final `ema/delta_ema_minus_live = +0.54 mnat`, deterministic across seeds due to lr_mult coupling). The sr win is structural — the EMA trajectory crosses 3.28 one eval bucket earlier at both seeds. The val regression (+2.65 mnat) reflects N_eff=100 averaging at terminal imposing a small bias. β_target=0.999 (Arm B) NULLED — N_eff=1000 window is too wide, lag dominates and degrades both sr and val.
+- **Statistical thresholds (updated with new baseline):** n=1 win: sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266926). New **n=1 stat-sig threshold: val ≤ 3.276** (unchanged formula). New **marginal band: Δsr ≤ 25 (sr ≤ 2950) OR Δval ≤ 0.001 (val ≤ 3.267926)**.
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --ema_beta 0.95 --ema_warmup_steps 2250 --ema_beta_target 0.99 \
+    --wandb_name "baseline-reproduction-pr737" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** Arm A (β_target=0.99) wins on sr; Arm B (β_target=0.999) NULL on both metrics. Follow-ups: (1) β_target fine-scan {0.97, 0.98} to recover val frontier while preserving sr=2925; (2) nonlinear ramp shape (hold β near 0.95 until late cooldown, ramp sharply in last 30% of cooldown); (3) EMA reset at cooldown_start; (4) stack with #741 alphonse β2-ramp if it confirms against new baseline. Val regression is a known trade-off for this mechanism — the sr win is the primary metric and it's clean at n=2.
+
+---
+
+### 2026-05-19 11:48 UTC — PR #413: scalar_lr=0.025 (alphonse n=2 WIN) (g1r1-alphonse)
 
 - **speedrun/final_first_step_to_target:** 2937.5 (n=2 mean — seed-1 sr=2950, seed-2 sr=2925)
 - **val/loss:** 3.264278 (n=2 mean — seed-1 3.265432, seed-2 3.263124)
