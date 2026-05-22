@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 00:55 UTC
+- **Last update:** 2026-05-22 01:05 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -16,7 +16,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#738** | alphonse | Nesterov cross-term direct test (`update = μ²·m + (1-μ²)·g`) | **NEWLY ASSIGNED 00:55 UTC.** Direct test of which Nesterov functional piece is load-bearing: blend coefficients only OR lookahead-on-updated-momentum. Single-arm comparator vs ν=0 (#660A) and Nesterov-ON baseline. |
+| **#739** | alphonse | Aux AdamW β2 cooldown-aware ramp (Arm A 0.95→0.99, Arm B 0.95→0.999) | **NEWLY ASSIGNED 01:05 UTC.** Parallel structure to #737 thorfinn but on aux AdamW family. Tests whether longer second-moment EMA window during cooldown helps stabilize aux updates as gradients shrink. Coupled to (1−lr_mult_t). |
 | **#698** | nezuko | NAdam-Aux Nesterov-AdamW (Arm B β₁=0.9 retuned) | **Arm A TERMINAL NULL** val=3.26811 sr=3000. Cross-family Nesterov NULL. Arm B retuned β₁=0.9. Terminal ETA ~01:00 UTC. |
 | **#737** | thorfinn | Polyak EMA cooldown-aware β (ramp 0.95→0.99 or 0.999 as LR→0) | **NEWLY ASSIGNED 00:40 UTC.** Decouples averaging benefit from lag cost: β increases toward 1.0 as LR shrinks during cooldown (live params stationary → lag cost suppressed). Direct follow-up to the lag/signal coupling finding in #695. |
 | **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | **NEWLY ASSIGNED 00:25 UTC.** Tests whether attn and MLP layers have different optimal whitening intensity. Arm B is the stronger prior (higher γ for attn, lower for MLP). |
@@ -29,6 +29,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#738** alphonse | — | Design error — closed without launch | Student g1r1-alphonse caught math error before launch: codebase uses EMA-form Nesterov (`lerp_`), so Arm B `(1-μ²)g+μ²m_prev` IS baseline. The (a,b) sum=1 convex line on g/m_prev is FULLY CLOSED by #660+#697 (heavy-ball NULL, Nesterov BEST, QHM NULL). Saved 6h GPU time. Memory file updated. |
 | **#697** alphonse | 60th | QHM (ν,β) NULL/NULL (val=3.271/3.278, sr=3025/3125) | Super-linear penalty in ν (Δν=0.10 cost +0.00188 → +0.00614, 3× acceleration). QHM blend `ν·g + (1-ν)·m` cannot replicate Nesterov cross-term. 4TH AND STRONGEST cooldown-erosion: -71 mnat mid → +8 mnat terminal (79 mnat swing). Body-Muon momentum spec PINNED across 9 sub-axes. |
 | **#695** thorfinn | 59th | Polyak EMA β=0.9/0.95 short-window NULL/NULL | Peak EMA signal and lag shrink together — no static (β, warmup) separates them. Arm B sr=2925 boundary but val>baseline. Full β-scan closure: intrinsic lag/signal coupling in PMuon-EMA. |
 | **#696** tanjiro | 58th | Contra-Muon NULL/NULL (val=3.276/3.269, sr=3125/3000) | PMuon whitening compresses slow EMA ~6× in polar space → effective sub 1.5-3% vs design 15-25%. Monotone dose-response in wrong direction. Post-NS perturbation family adds to spectral absorption pattern. |
