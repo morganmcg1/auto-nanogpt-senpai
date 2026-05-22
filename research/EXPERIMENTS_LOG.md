@@ -1,3 +1,137 @@
+## 2026-05-22 05:25 UTC — PR #763 ASSIGNED (thorfinn): H55 MuLoCo OFF pruning ablation
+
+- Branch: `g1r3-thorfinn/mulocco-off-ablation`
+- Hypothesis: Test whether MuLoCo outer wrapper (Nesterov-SGDM, outer_lr=0.7, outer_momentum=0.5, sync_interval=30) is still load-bearing on top of the current stack. The wrapper was added in earlier stack iterations; many "load-bearing" assumptions deserve periodic re-test as the underlying stack evolves.
+- Arms (3 sequential, n=1, 3325 steps): ctrl (MuLoCo ON), MuLoCo OFF (`--use_outer_optimizer 0`), conditional arm 3 sync_interval doubled.
+- Fresh axis: **pruning ablation** — fills the "test load-bearing assumptions" axis. Complements additive-mechanism work in flight (#743/#744/#746/#750) by testing whether existing components are minimal.
+- Flag-only change (~0 LoC), but requires telemetry to PROVE MuLoCo is actually disabled (outer/sync_count, outer/step_norm).
+- Builds on thorfinn's Sophia-H diagnostic style — same clean instrumentation discipline applied to a pruning test.
+
+---
+
+## 2026-05-22 05:25 UTC — PR #762 ASSIGNED (nezuko): H54 NS5 polynomial coefficient sweep (Keller Jordan)
+
+- Branch: `g1r3-nezuko/ns5-coefs-kj`
+- Hypothesis: NS5 polynomial coefficients (a, b, c) — currently hardcoded (2, -1.5, 0.5) — control fixed-point dynamics of the orthogonalization iteration. Keller Jordan's aggressive coefs (3.4445, -4.7750, 2.0315) converge in ~5 iterations vs ~12 for standard, with different spectral basin. PR #190 closed the ITERATION COUNT axis at k=12; the COEFFICIENT axis was never tested — mechanistically distinct because it changes fixed-point dynamics, not just precision of the same dynamics.
+- Arms (3 sequential, n=1, 3325 steps): ctrl (2, -1.5, 0.5) at k=12, KJ coefs at k=12 (better orthogonalization same budget), KJ coefs at k=8 (test compute savings + quality).
+- Fresh axis: **MuonH-side NS polynomial dynamics** — orthogonal to iteration count (closed) and post-NS direction transforms (in flight via Contra-Muon/Soft-Muon).
+- ~10 LoC: parameterize hardcoded (a, b, c) via CLI flags.
+- Builds on nezuko's Lion mechanism rigor — same closure-style 3-arm sweep applied to MuonH-side.
+
+---
+
+## 2026-05-22 05:25 UTC — PR #761 ASSIGNED (frieren): H53 EMA-of-weights at evaluation (Polyak averaging)
+
+- Branch: `g1r3-frieren/ema-weights-eval`
+- Hypothesis: Maintain EMA of model weights during training, evaluate on EMA at end. Standard speedrun-winner pattern, typically +0.001-0.005 val/loss improvement essentially for free. Does not change training trajectory — only the eval point — so works orthogonally to all training-time mechanisms.
+- Arms (3 sequential, n=1, 3325 steps): ctrl (no EMA), EMA decay=0.9999 (medium), EMA decay=0.99999 (long). Each EMA arm also logs live val/loss for ctrl comparison within the same run.
+- Fresh axis: **eval-time mechanism** — completely distinct from training-time aux/MuonH/schedule/initialization axes. The aux-mechanism axis is exhaustively closed (14 PRs); EMA-of-weights is a known-winner pattern from a completely different lever.
+- ~30 LoC: EMA shadow dict + update + swap-to-eval + swap-back.
+- Builds on frieren's AdaBelief closure discipline — clean kill-gate analysis with rich diagnostic logging.
+
+---
+
+## 2026-05-22 05:13 UTC — PR #735 CLOSED (thorfinn): H47 Sophia-H aux — Δ+0.045 NEG, axis closed (saturation reduces to Lion-like)
+
+- Branch: `g1r3-thorfinn/sophia-h`
+- Hypothesis: Diagonal-Hessian preconditioning (Sophia-H, Liu ICLR 2024) on aux groups via Hutchinson estimator. ρ=0.04 clip + γ=0.01 normalization + k=10 Hessian-refresh.
+- Arms (2 terminal, n=1, 3325 steps):
+
+| Arm | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|
+| 1 ctrl (AdamW) | `639vhkp6` | 3.27232 | 3125 | — |
+| 2 Sophia-H aux | `9vxlqmss` | **3.31722** | -1 (never) | **+0.04490 NEG** |
+
+### Mechanism finding — diagonal-Hessian on aux reduces to Lion under clip saturation
+
+Excellent diagnostic instrumentation (`sophia/clip_fraction`, `sophia/h_mean/max/min`) made the closure mechanistically crisp:
+
+- **clip_fraction 0.907 → 0.959 → 0.979** across training thirds (95%+ saturated mid/late)
+- **h_max 22 → 6153** (Hutchinson develops extreme right tail on sparse-active aux coords)
+- **h_min 0.99 → 0.035** (γ·h ≈ 3.5e-4 → m/(γh) huge → always clipped)
+
+**Causal interpretation**: When 95%+ of coords clipped, Sophia-H reduces to fixed-magnitude sign-of-momentum updates ≈ Lion with wrong lr/ρ joint scaling. The diagonal-Hessian information barely flows through to the actual update. Aux groups (embed, lm_head, scalars) are exactly the wrong domain for Hutchinson curvature: sparse-active rows make h estimates high-variance with wide tails, amplified influence in small dense aux.
+
+### Closure map: aux-mechanism replacement axis (14 entries TOTAL)
+
+| PR | Mechanism | Result |
+|---|---|---|
+| #544 | Cautious AdamW | NEG |
+| #567 | AdEMAMix β3=0.9999 | NEG |
+| #582 | MARS γ-correction | NEG |
+| #592 | GC-on-aux | NEG |
+| #612 | β1=0 ablation | NEG |
+| #631 | β2=0 ablation | NEG |
+| #643 | PAdam v^p | NEG |
+| #646 | Adan grad-diff | NEG |
+| #670 | eps decoupling | NEG |
+| #689 | AdEMAMix β3=0.9990 | NEG |
+| #726 | Lion ±lr | NEG |
+| #731 | AdaBelief (g-m)² | NEG (sharpest) |
+| #735 | Sophia-H diag-Hessian | NEG (reduces to Lion) |
+
+The 2nd-order axis (curvature preconditioning) is now also closed for aux. Combined with variance-estimator axis (β1=0/β2=0, AdaBelief, PAdam, AdEMAMix, MARS), **there is no remaining replacement mechanism that beats AdamW's m/√v + AGC on aux at short-EMA regime**.
+
+### Resource notes
+- Sophia-H peak GPU memory 48.7 GB (vs ctrl 38.7 GB = +25%) from HVP create_graph=True
+- Wall time comparable to ctrl
+
+### Follow-up
+Thorfinn → PR #763 H55 MuLoCo OFF (structural pruning ablation, distinct from aux mechanism work).
+
+---
+
+## 2026-05-22 04:55 UTC — PR #731 CLOSED (frieren): H46 AdaBelief aux — Δ+0.156 NEG (sharpest closure), axis closed
+
+- Branch: `g1r3-frieren/aux-adabelief`
+- Hypothesis: AdaBelief's (g-m)² belief-variance buffer as drop-in replacement for AdamW's g² variance on aux groups. Tests whether variance-of-residual is more informative than variance-of-gradient at our short β1=0.8 / β2=0.95 EMAs.
+- Arms (2 terminal, n=1, 3325 steps):
+
+| Arm | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|
+| 1 ctrl (AdamW) | `iqbu7v9u` | 3.27336 | 3150 | — |
+| 2 AdaBelief ON | `oo1q5ay9` | **3.42924** | -1 (never) | **+0.15589 NEG** |
+
+NEG by ~30× the +0.005 threshold — sharpest closure to date in the aux-mechanism axis.
+
+### Mechanism finding — short-EMA aux destroys AdaBelief's belief-variance signal
+
+Student's analysis: At β1=0.8, `m_t = 0.2·g_t + 0.8·m_{t-1}` → `g_t − m_t = 0.8·(g_t − m_{t-1})`. The "residual" is essentially the current gradient relative to recent EMA — high-variance, not a true belief signal. With β2=0.95, `s_t = EMA[(g−m)²]` tracks this noisy raw-gradient-like signal, denominator `√s_t` becomes too large early → effective LR collapses on embed/lm_head → catastrophic under-training (val=6.5 vs ctrl 4.2 at step 250).
+
+Cooldown narrowed Δ by ~0.02 (0.175 @ step 2500 → 0.156 @ 3325) but mechanism is structurally wrong, not a tuning issue. Arm 3 (paper defaults β1=0.9, β2=0.999) correctly skipped — would require retuning aux LRs and would just be a different optimizer on different LRs, no mechanism isolation.
+
+### Resource notes
+- AdaBelief peak GPU memory 38.8 GB (vs ctrl 77.6 GB) — half the fused-AdamW staging buffer
+- Wall time 11921s vs 12339s (slightly faster per step, unfused)
+
+### Follow-up
+Frieren → PR #761 H53 EMA-of-weights eval (fresh eval-time axis, distinct from aux mechanism work).
+
+---
+
+## 2026-05-22 04:25 UTC — PR #726 CLOSED (nezuko): H45 Lion-aux signed momentum — Δ+0.037 NEG, axis closed
+
+- Branch: `g1r3-nezuko/aux-lion-bv2`
+- Hypothesis: Replace AdamW on aux with Lion (signed ±lr·sign(m) updates with EMA-of-grad momentum). 3-arm LR sweep to rule out Goldilocks zone.
+- Arms (3 terminal, n=1, 3325 steps):
+
+| Arm | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|
+| 1 ctrl (AdamW) | `3m7yoejk` | 3.27329 | 3150 | — |
+| 2 Lion lr_scale=0.333 | `h0p18wp7` | **3.31017** | -1 (never) | **+0.03688 NEG** |
+| 3 Lion lr_scale=0.2 | `x41rxxsl` | **3.31048** | -1 (never) | **+0.03719 NEG** |
+
+Both Lion arms cluster at same +0.037 deficit across [1/3, 1/5] LR scaling — rules out narrow Goldilocks zone. Cooldown trajectory shows gap is roughly constant (+0.07 → +0.037), does not close during cooldown.
+
+### Mechanism finding — bounded ±lr signed updates uncompetitive with m/√v on aux
+
+Aux groups (embed/lm_head/scalars) have wildly varying parameter sensitivities. AdamW's per-coord variance normalization `m/√v` is load-bearing for this heterogeneity. Replacing with bounded magnitude (Lion) doesn't adapt to per-coord scale → embeddings + lm_head get under-LR'd.
+
+### Follow-up
+Nezuko → PR #762 H54 NS5 polynomial coefs (MuonH-side, distinct from aux mechanism work).
+
+---
+
 ## 2026-05-22 03:35 UTC — PR #750 ASSIGNED (alphonse): H52 Per-step AGC clip_ratio cooldown schedule
 
 - Branch: `g1r3-alphonse/agc-cooldown-schedule`
