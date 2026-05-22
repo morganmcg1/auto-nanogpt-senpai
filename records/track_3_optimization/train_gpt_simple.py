@@ -61,6 +61,11 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ns_post_frob_norm", type=str, default="none",
+                        choices=["none", "post", "pre"],
+                        help="Frobenius normalization mode for NS: none=baseline, "
+                             "post=normalize polar output to per-element RMS=1, "
+                             "pre=normalize m_pre input to per-element RMS=1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -496,6 +501,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_frob_norm: str = "none",
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -510,7 +516,17 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    m_pre_for_ns = m_pre
+    if ns_frob_norm == "pre":
+        m_pre_rms = m_pre.norm() / (m_pre.numel() ** 0.5)
+        m_pre_for_ns = m_pre / m_pre_rms.clamp_min(1e-7)
+
+    polar = zeropower_via_newtonschulz5(m_pre_for_ns.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+
+    if ns_frob_norm == "post":
+        polar_rms = polar.norm() / (polar.numel() ** 0.5)
+        polar = polar / polar_rms.clamp_min(1e-7)
+
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -526,17 +542,18 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+        polar_diag["polar_rms"] = float((Xf.norm() / Xf.numel() ** 0.5).item())
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, ns_frob_norm="none"):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, ns_frob_norm=ns_frob_norm)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -570,6 +587,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_frob_norm=group["ns_frob_norm"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -708,6 +726,7 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
+            "ns_post_frob_norm": args.ns_post_frob_norm,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
@@ -753,7 +772,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      ns_frob_norm=args.ns_post_frob_norm)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1025,6 +1045,7 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                    "polar/ns_polar_rms": polar_diag.get("polar_rms", float("nan")),
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
