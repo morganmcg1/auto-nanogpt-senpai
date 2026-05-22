@@ -577,6 +577,17 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# AdamW multiplicative second-moment floor (#838): denom uses sqrt(max(v_t, frac*reduce(v_t))).
+# Modes: "none" (off, bit-identical to vanilla AdamW), "median_frac" (floor at frac*median(v_t)),
+# "max_frac" (floor at frac*max(v_t)). GROUPS is a comma-separated subset of {embed,lm_head,scalars}.
+NANOGPT_ADAMW_V_FLOOR_MODE = os.environ.get("NANOGPT_ADAMW_V_FLOOR_MODE", "none")
+NANOGPT_ADAMW_V_FLOOR_FRAC = float(os.environ.get("NANOGPT_ADAMW_V_FLOOR_FRAC", "0.0"))
+NANOGPT_ADAMW_V_FLOOR_GROUPS = os.environ.get("NANOGPT_ADAMW_V_FLOOR_GROUPS", "lm_head")
+_VALID_V_FLOOR_MODES = ("none", "median_frac", "max_frac")
+if NANOGPT_ADAMW_V_FLOOR_MODE not in _VALID_V_FLOOR_MODES:
+    raise ValueError(
+        f"NANOGPT_ADAMW_V_FLOOR_MODE={NANOGPT_ADAMW_V_FLOOR_MODE!r}, must be one of {_VALID_V_FLOOR_MODES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -762,6 +773,80 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class FloorAdamW(torch.optim.AdamW):
+    """AdamW with optional per-group multiplicative second-moment floor.
+
+    For groups with `v_floor_mode != 'none'`, the effective denominator becomes
+        denom = sqrt(max(v_t, v_floor_frac * reduce(v_t))) / sqrt(bias_corr2) + eps
+    where reduce is median (`median_frac`) or max (`max_frac`) over the
+    parameter's flat v_t. The floor is applied AT-SQRT-TIME ONLY — the state
+    buffer `exp_avg_sq` is NOT modified, so the v_t trajectory is bit-identical
+    to vanilla AdamW. With v_floor_mode='none' for all groups, the update rule
+    is mathematically equivalent to torch.optim.AdamW (modulo fused vs Python).
+    """
+    def __init__(self, params, **kwargs):
+        # The floor needs per-tensor reductions, so we must use the pure-Python
+        # path; fused AdamW would bypass the override entirely.
+        kwargs['fused'] = False
+        super().__init__(params, **kwargs)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            beta1, beta2 = group['betas']
+            lr = group['lr']
+            wd = group['weight_decay']
+            eps = group['eps']
+            v_floor_mode = group.get('v_floor_mode', 'none')
+            v_floor_frac = group.get('v_floor_frac', 0.0)
+
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+
+                state = self.state[p]
+                if len(state) == 0:
+                    state['step'] = torch.tensor(0.0, device=p.device)
+                    state['exp_avg'] = torch.zeros_like(p)
+                    state['exp_avg_sq'] = torch.zeros_like(p)
+
+                exp_avg = state['exp_avg']
+                exp_avg_sq = state['exp_avg_sq']
+                state['step'] += 1
+                step = state['step'].item()
+
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                if v_floor_mode == 'median_frac':
+                    floor_val = v_floor_frac * exp_avg_sq.median()
+                    v_for_denom = exp_avg_sq.clamp(min=floor_val)
+                elif v_floor_mode == 'max_frac':
+                    floor_val = v_floor_frac * exp_avg_sq.max()
+                    v_for_denom = exp_avg_sq.clamp(min=floor_val)
+                else:
+                    v_for_denom = exp_avg_sq
+
+                bias_correction1 = 1 - beta1 ** step
+                bias_correction2 = 1 - beta2 ** step
+                bias_correction2_sqrt = bias_correction2 ** 0.5
+                step_size = lr / bias_correction1
+
+                denom = (v_for_denom.sqrt() / bias_correction2_sqrt).add_(eps)
+                p.addcdiv_(exp_avg, denom, value=-step_size)
+
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -805,6 +890,10 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+_floor_groups = set(g.strip() for g in NANOGPT_ADAMW_V_FLOOR_GROUPS.split(",") if g.strip())
+print0(f"ADAMW_V_FLOOR: mode={NANOGPT_ADAMW_V_FLOOR_MODE} frac={NANOGPT_ADAMW_V_FLOOR_FRAC} groups={sorted(_floor_groups)} "
+       f"({'ACTIVE' if NANOGPT_ADAMW_V_FLOOR_MODE != 'none' and _floor_groups else 'INACTIVE (vanilla AdamW preconditioner)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -873,6 +962,9 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_adamw_v_floor_mode": NANOGPT_ADAMW_V_FLOOR_MODE,
+            "nanogpt_adamw_v_floor_frac": NANOGPT_ADAMW_V_FLOOR_FRAC,
+            "nanogpt_adamw_v_floor_groups": ",".join(sorted(_floor_groups)),
         },
     )
 
@@ -904,10 +996,29 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # Per-AdamW-group v-floor settings (#838). Groups named in NANOGPT_ADAMW_V_FLOOR_GROUPS
+    # ({"embed","lm_head","scalars"}) get the multiplicative second-moment floor; the rest
+    # use v_floor_mode='none' (vanilla AdamW preconditioner).
+    def _floor_settings(group_name):
+        short = {"adam_embed": "embed", "adam_lm_head": "lm_head", "adam_scalars": "scalars"}[group_name]
+        if short in _floor_groups and NANOGPT_ADAMW_V_FLOOR_MODE != "none":
+            return (NANOGPT_ADAMW_V_FLOOR_MODE, NANOGPT_ADAMW_V_FLOOR_FRAC)
+        return ("none", 0.0)
+    _embed_mode, _embed_frac = _floor_settings("adam_embed")
+    _head_mode, _head_frac = _floor_settings("adam_lm_head")
+    _scalar_mode, _scalar_frac = _floor_settings("adam_scalars")
+    optimizer1 = FloorAdamW(
+        [dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed",
+              v_floor_mode=_embed_mode, v_floor_frac=_embed_frac),
+         dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head",
+              v_floor_mode=_head_mode, v_floor_frac=_head_frac),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars",
+              v_floor_mode=_scalar_mode, v_floor_frac=_scalar_frac)],
+        betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0)
+    if trial_idx == 0 and dist.get_rank() == 0:
+        for _g in optimizer1.param_groups:
+            print0(f"  {_g['name']}: v_floor_mode={_g.get('v_floor_mode')} v_floor_frac={_g.get('v_floor_frac')}",
+                   console=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
