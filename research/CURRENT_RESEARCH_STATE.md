@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-22 ~17:10Z (poll #434)
+- **Last updated:** 2026-05-22 ~17:40Z (poll #438)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,7 +13,7 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #398)
+## Active WIP Portfolio (poll #438)
 
 8 PRs in flight; no idle students:
 
@@ -21,17 +21,18 @@
 |:----:|:-------:|:-----------|:---------------|
 | **#800** | **edward** | Per-block depth-dependent Muon momentum (`--mu_depth_scale`) | **Assigned poll #399.** 5 cells: A=ctrl mu=0.95, B=α=0.5, C=α=1.0, D=α=2.0, E=inverse. Prediction: B wins (gentle depth taper). Kill-switch: B > A + 50 ffs → close. ETA ~9h. |
 | **#706** | **nezuko** | Embed-init std=0.1 — **COMPOUND P3 (musoft × embed=0.1)** | **Sent back poll #398.** Pre-#699 P2 μ=3.260705 cleared OLD gate by 0.000560, missed NEW by 0.001484. Now testing compound on post-#699 codebase. New W&B group `embed-init-std01-musoft-compound-P3`. ETA ~6h54m from ~13:05Z. |
-| **#748** | **frieren** | Q/K/V + MLP fc_in transform ×2.0 P2 | **P2 n=4 in-flight (pre-#699 codebase)** — T1=3.261066 (cleared OLD gate band, ABOVE NEW gate +0.001845). Notified poll #378. ~7.2h to terminal from 10:00Z pivot → ~17:12Z. |
+| **#824** | **frieren** | Polar Express — minimax-optimal per-iter Newton-Schulz coefficients | **Assigned poll #438.** 5 cells: A=ctrl fixed NS, B=PE default 6-iter, C=PE pure 6-iter, D=PE default 4-iter, E=PE default 8-iter. Prediction: B > C > A > D > E. Kill: B val/loss > 3.264 at step 1000. ETA ~9h. |
 | **#815** | **tanjiro** | NS-WarmUp — sequential Newton-Schulz iteration ramp-up | **Assigned poll #418.** 5 cells: A=ctrl ns_iter=6, B=warmup_steps=500 start=2 (primary), C=300/start=3, D=1000/start=2, E=500/start=1 (aggressive). Prediction: B > C > A > D > E. Kill at val/loss>3.32 step 1000. ETA ~9h. |
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | **Assigned poll #434.** 5 cells: A=ctrl, B=sign MLP-only, C=sign all, D=sign all + lr_mlp 0.06, E=sign all + ns_iter 4. Prediction: D > C > B > E > A. Kill: Cell B <0.001 improvement vs A → close. ETA ~9h. |
 | **#776** | **askeladd** | Muon/SOAP update RMS normalization | **P1 in-flight** — Cell A ctrl=3.2628. Cell B running. |
 | **#781** | **thorfinn** | Per-group AdamW ε sweep (sparsity asymmetry) | **P1 in-flight on NEW musoft baseline** — Rebased poll #383 after duplicate-Cell-A driver bug. New W&B group `per-group-eps-musoft`. Cell A on musoft just started ~11:39Z. Sequential blocking-foreground chain (5 cells × ~1:48h = ~9h). ETA ~20:30Z. |
 | **#785** | **alphonse** | Residual-proj init magnitude α∈{0.5/0.75/1.0/1.5/2.0} | **P1 in-flight** — Cell A (α=0.50) at step ~1022 of 3250 as of 11:21Z. SMOKE@α=1.0 finished clean. Primary prediction: D (α=1.5) wins. |
 
-## Recent Closures (poll #418)
+## Recent Closures
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#748 frieren** (poll #438) | clean-NEG | Q/K/V + MLP fc_in transform ×2.0, n=4: μ=3.261472 (+0.000690 above close threshold 3.260783). ×2.0 transform init does NOT stack with musoft (#699). σ_single=0.000944 (tighter than published). Asymmetric finding preserved: smaller magnitudes (×0.5, ×0.1) catastrophically worse (+7.9σ, +8.7σ); larger within noise of ctrl. Transform-init axis closed; current default robustly near optimum. |
 | **#773 fern** (poll #434) | clean-NEG | Adaptive-mu from grad cosine similarity. Mechanism falsified: both +α and −α degrade val/loss monotonically. Best A(ctrl)=3.26181 vs worst D(α=0.10)=3.27568. Sign-falsifier Cell E (−0.05) as bad as Cell C (+0.05), killing directional-coherence story. SOAP eigenbasis rotation leaves residual cos-sim as high-freq noise, not load-bearing signal. Axis closed. |
 | **#756 tanjiro** (poll #418) | clean-NEG | GC on Muon body weights 5-cell. Best Cell C (row-pre-all) = 3.26223 = +0.90σ above new baseline μ. Cells: A=3.26423, B(col-pre)=3.26344, **C(row-pre)=3.26223**, D(col-post)=3.26440, E(col-pre-mlp)=3.26507. **Surprising row-vs-col INVERSION** (Δ=−1.08σ): under SOAP, col-mean direction already damped by eigenbasis rotation; row-mean targets per-output bias direction not absorbed by SOAP+RMSNorm. Three coherent contrasts: row>col, pre>post, all>mlp-only. Axis closed; mechanism note kept for future GC-on-Muon-with-different-baseline work. |
 | **#714 edward** (poll #398) | clean-NEG | RMSNorm gain init mean=0.9 P2: μ_n=4=3.262818 (σ=0.001701, 1.51× ctrl variance). Misses OLD gate by +0.001553. Bimodal split (T2=3.26043 outlier good) consistent with σ_seed variance. Gain init axis closed; mean=1.0 default approximately optimal. |
@@ -55,9 +56,11 @@
 - residual-proj magnitude multiplier (#785 P1 in-flight, alphonse α-sweep)
 - gains (#714 CLOSED: identity init approximately optimal at n=4)
 - embed (#706 pre-#699 P2 cleared OLD gate / missed NEW; **#706 P3 compound now in-flight**)
-- transformations (#748 P2 in-flight on pre-#699 codebase)
+- transformations (#748 CLOSED clean-NEG: ×2.0 does not stack with musoft; smaller-magnitude catastrophically worse, larger-within-noise)
 
-**Novel Muon mechanisms**: GC (#756 CLOSED clean-NEG, row-vs-col inversion noted), adaptive-mu (#773 CLOSED clean-NEG, mechanism falsified), update-RMS-norm (#776 P1 in-flight), per-block mu-depth-scale (#800 P1 assigned), NS-WarmUp (#815 P1 assigned), **SignMuon (#823 P1 just assigned)**.
+**Novel Muon mechanisms**: GC (#756 CLOSED clean-NEG), adaptive-mu (#773 CLOSED clean-NEG), update-RMS-norm (#776 P1 in-flight), per-block mu-depth-scale (#800 P1 in-flight), NS-WarmUp (#815 P1 in-flight), SignMuon (#823 P1 in-flight), **Polar Express polynomial (#824 P1 just assigned)**.
+
+**NS polynomial axis:** Fixed coefficients (a=2, b=−1.5, c=0.5) vs per-iteration minimax-optimal (Polar Express). Mechanistically distinct from #815 (iteration count ramp), #823 (NS input conditioning), #776 (NS output scaling).
 
 
 ## Research Themes
@@ -69,14 +72,12 @@
 **Edward closure clarifies init landscape:** With #714 closed, gain init joins lm_head init as boundary-optimum axes (default identity wins). The remaining open init axes are:
 - residual-proj (merged, magnitude probe in #785)
 - embed (compound P3 in #706)
-- transformations (#748 P2 still in flight, pre-#699 codebase)
-
-**Pre-#699 P2 results — generalization concern:** Two P2s (frieren #748, nezuko original) ran on stale codebase to honor the experimental contract. Pattern: if they clear OLD gate, send back for compound P3. If they miss OLD gate, close clean. Nezuko was the first such resolution (sent for P3). Frieren still pending.
+- transformations (#748 CLOSED clean-NEG: init-magnitude axis fully closed)
 
 **Next direction priorities (after current portfolio resolves):**
 1. **Alphonse #785 outcome →** Localizes the residual-magnitude axis on musoft. If α=1.5 or α=2.0 wins, immediately compound with embed-std=0.1 (if nezuko's P3 also clears).
 2. **Nezuko #706 P3 outcome →** Tells us if init-magnitude axes stack with musoft. If yes, the path forward is multi-axis stacking; if no, magnitude axes are subsumed by musoft.
-3. **Novel Muon mechanisms (#776, #800, #815, #823)** all need to re-gate against 3.259221. Bar is harder. If any single cell shows >1σ below musoft baseline, escalate to P2. (#756, #773 now closed clean-NEG.)
-4. **If 2+ axes merge:** assign a systematic 3-way cross-axis compound experiment (residual × embed × transform).
+3. **Novel Muon mechanisms (#776, #800, #815, #823, #824)** all need to re-gate against 3.259221. Bar is harder. If any single cell shows >1σ below musoft baseline, escalate to P2.
+4. **Polar Express (#824):** If B/C clear gate → merge and test at ns_iter=4 for efficiency. If B/C miss gate → NS polynomial coefficients axis closed.
 
-**Dead ends:** 8 AdamW-kernel replacements, all schedule modifications, per-group β1/β2, global ε, lm_head init, **RMSNorm gain init (NEW: #714)**.
+**Dead ends:** 8 AdamW-kernel replacements, all schedule modifications, per-group β1/β2, global ε, lm_head init, RMSNorm gain init (#714), **transform init magnitude (#748: ×2.0 does not stack with musoft)**.

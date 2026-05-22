@@ -3,6 +3,37 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~17:40 UTC — PR #748: frieren Q/K/V + MLP fc_in init magnitude sweep (×2.0 P2) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-frieren/transform-init-magnitude`
+- Student: g1r5-frieren
+- Hypothesis: P2 n=4 confirmation of P1 Cell C (×2.0 transform init magnitude). P1 single-seed at 3.261066 cleared OLD gate by −0.000200; now testing whether signal replicates at n=4 on post-#699 codebase.
+- **Results (P2 n=4, group `g1r5-frieren/transform-init-magnitude-P2-confirm`):**
+
+| Trial | run_id | val/loss | ffs |
+|------:|:------:|:--------:|:---:|
+| T1 | `5ookkx0a` (P1 Cell A ctrl) | 3.261784 | 3025 |
+| T2 | — | 3.26165 | 3025 |
+| T3 | — | 3.26211 | 3050 |
+| T4 | — | 3.26009 | 3025 |
+| T5 | `20qw606z` | 3.26204 | 3050 |
+| **μ_n=4** | — | **3.261472** | **3037.5** |
+
+*(P1 5-cell sweep: A=3.261784, B(×0.5)=3.270140, C(×2.0)=3.261066, D(×0.1)=3.270957, E(×0.0)=aborted. W&B: `5ookkx0a`, `s0l2w8ia`, `c7htcrny`, `ib13jhsl`)*
+
+- **Gate math (post-#699 baseline μ=3.261221, n=4 gate=3.259221):**
+  - vs MERGE (≤3.259221): +0.002251 above
+  - vs COMPOUND-P3 sendback band: above by +0.000690
+  - **CLOSE threshold (>3.260783): +0.000690 above → CLOSE clean-NEG**
+
+- **Decision:** CLOSED clean-NEG per pre-staged decision tree. μ_n=4=3.261472 sits clearly above close threshold.
+
+- **Key findings:**
+  1. ×2.0 transform init does NOT stack additively with musoft (#699). P1 single-seed gate-cross was favorable variance.
+  2. B/D catastrophic-on-smaller genuine: ×0.5 hurts +7.9σ, ×0.1 hurts +8.7σ. Current default `std=sqrt(0.33/n_in)` robustly near local optimum (floor-only structure).
+  3. σ_single = 0.000944 (slightly tighter than published 0.001123) — useful data point for future P2 gate math.
+  4. Transform-init axis fully closed. Init-magnitude family: 1 merged (musoft #699), 4 closed (lm_head, gains, transform, #748).
+
 ## 2026-05-22 ~16:45 UTC — PR #773: fern Signal-driven adaptive Muon mu (grad cosine similarity) — **CLOSED clean-NEG (mechanism falsified)**
 
 - Branch: `g1r5-fern/adaptive-mu-cossim`
