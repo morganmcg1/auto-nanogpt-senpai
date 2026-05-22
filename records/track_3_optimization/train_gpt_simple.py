@@ -71,6 +71,12 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # AdaBelief (Zhuang et al. NeurIPS 2020): drop-in replacement for AdamW on aux
+    # groups. Uses (g_t - m_t)^2 as the second-moment buffer instead of g_t^2.
+    # Default 0 keeps the AdamW path untouched (bit-identical baseline).
+    parser.add_argument("--use_adabelief_aux", type=int, default=int(os.environ.get("USE_ADABELIEF_AUX", "0")),
+                        help="If 1, replace fused AdamW for aux groups (embed, lm_head, scalars) "
+                             "with AdaBelief, which uses (g-m)^2 belief variance for the second moment.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +675,66 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class AdaBelief(torch.optim.Optimizer):
+    """AdaBelief (Zhuang et al. NeurIPS 2020).
+
+    Drop-in replacement for AdamW. The only change vs. AdamW is the second-
+    moment buffer:
+
+        m_t = beta1 * m_{t-1} + (1 - beta1) * g_t                    (same as Adam)
+        s_t = beta2 * s_{t-1} + (1 - beta2) * (g_t - m_t)^2 + eps    (belief variance)
+        theta_t = theta_{t-1} - lr * m_hat / (sqrt(s_hat) + eps)
+
+    s_t accumulates the variance of g relative to its EMA m, not the raw second
+    moment. Bias correction uses standard Adam denominators (1 - beta1^t,
+    1 - beta2^t). Decoupled weight decay matches AdamW.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["s"] = torch.zeros_like(p)
+                m = state["m"]
+                s = state["s"]
+                state["step"] += 1
+                t = state["step"]
+
+                # m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+                m.mul_(beta1).add_(g, alpha=1 - beta1)
+                # belief residual: g_t - m_t (after m has been updated this step)
+                diff = g - m
+                # s_t = beta2 * s_{t-1} + (1 - beta2) * (g_t - m_t)^2 + eps
+                s.mul_(beta2).addcmul_(diff, diff, value=1 - beta2).add_(eps)
+
+                bias_correction1 = 1 - beta1 ** t
+                bias_correction2 = 1 - beta2 ** t
+                step_size = lr / bias_correction1
+                denom = (s / bias_correction2).sqrt().add_(eps)
+                p.addcdiv_(m, denom, value=-step_size)
+
+                if wd != 0:
+                    # AdamW-style decoupled weight decay: theta = theta * (1 - lr * wd)
+                    p.mul_(1.0 - lr * wd)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +779,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_adabelief_aux:
+    print0(f"AUX OPTIMIZER: AdaBelief (belief variance (g-m)^2) eps={args.aux_adamw_eps}", console=True)
+else:
+    print0(f"AUX OPTIMIZER: AdamW (fused) eps={args.aux_adamw_eps}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +836,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "use_adabelief_aux": bool(args.use_adabelief_aux),
+            "aux_optimizer_type": "adabelief" if args.use_adabelief_aux else "adamw",
         },
     )
 
@@ -812,10 +884,19 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    # When --use_adabelief_aux is set, swap the aux optimizer for AdaBelief (same
+    # param groups, same betas/lrs/eps; only the (g-m)^2 belief variance changes).
+    aux_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if args.use_adabelief_aux:
+        optimizer1 = AdaBelief(aux_param_groups,
+                               betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0)
+    else:
+        optimizer1 = AdamW(aux_param_groups,
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
