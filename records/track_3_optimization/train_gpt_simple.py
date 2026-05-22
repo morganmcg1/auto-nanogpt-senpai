@@ -71,11 +71,24 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H58: Freeze aux AdamW exp_avg_sq (v_t) at a chosen step. Preserves the
+    # peak-conditioning denominator so late-cooldown small gradients don't add
+    # noise to v_t. -1 disables (no-op, bit-identical with baseline).
+    parser.add_argument("--aux_vt_freeze_step", type=int, default=int(os.environ.get("AUX_VT_FREEZE_STEP", "-1")),
+                        help="Step at which to freeze aux AdamW exp_avg_sq buffer (-1 = disabled).")
+    parser.add_argument("--aux_vt_freeze_groups", type=str,
+                        default=os.environ.get("AUX_VT_FREEZE_GROUPS", "all"),
+                        choices=["all", "embed_lmhead", "embed_only", "lmhead_only"],
+                        help="Which aux groups to freeze v_t on. Default 'all'.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.aux_vt_freeze_step >= 0 and args.aux_vt_freeze_step >= args.train_steps:
+        raise ValueError(
+            f"--aux_vt_freeze_step ({args.aux_vt_freeze_step}) must be < --train_steps ({args.train_steps})"
+        )
     return args
 
 
@@ -766,6 +779,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_vt_freeze_step": args.aux_vt_freeze_step,
+            "aux_vt_freeze_groups": args.aux_vt_freeze_groups,
         },
     )
 
@@ -1020,6 +1035,51 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H58: Aux v_t freeze. At freeze_step, snapshot exp_avg_sq for the
+        # selected aux groups; on subsequent steps, restore from snapshot AFTER
+        # the optimizer has run so the next step reads frozen v_t. Bias
+        # correction (1 - beta2^step) stays at ~1.0 for step >> 60 with beta2=0.95,
+        # so frozen v_hat is stable (unlike PR #740 which zeroed v_t).
+        if args.aux_vt_freeze_step >= 0:
+            _AUX_VT_FREEZE_GROUPS = {
+                "all": {"adam_embed", "adam_lm_head", "adam_scalars"},
+                "embed_lmhead": {"adam_embed", "adam_lm_head"},
+                "embed_only": {"adam_embed"},
+                "lmhead_only": {"adam_lm_head"},
+            }[args.aux_vt_freeze_groups]
+            if step == args.aux_vt_freeze_step:
+                snapshot_max_abs = 0.0
+                snapshot_norm_sum = 0.0
+                snapshot_count = 0
+                for group in optimizer1.param_groups:
+                    if group.get("name", "") in _AUX_VT_FREEZE_GROUPS:
+                        for p in group["params"]:
+                            state = optimizer1.state.get(p, {})
+                            if "exp_avg_sq" in state:
+                                state["_frozen_exp_avg_sq"] = state["exp_avg_sq"].detach().clone()
+                                snapshot_max_abs = max(snapshot_max_abs, float(state["_frozen_exp_avg_sq"].abs().max().item()))
+                                snapshot_norm_sum += float(state["_frozen_exp_avg_sq"].norm().item())
+                                snapshot_count += 1
+                print0(
+                    f"[aux_vt_freeze] Snapshotted v_t at step {step} for groups {sorted(_AUX_VT_FREEZE_GROUPS)} "
+                    f"(params={snapshot_count}, max_abs={snapshot_max_abs:.3e}, norm_sum={snapshot_norm_sum:.3e})",
+                    console=True,
+                )
+                if dist.get_rank() == 0:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "aux/vt_pre_freeze_max_abs": snapshot_max_abs,
+                        "aux/vt_pre_freeze_norm_sum": snapshot_norm_sum,
+                        "aux/vt_freeze_param_count": snapshot_count,
+                    }, step=wandb_step)
+            elif step > args.aux_vt_freeze_step:
+                for group in optimizer1.param_groups:
+                    if group.get("name", "") in _AUX_VT_FREEZE_GROUPS:
+                        for p in group["params"]:
+                            state = optimizer1.state.get(p, {})
+                            if "_frozen_exp_avg_sq" in state and "exp_avg_sq" in state:
+                                state["exp_avg_sq"].copy_(state["_frozen_exp_avg_sq"])
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1054,6 +1114,42 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due:
+                # Aux v_t telemetry (always on, even when freeze disabled, so we
+                # have a ctrl trajectory). vt_norm_* should plateau at the
+                # snapshot value after freeze_step for groups in the freeze set.
+                for group in optimizer1.param_groups:
+                    group_name = group.get("name", "")
+                    if group_name not in {"adam_embed", "adam_lm_head", "adam_scalars"}:
+                        continue
+                    norms = []
+                    drifts = []
+                    for p in group["params"]:
+                        state = optimizer1.state.get(p, {})
+                        v = state.get("exp_avg_sq", None)
+                        if v is None:
+                            continue
+                        norms.append(float(v.norm().item()))
+                        frozen = state.get("_frozen_exp_avg_sq", None)
+                        if frozen is not None:
+                            diff_norm = float((v - frozen).norm().item())
+                            base = float(frozen.norm().item())
+                            drifts.append(diff_norm / max(base, 1e-30))
+                    if not norms:
+                        continue
+                    if group_name == "adam_embed":
+                        muonh_metrics["aux/vt_norm_embed"] = norms[0]
+                        if drifts:
+                            muonh_metrics["aux/vt_drift_embed"] = drifts[0]
+                    elif group_name == "adam_lm_head":
+                        muonh_metrics["aux/vt_norm_lmhead"] = norms[0]
+                        if drifts:
+                            muonh_metrics["aux/vt_drift_lmhead"] = drifts[0]
+                    elif group_name == "adam_scalars":
+                        muonh_metrics["aux/vt_norm_scalars_mean"] = sum(norms) / len(norms)
+                        muonh_metrics["aux/vt_norm_scalars_max"] = max(norms)
+                        if drifts:
+                            muonh_metrics["aux/vt_drift_scalars_mean"] = sum(drifts) / len(drifts)
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
