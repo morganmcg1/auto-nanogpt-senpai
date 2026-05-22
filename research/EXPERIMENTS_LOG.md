@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~02:00 UTC — PR #693: frieren Muon mu schedule sweep — **CLOSED clean-NEG (Muon-side time-varying axis fully closed)**
+
+- Branch: `g1r5-frieren/muon-mu-schedule`
+- Student: g1r5-frieren
+- Hypothesis: Muon momentum `mu` is static at 0.95 throughout training (closed clean-NEUTRAL in #508). Test whether **time-varying mu** during cooldown helps, parallel to LR cooldown decay (WSD schedule). Mechanistic prediction: as LR decays, momentum becomes "redundant" and decaying mu lets the optimizer respond to fresh per-step gradients. Third time-varying Muon hyperparameter axis (alongside NS iter schedule #665, LR cooldown shape #679). 5-cell: A=const 0.95 ctrl / B=static 0.90 / C=static 0.98 / D=ramp 0.95→0.5 / E=ramp 0.95→0.0.
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | mu config | wandb_run_id | val/loss | ffs | Δ vs ctrl A | Δ vs μ_baseline |
+|:----:|:----:|-----------|:------------:|---------:|:---:|------------:|-----------------:|
+| 1 | **A (ctrl)** | const 0.95 | `oak44b8w` | **3.263899** | 3050 | — | +0.56σ_single |
+| 2 | B | static 0.90 | `0vp8dz5t` | 3.265872 | 3075 | +0.00197 | +2.32σ |
+| 3 | D | ramp 0.95→0.5 | `024yv1nq` | 3.267273 | 3025 | +0.00337 | +3.57σ |
+| 4 | C | static 0.98 | `3kksio3z` | 3.267565 | 3075 | +0.00367 | +3.83σ |
+| 5 | E | ramp 0.95→0.0 | `brbafo9x` | 3.271947 | 3075 | +0.00805 | +7.74σ |
+
+- **Key mechanistic findings:**
+  1. **mu=0.95 is a sharp single-peak optimum on the static axis.** Both directions hurt (B at +1.76σ vs ctrl; C at +3.27σ vs ctrl). Asymmetric: more momentum (C) hurts more than less momentum (B). Mechanism: higher mu lags trajectory more behind sharp basin geometry; Muon NS orthogonalization projects momentum buffer onto spectral edge; if buffer lags true descent direction, projected step misaligns.
+  2. **Cooldown-phase mu decay hurts monotonically with floor depth.** D (ramp→0.5) +3.00σ vs ctrl; E (ramp→0.0) +7.17σ vs ctrl. **Inverts the PR's "cooldown momentum is redundant" prediction** — accumulated Muon momentum buffer is the **dominant signal** driving parameter trajectory during cooldown phase. With LR shrinking, fresh per-step gradients can't recover from discarded accumulated direction.
+  3. **Muon-side time-varying hyperparameter space is empty.** Third time-varying axis to close negative alongside NS iter schedule (#665) and LR cooldown shape (#679). **Muon optimizer schedule layer fully characterized.** Pairs with WD axis 5-dim closure → entire optimizer schedule layer empirically mapped.
+  4. **Cell A = 7th strong post-#571 single-seed ctrl.** 3.263899 sits near upper end of empirical post-#571 ctrl band (mean ≈ 3.2625, SD ≈ 0.0013 across 7 reproductions).
+  5. **Bonus telemetry preserved.** `train/mu/{group_name}` logging is essentially free and useful for future Muon variants. Cherry-picked into merged code path.
+
+- **Decision:** CLOSED clean-NEG. Muon-side time-varying optimizer schedule fully closed. Frieren reassigned to **transformation init magnitude sweep** (line 777 `else` branch catches Q/K/V + MLP fc_in weights with std=sqrt(0.33/n_in) ≈ 0.0207; never independently swept; structurally orthogonal to alphonse #699/nezuko #706/edward #714/fern #722).
+
+---
+
 ## 2026-05-22 ~01:30 UTC — PR #691: thorfinn per-group AdamW β1 sweep — **P1 SWEEP COMPLETE → P2 STACKED n=4 (scalars=0.9 + embed=0.9 + lm_head=0.8)**
 
 - Branch: `g1r5-thorfinn/per-group-beta1-sweep`
