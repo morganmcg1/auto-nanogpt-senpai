@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #749: late-window embed AdamW LR boost. Multiplies the cooldown-decayed
+# adam_embed LR during the final EMBED_LR_LATE_BOOST_FRAC of training.
+# EMBED_LR_LATE_BOOST=1.0 disables the boost (identity).
+EMBED_LR_LATE_BOOST = float(os.environ.get("EMBED_LR_LATE_BOOST", "1.0"))
+EMBED_LR_LATE_BOOST_FRAC = float(os.environ.get("EMBED_LR_LATE_BOOST_FRAC", "0.075"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +871,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_lr_late_boost": EMBED_LR_LATE_BOOST,
+            "optimizer/embed_lr_late_boost_frac": EMBED_LR_LATE_BOOST_FRAC,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +943,10 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if (group.get("name") == "adam_embed"
+                    and EMBED_LR_LATE_BOOST != 1.0
+                    and progress >= 1.0 - EMBED_LR_LATE_BOOST_FRAC):
+                    group["lr"] = group["initial_lr"] * eta * EMBED_LR_LATE_BOOST
 
 
     ########################################
