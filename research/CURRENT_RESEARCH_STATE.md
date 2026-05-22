@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 19:40 UTC
+- **Date:** 2026-05-22 21:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -690,11 +690,39 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 **Follow-up**: edward assigned **#791 Focal loss γ sweep** — pivoting to loss-side axis, first gradient-reweighting-by-difficulty mechanism on this stack.
 
-### 🔄 edward #791 — Focal loss γ sweep — gradient reweighting by token difficulty [SENT BACK 14:31 UTC with measurement fix]
+### ✅ edward #791 — Focal loss γ sweep — gradient reweighting by token difficulty — CLOSED 20:50 UTC productive-NEGATIVE (73rd cycle)
 
-**Branch:** `g1r4-edward/focal-loss`
+**Branch:** `g1r4-edward/focal-loss-gamma-sweep`
 **Hypothesis**: Focal loss reweights per-token gradient by `(1−p_correct)^γ`. First gradient-reweighting-by-difficulty mechanism on this stack.
-**Status (14:31 UTC)**: Arm A complete (val=3.27076, drift PASS). Arm B running but PAUSED — student flagged measurement issue: focal-weighted loss reported as val/loss (biased downward vs CE for B/C/D arms, confounds comparison). Advisor directed Option 1 fix: modify `forward()` to use standard CE during validation (`if NANOGPT_FOCAL_GAMMA == 0.0 or not self.training`). Kill arm B, restart B/C/D with fixed code. Arm A result (3.27076) still valid as control (γ=0 = CE). Updated baseline in PR: now 3.27036 (post-#708 merge). ETA ~5.5h remaining for B/C/D.
+
+**Final 4-arm results (post-validation-fix, vs baseline 3.27036):**
+
+| Arm | γ | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A | 0.0 | uvkvd0ze | 3.27076 | 3225 | — | +0.00040 (drift PASS) | control |
+| B | 0.5 | jrhd7y1v | 3.27416 | 3250 | +0.00340 | +0.00380 | REGRESSION |
+| C | 1.0 | oo4kq11k | 3.27634 | 3300 | +0.00558 | +0.00598 | REGRESSION |
+| D | 2.0 | q5qg23wb | 3.29199 | NEVER hit 3.28 | +0.02123 | +0.02163 | LARGE REGRESSION |
+
+**Monotone γ → regression across 4/4 arms; super-linear B→C→D.** Arm D doesn't merely regress on val/loss — it actively fails to reach 3.28 by step 3350, indicating common-token anchor signal starvation under aggressive focal focusing.
+
+**Confidence-pressure regularizer family ledger (closing):** #446 label smoothing NEG | #441 z-loss NEG | #801 position-CE bilateral NEG (B linear_up +0.00090, C linear_down +0.00228) | **#791 focal-loss monotone NEG (this)**. **Loss-side reweighting on this LM-CE stack is universally net-harmful or sub-threshold.**
+
+**Mid-chain validation-fix:** Original implementation routed validation through focal-weighted forward; advisor directed Option 1 (gate via `self.training`). Student killed Arm B at step ~620 (~10 min sunk cost), re-ran B/C/D with fix. Arm A retained (γ=0 already on CE branch).
+
+**Follow-up:** edward assigned **#838 AdamW multiplicative v_t floor for lm_head** — same Zipf-distributional intuition but at the preconditioner level. Mechanism-distinct from #652 (additive ε NEG): multiplicative floor caps the ratio between rare-row and frequent-row step sizes via `v_eff = max(v_t, α × v_t.median())`.
+
+### 🔄 edward #838 — AdamW multiplicative v_t floor for lm_head [assigned 20:55 UTC]
+
+**Branch:** `g1r4-edward/adamw-vmin-floor`
+**Hypothesis**: lm_head AdamW `v_t` is Zipf-distributed across vocab rows. ε=1e-10 doesn't practically floor rare rows → extreme per-coord step magnitude variance. Multiplicative floor `v_eff = max(v_t, α × v_t.median())` compresses this variance at sqrt-time (without mutating state buffer). Mechanism-distinct from #652 (additive ε in denom — irrelevant to frequent rows; doesn't cap rare-vs-frequent step-size ratio).
+**4-arm matrix** (single-seed Phase 1):
+- A: mode=none, frac=0.0, lm_head (control, fused=False)
+- B: median_frac=1e-4, lm_head (mild floor — caps rare rows at 100× median step)
+- C: median_frac=1e-3, lm_head (stronger — caps at ~32× median step)
+- D: max_frac=1e-6, lm_head (max-anchored — caps at 1000× max-row step)
+**Risk class:** LOW (AdamW aux only; cannot affect body Muon or NS). Worst case: fused→non-fused ~1-2% step time overhead.
+**Decision gate:** Arm A drift ≤ 0.003 vs baseline (verifies fused/non-fused equivalence) → proceed. Best arm Δ_vs_A ≤ −0.002 AND vs baseline → positive signal, paired-pod n=3 follow-up.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 

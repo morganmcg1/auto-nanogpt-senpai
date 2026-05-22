@@ -3,6 +3,45 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 20:50 UTC — PR #791: Focal-loss γ sweep — gradient reweighting by token difficulty (edward) — CLOSED productive-NEGATIVE (73rd cycle)
+
+- Branch: `g1r4-edward/focal-loss-gamma-sweep`
+- Hypothesis: Focal loss (Lin et al. 2017) downweights well-classified token gradient contributions via `(1-p_correct)^γ`, reallocating capacity toward rare/hard tokens. 4-arm sweep γ ∈ {0.0, 0.5, 1.0, 2.0}. Mechanism-motivated by Zipf-shaped token frequency distribution: ultra-frequent tokens contribute most of CE mass.
+- Mid-chain pivot: original implementation routed validation through focal-weighted forward, mechanically lowering val/loss for arms B/C/D independent of model quality. Advisor sent Option 1 fix (gate via `self.training`); student killed Arm B at step ~620 (~10 min sunk cost), applied fix, re-ran B/C/D from scratch. Arm A (γ=0.0) retained — already hit CE branch.
+
+**Phase 1 N=1 results (post-validation-fix, vs post-#708 baseline 3.27036):**
+
+| Arm | γ | run_id | val/loss | fs | Δ_vs_A (3.27076) | Δ_vs_baseline (3.27036) | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | 0.0 | uvkvd0ze | 3.27076 | 3225 | — | +0.00040 (drift PASS ±0.003) | clean control |
+| B | 0.5 | jrhd7y1v | 3.27416 | 3250 | **+0.00340** | +0.00380 | REGRESSION (≥+0.0015) |
+| C | 1.0 | oo4kq11k | 3.27634 | 3300 | **+0.00558** | +0.00598 | REGRESSION (≥+0.0015) |
+| D | 2.0 | q5qg23wb | **3.29199** | **never hit 3.28** | **+0.02123** | +0.02163 | LARGE REGRESSION |
+
+**Monotone γ → regression across 4/4 arms.** Super-linear B→C→D (+0.0034 → +0.0056 → +0.0212): Arm D doesn't just regress — it actively fails to reach the 3.28 target by step 3350, indicating starvation of the common-token anchor signal during early-mid training.
+
+**Mechanism — confidence-pressure regularizer family ledger (closing):**
+
+| Hypothesis | PR | Verdict |
+|---|---|---|
+| Label smoothing | #446 | NEG monotone |
+| Z-loss (logit penalty) | #441 | NEG |
+| Position-weighted CE | #801 | NEG bilateral (B linear_up +0.00090, C linear_down +0.00228) — final D pending |
+| Focal loss γ ∈ {0.5, 1.0, 2.0} | #791 (this) | NEG monotone |
+
+**The token-difficulty / loss-side reweighting axis is closed monotone-NEG.** Focal weighting was designed for class-imbalanced detection (positives rare AND informative AND clean); LM next-token CE has no such imbalance — every token is a positive supervision signal, and upweighting low-confidence (often noisy) rare tokens trades away cumulative refinement signal from high-confidence common tokens.
+
+**Durable finding (composable for future planning):**
+1. Loss-side reweighting on this Muon+AdamW stack is universally net-harmful or sub-threshold.
+2. Validation-metric integrity requires gating focal/weighted-loss machinery via `self.training` — easy to miss.
+3. Future lm_head/loss-side work should target structural mechanisms (output projection variants, frequency-aware *init* not *loss*, multiplicative preconditioner adjustments — see #838).
+
+**Follow-up:** edward reassigned **#838 AdamW multiplicative v_t floor for lm_head — Zipf step-size variance compression** — same Zipf-asymmetry intuition but at the optimizer preconditioner level. Mechanism-distinct from #652 (additive ε NEG): multiplicative floor `v_eff = max(v_t, α × v_t.median())` caps the *ratio* between rare-row and frequent-row step sizes. Composes orthogonally with merged stack.
+
+Baseline UNCHANGED at val=3.27036 / fs=3216.67.
+
+---
+
 ## 2026-05-22 15:15 UTC — PR #724: Per-block-TYPE NS_ITERS_COOLDOWN attn vs mlp (nezuko) — CLOSED productive-NEGATIVE (72nd cycle, 10th paired-pod collapse)
 
 - Branch: `g1r4-nezuko/per-type-ns-iters-cooldown`
