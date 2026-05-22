@@ -218,6 +218,15 @@ def log_training_telemetry(
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
     metrics.update(prefixed("train/grad/all", grad_stats))
+    # Z-loss diagnostics (last training microbatch). `train/logsumexp_mean` is the load-bearing
+    # diagnostic — if z-loss is doing work, this should fall vs the Z_LOSS_COEFF=0 baseline.
+    metrics["train/z_loss_coeff"] = Z_LOSS_COEFF
+    if Z_LOSS_COEFF > 0.0 and getattr(model, "_z_loss_value", None) is not None:
+        metrics["train/z_loss_value"] = float(model._z_loss_value.item())
+        metrics["train/logsumexp_mean"] = float(model._logsumexp_mean.item())
+    else:
+        metrics["train/z_loss_value"] = 0.0
+        metrics["train/logsumexp_mean"] = 0.0
     for opt_idx, opt in enumerate(optimizers):
         for group_idx, group in enumerate(opt.param_groups):
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
@@ -422,6 +431,10 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Z-loss telemetry (last training microbatch). Stored as detached scalar tensors so we
+        # avoid CPU/GPU syncs in the hot path; `.item()` only happens at telemetry logging time.
+        self._z_loss_value = None  # type: ignore[assignment]
+        self._logsumexp_mean = None  # type: ignore[assignment]
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -429,7 +442,16 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_flat = logits.view(targets.numel(), -1)
+        ce_loss = F.cross_entropy(logits_flat, targets.view(-1), reduction="sum")
+        # Z-loss (PaLM Section 5.2): apply only on training path so val/eval is bit-identical to baseline.
+        if self.training and Z_LOSS_COEFF > 0.0:
+            logsumexp = torch.logsumexp(logits_flat, dim=-1)
+            z_loss = Z_LOSS_COEFF * (logsumexp ** 2).sum()
+            self._z_loss_value = z_loss.detach()
+            self._logsumexp_mean = logsumexp.detach().mean()
+            return ce_loss + z_loss
+        return ce_loss
 
 
 ########################################
@@ -468,6 +490,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Z-loss (PaLM 2022, Chowdhery et al., Section 5.2): penalize logsumexp(logits)^2 to control logit scale
+# and stabilize softmax backward. Computed on TRAIN path only (self.training); val/eval path is bit-identical.
+# Default 0.0 = disabled. PaLM uses 1e-4 for 540B training.
+Z_LOSS_COEFF = float(os.environ.get("Z_LOSS_COEFF", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +892,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "loss/z_loss_coeff": Z_LOSS_COEFF,
+            "loss/logit_softcap": LOGIT_SOFTCAP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
