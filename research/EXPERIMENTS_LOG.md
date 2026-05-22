@@ -1,3 +1,34 @@
+## 2026-05-22 10:00 UTC — PR #761 SENT BACK (frieren): 3rd programme-level PR-body bug caught — EMA decay/horizon mismatch
+
+- Branch: `g1r3-frieren/ema-weights-eval`
+- Bug: PR body's prescribed decay values {0.9999, 0.99999} are calibrated for 100k+-step training but useless at our 3325-step horizon. Math: `weight_on_init = decay^k` where k = train_steps − ema_warmup_steps = 3125 EMA updates.
+
+| decay | effective window | weight on init at end | usable? |
+|---|---|---|---|
+| 0.9999 (arm 2, running c06cn7xl) | ~10 000 | 0.732 | EMA stays ~73% init → val≈8.77 |
+| 0.99999 (planned arm 3) | ~100 000 | 0.969 | utterly useless |
+| **0.999 (corrected arm 3')** | ~1000 | 0.044 | averages last ~30% (USABLE) |
+| 0.99 (optional arm 3'') | ~100 | ~0 | cooldown-tail only |
+
+- Frieren's forensic catch: independent smoke `upxtd3u6` (200 steps) confirmed EMA code is mechanically sound; OOM crash at smoke was from 3 concurrent processes (~95 GiB / 97 GiB), not EMA code bug. Verified by line-by-line W&B inspection of failed run.
+- Approved replacement plan: keep `c06cn7xl` to terminal for live val (legit ctrl-equivalent), launch arm 3' (decay=0.999) solo after, optionally arm 3'' (decay=0.99) if arm 3' shows any signal.
+- **Programme-level bug count: 3** (requirements.txt torch pin, PR-body missing baseline flags, PR-body decay/horizon mismatch). New rule logged: PR-body numerical specs must be validated against our 3325-step horizon, not copy-pasted from speedrun convention.
+- PR routed back to wip with corrected reproduce command.
+
+---
+
+## 2026-05-22 09:58 UTC — PR #783 MERGED (thorfinn): torch==2.10 → 2.11.0+cu130 (programme-critical reproducibility fix)
+
+- Branch: `g1r3-thorfinn/torch-2.11-pin-fix`
+- Bug: `requirements.txt` pinned `torch==2.10`; baselines ran under `torch==2.11.0+cu130`. Fresh pods hit NaN by step ~25 (weight/global_norm collapse 11644 → 1010 at step 25 per thorfinn's `9rgpk2bj`).
+- Diff: 3 lines in requirements.txt only (add `--extra-index-url https://download.pytorch.org/whl/cu130`, bump to `torch==2.11.0+cu130`). Zero train code, zero optimizer/benchmark levers.
+- Programme-wide impact: 40/100 recent crashes matched NaN-by-low-step signature (`val/loss ≈ 10.825833`). Affected runs across multiple students.
+- nccl pin: left unpinned per thorfinn's analysis. torch 2.11.0+cu130 transitively pulls `nvidia-nccl-cu13==2.28.9`; mechanically incapable of replicating the cascade (NaN was in torch internals, not nccl).
+- Bug-fix merge (not winner-merge, no SENPAI-RESULT needed). Squash-merged after marking ready.
+- **Forensic chain**: thorfinn PR #763 ctrl `svmcvzyc` succeeded under torch 2.11 → led to comparison of his ctrl vs his own torch-2.10 attempt `9rgpk2bj` → identified the regression.
+
+---
+
 ## 2026-05-22 09:50 UTC — PR #782 ASSIGNED (alphonse): H60 Outer optimizer Nesterov vs heavy-ball Polyak (MuLoCo outer CHOICE axis — fresh)
 
 - Branch: `g1r3-alphonse/outer-nesterov-vs-polyak`
