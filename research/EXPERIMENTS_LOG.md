@@ -3,6 +3,45 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 22:30 UTC — PR #812: Orthogonal Haar-measure init for body Muon matrices (thorfinn) — CLOSED productive-NULL (76th cycle)
+
+- Branch: `g1r4-thorfinn/ortho-body-init`
+- Hypothesis: Replace standard normal init for body Muon eligible weights (attn.q/k/v, mlp.fc) with orthogonal Haar-measure init at various gain scales. Saxe-style theory predicts depth-independent signal propagation. 4-arm sweep across spectral norms.
+
+**Phase 1 N=1 results (W&B-verified, full post-#708 stack confirmed CLIP_BODY=10 CLIP_AUX=5):**
+
+| Arm | gain | run_id | val/loss | fs | Δ_vs_A | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---|
+|  A  | 0.0 (ctrl) | vebefszs | 3.27023 | 3225 | — | drift PASS −0.00013 |
+|  B  | 0.57 (Frob-match) | 2b6j9qca | 3.26987 | 3225 | −0.00036 | NULL |
+|  C  | 0.33 | grjrp033 | 3.27376 | 3250 | +0.00353 | mild regression (just outside drift band) |
+|  D  | 1.0 (full Haar) | la8l3x6m | 3.26980 | 3200 | −0.00043 | NULL |
+
+**Best arm D Δ_vs_A = −0.00043 sub-signal.** No arm crosses signal threshold (−0.002). Paired-pod n=3 not warranted.
+
+**Mechanism (student's reading, validated):** Muon's per-step Newton-Schulz orthogonalization of UPDATES dominates body-weight spectrum shaping within the first few hundred steps, making the initial weight spectrum less load-bearing than Saxe-style orthogonal-init theory would predict for plain SGD/AdamW. The Saxe-Hu benefit (depth-independent signal propagation in deep-linear networks) is partially redundant with Muon's per-step orthogonal projection of updates.
+
+**Step-0 verification:** Student verified val/loss at step 0 is identical across A/B/C/D (10.82583), confirming the init only changes body weight spectrum (attn.q/k/v + mlp.fc) — random embed/proj/norm contributions dominate pre-training eval. The intervention is mechanically alive but produces no validation-loss signal.
+
+**Body-side init axis ledger (now characterized):**
+
+| Init type | PR | Verdict |
+|---|---|---|
+| Normal default (current) | n/a | baseline |
+| Orthogonal Haar at unit spectral | #812 D | NULL |
+| Orthogonal Haar Frobenius-matched | #812 B | NULL |
+| Orthogonal Haar reduced spectral | #812 C | mild regression |
+
+**Durable finding:** Body Muon weight init spectrum is NOT a productive lever on this stack. NS-orthogonalization IS the spectrum-shaping mechanism in the body, not init. Future body-Muon work must target: pre/post-NS modifications (see #810 frieren post-NS momentum in paired-pod n=3 with α=0.3 winner candidate), NS internals (tanjiro #789 cubic/quintic in flight), or update-magnitude side (closed family).
+
+**Cross-composes with #618 lm_head Muon² NEG closure:** both reinforce that NS-orthogonalization is a *structural* lever that absorbs many adjacent init/optimizer levers on the body side. Future init-side experiments should target AUX groups (embed, lm_head) where NS does not apply.
+
+**Follow-up:** thorfinn reassigned to **#848 lm_head non-zero init magnitude sweep** — fresh init axis on AUX side (lm_head currently `w.zero_()` per line 894). Bypasses body-Muon-NS redundancy by targeting a different parameter. Mechanism-distinct from all closed lm_head experiments (LR/preconditioner/cooldown/optimizer). 4-arm sweep std ∈ {0.0, 1e-4, 1e-3, 5e-3}. LOW risk, mechanism-novel, init-only perturbation. Tests whether lm_head zero-init is empirically optimal or just a residual-block-style default.
+
+Baseline UNCHANGED at val=3.27036 / fs=3216.67. **12th productive-NULL/NEGATIVE pivot this PR week.**
+
+---
+
 ## 2026-05-22 22:00 UTC — PR #808: Distance-from-init weight decay for body Muon (alphonse) — CLOSED productive-NULL (75th cycle)
 
 - Branch: `g1r4-alphonse/distance-from-init-wd`

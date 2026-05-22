@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 22:15 UTC
+- **Date:** 2026-05-22 22:30 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -399,10 +399,37 @@ Single-seed 4-arm on NEW merged stack post-#579 (drift gate A' PASS, |3.26762−
 Pods: pod0 Δ=−0.00112, pod1 Δ=−0.00334 (STRONG), pod2 Δ=+0.00026 (sign-flip). 2/3 pods direction-correct.
 Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/√v`. Body Muon insensitive (NS renormalizes spectral direction). Adds `NANOGPT_GRAD_CLIP_BODY=10.0 NANOGPT_GRAD_CLIP_AUX=5.0` to merged stack.
 
-### 🔄 thorfinn #812 — Orthogonal Haar-measure init for body Muon matrices (4-arm) [assigned 14:46 UTC]
+### ✅ thorfinn #812 — Orthogonal Haar-measure init for body Muon matrices — CLOSED 22:30 UTC productive-NULL (76th cycle)
 
 **Branch:** `g1r4-thorfinn/ortho-body-init`
-**Hypothesis:** Replace `normal(std=0.33^0.5/sqrt(out_features))` init on q/k/v/mlp.fc body Muon matrices with `torch.nn.init.orthogonal_(gain)`. Orthogonal init gives well-conditioned singular value spectrum from step 0, reducing ill-conditioned early-step gradients. Gain sweep: A=0.0 (ctrl), B=0.57 (Frobenius-norm matched), C=0.33 (smaller), D=1.0 (full spectral norm). ~7.3h ETA.
+
+**Phase 1 N=1 results (W&B-verified, full post-#708 stack):**
+
+| Arm | gain | run_id | val/loss | fs | Δ_vs_A | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---|
+| A (ctrl) | 0.0 | vebefszs | 3.27023 | 3225 | — | drift PASS −0.00013 |
+| B | 0.57 (Frob-match) | 2b6j9qca | 3.26987 | 3225 | −0.00036 | NULL |
+| C | 0.33 | grjrp033 | 3.27376 | 3250 | +0.00353 | mild regression |
+| D | 1.0 (full Haar) | la8l3x6m | 3.26980 | 3200 | −0.00043 | NULL |
+
+**Best D Δ_vs_A=−0.00043 sub-signal.** Step-0 val/loss identical across all arms (10.82583) — random embed/proj/norm dominate pre-training eval.
+
+**Mechanism**: Muon's per-step NS-orthogonalization dominates body-weight spectrum shaping within first few hundred steps, making init spectrum less load-bearing than Saxe theory predicts for plain SGD/AdamW. Cross-composes with #618 (Muon² for lm_head NEG) — both reinforce NS-orthogonalization absorbs adjacent init/optimizer levers on the body side. Body-init axis fully characterized: orthogonal at all spectral norms (0.33/0.57/1.0) NULL or mildly regress vs normal-default init.
+
+**Durable finding**: Future init-side experiments should target AUX groups (embed, lm_head) where NS does not apply.
+
+**Follow-up**: thorfinn reassigned to **#848 lm_head non-zero init magnitude sweep** — fresh init axis on AUX side. lm_head currently `w.zero_()` per line 894; bit-identical fallback at std=0. 4-arm sweep std ∈ {0, 1e-4, 1e-3, 5e-3}. Mechanism-novel for lm_head; tests whether zero-init is empirically optimal or just a residual-block-style default.
+
+### 🔄 thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) [assigned 22:25 UTC]
+
+**Branch:** `g1r4-thorfinn/lm-head-init-std`
+**Hypothesis**: `model.proj.weight` (lm_head) currently `w.zero_()` initialized (line 894). At step 0, lm_head=0 → uniform logits over 50257 tokens → uniform softmax. Tests whether the "build-out from zero" exploration phase that lm_head spends in early training is structurally load-bearing OR an empirical default that small non-zero init could improve on. Distinct from all closed lm_head experiments (which modified optimizer not init). Distinct from #812 (body Muon init). Implementation: ~5 LOC, condition `name == "proj.weight"` to special-case top-level lm_head while preserving residual-init zero for in-block attn.proj/mlp.proj. Bit-identical fallback at std=0.
+| Arm | NANOGPT_LM_HEAD_INIT_STD | expected ‖θ_lm_head‖_F | step-0 logit std |
+|:---:|:---:|:---:|:---:|
+| A | 0.0 (ctrl) | 0.0 | 0.0 |
+| B | 1e-4 (very mild) | ~0.62 | ~1e-3 |
+| C | 1e-3 (mild, common transformer init) | ~6.2 | ~1e-2 |
+| D | 5e-3 (moderate) | ~31 | ~5e-2 |
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
@@ -851,6 +878,7 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #812 | thorfinn | Orthogonal Haar-measure init for body Muon matrices | CLOSED productive-NULL (76th cycle; full post-#708 stack; A=3.27023 drift PASS, B Frob-match gain=0.57=−0.00036 NULL, C gain=0.33=+0.00353 mild regression, D full Haar gain=1.0=−0.00043 NULL; step-0 val/loss identical across arms confirming init affects only body spectrum; NS-orthogonalization dominates body weight spectrum shaping within first few hundred steps; body-init axis fully characterized; future init work pivots to AUX side via #848 lm_head non-zero init) |
 | #808 | alphonse | Distance-from-init WD for body Muon (anchor θ₀ vs zero) | CLOSED productive-NULL (75th cycle; A=3.27126 ctrl drift PASS, B λ=0.025 init=+0.00051 NULL, C λ/2=+0.00376 regression, D 2λ=+0.00286 regression; mechanism alive but val signal absorbed by NS-orthogonalization; body-Muon WD axis CLOSED across all 5 dimensions; pivots to AUX side via #847) |
 | #801 | askeladd | Position-weighted CE (per-position loss aggregation) | CLOSED productive-NEGATIVE BILATERAL (74th cycle; A=3.26994 ctrl drift PASS, B linear_up α=0.5=+0.00132 sub-signal, C linear_down α=0.5=+0.00228 regression, D linear_down α=1.5=+0.00600 large regression; both directions regress; CE-shape regularizer family CLOSED across 4 orthogonal axes #446 #441 #791 #801; future loss-side work should target STRUCTURAL mechanisms not CE shape) |
 | #791 | edward | Focal loss γ sweep — gradient reweighting by token difficulty | CLOSED productive-NEGATIVE monotone (73rd cycle; A=3.27076 ctrl drift PASS, B γ=0.5=+0.00340, C γ=1.0=+0.00558, D γ=2.0=+0.02123 NEVER hit 3.28 target; super-linear regression; loss-side reweighting universally net-harmful on LM-CE; confidence-pressure family closure) |
