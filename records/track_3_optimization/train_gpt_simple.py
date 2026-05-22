@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--eval_fp32", type=int, default=int(os.environ.get("EVAL_FP32", "0")),
+                        help="If 1, run eval-time forward in fp32 (upcast x before final RMSNorm so the "
+                             "final norm output AND lm_head matmul both run in fp32). Bit-identical "
+                             "training when 0 (training path is untouched).")
+    parser.add_argument("--eval_fp32_norm_only", type=int, default=int(os.environ.get("EVAL_FP32_NORM_ONLY", "0")),
+                        help="Used with --eval_fp32 1: if 1, ONLY upcast the final RMSNorm (then cast back "
+                             "to bf16 before lm_head). Isolates the norm-output-dtype contribution from "
+                             "the lm_head-matmul contribution.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -452,12 +460,28 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Eval-time fp32 upcast controls. Set externally after construction.
+        # Training is bit-identical when eval_fp32 is False — the conditional only
+        # fires when self.training is False (i.e., inside model.eval()).
+        self.eval_fp32 = False
+        self.eval_fp32_norm_only = False
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
-        logits = self.proj(self.norm2(x)).float()
+        if (not self.training) and self.eval_fp32:
+            if self.eval_fp32_norm_only:
+                # fp32 final RMSNorm output, then back to bf16 for the lm_head matmul.
+                x_norm = self.norm2(x.float()).to(x.dtype)
+                logits = self.proj(x_norm).float()
+            else:
+                # Full fp32 final norm + lm_head matmul. Linear.forward/RMSNorm.forward
+                # both use weight.type_as(x), so weights/gains get pulled to fp32.
+                x_fp32 = x.float()
+                logits = self.proj(self.norm2(x_fp32)).float()
+        else:
+            logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
@@ -721,7 +745,16 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+# Wire eval-fp32 flags into the model BEFORE compile so torch.compile bakes the
+# right branch into the eval-mode graph.
+model.eval_fp32 = bool(args.eval_fp32)
+model.eval_fp32_norm_only = bool(args.eval_fp32_norm_only) if model.eval_fp32 else False
 model.compile(dynamic=False)
+if args.eval_fp32:
+    mode = "norm-only" if args.eval_fp32_norm_only else "logits+norm (full)"
+    print0(f"Eval precision: fp32 ({mode})", console=True)
+else:
+    print0("Eval precision: bf16 (baseline; .float() upcast still applied pre-CE)", console=True)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -766,6 +799,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "eval_fp32": bool(args.eval_fp32),
+            "eval_fp32_norm_only": bool(args.eval_fp32_norm_only) if args.eval_fp32 else False,
         },
     )
 
