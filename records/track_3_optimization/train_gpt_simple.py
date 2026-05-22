@@ -71,6 +71,13 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--muon_mu_schedule", type=str, default="const",
+                        choices=["const", "ramp_down"],
+                        help="Schedule for Muon mu during cooldown. 'const' uses --muon_mu_initial throughout.")
+    parser.add_argument("--muon_mu_initial", type=float, default=0.95,
+                        help="Initial Muon mu value (used throughout if schedule=const).")
+    parser.add_argument("--muon_mu_floor", type=float, default=0.5,
+                        help="Floor mu decays to during cooldown when schedule=ramp_down.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -257,6 +264,8 @@ def log_training_telemetry(
             group_name = group.get("name", f"optimizer_{opt_idx}_group_{group_idx}")
             metrics[f"train/lr/{group_name}"] = group["lr"]
             metrics[f"train/weight_decay/{group_name}"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                metrics[f"train/mu/{group_name}"] = group["mu"]
     for module_type, tensors in grouped_by_type(grads, module_types).items():
         metrics.update(prefixed(f"train/grad_type/{module_type}", aggregate_stats(tensors)))
     for name, grad in grads:
@@ -752,6 +761,9 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "muon_mu_schedule": args.muon_mu_schedule,
+            "muon_mu_initial": args.muon_mu_initial,
+            "muon_mu_floor": args.muon_mu_floor,
         },
     )
 
@@ -795,10 +807,13 @@ for trial_idx in range(args.num_trials):
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
     optimizer2 = Muon(
         [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,
+                 name="muon_mlp",  mu=args.muon_mu_initial),
+            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn,
+                 name="muon_attn", mu=args.muon_mu_initial),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        mu=args.muon_mu_initial,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -807,6 +822,8 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
+            if "mu" in group:
+                group["initial_mu"] = group["mu"]
 
     def _wd_multiplier(step, total_steps, schedule):
         if schedule == "constant":
@@ -830,14 +847,22 @@ for trial_idx in range(args.num_trials):
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
+            cooldown_progress = 0.0
         else:
             eta = (1 - progress) / cooldown_frac
+            cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
         wd_mu = _wd_multiplier(step, train_steps, args.wd_schedule)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+                if "initial_mu" in group and group.get("name", "").startswith("muon_"):
+                    if args.muon_mu_schedule == "const":
+                        group["mu"] = group["initial_mu"]
+                    elif args.muon_mu_schedule == "ramp_down":
+                        group["mu"] = (group["initial_mu"] * (1.0 - cooldown_progress)
+                                       + args.muon_mu_floor * cooldown_progress)
 
 
     ########################################
