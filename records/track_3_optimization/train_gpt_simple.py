@@ -71,6 +71,16 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--gc_mode", choices=["off", "on"], default="off",
+                        help="Gradient centralization for Muon body weights. Default off = ctrl.")
+    parser.add_argument("--gc_dim", choices=["col", "row"], default="col",
+                        help="Which dimension to subtract mean over. col=dim0 (mean over fan_out per column), row=dim1 (mean over fan_in per row).")
+    parser.add_argument("--gc_pre", type=lambda x: str(x).lower() != "false", default=True,
+                        help="True (default): pre-momentum GC on raw p.grad in-place; False: post-momentum GC on the nesterov update.")
+    parser.add_argument("--gc_scope", choices=["all", "mlp", "attn"], default="all",
+                        help="Which Muon body weights receive GC. all=full Muon group; mlp=mlp only; attn=attn only.")
+    parser.add_argument("--gc_diag_interval", type=int, default=50,
+                        help="W&B logging interval (steps) for gc_removal_frac telemetry. Set to 0 to disable.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -559,7 +569,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 gc_mode="off", gc_dim="col", gc_pre=True, gc_scope="all"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -583,6 +594,26 @@ class Muon(torch.optim.Optimizer):
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
+        self.gc_mode = gc_mode
+        self.gc_dim_int = 0 if gc_dim == "col" else 1
+        self.gc_dim_str = gc_dim
+        self.gc_pre = bool(gc_pre)
+        self.gc_scope = gc_scope
+        if gc_mode == "on":
+            def _gc_applies(name):
+                if gc_scope == "all":
+                    return True
+                if gc_scope == "mlp":
+                    return any(name.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES)
+                if gc_scope == "attn":
+                    return any(name.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES)
+                return False
+            self.gc_params = {p for n, p in all_named if _gc_applies(n)}
+        else:
+            self.gc_params = set()
+        self.gc_removal_buffer: dict[str, Tensor] = {}
+        self._gc_diag_done = False
+
         param_groups = []
         for g in groups_raw:
             g_params = sorted([p for _, p in g["named_params"]], key=lambda x: x.size(), reverse=True)
@@ -601,6 +632,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.gc_removal_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -612,6 +644,7 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    apply_gc = self.gc_mode == "on" and p in self.gc_params
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -621,9 +654,20 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    grad_norm_before = p.grad.float().norm() if apply_gc else None
+                    pre_mean_before_abs_max = None
+                    pre_mean_after_abs_max = None
+                    if apply_gc and self.gc_pre:
+                        if not self._gc_diag_done:
+                            pre_mean_before_abs_max = float(p.grad.float().mean(dim=self.gc_dim_int).abs().max().item())
+                        p.grad.sub_(p.grad.mean(dim=self.gc_dim_int, keepdim=True))
+                        if not self._gc_diag_done:
+                            pre_mean_after_abs_max = float(p.grad.float().mean(dim=self.gc_dim_int).abs().max().item())
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        if apply_gc and not self.gc_pre:
+                            raw_nesterov = raw_nesterov - raw_nesterov.mean(dim=self.gc_dim_int, keepdim=True)
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -637,13 +681,56 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if apply_gc and not self.gc_pre:
+                            mom = state["momentum"]
+                            mom.lerp_(p.grad, 1 - group["mu"])
+                            nest = p.grad.lerp(mom, group["mu"])
+                            nest = nest - nest.mean(dim=self.gc_dim_int, keepdim=True)
+                            update = zeropower_via_newtonschulz5(nest)
+                            update *= max(1, p.grad.size(-2) / p.grad.size(-1))**0.5
+                        else:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if apply_gc:
+                        grad_norm_after = p.grad.float().norm() if self.gc_pre else grad_norm_before
+                        removal_frac = (1.0 - grad_norm_after / grad_norm_before.clamp_min(1e-12)).detach()
+                        self.gc_removal_buffer[self.param_names[id(p)]] = removal_frac
+                        if not self._gc_diag_done and pre_mean_after_abs_max is not None:
+                            pname = self.param_names[id(p)]
+                            print(f"[GC DIAG step=0] p={pname} dim={self.gc_dim_int} "
+                                  f"grad_norm_before={float(grad_norm_before.item()):.6e} "
+                                  f"grad_norm_after={float(grad_norm_after.item()):.6e} "
+                                  f"pre_mean_abs_max_before={pre_mean_before_abs_max:.6e} "
+                                  f"pre_mean_abs_max_after={pre_mean_after_abs_max:.6e} "
+                                  f"removal_frac={float(removal_frac.item()):.6e}",
+                                  flush=True)
+                            self._gc_diag_done = True
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+        # In gc_mode=off, emit a one-shot ctrl-side diagnostic to confirm sanity.
+        if self.gc_mode == "off" and not self._gc_diag_done:
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    pname = self.param_names.get(id(p), "?")
+                    if not (any(pname.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES + self.SOAP_ATTN_SUFFIXES)):
+                        continue
+                    grad_norm_ctrl = float(p.grad.float().norm().item())
+                    mean_abs_max_d0 = float(p.grad.float().mean(dim=0).abs().max().item())
+                    mean_abs_max_d1 = float(p.grad.float().mean(dim=1).abs().max().item())
+                    print(f"[GC DIAG step=0 CTRL] p={pname} "
+                          f"grad_norm={grad_norm_ctrl:.6e} "
+                          f"mean_abs_max_dim0={mean_abs_max_d0:.6e} "
+                          f"mean_abs_max_dim1={mean_abs_max_d1:.6e}",
+                          flush=True)
+                    self._gc_diag_done = True
+                    break
+                if self._gc_diag_done:
+                    break
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -752,6 +839,10 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "gc_mode": args.gc_mode,
+            "gc_dim": args.gc_dim,
+            "gc_pre": bool(args.gc_pre),
+            "gc_scope": args.gc_scope,
         },
     )
 
@@ -799,6 +890,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        gc_mode=args.gc_mode, gc_dim=args.gc_dim, gc_pre=args.gc_pre, gc_scope=args.gc_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -973,6 +1065,30 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if (dist.get_rank() == 0 and optimizer2.gc_removal_buffer
+                and args.gc_diag_interval > 0
+                and (step == 0 or train_step % args.gc_diag_interval == 0
+                     or train_step == train_steps)):
+            gc_names = list(optimizer2.gc_removal_buffer.keys())
+            gc_tensors = list(optimizer2.gc_removal_buffer.values())
+            gc_values = torch.stack(gc_tensors).detach().cpu().tolist()
+            gc_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_vals: list[float] = []
+            attn_vals: list[float] = []
+            for gc_name, gc_val in zip(gc_names, gc_values):
+                gc_metrics[f"train/gc_removal_frac/{clean_metric_name(gc_name)}"] = gc_val
+                if any(gc_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_vals.append(gc_val)
+                else:
+                    mlp_vals.append(gc_val)
+            gc_metrics["train/gc_removal_frac_mean"] = sum(gc_values) / len(gc_values)
+            gc_metrics["train/gc_removal_frac_min"] = min(gc_values)
+            gc_metrics["train/gc_removal_frac_max"] = max(gc_values)
+            if mlp_vals:
+                gc_metrics["train/gc_removal_frac_mean_mlp"] = sum(mlp_vals) / len(mlp_vals)
+            if attn_vals:
+                gc_metrics["train/gc_removal_frac_mean_attn"] = sum(attn_vals) / len(attn_vals)
+            wandb.log(gc_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
