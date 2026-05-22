@@ -1,11 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 16:15 UTC
+- **Last update:** 2026-05-22 16:40 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22).
 - **71 closed axes** (#777 fern body-Muon mu cooldown ramp closed as 71st — both directions tested; body-Muon momentum spec PINNED at static mu=0.95 across all 5 sub-axes).
 - **Active marginal-signal tracking:**
-  - #741 alphonse aux β2→0.999 n=2 conf — seed 1 val=3.2650 (beats NEW baseline val=3.266926 by 0.0019); seed 2 `k4chzjdk` step 2625/3250, ETA ~17:15 UTC. Against new baseline sr=2925: seed 1 sr=2950 (+25 from new baseline). Will evaluate n=2 mean vs new baseline on both metrics.
+  - **#778 tanjiro γ_attn=0.45/γ_mlp=0.4 — REQUEST n=2** Arm B `kjqwmwuk` n=1 sr=2950 (marginal NULL +25) BUT val=3.265461 (−0.001465 below baseline, past 0.001 marginal threshold). Sent back 16:38 UTC; seed-2 launch pending.
+  - #741 alphonse aux β2→0.999 n=2 conf — seed 1 val=3.2650 (beats NEW baseline val=3.266926 by 0.0019); seed 2 `k4chzjdk` step 3100/3250 (~95%), ETA ~16:50 UTC. Against new baseline sr=2925: seed 1 sr=2950 (+25 from new baseline). Will evaluate n=2 mean vs new baseline on both metrics.
 - **Today's terminal closures (this session):**
   - **#777 fern CLOSED 16:14 UTC** — Both arms NULL: Arm A sr=2925/val=3.26880 (val marginal NULL); Arm B sr=3025/val=3.26793 (sr NULL +100). 71st axis.
   - #780 nezuko Arm A FINISHED sr=3125/val=3.2764 (NULL); Arm B `hn32cchn` step 1300/3250 (running cleanly), ETA ~17:50 UTC.
@@ -21,17 +22,17 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 16:25 UTC)
+## Active experiments (8 in-flight, 16:40 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#796** | edward | Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) on top of EMA stack | Arm A `hese09mm` running step 1675 (post-restart 14:01 UTC with Option 2 EMA stack confirmed). Arm B chains. ETA both ~21:00 UTC. |
-| **#780** | nezuko | Body-Muon u/w trust-region ceiling (0.5 vs 0.4) | Arm A `ne03hzf2` FINISHED sr=3125/val=3.2764 (NULL). Arm B `hn32cchn` step 1300/3250, ETA ~17:50 UTC. |
-| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | Arm A TERMINAL sr=2925/val regress. Arm B `kjqwmwuk` step 3000/3250 ~92% (final cooldown), ETA ~16:15 UTC. Direction validated by #736. |
-| **#741** | alphonse | Aux β2 cooldown ramp n=2 conf (β2→0.999) | Seed 1 TERMINAL sr=2950/val=3.2650 (val beats baseline by 0.0019). Seed 2 `k4chzjdk` step 2625/3250, ETA ~17:15 UTC. Against new baseline: sr=2950>2925 NULL primary; val<3.266926 wins. Will evaluate n=2 mean. |
-| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` β=0.97 step 2125/3250, val=3.40 (healthy), ETA ~17:00 UTC. **Arm B (β=0.98) NOT YET LAUNCHED** (`nt5ycb0t` crashed at step 0). Advisor 15:55 UTC pinged student to confirm chain-gate. |
-| **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` step 2100/3250, val=3.42 (healthy), ETA ~17:00 UTC. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. |
-| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | Smoke retry 1 `ako6z01l` FAILED step 108 (SGD-fallback weight explosion); retry 2 `f8v71ops` FAILED step 112 (same mode). **Retry 3 `gn8lw0x8` HEALTHY** step 197, train_loss=4.30 (salvage worked). If smoke completes, full Arm A (LR=0.3) launches. |
+| **#796** | edward | Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) on top of EMA stack | Arm A `hese09mm` running step 2175 (post-restart 14:01 UTC with Option 2 EMA stack confirmed). Arm B chains. ETA both ~21:00 UTC. |
+| **#780** | nezuko | Body-Muon u/w trust-region ceiling (0.5 vs 0.4) | Arm A `ne03hzf2` FINISHED sr=3125/val=3.2764 (NULL). Arm B `hn32cchn` step 1825/3250, ETA ~18:30 UTC. |
+| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) — n=2 confirm | Arm A NULL (sr=2975/val=3.267098); Arm B `kjqwmwuk` n=1 sr=2950 (marginal NULL +25)/**val=3.265461** (−0.001465 past marginal threshold). **Sent back 16:38 UTC for seed-2 of Arm B only.** |
+| **#741** | alphonse | Aux β2 cooldown ramp n=2 conf (β2→0.999) | Seed 1 TERMINAL sr=2950/val=3.2650 (val beats baseline by 0.0019). Seed 2 `k4chzjdk` step 3100/3250 (~95%), ETA ~16:50 UTC. Against new baseline sr=2925: seed 1 sr=2950 (+25 from new baseline). Will evaluate n=2 mean. |
+| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` β=0.97 step 2575/3250, val=3.32 (healthy), ETA ~17:00 UTC. **Arm B (β=0.98) NOT YET LAUNCHED** (`nt5ycb0t` crashed at step 0). Advisor 15:55 UTC pinged student to confirm chain-gate. |
+| **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` step 2600/3250, val=3.34 (healthy), ETA ~17:00 UTC. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. |
+| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | Smoke retry 3 `gn8lw0x8` SUCCESS at step 200 (val=4.195). **Arm A `o9et1cs6` LAUNCHED 16:05 UTC** step 446/3250, val=3.904 (healthy). Arm B chains. ETA both ~22:00 UTC. |
 | **#821** | fern | Kahan BF16 compensated weight update for body-Muon late-cooldown precision | ASSIGNED 16:25 UTC. Arm A (Kahan on body-Muon only) vs Arm B (Kahan on body-Muon + EMA lerp). Targets BF16 mantissa-floor issue where lr_eff ≈ 0.008 ≈ 1 ULP for unit params at step 2500+. FP32 comp buffer same memory footprint as EMA. |
 
 ## Recently closed (since session start)
