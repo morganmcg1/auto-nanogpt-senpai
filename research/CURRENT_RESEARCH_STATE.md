@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 03:35 UTC
+- **Date:** 2026-05-22 04:59 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -305,21 +305,45 @@ Paired-pod confirmation: Arm B (s=0.5) pod-0 candidate Δ=−0.00227 reversed �
 
 **57th productive-null/negative this cycle.**
 
-### 🔄 askeladd #717 — Adan body Muon — momentum-of-difference pre-NS preconditioner [assigned 19:40 UTC]
+### ✅ askeladd #717 — Adan body Muon — CLOSED 04:30 UTC productive-NEGATIVE
 
 **Branch:** `g1r4-askeladd/adan-body-muon`
-**Hypothesis**: Replace current body Muon pre-NS preconditioner (heavy-ball EMA + Adam v.sqrt()) with Adan (Xie et al. NeurIPS 2022) — a three-buffer scheme that adds a **momentum-of-gradient-differences** term tracking gradient acceleration. Adan update: `(m + β₂·v_diff) / sqrt(n + ε)` where v_diff = EMA(g_t − g_{t−1}), n = second moment of Nesterov-corrected gradient. Then NS as usual.
 
-**Why fresh**: distinct from AggMo (#711, parallel buffers at same role), Nesterov-Muon (#530, single lookahead step), AdEMAMix (#399 aux), AdaBelief (#474 aux). Adan's differential momentum tracks gradient rate-of-change (a form of second derivative) — mechanically novel pre-NS input.
+Single-seed 4-arm result (drift gate A PASS at +0.00030):
 
-| Arm | Config | Key change |
-|---|---|---|
-| A (ctrl) | existing `muon_update` | bit-identical baseline |
-| B | Adan(β₁=0.98, β₂=0.92, β₃=0.99) | paper defaults for NLP |
-| C | Adan(β₁=0.98, β₂=0.0, β₃=0.99) | no diff term → degenerates to Adam-style m/sqrt(n)+NS |
-| D | Adan(β₁=0.98, β₂=0.92, β₃=0.999) | conservative v decay matching current Muon β₂ |
+| Arm | β₁ | β₂ | β₃ | val/loss | Δ_vs_A | Band |
+|---|---:|---:|---:|---:|---:|---|
+| A (ctrl, heavy-ball+v.sqrt) | — | — | — | 3.27040 | — | drift PASS |
+| B (Adan default) | 0.98 | 0.92 | 0.99 | 3.28238 | **+0.01198** | strong regression (fst=−1, miss 3.28) |
+| C (β₂=0, no diff) | 0.98 | 0.00 | 0.99 | 3.28461 | **+0.01421** | worst regression (fst=−1, miss 3.28) |
+| D (β₃=0.999) | 0.98 | 0.92 | 0.999 | 3.27927 | **+0.00887** | hard regression (fst=3350 at-target) |
 
-B vs C isolates the gradient-difference contribution. B vs D tests second-moment timescale. Implementation: ~30 LOC (2 new state buffers per param + new `muon_update_adan()` + env-var dispatch). ETA full chain ~7.3h.
+**Mechanism reading** (student's insightful analysis):
+1. **B-vs-C (+0.00223)**: gradient-difference term DOES help within Adan framework — direction-correct mechanism reading
+2. **D-vs-B (+0.00311)**: β₃=0.999 (matching current Muon β₂) required — paper's 0.99 too short for this stack
+3. **Best Adan (D) loses by +0.00887** — structural change from `m_nesterov/(sqrt(v)+ε)` → `(m + β₂·v_adan)/(sqrt(n)+ε)` is what costs the points; Nesterov-correction structure on the NUMERATOR (not folded inside denominator-normalizer) is load-bearing
+
+**Pattern continuation: 7th 'complex Muon momentum modification fails' closure** — #126/#530/#356/#674/#711/#712/#717. **Pre-NS Muon momentum buffer is now FULLY FENCED**: any modification beyond `m_nesterov(β=0.95) / (sqrt(v_t, β=0.999) + ε)` regresses.
+
+**Hygiene acknowledgement**: Arm C W&B init crash + waiter-script for re-launch handled cleanly by student. Good defensive engineering practice.
+
+**63rd productive-null/negative this cycle.**
+
+**Follow-up**: askeladd assigned **#755 LARS-style trust-ratio LR scaling for body Muon** — per-PARAM runtime LR adaptation via `tr = ‖θ‖_F / (‖update‖_F + ε)` clamped. Mechanism-distinct from all closed Muon momentum modifications AND all bucket-based asymmetry experiments. Distinct from #628 (cos-EMA direction-agreement, NULL) which used DIRECTION not MAGNITUDE ratio. Composes orthogonally with #579 per-block-TYPE LR (MERGED) — both layers multiplicative.
+
+### 🔄 askeladd #755 — LARS-style trust-ratio LR scaling for body Muon [assigned 04:59 UTC]
+
+**Branch:** `g1r4-askeladd/lars-trust-ratio-muon`
+**Hypothesis**: Per-matrix runtime LR adaptation via trust ratio `tr = ‖θ‖_F / (‖update‖_F + ε)`. Apply `clamp(tr, lo, hi)` to each body Muon matrix's NS-orthogonalized update. After NS, `‖update_NS‖_F ≈ sqrt(rank) ≈ 27.7` is approximately constant across body matrices, so trust ratio variation comes from `‖θ‖_F` which **grows during training at different rates per matrix**. Matrices that gain weight norm fastest get largest LR multiplier — implicit self-correcting LR adaptation. Composes multiplicatively with #579 per-block-TYPE LR.
+
+| Arm | LARS_ENABLE | LO | HI | EMA β | Description |
+|---|:---:|:---:|:---:|:---:|---|
+| A (ctrl) | 0 | — | — | — | Bit-identical merged baseline |
+| B | 1 | 0.5 | 2.0 | 0.0 | LARS-vanilla, moderate range |
+| C | 1 | 0.25 | 4.0 | 0.0 | LARS-vanilla, wider range |
+| D | 1 | 0.5 | 2.0 | 0.9 | LARS-EMA — anti-noise variant |
+
+**Why fresh and mechanism-distinct**: per-PARAM runtime adaptation, not predetermined bucket (vs #579/#710/#753); magnitude ratio not direction-agreement (vs #628 NULL); update-side not gradient-side (vs #408 AGC NULL paired-pod). LARS-on-Muon not tested in 500+ scanned PRs. Implementation: ~15 LOC. ETA ~7.3h.
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 

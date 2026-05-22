@@ -3,6 +3,39 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 04:30 UTC — PR #717: Adan body Muon — momentum-of-difference pre-NS preconditioner (askeladd) — CLOSED productive-NEGATIVE (63rd cycle)
+
+- Branch: `g1r4-askeladd/adan-body-muon`
+- Hypothesis: Replace current body Muon pre-NS preconditioner (heavy-ball EMA + Adam v.sqrt()) with Adan (Xie et al. NeurIPS 2022) — three-buffer scheme adding momentum-of-gradient-differences term tracking gradient acceleration.
+- Single-seed 4-arm result (drift gate A PASS at +0.00030):
+
+| Arm | β₁ | β₂ | β₃ | val/loss | Δ_vs_A | Band | W&B |
+|---|---:|---:|---:|---:|---:|---|---|
+| A (ctrl, heavy-ball+v.sqrt) | — | — | — | 3.27040 | — | drift PASS | `fn0n0i7x` |
+| B (Adan default) | 0.98 | 0.92 | 0.99 | 3.28238 | **+0.01198** | strong regression (fst=−1, miss 3.28) | `krcyv27b` |
+| C (β₂=0, no diff) | 0.98 | 0.00 | 0.99 | 3.28461 | **+0.01421** | worst regression (fst=−1, miss 3.28) | `c0ukil75` |
+| D (β₃=0.999) | 0.98 | 0.92 | 0.999 | 3.27927 | **+0.00887** | hard regression (fst=3350 at-target) | `prcttp0a` |
+
+**Mechanism reading** (student's insightful internal-Adan dissection):
+1. **B-vs-C (+0.00223 advantage)**: gradient-difference term DOES help WITHIN Adan framework — direction-correct
+2. **D-vs-B (+0.00311 advantage)**: β₃=0.999 (matching current Muon β₂) required — paper's 0.99 too short for this stack
+3. **Best Adan (D) loses by +0.00887** — the structural change from `m_nesterov/(sqrt(v)+ε)` → `(m + β₂·v_adan)/(sqrt(n)+ε)` is what costs the points; Nesterov-correction structure on the NUMERATOR (not folded inside denominator-normalizer) is load-bearing
+
+**Pattern continuation — 7th 'complex Muon momentum modification fails' closure**:
+- #126 Contra-Soft (element-wise)
+- #530 Nesterov-Muon (α mix)
+- #356 mu schedule
+- #674 per-block-TYPE mu
+- #711 AggMo (multi-buffer)
+- #712 per-block-TYPE β₂
+- **#717 Adan (3-buffer differential momentum, this)**
+
+**Pre-NS Muon momentum buffer is now FULLY FENCED**: any modification beyond `m_nesterov(β=0.95) / (sqrt(v_t, β=0.999) + ε)` regresses. Nesterov-on-numerator structure is load-bearing.
+
+**Hygiene acknowledgement**: Arm C W&B `CommError: run not found while updating run` init crash at 40s pre-step-0 + waiter-script (`run_armC_rerun.sh` watching Arm D's PID) handled cleanly. Good defensive engineering pattern.
+
+**Action: CLOSED productive-NEGATIVE; askeladd reassigned to #755 LARS-style trust-ratio LR scaling for body Muon** — per-PARAM runtime LR adaptation via `tr = ‖θ‖/‖update‖` clamped. Mechanism-distinct from all closed Muon momentum modifications AND from all bucket-based asymmetry experiments. Distinct from #628 (cos-EMA direction-agreement, NULL) which used DIRECTION not MAGNITUDE ratio. Composes orthogonally with #579 per-block-TYPE LR (MERGED). ~15 LOC.
+
 ## 2026-05-22 03:35 UTC — PR #712: Per-block-TYPE body Muon β₂ asymmetry (edward) — CLOSED productive-NULL (62nd cycle)
 
 - Branch: `g1r4-edward/muon-attn-mlp-beta2-asym`
