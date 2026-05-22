@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--pmuon_cooldown_cov_scale", type=float, default=1.0,
+        help="Scale factor applied to PMuon L/R covariance buffers at cooldown_start step (1.0 = no-op).")
+    parser.add_argument("--num_steps", type=int, default=None,
+        help="Override train_steps (defaults to 3250). Used for smoke testing.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -577,6 +581,38 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+def pmuon_cov_buffer_stats(optimizer: torch.optim.Optimizer) -> dict[str, float]:
+    # Aggregate L/R covariance buffer Frobenius norm statistics across all PMuon-managed
+    # params (rank 0 only). Used to confirm cooldown-step reset fires and to track recovery.
+    if dist.get_rank() != 0:
+        return {}
+    L_frobs: list[float] = []
+    R_frobs: list[float] = []
+    for group in optimizer.param_groups:
+        for p in group["params"]:
+            state = optimizer.state.get(p, None)
+            if not state or "L" not in state:
+                continue
+            with torch.no_grad():
+                L_frobs.append(float(torch.linalg.norm(state["L"]).item()))
+                R_frobs.append(float(torch.linalg.norm(state["R"]).item()))
+    if not L_frobs:
+        return {}
+    L_tensor = torch.tensor(L_frobs)
+    R_tensor = torch.tensor(R_frobs)
+    return {
+        "pmuon_cov/L_frob_mean": float(L_tensor.mean().item()),
+        "pmuon_cov/L_frob_max": float(L_tensor.max().item()),
+        "pmuon_cov/L_frob_min": float(L_tensor.min().item()),
+        "pmuon_cov/L_frob_total": float((L_tensor ** 2).sum().sqrt().item()),
+        "pmuon_cov/R_frob_mean": float(R_tensor.mean().item()),
+        "pmuon_cov/R_frob_max": float(R_tensor.max().item()),
+        "pmuon_cov/R_frob_min": float(R_tensor.min().item()),
+        "pmuon_cov/R_frob_total": float((R_tensor ** 2).sum().sqrt().item()),
+        "pmuon_cov/num_params_tracked": float(len(L_frobs)),
+    }
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -704,6 +740,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "pmuon_cooldown_cov_scale": args.pmuon_cooldown_cov_scale,
         },
     )
 
@@ -715,7 +752,9 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = args.num_steps if args.num_steps is not None else 3250
+    cooldown_frac_default = 0.7
+    cooldown_start_step = int(train_steps * (1.0 - cooldown_frac_default))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -879,6 +918,63 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Special-step telemetry around the cooldown_start reset (PR #725).
+        # Captures L/R covariance Frob norms BEFORE the optimizer step on key steps.
+        # The buffer state logged here reflects EMA accumulation through end of the
+        # previous iteration (i.e. after `step` gradients have been incorporated).
+        cov_reset_track_steps = {
+            cooldown_start_step - 1,    # one before reset (baseline pre-cooldown)
+            cooldown_start_step,        # reset step itself (pre-reset value)
+            cooldown_start_step + 1,    # recovery +1
+            cooldown_start_step + 5,    # recovery +5
+            cooldown_start_step + 10,   # recovery +10
+            cooldown_start_step + 15,   # recovery +15
+            cooldown_start_step + 25,   # recovery +25
+            cooldown_start_step + 125,  # late recovery
+        }
+        if dist.get_rank() == 0 and step in cov_reset_track_steps:
+            track_stats = pmuon_cov_buffer_stats(optimizer2)
+            if track_stats:
+                track_stats["trial"] = trial_idx
+                track_stats["train/step"] = step
+                track_stats["pmuon_cov/steps_since_reset"] = float(step - cooldown_start_step)
+                wandb.log(track_stats, step=wandb_step)
+
+        # Apply the one-time PMuon covariance buffer scale at cooldown_start.
+        # This is the core mechanism under test in PR #725: rescale L/R EMAs at
+        # the step where the LR cooldown phase begins, then track recovery.
+        if (step == cooldown_start_step
+                and args.pmuon_cooldown_cov_scale != 1.0):
+            cov_scale = args.pmuon_cooldown_cov_scale
+            # Snapshot pre-reset values for the reset-event log.
+            pre_reset_stats = pmuon_cov_buffer_stats(optimizer2) if dist.get_rank() == 0 else {}
+            n_scaled = 0
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state and "L" in state:
+                        state["L"].mul_(cov_scale)
+                        state["R"].mul_(cov_scale)
+                        n_scaled += 1
+            if dist.get_rank() == 0:
+                post_reset_stats = pmuon_cov_buffer_stats(optimizer2)
+                # Log paired before/after snapshot with distinct metric names so
+                # both values survive at the same wandb_step.
+                event_log = {
+                    "trial": trial_idx,
+                    "train/step": step,
+                    "pmuon_cov_reset/applied_scale": float(cov_scale),
+                    "pmuon_cov_reset/n_buffers_scaled": float(n_scaled),
+                    "pmuon_cov_reset/fired_step": float(step),
+                }
+                for k, v in pre_reset_stats.items():
+                    event_log[k.replace("pmuon_cov/", "pmuon_cov_reset/before_")] = v
+                for k, v in post_reset_stats.items():
+                    event_log[k.replace("pmuon_cov/", "pmuon_cov_reset/after_")] = v
+                wandb.log(event_log, step=wandb_step)
+                print0(f"PMuon cov reset fired at step={step}: scale={cov_scale}, "
+                       f"n_buffers={n_scaled}", console=True)
+
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
@@ -920,7 +1016,11 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
-        if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
+        # Spectral diag at default 100-step cadence, plus extra recovery-window samples
+        # right after the cooldown_start covariance reset (PR #725 telemetry plan).
+        cov_spec_extra = {cooldown_start_step + 10, cooldown_start_step + 15}
+        if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps
+                                     or train_step in cov_spec_extra):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
                 spec["trial"] = trial_idx
