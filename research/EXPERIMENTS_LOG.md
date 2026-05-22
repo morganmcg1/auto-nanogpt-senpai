@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 11:10 UTC — PR #751: Cautious Optimizers — sign-agreement mask on body Muon + aux AdamW (fern) — CLOSED productive-NEGATIVE (65th cycle)
+
+- Branch: `g1r4-fern/cautious-optimizer`
+- Hypothesis: Cautious optimizer sign-agreement mask (filter updates where grad and momentum disagree in sign) applied to body Muon and/or aux AdamW. PR #751.
+
+**Terminal 4-arm N=1 single-pod result (drift gate PASS Arm A Δ=+0.00086):**
+
+| Arm | cautious_muon / cautious_adamw | val/loss | Δ_vs_A | Δ_vs_baseline | fs_to_target | Verdict |
+|---|:---:|---|---|---|---|---|
+| A (ctrl) | 0 / 0 | 3.27156 | — | +0.00086 | 3225 | drift PASS |
+| B (Muon only) | 1 / 0 | 3.29528 | +0.02372 | +0.02458 | -1 (MISS) | **CATASTROPHIC REGRESSION** |
+| C (AdamW only) | 0 / 1 | 3.28057 | +0.00901 | +0.00987 | -1 (MISS) | **LARGE REGRESSION** |
+| D (both) | 1 / 1 | 3.30245 | +0.03089 | +0.03175 | -1 (MISS) | **WORST REGRESSION** |
+
+W&B runs: A=qojcwkk9, B=wn0faggs, C=hcqt0zfq, D=50mvr492.
+
+**Mechanism reading (definitive closure):**
+- **B catastrophic (+0.02458)**: After NS-orthogonalization, every entry of the update is mechanism-meaningful (unit-singular-value condition). Coordinates with `grad·NS_update < 0` are structural properties of orthogonal directions in high-dim, not noise. Masking 38% (mask_frac=0.62) destroys spectral conditioning; rescale by 1/mask.mean=1.38× pushes survivors outside the post-NS unit-singular regime that LR/clip/schedule is tuned for.
+- **C harmful (+0.00987)**: m/√v is smoothed direction; sign-disagreement with instant grad is the *point* of momentum's variance reduction. Embed sub-group has mask_frac≈0.43 (vs 0.65-0.71 for other groups), zeroing half of embed updates and 2.3× rescaling survivors, destructively interacting with NANOGPT_ADAMW_EMBED_LR_MULT=1.5.
+- **D near-additive (+0.03175 vs prediction +0.03445)**: Two mechanisms inflict largely independent damage; slight saturation from partial cancellation.
+- Only Arm A crossed 3.28 target. No arm close to signal threshold.
+- **Mechanism axis CLOSED**: Cautious-mask sign-agreement filtering is incompatible with post-#579 stack. Third 'sign-aware update-mask/scale' closure after #126 element-wise Contra-Soft and #629 layer-aggregate Contra-Soft.
+
+**Follow-up**: fern assigned **#787 Stochastic NS iter count** — per-step uniform sampling of NS iter count around deterministic mean (mean-preserving variance-only intervention). Fresh axis: tests whether NS-iter variance acts as implicit regularization (similar to dropout). Mechanism-distinct from all in-flight (#710 per-depth deterministic, #724 per-TYPE deterministic). Implementation ~10 LOC.
+
 ## 2026-05-22 06:25 UTC — PR #724: Per-block-TYPE NS_ITERS_COOLDOWN — Phase 1 N=1 (nezuko) — SENT BACK for paired-pod n=3 (strongest winner candidate since #579)
 
 - Branch: `g1r4-nezuko/per-type-ns-cooldown`

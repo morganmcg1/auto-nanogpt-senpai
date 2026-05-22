@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 10:28 UTC
+- **Date:** 2026-05-22 11:12 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -100,10 +100,27 @@ Single-seed 4-arm (drift gate A PASS, Δ=−0.00008):
 
 **Follow-up**: fern assigned **#751 Cautious Optimizers** — sign-agreement mask on body Muon + aux AdamW (Liang et al. 2024). Fresh mechanism: per-coordinate update direction agreement, orthogonal to magnitude (clip, LR) and time (schedule) axes.
 
-### 🔄 fern #751 — Cautious Optimizers (sign-agreement mask on body Muon + aux AdamW) [assigned 02:50 UTC]
+### ✅ fern #751 — Cautious Optimizers — CLOSED 11:10 UTC productive-NEGATIVE (65th cycle)
 
 **Branch:** `g1r4-fern/cautious-optimizers`
-**Hypothesis**: Cautious Optimizers (Liang et al. 2024, arXiv:2411.16085) apply a sign-agreement mask before the optimizer step: `mask = (g * u > 0).float(); u_cautious = u * mask / mask.mean().clamp_min(eps)`. Zero out per-coordinate updates where the optimizer's proposed direction disagrees with the immediate gradient sign, then rescale by the mask's mean to preserve step magnitude on average. Demonstrated improvements on Lion, AdamW, Adam across LLM pretraining. **For body Muon**: post-NS the polar-decomposed update direction can differ substantially from grad sign-by-sign — cautious masking zeros NS-direction coordinates that disagree with grad-sign, combining NS's spectral conditioning with gradient-aware coordinate filtering. **For aux AdamW**: mask zeros stale-momentum updates where m/√v direction disagrees with current gradient. **Conceptually orthogonal to all merged mechanisms**: grad clip (#165, #708) on gradient norms; per-group LR (#393, #579) on update magnitude; NS schedule (#290, #285) on time; cautious masking on **per-coordinate update direction agreement** — third axis distinct from magnitude and time. 4-arm: A (ctrl, both off), B (Muon only), C (AdamW only), D (both). ~15 LOC. ETA ~7.3h.
+
+**Terminal 4-arm N=1 result (drift gate A PASS Δ=+0.00086):**
+
+| Arm | C_M / C_A | val/loss | Δ_vs_A | Verdict |
+|---|:---:|---|---|---|
+| A (ctrl) | 0/0 | 3.27156 | — | drift PASS |
+| B (Muon-only) | 1/0 | 3.29528 | **+0.02372** | CATASTROPHIC REGRESSION |
+| C (AdamW-only) | 0/1 | 3.28057 | **+0.00901** | LARGE REGRESSION |
+| D (both) | 1/1 | 3.30245 | **+0.03089** | WORST (near-additive) |
+
+**Mechanism (definitive)**: NS-orthogonalized updates have every coordinate mechanism-meaningful (unit-singular-value condition). Masking 38% and 2.3× rescaling survivors destroys spectral conditioning. Embed sub-group mask_frac≈0.43 (vs 0.65-0.71 for other groups) interacts destructively with EMBED_LR_MULT=1.5. D near-additive B+C confirming independent damage. Cautious-mask is incompatible with post-#579 stack — 3rd sign-aware update-mask mechanism to falsify (#126 element-wise, #629 layer-aggregate, #751 sign-agreement).
+
+**Follow-up**: fern assigned **#787 Stochastic NS iter count** — variance-only uniform sampling of NS iter count per step (mean-preserving). Tests implicit regularization via NS-iter stochasticity. Fresh untested axis, mechanism-distinct from all in-flight.
+
+### 🔄 fern #787 — Stochastic NS iter count — variance-only uniform sweep (4-arm) [assigned 11:10 UTC]
+
+**Branch:** `g1r4-fern/stochastic-ns-iter`
+**Hypothesis**: NS iter count fixed at 12 (mid) / 16 (cooldown). Per-step uniform sampling from [base-spread, base+spread] (mean=base, mean-preserving) tests whether iter-count variance acts as implicit regularization (like dropout) vs precision degradation. 4 arms: A (ctrl, spread=0 both), B (mid spread=2: NS∈{10,11,12,13,14}), C (cooldown spread=2: NS∈{14,15,16,17,18}), D (both). Mechanism-distinct from all in-flight (#710 per-DEPTH deterministic, #724 per-TYPE deterministic, #290 per-iter coefficient shape). ~10 LOC. ETA ~7.3h.
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
