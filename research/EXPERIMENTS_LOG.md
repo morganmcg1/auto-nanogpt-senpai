@@ -1,3 +1,44 @@
+## 2026-05-22 21:10 UTC — PR #839 ASSIGNED (edward): H74 Cautious-AdamW on aux groups (sign-mask in Adam-family domain)
+
+- Branch: `g1r3-edward/cautious-aux-adamw`
+- Hypothesis: Apply Liang et al. 2024 sign-agreement masking to AUX AdamW update (zero coords where `sign(m̂) ≠ sign(grad)`, optional magnitude rescale). PR #795 H62 closed Cautious-on-MuonH NEG ~14.6σ via NS5 structural coupling — aux AdamW has NO NS5, so this is the natural in-class application Liang et al. originally validated.
+- Direct mechanism-pair complement to H62. Three-layer stack now: PR #795 H62 (Cautious-on-MuonH-body, CLOSED NEG), PR #829 H69 (Cautious-on-MuLoCo-outer, in-flight), PR #839 H74 (Cautious-on-aux-AdamW, NEW) — same mask, three different layers of optimizer stack, three different mechanism questions.
+- 3 arms (n=1, 3325 steps):
+  - arm_a (ctrl): `--aux_cautious_mask 0` (current AdamW)
+  - arm_b (PRIMARY, with rescale): `--aux_cautious_mask 1 --aux_cautious_rescale 1`
+  - arm_c (no rescale): `--aux_cautious_mask 1 --aux_cautious_rescale 0`
+- LoC ~50: custom `CautiousAdamW(torch.optim.AdamW)` subclass with explicit step() loop (fused=True can't be used with custom step). Bit-identical invariant: `--aux_cautious_mask 0` matches current baseline exactly.
+- Mandatory smoke: 200-step arm_b verify `aux/cautious_mask_mean ∈ [0.6, 0.95]` (Liang's reported range), no NaN. If mask_mean outside [0.5, 0.99] report immediately.
+- Decision tree: WIN merge → confirm n=3-5; NULL → close Cautious-on-Adam-family axis; NEG → joint closure with #795 "Cautious mask breaks updates regardless of class on this stack."
+- W&B group `h74_cautious_aux_adamw`. Reassignment after #813 closure.
+
+---
+
+## 2026-05-22 21:05 UTC — PR #813 CLOSED NULL (edward): H67 Aux AdamW eps cooldown schedule — joint aux-eps axis closure (constant + schedule)
+
+- Branch: `g1r3-edward/aux-eps-cooldown-schedule`
+- Hypothesis: Schedule `aux_adamw_eps` to ramp 1e-6 → {1e-5, 1e-4} during cooldown (`cooldown_start_frac=0.6`). Direct mechanism-pair complement to edward's own H58 closure (PR #770): v_t freeze catastrophic NEG ⇒ small-denominator regime is structurally load-bearing in cooldown; growing eps tests SOFT denominator floor growth.
+- Arms (3, n=1, 3325 steps):
+
+| arm | description | val/loss | Δ vs ctrl | Δ vs baseline 3.27119 | W&B |
+|---|---|---|---|---|---|
+| arm_a ctrl (constant 1e-6) | sanity | **3.27400** | — (in-noise pop) | +0.00281 | `pnqygixa` |
+| arm_b mild ramp 1e-6→1e-5 PRIMARY | denominator floor 10× | **3.27407** | +0.00007 (~0σ NULL) | +0.00288 | `hozm2xfo` |
+| arm_c strong ramp 1e-6→1e-4 | denominator floor 100× | **3.27301** | −0.00099 (~1σ better) | +0.00182 | `03p0a1hu` |
+
+- **Verdict: NULL** — neither arm clears merge bar (informal 3.272 / formal 3.27039). arm_c trajectory hint ~1σ better than ctrl throughout cooldown is interesting but n=1 not significant and +0.00182 above baseline.
+- **Mechanism-pair closure (H58 + H67)**:
+  - **H58 (PR #770, CLOSED NEG)**: v_t STATE intervention (freeze) → catastrophic divergence (val 4.68-5.36).
+  - **H67 (PR #813, this closure, NULL)**: v̂ CONSUMPTION intervention (eps floor schedule) → benign/null even at 100× ramp.
+  - **Joint axis rule**: For Adam-family aux on this stack, the load-bearing structure in cooldown lives in `v_t state evolution`, not in `eps floor magnitude`. Future eps-axis proposals (constant or schedule, magnitude or asymmetry) are pre-closed by joint structural analogy with #770/#813.
+- **Programme-level reusable findings**:
+  - **Fused AdamW group["eps"] mutation sanity**: torch's fused AdamW kernel DOES honor `group["eps"]` between steps (verified live via `hozm2xfo` telemetry: eps grew 1.000e-6 at step 1875 → 4.411e-6 at step 2500 → ~1e-5 at terminal).
+  - **Cosine cooldown trajectory rule**: do NOT extrapolate mid-cooldown val/loss linearly. The advisor projected arm_c terminal +0.005-0.020 NEG from mid-cooldown read 3.30439 at step 2988 — actual terminal was 3.27301 (best of three). Cosine cooldown's late-phase descent is non-linear; last 200-300 steps move ~0.005-0.010 in this regime.
+- **Aux-eps axis joint closure**: PR #754/#685/#652/#333/#493/#556/#262 (CONSTANT eps magnitude) + PR #813 (SCHEDULED eps magnitude) — aux-eps axis fully closed across magnitude AND scheduling sub-dimensions.
+- Routing → PR #839 H74 Cautious-AdamW on aux (fresh axis, sign-mask vs denominator structure).
+
+---
+
 ## 2026-05-22 20:55 UTC — PR #835 ASSIGNED (frieren): H73 Z-loss regularizer (PaLM-style logsumexp penalty)
 
 - Branch: `g1r3-frieren/z-loss-regularizer`
