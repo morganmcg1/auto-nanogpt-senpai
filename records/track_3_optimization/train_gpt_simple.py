@@ -468,6 +468,24 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AdEMAMix dual-EMA for Muon body matrices (arxiv 2409.03137).
+# When ENABLED=1, Muon maintains a second much-slower EMA on raw grads
+# (beta_slow=0.9999, horizon ~10k steps) and feeds m_fast + alpha_t * m_slow
+# into the NS5 step. alpha_t linearly warms up 0 -> ALPHA over the first
+# WARMUP_FRAC of training. Default ENABLED=0 is bit-identical to baseline.
+MUON_ADEMAMIX_ENABLED = int(os.environ.get("MUON_ADEMAMIX_ENABLED", "0"))
+MUON_ADEMAMIX_BETA_SLOW = float(os.environ.get("MUON_ADEMAMIX_BETA_SLOW", "0.9999"))
+MUON_ADEMAMIX_ALPHA = float(os.environ.get("MUON_ADEMAMIX_ALPHA", "6.0"))
+MUON_ADEMAMIX_WARMUP_FRAC = float(os.environ.get("MUON_ADEMAMIX_WARMUP_FRAC", "0.3"))
+
+
+def muon_ademamix_alpha_t(train_step: int) -> float:
+    """Linear alpha warmup 0 -> MUON_ADEMAMIX_ALPHA over MUON_ADEMAMIX_WARMUP_FRAC of training."""
+    if not MUON_ADEMAMIX_ENABLED:
+        return 0.0
+    total_steps = args.train_steps if args.train_steps is not None else 3175
+    warmup_steps = max(int(MUON_ADEMAMIX_WARMUP_FRAC * total_steps), 1)
+    return MUON_ADEMAMIX_ALPHA * min(1.0, train_step / warmup_steps)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -657,9 +675,10 @@ class Muon(torch.optim.Optimizer):
         super().__init__(params, defaults)
 
     @torch.no_grad()
-    def step(self):
+    def step(self, train_step: int = 0):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        alpha_t = muon_ademamix_alpha_t(train_step) if MUON_ADEMAMIX_ENABLED else 0.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -669,6 +688,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        if MUON_ADEMAMIX_ENABLED:
+                            state["momentum_slow"] = torch.zeros_like(p)
                         # NorMuon-lite per-row (or per-col) variance buffer.
                         if p.size(-2) >= p.size(-1):
                             state["second_moment"] = torch.zeros(
@@ -694,6 +715,10 @@ class Muon(torch.optim.Optimizer):
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if MUON_ADEMAMIX_ENABLED:
+                        # AdEMAMix slow EMA on raw grads + alpha-weighted combination.
+                        state["momentum_slow"].lerp_(grad, 1 - MUON_ADEMAMIX_BETA_SLOW)
+                        momentum_update = momentum_update + alpha_t * state["momentum_slow"]
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -866,6 +891,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_ademamix_enabled": MUON_ADEMAMIX_ENABLED,
+            "optimizer/muon_ademamix_beta_slow": MUON_ADEMAMIX_BETA_SLOW if MUON_ADEMAMIX_ENABLED else 0.0,
+            "optimizer/muon_ademamix_alpha_max": MUON_ADEMAMIX_ALPHA if MUON_ADEMAMIX_ENABLED else 0.0,
+            "optimizer/muon_ademamix_warmup_frac": MUON_ADEMAMIX_WARMUP_FRAC if MUON_ADEMAMIX_ENABLED else 0.0,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1039,6 +1068,8 @@ for trial_idx in range(args.num_trials):
                 "train/slope/window_target_steps": slope_window_steps,
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
+            if MUON_ADEMAMIX_ENABLED:
+                slope_metrics["muon/ademamix_alpha_t"] = muon_ademamix_alpha_t(train_step)
             wandb.log(slope_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_training_telemetry(
@@ -1052,7 +1083,10 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
-            opt.step()
+            if isinstance(opt, Muon):
+                opt.step(train_step)
+            else:
+                opt.step()
         if dist.get_rank() == 0 and telemetry_due:
             for opt in optimizers:
                 if hasattr(opt, "trust_gate_stats"):
