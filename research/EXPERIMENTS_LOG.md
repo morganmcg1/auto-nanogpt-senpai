@@ -3,6 +3,27 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~21:59 UTC — PR #706: nezuko Embed-init std=0.1 compound P3 (musoft×embed) — **CLOSED clean-NEG (subsumed)**
+
+- Branch: `g1r5-nezuko/embed-init-sweep`
+- Student: g1r5-nezuko
+- Hypothesis: embed_init_std=0.1 compound with post-#699 musoft baseline (P3). Pre-#699 P2 μ=3.260705 cleared old gate by 0.000560, missed new gate by 0.001484. P3 tests whether gains stack additively.
+- **Results (n=4, group `g1r5-nezuko/embed-init-std01-musoft-compound-P3`):**
+
+| Trial | val/loss | ffs | run_id |
+|:-----:|:--------:|:---:|:------:|
+| 0 | 3.26256 | 3050 | `ke62szqt` (trial 0) |
+| 1 | 3.26046 | 3025 | `ke62szqt` (trial 1) |
+| 2 | 3.26106 | 3025 | `ke62szqt` (trial 2) |
+| 3 | 3.26029 | 3025 | `ke62szqt` (trial 3) |
+
+- **n=4 summary:** μ=3.261093, σ=0.001033. Δ vs baseline 3.261221 = **−0.000128 (~−0.11σ_seed) — parity**. P3 mean +0.39 mNat ABOVE P2 pre-#699 mean (3.260705).
+- **Gate verdict:** Misses merge gate (μ > 3.259221) by +0.001872. Falls in "subsumed-by-musoft" band (μ ≥ 3.2606).
+- **Mechanism finding:** Both embed-std=0.1 and musoft target early-step gradient stress in the embed subspace — they are mechanistic **substitutes, not stackers**. musoft acts at the actual noise injection point (residual stream) and dominates.
+- **Decision:** CLOSED clean-NEG (subsumed). Init-magnitude axis for embed fully exhausted.
+
+---
+
 ## 2026-05-22 ~20:38 UTC — PR #785: alphonse Residual-proj init magnitude multiplier sweep (mualpha α-sweep) — **P1 → sendback for P2 n=4 on α=0.50**
 
 - Branch: `g1r5-alphonse/resid-alpha-sweep`
