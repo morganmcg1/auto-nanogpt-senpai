@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 19:00 UTC
+- **Date:** 2026-05-22 19:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -288,10 +288,28 @@ W&B: A=066vqhon, B=eju4vxds, C=ivoigede, D=bh4ruhj8.
 
 **Follow-up**: tanjiro assigned **#789 NS polynomial degree swap (cubic vs quintic)** — first test of NS polynomial DEGREE on this stack. 4-arm: cubic FLOP-equivalent (NS=18/24), same-iter-count (NS=12/16), 2× iters (NS=24/32) vs quintic control. Mechanism-distinct from all in-flight NS experiments (#787 stochastic, #710/#724 per-depth/type).
 
-### 🔄 tanjiro #789 — NS polynomial degree: cubic vs quintic FLOP-equivalent sweep [assigned 11:30 UTC]
+### 📋 tanjiro #789 — NS polynomial degree: cubic vs quintic — SENT BACK 19:35 UTC for paired-pod n=3 on Arm B
 
 **Branch:** `g1r4-tanjiro/ns-polynomial-degree`
-**Hypothesis**: Current NS uses quintic polynomial `f(s) = a + b·s + c·s²` (3 matmuls/iter). Cubic `f(s) = 1.5 − 0.5s` uses only 2 matmuls/iter. At FLOP-equivalent budget (cubic×18 = quintic×12 matmuls), cubic and quintic apply identical total compute but with different convergence trajectories. First test of NS polynomial DEGREE on this stack — all prior NS experiments vary iter count or coefficient schedule WITHIN the quintic family.
+
+**Phase 1 N=1 4-arm results** (pre-#708 stack — student's reproduce missed AUX clip split):
+
+| Arm | degree | NS_ITERS (mid/cd) | val/loss | Δ vs A | Δ vs new baseline 3.27036 | fs | W&B |
+|:---:|:---:|:---:|---:|---:|---:|:---:|---|
+| A (quintic ctrl) | 5 | 12/16 | 3.27133 | — | +0.00097 (drift PASS) | 3225 | g3qo5v7i |
+| **B (cubic FLOP-eq)** | **3** | **18/24** | **3.26948** | **−0.00185** | **−0.00088 ABS WIN n=1** | **3200** | **hux48fw4** |
+| C (cubic same-iter) | 3 | 12/16 | 3.27497 | +0.00364 | +0.00461 (regression) | 3275 | aedoua1u |
+| D (cubic 2×) | 3 | 24/32 | 3.27056 | −0.00077 | +0.00020 | 3225 | otiventd |
+
+**Mechanism finding (durable)**: At this scale, NS quality is bottlenecked by **total compute, not polynomial order**. Cubic at FLOP-eq matches quintic; cubic at same-iter under-orthogonalizes; cubic at 2× iters saturates near quintic. The c·A² higher-order term carries no quality advantage when total matmuls are matched.
+
+**Wall-clock surprise**: Cubic-FLOP-eq Arm B is **0.49% FASTER per step than quintic Arm A** despite identical matmul counts — likely from reduced kernel-launch overhead with more, smaller iterations.
+
+**Sent-back protocol**: Paired-pod n=3 on Arm B vs Arm A, layered onto full post-#708 stack (adds NANOGPT_GRAD_CLIP_BODY=10.0/AUX=5.0). 6 runs total. Pre-staged gates: mean(B,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift ±0.003. ETA ~10.8h.
+
+**Three outcomes durably informative**: (1) confirms → cubic+1.5× merge as code simplification (drops c·A² matmul, NS_COEF_SCHEDULE becomes inert), (2) lands at baseline → degree interchangeable mechanism finding solidified, (3) collapses → degree axis closes with quintic preferred. Risk: Δ_vs_new_baseline=−0.00088 at n=1 is slimmer than #787 fern Arm C (−0.00130); paired-pod confirmation probability ~25-35%.
+
+### 🗃️ tanjiro #789 — N=1 sweep (archived hypothesis text)
 
 | Arm | NS_DEGREE | NS_ITERS (mid / cooldown) | Description |
 |---|:---:|:---:|---|
