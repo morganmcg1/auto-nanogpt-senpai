@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-22 ~13:15Z (poll #399)
+- **Last updated:** 2026-05-22 ~15:05Z (poll #418)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -22,16 +22,17 @@
 | **#800** | **edward** | Per-block depth-dependent Muon momentum (`--mu_depth_scale`) | **Assigned poll #399.** 5 cells: A=ctrl mu=0.95, B=α=0.5, C=α=1.0, D=α=2.0, E=inverse. Prediction: B wins (gentle depth taper). Kill-switch: B > A + 50 ffs → close. ETA ~9h. |
 | **#706** | **nezuko** | Embed-init std=0.1 — **COMPOUND P3 (musoft × embed=0.1)** | **Sent back poll #398.** Pre-#699 P2 μ=3.260705 cleared OLD gate by 0.000560, missed NEW by 0.001484. Now testing compound on post-#699 codebase. New W&B group `embed-init-std01-musoft-compound-P3`. ETA ~6h54m from ~13:05Z. |
 | **#748** | **frieren** | Q/K/V + MLP fc_in transform ×2.0 P2 | **P2 n=4 in-flight (pre-#699 codebase)** — T1=3.261066 (cleared OLD gate band, ABOVE NEW gate +0.001845). Notified poll #378. ~7.2h to terminal from 10:00Z pivot → ~17:12Z. |
-| **#756** | **tanjiro** | Gradient centralization on Muon (pre-NS) | **P1 in-flight** — A=3.264227, B=3.263437. Cell C running. Trending clean-NEG vs new baseline. |
+| **#815** | **tanjiro** | NS-WarmUp — sequential Newton-Schulz iteration ramp-up | **Assigned poll #418.** 5 cells: A=ctrl ns_iter=6, B=warmup_steps=500 start=2 (primary), C=300/start=3, D=1000/start=2, E=500/start=1 (aggressive). Prediction: B > C > A > D > E. Kill at val/loss>3.32 step 1000. ETA ~9h. |
 | **#773** | **fern** | Signal-driven adaptive Muon mu (grad cosine) | **P1 in-flight (pre-#699 codebase per #379 advisory)** — A ctrl=3.2618, B α=0.02=3.2647 (worse), C running. D/E queued. Trending clean-NEG. |
 | **#776** | **askeladd** | Muon/SOAP update RMS normalization | **P1 in-flight** — Cell A ctrl=3.2628. Cell B running. |
 | **#781** | **thorfinn** | Per-group AdamW ε sweep (sparsity asymmetry) | **P1 in-flight on NEW musoft baseline** — Rebased poll #383 after duplicate-Cell-A driver bug. New W&B group `per-group-eps-musoft`. Cell A on musoft just started ~11:39Z. Sequential blocking-foreground chain (5 cells × ~1:48h = ~9h). ETA ~20:30Z. |
 | **#785** | **alphonse** | Residual-proj init magnitude α∈{0.5/0.75/1.0/1.5/2.0} | **P1 in-flight** — Cell A (α=0.50) at step ~1022 of 3250 as of 11:21Z. SMOKE@α=1.0 finished clean. Primary prediction: D (α=1.5) wins. |
 
-## Recent Closures (poll #398)
+## Recent Closures (poll #418)
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#756 tanjiro** (poll #418) | clean-NEG | GC on Muon body weights 5-cell. Best Cell C (row-pre-all) = 3.26223 = +0.90σ above new baseline μ. Cells: A=3.26423, B(col-pre)=3.26344, **C(row-pre)=3.26223**, D(col-post)=3.26440, E(col-pre-mlp)=3.26507. **Surprising row-vs-col INVERSION** (Δ=−1.08σ): under SOAP, col-mean direction already damped by eigenbasis rotation; row-mean targets per-output bias direction not absorbed by SOAP+RMSNorm. Three coherent contrasts: row>col, pre>post, all>mlp-only. Axis closed; mechanism note kept for future GC-on-Muon-with-different-baseline work. |
 | **#714 edward** (poll #398) | clean-NEG | RMSNorm gain init mean=0.9 P2: μ_n=4=3.262818 (σ=0.001701, 1.51× ctrl variance). Misses OLD gate by +0.001553. Bimodal split (T2=3.26043 outlier good) consistent with σ_seed variance. Gain init axis closed; mean=1.0 default approximately optimal. |
 | **#699 alphonse** (poll #378) | **MERGED** ✅ | μ_n=4=3.261221, −2.044mNat vs #571. Statsig 0.004088. ffs_mean=3025 (all 4 trials). μP 1/√L depth scaling for residual-proj wins. First post-#571 init-magnitude merge. New mandatory flag: --depth_init_mode musoft. |
 | **#691 thorfinn** (poll #375) | clean-NEG | Per-group β1 stacked P2 μ_n=4=3.26246 (+0.001195 above old gate). Additive stacking non-linear. |
@@ -55,7 +56,7 @@
 - embed (#706 pre-#699 P2 cleared OLD gate / missed NEW; **#706 P3 compound now in-flight**)
 - transformations (#748 P2 in-flight on pre-#699 codebase)
 
-**Novel Muon mechanisms**: GC (#756 P1, trending clean-NEG), adaptive-mu (#773 P1, trending clean-NEG, only Cells C/D/E remaining), update-RMS-norm (#776 P1 in-flight).
+**Novel Muon mechanisms**: GC (#756 CLOSED clean-NEG, row-vs-col inversion noted), adaptive-mu (#773 P1, trending clean-NEG), update-RMS-norm (#776 P1 in-flight), per-block mu-depth-scale (#800 P1 just assigned), **NS-WarmUp (#815 P1 just assigned)**.
 
 
 ## Research Themes

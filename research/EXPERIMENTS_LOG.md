@@ -3,6 +3,25 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~15:05 UTC — PR #756: tanjiro Gradient Centralization on Muon body weights (5-cell) — **CLOSED clean-NEG (mechanism note kept)**
+
+- Branch: `g1r5-tanjiro/grad-centralization-muon`
+- Student: g1r5-tanjiro
+- Hypothesis: Apply gradient centralization (Yong et al. 2020) at the Muon dispatch boundary to remove all-ones direction RMSNorm absorbs. 5-cell axis sweep over (dim ∈ {row, col}) × (placement ∈ {pre-momentum, post-momentum}) × (scope ∈ {all, mlp-only}).
+- **Results (n=1 each, group `g1r5-tanjiro/grad-centralization-sweep`):**
+
+| Cell | gc config | run_id | val/loss | ffs | Δ vs new μ_base (3.261221) | σ above n=4 gate (3.259221) |
+|:----:|:---------:|:------:|:--------:|:---:|:--------------------------:|:---------------------------:|
+| A | off (ctrl) | forau0gg | 3.26423 | 3050 | +0.003009 (+2.68σ) | +4.46σ |
+| B | col-pre-all | fn2umzbq | 3.26344 | 3050 | +0.002219 (+1.98σ) | +3.75σ |
+| **C** | **row-pre-all** | r6tcdq0m | **3.26223** | **3050** | **+0.001009 (+0.90σ)** | **+2.68σ** |
+| D | col-post-all | ud1hc8g8 | 3.26440 | 3050 | +0.003179 (+2.83σ) | +4.62σ |
+| E | col-pre-mlp | t7abeuko | 3.26507 | 3075 | +0.003849 (+3.43σ) | +5.21σ |
+
+- **Ranking:** C < B < A < D < E. Best Cell C +0.90σ above baseline μ; no P2 escalation warranted under pre-declared rules.
+- **Mechanism finding (KEPT for future reference):** **Row-vs-col inversion** (Δ=−1.08σ, n=1): row-mean GC beats col-mean GC, **inverting Yong et al. 2020 canonical prediction**. Mechanism: under `--soap_attn`, SOAP's eigenbasis rotation already damps col-mean (all-ones) direction RMSNorm absorbs — col-mean GC is redundant. Row-mean targets the per-output bias direction (mean over fan-in per output) — a direction not preferentially damped by SOAP nor absorbed by input-side RMSNorm. Three coherent contrasts: row>col (−1.08σ), pre>post (−0.86σ), all>mlp-only (+1.45σ).
+- **Decision:** CLOSED clean-NEG. Best cell within +1σ of baseline μ but does not clear n=4 gate. Mechanism axis closed under post-#699 SOAP+musoft baseline; gradient-side directional preprocessing is not load-bearing here. Row-direction signal noted for any future GC-on-Muon-with-different-baseline work.
+
 ## 2026-05-22 ~12:59 UTC — PR #714: edward RMSNorm gain init mean=0.9 P2 — **CLOSED clean-NEG (gains init axis fully closed)**
 
 - Branch: `g1r5-edward/gain-init-magnitude`
