@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--aux_beta2", type=float, default=0.95,
+                        help="Base aux AdamW second-moment EMA beta2 (used when no cooldown ramp).")
+    parser.add_argument("--aux_beta2_cooldown_target", type=float, default=None,
+                        help="Target beta2 reached at end of cooldown (LR->0). If None, beta2 stays at args.aux_beta2 throughout.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +708,12 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "aux_beta1": 0.8,
+            "aux_beta2": args.aux_beta2,
+            "aux_beta2_cooldown_target": (args.aux_beta2_cooldown_target
+                                          if args.aux_beta2_cooldown_target is not None
+                                          else args.aux_beta2),
+            "aux_beta2_cooldown_ramp_enabled": args.aux_beta2_cooldown_target is not None,
         },
     )
 
@@ -738,7 +748,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(0.8, args.aux_beta2), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -763,7 +773,16 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        # Aux AdamW beta2 cooldown ramp: couple beta2 to (1 - lr_mult_t).
+        # beta2_t = aux_beta2 at full LR (eta=1), aux_beta2_cooldown_target at LR=0 (eta=0).
+        if args.aux_beta2_cooldown_target is not None:
+            beta2_t = args.aux_beta2 + (args.aux_beta2_cooldown_target - args.aux_beta2) * (1.0 - eta)
+            for group in optimizer1.param_groups:
+                beta1_g, _ = group["betas"]
+                group["betas"] = (beta1_g, beta2_t)
+        else:
+            beta2_t = args.aux_beta2
+        return progress, cooldown_progress, eta, beta2_t
 
 
     ########################################
@@ -852,7 +871,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_aux_beta2_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -919,6 +938,28 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+            }, step=wandb_step)
+            # Aux AdamW beta2 cooldown ramp telemetry (post-step state).
+            aux_v_means = []
+            aux_v_max = 0.0
+            for opt_group in optimizer1.param_groups:
+                for opt_p in opt_group["params"]:
+                    opt_state = optimizer1.state.get(opt_p, {})
+                    if "exp_avg_sq" in opt_state:
+                        v_tensor = opt_state["exp_avg_sq"].detach().float()
+                        aux_v_means.append(float(v_tensor.mean().item()))
+                        aux_v_max = max(aux_v_max, float(v_tensor.abs().max().item()))
+            aux_v_mean = sum(aux_v_means) / len(aux_v_means) if aux_v_means else 0.0
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "aux/beta2_t": sched_aux_beta2_t,
+                "aux/beta2_base": args.aux_beta2,
+                "aux/beta2_cooldown_target": (args.aux_beta2_cooldown_target
+                                              if args.aux_beta2_cooldown_target is not None
+                                              else args.aux_beta2),
+                "aux/v_mean": aux_v_mean,
+                "aux/v_max_abs": aux_v_max,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
