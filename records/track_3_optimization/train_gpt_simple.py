@@ -71,6 +71,17 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Reference Contra-Muon (Nilin Abrahamsen, https://github.com/nilin/contra-muon).
+    # When > 0, after NS5 the update is: update_ns - (gamma/2)*normalized_grad,
+    # renormalized to ||update_ns||_F. `normalized_grad` is the post-Nesterov grad
+    # divided by its spectral (operator) norm (5 power iterations). This is a TRUE
+    # direction change (the operator-normalized grad is not parallel to update_ns).
+    # Default 0.0 keeps the code path bit-identical with the prior baseline.
+    parser.add_argument("--muonh_contra_gamma", type=float,
+                        default=float(os.environ.get("MUONH_CONTRA_GAMMA", "0.0")),
+                        help="If > 0, apply reference Contra-Muon formula: subtract "
+                             "gamma/2 * spectral-norm-normalized grad from NS5 update, "
+                             "then renormalize to NS5 Frobenius norm.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -486,12 +497,69 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
+def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
+    # Power iteration (5 iters) for spectral norm. Matches the reference
+    # Contra-Muon implementation in
+    # records/track_3_optimization/results/20260501_contra_muon/train_gpt_simple_contra_muon_2.py
+    X = G.float()
+    v = torch.ones(X.size(-1), dtype=X.dtype, device=X.device)
+    v = v / torch.clamp(v.norm(), min=eps)
+    for _ in range(5):
+        u = X @ v
+        u = u / torch.clamp(u.norm(), min=eps)
+        v = X.mT @ u
+        v = v / torch.clamp(v.norm(), min=eps)
+    op_norm = torch.clamp((X @ v).norm(), min=eps)
+    return G / op_norm.to(G.dtype)
+
+@torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+@torch.compile
+def muon_update_contra(grad, momentum, mu=0.95, nesterov=True, contra_gamma=0.05):
+    # Reference Contra-Muon (Nilin Abrahamsen). After NS5, tilt the update
+    # AWAY from the operator-normalized gradient direction, then renormalize to
+    # the NS5 Frobenius norm. This is a genuine direction change because the
+    # operator-normalized post-Nesterov grad is not parallel to update_ns in
+    # general (NS5 zero-powers G, while scale_to_unit_operator_norm only
+    # rescales it). Returns intermediate quantities for telemetry.
+    # The subtraction and renormalization are done in float32 to avoid
+    # precision loss at small gamma; the final update is cast back to bf16
+    # (the dtype of update_ns) before returning, matching the standard
+    # muon_update return dtype.
+    momentum.lerp_(grad, 1 - mu)
+    update_grad = grad.lerp_(momentum, mu) if nesterov else momentum
+    normalized_grad = scale_to_unit_operator_norm(update_grad.clone())  # float32
+    update_ns_bf16 = zeropower_via_newtonschulz5(update_grad)  # bfloat16
+    update_ns_f32 = update_ns_bf16.float()
+    update_ns_frob = update_ns_f32.norm()
+    update_pre_renorm = update_ns_f32 - (contra_gamma / 2.0) * normalized_grad
+    update_pre_renorm_frob = update_pre_renorm.norm()
+    update_contra_f32 = update_pre_renorm * (update_ns_frob / torch.clamp(update_pre_renorm_frob, min=1e-10))
+    scale = max(1, grad.size(-2) / grad.size(-1)) ** 0.5
+    update_final = (update_contra_f32 * scale).to(update_ns_bf16.dtype)
+    # Telemetry tensors (computed inside @torch.compile to keep on-device):
+    #   - alignment_cos: cosine(update_ns, normalized_grad) BEFORE subtraction
+    #   - direction_change_cos: cosine(update_contra_f32, update_ns_f32) (post-renormalization)
+    #   - frob_ratio_pre: ||update_ns||_F / ||update_pre_renorm||_F
+    update_ns_flat = update_ns_f32.flatten()
+    normalized_grad_flat = normalized_grad.flatten()
+    alignment_cos = torch.dot(update_ns_flat, normalized_grad_flat) / (
+        torch.clamp(update_ns_flat.norm(), min=1e-10) * torch.clamp(normalized_grad_flat.norm(), min=1e-10)
+    )
+    alignment_cos = alignment_cos.clamp(-1.0, 1.0)
+    update_contra_flat = update_contra_f32.flatten()
+    direction_change_cos = torch.dot(update_contra_flat, update_ns_flat) / (
+        torch.clamp(update_contra_flat.norm(), min=1e-10) * torch.clamp(update_ns_flat.norm(), min=1e-10)
+    )
+    direction_change_cos = direction_change_cos.clamp(-1.0, 1.0)
+    frob_ratio_pre = update_ns_frob / torch.clamp(update_pre_renorm_frob, min=1e-10)
+    return update_final, alignment_cos, direction_change_cos, frob_ratio_pre
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -591,16 +659,23 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", contra_gamma=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        contra_gamma=contra_gamma)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # Reference Contra-Muon telemetry, mean over all blocks updated this step.
+        self._last_contra_alignment_mean = 0.0
+        self._last_contra_direction_change_cos_mean = 0.0
+        self._last_contra_direction_change_angle_deg_mean = 0.0
+        self._last_contra_frob_ratio_pre_mean = 0.0
+        self._last_contra_count = 0
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +685,17 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        contra_alignment_sum_local = 0.0
+        contra_direction_change_cos_sum_local = 0.0
+        contra_frob_ratio_pre_sum_local = 0.0
+        contra_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            contra_gamma = group.get("contra_gamma", 0.0)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +704,16 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if contra_gamma > 0.0:
+                        update, alignment_cos, direction_change_cos, frob_ratio_pre = muon_update_contra(
+                            p.grad, state["momentum"], mu=group["mu"], contra_gamma=contra_gamma,
+                        )
+                        contra_alignment_sum_local += float(alignment_cos.item())
+                        contra_direction_change_cos_sum_local += float(direction_change_cos.item())
+                        contra_frob_ratio_pre_sum_local += float(frob_ratio_pre.item())
+                        contra_count_local += 1
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -649,24 +738,54 @@ class MuonH(torch.optim.Optimizer):
                                 clip_count_local += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         if world_size > 1:
-            counts = torch.tensor([clip_count_local, total_count_local],
+            counts = torch.tensor([clip_count_local, total_count_local, contra_count_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(counts, op=dist.ReduceOp.SUM)
             ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            contra_sums = torch.tensor([contra_alignment_sum_local,
+                                        contra_direction_change_cos_sum_local,
+                                        contra_frob_ratio_pre_sum_local],
+                                       device="cuda", dtype=torch.float64)
+            dist.all_reduce(contra_sums, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
+            contra_count = float(counts[2].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            contra_alignment_sum = float(contra_sums[0].item())
+            contra_direction_change_cos_sum = float(contra_sums[1].item())
+            contra_frob_ratio_pre_sum = float(contra_sums[2].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
+            contra_count = float(contra_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            contra_alignment_sum = contra_alignment_sum_local
+            contra_direction_change_cos_sum = contra_direction_change_cos_sum_local
+            contra_frob_ratio_pre_sum = contra_frob_ratio_pre_sum_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if contra_count > 0:
+            mean_alignment = contra_alignment_sum / contra_count
+            mean_dir_change_cos = contra_direction_change_cos_sum / contra_count
+            mean_frob_ratio_pre = contra_frob_ratio_pre_sum / contra_count
+            self._last_contra_alignment_mean = mean_alignment
+            self._last_contra_direction_change_cos_mean = mean_dir_change_cos
+            # Convert per-tensor mean cosine to degrees via the mean (clamped for numerical safety).
+            cos_clamped = max(-1.0, min(1.0, mean_dir_change_cos))
+            self._last_contra_direction_change_angle_deg_mean = math.degrees(math.acos(cos_clamped))
+            self._last_contra_frob_ratio_pre_mean = mean_frob_ratio_pre
+            self._last_contra_count = int(contra_count)
+        else:
+            self._last_contra_alignment_mean = 0.0
+            self._last_contra_direction_change_cos_mean = 0.0
+            self._last_contra_direction_change_angle_deg_mean = 0.0
+            self._last_contra_frob_ratio_pre_mean = 0.0
+            self._last_contra_count = 0
 
 
 ########################################
@@ -713,6 +832,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_contra_gamma > 0:
+    print0(f"Contra-Muon ENABLED: gamma={args.muonh_contra_gamma} (reference formula, spectral-norm "
+           f"normalized grad subtracted from NS5 update, then renormalized)", console=True)
+else:
+    print0("Contra-Muon DISABLED (gamma=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +890,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_contra_gamma": args.muonh_contra_gamma,
         },
     )
 
@@ -819,7 +944,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, contra_gamma=args.muonh_contra_gamma)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1161,12 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if opt._last_contra_count > 0:
+                            muonh_metrics["contra/alignment_mean"] = opt._last_contra_alignment_mean
+                            muonh_metrics["contra/direction_change_cos_mean"] = opt._last_contra_direction_change_cos_mean
+                            muonh_metrics["contra/direction_change_angle_deg"] = opt._last_contra_direction_change_angle_deg_mean
+                            muonh_metrics["contra/frob_ratio_pre"] = opt._last_contra_frob_ratio_pre_mean
+                            muonh_metrics["contra/blocks_counted"] = opt._last_contra_count
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
