@@ -1,3 +1,40 @@
+## 2026-05-22 14:00 UTC — PR #795 ASSIGNED (tanjiro): H62 Cautious-MuonH — sign-agreement masking on orthogonalized update
+
+- Branch: `g1r3-tanjiro/cautious-muonh-sign-mask`
+- Hypothesis: Apply "Cautious Optimizer" sign-agreement masking (Liang et al. 2024) to MuonH's post-NS5 orthogonalized update. Zero out coordinates where sign(update) ≠ sign(momentum buffer). Liang et al. showed +0.1-0.3 ppl-equivalent gains on AdamW/Lion. First application to Muon-class orthogonalized optimizer.
+- Mechanism: Newton-Schulz orthogonalization can flip individual coordinate signs relative to input gradient (spectral rotation). Cautious masking removes anti-gradient coords, eliminating the "orthogonalization rotation tax" while preserving the orthogonal structure on remaining coords.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): no masking — sanity vs noise floor
+  - arm_b (cautious + rescale, PRIMARY): mask = sign(update)==sign(buf), update = mask×update / mean(mask) — preserves magnitude
+  - arm_c (cautious no rescale): mask×update without denominator — smaller effective step; isolates "is it mask or step-size reduction"
+- ~15 LoC: CLI flags `--cautious_muonh`, `--cautious_rescale` + mask computation + telemetry `muonh/cautious_mask_mean`
+- Telemetry: `muonh/cautious_mask_mean` should stabilize in [0.6, 0.95]; ~0.5 = NS5 rotating randomly; ~1.0 = mask ineffective
+- W&B group `h62_cautious_muonh`. Reassignment after PR #767 closure (inner mu schedule NEG).
+
+---
+
+## 2026-05-22 14:00 UTC — PR #767 CLOSED NEG (tanjiro): H57 MuonH inner momentum schedule — joint inner-mu-schedule axis closure
+
+- Branch: `g1r3-tanjiro/muonh-inner-mu-schedule`
+- Hypothesis: Schedule MuonH inner `mu` (fixed 0.95) piecewise-linear: 0.85→0.95 (warm) → 0.95 steady → 0.95→0.97 (cooldown). Fresh axis — outer MuLoCo schedule closed (PR #563/#536), inner mu never scheduled.
+- Arms:
+
+| Arm | mu schedule | W&B | val/loss | vs ctrl |
+|-----|------------|-----|----------|---------|
+| arm_a (ctrl, constant 0.95) | — | `b8uouio9` | **3.27298** | — (μ, σ matched) |
+| arm_b (default ramp 0.85→0.95→0.97) | default | `31l606mh` | **3.28042** | **+0.00744 (~12σ NEG)** |
+| arm_c (gentle warm 0.90→0.95→0.97) | gentler | `yo5nrmqq` | KILLED step ~430/3325 | — |
+| arm_d (warm-only 0.85→0.95→0.95) | — | not launched | — | — |
+
+- **arm_b is a strong NEG** — missed speedrun target (3.28), +12σ above ctrl. Pre-declared decision tree honored: arm_b NEG ⇒ stop arm_c, skip arm_d. Saved ~3.5h GPU.
+- **Mechanism (student's forensic, validated)**: MuonH's Newton-Schulz orthogonalization amplifies small singular values (whitens update direction). It is sensitive to **direction noise**, not magnitude noise. Reducing mu 0.95→0.85 shortens effective window from 20→7 steps, making orthogonalized direction noisier. The hypothesis treated mu as a "responsiveness knob" (valid for SGD-style heavy-ball) but for orthogonalized optimizers mu controls **direction-estimate quality** — 0.95 is already in the regime where direction-noise dominates staleness-bias. The MuLoCo outer aggregator (sync=30) already smooths direction at coarser granularity; lower inner mu averaged noisier directions into the outer step.
+- **Programme-level forensic discipline**: (1) v1 sweep killed mid-arm_b after ctrl landed at 3.29305 (~33σ off), correctly diagnosed as missing 3 baseline flags (`--muonh_mode scale_invariant`, `--muonh_cooldown_shape cosine`, `--aux_agc_clip_ratio 0.05`). Relaunched as v2 with correct flags. Saved 5h GPU from false-NEG misconfig. (2) Pre-declared arm_b-NEG kill gate honored exactly.
+- **PR-body bug credit to advisor** (3rd instance of missing baseline flags in PR-body reproduce commands).
+- **Axis status**: inner MuonH `mu` SCHEDULE axis CLOSED NEG. Open unexplored direction: constant higher mu (0.97, 0.98) — single-knob study, not in-flight.
+- Routing: tanjiro → PR #795 H62 Cautious-MuonH.
+
+---
+
 ## 2026-05-22 11:35 UTC — PR #790 ASSIGNED (nezuko): H61 NS5 polishing-iteration hybrid (coef SCHEDULE within single NS call)
 
 - Branch: `g1r3-nezuko/ns5-polishing-iteration-hybrid`
