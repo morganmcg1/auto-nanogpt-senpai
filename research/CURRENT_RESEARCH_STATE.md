@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 08:10 UTC
+- **Last update:** 2026-05-22 08:25 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,23 +12,24 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Active experiments (8 students, 08:10 UTC — 0 idle)
+## Active experiments (7 active + 1 to-assign at 08:25 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#774** | edward | PMuon cov warmup fast-mix (β_cov=0→0.95 at K=20 vs K=50) | **NEWLY ASSIGNED 08:10 UTC.** Addresses preconditioner under-population in first 20-50 steps (EMA ramp-up lag). β_cov=0 injects fresh outer products then snaps to 0.95. Novel warmup-phase intervention vs saturating cooldown-coupled ramp axis. |
+| **#774** | edward | PMuon cov warmup fast-mix (β_cov=0→0.95 at K=20 vs K=50) | Newly assigned 08:10 UTC. In implementation phase. |
 | **#769** | askeladd | Aux AdamW delayed cooldown start (300 vs 600 step delay) | Newly assigned 06:40 UTC. In implementation phase. |
 | **#760** | frieren | PMuon γ_power cooldown ramp (0.4→0.5 vs 0.4→0.3) | Arm A `4yzrav20` running step ~1650. ETA ~08:45 UTC. |
-| **#745** | nezuko | Per-type Body-Muon LR cooldown asymmetry | Arm A NULL sr=3025. Arm B `0x0yd7ts` running step ~1525. ETA ~09:45 UTC. |
+| **#745** | nezuko | Per-type Body-Muon LR cooldown asymmetry | Arm A NULL sr=3025. Arm B `0x0yd7ts` running step 2550. ETA ~08:55 UTC. |
 | **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp | Arm A NULL sr=2950. Arm B `4a606v43` running step ~1650. ETA ~09:25 UTC. |
-| **#737** | thorfinn | Polyak EMA cooldown-aware β ramp | Arm A **sr=2925 MARGINAL** (val=3.265811 regresses, n=1 AND clause fails). Arm B `b4q13sgm` running step ~1950. ETA ~09:35 UTC. Decision pending Arm B. |
-| **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry | Arm A NULL sr=3050. Arm B `xlysv0gm` running step ~2550. ETA ~08:25 UTC. |
-| **#727** | fern | Body-Muon WD cooldown schedule UP vs DOWN | Arm A NULL sr=2975. Arm B `rzthmx1j` running step ~3075. ETA ~08:10 UTC (nearly terminal). |
+| **#737** | thorfinn | Polyak EMA cooldown-aware β ramp | Arm A **sr=2925 MARGINAL** (val=3.265811 regresses, n=1 AND clause fails). Arm B `b4q13sgm` running step 2425. ETA ~08:30 UTC. **Plan**: if Arm A holds best, request n=2 confirmation of β=0.99 ramp. |
+| **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry | Arm A NULL sr=3050. Arm B `xlysv0gm` reached target at step 2975, **sr=2975, val=3.2756 (still NULL — val regress, Δsr=+37.5)**. Awaiting terminal. |
+| **TBA fern** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | **Assigning 08:25 UTC after #727 closure**. Novel ramp-vs-static lever on Muon momentum scalar. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#727** fern | 65th | WD cooldown schedule NULL/NULL (A sr=2975, B sr=2975) | Symmetric-NULL: both UP/DOWN regress identically (Δsr=+37.5, Δval ≈+0.003/+0.002). Cross-arm Δval=+0.001 below marginal threshold. WD-temporal-schedule axis EXHAUSTED — WD=0.025 STATIC sits at local optimum. Adds to cooldown-trajectory lever cluster (#647, #607, #717+#690). |
 | **#730** edward | 64th | SWA cooldown init NULL/NULL (A sr=3000, B sr=3000) | Body-Muon weights travel directionally (27-37% Frobenius distance per 100-200 steps) — not basin-orbiting. SWA average is lagged anchor, not centroid. Buffer-modification at cooldown_start FULLY CLOSED across all categories (state + parameter space). |
 | **#725** askeladd | 63rd | PMuon cov reset NULL/NULL (Arm A sr=2975, Arm B sr=2950) | Covariance buffer (L_cov/R_cov, 72 tensors) also load-bearing. Same non-monotone pattern as #723. Buffer-modification axis at cooldown_start FULLY CLOSED across all PMuon buffer types (momentum + covariance). |
 | **#723** frieren | 62nd | Momentum reset NULL/NULL (Arm A sr=2975, Arm B sr=2950) | Body-Muon momentum buffer is load-bearing for cooldown. Non-monotone (0.5× worse than 0.0×) — partial reset creates mismatch worse than either extreme. 3rd confirmed buffer-modification dead lever at cooldown_start. |
@@ -79,7 +80,7 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 `(3.28 − μ) × √n ≥ 0.004`. n=1 win: sr ≤ 2925 OR (sr = 2925 AND val < 3.264278). Stat-sig threshold: val ≤ 3.276 (n=1). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Closed axes reference (64 total)
+## Closed axes reference (65 total)
 
 *PMuon scalars COMPLETE (all 5 pinned):* γ_power=0.4, β_cov=0.95 (scalar+schedule CLOSED #686), NS_ITERS=12, NS coeff cubic (1.5,-0.5,0), ε=1e-12, mu=0.95 (schedule CLOSED #682).
 

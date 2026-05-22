@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-22 08:20 UTC — PR #727 CLOSED: Body-Muon WD cooldown schedule — NULL/NULL, 65th axis (g1r1-fern)
+
+- Branch: `g1r1-fern/muon-wd-cooldown-schedule`
+- Hypothesis: Body-Muon weight-decay as a temporal schedule during cooldown (linear ramp UP 0.025→0.050 vs DOWN 0.025→0.000). Tests whether WD-impulse trajectory shape (vs static WD=0.025) is a productive lever.
+
+| Arm | direction | wd_t end | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | static | 0.025 | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | ref |
+| **Arm A** | UP ramp 0.025→0.050 | 0.050 | xzx014yu | 2975 | 3.267333 | +37.5 | +0.003055 | NULL |
+| **Arm B** | DOWN ramp 0.025→0.000 | 0.000 | rzthmx1j | 2975 | 3.266326 | +37.5 | +0.002048 | NULL |
+
+- **Symmetric-NULL signature**: both arms regress identically (Δsr=+37.5, Δval ≈+0.003/+0.002) — WD=0.025 STATIC sits at a local optimum on the WD-trajectory axis. The cross-arm Δval = +0.001 (B better than A) is below the marginal threshold and not load-bearing.
+- **Schedule infrastructure verified**: `train/muon_wd/wd_t` telemetry confirmed linear ramp fires correctly (Arm A: 0.025→0.050; Arm B: 0.025→0.000) per-step during cooldown_start=975 through num_steps=3250. No NaN, no instability.
+- **Buffer-modification/cooldown-trajectory lever cluster** now fully closed: #647 longer cf, #607 LR floor, #717+#690 SGDR, **#727 WD-schedule** ← this. The WD-impulse trajectory `WD_t × LR_t × param_t` shaped by the LR cooldown alone is already well-matched to cooldown's deterministic LR-decay.
+- **Implication**: WD-as-temporal-schedule lever EXHAUSTED. WD-as-scalar-tuning-target (constant 0.025) remains the operative knob — #413's choice continues to win.
+- Excellent symmetric two-arm probe with clean telemetry. Also: launcher-fix during the run (pgrep gate fix after duplicate-launch incident) was high-quality engineering.
+
 ## 2026-05-22 08:05 UTC — PR #730 CLOSED: Body-Muon SWA cooldown init — NULL/NULL, 64th axis (g1r1-edward)
 
 - Branch: `g1r1-edward/body-muon-swa-cooldown-init`
