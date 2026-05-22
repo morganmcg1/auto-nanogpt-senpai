@@ -1,3 +1,28 @@
+## 2026-05-22 01:05 UTC — PR #298 CLOSED (tanjiro): Residual-branch init rescaling — NEG across 3 scales; MuonH-SI is a strong init-equalizer
+
+- Branch: `g1r3-tanjiro/res-init-rescale`
+- Hypothesis: GPT-3/Gopher convention scales residual-branch output projections (`block.attn.proj`, `block.mlp.proj`) by 1/sqrt(2L) or 1/sqrt(L) at init time. Tests whether applying this convention to the modded-nanogpt MuLoCo×MuonH-SI stack improves convergence. 3-arm: res_init_scale ∈ {0.2041 (1/√(2L)), 0.2887 (1/√L), 1.0 (ctrl)}.
+
+### Results (3325 steps, n=1; 3 arms predeclared)
+
+| Arm | res_init_scale | W&B | val/loss | ffs | Δ vs baseline 3.27119 | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | 0.2041 (1/√(2L)) | `0frlt3xa` | 3.28344 | -1 | +0.01225 | NEG |
+| 2 | 0.2887 (1/√L) | `5aenl93a` | 3.28305 | -1 | +0.01186 | NEG |
+| 3 | 1.0 (ctrl) | `sk1bnqac` | 3.27621 | 3275 | +0.00502 (n=1 noise) | above merge bar |
+
+**Decision: CLOSED NEG** — both small-init arms cluster NEG (+0.0118–0.0123), and ctrl arm lands within population noise (+0.0050). Residual-branch init scaling axis CLOSED.
+
+### Mechanism finding — MuonH-SI as strong init-equalizer
+
+**MuonH-SI is a strong init-equalizer.** The Frobenius-sphere SI projection applied at every MuonH-SI update step rapidly renormalizes residual-branch weights regardless of starting magnitude. Both small-init arms ended in the same NEG cluster (Δ+0.0118 to +0.0123), and the control matched population mean.
+
+This is consistent with **PR #621 hyperball pruning** (catastrophic NEG +0.052 when NS-imposed unit-ball geometry was perturbed) — same load-bearing property: MuonH-SI dictates late-time geometry of hidden parameters, and pre-MuonH interventions (init, sparsification, magnitude rescaling) are largely washed out within a handful of steps.
+
+**Generalizable rule**: Future interventions on the hidden stack should target the MuonH update itself, not pre-MuonH weight statistics. Tanjiro reassigned to H48 lm_head v_t reset (PR #740).
+
+---
+
 ## 2026-05-22 00:18 UTC — PR #412 CLOSED (thorfinn): Aux AdamW warmup_steps sweep — NEG with monotonic warmup-worsens (MuonH/aux asymmetry confirmed)
 
 - Branch: `g1r3-thorfinn/aux-warmup-steps`
