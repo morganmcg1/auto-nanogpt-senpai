@@ -503,7 +503,19 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        if NANOGPT_FOCAL_GAMMA == 0.0 or not self.training:
+            # Validation always reports plain CE so val/loss is comparable to baseline.
+            return F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+        # Focal loss: weight each token's NLL by (1 - p_correct)^gamma.
+        # Both the NLL and the focal weight are differentiable (Lin et al. 2017).
+        log_probs = F.log_softmax(flat_logits, dim=-1)
+        target_log_probs = log_probs.gather(-1, flat_targets.unsqueeze(-1)).squeeze(-1)
+        nll = -target_log_probs
+        p_correct = target_log_probs.exp()
+        focal_weight = (1.0 - p_correct).clamp(min=1e-8).pow(NANOGPT_FOCAL_GAMMA)
+        return (focal_weight * nll).sum()
 
 
 ########################################
@@ -536,6 +548,9 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Focal loss gamma (Lin et al. 2017). 0.0 = standard CE (bit-identical to baseline).
+# Each token's NLL is weighted by (1 - p_correct)^gamma, down-weighting easy tokens.
+NANOGPT_FOCAL_GAMMA = float(os.environ.get("NANOGPT_FOCAL_GAMMA", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -769,6 +784,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"FOCAL_GAMMA: {NANOGPT_FOCAL_GAMMA} ({'ENABLED — focal loss' if NANOGPT_FOCAL_GAMMA > 0 else 'DISABLED — standard CE'})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -826,6 +843,7 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_focal_gamma": NANOGPT_FOCAL_GAMMA,
         },
     )
 
