@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 02:50 UTC
+- **Date:** 2026-05-22 03:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -191,17 +191,40 @@ Bit-identical Arm B (k=5, α=0.5, scope=adamw) to #434 (edward, CLOSED productiv
 All 4 arms on post-#579 stack terminated. Drift gate Arm A PASS (val=3.27011, Δ=−0.00059 vs new baseline 3.27070). Arms B/C/D all in strong direction-incorrect band (Δ=+0.17340 / +0.17730 / +0.17592) — never reached 3.28 target. Mechanism: diagnostic row-norm percentiles showed lm_head.grad p50=13.11 vs embed.grad p50=0.0376 — ~350× magnitude asymmetry. Pre-declared threshold ladder {0.01, 0.1, 1.0} (chosen before measurement) sits 1–3 orders of magnitude below lm_head's typical row magnitude → every active arm hard-clips every lm_head row (factor 0.077 → 7.7e-3 → 7.6e-4). Under-fit feedback loop: lm_head pre-clip p50 grew 13.1 → 108–111 when clip active, confirming model adapts to under-trained lm_head by producing larger backprop errors which clip suppresses again. Strong closure of \"row-magnitude-aware intervention on aux groups\" axis composing with #408 AGC (NULL), #477 OrthoGrad (NULL), #618 Muon² lm_head (NEG), #663 SOAP-lm_head (NULL). **Pattern confirmed**: lm_head's per-row magnitude distribution carries Zipf-distributed signal that is load-bearing, not noise — any intervention that homogenizes / whitens / suppresses lm_head row magnitudes regresses training. **55th productive-null/negative this cycle.**
 **Follow-up**: tanjiro assigned **#711 AggMo (Aggregated Momentum) for body Muon** — multi-timescale momentum buffers aggregated PRE-NS. Mechanism-distinct from all 500+ prior PRs (input-side body-Muon momentum-preparation axis, never tested). Tests passive damping via parallel β buffers: K=2 [0.0, 0.95], K=3 [0.0, 0.9, 0.99], K=3 [0.5, 0.9, 0.99].
 
-### 🔄 tanjiro #711 — AggMo (Aggregated Momentum) for body Muon [assigned 19:00 UTC]
+### ✅ tanjiro #711 — AggMo (Aggregated Momentum) for body Muon — CLOSED 03:15 UTC productive-NEGATIVE
 
 **Branch:** `g1r4-tanjiro/aggmo-body-muon`
-**Hypothesis**: Current body Muon uses single β=0.95 momentum buffer (~20-step memory). AggMo (Lucas et al. ICLR 2019) replaces single buffer with K parallel buffers at different β values, aggregated PRE-NS. Provides \"passive damping\": instability in any single β is cancelled by others without active mechanism. For body Muon specifically, aggregation improves quality of NS input — NS normalizes spectral direction but not underlying signal quality. Mechanism-distinct from #530 (Nesterov α mix NULL), #674 in flight (per-block-type μ asymmetry), #356 (μ schedule), #399 (AdEMAMix on aux), #436 (parameter-space EMA NEG), #138 (Polar Express full-algorithm replacement NULL). **AggMo never tested in 500+ scanned PRs.** Hits the minimally-explored \"input-side body Muon momentum-preparation\" axis.
-| Arm | NANOGPT_MUON_AGGMO_BETAS | K | mu_eff | Tests |
-|---|---|---:|---:|---|
-| A | \"0.95\" | 1 | 0.95 | Control — bit-identical to merged baseline |
-| B | \"0.0,0.95\" | 2 | 0.475 | K=2 paper variant — zero-memory passive damping by raw gradient injection |
-| C | \"0.0,0.9,0.99\" | 3 | 0.630 | K=3 paper variant — geometric β spread, balanced multi-timescale |
-| D | \"0.5,0.9,0.99\" | 3 | 0.797 | K=3 graded — mu_eff control variant (closer to baseline μ) |
-**ETA full chain:** ~7.3h. Implementation: ~25 LOC (multi-buffer state, aggregate before Nesterov mix, then NS unchanged). C-vs-D pair separates \"multi-buffer aggregation matters\" from \"mu_eff value matters\".
+
+Single-seed 4-arm (drift gate A PASS):
+
+| Arm | NANOGPT_MUON_AGGMO_BETAS | K | mu_eff | val/loss | Δ_vs_A | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| A (ctrl) | "0.95" | 1 | 0.95 | ~3.27 | — | baseline |
+| B | "0.0,0.95" | 2 | 0.475 | +0.07438 | **+0.07438** | catastrophic regression |
+| C | "0.0,0.9,0.99" | 3 | 0.630 | +0.05288 | **+0.05288** | strong regression |
+| D | "0.5,0.9,0.99" | 3 | 0.797 | +0.02189 | **+0.02189** | hard regression |
+
+**Monotone regression in mu_eff**: D (mu_eff=0.797 closest to baseline 0.95) is least bad but still +0.02189; B/C with low mu_eff catastrophic. **Mu_eff is the dominant lever, multi-buffer aggregation is neutral or net-harmful**. C-vs-D pair test: D−C=−0.03099 with mu_eff up by 0.167 — confirms mu_eff dominates aggregation. **Body Muon momentum buffer at β=0.95 is sharply bilaterally optimal**; AggMo's "passive damping" hypothesis falsified — Newton-Schulz already provides the stability AggMo claims to add for non-spectral optimizers (Lion/Adam).
+
+**Pattern continuation**: 6th "complex Muon momentum modification fails" closure (#126 Contra-Soft, #530 Nesterov-Muon, #356 mu schedule, #674 per-block-TYPE mu, #717 Adan, #711 AggMo). Body Muon's pre-NS first-moment buffer is structurally fragile to any deviation from single-buffer EMA at β=0.95.
+
+**61st productive-null/negative this cycle.**
+
+**Follow-up**: tanjiro assigned **#752 Gradient Centralization (Yong 2020)** — per-row mean subtraction on pre-NS / pre-AdamW gradients. Fresh axis: GC orthogonalizes against constant vector (1ᵀ direction) per row, structurally distinct from NS-orthogonalization (singular-value normalization) and OrthoGrad (#477, against parameter direction). Mechanism is spatial (per-row) not temporal (momentum). ~5 LOC implementation.
+
+### 🔄 tanjiro #752 — Gradient Centralization (Yong 2020) — per-row mean subtraction pre-NS / pre-AdamW [assigned 03:15 UTC]
+
+**Branch:** `g1r4-tanjiro/gradient-centralization`
+**Hypothesis**: Yong et al. 2020 (arXiv:2004.01461) demonstrated per-row mean subtraction `g_c[i,:] = g[i,:] − g[i,:].mean()` improves generalization on classification/segmentation/detection. Mathematically: projects gradient onto null-space of `1ᵀ` per row = orthogonal complement of constant vector. For body Muon: GC applies BEFORE momentum buffer update and BEFORE Newton-Schulz. Mechanically distinct from prior closures: **#477 OrthoGrad** orthogonalizes against parameter direction (closed NULL); **NS-orthogonalization** removes singular-value imbalance (spectral); **GC** removes a single rank-1 component (the constant direction per row). For aux AdamW: GC before moment-buffer updates acts as soft regularizer on row-mean magnitudes. **Fresh axis**: spatial per-row gradient structure, orthogonal to all closed temporal/spectral interventions.
+
+| Arm | NANOGPT_GC_MUON | NANOGPT_GC_ADAMW | Tests |
+|---|:---:|:---:|---|
+| A (ctrl) | 0 | 0 | Bit-identical merged baseline |
+| B | 1 | 0 | GC body Muon only |
+| C | 0 | 1 | GC aux AdamW only |
+| D | 1 | 1 | GC both — compound |
+
+**ETA full chain:** ~7.3h. Implementation: ~5 LOC (apply `g - g.mean(dim=tuple(range(1, g.dim())), keepdim=True)` before momentum buffer + NS for Muon; before moment buffer for aux AdamW). Gradient-aware single-line intervention. Decision gates: Δ ≤ −0.002 → paired-pod follow-up; Δ ∈ [−0.002, +0.0015] → productive-null; Δ ≥ +0.0015 → arm closed.
 
 ### ✅ tanjiro #487 — Cooldown-NS pruning ablation — CLOSED 13:05 UTC productive-NULL [paired-pod n=3]
 

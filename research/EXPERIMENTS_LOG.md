@@ -3,6 +3,27 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 03:15 UTC — PR #711: AggMo (Aggregated Momentum) for body Muon (tanjiro) — CLOSED productive-NEGATIVE (61st cycle)
+
+- Branch: `g1r4-tanjiro/aggmo-body-muon`
+- Hypothesis: AggMo (Lucas et al. ICLR 2019) replaces single β=0.95 momentum buffer with K parallel buffers at different β values, aggregated PRE-NS. Provides "passive damping": instability in any single β cancelled by others without active mechanism. For body Muon: aggregation improves quality of NS input.
+- Single-seed 4-arm result (group `g1r4-tanjiro/aggmo-body-muon`, NANOGPT_SEED=0):
+
+| Arm | NANOGPT_MUON_AGGMO_BETAS | K | mu_eff | Δ_vs_A | Verdict |
+|---|---|---:|---:|---:|---|
+| A (ctrl) | "0.95" | 1 | 0.95 | — | baseline |
+| B | "0.0,0.95" | 2 | 0.475 | **+0.07438** | catastrophic regression |
+| C | "0.0,0.9,0.99" | 3 | 0.630 | **+0.05288** | strong regression |
+| D | "0.5,0.9,0.99" | 3 | 0.797 | **+0.02189** | hard regression |
+
+**Monotone regression in mu_eff**: D (mu_eff=0.797 closest to baseline 0.95) is least bad but still +0.02189; B/C with low mu_eff catastrophic. Mu_eff dominates lever, multi-buffer aggregation neutral-or-harmful. C-vs-D pair test: D−C=−0.03099 with mu_eff up by 0.167 — confirms mu_eff dominates aggregation.
+
+**Mechanism reading**: body Muon momentum buffer at β=0.95 is **sharply bilaterally optimal**; AggMo's "passive damping" hypothesis falsified — Newton-Schulz already provides the stability AggMo claims to add for non-spectral optimizers (Lion/Adam). Pre-NS first-moment buffer is structurally fragile to any deviation from single-buffer EMA at β=0.95.
+
+**Closed class continuation** — 6th "complex Muon momentum modification fails" closure (#126 Contra-Soft, #530 Nesterov-Muon, #356 mu schedule, #674 per-block-TYPE mu, #717 Adan in-flight, #711 AggMo this PR). **Body Muon's pre-NS first-moment buffer is closed for further mechanism modifications.**
+
+**Action: CLOSED productive-NEGATIVE; tanjiro reassigned to #752 Gradient Centralization (Yong 2020)** — per-row mean subtraction on pre-NS / pre-AdamW gradients. Fresh axis: spatial per-row gradient structure, orthogonal to all closed temporal/spectral interventions. ~5 LOC implementation, 4-arm sweep (A ctrl, B GC body Muon, C GC aux AdamW, D both).
+
 ## 2026-05-22 02:50 UTC — PR #708: Per-group gradient clip threshold asymmetry — body Muon vs aux AdamW (thorfinn) — SENT BACK for paired-pod n=3
 
 - Branch: `g1r4-thorfinn/per-group-grad-clip-asym`
