@@ -465,6 +465,16 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# NS5 polynomial coefficient set selection. "standard" = baseline (a=2, b=-1.5, c=0.5).
+# "aggressive" = Nakatsukasa-Freund-inspired faster convergence on the (0.5,1) SV range.
+# "soft" = cubic-Hermite damped variant for ill-conditioned blocks.
+NS5_COEFF_SET = os.environ.get("NS5_COEFF_SET", "standard")
+if NS5_COEFF_SET == "aggressive":
+    NS5_A, NS5_B, NS5_C = 3.4375, -4.6875, 2.8125
+elif NS5_COEFF_SET == "soft":
+    NS5_A, NS5_B, NS5_C = 1.5, -0.5, 0.0625
+else:  # "standard"
+    NS5_A, NS5_B, NS5_C = 2.0, -1.5, 0.5
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
@@ -479,7 +489,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS5_A, NS5_B, NS5_C
     for _ in range(NS5_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -865,6 +875,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_coeff_set": NS5_COEFF_SET,
+            "optimizer/ns5_coeff_a": NS5_A,
+            "optimizer/ns5_coeff_b": NS5_B,
+            "optimizer/ns5_coeff_c": NS5_C,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
