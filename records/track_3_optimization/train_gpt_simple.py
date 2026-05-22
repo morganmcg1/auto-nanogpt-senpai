@@ -71,6 +71,15 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # EMA-of-weights at evaluation (Polyak averaging). Maintains an fp32 shadow
+    # of model parameters that exponentially averages live params across steps.
+    # Evaluated alongside live weights to give a smoother final val/loss.
+    parser.add_argument("--use_ema_eval", type=int, default=int(os.environ.get("USE_EMA_EVAL", "0")),
+                        help="If 1, maintain EMA of model weights and evaluate on EMA alongside live")
+    parser.add_argument("--ema_decay", type=float, default=float(os.environ.get("EMA_DECAY", "0.9999")),
+                        help="EMA decay rate per step. 0.999 = short, 0.9999 = medium, 0.99999 = long.")
+    parser.add_argument("--ema_warmup_steps", type=int, default=int(os.environ.get("EMA_WARMUP_STEPS", "200")),
+                        help="Skip EMA updates for the first N steps so early training can escape init")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -670,6 +679,43 @@ class MuonH(torch.optim.Optimizer):
 
 
 ########################################
+#            EMA of weights            #
+########################################
+
+def init_ema_params(model: nn.Module) -> dict[str, Tensor]:
+    """Create fp32 shadow copies of all trainable model parameters."""
+    return {n: p.detach().clone().float()
+            for n, p in model.named_parameters() if p.requires_grad}
+
+
+@torch.no_grad()
+def update_ema(model: nn.Module, ema_params: dict[str, Tensor], decay: float):
+    """In-place EMA update: ema = decay*ema + (1-decay)*p (in fp32)."""
+    for n, p in model.named_parameters():
+        if p.requires_grad and n in ema_params:
+            ema_params[n].mul_(decay).add_(p.detach().float(), alpha=1.0 - decay)
+
+
+@torch.no_grad()
+def swap_to_ema(model: nn.Module, ema_params: dict[str, Tensor]) -> dict[str, Tensor]:
+    """Replace model params with EMA params; return original params for swap-back."""
+    orig = {}
+    for n, p in model.named_parameters():
+        if p.requires_grad and n in ema_params:
+            orig[n] = p.detach().clone()
+            p.data.copy_(ema_params[n].to(p.dtype))
+    return orig
+
+
+@torch.no_grad()
+def swap_from_ema(model: nn.Module, orig_params: dict[str, Tensor]):
+    """Restore model params from orig_params (counterpart to swap_to_ema)."""
+    for n, p in model.named_parameters():
+        if n in orig_params:
+            p.data.copy_(orig_params[n])
+
+
+########################################
 #                Setup                 #
 ########################################
 
@@ -713,6 +759,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_ema_eval:
+    print0(f"EMA-of-weights ENABLED: decay={args.ema_decay} warmup_steps={args.ema_warmup_steps}", console=True)
+else:
+    print0("EMA-of-weights DISABLED (use_ema_eval=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +816,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "use_ema_eval": bool(args.use_ema_eval),
+            "ema_decay": args.ema_decay,
+            "ema_warmup_steps": args.ema_warmup_steps,
         },
     )
 
@@ -887,6 +940,15 @@ for trial_idx in range(args.num_trials):
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
 
+    # EMA shadow params (Polyak averaging). Initialized AFTER broadcast so every
+    # rank's shadow starts from the same parameter state. Updated post-update
+    # from step args.ema_warmup_steps onward; the eval loop runs an extra
+    # validation pass on these swapped-in weights at every val event.
+    if args.use_ema_eval:
+        ema_params = init_ema_params(model)
+    else:
+        ema_params = None
+
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
     # trainable params so the outer pull is applied uniformly across MuonH-SI
@@ -956,8 +1018,35 @@ for trial_idx in range(args.num_trials):
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
+            # EMA eval: swap in shadow params, run the same val pass, swap back.
+            # Skipped before ema_warmup_steps so shadow params have time to track
+            # the live trajectory.
+            ema_val_loss_float = None
+            if args.use_ema_eval and ema_params is not None and step >= args.ema_warmup_steps:
+                orig_for_swap = swap_to_ema(model, ema_params)
+                ema_val_loss = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        ema_val_loss += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(ema_val_loss, op=dist.ReduceOp.SUM)
+                ema_val_loss /= val_tokens
+                ema_val_loss_float = float(ema_val_loss.item())
+                swap_from_ema(model, orig_for_swap)
+                if dist.get_rank() == 0:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "val/step": step,
+                        "val/loss_ema": ema_val_loss_float,
+                        "val/loss_ema_minus_live": ema_val_loss_float - val_loss_float,
+                    }, step=trial_idx * (train_steps + 1) + step)
+                    if step == train_steps:
+                        wandb.summary["val/loss_ema_final"] = ema_val_loss_float
+                        wandb.summary["val/loss_ema_minus_live_final"] = ema_val_loss_float - val_loss_float
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            if ema_val_loss_float is not None:
+                print0(f"step:{step}/{train_steps} val_loss_ema:{ema_val_loss_float:.5f}"
+                       + f" delta_live:{ema_val_loss_float - val_loss_float:+.5f}", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1112,6 +1201,12 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # EMA update fires AFTER both the inner optimizer step and the outer
+        # MuLoCo step, so the shadow tracks the final post-update parameter
+        # state on every step (which is identical across ranks).
+        if args.use_ema_eval and ema_params is not None and step >= args.ema_warmup_steps:
+            update_ema(model, ema_params, args.ema_decay)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
