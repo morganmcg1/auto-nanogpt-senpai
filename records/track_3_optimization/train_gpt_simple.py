@@ -719,6 +719,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "aux_beta1_cooldown_target": args.aux_beta1_cooldown_target if args.aux_beta1_cooldown_target is not None else 0.0,
+            "aux_beta1_ramp_active": int(args.aux_beta1_cooldown_target is not None),
         },
     )
 
