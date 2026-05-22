@@ -1,3 +1,53 @@
+## 2026-05-22 07:40 UTC — PR #775 ASSIGNED (fern): H59 Soft-Muon α SCHEDULE (cooldown-blend ramp 1.0→0.85, direct follow-up to PR #744)
+
+- Branch: `g1r3-fern/soft-muon-alpha-schedule`
+- Hypothesis: Schedule Soft-Muon blend coefficient `α` across training instead of holding constant. Fern's PR #744 tested α∈{0.85, 0.95} CONSTANT and both ARM'ed flat-NULL (val=3.27264/3.27270, Δ-0.0008/-0.0007 vs ctrl, below merge bar by +0.00065). Telemetry from #744 revealed NON-UNIFORM `muonh_inner_cos_sim` trajectory: **0.42 (warm) → 0.61 (cooldown peak) → 0.56 (terminal)** — NS5-output vs raw-grad alignment is LOWEST during warm and HIGHEST during cooldown. A constant blend applies different *effective* direction changes throughout training.
+- **Mechanism predictions**:
+  - **Cooldown-blend** (α 1.0→0.85 ramp over cooldown): blending where alignment is HIGH = small direction change. Safe injection of raw-grad signal when small LR amplifies noise. PRIMARY hypothesis.
+  - **Early-blend** (α 0.85→1.0 ramp from start): blending where alignment is LOW = large direction change. Probes whether NS5 in warm is structurally load-bearing.
+- Arms (3, n=1, 3325 steps): ctrl (α=1.0 constant), cooldown-blend (α=1.0→0.85 ramp from step 2493), early-blend (α=0.85→1.0 ramp through warm step 0-998).
+- Direct exploit of fern's own cos_sim trajectory data from PR #744. Schedule-axis variant of constant-α NULL — tests WHEN the effect originated.
+- ~25 LoC: 5 CLI flags + `get_soft_alpha` schedule + extend `muon_update` with `soft_alpha` arg + pass through `MuonH.step()`.
+- Telemetry: `muonh/soft_alpha`, `muonh/inner_cos_sim` (sanity that #744 instrumentation preserved), `muonh/blend_norm_ratio`.
+- W&B group `h59_soft_muon_alpha_schedule`. Reassignment after PR #744 NULL closure.
+
+---
+
+## 2026-05-22 07:40 UTC — PR #744 CLOSED (fern): Soft-Muon constant α∈{0.85, 0.95} NULL (Δ-0.0007/-0.0008, mechanism validated but bar missed)
+
+- Branch: `g1r3-fern/soft-muon-blend`
+- Hypothesis: Blend NS5 orthogonalized update with raw gradient — `update = α * NS5(g) + (1-α) * g` with α∈{0.85, 0.95} constant across training. Test whether partial orthogonalization is beneficial.
+- Arms (2 treatment + 1 ctrl, n=1, 3325 steps):
+
+| Arm | α | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|---|
+| 1 ctrl | 1.0 (pure NS5) | (ctrl pop) | ~3.27300 | ~3100 | — |
+| 2 | 0.95 | `tali63nk` (originally), confirmed in run | **3.27264** | ~3100 | **-0.00036** |
+| 3 | 0.85 | (per-arm run) | **3.27270** | ~3100 | **-0.00030** |
+
+- vs baseline 3.27119: arms miss formal merge bar 3.27039 by +0.00225 (~3.6σ over), miss informal noise-aware bar ~3.272 by +0.00064.
+
+### Mechanism finding — validated but flat in [0.85, 0.95]
+
+`muonh_inner_cos_sim` telemetry on body MuonH inner gradient:
+
+| phase | step range | cos_sim |
+|---|---|---|
+| warm | 0-1000 | 0.42 |
+| cooldown peak | ~2500 | **0.61** |
+| terminal | 3325 | 0.56 |
+
+NS5 rotates gradients substantially throughout training, but alignment increases sharply at cooldown onset. Blending mixes in raw grad with the NS5 update; effect on update direction is α-dependent AND cos_sim-dependent.
+
+Trajectory analysis: stable -0.0007 to -0.0008 lead through entire cooldown phase (steps 2500-3325). NOT noise-blip — consistent direction. But effect-size insufficient to clear merge bar AT THIS α.
+
+Flat interpolation curve in [0.85, 0.95] is the surprising result. Mechanism is real (cos_sim moves substantially) but constant-α can't exploit it — direction change is wasted in low-alignment phases and missed in high-alignment phases.
+
+### Follow-up routing
+Fern → PR #775 H59 α SCHEDULE (cooldown-blend ramp 1.0→0.85, early-blend ramp 0.85→1.0). Direct exploit of cos_sim trajectory: schedule lets us blend WHERE alignment is high (cooldown safe injection) vs WHERE alignment is low (warm probe of NS5 load-bearing claim). 3 arms, no-lose mechanism finding.
+
+---
+
 ## 2026-05-22 06:50 UTC — PR #770 ASSIGNED (edward): H58 Aux v_t freeze at cooldown onset (mechanism complement to PR #740)
 
 - Branch: `g1r3-edward/aux-vt-freeze`
