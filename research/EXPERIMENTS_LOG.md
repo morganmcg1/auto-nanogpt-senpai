@@ -3,7 +3,54 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
-## 2026-05-22 ~07:00 UTC — PR #722: fern lm_head init magnitude sweep — **CLOSED clean-NEG (zero-init uniquely load-bearing at LR=1/320)**
+## 2026-05-22 ~12:59 UTC — PR #714: edward RMSNorm gain init mean=0.9 P2 — **CLOSED clean-NEG (gains init axis fully closed)**
+
+- Branch: `g1r5-edward/gain-init-magnitude`
+- Student: g1r5-edward
+- Hypothesis: P2 n=4 confirmation of P1 D (mean=0.9, std=0.0) which showed −1.42σ single-seed below baseline μ.
+- **Results (n=4, single 4-trial torchrun `x71lsi3t`, group `g1r5-edward/gain-init-magnitude-P2-confirm`):**
+
+| Trial | val/loss | ffs | Δ vs OLD μ=3.263265 (σ_seed=0.001123) |
+|------:|---------:|----:|--------------------------------------:|
+| 0 | 3.26318 | 3050 | −0.08σ |
+| 1 | 3.26320 | 3050 | −0.06σ |
+| 2 | 3.26043 | 3025 | −2.53σ (outlier good) |
+| 3 | 3.26446 | 3050 | +1.06σ |
+
+- **n=4 aggregate:** μ=3.262818, σ_n=4=0.001701 (1.51× σ_seed_baseline), SEM=0.000850, ffs_mean=3043.75.
+- **Gate evaluation:**
+  - vs OLD gate (≤3.261265): ❌ misses by +0.001553
+  - vs NEW gate (≤3.259221): ❌ misses by +0.003597
+  - vs NEW baseline μ=3.261221: Δ=+0.001597 (+1.42σ_seed above)
+- **Decision:** CLOSED clean-NEG. Bimodal split (T0/T1/T3 ~ baseline band, T2 outlier good) consistent with σ_seed variance — P1 D single-seed was a tail draw, not a real effect. **RMSNorm gain init axis fully closed.** mean=1.0 (default identity) approximately optimal; perturbations to mean (0.9, 1.1) or std (0.01, 0.1) do not yield reliable improvements at n=4.
+
+## 2026-05-22 ~12:54 UTC — PR #706: nezuko embed_init_std=0.1 P2 (pre-#699) — **TERMINAL, sent back for compound P3 (musoft × embed=0.1)**
+
+- Branch: `g1r5-nezuko/embed-init-magnitude`
+- Student: g1r5-nezuko
+- Hypothesis: P2 n=4 confirmation of P1 C (std=0.1). Ran on PRE-#699 codebase honoring poll #379 "do not rebase mid-experiment" advisory.
+- **Results (n=4, single 4-trial torchrun `wijk9m7a`, group `g1r5-nezuko/embed-init-magnitude-P2-confirm`):**
+
+| Trial | val/loss | ffs |
+|------:|---------:|----:|
+| 0 | 3.25968 | 3025 |
+| 1 | 3.26127 | 3025 |
+| 2 | 3.26194 | 3025 |
+| 3 | 3.25993 | 3025 |
+
+- **n=4 aggregate:** μ=3.260705, σ_n=4=0.001079 (≈ σ_seed_baseline 0.001123), SEM=0.000540, ffs_mean=3025 (4/4 exactly).
+- **Gate evaluation (against OLD gate per experimental contract):**
+  - vs OLD gate (≤3.261265): ✅ **clears by 0.000560**, sweep formula 0.005120 ≥ 0.004 ✓
+  - vs OLD baseline μ=3.263265: Δ=−0.002560 → −2.28σ_seed below
+  - vs NEW gate (≤3.259221): ❌ misses by 0.001484
+  - vs NEW baseline μ=3.261221: Δ=−0.000516 → −0.46σ_seed below (essentially at parity)
+- **Decision: send back for compound P3** on post-#699 codebase. Direct merge against OLD gate would apply embed=0.1 atop musoft without testing compound effect. Three possibilities not yet measured:
+  1. Additive — μ_P3 ≤ 3.2592 → merge candidate vs NEW gate
+  2. Partially redundant — μ_P3 ∈ (3.2592, 3.2606) → discuss
+  3. Competing — μ_P3 > 3.2612 → would merge a regression
+- Tied weights between embed/lm_head + musoft both targeting early-step gradient routing through the embedding subspace suggests prior on **partial redundancy**. P3 will measure. New W&B group `g1r5-nezuko/embed-init-std01-musoft-compound-P3`. ETA ~6h54m after rebase.
+
+
 
 - Branch: `g1r5-fern/lm-head-init-magnitude`
 - Student: g1r5-fern
