@@ -71,6 +71,21 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # NS5 polishing-iteration hybrid (PR #790, H61): split NS iterations into an
+    # aggressive entry phase (KJ coefs) then a standard polish phase (default coefs).
+    # Default ns5_polishing=0 keeps the kernel bit-identical to the prior baseline.
+    parser.add_argument("--ns5_iter_k", type=int, default=int(os.environ.get("NS5_ITER_K", "12")),
+                        help="Total NS5 Newton-Schulz inner iterations per orthogonalization call.")
+    parser.add_argument("--ns5_polishing", type=int, default=int(os.environ.get("NS5_POLISHING", "0")),
+                        help="If 1, use polishing-iteration hybrid: aggressive coefs for first k_aggressive iters then standard coefs.")
+    parser.add_argument("--ns5_k_aggressive", type=int, default=int(os.environ.get("NS5_K_AGGRESSIVE", "4")),
+                        help="Number of aggressive NS iterations at start of NS5 call when --ns5_polishing 1.")
+    parser.add_argument("--ns5_a_aggressive", type=float, default=float(os.environ.get("NS5_A_AGGRESSIVE", "3.4445")),
+                        help="Aggressive 'a' coef (KJ default 3.4445).")
+    parser.add_argument("--ns5_b_aggressive", type=float, default=float(os.environ.get("NS5_B_AGGRESSIVE", "-4.7750")),
+                        help="Aggressive 'b' coef (KJ default -4.7750).")
+    parser.add_argument("--ns5_c_aggressive", type=float, default=float(os.environ.get("NS5_C_AGGRESSIVE", "2.0315")),
+                        help="Aggressive 'c' coef (KJ default 2.0315).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -474,9 +489,20 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    # NS iteration schedule. Default (ns5_polishing=0) is the standard k=12 loop
+    # with constant coefs (2, -1.5, 0.5) — bit-identical to the prior baseline
+    # when ns5_iter_k=12. With ns5_polishing=1, the first ns5_k_aggressive iters
+    # use aggressive coefs (KJ defaults) for fast basin entry, then the remaining
+    # iters polish with standard coefs.
+    k_total = args.ns5_iter_k
+    k_agg = args.ns5_k_aggressive if args.ns5_polishing else 0
+    a_agg, b_agg, c_agg = args.ns5_a_aggressive, args.ns5_b_aggressive, args.ns5_c_aggressive
+    a_std, b_std, c_std = 2.0, -1.5, 0.5
+    for i in range(k_total):
+        if i < k_agg:
+            a, b, c = a_agg, b_agg, c_agg
+        else:
+            a, b, c = a_std, b_std, c_std
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -713,6 +739,13 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.ns5_polishing:
+    print0(f"NS5 polishing-iteration hybrid: k_aggressive={args.ns5_k_aggressive} "
+           f"(KJ a={args.ns5_a_aggressive}, b={args.ns5_b_aggressive}, c={args.ns5_c_aggressive}), "
+           f"k_standard={args.ns5_iter_k - args.ns5_k_aggressive} (default coefs 2.0, -1.5, 0.5), "
+           f"k_total={args.ns5_iter_k}", console=True)
+else:
+    print0(f"NS5 polishing-iteration hybrid DISABLED: constant coefs (2.0, -1.5, 0.5), k_total={args.ns5_iter_k}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +799,12 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "ns5_iter_k": args.ns5_iter_k,
+            "ns5_polishing": bool(args.ns5_polishing),
+            "ns5_k_aggressive": args.ns5_k_aggressive if args.ns5_polishing else 0,
+            "ns5_a_aggressive": args.ns5_a_aggressive if args.ns5_polishing else None,
+            "ns5_b_aggressive": args.ns5_b_aggressive if args.ns5_polishing else None,
+            "ns5_c_aggressive": args.ns5_c_aggressive if args.ns5_polishing else None,
         },
     )
 
