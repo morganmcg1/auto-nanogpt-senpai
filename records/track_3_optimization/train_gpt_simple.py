@@ -589,6 +589,9 @@ NANOGPT_NS_STOCHASTIC_COOLDOWN = int(os.environ.get("NANOGPT_NS_STOCHASTIC_COOLD
 # stochastic-NS runs (Arm B/C/D N=1 in PR #787).
 _SENPAI_SEED_RAW = os.environ.get("SENPAI_SEED", "")
 NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
+NANOGPT_NS_DEGREE = int(os.environ.get("NANOGPT_NS_DEGREE", "5"))  # 5=quintic (default), 3=cubic
+if NANOGPT_NS_DEGREE not in (3, 5):
+    raise ValueError(f"NANOGPT_NS_DEGREE={NANOGPT_NS_DEGREE}, must be 3 (cubic) or 5 (quintic)")
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -676,12 +679,20 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    coef_table = get_ns_coef_table(ns_iters)
-    for k in range(ns_iters):
-        a, b, c = coef_table[k]
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if NANOGPT_NS_DEGREE == 3:
+        # Cubic: f(s) = 1.5 - 0.5s => X_new = 1.5*X - 0.5*(X@X.T)@X
+        # 2 matmuls/iter vs 3 for quintic; FLOP-equivalent at 1.5x iter count.
+        # NS_COEF_SCHEDULE is inert here (c-term absent).
+        for _ in range(ns_iters):
+            A = X @ X.mT
+            X = 1.5 * X - 0.5 * (A @ X)
+    else:
+        coef_table = get_ns_coef_table(ns_iters)
+        for k in range(ns_iters):
+            a, b, c = coef_table[k]
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -825,12 +836,16 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
-for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
-    _table = get_ns_coef_table(_probe_iters)
-    _c_vals = [round(t[2], 3) for t in _table]
-    _avg_c = sum(t[2] for t in _table) / len(_table)
-    print0(f"  ns_iters={_probe_iters}: c=[{','.join(map(str, _c_vals))}] avg_c={_avg_c:.4f}",
-           console=True)
+print0(f"NS_DEGREE: {NANOGPT_NS_DEGREE} ({'cubic' if NANOGPT_NS_DEGREE == 3 else 'quintic'})", console=True)
+if NANOGPT_NS_DEGREE == 5:
+    for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
+        _table = get_ns_coef_table(_probe_iters)
+        _c_vals = [round(t[2], 3) for t in _table]
+        _avg_c = sum(t[2] for t in _table) / len(_table)
+        print0(f"  ns_iters={_probe_iters}: c=[{','.join(map(str, _c_vals))}] avg_c={_avg_c:.4f}",
+               console=True)
+else:
+    print0(f"  cubic NS coef table inert (c=0, NS_COEF_SCHEDULE ignored)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -888,6 +903,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
+            "nanogpt_ns_degree": NANOGPT_NS_DEGREE,
         },
     )
 
