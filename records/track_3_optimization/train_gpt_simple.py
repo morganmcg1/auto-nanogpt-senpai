@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# GrokFast (Lee et al. ICML 2024): low-pass EMA filter on the gradient before AdamW step.
+# GROKFAST=0 keeps behavior bit-identical to baseline. When enabled, the filter applies
+# only to the three AdamW groups (adam_embed, adam_lm_head, adam_scalars); Muon untouched.
+GROKFAST = int(os.environ.get("GROKFAST", "0"))
+GROKFAST_ALPHA = float(os.environ.get("GROKFAST_ALPHA", "2.0"))
+GROKFAST_LAMBDA = float(os.environ.get("GROKFAST_LAMBDA", "0.98"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,6 +872,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/grokfast_enabled": bool(GROKFAST),
+            "optimizer/grokfast_alpha": GROKFAST_ALPHA,
+            "optimizer/grokfast_lambda": GROKFAST_LAMBDA,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -911,6 +920,15 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+
+    # GrokFast per-parameter EMA buffers (only for AdamW groups; Muon left untouched).
+    grokfast_ema: dict[int, Tensor] = {}
+    if GROKFAST:
+        for opt in optimizers:
+            for group in opt.param_groups:
+                if group.get("name") in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                    for p in group["params"]:
+                        grokfast_ema[id(p)] = torch.zeros_like(p)
 
     # learning rate schedule: stable then decay
     def set_hparams(step, cooldown_frac=0.7):
@@ -1051,6 +1069,44 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # GrokFast low-pass EMA filter, applied to the AdamW gradient groups only.
+        # Order: must follow the gradient all_reduce above and precede opt.step() below.
+        # Placed AFTER log_training_telemetry so train/grad/* metrics record the raw gradient,
+        # and the filtered-vs-raw comparison surfaces in the dedicated train/grokfast/* keys.
+        if GROKFAST:
+            grokfast_log_raw = None
+            grokfast_log_ema = None
+            grokfast_log_filtered = None
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if group.get("name") in ("adam_embed", "adam_lm_head", "adam_scalars"):
+                        for p in group["params"]:
+                            if p.grad is None:
+                                continue
+                            ema = grokfast_ema[id(p)]
+                            ema.mul_(GROKFAST_LAMBDA).add_(p.grad, alpha=1.0 - GROKFAST_LAMBDA)
+                            if (group.get("name") == "adam_lm_head"
+                                    and dist.get_rank() == 0
+                                    and train_step % 10 == 0
+                                    and grokfast_log_raw is None):
+                                grokfast_log_raw = p.grad.norm().item()
+                                grokfast_log_ema = ema.norm().item()
+                            p.grad.add_(ema, alpha=GROKFAST_ALPHA)
+                            if (group.get("name") == "adam_lm_head"
+                                    and dist.get_rank() == 0
+                                    and train_step % 10 == 0
+                                    and grokfast_log_filtered is None
+                                    and grokfast_log_raw is not None):
+                                grokfast_log_filtered = p.grad.norm().item()
+            if dist.get_rank() == 0 and grokfast_log_raw is not None:
+                wandb.log({
+                    "train/grokfast/raw_grad_norm_lm_head": grokfast_log_raw,
+                    "train/grokfast/ema_norm_lm_head": grokfast_log_ema,
+                    "train/grokfast/filtered_grad_norm_lm_head": grokfast_log_filtered,
+                    "train/grokfast/amplification_ratio_lm_head": (
+                        grokfast_log_filtered / grokfast_log_raw if grokfast_log_raw > 0 else 0.0
+                    ),
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
