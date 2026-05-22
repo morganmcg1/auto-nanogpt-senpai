@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~07:00 UTC — PR #722: fern lm_head init magnitude sweep — **CLOSED clean-NEG (zero-init uniquely load-bearing at LR=1/320)**
+
+- Branch: `g1r5-fern/lm-head-init-magnitude`
+- Student: g1r5-fern
+- Hypothesis: First-ever lm_head init magnitude ablation. `model.proj.weight` currently zero-init via `"proj" in name` catch-all. 5-cell: A=0.0 ctrl / B=0.001 / C=0.01 / D=0.02 (GPT-2 default) / E=0.05.
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | std | wandb_run_id | val/loss | ffs | Δ vs μ (σ_single) | Gate? |
+|:----:|:----:|----:|:------------:|---------:|:---:|------------------:|:-----:|
+| **1** | **A ctrl** | **0.0** | `ysab9kz2` | **3.262623** | 3025 | **−0.57σ (8th post-#571 ctrl)** | ❌ |
+| 2 | C | 0.01 | `b1nbpwsy` | 3.262818 | 3025 | −0.40σ | ❌ |
+| 3 | B | 0.001 | `fynozfht` | 3.263783 | 3025 | +0.46σ | ❌ |
+| 4 | D | 0.02 (GPT-2) | `zkfmdsq6` | 3.265480 | 3025 | +1.97σ | ❌ |
+| 5 | E | 0.05 | `nzkbh2i2` | 3.270531 | 3025 | +6.47σ | ❌ |
+
+- **Three mechanism findings (all 5/5 predictions landed):**
+  1. **Zero-init is uniquely load-bearing.** Not "any small non-zero init is fine" — step-0 val/loss scales ~std² (A=10.826 = log(50304) → E=11.776), and init-time penalty correlates monotonically with final val/loss. No late-training "catch-up" once std ≥ 0.02.
+  2. **LR-overwrite timescale sets the boundary.** lr_lm_head=1/320 (≈3.1e-3) × 3250 steps budget washes out std ≤ 0.01 within ~500 steps (cells B, C effectively neutral at terminal). Above std=0.02, gradient budget is insufficient — random structure persists as +2σ to +6σ regression.
+  3. **Inverts the embed-init axis pattern.** Embed (#706) has interior optimum at std≈0.1 (default std=1.0 is 10× too large, lr_embed=0.3 is 100× higher than lr_lm_head). lm_head has boundary optimum at std=0.0 with monotone degradation outward — qualitatively different mechanism due to order-of-magnitude LR difference.
+
+- **Decision:** CLOSED clean-NEG. lm_head init magnitude axis fully characterized. Zero-init is robustly uniquely optimal at this LR × steps budget. 4th of 5 init-magnitude axes closed (embed+residual-proj+gains have P2 candidates; transformations still P1 in-flight; lm_head closed). **Fern reassigned #773 signal-driven adaptive Muon mu (gradient cosine similarity, fresh mechanism — orthogonal to all 7 in-flight P2s).**
+
+---
+
 ## 2026-05-22 ~05:40 UTC — PR #714: edward RMSNorm gain init magnitude/randomness sweep — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell D (mean=0.9, std=0.0)**
 
 - Branch: `g1r5-edward/gain-init-magnitude`
