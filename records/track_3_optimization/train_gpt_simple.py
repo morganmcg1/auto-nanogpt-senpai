@@ -71,6 +71,21 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H52: Per-step AGC clip_ratio cooldown schedule. Tighten the AGC trust radius
+    # linearly during the cooldown phase. Default -1 keeps the static clip_ratio
+    # (bit-identical baseline).
+    parser.add_argument("--aux_agc_cooldown_min", type=float,
+                        default=float(os.environ.get("AUX_AGC_COOLDOWN_MIN", "-1.0")),
+                        help="If >= 0, schedule aux_agc_clip_ratio to tighten linearly from "
+                             "aux_agc_clip_ratio to this value during the aux cooldown phase "
+                             "(starts at step train_steps*(1-aux_cooldown_frac)). "
+                             "-1 disables scheduling (use static aux_agc_clip_ratio).")
+    parser.add_argument("--muonh_agc_cooldown_min", type=float,
+                        default=float(os.environ.get("MUONH_AGC_COOLDOWN_MIN", "-1.0")),
+                        help="If >= 0, schedule muonh_agc_clip_ratio to tighten linearly from "
+                             "muonh_agc_clip_ratio to this value during the MuonH cooldown phase "
+                             "(starts at step 0 for cosine cooldown since h_cooldown_frac=1.0). "
+                             "-1 disables scheduling (use static muonh_agc_clip_ratio).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +728,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_agc_cooldown_min >= 0:
+    print0(f"AGC SCHEDULE on aux: clip_ratio {args.aux_agc_clip_ratio} -> {args.aux_agc_cooldown_min} over aux cooldown phase", console=True)
+if args.muonh_agc_cooldown_min >= 0:
+    print0(f"AGC SCHEDULE on MuonH: clip_ratio {args.muonh_agc_clip_ratio} -> {args.muonh_agc_cooldown_min} over MuonH cooldown phase", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +785,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_agc_cooldown_min": args.aux_agc_cooldown_min,
+            "muonh_agc_cooldown_min": args.muonh_agc_cooldown_min,
         },
     )
 
@@ -1008,15 +1029,39 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H52: Per-step AGC clip_ratio cooldown schedule. Tighten linearly during
+        # the cooldown phase. Bit-identical to static AGC when cooldown_min < 0.
+        def compute_dynamic_clip_ratio(s, total, cooldown_frac, base_clip, min_clip):
+            if min_clip < 0:
+                return base_clip
+            progress = s / total
+            cooldown_start = 1.0 - cooldown_frac
+            if progress < cooldown_start:
+                return base_clip
+            cooldown_progress = (progress - cooldown_start) / cooldown_frac
+            return base_clip - (base_clip - min_clip) * cooldown_progress
+
+        aux_clip_dynamic = compute_dynamic_clip_ratio(
+            step, train_steps,
+            cooldown_frac=aux_cooldown_frac,
+            base_clip=args.aux_agc_clip_ratio,
+            min_clip=args.aux_agc_cooldown_min,
+        )
+        muonh_clip_dynamic = compute_dynamic_clip_ratio(
+            step, train_steps,
+            cooldown_frac=h_cooldown_frac,
+            base_clip=args.muonh_agc_clip_ratio,
+            min_clip=args.muonh_agc_cooldown_min,
+        )
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
-        # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
+        # No-op (bit-identical) when aux_clip_dynamic <= 0.
         agc_stats = adaptive_gradient_clip(
-            aux_params_for_agc, args.aux_agc_clip_ratio, eps=args.aux_agc_eps,
+            aux_params_for_agc, aux_clip_dynamic, eps=args.aux_agc_eps,
         )
         # AGC on inner MuonH gradient: clip BEFORE the momentum buffer integrates
-        # the reduced gradient. No-op (bit-identical) when clip_ratio <= 0.
+        # the reduced gradient. No-op (bit-identical) when muonh_clip_dynamic <= 0.
         muonh_agc_stats = adaptive_gradient_clip(
-            muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
+            muonh_params_for_agc, muonh_clip_dynamic, eps=args.muonh_agc_eps,
         )
         for opt in optimizers:
             opt.step()
@@ -1038,6 +1083,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+            if telemetry_due:
+                muonh_metrics["train/agc/aux_clip_dynamic"] = aux_clip_dynamic
+                muonh_metrics["train/agc/muonh_clip_dynamic"] = muonh_clip_dynamic
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
