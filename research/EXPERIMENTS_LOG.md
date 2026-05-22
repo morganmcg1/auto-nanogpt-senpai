@@ -3,6 +3,44 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 14:31 UTC — PR #708: Per-group grad-clip asymmetry BODY=10/AUX=5 (thorfinn) — MERGED WINNER (71st cycle, 10th paired-pod confirmation)
+
+- Branch: `g1r4-thorfinn/per-group-grad-clip`
+- Hypothesis: The aux AdamW groups (embed, lm_head, scalars) are the bottleneck for gradient clipping — their per-coord `m/√v` outliers propagate into update magnitude, while the body Muon side is insensitive to clip via NS renormalization. Split the global L2 clip into per-group thresholds: BODY=10.0 (tight on Muon, no real effect), AUX=5.0 (tighter on AdamW aux, bounds outlier propagation).
+
+**Phase 1 N=1 4-arm chain results:**
+
+| Arm | BODY | AUX | val_loss | Δ vs A | Δ vs baseline (3.27070) | fs | W&B |
+|---|---:|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 10.0 | 10.0 | 3.27183 | — | +0.00113 | 3225 | `9rq5kavj` |
+| **B** | 10.0 | **5.0** | **3.26630** | **−0.00553** | **−0.00440** | **3175** | `gt0tjaha` |
+| C | 20.0 | 10.0 | 3.27057 | −0.00126 | −0.00013 | 3225 | `cfob7yav` |
+| D | 20.0 | 5.0 | 3.26798 | −0.00385 | −0.00272 | 3200 | `cf9gzm3f` |
+
+**Phase 2 n=3 paired-pod confirmation (Arm B only):**
+
+| Pod | Arm A ctrl (10/10) | Arm B treat (10/5) | Δ_within | A drift vs 3.27070 |
+|---|---|---|---|---|
+| 0 | vr4vpz7w=3.27141 | 2m1jrl83=3.27029 | **−0.00112** | +0.00071 PASS |
+| 1 | oz1bu1p5=3.27199 | ckhz8l0e=**3.26865** | **−0.00334 STRONG** | +0.00129 PASS |
+| 2 | au6b84le=3.27189 | fwdravxj=3.27215 | +0.00026 (sign-flip) | +0.00119 PASS |
+| **mean** | **3.27176** | **3.27036** | **−0.00140** | +0.00106 PASS |
+
+**All 3 merge gates PASS:**
+- Gate 1 (stat-rule): `(3.28 − 3.27036) × √3 = 0.01669 ≥ 0.004` PASS
+- Gate 2 (baseline beat): `mean(B,n=3) = 3.27036 ≤ 3.27070` PASS (Δ=−0.00034)
+- Gate 3 (drift): all 3 Arm A within ±0.003 PASS
+
+**Mechanism:** Monotone aux-clip-bottleneck pattern confirmed: B (tighter aux only) wins decisively; C (looser body) ≈ flat vs A (NS absorbs body magnitude — consistent with #618/#663 closures); D (compound) < B (body=20 adds noise once aux=5 in place). The per-coord `m/√v` propagation of outlier gradients in AdamW aux groups is the bottleneck — tighter L2 clip bounds this propagation. Body Muon is structurally insensitive to clip magnitude because NS renormalizes spectral direction.
+
+**Magnitude collapse:** N=1 Δ=−0.00440 → paired-pod mean Δ=−0.00140 (68% collapse). Consistent with prior paired-pod collapse precedents (#393, #579). Pod2 sign-flip (+0.00026) is the dominant collapse mode; 2/3 pods direction-correct.
+
+**New baseline:** val/loss=3.27036, fs=3216.67. Adds `NANOGPT_GRAD_CLIP_BODY=10.0 NANOGPT_GRAD_CLIP_AUX=5.0` to merged stack.
+
+**Follow-up suggested by student:** (1) AUX sweep refinement {3.0, 4.0, 7.0}; (2) Compose with per-row L2 clip on embed+lm_head; (3) Telemetry-guided threshold selection.
+
+---
+
 ## 2026-05-22 14:09 UTC — PR #710: Per-depth body Muon NS_ITERS variation (frieren) — CLOSED productive-NEGATIVE (70th cycle, 9th paired-pod collapse)
 
 - Branch: `g1r4-frieren/per-depth-muon-ns-iters`

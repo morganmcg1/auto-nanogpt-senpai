@@ -1,17 +1,19 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 14:25 UTC
+- **Date:** 2026-05-22 14:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Current merged baseline — post-#579
+## Current merged baseline — post-#708
 
-**val=3.27070 / fs=3225.0 (n=3 paired-pod mean)**
+**val=3.27036 / fs=3216.67 (n=3 paired-pod mean)**
 
 Merged recipe:
 ```
 NANOGPT_GRAD_CLIP=10.0
+NANOGPT_GRAD_CLIP_BODY=10.0
+NANOGPT_GRAD_CLIP_AUX=5.0
 NANOGPT_NS_ITERS=12
 NANOGPT_NS_ITERS_COOLDOWN=16
 NANOGPT_NS_COOLDOWN_START_FRAC=0.7
@@ -37,7 +39,8 @@ NANOGPT_MUON_MLP_LR_MULT=1.20
 | #285 | NS cooldown SHAPE=late_peak | 3.27352 (2) | 3.27352 |
 | #290 | NS coef schedule=linear_ramp_down | 3.27200 (3) | 3.27200 |
 | #393 | AdamW embed LR mult=1.5× | 3.27174 (3) | 3.27174 |
-| **#579** | **Body-Muon attn=0.80× mlp=1.20× LR asymmetry** | **3.27070 (3)** | **3.27070** ← CURRENT |
+| #579 | Body-Muon attn=0.80× mlp=1.20× LR asymmetry | 3.27070 (3) | 3.27070 |
+| **#708** | **Per-group grad-clip BODY=10/AUX=5** | **3.27036 (3)** | **3.27036** ← CURRENT |
 
 ---
 
@@ -320,22 +323,17 @@ Single-seed 4-arm (drift gate A PASS, |3.27261−3.27174|=0.00087): A=3.27261, B
 Single-seed 4-arm on NEW merged stack post-#579 (drift gate A' PASS, |3.26762−3.27070|=0.00308 at upper edge but within envelope): A'=3.26762, B (FREQ=50)=+0.00174 (regression), C (FREQ=25)=+0.00325 (regression, worst), **D (FREQ=100)=3.26666 (Δ_D_vs_A'=−0.00096 sub-threshold, val=−0.00404 below baseline)**. **Monotone frequency trend**: less SOAP rotation = better; optimum extrapolates to FREQ→∞ (= AdamW, no rotation). Δ_D_vs_A' = −0.00096 sub-threshold (well below −0.002 within-pod gate); single-seed magnitude inside 8+ paired-pod-collapse range this cycle. Mechanism: AdamW's coord-basis is near-optimal for lm_head — SOAP's eigenbasis rotation perturbs a basis the optimizer has already self-tuned via β₂=0.99 + LR_MULT=1.0 over Zipf-distributed vocabulary structure. **Composes with #618 NEG (full Muon for lm_head, NS destroys Zipf scaling): both spectral conditioning interventions on lm_head — orthogonalization and eigenbasis rotation — failed**. lm_head's Hessian is structurally distinct from inner-block Hessians and resists every form of spectral conditioning intervention tested. Future lm_head work should target representation/loss-side mechanisms (Zipf-weighted loss, frequency-aware label smoothing, output-projection low-rank decomp), not preconditioner replacements. Extreme aspect ratio (65:1) wrong regime for SOAP — left/right preconditioner stale-eigenvector amortization assumes near-square matrices. Implementation hygiene clean (108 LOC additive behind NANOGPT_SOAP_LM_HEAD_FREQ env var, +0.32% wall-clock at FREQ=100, all 4 arms hit 3.28 target). **52nd productive-null/negative this cycle. WAVE3 IDEA-by-IDEA portfolio fully closed** (7/8 ideas tested; only IDEA 1 Polar Express never assigned; 4 of 7 NULL/NEGATIVE, 1 of 7 MERGED via #579 — but #579 was a NEW axis discovered during WAVE3 execution, not on the WAVE3 list). Strong signal: **mechanism progress now from per-block-TYPE asymmetry family** (#669 WD / #674 momentum testing) rather than aux-group preconditioner replacements.
 **Follow-up**: thorfinn assigned **#708 per-group gradient clip threshold asymmetry** — fresh axis distinct from per-block-TYPE wiring (avoids the impl-bug class seen in #669 / #674). Tests body-Muon clip vs aux-AdamW clip split (currently uniform NANOGPT_GRAD_CLIP=10.0). Body gradients pass through NS-orthogonalization (which renormalizes spectral magnitudes); aux gradients are sparse-row Zipf-distributed and AdamW preserves per-coord magnitude — these two distributions have different "natural" outlier ranges and a single global threshold is suboptimal.
 
-### 📋 thorfinn #708 — Per-group gradient clip threshold asymmetry [SENT BACK 02:50 UTC for paired-pod n=3]
+### ✅ thorfinn #708 — Per-group gradient clip threshold asymmetry — MERGED 14:31 UTC WINNER (baseline now 3.27036)
 
 **Branch:** `g1r4-thorfinn/per-group-grad-clip-asym`
+**Mean(B,n=3)=3.27036, fs=3216.67. Gates: stat-rule 0.01669≥0.004 PASS, baseline beat −0.00034 PASS, drift +0.00106 PASS.**
+Pods: pod0 Δ=−0.00112, pod1 Δ=−0.00334 (STRONG), pod2 Δ=+0.00026 (sign-flip). 2/3 pods direction-correct.
+Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/√v`. Body Muon insensitive (NS renormalizes spectral direction). Adds `NANOGPT_GRAD_CLIP_BODY=10.0 NANOGPT_GRAD_CLIP_AUX=5.0` to merged stack.
 
-**Phase 1 — single-seed 4-arm screening (terminal 02:39 UTC)**:
+### 🔄 thorfinn #812 — Orthogonal Haar-measure init for body Muon matrices (4-arm) [assigned 14:46 UTC]
 
-| Arm | BODY | AUX | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
-|---|---:|---:|---:|---:|---:|---:|---|
-| A (ctrl) | 10.0 | 10.0 | 3.27183 | — | +0.00113 | 3225 | `9rq5kavj` |
-| **B** | 10.0 | **5.0** | **3.26630** | **−0.00553** | **−0.00440** | **3175** | `gt0tjaha` |
-| C | **20.0** | 10.0 | 3.27057 | −0.00126 | −0.00013 | 3225 | `cfob7yav` |
-| D | **20.0** | **5.0** | 3.26798 | −0.00385 | −0.00272 | 3200 | `cf9gzm3f` |
-
-**Mechanism reading matches "aux-outliers-bottleneck" prediction**: B (aux-only-tight) wins decisively (Δ_vs_A=−0.00553 clears −0.002 winner threshold); C (body-only-loose) is flat (NS absorbs body magnitude as predicted); D (compound) underperforms B (body=20 adds noise once aux=5 is in place). Drift gate A Δ=+0.00113 → PASS. STRONGEST winner candidate of this round.
-
-**Phase 2: paired-pod n=3 confirmation on Arm B** (BODY=10, AUX=5, NANOGPT_SEED∈{1,2,3}, group `g1r4-thorfinn/per-group-grad-clip-asym-paired-pod`). Magnitude comparable to or stronger than recent merges (#393 Δ=−0.00137, #579 Δ=−0.00136). If paired-pod confirms, expected mean(B,n=3) ≈ 3.268-3.270 → merge.
+**Branch:** `g1r4-thorfinn/ortho-body-init`
+**Hypothesis:** Replace `normal(std=0.33^0.5/sqrt(out_features))` init on q/k/v/mlp.fc body Muon matrices with `torch.nn.init.orthogonal_(gain)`. Orthogonal init gives well-conditioned singular value spectrum from step 0, reducing ill-conditioned early-step gradients. Gain sweep: A=0.0 (ctrl), B=0.57 (Frobenius-norm matched), C=0.33 (smaller), D=1.0 (full spectral norm). ~7.3h ETA.
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
@@ -647,19 +645,11 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 **Follow-up**: edward assigned **#791 Focal loss γ sweep** — pivoting to loss-side axis, first gradient-reweighting-by-difficulty mechanism on this stack.
 
-### 🔄 edward #791 — Focal loss γ sweep — gradient reweighting by token difficulty [assigned 11:35 UTC]
+### 🔄 edward #791 — Focal loss γ sweep — gradient reweighting by token difficulty [SENT BACK 14:31 UTC with measurement fix]
 
 **Branch:** `g1r4-edward/focal-loss`
-**Hypothesis**: Focal loss (Lin et al. 2017, arXiv:1708.02002) reweights per-token gradient by `(1−p_correct)^γ`, down-weighting easy tokens (high p_correct) and focusing gradient on hard rare tokens. Directly motivated by #663 closure: "Future lm_head work should target representation/loss-side mechanisms (Zipf-weighted loss)". Functionally equivalent to Zipf-frequency weighting without precomputed tables — rare tokens are hard → high NLL → high focal weight; frequent tokens are easy → low focal weight. First gradient-reweighting-by-difficulty mechanism on this stack. Mechanism-distinct from all closed loss-side: #446 label smoothing (target distribution, not gradient weighting), #441 z-loss (logit magnitude), #624 spectral norm penalty (weight-space).
-
-| Arm | NANOGPT_FOCAL_GAMMA | Description |
-|---|:---:|---|
-| A | 0.0 | Control (standard CE, bit-identical to baseline) |
-| B | 0.5 | Mild focusing |
-| C | 1.0 | Moderate focusing |
-| D | 2.0 | Aggressive (Lin 2017 recommendation) |
-
-Implementation: ~10 LOC in model `forward()`. ETA ~7.3h.
+**Hypothesis**: Focal loss reweights per-token gradient by `(1−p_correct)^γ`. First gradient-reweighting-by-difficulty mechanism on this stack.
+**Status (14:31 UTC)**: Arm A complete (val=3.27076, drift PASS). Arm B running but PAUSED — student flagged measurement issue: focal-weighted loss reported as val/loss (biased downward vs CE for B/C/D arms, confounds comparison). Advisor directed Option 1 fix: modify `forward()` to use standard CE during validation (`if NANOGPT_FOCAL_GAMMA == 0.0 or not self.training`). Kill arm B, restart B/C/D with fixed code. Arm A result (3.27076) still valid as control (γ=0 = CE). Updated baseline in PR: now 3.27036 (post-#708 merge). ETA ~5.5h remaining for B/C/D.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
@@ -679,7 +669,7 @@ Implementation: ~10 LOC in model `forward()`. ETA ~7.3h.
 
 ## Research theme — current cycle
 
-**51 productive-null/negative results + 9 merged improvements**. The 9th merge is **#579 body-Muon attn=0.80×/mlp=1.20× LR asymmetry** (paired-pod n=3 mean Δ=−0.00136 sub-threshold but mirroring exactly #393's merge precedent at −0.00137; μ_D=3.27070 beats baseline by 0.00104 absolute). 50th was #639 (edward embed-stack joint redundancy: mutual antagonism / saturation finding on embed-LR pressure surface). 51st was reserved for #639's productive-null close. Research axes still extracting compounding gains: per-block-type LR asymmetry on body Muon. The strongest confirmed findings:
+**51 productive-null/negative results + 10 merged improvements**. The 10th merge is **#708 per-group grad-clip BODY=10/AUX=5** (paired-pod n=3 mean Δ=−0.00140; mean(B,n=3)=3.27036 beats baseline 3.27070 by 0.00034; fs improved 3225→3216.67). Aux-side mechanism confirmed: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/√v`; body Muon insensitive (NS absorbs). The strongest confirmed findings:
 1. **The cooldown phase is load-bearing signal, not noise.** Any mechanism that blends, averages, or smooths parameters/gradients during the cooldown window hurts:
    - #436 weight-EMA → productive-NEGATIVE
    - #434 Lookahead → productive-NEGATIVE (Muon wrapping 4.5× worse)
