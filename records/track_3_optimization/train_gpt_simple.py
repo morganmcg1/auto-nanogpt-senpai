@@ -535,6 +535,10 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Per-block-type Muon NS_ITERS_COOLDOWN (default to global NS_ITERS_COOLDOWN, so
+# unset behavior is bit-identical to the prior uniform-cooldown setup).
+NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN", str(NS_ITERS_COOLDOWN)))
+NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN = int(os.environ.get("NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN", str(NS_ITERS_COOLDOWN)))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
 
@@ -664,28 +668,44 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta2=beta2, eps=eps)
         super().__init__(params, defaults)
         # Step-dependent NS iteration count. Set by the training loop before each step()
-        # using `set_ns_iters_this_step()`. Defaults to the static NS_ITERS env var.
-        self.ns_iters_this_step = NS_ITERS
+        # using `set_ns_iters_this_step()`. Can be an int (uniform across all groups,
+        # legacy behavior) or a dict mapping group name -> ns_iters for per-group routing.
+        self.ns_iters_this_step: int | dict[str, int] = NS_ITERS
         # Optional reference to the parameter whose orthogonalized update we
         # log spectral statistics for (e.g. blocks[0].attn.q.weight). When set,
         # `step()` populates `self.spectral_stats` with svd-based metrics that
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Per-type spectral telemetry: dict mapping label (e.g. "attn", "mlp") to
+        # the parameter whose orthogonalized update we record SVD-based stats for.
+        # Populated by `step()` into `spectral_stats_by_type[label]`. Independent
+        # of `spectral_telemetry_param` so the prior single-param logging path is
+        # preserved unchanged.
+        self.spectral_telemetry_params_by_type: dict[str, torch.nn.Parameter] = {}
+        self.spectral_stats_by_type: dict[str, dict[str, float]] = {}
 
-    def set_ns_iters_this_step(self, ns_iters: int) -> None:
-        self.ns_iters_this_step = int(ns_iters)
+    def set_ns_iters_this_step(self, ns_iters) -> None:
+        if isinstance(ns_iters, dict):
+            self.ns_iters_this_step = {str(k): int(v) for k, v in ns_iters.items()}
+        else:
+            self.ns_iters_this_step = int(ns_iters)
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        ns_iters = self.ns_iters_this_step
         spectral_target = self.spectral_telemetry_param
-        # Reset spectral_stats at the start of each step; only the rank that
+        spectral_targets_by_type = self.spectral_telemetry_params_by_type
+        # Reset spectral stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        self.spectral_stats_by_type = {}
         for group in self.param_groups:
+            if isinstance(self.ns_iters_this_step, dict):
+                ns_iters = self.ns_iters_this_step.get(group.get("name"), NS_ITERS)
+            else:
+                ns_iters = self.ns_iters_this_step
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -698,7 +718,10 @@ class Muon(torch.optim.Optimizer):
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
-                    if spectral_target is not None and p is spectral_target:
+                    log_default = spectral_target is not None and p is spectral_target
+                    matched_type_labels = [label for label, tgt in spectral_targets_by_type.items()
+                                           if p is tgt]
+                    if log_default or matched_type_labels:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
                         # divide it out so the spectrum is the pure NS output.
@@ -706,7 +729,7 @@ class Muon(torch.optim.Optimizer):
                         u_for_svd = (update.detach().float() / scale)
                         try:
                             svals = torch.linalg.svdvals(u_for_svd)
-                            self.spectral_stats = {
+                            stats = {
                                 "u_singular_max": float(svals.max().item()),
                                 "u_singular_min": float(svals.min().item()),
                                 "u_singular_mean": float(svals.mean().item()),
@@ -715,7 +738,12 @@ class Muon(torch.optim.Optimizer):
                                 "ns_iters_used": float(ns_iters),
                             }
                         except Exception:
-                            self.spectral_stats = None
+                            stats = None
+                        if log_default and stats is not None:
+                            self.spectral_stats = dict(stats)
+                        if stats is not None:
+                            for label in matched_type_labels:
+                                self.spectral_stats_by_type[label] = dict(stats)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -768,8 +796,20 @@ if NS_ITERS_COOLDOWN > 0:
 else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
+print0(f"MUON_NS_ITERS_COOLDOWN per-type: attn={NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN} "
+       f"mlp={NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN}"
+       + (" (DIFFERENT)" if NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN != NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN else ""),
+       console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
-for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
+_probe_iter_set = {NS_ITERS}
+for _v in (NS_ITERS_COOLDOWN, NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN, NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN):
+    if _v > 0:
+        _probe_iter_set.add(_v)
+        # Also probe the late_peak / linear_ramp peak (= NS_ITERS + 2*(cd - NS_ITERS)).
+        _peak = NS_ITERS + 2 * (_v - NS_ITERS)
+        if _peak > 0:
+            _probe_iter_set.add(_peak)
+for _probe_iters in sorted(_probe_iter_set):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
     _avg_c = sum(t[2] for t in _table) / len(_table)
@@ -825,6 +865,8 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_muon_attn_ns_iters_cooldown": NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN,
+            "nanogpt_muon_mlp_ns_iters_cooldown": NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
         },
     )
@@ -876,11 +918,22 @@ for trial_idx in range(args.num_trials):
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
     # Track orthogonalized-update spectrum on first block's attention q.weight
-    # to surface NS-schedule effects in W&B telemetry.
+    # to surface NS-schedule effects in W&B telemetry (legacy single-param path).
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    # Per-block-type spectral telemetry targets. attn target matches the legacy
+    # single-param target; mlp target is the first block's MLP fc weight (a 4:1
+    # rectangular matrix) so we can compare singular-range across block types.
+    optimizer2.spectral_telemetry_params_by_type = {
+        "attn": model.blocks[0].attn.q.weight,
+        "mlp": model.blocks[0].mlp.fc.weight,
+    }
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
+    ns_attn_iters_history: list[int] = []
+    ns_mlp_iters_history: list[int] = []
+    ns_cumulative_iters_attn = 0
+    ns_cumulative_iters_mlp = 0
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1051,16 +1104,36 @@ for trial_idx in range(args.num_trials):
         # NS iteration schedule: cooldown shape controls how iters evolve during
         # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
         # is the legacy jump-to-cooldown behavior; other shapes are compute-neutral.
-        ns_iters_this_step = get_ns_iters(
-            step, train_steps, NS_ITERS, NS_ITERS_COOLDOWN,
+        # Per-block-type cooldown targets: attn and mlp groups can have different
+        # ns_iters_cooldown values; shared base NS_ITERS during the stable phase.
+        attn_ns_iters_this_step = get_ns_iters(
+            step, train_steps, NS_ITERS, NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN,
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
         )
-        optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        mlp_ns_iters_this_step = get_ns_iters(
+            step, train_steps, NS_ITERS, NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN,
+            NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
+        )
+        # Legacy scalar (kept for back-compat dashboards). Use attn value so the
+        # single-group baseline (Arm A, attn=mlp) reports the same number as before.
+        ns_iters_this_step = attn_ns_iters_this_step
+        optimizer2.set_ns_iters_this_step({
+            "muon_attn": attn_ns_iters_this_step,
+            "muon_mlp": mlp_ns_iters_this_step,
+        })
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+            ns_attn_iters_history.append(attn_ns_iters_this_step)
+            ns_mlp_iters_history.append(mlp_ns_iters_this_step)
+            if len(ns_attn_iters_history) > 100:
+                del ns_attn_iters_history[:-100]
+            if len(ns_mlp_iters_history) > 100:
+                del ns_mlp_iters_history[:-100]
+            ns_cumulative_iters_attn += attn_ns_iters_this_step
+            ns_cumulative_iters_mlp += mlp_ns_iters_this_step
         for opt in optimizers:
             opt.step()
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
@@ -1103,6 +1176,12 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         if dist.get_rank() == 0 and telemetry_due:
+            in_cooldown_window = (
+                (NS_ITERS_COOLDOWN > 0
+                 or NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN > 0
+                 or NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN > 0)
+                and step >= cooldown_start_step
+            )
             ns_metrics = {
                 "trial": trial_idx,
                 "train/step": train_step,
@@ -1111,14 +1190,30 @@ for trial_idx in range(args.num_trials):
                     sum(ns_iters_history) / max(1, len(ns_iters_history))
                 ),
                 "train/ns_schedule/cooldown_start_step": cooldown_start_step,
-                "train/ns_schedule/in_cooldown": int(
-                    NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
-                ),
+                "train/ns_schedule/in_cooldown": int(in_cooldown_window),
                 "train/ns_schedule/cumulative_iters": ns_cumulative_iters,
+                # Per-block-type routing telemetry: lets us verify attn vs mlp
+                # received the expected NS iter count during the cooldown phase.
+                "train/ns_schedule/attn_iters_this_step": attn_ns_iters_this_step,
+                "train/ns_schedule/mlp_iters_this_step": mlp_ns_iters_this_step,
+                "train/ns_schedule/attn_iters_avg_last_100_steps": (
+                    sum(ns_attn_iters_history) / max(1, len(ns_attn_iters_history))
+                ),
+                "train/ns_schedule/mlp_iters_avg_last_100_steps": (
+                    sum(ns_mlp_iters_history) / max(1, len(ns_mlp_iters_history))
+                ),
+                "train/ns_schedule/attn_cumulative_iters": ns_cumulative_iters_attn,
+                "train/ns_schedule/mlp_cumulative_iters": ns_cumulative_iters_mlp,
+                "train/ns_schedule/per_type_delta_iters": attn_ns_iters_this_step - mlp_ns_iters_this_step,
             }
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Per-block-type spectral stats: surfaces whether NS precision boost
+            # differentially affects attn (square) vs mlp (4:1 rectangular) spectrum.
+            for label, stats in optimizer2.spectral_stats_by_type.items():
+                for k, v in stats.items():
+                    ns_metrics[f"train/ns_schedule/{k}_{label}"] = v
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
