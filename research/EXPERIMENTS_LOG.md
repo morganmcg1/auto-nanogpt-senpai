@@ -1,3 +1,52 @@
+## 2026-05-22 19:30 UTC — PR #820 ASSIGNED (alphonse): H68 MuLoCo Outer Lion — sign-with-momentum direction-only test
+
+- Branch: `g1r3-alphonse/muloco-outer-lion`
+- Hypothesis: Replace MuLoCo Nesterov-SGD outer rule with Lion (Chen 2023, sign-with-momentum). Directly informed by PR #782 H60 closure: alphonse's `effective_step_rms` telemetry showed Polyak step magnitude was +21% LARGER than Nesterov yet still lost by ~7.5σ, ruling out step-magnitude as the explanatory variable and pointing squarely at DIRECTION (lookahead alignment). Lion's sign-only update is the cleanest possible test of "is direction alone enough at outer aggregation?"
+- Mechanism: Lion `update = sign(β1 * m_prev + (1-β1) * delta)` is direction *purified* — sign discards magnitude entirely. If H60 finding is mechanistically correct, Lion should match or beat Nesterov-SGD.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--outer_rule nesterov_sgd --outer_lr 0.7 --outer_momentum 0.5` (current MuLoCo)
+  - arm_b (PRIMARY): `--outer_rule lion --outer_lion_beta1 0.9 --outer_lion_beta2 0.99 --outer_lr_lion 0.05`
+  - arm_c (higher β1): `--outer_lion_beta1 0.95` (more momentum-anchored direction)
+- Telemetry: `outer/update_rms`, `outer/direction_alignment` (cos_sim of delta and velocity).
+- Smoke gate: 300-step smoke at `outer_lr_lion=0.05` must hit val ≈ 4.35–4.40. If NaN or >4.5, drop to 0.025.
+- ~30 LoC: CLI flags + branch in MuLoCo outer step + telemetry. velocity buffer is reused as Lion's m (no new allocation, same shape).
+- W&B group `h68_muloco_outer_lion`.
+- **Bit-identical invariant**: `--outer_rule nesterov_sgd` (default) must produce results bit-identical to current behavior; verify with 200-step smoke.
+- Direct mechanism follow-up from alphonse's own H60 PR #782 closure finding.
+
+---
+
+## 2026-05-22 19:25 UTC — PR #782 CLOSED NEG (alphonse): H60 Outer Nesterov vs Polyak — DIRECTION load-bearing, not magnitude
+
+- Branch: `g1r3-alphonse/outer-nesterov-vs-polyak`
+- Hypothesis: Test whether MuLoCo's outer Nesterov correction (`step = momentum * velocity + delta`) is structurally required vs heavy-ball Polyak (`step = velocity`).
+- Arms (3, n=1, 3325 steps):
+
+| arm | rule | outer_lr | val/loss @ 3325 | ffs | reached_target | Δ vs arm_a |
+|---|---|---|---|---|---|---|
+| arm_a (Nesterov ctrl) | Nesterov SGD | 0.7 | **3.273076** | 3150 | ✓ | — |
+| arm_b (Polyak, lr=0.7) **PRIMARY** | heavy-ball | 0.7 | **3.278995** | 3275 | ✓ | **+0.00592 (~+7.5σ NEG)** |
+| arm_c (Polyak, lr=1.0) | heavy-ball | 1.0 | **3.294543** | **-1 FAILED** | ✗ | **+0.02147 (~+27σ NEG)** |
+
+- **Verdict: STRONGLY NEG — Nesterov direction (lookahead) is load-bearing at outer aggregation.**
+- **CRITICAL mechanism finding (refuting PR-body framing)**: alphonse added `effective_step_rms` telemetry that showed:
+
+| arm | effective_step_rms | vs Nesterov |
+|---|---|---|
+| arm_a (Nesterov, lr=0.7) | 0.00804 | — |
+| arm_b (Polyak, lr=0.7) | 0.00972 | **+21% LARGER** |
+| arm_c (Polyak, lr=1.0) | 0.01186 | **+48% LARGER** |
+
+Polyak takes a +21% LARGER step than Nesterov (because at outer_momentum=0.5 with sync_interval=30, velocity_rms has accumulated more directional info than a single delta — Nesterov's `+delta` term reduces the step magnitude slightly).
+
+- **This rules out step-magnitude as the explanatory variable.** Despite taking +21% larger steps, Polyak loses by ~7.5σ. arm_c's higher LR amplified a misaligned direction and made things ~27σ worse.
+- **Mechanism**: Nesterov's load-bearing piece is DIRECTION (lookahead alignment), not magnitude. The cooldown phase is where lookahead direction matters most — that's where Polyak failed to close the gap with ctrl (arm_b tracked ctrl trajectory cleanly through early/mid-training).
+- **What this confirms**: Current MuLoCo config (`outer_lr=0.7, outer_momentum=0.5, sync_interval=30, Nesterov=on`) has the outer-rule direction correct. **Drop-Nesterov simplification is harmful and CLOSED.**
+- **Adjacent axes opened**: outer-momentum schedule, outer adaptive rule (RMSprop/Adam), outer Lion (sign-only direction test → PR #820 H68).
+- Routing: alphonse → PR #820 H68 MuLoCo Outer Lion (direct mechanism-pair complement to test "direction alone enough?").
+
+---
+
 ## 2026-05-22 18:30 UTC — PR #813 ASSIGNED (edward): H67 Aux AdamW eps cooldown schedule (1e-6 → 1e-5/1e-4)
 
 - Branch: `g1r3-edward/aux-eps-cooldown-schedule`
