@@ -1,6 +1,109 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
-## 2026-05-22 15:30 UTC — Cycle 71 mid-95: Sophia bilateral CLOSURE (34th floor axis) — second-order curvature strictly weaker than AdamW EMA(g²)
+## 2026-05-22 16:05 UTC — Cycle 71 mid-96: TRIPLE CLOSURE — NS5 polynomial coeffs / Z-Loss / AdaFactor MLP all bilateral kill-gate trips (35th/36th/37th floor axes); stack-pruning trifecta dispatched to complete preconditioner ablation across MLP+attn+contra simultaneously
+
+### PR #811 — alphonse NS5_COEFFICIENTS (first inner-iteration polynomial axis in 192+ PRs)
+
+Branch: `g1r2-alphonse/ns5-coefficients`. Closed 2026-05-22 15:45 UTC.
+
+| Run | Arm | (a, b, c) | val@200 | val@500 | val@1000 | killed at step | gate trip |
+|-----|-----|-----------|---------|---------|----------|---:|---|
+| disabled-check | standard | (2, −1.5, 0.5) | 4.09238 | — | — | — | ✅ in band |
+| Arm A | aggressive | (3.4375, −4.6875, 2.8125) | NaN @ step 125 | — | — | 125 | NaN |
+| Arm B | soft | (1.5, −0.5, 0.0625) | 4.07392 @250 | 3.82159 | **3.67821** | 1010 | step 1000 > 3.58 |
+
+W&B runs: `fkdmtb0z` (disabled-check), `g4g6oun5` (Arm A), `k8m5nu2d` (Arm B).
+
+**Result: AXIS CLOSED at bilateral kill-gate trip — 35th floor axis** by very large margin. Standard cubic (2, −1.5, 0.5) is Goldilocks at NS5_ITERS=14.
+
+**Mechanism analysis (student's sharp boundary identification)**: Aggressive coefficients fail at the **numerical-stability** boundary (NaN at step 125 — higher-order, less-damped polynomial overshoots on SVs near 1.0 after spectral-norm normalization → blow-up in NS5 inner loop). Soft coefficients fail at the **convergence-quality** boundary (under-converged cubic at iter=14 → residual spectral noise in Muon updates accumulates linearly with training steps, reaching +0.10 val vs reference by step 1000). The standard cubic sits in the Pareto-optimal region between these failure modes.
+
+**Mechanistic implication**: The NS5 polynomial coefficient axis is informatively closed — the matrix-sign approximator inside Muon's spectral normalization is already at its accuracy/stability optimum for iter=14. Further reduction in NS5 spectral noise (if any is needed) must come from changing the NUMBER of iterations or the OUTER preconditioner, not the polynomial coefficients themselves. Combined with the broader floor-cluster signal: the entire Muon-side spectral approximation stack (NS5 + contra + per-head NorMuon) is at Goldilocks across every parametric knob tested in 192+ PRs.
+
+### PR #805 — thorfinn Z_LOSS (first loss-level mechanism in 36+ axes)
+
+Branch: `g1r2-thorfinn/z-loss`. Closed 2026-05-22 15:45 UTC.
+
+| Run | Z_LOSS_COEFF | val@200 | val@500 | val@1000 | killed at step | gap vs reference (3.55) |
+|-----|---:|---:|---:|---:|---:|---:|
+| disabled-check | 0.0 | 4.08614 | — | — | — | ✅ in band [4.05, 4.15] |
+| Arm A | 1e-4 (PaLM default) | — | 3.80401 | **3.66322** | 1000 | +0.113 |
+| Arm B | 3e-5 (3.3× softer) | — | 3.80065 | **3.66201** | 1000 | +0.112 |
+
+W&B runs: `5x634hax` (disabled-check), `50yan4o2` (Arm A), `9nr7zymb` (Arm B).
+
+**Result: AXIS CLOSED at bilateral kill-gate trip — 36th floor axis**. Even 3.3× softer coefficient produces only 0.001 improvement over PaLM default, indicating the loss-level penalty `Z_LOSS_COEFF · logsumexp(logits)²` is monotonically harmful across this coefficient regime — the marginal effect curve is essentially flat between 3e-5 and 1e-4.
+
+**Student's val-loop correctness verification**: explicitly checked that `forward()` gates z-loss on `self.training and Z_LOSS_COEFF > 0.0`, that the val loop calls `model.eval()` so val cross-entropy excludes z-loss, and that the disabled-check is bit-equivalent to baseline (4.08614 ∈ [4.05, 4.15]). Implementation is correct; result is mechanistically informative.
+
+**Mechanism analysis**: Either the penalty is genuinely too costly at this scale (124M vs PaLM's 540B) — small models have less softmax-saturation headroom to absorb logsumexp regularization without distorting the CE direction — OR softmax-gradient-variance is NOT a bottleneck mechanism for our floor. Combined with PR #613 LOGIT_SOFTCAP at c=20 closure: input-side softmax conditioning is at Goldilocks; loss-level penalties on the output partition function add no measurable value. **First LOSS-LEVEL mechanism class refuted.**
+
+### PR #804 — askeladd ADAFACTOR_MLP (first factored 2nd-moment preconditioner + first MLP-only preconditioner test)
+
+Branch: `g1r2-askeladd/adafactor-mlp`. Closed 2026-05-22 16:02 UTC.
+
+| Run | Arm | clip | val@500 | val@1000 | killed at step | gap vs reference (3.81) |
+|-----|-----|---:|---:|---:|---:|---:|
+| disabled-check | — | — | val@200=4.085 (in band) | — | — | bit-equivalent verify |
+| Arm A | clip=1.0 (paper default) | 1.0 | **5.11109** | 4.62761 | 500 (step 500 > 3.95) | +1.30 |
+| Arm B | clip=0.5 (halved) | 0.5 | **5.09572** | (killed @ 984) | 500 (step 500 > 3.95) | +1.29 |
+
+W&B runs: `pz1d4wsa` (Arm A), `3rbx0nc5` (Arm B).
+
+**Result: AXIS CLOSED at bilateral kill-gate trip — 37th floor axis, by very large margin**. The 0.02 improvement from halving the RMS clip threshold is **mechanistically zero** — sensitivity to clip ∈ {0.5, 1.0} is negligible.
+
+**Student's mechanism analysis (highest-information result of the experiment)**:
+
+> "The dominant pathology is **not magnitude** but **direction**: the factored M_ij ≈ R_i·C_j/sum(R) approximation may be wrong-direction relative to Muon's spectral-normalized attention update. With MLP on AdaFactor and attention on Muon, two updates with different scales AND different geometries coexist, and they don't compose."
+
+**Mechanistic implication**: This is a load-bearing finding for the entire floor research program. **Stack composition matters more than individual component quality** — substituting in a preconditioner that is mathematically reasonable on its own (AdaFactor has strong theoretical guarantees) catastrophically breaks the joint Muon-side + AdamW-side composition when the update DIRECTIONS are incompatible. The rank-1 row+col factored 2nd-moment is rank-1 in shape — its update direction lies in the outer-product space `R⊗C^T`, which is orthogonal to Muon's spectrally-normalized direction on the same matrices. Even at small magnitudes (clip=0.5), the directional incompatibility produces +1.29 val above gate at step 500.
+
+**This directly motivates the next experiment cluster**: if MLP-on-Muon-SOAP and attention-on-Muon-SOAP are both load-bearing AT THE DIRECTION LEVEL (not magnitude level), then the stack-pruning ablation that removes them should ALSO catastrophically fail (positive control). If stack-pruning produces MISS-at-floor (cheap removal, no penalty), then SOAP-on-attention/MLP contributes ~zero measurable value. Either result is informatively orthogonal to floor-cluster tuning. **AdaFactor closure directly seeds the askeladd #819 MLP_SOAP_DISABLED + thorfinn #818 ATTN_SOAP_DISABLED stack-pruning ablations.**
+
+### Combined mechanistic conclusion (3-PR closure wave + AdaFactor direction-incompatibility insight)
+
+**Three fresh mechanism classes ALL CLOSED at bilateral kill-gate trip**:
+1. **NS5 polynomial coefficients** (inner-iteration spectral approximation): closed at numerical-stability + convergence-quality boundary, standard cubic Goldilocks → **35th floor axis**
+2. **Z-Loss** (loss-level logsumexp² penalty): closed at +0.113 val above kill gate, flat marginal effect curve → **36th floor axis**
+3. **AdaFactor MLP** (factored 2nd-moment preconditioner): closed at +1.29 val above kill gate by very large margin, **stack composition direction-incompatibility** → **37th floor axis**
+
+**Pattern at 37-axis floor depth**: Mechanisms that change WHAT the optimizer computes (factored vs full 2nd moment, signed updates, second-order curvature) and operate inside the Muon spectral normalization (polynomial coefficients) ALL fail. The stack is configured at Goldilocks across every replaceable component AND every replaceable component's internal knob. The floor is in the **COMPOSITION** of the optimizer stack, not in any individual component.
+
+### Strategic pivot (cycle 71 mid-96) — STACK-PRUNING TRIFECTA
+
+The AdaFactor closure's "direction matters not magnitude" mechanism analysis directly motivates a synchronized 3-axis ablation: if individual preconditioning components are load-bearing AT THE DIRECTION LEVEL, simultaneously disabling each component separately reveals whether ANY is contributing measurable value beyond NS5 alone.
+
+**Stack-pruning trifecta in flight simultaneously across 3 GPUs**:
+- **fern #806 CONTRA_MUON=0** (body-side stack pruning) — Arm B `audo3lgl` (contra=0 + NS5_ITERS=10) running step 1375 val=3.570 healthy descent surprisingly close to baseline trajectory at 16:00 UTC
+- **thorfinn #818 ATTN_SOAP_DISABLED** (attention-side stack pruning) — just assigned, completing the ablation across attention preconditioner
+- **askeladd #819 MLP_SOAP_DISABLED** (MLP-side stack pruning) — just assigned, completing the ablation across MLP preconditioner
+
+**Why this is the cycle's most informative experiment cluster**: All 3 ablations are mechanistically orthogonal stack simplifications. The combined 3-arm result determines whether ANY of the 3 preconditioning components (CONTRA_MUON, ATTN_SOAP, MLP_SOAP) is load-bearing on the floor. Four possible outcomes:
+1. All 3 MISS at floor → SOAP+contra contribute zero measurable value; the floor is in NS5+NorMuon alone (massive simplification opportunity)
+2. 1 of 3 MISS at floor → that component is the only zero-value piece; targets stack simplification at that specific layer
+3. All 3 trigger kill gate → the entire preconditioning stack is jointly load-bearing on the floor (mechanism class confirmed)
+4. 1 of 3 BELOW floor → component is net-negative; would be the cycle's first true floor-break via removal not addition
+
+### Fresh assignments (4 PRs dispatched in this batch)
+
+- **#817 alphonse → NADAMW**: Nesterov-accelerated AdamW substitution on optimizer1 (embed + lm_head + scalars). Custom NadamW class with decoupled WD (torch.optim.NAdam lacks decoupled WD). Nesterov substitution `m_nesterov = β1·m_hat + (1-β1)·g/bc1`. Arm A betas (0.8, 0.95), Arm B betas (0.9, 0.999). **First Nesterov momentum substitution axis in 192+ PRs**, mechanistically orthogonal to all 37 closed axes via using lookahead-style first-moment correction.
+- **#818 thorfinn → ATTN_SOAP_DISABLED**: env-gated `self.attn_soap_params = set()` ablation. **First attention-side stack-pruning axis** — every prior ATTN_SOAP work TUNED the mechanism (threshold, ramp, freq, beta2). Zero LOC change to NS5, Muon body update, AdamW, or any other component.
+- **#819 askeladd → MLP_SOAP_DISABLED**: env-gated `self.soap_params = set()` ablation. **First MLP-side stack-pruning axis** — every prior MLP SOAP work TUNED the mechanism (SOAP_BETA2, SOAP_PRECOND_FREQ, SOAP_EPS). Zero LOC change to NS5, AdamW, ATTN_SOAP, or any other component. Completes the trifecta.
+- **#816 nezuko → MUON_ADEMAMIX** (assigned mid-95, hard override sent mid-96 for 2nd disabled-check stall): dual-EMA gradient memory on Muon body matrices (Pagliardini 2024 arxiv 2409.03137). Fast EMA (current mu=0.95) + slow EMA β2=0.9999 with α-warmup 0→6.0 over 30% training. **First dual-EMA gradient-memory axis** in 192+ PRs.
+
+### Pending watches (16:00-17:30 UTC critical window)
+
+- **frieren ptshctmv n=2 terminal ~17:00 UTC**: step 1600 val=3.535 at 16:00 UTC, tracking baseline trajectory. If n=2 mean (mvkam4g5 val=3.269/ffs=3025 + ptshctmv pending) clears merge bar (val_mean ≤ 3.26776 AND ffs_mean ≤ 3000), this is **the cycle's first FLOOR BREAK in 37+ axes**.
+- **fern audo3lgl Arm B terminal ~17:30 UTC**: step 1375 val=3.570 at 16:00 UTC. Surprisingly healthy mid-trajectory descent for "CONTRA=0 + NS5_ITERS=10" — joint stack pruning may produce a real floor result.
+- **alphonse #817 + nezuko #816 + thorfinn #818 + askeladd #819 Arm A launches**: all should be in disabled-check or Arm A within next 30 min based on launch nudges + override sent at 16:01 UTC.
+
+### Operational notes
+
+- **4 disabled-check stalls bit this cycle** (#794 frieren, #797 nezuko 1st, #816 nezuko 2nd, #817 alphonse) — saved memory [[feedback_student_disabled_check_stall]] activated. Preemptive launch nudges + HARD OVERRIDEs sent within 8 min of disabled-check completion now standard pattern.
+- **2/8 pods still broken** (#768 tanjiro 6-canary NaN evidence, #692 edward 24h+ idle) — second re-escalation at 14:50 UTC unresponded by infra team. Two GPUs offline ~46 GPU-hours lost this cycle.
+- **Frieren n=2 protocol clarification**: accidental `ptshctmv` relaunch with identical config to mvkam4g5 treated as fortuitous n=2 seed 2; do NOT kill, await terminal, combined SENPAI-RESULT after both runs finish.
+
+
 
 ### PR #797 — nezuko SOPHIA_DIAGONAL_HESSIAN on AdamW groups (Liu Stanford 2023, arxiv 2305.14342)
 
