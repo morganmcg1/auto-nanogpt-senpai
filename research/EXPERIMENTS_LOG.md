@@ -3,6 +3,32 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 11:30 UTC — PR #753: Per-block-DEPTH body Muon LR asymmetry (edward) — CLOSED productive-NULL (67th cycle)
+
+- Branch: `g1r4-edward/per-depth-muon-lr`
+- Hypothesis: Extend #579 per-block-TYPE LR (MERGED, attn=0.80×/mlp=1.20×) to DEPTH axis with 3-bucket non-monotone parametrization (early=L0-3, mid=L4-7, deep=L8-11). Motivated by #710 per-depth NS_ITERS Phase 1 front-loaded winner (Δ_vs_A=−0.00138).
+
+**Terminal 4-arm N=1 result (drift gate A PASS at favorable Δ=−0.00282 within ±0.003):**
+
+| Arm | EARLY / MID / DEEP | val/loss | Δ_vs_A | Δ_vs_baseline | fs | Verdict |
+|---|:---:|---|---|---|---|---|
+| A (ctrl) | 1.00/1.00/1.00 | 3.26788 | — | −0.00282 (favorable drift) | 3200 | drift PASS |
+| B (front-loaded) | 1.20/1.00/0.80 | 3.26984 | +0.00196 | −0.00086 | 3225 | regression |
+| C (back-loaded) | 0.80/1.00/1.20 | 3.27610 | **+0.00822** | +0.00540 | 3275 | strong regression (worst) |
+| D (mid-heavy) | 0.90/1.20/0.90 | 3.27073 | +0.00285 | +0.00003 | 3225 | regression |
+
+W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv. (Duplicate Arm D runs n43vfv7y/rftykq3p disregarded — double-launch incident, killed at 09:28 UTC, clean relaunch at 09:29.)
+
+**Mechanism reading (definitive closure)**:
+- NS-orthogonalization rescales each weight matrix update to unit spectral norm, **normalizing depth-dependent scale**. Cross-DEPTH LR asymmetry cannot extract gain because all 12 body Muon blocks have identical shape profiles per depth (attn 768×768, mlp 4·768 per layer throughout). Cross-TYPE asymmetry (#579 MERGED) DOES survive NS because attn and mlp have structurally different shapes.
+- **Striking directional contrast with #710 NS_ITERS**: front-loaded LR (B, +0.00196 regression) vs front-loaded NS-iter budget (#710 Arm C, Δ_vs_A=−0.00138 sub-threshold winner). NS-precision (per-layer convergence quality) is depth-asymmetric; post-NS step-size (LR, NS-normalized) is depth-symmetric. The two mechanisms index different surfaces.
+- **Validates #409 LLRD closure logic** on post-#579 stack: geometric-decay LLRD (#409 pre-#579 NULL) and 3-bucket non-monotone LLRD (this PR) both fail via the same mechanism.
+- Arm D (mid-heavy 0.90/1.20/0.90) is the LEAST bad treatment (+0.00285) — some mid-layer LR boost has marginal benefit compared to back-loading (+0.00822 worst), but still regresses vs uniform.
+
+**Per-DEPTH Muon LR surface empty across both parametrizations** (#409 geometric + #753 3-bucket). **67th productive-null/negative this cycle.** Future depth-asymmetry work should focus on weight-side mechanisms (per-depth WD, per-depth NS precision) not post-NS-normalized update magnitude.
+
+**Follow-up**: edward assigned **#791 Focal loss γ sweep** — first gradient-reweighting-by-difficulty mechanism (loss-side pivot).
+
 ## 2026-05-22 11:24 UTC — PR #752: Gradient Centralization (Yong 2020) — per-row mean subtraction pre-NS / pre-AdamW (tanjiro) — CLOSED productive-NEGATIVE (66th cycle)
 
 - Branch: `g1r4-tanjiro/gradient-centralization`

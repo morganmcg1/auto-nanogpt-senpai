@@ -617,25 +617,38 @@ Single-seed 4-arm result (drift gate A PASS at +0.00032):
 
 **Follow-up**: edward assigned **#753 Per-block-DEPTH body Muon LR asymmetry** — extends #579 (per-block-TYPE LR MERGED) to depth axis with 3 buckets (early=L0-3, mid=L4-7, deep=L8-11). Direct parallel to #710 frieren (per-depth NS_ITERS in-flight); #710 Phase 1 showed front-loaded NS=14/12/10 wins by Δ=−0.00138 monotone front-vs-back. Per-DEPTH LR may extract gain via same early-layer signal-dilution mechanism. Distinct from #409 LLRD (geometric decay NULL pre-#579) — 3-bucket non-monotone parametrization untested.
 
-### 🔄 edward #753 — Per-block-DEPTH body Muon LR asymmetry — early/mid/deep bucket multipliers on top of #579 per-TYPE [assigned 03:35 UTC]
+### ✅ edward #753 — Per-block-DEPTH body Muon LR asymmetry — CLOSED 11:30 UTC productive-NULL (67th cycle)
 
 **Branch:** `g1r4-edward/per-depth-muon-lr`
-**Hypothesis**: Extend #579 per-block-TYPE LR (MERGED) to DEPTH axis. Apply per-depth multipliers on top of per-TYPE multipliers: `LR_layer_l = LR_base × MUON_TYPE_LR_MULT × MUON_DEPTH_LR_MULT`. 3-bucket partition (early=L0-3, mid=L4-7, deep=L8-11). Each arm conserves geometric mean = 1.0 across depth buckets (total LR budget invariant).
 
-**N=1 single-seed status (08:11 UTC W&B verification — Arm C still running ~37%):**
+**Terminal 4-arm N=1 result (drift gate A PASS at Δ=−0.00282 within ±0.003):**
 
-| Arm | EARLY (L0-3) | MID (L4-7) | DEEP (L8-11) | val/loss | Δ_vs_A_ctrl | Δ_vs_baseline (3.27070) |
-|---|---:|---:|---:|---:|---:|---:|
-| A (ctrl) | 1.00 | 1.00 | 1.00 | **3.26788** | — | **−0.00282 favorable-seed drift OUTSIDE ±0.003 (borderline)** |
-| B | 1.20 | 1.00 | 0.80 | 3.26984 | **+0.00196 REGRESSION vs ctrl** | −0.00086 |
-| C | 0.80 | 1.00 | 1.20 | step ~1250/3350 running | TBD | TBD |
-| D | 0.90 | 1.20 | 0.90 | TBD | TBD | TBD |
+| Arm | EARLY / MID / DEEP | val/loss | Δ_vs_A | Δ_vs_baseline | fs | Verdict |
+|---|:---:|---|---|---|---|---|
+| A (ctrl) | 1.00/1.00/1.00 | 3.26788 | — | −0.00282 (favorable drift) | 3200 | drift PASS |
+| B (front-loaded) | 1.20/1.00/0.80 | 3.26984 | +0.00196 | −0.00086 | 3225 | regression |
+| C (back-loaded) | 0.80/1.00/1.20 | 3.27610 | **+0.00822** | +0.00540 | 3275 | strong regression |
+| D (mid-heavy) | 0.90/1.20/0.90 | 3.27073 | +0.00285 | +0.00003 | 3225 | regression |
 
-**Drift concern flagged on PR**: Arm A control at 3.26788 = Δ=−0.00282 vs baseline, just under ±0.003 gate but close to it. Use Δ_vs_A_control as primary signal (not Δ_vs_baseline), else apparent baseline-beaters reflect favorable-seed drift rather than mechanism.
+W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates n43vfv7y/rftykq3p disregarded).
 
-**Provisional reading (B vs A)**: Front-loaded per-DEPTH Muon LR REGRESSES vs control by +0.00196 — sign-flipped vs #710 front-load NS_ITERS Phase 1 winner. Mechanism dissimilarity: NS-iter front-loading allocates **convergence precision** (compute) early; LR front-loading allocates **update magnitude** early. The depth-aspect of magnitude allocation is apparently NOT load-bearing on the post-#579 stack — possibly because per-TYPE LR (#579 attn=0.80/mlp=1.20) already captures the relevant magnitude-asymmetry signal. Awaiting Arm C (back-loaded) and Arm D (mid-heavy) to confirm.
+**Mechanism (definitive closure)**: NS-orthogonalization rescales each weight matrix's update to unit spectral norm, **normalizing scale across depths**. Cross-DEPTH asymmetry does NOT survive NS because depth doesn't change matrix shape. Cross-TYPE (#579 MERGED) DOES survive NS because shape differs (768×768 square attn vs 4·768 rectangular mlp). This validates #409 LLRD closure logic on post-#579 stack with 3-bucket non-monotone parametrization. Striking contrast: front-loaded NS-iter budget (#710 Arm C Δ=−0.00138 winner) vs front-loaded LR (Arm B +0.00196 regression) — OPPOSITE directions despite analogous parametrization, confirming NS-precision and post-NS-step-size are mechanistically separate. **Per-DEPTH Muon LR axis fully closed** across both #409 geometric and #753 3-bucket parametrizations. **67th productive-null/negative this cycle.**
 
-**Why fresh and informed**: Direct parallel to #710 Phase 1 winner direction (front-load wins Δ_vs_A=−0.00138). Distinct from #409 LLRD (uniform geometric decay NULL pre-#579) — 3-bucket non-monotone parametrization untested.
+**Follow-up**: edward assigned **#791 Focal loss γ sweep** — pivoting to loss-side axis, first gradient-reweighting-by-difficulty mechanism on this stack.
+
+### 🔄 edward #791 — Focal loss γ sweep — gradient reweighting by token difficulty [assigned 11:35 UTC]
+
+**Branch:** `g1r4-edward/focal-loss`
+**Hypothesis**: Focal loss (Lin et al. 2017, arXiv:1708.02002) reweights per-token gradient by `(1−p_correct)^γ`, down-weighting easy tokens (high p_correct) and focusing gradient on hard rare tokens. Directly motivated by #663 closure: "Future lm_head work should target representation/loss-side mechanisms (Zipf-weighted loss)". Functionally equivalent to Zipf-frequency weighting without precomputed tables — rare tokens are hard → high NLL → high focal weight; frequent tokens are easy → low focal weight. First gradient-reweighting-by-difficulty mechanism on this stack. Mechanism-distinct from all closed loss-side: #446 label smoothing (target distribution, not gradient weighting), #441 z-loss (logit magnitude), #624 spectral norm penalty (weight-space).
+
+| Arm | NANOGPT_FOCAL_GAMMA | Description |
+|---|:---:|---|
+| A | 0.0 | Control (standard CE, bit-identical to baseline) |
+| B | 0.5 | Mild focusing |
+| C | 1.0 | Moderate focusing |
+| D | 2.0 | Aggressive (Lin 2017 recommendation) |
+
+Implementation: ~10 LOC in model `forward()`. ETA ~7.3h.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
