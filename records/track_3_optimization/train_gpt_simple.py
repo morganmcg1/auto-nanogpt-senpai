@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+LM_HEAD_LR_LATE_BOOST = float(os.environ.get("LM_HEAD_LR_LATE_BOOST", "1.0"))
+LM_HEAD_LR_LATE_BOOST_FRAC = float(os.environ.get("LM_HEAD_LR_LATE_BOOST_FRAC", "0.075"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -936,6 +938,10 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if (group.get("name") == "adam_lm_head"
+                    and LM_HEAD_LR_LATE_BOOST != 1.0
+                    and progress >= 1.0 - LM_HEAD_LR_LATE_BOOST_FRAC):
+                    group["lr"] = group["initial_lr"] * eta * LM_HEAD_LR_LATE_BOOST
 
 
     ########################################
@@ -1051,6 +1057,18 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            progress_for_log = step / train_steps
+            boost_active = 1.0 if (LM_HEAD_LR_LATE_BOOST != 1.0
+                                   and progress_for_log >= 1.0 - LM_HEAD_LR_LATE_BOOST_FRAC) else 0.0
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    if group.get("name") == "adam_lm_head":
+                        wandb.log({
+                            "train/lm_head_lr_eff": group["lr"],
+                            "train/lm_head_boost_active": boost_active,
+                            "train/lm_head_lr_late_boost_setting": LM_HEAD_LR_LATE_BOOST,
+                        }, step=wandb_step)
+                        break
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
