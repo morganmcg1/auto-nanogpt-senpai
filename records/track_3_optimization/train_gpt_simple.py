@@ -48,6 +48,10 @@ def parse_args():
     parser.add_argument("--wandb_entity", default=os.environ.get("WANDB_ENTITY", ""))
     parser.add_argument("--wandb_tags", default=os.environ.get("WANDB_TAGS", ""))
     parser.add_argument("--wandb_mode", default=os.environ.get("WANDB_MODE", "online"))
+    parser.add_argument("--pmuon_gamma_power_attn", type=float, default=None,
+        help="If set, use this gamma_power for attention projection matrices (Q/K/V/proj). Overrides PMUON_GAMMA for attn layers.")
+    parser.add_argument("--pmuon_gamma_power_mlp", type=float, default=None,
+        help="If set, use this gamma_power for MLP matrices (fc/proj). Overrides PMUON_GAMMA for mlp layers.")
     parser.add_argument("--telemetry_interval", type=int, default=int(os.environ.get("NANOGPT_TELEMETRY_INTERVAL", "25")))
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
@@ -533,11 +537,20 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
-        super().__init__(params, defaults)
+        if isinstance(params[0], dict):
+            input_groups = []
+            for grp in params:
+                grp = dict(grp)
+                grp["params"] = sorted(grp["params"], key=lambda x: x.size(), reverse=True)
+                input_groups.append(grp)
+            super().__init__(input_groups, defaults)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+            super().__init__(params, defaults)
 
     @torch.no_grad()
     def step(self):
@@ -586,12 +599,24 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
-def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
-    # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
-    # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
+def pmuon_spectral_diag(optimizer: torch.optim.Optimizer) -> dict[str, float]:
+    # Post-whitening spectral diagnostic on the first PMuon-managed param in each
+    # group (largest by sort order). Uses the group's actual gamma. Keys are
+    # suffixed by group type (_attn, _mlp) when applicable; legacy unsuffixed
+    # keys mirror the first group for backward-compatible dashboards.
     if dist.get_rank() != 0:
         return {}
+    out: dict[str, float] = {}
+    first_group_seen = False
     for group in optimizer.param_groups:
+        gamma = group["gamma"]
+        gname = group.get("name", "")
+        if "attn" in gname:
+            suffix = "_attn"
+        elif "mlp" in gname:
+            suffix = "_mlp"
+        else:
+            suffix = ""
         for p in group["params"]:
             state = optimizer.state.get(p, None)
             if not state or "L" not in state:
@@ -613,7 +638,7 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
                 l_max = float(L_eig.max().item())
                 r_min = float(R_eig.min().item())
                 r_max = float(R_eig.max().item())
-                return {
+                vals = {
                     "pmuon/gamma_power": float(gamma),
                     "pmuon/lcov_eigh_min": l_min,
                     "pmuon/lcov_eigh_max": l_max,
@@ -627,7 +652,13 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
                     "pmuon/sample_shape_dim0": float(momentum.shape[0]),
                     "pmuon/sample_shape_dim1": float(momentum.shape[1]),
                 }
-    return {}
+                if suffix:
+                    out.update({k + suffix: v for k, v in vals.items()})
+                if not first_group_seen:
+                    out.update(vals)
+                    first_group_seen = True
+            break
+    return out
 
 
 ########################################
@@ -704,6 +735,8 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
+            "pmuon_gamma_power_attn": args.pmuon_gamma_power_attn,
+            "pmuon_gamma_power_mlp": args.pmuon_gamma_power_mlp,
             "ns_iterations": NS_ITERS,
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
@@ -752,9 +785,33 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # Split PMuon-managed block matrices into attn vs mlp groups (PR #778: per-type gamma_power asymmetry).
+    pmuon_attn_params, pmuon_mlp_params = [], []
+    for name, p in model.named_parameters():
+        if not name.startswith("blocks.") or p.ndim < 2:
+            continue
+        if ".attn." in name:
+            pmuon_attn_params.append(p)
+        elif ".mlp." in name:
+            pmuon_mlp_params.append(p)
+        else:
+            raise Exception(f"Unclassified block parameter: {name}")
+    pmuon_gamma_attn = args.pmuon_gamma_power_attn if args.pmuon_gamma_power_attn is not None else PMUON_GAMMA
+    pmuon_gamma_mlp = args.pmuon_gamma_power_mlp if args.pmuon_gamma_power_mlp is not None else PMUON_GAMMA
+    optimizer2 = Muon(
+        [dict(params=pmuon_attn_params, name="muon_blocks_attn", gamma=pmuon_gamma_attn),
+         dict(params=pmuon_mlp_params, name="muon_blocks_mlp", gamma=pmuon_gamma_mlp)],
+        lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+    if dist.get_rank() == 0:
+        print0(f"PMuon per-type split: n_attn={len(pmuon_attn_params)} (gamma={pmuon_gamma_attn}), "
+               f"n_mlp={len(pmuon_mlp_params)} (gamma={pmuon_gamma_mlp})", console=True)
+        if trial_idx == 0:
+            wandb.log({
+                "pmuon/n_attn_matrices": len(pmuon_attn_params),
+                "pmuon/n_mlp_matrices": len(pmuon_mlp_params),
+                "pmuon/gamma_power_attn": pmuon_gamma_attn,
+                "pmuon/gamma_power_mlp": pmuon_gamma_mlp,
+            }, step=0)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1050,7 +1107,7 @@ for trial_idx in range(args.num_trials):
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
