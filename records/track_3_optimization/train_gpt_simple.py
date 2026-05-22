@@ -46,6 +46,12 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--catapult_start_step", type=int, default=int(os.environ.get("CATAPULT_START_STEP", "-1")),
+                        help="Step at which to start catapult LR burst on MuonH (-1 = disabled, no-op vs baseline).")
+    parser.add_argument("--catapult_duration", type=int, default=int(os.environ.get("CATAPULT_DURATION", "50")),
+                        help="Number of steps for catapult LR burst.")
+    parser.add_argument("--catapult_multiplier", type=float, default=float(os.environ.get("CATAPULT_MULTIPLIER", "1.5")),
+                        help="LR multiplier during catapult burst (applied to MuonH only).")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -756,6 +762,9 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "catapult_start_step": args.catapult_start_step,
+            "catapult_duration": args.catapult_duration,
+            "catapult_multiplier": args.catapult_multiplier,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -857,6 +866,12 @@ for trial_idx in range(args.num_trials):
             muonh_warmup = min(1.0, (step + 1) / args.muonh_warmup_steps)
         else:
             muonh_warmup = 1.0
+        # Catapult LR burst on MuonH only: multiplier active in
+        # [catapult_start_step, catapult_start_step + catapult_duration). -1 disables.
+        if args.catapult_start_step > 0 and args.catapult_start_step <= step < args.catapult_start_step + args.catapult_duration:
+            catapult_mult = args.catapult_multiplier
+        else:
+            catapult_mult = 1.0
         for opt in optimizers:
             for group in opt.param_groups:
                 cooldown_frac = group["cooldown_frac"]
@@ -874,9 +889,9 @@ for trial_idx in range(args.num_trials):
                     else:
                         raise ValueError(f"unknown cooldown_shape: {shape}")
                 if opt is optimizer2:
-                    eta = eta * muonh_warmup
+                    eta = eta * muonh_warmup * catapult_mult
                 group["lr"] = group["initial_lr"] * eta
-        return muonh_warmup
+        return muonh_warmup, catapult_mult
 
 
     ########################################
@@ -981,7 +996,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor = set_hparams(step)
+        muonh_warmup_factor, catapult_mult = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1028,7 +1043,13 @@ for trial_idx in range(args.num_trials):
             and step < args.muonh_warmup_steps + 50
             and (step == 0 or (step + 1) % 10 == 0)
         )
-        if dist.get_rank() == 0 and (telemetry_due or warmup_due):
+        # Log every step from 5 steps before burst start to 100 steps after burst end
+        # so the catapult window and post-burst recovery are visible at full resolution.
+        catapult_due = (
+            args.catapult_start_step > 0
+            and args.catapult_start_step - 5 <= step < args.catapult_start_step + args.catapult_duration + 100
+        )
+        if dist.get_rank() == 0 and (telemetry_due or warmup_due or catapult_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             for opt in optimizers:
                 if isinstance(opt, MuonH):
@@ -1038,6 +1059,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    muonh_metrics["train/catapult/lr_mult"] = catapult_mult
+                    muonh_metrics["train/catapult/muonh_lr_effective"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
