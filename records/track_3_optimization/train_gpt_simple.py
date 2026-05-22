@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+MLP_SOAP_DISABLED = int(os.environ.get("MLP_SOAP_DISABLED", "0"))  # PR #819 stack-pruning: when 1, MLP matrices skip SOAP and use vanilla Muon NS5
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -630,10 +631,14 @@ class Muon(torch.optim.Optimizer):
     def __init__(self, named_params, lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU):
         assert isinstance(named_params, list) and len(named_params) >= 1
         # MLP weights receive SOAP preconditioning (PR #78 / public record #14).
-        self.soap_params = {
-            p for n, p in named_params
-            if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
-        }
+        # When MLP_SOAP_DISABLED=1 (PR #819), MLP matrices fall back to vanilla Muon NS5 (no SOAP preconditioning).
+        if MLP_SOAP_DISABLED:
+            self.soap_params = set()
+        else:
+            self.soap_params = {
+                p for n, p in named_params
+                if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")
+            }
         # Attention weights (qkv + proj) receive trust-gated SOAP (public record #16 extension).
         self.attn_soap_params = {
             p for n, p in named_params
@@ -1037,6 +1042,8 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/slope/window_target_steps": slope_window_steps,
+                "muon/mlp_soap_disabled": MLP_SOAP_DISABLED,
+                "muon/mlp_soap_param_count": len(optimizer2.soap_params),  # 0 when disabled, 24 when enabled (12 layers × 2 MLP matrices)
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
