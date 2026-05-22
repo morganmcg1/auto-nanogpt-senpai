@@ -71,6 +71,18 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Lion (Chen et al 2023): signed-momentum optimizer for aux groups (embed,
+    # lm_head, scalars). update = sign(beta1*m + (1-beta1)*g), then
+    # m <- beta2*m + (1-beta2)*g. Bounded ±lr per coord, so aux LR needs scaling
+    # vs AdamW (paper recommends ~1/3 to ~1/10). 0 = disabled (baseline AdamW).
+    parser.add_argument("--use_lion_aux", type=int, default=int(os.environ.get("USE_LION_AUX", "0")),
+                        help="If 1, replace aux AdamW with Lion on embed/lm_head/scalars (MuonH inner stack unchanged).")
+    parser.add_argument("--lion_lr_scale", type=float, default=float(os.environ.get("LION_LR_SCALE", "0.333")),
+                        help="Multiplicative LR scale applied to all aux groups when Lion is active. Lion paper recommends ~1/3 to ~1/10 vs AdamW.")
+    parser.add_argument("--lion_beta1", type=float, default=float(os.environ.get("LION_BETA1", "0.9")),
+                        help="Lion beta1 (controls update sign mix). Lion paper default 0.9.")
+    parser.add_argument("--lion_beta2", type=float, default=float(os.environ.get("LION_BETA2", "0.99")),
+                        help="Lion beta2 (controls momentum buffer decay). Lion paper default 0.99.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +681,45 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion (Chen et al 2023, "Symbolic Discovery of Optimization Algorithms").
+
+    update_t   = sign(beta1 * m_{t-1} + (1 - beta1) * g_t)
+    m_t        = beta2 * m_{t-1} + (1 - beta2) * g_t
+    theta_t    = theta_{t-1} - lr * (update_t + wd * theta_{t-1})
+
+    Bounded ±lr per coord (no per-coord variance), one momentum buffer (m),
+    no v_t. Used here in place of AdamW on the aux groups (embed, lm_head,
+    scalars) when --use_lion_aux=1. The MuonH inner stack is unchanged.
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "m" not in state:
+                    state["m"] = torch.zeros_like(p)
+                m = state["m"]
+                # Update direction uses m_{t-1} (out-of-place mix so m is not
+                # yet modified).
+                update = m.mul(beta1).add_(g, alpha=1 - beta1).sign_()
+                if wd != 0:
+                    update = update.add(p, alpha=wd)
+                p.add_(update, alpha=-lr)
+                # Now update the buffer: m_t = beta2*m_{t-1} + (1-beta2)*g_t.
+                m.mul_(beta2).add_(g, alpha=1 - beta2)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +764,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_lion_aux:
+    print0(f"Aux optimizer: Lion (β1={args.lion_beta1}, β2={args.lion_beta2}, "
+           f"lr_scale={args.lion_lr_scale})", console=True)
+else:
+    print0(f"Aux optimizer: AdamW (eps={args.aux_adamw_eps})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +822,10 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "use_lion_aux": bool(args.use_lion_aux),
+            "lion_lr_scale": args.lion_lr_scale,
+            "lion_beta1": args.lion_beta1,
+            "lion_beta2": args.lion_beta2,
         },
     )
 
@@ -812,10 +872,27 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    # Lion alternative: replace aux AdamW with signed-momentum Lion. Aux LRs are
+    # scaled by args.lion_lr_scale (Lion paper: ~1/3 to ~1/10 vs AdamW). The MuonH
+    # inner stack is unchanged.
+    aux_embed_lr = 0.3
+    aux_lm_head_lr = 1/320
+    aux_scalars_lr = 0.01
+    if args.use_lion_aux:
+        s = args.lion_lr_scale
+        optimizer1 = Lion(
+            [dict(params=[model.embed.weight], lr=aux_embed_lr * s, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=aux_lm_head_lr * s, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=aux_scalars_lr * s, name="adam_scalars")],
+            betas=(args.lion_beta1, args.lion_beta2), weight_decay=0,
+        )
+    else:
+        optimizer1 = AdamW(
+            [dict(params=[model.embed.weight], lr=aux_embed_lr, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=aux_lm_head_lr, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=aux_scalars_lr, name="adam_scalars")],
+            betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True,
+        )
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
