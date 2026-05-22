@@ -3,6 +3,20 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 05:15 UTC — PR #719: Schedule mechanism pruning ablation (alphonse) — CLOSED productive-NULL (64th cycle)
+
+- Branch: `g1r4-alphonse/prune-schedule-mechs`
+- Hypothesis: Post-#579 per-block-type LR asymmetry may have eroded the contribution of three overlapping cooldown-phase schedule mechanisms; ablate each to identify prune candidates.
+
+| Arm | Mechanism ablated | val/loss | Δ vs A | W&B run | Verdict |
+|---|---|---:|---:|---|---|
+| A | control (full post-#579 stack) | 3.26943 | — | sdbyszuw | reference |
+| B | NS_COOLDOWN_SHAPE=step (revert #285) | 3.27126 | +0.00183 | 5gwf4x45 | confirmed essential |
+| C | NS_COEF_SCHEDULE=constant (revert #290) | 3.27070 | +0.00127 | 49e7scir | productive-null |
+| D | EMBED_COOLDOWN_SHAPE=linear (revert #235) | 3.27190 | +0.00247 | yzrz5en6 | confirmed essential (largest delta) |
+
+**Analysis**: No arm hits Δ ≤ −0.001 improvement gate → Phase 2 paired-pod not triggered. All 3 ablation arms regress, confirming the merged stack is well-composed across the 3 tested schedule mechanisms. Interaction hypothesis (NS_COOLDOWN_SHAPE × NS_COEF_SCHEDULE competing in cooldown) is not manifest — both remain net-positive. EMBED_COOLDOWN_SHAPE=linear_floor (+0.00247) is the most load-bearing of the three, likely amplified by #579's per-block-type LR changes. NS_COEF_SCHEDULE (+0.00127) is the weakest link — productive-null candidate if future merges shift step magnitudes. **Schedule-mechanism pruning axis fully fenced.** 64th productive-null/negative this cycle.
+
 ## 2026-05-22 04:30 UTC — PR #717: Adan body Muon — momentum-of-difference pre-NS preconditioner (askeladd) — CLOSED productive-NEGATIVE (63rd cycle)
 
 - Branch: `g1r4-askeladd/adan-body-muon`

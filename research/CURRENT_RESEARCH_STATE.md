@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 04:59 UTC
+- **Date:** 2026-05-22 05:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -158,19 +158,40 @@ Paired-pod n=3 terminal — Pod 2 Arm D `s5argpey` finished val=3.26913 (Δ_D_vs
 
 **58th productive-null/negative this cycle.**
 
-### 🔄 alphonse #719 — Pruning ablation of schedule mechanisms (4-arm N=1 + gated paired-pod) [assigned 21:00 UTC]
+### ✅ alphonse #719 — Pruning ablation of schedule mechanisms — CLOSED 05:15 UTC productive-NULL (64th cycle)
 
 **Branch:** `g1r4-alphonse/prune-schedule-mechs`
-**Hypothesis**: With 9 mechanisms merged on post-#579 stack, additivity is not guaranteed. Three schedule mechanisms — `NS_COOLDOWN_SHAPE=late_peak` (#285), `NS_COEF_SCHEDULE=linear_ramp_down` (#290), `EMBED_COOLDOWN_SHAPE=linear_floor` (#235) — all operate in the cooldown phase with potentially overlapping effects. Per-block-type LR asymmetry (#579) changed step magnitudes substantially; one or more schedule mechanism may now be redundant or net-negative. **Pruning ablation directly invited by research constraint.**
 
-| Arm | NS_COOLDOWN_SHAPE | NS_COEF_SCHEDULE | EMBED_COOLDOWN_SHAPE | Tests |
-|---|---|---|---|---|
-| A (ctrl) | late_peak | linear_ramp_down | linear_floor | Bit-identical post-#579 stack |
-| B | **step** (default) | linear_ramp_down | linear_floor | Ablate #285 |
-| C | late_peak | **constant** (default) | linear_floor | Ablate #290 |
-| D | late_peak | linear_ramp_down | **linear** (default) | Ablate #235 |
+Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001):
 
-**Pre-staged gating**: any arm Δ ≤ −0.001 → paired-pod n=3 confirmation; Δ ∈ (−0.001, +0.0015) → productive-null close with characterization; Δ ≥ +0.0015 → confirms essential merge. Phase 1 ETA ~14h sequential. Distinct from prior pruning #487 (NS-cooldown sub-stack drop) and #577 (joint NS-cooldown drop): this targets distinct SCHEDULE mechanisms, not just NS variants. High information value regardless of outcome — identifies prune target OR confirms stack well-composed.
+| Arm | Mechanism ablated | val/loss | Δ vs A | Verdict |
+|---|---|---:|---:|---|
+| A (ctrl) | none (full post-#579 stack) | 3.26943 | — | reference |
+| B | NS_COOLDOWN_SHAPE=step (revert #285) | 3.27126 | **+0.00183** | confirmed essential |
+| C | NS_COEF_SCHEDULE=constant (revert #290) | 3.27070 | +0.00127 | productive-null |
+| D | EMBED_COOLDOWN_SHAPE=linear (revert #235) | 3.27190 | **+0.00247** | confirmed essential (largest delta) |
+
+**Key findings**: EMBED_COOLDOWN_SHAPE=linear_floor has the LARGEST essentiality delta (+0.00247) — substantially greater than the +0.0003 predicted. NS_COEF_SCHEDULE is the least load-bearing (below essentiality threshold; productive-null candidate for future re-evaluation if stack shifts). No arm improves → no Phase 2. **Post-#579 stack is well-composed across all 3 schedule mechanism targets.** Schedule-mechanism pruning axis now FENCED (all 3 components characterized as net-positive).
+
+**Follow-up**: alphonse assigned **#765 Soft-Muon NS/momentum blend** — Public Leaderboard #20 ingredient, convex blend of NS-orthogonalized update with normalized raw momentum direction. Fresh mechanism on r4 post-#579 stack (never tested here). W&B runs: sdbyszuw, 5gwf4x45, 49e7scir, yzrz5en6.
+
+### 🔄 alphonse #765 — Soft-Muon NS/momentum blend — alpha sweep α∈{0.80, 0.90, 0.95} [assigned 05:15 UTC]
+
+**Branch:** `g1r4-alphonse/soft-muon-blend`
+**Hypothesis**: Blend NS-orthogonalized update direction with normalized raw momentum: `u_final = α·NS(m) + (1−α)·(m/‖m‖_F)`. Public Leaderboard #20 (3030 steps) names this as a stack ingredient ("Soft-Muon"). At α < 1.0, reintroduces gradient-EMA directional memory discarded by pure NS, while preserving most of NS's regularization benefit. Mechanism-distinct from all in-flight work:
+- Post-NS direction blend (vs Contra-Soft #126 = pre-NS element-wise shaping)
+- Direction blend (vs LARS #755 = magnitude ratio scaling)
+- Soft convex mix (vs Cautious #751 = binary sign-agreement mask)
+- Direction blending (vs GC #752 = row-mean subtraction)
+
+| Arm | NANOGPT_SOFT_MUON_ALPHA | Role |
+|---|---|---|
+| A | 1.0 (pure NS, ctrl) | sanity — reproduce val≈3.2707 |
+| B | 0.95 (5% blend) | conservative |
+| C | 0.90 (10% blend) | primary candidate |
+| D | 0.80 (20% blend) | aggressive |
+
+Gate: Δ ≤ −0.001 → paired-pod n=3. ETA ~14h sequential.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -608,6 +629,7 @@ Single-seed 4-arm result (drift gate A PASS at +0.00032):
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #719 | alphonse | Pruning ablation of schedule mechanisms (NS_COOLDOWN_SHAPE / NS_COEF_SCHEDULE / EMBED_COOLDOWN_SHAPE) | CLOSED productive-NULL (64th cycle; no arm Δ ≤ −0.001; B=+0.00183 NS_COOLDOWN_SHAPE essential, C=+0.00127 NS_COEF_SCHEDULE null-band, D=+0.00247 EMBED_COOLDOWN_SHAPE most essential; post-#579 stack well-composed; schedule-mechanism pruning axis fenced) |
 | #618 | fern | Muon² for lm_head (replace AdamW) | CLOSED productive-NEGATIVE (3/3 Muon arms MISS 3.28 target; monotonic-LR pattern, no interior minimum; mechanism: NS homogenizes Zipf-distributed vocab-freq Hessian structure lm_head needs; "Replace AdamW for lm_head" axis fully closed; 46th this cycle) |
 | #550 | edward | Muon WD cooldown reduction (paired-pod) | CLOSED productive-NULL (mean Δ=−0.00090 FAIL Gate 1, val=3.27147 PASS Gate 2, stat-rule=0.01477 PASS Gate 3; direction-correct 3/3 pods but magnitude insufficient; 6th cycle paired-pod collapse precedent; WD-axis bilaterally fenced; 45th this cycle) |
 | #599 | alphonse | Per-group AdamW β₁ time-constant sweep | CLOSED productive-NEGATIVE (B=+0.00399 regression, C β₁=0=+0.00513, D β₁=0.90=+0.00177; both directions regress; per-group AdamW family fully exhausted; 44th this cycle) |
