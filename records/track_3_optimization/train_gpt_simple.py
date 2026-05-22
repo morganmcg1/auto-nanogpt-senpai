@@ -468,6 +468,14 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Sophia diagonal-Hessian preconditioner (Liu et al. 2023, arxiv 2305.14342)
+SOPHIA_ENABLED = int(os.environ.get("SOPHIA_ENABLED", "0"))  # 0 = AdamW (baseline), 1 = Sophia
+SOPHIA_BETA1 = float(os.environ.get("SOPHIA_BETA1", "0.965"))  # first-moment EMA (paper default)
+SOPHIA_BETA2 = float(os.environ.get("SOPHIA_BETA2", "0.99"))   # Hessian-estimate EMA (paper default)
+SOPHIA_GAMMA = float(os.environ.get("SOPHIA_GAMMA", "0.05"))   # Hessian scaling factor (paper default)
+SOPHIA_RHO = float(os.environ.get("SOPHIA_RHO", "0.05"))       # clipping bound (paper default)
+SOPHIA_K_UPDATE = int(os.environ.get("SOPHIA_K_UPDATE", "10")) # Hessian refresh frequency (paper default)
+SOPHIA_EPS = float(os.environ.get("SOPHIA_EPS", "1e-12"))      # numerical floor
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -624,6 +632,59 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class SophiaAdamW(torch.optim.Optimizer):
+    """Sophia diagonal-Hessian preconditioner (Liu et al. 2023, arxiv 2305.14342).
+
+    Maintains bias-corrected first moment + periodically-refreshed Hessian diagonal estimate
+    via g^2 (coarse rank-1 GNB estimator). Update is clipped element-wise to +/- rho.
+    Decoupled weight decay (AdamW-style)."""
+
+    def __init__(self, params, lr=1e-3, betas=(0.965, 0.99), eps=1e-12,
+                 weight_decay=0.0, k_update=10, gamma=0.05, rho=0.05):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        k_update=k_update, gamma=gamma, rho=rho)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            gamma = group["gamma"]
+            rho = group["rho"]
+            k = group["k_update"]
+            wd = group["weight_decay"]
+            lr = group["lr"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["h"] = torch.zeros_like(p)
+                state["step"] += 1
+                # First moment EMA
+                state["m"].mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                # Hessian-estimate EMA (refresh every k steps via grad^2 GNB estimator)
+                if state["step"] % k == 0:
+                    h_est = grad * grad
+                    state["h"].mul_(beta2).add_(h_est, alpha=1.0 - beta2)
+                # Bias-corrected first moment
+                bc1 = 1.0 - beta1 ** state["step"]
+                m_hat = state["m"] / bc1
+                # Sophia update: clip element-wise to +/- rho
+                denom = (gamma * state["h"]).clamp_min(eps)
+                ratio = m_hat / denom
+                update = ratio.clamp(-rho, rho)
+                # Decoupled weight decay (applied to p directly)
+                if wd > 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+        return None
 
 
 class Muon(torch.optim.Optimizer):
@@ -898,10 +959,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if SOPHIA_ENABLED:
+        optimizer1 = SophiaAdamW(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+             dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+            betas=(SOPHIA_BETA1, SOPHIA_BETA2), eps=SOPHIA_EPS,
+            weight_decay=WD_AUX, k_update=SOPHIA_K_UPDATE, gamma=SOPHIA_GAMMA, rho=SOPHIA_RHO,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -996,6 +1066,12 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "sophia/enabled": SOPHIA_ENABLED,
+                    "sophia/beta1": SOPHIA_BETA1 if SOPHIA_ENABLED else 0.0,
+                    "sophia/beta2": SOPHIA_BETA2 if SOPHIA_ENABLED else 0.0,
+                    "sophia/gamma": SOPHIA_GAMMA if SOPHIA_ENABLED else 0.0,
+                    "sophia/rho": SOPHIA_RHO if SOPHIA_ENABLED else 0.0,
+                    "sophia/k_update": SOPHIA_K_UPDATE if SOPHIA_ENABLED else 0,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
