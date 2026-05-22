@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AdamW-group late-boost (multiplier applied to group lr during the last LATE_BOOST_FRAC of training)
+EMBED_LR_LATE_BOOST = float(os.environ.get("EMBED_LR_LATE_BOOST", "1.0"))  # 1.0 = no boost
+LM_HEAD_LR_LATE_BOOST = float(os.environ.get("LM_HEAD_LR_LATE_BOOST", "1.0"))  # 1.0 = no boost
+LATE_BOOST_FRAC = float(os.environ.get("LATE_BOOST_FRAC", "0.075"))  # last 7.5% of training
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -931,9 +935,15 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        in_boost_window = progress >= (1.0 - LATE_BOOST_FRAC)
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if in_boost_window:
+                    if group.get("name") == "adam_embed":
+                        group["lr"] *= EMBED_LR_LATE_BOOST
+                    elif group.get("name") == "adam_lm_head":
+                        group["lr"] *= LM_HEAD_LR_LATE_BOOST
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
 
@@ -996,6 +1006,10 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "late_boost/embed_mult": EMBED_LR_LATE_BOOST,
+                    "late_boost/lm_head_mult": LM_HEAD_LR_LATE_BOOST,
+                    "late_boost/frac": LATE_BOOST_FRAC,
+                    "late_boost/active": int((step / train_steps) >= (1.0 - LATE_BOOST_FRAC)) if step < train_steps else 1,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
