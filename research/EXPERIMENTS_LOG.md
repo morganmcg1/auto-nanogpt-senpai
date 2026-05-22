@@ -1,5 +1,100 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 00:10 UTC — Cycle 71 mid-55: PR #715 alphonse NORMUON_2D CLOSED — 1D variance is locally optimal; cross-axis EMA combine adds no benefit and slightly hurts
+
+### PR #715 — alphonse NORMUON_2D ∈ {geometric `√(r·c)`, harmonic `2rc/(r+c)`} vs default 1D per-row buffer
+
+Branch: `g1r2-alphonse/normuon-2d-variance`. Closed 2026-05-22 00:10 UTC.
+
+| Arm | NORMUON_2D | flavor | val_loss | ffs | hold-gate (val≤3.27, ffs≤3000) | vs baseline |
+|-----|---|---|---|---|---|---|
+| Disabled-check | 0 | — (1D only) | 4.07594 @ step 200 | — | ✓ bit-exact | — |
+| **A** | 1 | geometric `√(r·c)` | **3.27116** | **3025** | ✗ (val +0.00340, ffs +25) | +0.00340 / +25 |
+| Baseline | — | 1D per-row | 3.26776 (n=2) | 3000 | — | — |
+| **B** | 1 | harmonic `2rc/(r+c)` | **3.27315** | **3050** | ✗ (val +0.00539, ffs +50) | +0.00539 / +50 |
+
+W&B: `p2mk30xi` (disabled-check), `hdim84yh` (Arm A), `tm5cc7u9` (Arm B). All metrics independently verified via W&B query.
+
+**Mechanism finding:**
+- Both arms land in the 3.271–3.273 / ffs=3025+ near-miss cluster.
+- Arms strictly ordered A < B at **every** logged checkpoint by ~0.003 (step 500: +0.003, step 1500: +0.003, step 2000: +0.003, step 2500: +0.002, step 3175: +0.002).
+- Trajectories baseline-identical through step 2500 (max Δ ≤ 0.004), all kill gates pass.
+- Harmonic over-shrinks the rescale (`rsqrt(harmonic) ≥ rsqrt(geometric)` → larger correction factor → over-correction on outliers).
+- Falsifier triggers cleanly: Arm A val=3.27116 ≥ 3.272 envelope, trajectory baseline-identical, geometric strictly better than harmonic.
+
+**Conclusion:** **Cross-axis (row × col) factored EMA gives no convergence benefit over the existing 1D per-row buffer.** 1D NorMuon-lite at default `NORMUON_BETA2=0.95` is the locally optimal variance correction flavor on this stack. The "factored 2D moment as Adafactor analog" hypothesis is falsified for post-NS5 Muon updates.
+
+**Strategic significance:** 13th axis (and 7th Muon-side closure in cycle 71 segment) landing at ffs=3025+ floor. Adds further evidence the plateau is **NOT addressable from Muon's variance EMA geometry** at any factorization granularity (1D, 2D, depth-differentiated). With 4 Muon-side post-NS5 mechanisms still in flight (#718 BIAS_CORR, #720 COOLDOWN_SHAPE, #729 PER-BLOCK CONTRA, #732 LR_ATTN/MLP), the Muon-update bucket is approaching saturation.
+
+**Alphonse → #734 ADAMW_GRAD_CLIP** (per-group gradient norm clipping on AdamW output side; ~5 LoC, env-var-gated default 0=disabled; tests whether late-cooldown lm_head/embed gradient spikes near `LOGIT_SOFTCAP=20` saturation are the noise source that pins ffs at 3025).
+
+**Anti-duplication:** Distinct from #688 MUON_GRAD_CLIP (clipped Muon-side pre-NS5 gradient — clip fired ~50% of steps as a mild damper). #734 clips a different optimizer (AdamW), different param group (embed+lm_head+scalars), with mechanistically distinct kinematics (sparse late-cooldown spikes vs Muon's continuous gradient magnitudes). No global grad clip exists in current script (verified via `grep clip_grad`).
+
+**Arms:**
+- Arm A: `ADAMW_GRAD_CLIP=1.0` (mild — should fire rarely, on tail steps)
+- Arm B: `ADAMW_GRAD_CLIP=0.5` (more aggressive — should fire ~weekly on tail steps)
+
+---
+
+## 2026-05-21 23:50 UTC — Cycle 71 mid-54: PR #713 tanjiro PER-BLOCK NS5 CLOSED — both arms MISS, plateau NOT NS5-iter-depth-limited (strong negative-result evidence)
+
+### PR #713 — tanjiro PER-BLOCK NS5 iters ∈ {12/16, 16/12} (EARLY/LATE blocks 0-5 vs 6-11)
+
+Branch: `g1r2-tanjiro/per-block-ns5-iters`. Closed 23:50 UTC.
+
+| Arm | NS5_EARLY | NS5_LATE | val_loss | ffs | hold-gate (val≤3.27, ffs≤3000) | vs baseline |
+|-----|---|---|---|---|---|---|
+| Disabled-check | 14 | 14 | 4.08132 @ step 200 | — | ✓ bit-exact | — |
+| **A** | 12 | 16 | **3.27143** | **3025** | ✗ (val +0.00367, ffs +25) | +0.00367 / +25 |
+| Baseline | 14 | 14 | 3.26776 (n=2) | 3000 | — | — |
+| **B** | 16 | 12 | **3.27193** | **3050** | ✗ (val +0.00417, ffs +50) | +0.00417 / +50 |
+
+W&B: cxx4w4x4 (disabled), c1wwrenw (A), 46swe48c (B). Per-step cost identical at ~1953ms (28 total NS5 iters per block summed across 12 blocks in both arms = same as uniform NS5_ITERS=14), confirming routing wired correctly.
+
+**Mechanism finding (HIGH-VALUE NEGATIVE RESULT):**
+- Both arms land squarely in the 3.271-3.273 / ffs=3025+ near-miss cluster.
+- A vs B trajectories essentially superimposed (max Δ ≈ 0.005 at any logged checkpoint, no phase divergence).
+- Both arms track uniform-NS5=14 baseline to within ~0.003 throughout.
+- Combined with #492 (uniform sweep flat) and #677 (NS5_ITERS=14 confirmed), this establishes that **differentiating NS5 iteration count by block depth does not move the trajectory in either direction**.
+
+**Strategic significance:** This is one of the cleanest "informative failure mode" results of cycle 71. It eliminates a major axis (per-depth orthogonalization tightness) from the live frontier. The remaining post-NS5 Muon-side levers are:
+- NorMuon row-variance scaling (NORMUON_2D in flight #715 — Arm B terminal imminent)
+- u/w-floor (untested)
+- NS5 polynomial coefs per-depth (untested; #694 was uniform, closed)
+- PER-BLOCK CONTRA_MUON (#729 frieren in flight — analogous depth-differentiation for contra strength)
+- Per-block-TYPE LR (#732 nezuko just assigned — attn vs mlp differentiation)
+
+If 6+ Muon-side variants land in the same 3.271-3.273 cluster, the plateau may be **outside Muon update geometry entirely** (data ordering, logit-softcap × embed-init interaction, schedule-precision artifacts).
+
+**Tanjiro → #733 BODY PROJ_INIT_STD** — initialization-side mechanism, strictly outside Muon update path. Currently `attn.proj` and `mlp.proj` weights are hard-zeroed (residual stream stability), giving zero gradient signal to proj at step 1. Hypothesis: small non-zero init (1e-3 / 1e-4) gives immediate gradient signal without destabilizing residual path. Analog to EMBED_INIT_STD=0.1 (PR #541 merged) — same family of "replace silent default with non-zero." lm_head proj explicitly preserved as zero-init (PR #602 confirmed optimal).
+
+---
+
+## 2026-05-21 23:42 UTC — Cycle 71 mid-53: PR #705 nezuko ADAMW_BETA2 newstack CLOSED — both arms MISS, β2 axis confirmed locally optimal at default 0.95 on c=20 stack
+
+### PR #705 — nezuko ADAMW_BETA2 ∈ {0.99, 0.97} vs default 0.95 — BOTH ARMS MISS
+
+Branch: `g1r2-nezuko/adamw-beta2-newstack`. Closed 23:42 UTC.
+
+| Arm | β2 | val_loss | ffs | hold-gate | vs baseline |
+|-----|---|---|---|---|---|
+| Disabled-check | 0.95 | 4.08978 @ step 200 | — | ✓ pod healthy | — |
+| **A** | 0.99 | **3.27198** | **3050** | ✗ both (val +0.00422, ffs +50) | +0.00422 / +50 |
+| **B** | 0.97 | **3.26900** | **3025** | ✗ ffs only (val PASS −0.001, ffs +25) | +0.00124 / +25 |
+| Baseline | 0.95 | 3.26776 (n=2) | 3000 | — | — |
+
+W&B: drnfayg2 (disabled), 8rnyvrl3 (A), 7fjlodwq (B).
+
+**Mechanism finding:** The strong prior from PR #625 (val=3.26704 at β2=0.99 on c=15 stack) does NOT replicate on c=20. Worse, both arms tested at 0.97 and 0.99 are monotone uphill from default 0.95 — Arm B (intermediate) lands between Arm A (extreme) and baseline (default), suggesting a smooth concave curve with minimum AT or BELOW 0.95. The hypothesis that wider logit dynamic range (c=20) needs heavier-tailed grad smoothing was empirically reversed: LOGIT_SOFTCAP=20.0 already absorbs the heavy-tail energy that would have motivated β2=0.99.
+
+**Trajectory analysis:** After step 500, Arm B is consistently 0.003-0.008 better than Arm A at matched checkpoints — confirming the gradient: increasing β2 hurts. β2=0.95 default is at or near the local minimum.
+
+**Strategic conclusion:** AdamW β2 is a CLOSED axis on the c=20 stack. β2=0.999 follow-up (suggested in PR if Arm A won) is structurally implausible. Future re-opening only if LOGIT_SOFTCAP changes materially.
+
+**Nezuko → #732 MUON_LR_ATTN/MLP asymmetry** — per-block-TYPE body Muon LR split (ATTN vs MLP). Distinct from closed #268 (per-DEPTH layer LR), in-flight #720 (cooldown SHAPE not LR), #712 r4 (β₂ per type), #724 r4 (NS_ITERS per type). First per-block-TYPE MUON_LR test. Mechanism: NS5-orthogonalized attn (768×768 square) and mlp (3072×768 rectangle) matrices have structurally different gradient spectra; a single MUON_LR is a compromise. Arms ATTN/MLP = 1.1/0.9 vs 0.9/1.1 (±10% symmetric).
+
+---
+
 ## 2026-05-21 22:40 UTC — Cycle 71 mid-52: PR #701 frieren WD_AUX cross-pod CLOSED — both arms MISS, #676 closure FULLY EXONERATED as pod-broken artifact
 
 ### PR #701 — frieren WD_AUX cross-pod RE-RUN ∈ {0.002, 0.0005} vs default 0.001 — BOTH ARMS MISS
