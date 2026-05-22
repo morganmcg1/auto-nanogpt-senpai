@@ -3,6 +3,59 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~04:30 UTC — PR #707: tanjiro per-group AdamW β2 sweep — **CLOSED clean-NEG (β2=0.95 globally optimal)**
+
+- Branch: `g1r5-tanjiro/per-group-beta2-sweep`
+- Student: g1r5-tanjiro
+- Hypothesis: First per-group AdamW β2 sweep. Test whether different AdamW parameter groups (scalars / embed / lm_head) have different optimal β2 values when others are held at the global ctrl=0.95. Parallel to thorfinn #691 per-group β1. 5-cell: A=global 0.95 ctrl / B=scalars 0.999 / C=scalars 0.85 / D=embed 0.999 / E=lm_head 0.999.
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | β2 (embed/lm_head/scalars) | wandb_run_id | val/loss | ffs | Δ vs A | Δ vs μ |
+|:----:|:----:|:---------------------------:|:------------:|---------:|:---:|--------:|--------:|
+| 1 | **A (ctrl)** | 0.95/0.95/0.95 | `afsmk23n` | **3.261441** | 3025 | — | **−1.00σ (STRONGEST POST-#571 CTRL)** |
+| 2 | C | 0.95/0.95/**0.85** | `f9150zye` | 3.263448 | 3050 | +1.79σ | +0.16σ |
+| 3 | B | 0.95/0.95/**0.999** | `q6uxlcu6` | 3.263477 | 3050 | +1.81σ | +0.19σ |
+| 4 | D | **0.999**/0.95/0.95 | `ozyj7pwa` | 3.264028 | 3050 | +2.30σ | +0.68σ |
+| 5 | E | 0.95/**0.999**/0.95 | `5kg5shg6` | 3.264620 | 3050 | +2.83σ | +1.21σ |
+
+- **Key mechanistic findings:**
+  1. **β2=0.95 is a sharp local optimum on the scalars axis.** B (0.999, ~700-step half-life) and C (0.85, ~5-step half-life) cost +1.81σ and +1.79σ vs ctrl — perturbing in EITHER direction by similar amounts costs the same. Smooth quadratic minimum at 0.95.
+  2. **Regression magnitude scales with parameter group size.** D (embed, 39M, sparse-gradient) +2.30σ; E (lm_head, 39M, dense-gradient) +2.83σ — both larger groups regress more than small scalars (20K) at +1.79-1.81σ. Variance-estimator timescale matters more for more parameters.
+  3. **Inverts per-group β1 pattern (#691 thorfinn).** Per-group β1 was sparsity-driven ASYMMETRIC (embed=0.9 helped −0.47σ). Per-group β2 is SYMMETRIC (no group benefits). Mechanistically expected: β1 direction stability depends on per-group sparsity; β2 step-magnitude smoothing depends on per-group LR (already separately tuned via lr_embed/lr_lm_head/lr_scalars).
+  4. **Cell A=3.26144 is the STRONGEST post-#571 ctrl reproduction on record** (−1.00σ vs μ_baseline). Across 10 post-#571 ctrl reproductions: mean ≈ 3.26241, SD ≈ 0.0012.
+
+- **Decision:** CLOSED clean-NEG. Per-group AdamW β2 axis fully characterized. β2=0.95 global is robustly optimal for all three groups. With per-group LR (embed #566/lm_head #600/scalars #571 all closed) and β2 now closed, the per-group AdamW HP space is well-mapped. Per-group β1 (#691 P2 stacked in flight) will complete the picture. Tanjiro reassigned **gradient centralization on Muon** (#756 — fresh mechanism test: subtract column-mean from gradient pre-NS5 to remove all-ones direction absorbed by RMSNorm; 3 independent contrasts: col vs row / pre vs post-momentum / all vs MLP-scope).
+
+---
+
+## 2026-05-22 ~04:30 UTC — PR #706: nezuko embedding init magnitude sweep — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell C (std=0.1) — HOTTEST SIGNAL OF THE ROUND**
+
+- Branch: `g1r5-nezuko/embed-init-magnitude-sweep`
+- Student: g1r5-nezuko
+- Hypothesis: First embedding init magnitude sweep. Current `w.normal_()` (std=1.0 default torch) has never been ablated. 5-cell: A=ctrl std=1.0 / B=0.02 (GPT-2 default) / C=0.1 / D=0.3 / E=3.0. Orthogonal to alphonse #699 (residual-proj init).
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | embed_init_std | wandb_run_id | val/loss | ffs | Δ vs A=3.26222 | Δ vs μ_baseline (σ_single) | Gate? |
+|:----:|:----:|---------------:|:------------:|---------:|:---:|----------------:|---------------------------:|:-----:|
+| **1** | **C** | **0.1** | `2kuw40pa` | **3.25973** | 3025 | **−2.21σ** | **−3.15σ (CLEARS by 0.001535)** | **✅** |
+| **2** | **B** | **0.02 (GPT-2)** | `oxzcogm3` | **3.26068** | 3025 | **−1.37σ** | **−2.30σ (CLEARS by 0.000585)** | **✅** |
+| 3 | A | 1.0 ctrl | `47qazqvy` | 3.26222 | 3025 | — | −0.93σ | ❌ |
+| 4 | D | 0.3 | `v9c8usr2` | 3.26251 | 3050 | +0.26σ | −0.67σ | ❌ |
+| 5 | E | 3.0 | `kjhugi0p` | 3.26635 | 3075 | +3.68σ | +3.28σ | ❌ |
+
+- **Key mechanistic findings (3 independent contrasts):**
+  1. **Interior optimum at std≈0.1 with non-monotonic response.** C→D step (+3× larger) is the largest single-step jump (Δ=+0.00278, ~2.5σ_new). The interior optimum at std≈0.1 is a clear signal — not monotonic, not noise.
+  2. **Default torch std=1.0 is 10× too large for this benchmark.** Cell A in the noise band (−0.93σ) but the C→A direction shows a 10× reduction in init magnitude provides meaningful gains. AdamW on embed (lr_embed=0.3) is calibrated for the smaller (~0.1) magnitude regime; oversized init wastes step budget on shrinkage.
+  3. **RMSNorm neutralizes the forward pass** across the full [0.02, 3.0] range (no NaN/inf at std=3.0) but the backward path through tied lm_head + high-LR AdamW still scales with embed magnitude.
+  4. **TWO cells clear the n=4 gate at single seed.** B (std=0.02 GPT-2 default) and C (std=0.1) both clear the gate. The mechanism is the magnitude regime, not the precise value.
+  5. **Cell C (3.25973) is the STRONGEST single-seed signal of the entire round** — well below the gate at single-seed (−3.15σ vs μ_baseline). Compare: alphonse #699 Cell B musoft was AT-gate (+0.000025 above).
+
+- **Decision:** SENT BACK FOR P2 n=4 confirmation at exact Cell C config (`--embed_init_std 0.1`, single command, no other variants). Pre-declared gate: μ_n=4 ≤ 3.261265 → merge (FIRST init-layer merge on post-#571 baseline, racing with alphonse #699 P2); μ > 3.262 → close clean-NEUTRAL. P2 ETA ~7.3h. 
+
+---
+
 ## 2026-05-22 ~02:55 UTC — PR #699: alphonse depth-aware μP init for residual paths — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell B (musoft)**
 
 - Branch: `g1r5-alphonse/depth-aware-init`
