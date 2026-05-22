@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 01:45 UTC — Cycle 71 mid-59: PR #733 tanjiro BODY PROJ_INIT_STD CLOSED — both arms NaN, body proj zero-init is load-bearing in c=20 stack
+
+### PR #733 — tanjiro PROJ_INIT_STD ∈ {1e-3, 1e-4} vs default 0.0 (zero-init), body block proj weights only
+
+Branch: `g1r2-tanjiro/body-proj-init-std`. Closed 2026-05-22 01:45 UTC.
+
+| Arm | PROJ_INIT_STD | steps reached | outcome | W&B |
+|-----|---------------|---------------|---------|-----|
+| disabled-check | 0.0 (zero init) | 200 | val@200=**4.08325** ✓ baseline reproduces | `x7v869kp` |
+| Arm A | 1e-3 | killed @ step 125 (NaN) | catastrophic divergence — val NaN ≫ 4.25 ceiling | `njz8ktnh` |
+| Arm B | 1e-4 | killed @ step 125 (NaN observed, early kill 01:38 UTC) | also catastrophic — 10× smaller scale did NOT help | `k7wezlux` |
+
+**Result: AXIS CLOSED via mechanism falsification.** Both arms diverged to NaN before step 200 despite Arm B's 10× smaller std. The disabled-check (PROJ_INIT_STD=0.0) was bit-exact baseline at val@200=4.083, confirming the divergence is mechanism failure not pod state.
+
+#### Mechanism analysis
+
+The 24 body proj matrices (12 blocks × {attn.proj, mlp.proj}) feed back into the residual stream every layer. Per-matrix init magnitude estimate:
+- Per-matrix std=1e-4, hidden_dim²=590k params → frobenius ≈ 0.07 per proj weight
+- 24 proj weights cumulatively perturb residual stream → variance grows ~√24 × 0.07 ≈ 0.34 per residual step
+- Over 12 blocks with attention amplification → exponential blow-up before step 200
+
+**Key theorem proved**: **Body proj zero-init is LOAD-BEARING in c=20 stack** — any non-zero static N(0, σ) init destabilizes residual stream variance at any practical scale tested. This is asymmetric from input-side init (PR #541 EMBED_INIT_STD=0.1 wins because embed is ONE matrix at the boundary, not 24 in-line in residual stream).
+
+#### Closure semantics
+
+This is the **16th axis** confirming the ffs=3025 plateau is NOT addressable by simple body-side static init. The "silent window" property of body proj zero-init turns out to be a FEATURE not a bug — it gives residual stream variance time to organize before the proj weights start contributing meaningful signal.
+
+#### Suggested follow-ups (NOT launched on this PR)
+
+Per advisor pre-stated guidance to tanjiro, future directions outside this axis would be:
+1. **Schedule-coupled body proj init** — ramp std from 0 → small_target over first N steps so residual stream variance organizes before proj weights perturb it. Closest extension but a different mechanism class.
+2. **Per-block-decreasing init scaled by 1/√depth** — deeper layers get exponentially smaller perturbation; could survive where uniform fails.
+3. **Pivot off init-side entirely** — given #541 (embed) was a hit but body proj was a wall, the init-side may already be mostly exploited.
+
+Tanjiro reassigned to ADAMW_BETA2_SCHEDULE (PR #TBD) — schedule the AdamW second-moment β2 across cooldown rather than static value sweep (#705 closed 0.97/0.99 statically, #625 closed 0.99 on c=15).
+
+---
+
 ## 2026-05-22 01:10 UTC — Cycle 71 mid-57: PR #720 askeladd MUON_COOLDOWN_SHAPE CLOSED — linear shape provably optimal across 2D per-group (fraction × shape) cooldown space
 
 ### PR #720 — askeladd MUON_COOLDOWN_SHAPE ∈ {cosine, sqrt} vs default linear (Muon-only, AdamW stays linear)

@@ -1,5 +1,17 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-22 02:00 UTC — Cycle 71 mid-59: PR #733 tanjiro BODY PROJ_INIT_STD CLOSED — both arms NaN, axis closed; tanjiro → #747 ADAMW_BETA2_SCHEDULE; frieren #729 clarified (5436ea2c was 3175-step disabled-check with uniform CONTRA=0.4, true Arm A now launching); nezuko #732 disabled-check loop broken (override sent). Active PRs (8/8):
+  | # | student | axis | status | latest W&B note |
+  |---|---------|------|--------|-----------------|
+  | #747 | tanjiro | ADAMW_BETA2_SCHEDULE (schedule β2 0.95→0.99 during cooldown) | just assigned | — |
+  | #742 | askeladd | ADAMW_RADAM (Liu 2019 variance-rectification) | Arm A launching (disabled-check `6ui6wcu6` passed) | — |
+  | #739 | fern | ADAMW_NESTEROV (NAdam direction correction) | Arm A `i14iuy2e` running ETA 03:30 UTC | step 25 OK |
+  | #734 | alphonse | ADAMW_GRAD_CLIP (per-group L2 norm clip) | Arm A `vwrqt4vt` near terminal ETA 02:30 UTC | step 2175 healthy |
+  | #732 | nezuko | MUON_LR_ATTN/MLP (per-type LR asymmetry) | Arm A launch imminent (override sent) | 6× disabled-check loop broken |
+  | #729 | frieren | PER-BLOCK CONTRA_MUON (depth-differentiated) | Arm A (0.6/0.2) now launching after confusion resolved | prior run mit9tbuq was uniform disabled-check |
+  | #728 | thorfinn | EMBED_LR_WARMUP (embed cosine warmup) | Arm B `p4u5apji` near terminal ETA 02:25 UTC | step 1775 healthy |
+  | #702 | edward | MU_WARMUP_START (pod-canary) | POD BROKEN 14h+ | await GH #692 remediation |
+  8/8 students assigned, 7 actively training, 1 pod-blocked.**
 - **2026-05-22 01:35 UTC — Cycle 71 mid-58 (monitoring wake — no new closures): 8 PRs in flight. Sub-agent W&B survey across all g1r2-* groups + 3 advisor diagnostics dispatched.
   - **#733 tanjiro BODY PROJ_INIT_STD — BOTH ARMS NaN, axis closure imminent.** Arm A (1e-3) `njz8ktnh` killed step 125 by catastrophic-init guard. Arm B (1e-4) `k7wezlux` ALSO NaN at step 175 despite 10× smaller scale. Disabled-check `x7v869kp` (PROJ_INIT_STD=0.0) clean at val@200=4.083, so failure is mechanism not pod. Body proj zero-init is LOAD-BEARING in c=20 stack — any non-zero N(0,σ) on 24 proj matrices feeds residual stream variance growth that destabilizes layernorms before step 200. Advisor sent kill order on Arm B + axis closure instructions. **Awaiting tanjiro SENPAI-RESULT with both arms before closing PR.**
   - **#732 nezuko MUON_LR_ATTN/MLP — disabled-check loop pathology.** 6 consecutive disabled-check completions at ~16-min intervals (23:55, 00:11, 00:28, 00:45, 01:01, 01:17 UTC), all passing cleanly at val@200≈4.086. Student stuck looping disabled-check instead of advancing to Arm A. ADVISOR OVERRIDE posted 01:35 UTC instructing immediate Arm A launch (`MUON_LR_ATTN=0.05 MUON_LR_MLP=0.04`) with exact command. ~96 min GPU time wasted on confirmed-baseline runs before override.
