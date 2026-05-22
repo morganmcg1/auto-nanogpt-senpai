@@ -1,5 +1,74 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 17:00 UTC — Cycle 71 mid-97: ADVISOR CALIBRATION ERROR caught by fern + frieren #794 composite-late-boost n=2 close-miss + nezuko #816 AdEMAMix Arm A diverging
+
+### The calibration error (caught by fern on #806 at 16:07 UTC)
+
+**Failure mode**: When writing kill gates into the mid-95 / mid-96 launch batch (PRs #804, #805, #806, #811, #816, #817, #818, #819), I systematically wrote `step 1000=3.55, step 2000=3.30` as the baseline reference values. Independent W&B verification via `vwrqt4vt`, `1zb5h0e5`, `4v5jsjk9` (PR #613 winner trials) showed actual baseline mean is **step 1000=3.6614, step 2000=3.4294**. The values I wrote (3.55/3.30) actually correspond to ~step 1500 / step 3000 — a row-shift of 500 steps in the reference table.
+
+**Effect**: Kill gates set at `step 1000 > 3.58/3.60` and `step 2000 > 3.32` are BELOW the actual baseline trajectory at those steps. **Any healthy run trips these gates.** Several closures in mid-95/mid-96 may have been premature.
+
+### PR #794 — frieren COMPOSITE_LATE_BOOST n=2 close-miss (Arm A 1.5×/1.5×)
+
+Branch: `g1r2-frieren/composite-late-boost`. n=2 results posted via W&B confirmation.
+
+| Run | Created | val | ffs | hold gate (val≤3.27 AND ffs≤3000) |
+|---|---|---:|---:|---|
+| `mvkam4g5` (n=1) | 13:09 UTC | **3.26890** | **3025** | val PASS, ffs MISS by 25 |
+| `ptshctmv` (n=2 fortuitous relaunch) | 15:04 UTC | **3.27189** | **3050** | val MISS by 0.002, ffs MISS by 50 |
+| **n=2 mean** | | **3.27040** | **3037.5** | val MISS by 0.0026, ffs MISS by 37.5 |
+
+**Result: n=2 mean CLOSE-MISS vs merge bar** (val_mean ≤ 3.26776 AND ffs_mean ≤ 3000). The single n=1 mvkam4g5 result (val=3.26890) was the closest-margin single-trial close-miss in the cycle's entire floor cluster, but the second seed regressed slightly (+0.003 within seed noise but on the wrong side of the merge bar). Composite-late-boost 1.5×/1.5× joins the floor cluster at n=2.
+
+**Arm B (2.0×/2.0%) authorized to launch**: tests additivity-vs-saturation. If effect is linear, 2.0× should land at val~3.265-3.268 = candidate floor break. If effect is non-monotonic, 2.0× may regress to val~3.28+ = mechanism saturated at 1.5×.
+
+### PR #816 — nezuko MUON_ADEMAMIX Arm A DIVERGING (kill instructed)
+
+Branch: `g1r2-nezuko/ademamix-muon`. Arm A `sdzdmhxc` killed at advisor instruction.
+
+| step | val | actual baseline ref | gap | status |
+|---|---:|---:|---:|---|
+| 750 | 3.735 | 3.72 | +0.014 | tracking |
+| 875 | 3.719 | 3.69 | +0.029 | tracking |
+| 1000 | 3.717 | 3.66 | +0.057 | mild drift |
+| 1125 | 3.748 | 3.63 | +0.118 | drifting |
+| 1250 | 3.807 | 3.60 | +0.207 | diverging |
+| 1375 | **3.868** | 3.56 | **+0.308** | **diverging hard** |
+| 1400 | train=3.912 | — | — | positive slope |
+
+val/slope/loss_per_100_steps = **+0.048 positive** = getting worse.
+
+**Result: Arm A KILLED at step 1400** (exceeds corrected step-1500 kill gate of 3.68 by 0.19, positive slope, no recovery possible). Mechanism interpretation: **α=6.0 + β_slow=0.9999 is destabilizing late-warmup → cooldown**; slow EMA component pulls body matrix updates out-of-distribution from NS5-orthogonalized direction. Arm B with α=2.0 (softer slow-EMA contribution) authorized to launch.
+
+### Calibration impact on mid-95/mid-96 closures (retrospective)
+
+**Axes that remain LEGITIMATELY closed** (terminal data, catastrophic margins, or calibration-independent failures):
+- #804 AdaFactor MLP — val@500=5.11 vs baseline 3.80 = +1.31 catastrophic. Closure stands.
+- #797 Sophia — val@2000=3.45 catastrophic + val@500=4.07 strictly worse. Closure stands.
+- #792 SF-AdamW — val@1000=3.73 vs baseline 3.66 = +0.07 strictly worse (above corrected gate). Closure stands.
+- #811 NS5 aggressive (Arm A) — NaN at step 125, numerical instability is calibration-independent. Closure stands.
+- All earlier closed axes (Lookahead, MARS-M, Cooldown EMA, Lion, MUON_COOLDOWN_SHAPE, scalar/schedule, etc.) had terminal evaluations against the actual baseline, not intermediate-step gates. Closures stand.
+
+**Axes that need re-examination** (premature kills, may have tracked baseline):
+- #818 ATTN_SOAP_DISABLED Arm A — val@1000=3.67001 vs actual baseline 3.66 = +0.007 = within seed noise. PR sent BACK to thorfinn for RELAUNCH with corrected gates. The "ATTN_SOAP is load-bearing" conclusion does NOT survive corrected reference (slope 3.81→3.67 = -0.14 vs actual baseline 3.81→3.66 = -0.15 = 93% of actual late-cooldown improvement rate, essentially matched).
+- #817 NADAMW Arm A — val@1000=3.664 vs baseline 3.66 = +0.004 = baseline equivalent. Arm B (betas 0.9, 0.999) in flight with corrected gates. May also track baseline.
+- #805 Z_LOSS Arm A val=3.66322 / Arm B val=3.66201 @1000 — both **BELOW** actual baseline 3.66352 at step 1000. Z-Loss is approximately no-op, not "monotonically harmful". Closure retrospectively marked as informational.
+- #811 NS5 soft Arm B — val@1000=3.67821 vs baseline 3.66 = +0.018 = within typical seed noise + stack-perturbation margin. Closure retrospectively marked.
+- #806 fern CONTRA_MUON=0 Arm A — val@1000=3.66839 vs baseline 3.66028 = +0.008 = within seed noise. Premature kill caught mid-flight; Arm B `audo3lgl` continues to terminal with corrected gates (currently step 1500+ tracking baseline).
+
+### Recalibrated floor depth
+
+**Of the 37 closed axes claimed at mid-96, ~30 are legitimately at the floor.** 3-4 axes (Z-Loss, NS5 soft, ATTN_SOAP_DISABLED, NADAMW Arm A) need terminal evaluation against the corrected baseline. The cycle has **TWO ACTIVE FLOOR-BREAK CANDIDATES**:
+
+1. **frieren Arm B 2.0×/2.0% composite-late-boost** — additivity test on the closest-margin mechanism.
+2. **fern Arm B audo3lgl CONTRA_MUON=0 + NS5_ITERS=10** — tracking baseline through step 1500+, terminal ~17:30 UTC.
+
+If either clears the merge bar n=1 hold gate, this becomes the cycle's first floor-break in 192+ PRs. **The calibration correction may have surfaced the floor-break signal that was being masked by premature kills.** Pending follow-up: terminal evaluation of relaunch #818 (thorfinn ATTN_SOAP_DISABLED) and Arm B test of #817 (alphonse NADAMW with paper betas) under corrected gates.
+
+### Memory + process correction
+
+Memory [[feedback_kill_gates_from_baseline]] strengthened with this incident as the **3rd occurrence** of this failure mode on auto-nanogpt-1gpu-r2 (prior: 2026-05-18 PRs #378/#394 also had bad kill gates). Rule reinforced: **query W&B fresh for baseline trajectory at every checkpoint step BEFORE writing kill gates into a PR body. Do NOT reuse step→val mappings from prior PR bodies or conversation memory.** Memory now includes the verified baseline trajectory snapshot for this cycle.
+
 ## 2026-05-22 16:05 UTC — Cycle 71 mid-96: TRIPLE CLOSURE — NS5 polynomial coeffs / Z-Loss / AdaFactor MLP all bilateral kill-gate trips (35th/36th/37th floor axes); stack-pruning trifecta dispatched to complete preconditioner ablation across MLP+attn+contra simultaneously
 
 ### PR #811 — alphonse NS5_COEFFICIENTS (first inner-iteration polynomial axis in 192+ PRs)
