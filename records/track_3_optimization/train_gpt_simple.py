@@ -201,6 +201,14 @@ def log_training_telemetry(
     pre_clip_grad_norm: Tensor | None = None,
     clip_norm: float = 0.0,
     per_group_pre_clip: dict[str, Tensor] | None = None,
+    pre_clip_grad_norm_body: Tensor | None = None,
+    pre_clip_grad_norm_aux: Tensor | None = None,
+    clip_norm_body: float = 0.0,
+    clip_norm_aux: float = 0.0,
+    per_group_clip_active: bool = False,
+    grad_clip_triggers_body: int = 0,
+    grad_clip_triggers_aux: int = 0,
+    grad_clip_triggers_global: int = 0,
 ):
     grads = [(name, p.grad) for name, p in model.named_parameters() if p.grad is not None]
     grad_stats = aggregate_stats(grads)
@@ -223,14 +231,39 @@ def log_training_telemetry(
         metrics["train/grad/clip_norm_threshold"] = clip_norm
         metrics["train/grad/clip_activated"] = int(pre_clip_val > clip_norm)
         metrics["train/grad/clip_scale_factor"] = min(1.0, clip_norm / (pre_clip_val + 1e-12))
-    if per_group_pre_clip is not None and clip_norm > 0:
+    if per_group_pre_clip is not None and (clip_norm > 0 or per_group_clip_active):
+        # Reference threshold for the per-tensor flags: prefer the explicit aux threshold
+        # in per-group mode, otherwise fall back to the global clip_norm.
+        ref_clip = clip_norm_aux if per_group_clip_active and clip_norm_aux > 0 else clip_norm
         for group_name, raw_norm_tensor in per_group_pre_clip.items():
             raw_val = float(raw_norm_tensor.item())
             metrics[f"train/clip_ext/per_group_grad_norm_{group_name}"] = raw_val
-            metrics[f"train/clip_ext/per_group_active_{group_name}"] = int(raw_val > clip_norm)
+            metrics[f"train/clip_ext/per_group_active_{group_name}"] = int(raw_val > ref_clip) if ref_clip > 0 else 0
             metrics[f"train/clip_ext/effective_aux_lr_ratio_{group_name}"] = (
-                min(1.0, clip_norm / (raw_val + 1e-12))
+                min(1.0, ref_clip / (raw_val + 1e-12)) if ref_clip > 0 else 1.0
             )
+    metrics["train/clip_ext/per_group_clip_active"] = int(per_group_clip_active)
+    if per_group_clip_active:
+        metrics["train/clip_ext/clip_norm_body"] = clip_norm_body
+        metrics["train/clip_ext/clip_norm_aux"] = clip_norm_aux
+        if pre_clip_grad_norm_body is not None:
+            body_val = float(pre_clip_grad_norm_body.item())
+            metrics["train/clip_ext/grad_norm_body_pre_clip"] = body_val
+            metrics["train/clip_ext/clip_activated_body"] = int(body_val > clip_norm_body) if clip_norm_body > 0 else 0
+            metrics["train/clip_ext/clip_scale_factor_body"] = (
+                min(1.0, clip_norm_body / (body_val + 1e-12)) if clip_norm_body > 0 else 1.0
+            )
+        if pre_clip_grad_norm_aux is not None:
+            aux_val = float(pre_clip_grad_norm_aux.item())
+            metrics["train/clip_ext/grad_norm_aux_pre_clip"] = aux_val
+            metrics["train/clip_ext/clip_activated_aux"] = int(aux_val > clip_norm_aux) if clip_norm_aux > 0 else 0
+            metrics["train/clip_ext/clip_scale_factor_aux"] = (
+                min(1.0, clip_norm_aux / (aux_val + 1e-12)) if clip_norm_aux > 0 else 1.0
+            )
+        metrics["train/clip_ext/triggers_body_cumulative"] = grad_clip_triggers_body
+        metrics["train/clip_ext/triggers_aux_cumulative"] = grad_clip_triggers_aux
+    else:
+        metrics["train/clip_ext/triggers_global_cumulative"] = grad_clip_triggers_global
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
@@ -520,6 +553,14 @@ NS_COOLDOWN_START_FRAC = float(os.environ.get("NANOGPT_NS_COOLDOWN_START_FRAC", 
 #   late_peak  -> NS_ITERS first half of cooldown, peak second half
 NS_COOLDOWN_SHAPE = os.environ.get("NANOGPT_NS_COOLDOWN_SHAPE", "step")
 NANOGPT_GRAD_CLIP = float(os.environ.get("NANOGPT_GRAD_CLIP", "0.0"))
+# Per-group grad-clip asymmetry (#708): separate L2 clip threshold for body Muon vs aux AdamW.
+# Defaults to NANOGPT_GRAD_CLIP so unset env vars give bit-identical behavior to the global clip
+# (a single global clip_grad_norm_ call is preserved when both per-group values equal the global).
+NANOGPT_GRAD_CLIP_BODY = float(os.environ.get("NANOGPT_GRAD_CLIP_BODY", str(NANOGPT_GRAD_CLIP)))
+NANOGPT_GRAD_CLIP_AUX = float(os.environ.get("NANOGPT_GRAD_CLIP_AUX", str(NANOGPT_GRAD_CLIP)))
+_PER_GROUP_GRAD_CLIP = (
+    NANOGPT_GRAD_CLIP_BODY != NANOGPT_GRAD_CLIP or NANOGPT_GRAD_CLIP_AUX != NANOGPT_GRAD_CLIP
+)
 # Per-group embed cooldown shape (applies to adam_embed group only; lm_head/scalars keep linear).
 # options: "linear" (baseline), "cosine", "linear_floor", "quadratic"
 NANOGPT_EMBED_COOLDOWN_SHAPE = os.environ.get("NANOGPT_EMBED_COOLDOWN_SHAPE", "linear")
@@ -753,6 +794,9 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0(f"GRAD_CLIP: max_norm={NANOGPT_GRAD_CLIP} ({'ENABLED' if NANOGPT_GRAD_CLIP > 0 else 'DISABLED'})",
        console=True)
+print0(f"GRAD_CLIP_PER_GROUP: body={NANOGPT_GRAD_CLIP_BODY} aux={NANOGPT_GRAD_CLIP_AUX} "
+       f"({'ACTIVE (per-group L2)' if _PER_GROUP_GRAD_CLIP else 'INACTIVE (single global L2)'})",
+       console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
@@ -814,6 +858,9 @@ if dist.get_rank() == 0:
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
             "nanogpt_grad_clip": NANOGPT_GRAD_CLIP,
+            "nanogpt_grad_clip_body": NANOGPT_GRAD_CLIP_BODY,
+            "nanogpt_grad_clip_aux": NANOGPT_GRAD_CLIP_AUX,
+            "nanogpt_grad_clip_per_group_active": int(_PER_GROUP_GRAD_CLIP),
             "nanogpt_ns_iters": NS_ITERS,
             "nanogpt_ns_iters_cooldown": NS_ITERS_COOLDOWN,
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
@@ -884,6 +931,17 @@ for trial_idx in range(args.num_trials):
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
+    # Per-group grad-clip param lists (#708). Body = Muon-orthogonalized matrices;
+    # aux = AdamW embed + lm_head + scalars. Reuses the same lists the optimizers
+    # were constructed from so the split cannot drift.
+    body_clip_params = muon_attn_params + muon_mlp_params
+    aux_clip_params = [p for g in optimizer1.param_groups for p in g["params"]]
+    assert set(body_clip_params) | set(aux_clip_params) == set(model.parameters())
+    assert not (set(body_clip_params) & set(aux_clip_params))
+    # Cumulative clip-trigger counters across the trial for mechanism reading.
+    grad_clip_triggers_body = 0
+    grad_clip_triggers_aux = 0
+    grad_clip_triggers_global = 0
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
@@ -1001,7 +1059,28 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
-        if NANOGPT_GRAD_CLIP > 0:
+        pre_clip_grad_norm_body = None
+        pre_clip_grad_norm_aux = None
+        if _PER_GROUP_GRAD_CLIP:
+            # Per-group L2 clip (#708): separate threshold for body Muon vs aux AdamW.
+            # Two independent clip_grad_norm_ calls — body norm computed over Muon
+            # matrices only; aux norm computed over embed+lm_head+scalars only.
+            per_group_pre_clip = {
+                "embed": model.embed.weight.grad.detach().norm(),
+                "lmhead": model.proj.weight.grad.detach().norm(),
+            }
+            if NANOGPT_GRAD_CLIP_BODY > 0:
+                pre_clip_grad_norm_body = torch.nn.utils.clip_grad_norm_(
+                    body_clip_params, max_norm=NANOGPT_GRAD_CLIP_BODY)
+                if float(pre_clip_grad_norm_body.item()) > NANOGPT_GRAD_CLIP_BODY:
+                    grad_clip_triggers_body += 1
+            if NANOGPT_GRAD_CLIP_AUX > 0:
+                pre_clip_grad_norm_aux = torch.nn.utils.clip_grad_norm_(
+                    aux_clip_params, max_norm=NANOGPT_GRAD_CLIP_AUX)
+                if float(pre_clip_grad_norm_aux.item()) > NANOGPT_GRAD_CLIP_AUX:
+                    grad_clip_triggers_aux += 1
+            pre_clip_grad_norm = None  # no single global norm in this code path
+        elif NANOGPT_GRAD_CLIP > 0:
             # Capture per-AdamW-aux-group raw gradient norms BEFORE the global clip
             # rescales them in place. Mechanism: under global clip the scale factor is
             # min(1, clip_norm / global_norm); these per-group norms tell us where each
@@ -1012,6 +1091,8 @@ for trial_idx in range(args.num_trials):
             }
             pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), max_norm=NANOGPT_GRAD_CLIP)
+            if float(pre_clip_grad_norm.item()) > NANOGPT_GRAD_CLIP:
+                grad_clip_triggers_global += 1
         else:
             pre_clip_grad_norm = None
             per_group_pre_clip = None
@@ -1047,6 +1128,14 @@ for trial_idx in range(args.num_trials):
                 pre_clip_grad_norm=pre_clip_grad_norm,
                 clip_norm=NANOGPT_GRAD_CLIP,
                 per_group_pre_clip=per_group_pre_clip,
+                pre_clip_grad_norm_body=pre_clip_grad_norm_body,
+                pre_clip_grad_norm_aux=pre_clip_grad_norm_aux,
+                clip_norm_body=NANOGPT_GRAD_CLIP_BODY,
+                clip_norm_aux=NANOGPT_GRAD_CLIP_AUX,
+                per_group_clip_active=_PER_GROUP_GRAD_CLIP,
+                grad_clip_triggers_body=grad_clip_triggers_body,
+                grad_clip_triggers_aux=grad_clip_triggers_aux,
+                grad_clip_triggers_global=grad_clip_triggers_global,
             )
         # NS iteration schedule: cooldown shape controls how iters evolve during
         # the last (1 - NS_COOLDOWN_START_FRAC) fraction of training. shape='step'
