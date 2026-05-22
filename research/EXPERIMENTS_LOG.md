@@ -1,3 +1,52 @@
+## 2026-05-22 16:15 UTC — PR #807 ASSIGNED (thorfinn): H65 MuonH-SI per-block-type LR split (attn vs mlp)
+
+- Branch: `g1r3-thorfinn/per-type-muonh-lr`
+- Hypothesis: Split the 72 body 2D matrices into attn (48) and MLP (24) buckets and scale MuonH-SI base LR independently per type. Transfer test of PR #579 r4 WIN (plain Muon attn=0.8×, mlp=1.2× MERGED Δ=−0.00104) to r3 stack (MuonH-SI + MuLoCo + AGC).
+- Mechanism: NS-orthogonalization normalizes spectral direction per matrix but not relative scale across types. Attention routing patterns change faster than MLP feature projections. The MuLoCo outer SGDM operates per-param, so per-type inner LR creates asymmetric outer-state magnitudes — non-trivial r3-specific interaction that makes this a fresh test despite #579 precedent.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--muonh_lr_per_type 0` — sanity vs baseline
+  - arm_b (mirror #579, PRIMARY): `--muonh_lr_per_type 1 --muonh_lr_attn_mult 0.8 --muonh_lr_mlp_mult 1.2` — attn=0.0144, mlp=0.0216
+  - arm_c (inverse): `--muonh_lr_per_type 1 --muonh_lr_attn_mult 1.2 --muonh_lr_mlp_mult 0.8` — direction-finder, tests whether SI projection inverts type preference
+- ~25-30 LoC: CLI flags `--muonh_lr_per_type`, `--muonh_lr_attn_mult`, `--muonh_lr_mlp_mult` + two-group MuonH construction + per-group LR telemetry at step 0
+- Telemetry: `muonh/group_lr_muonh_attn` and `muonh/group_lr_muonh_mlp` logged at step 0 (sanity: confirm 0.8× and 1.2×)
+- W&B group `h65_muonh_per_type_lr`. Reassignment after PR #763 closure (MuLoCo OFF ablation).
+- Related closed: #579 r4 MERGED (same attn-type LR pattern), #674 r4 closed NULL (per-type MU, not LR), #292 r3 closed (per-LAYER depth, not per-TYPE).
+
+---
+
+## 2026-05-22 16:10 UTC — PR #790 STATUS (nezuko): H61 NS5 polishing-iteration hybrid — active, on track
+
+- Branch: `g1r3-nezuko/ns5-polishing-iteration-hybrid`
+- Status: ACTIVE (status:wip, no student comment yet). Pod running healthy.
+- W&B telemetry:
+  - Smoke arm_a k12_std_ctrl `a9vgsca6`: finished step 300 val=4.236 ✓
+  - Smoke arm_b k8_kj4_std4 `hurq9r8f`: finished step 300 val=4.227 ✓ (slightly better than ctrl smoke — encouraging)
+  - arm_a ctrl (full 3325-step) `8x2v784d`: **running at step 3030/3325, val=3.2848** (mid-cooldown; expected to drop ~0.012 by step 3325 → landing ~3.272-3.273)
+- Advisor status comment posted at #issuecomment-4519260054 (step ~3030 in-progress review).
+- Next: arms b/c/d sequential once arm_a completes.
+
+---
+
+## 2026-05-22 15:45 UTC — PR #763 CLOSED NEG (thorfinn): H55 MuLoCo OFF ablation — wrapper load-bearing quantified
+
+- Branch: `g1r3-thorfinn/muloco-off-ablation`
+- Hypothesis: Is the MuLoCo outer Nesterov-SGDM wrapper still load-bearing? PR #766 ctrl showed 3.27179 (below population mean); had MuLoCo been only weakly helpful, OFF arm might match.
+- Arms (3, n=1, 3325 steps):
+
+| Arm | Config | W&B | val/loss | ffs | Δ vs ctrl |
+|-----|--------|-----|----------|-----|-----------|
+| arm_a (ctrl sync=30) | Nesterov outer ON, sync=30 | `svmcvzyc` | **3.27200** | 3125 | — |
+| arm_b (MuLoCo OFF) | `--use_outer_optimizer 0` | `uz4lw5ph` | **3.27961** | 3300 | **+0.00761 (~11σ NEG)** |
+| arm_c (sync=60) | MuLoCo ON, sync_interval=60 | `qs2736k0` | **3.27429** | 3150 | **+0.00229 (~3σ NEG)** |
+
+- **Verdict: MuLoCo IS load-bearing. Removing it costs +0.0076 val/loss (~11σ). sync=30 is optimal; sync=60 costs +0.0023.**
+- **Mechanism** (student's analysis validated): outer Nesterov-SGDM aggregates inner MuonH direction updates every 30 steps — smooths Newton-Schulz residual noise, provides cross-time-scale momentum beyond inner mu=0.95 window (~20 step memory), damps inner overshoots. Telemetry: `outer/applied_steps_total` = {110 (ctrl sync=30), 0 (OFF), 55 (sync=60)} — confirms clean discrete outer step counts.
+- arm_b ffs=3300 vs arm_a ffs=3125: without outer wrapper, the model barely reaches target, confirming wrapper provides meaningful optimization progress (not just noise).
+- **Stack integrity confirmed**: MuLoCo Nesterov outer at sync=30 is a load-bearing component for r3 stack. Removing it loses 11σ. Doubling sync interval loses 3σ.
+- Routing: thorfinn → PR #807 H65 per-block-type MuonH LR split.
+
+---
+
 ## 2026-05-22 15:30 UTC — PR #799 ASSIGNED (askeladd): H63 Layer-wise depth-position LR scaling for MuonH body
 
 - Branch: `g1r3-askeladd/layerwise-muonh-lr`
