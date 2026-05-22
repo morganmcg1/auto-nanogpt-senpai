@@ -71,6 +71,19 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # NS5 polynomial coefficients for Newton-Schulz iteration in MuonH.
+    # Update rule: X_{k+1} = a*X_k + b*X_k*(X_k^T X_k) + c*X_k*(X_k^T X_k)^2.
+    # Baseline (2.0, -1.5, 0.5) = classic "polar decomp via quintic". Keller Jordan
+    # aggressive coefs (3.4445, -4.7750, 2.0315) reach orthogonalization in ~5
+    # iterations vs ~12 (different fixed-point dynamics, larger basin of attraction).
+    parser.add_argument("--ns5_coef_a", type=float, default=float(os.environ.get("NS5_COEF_A", "2.0")),
+                        help="NS5 polynomial coefficient a (X term). Default 2.0.")
+    parser.add_argument("--ns5_coef_b", type=float, default=float(os.environ.get("NS5_COEF_B", "-1.5")),
+                        help="NS5 polynomial coefficient b (X*(X^T X) term). Default -1.5.")
+    parser.add_argument("--ns5_coef_c", type=float, default=float(os.environ.get("NS5_COEF_C", "0.5")),
+                        help="NS5 polynomial coefficient c (X*(X^T X)^2 term). Default 0.5.")
+    parser.add_argument("--ns5_iter_k", type=int, default=int(os.environ.get("NS5_ITER_K", "12")),
+                        help="NS5 iteration count k inside zeropower_via_newtonschulz5. Default 12.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -475,8 +488,8 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    a, b, c = args.ns5_coef_a, args.ns5_coef_b, args.ns5_coef_c
+    for _ in range(args.ns5_iter_k):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -713,6 +726,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"NS5 coefs=({args.ns5_coef_a}, {args.ns5_coef_b}, {args.ns5_coef_c}) iter_k={args.ns5_iter_k}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +780,10 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "ns5_coef_a": args.ns5_coef_a,
+            "ns5_coef_b": args.ns5_coef_b,
+            "ns5_coef_c": args.ns5_coef_c,
+            "ns5_iter_k": args.ns5_iter_k,
         },
     )
 
