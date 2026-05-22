@@ -71,6 +71,18 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument(
+        "--depth_init_mode",
+        type=str,
+        default="ctrl",
+        choices=["ctrl", "musoft", "mumedium", "muall", "smallconst"],
+        help="Depth-aware init for block residual projections: "
+             "ctrl=zero-init (current); "
+             "musoft=std=sqrt(0.33)/sqrt(fan_in*L); "
+             "mumedium=std=sqrt(0.33)/(L*sqrt(fan_in)); "
+             "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
+             "smallconst=std=1e-3 depth-independent.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +764,7 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "depth_init_mode": args.depth_init_mode,
         },
     )
 
@@ -765,22 +778,63 @@ for trial_idx in range(args.num_trials):
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
 
+    NUM_LAYERS = len(model.blocks)  # = 12 for the fixed baseline architecture
+
+    def _resid_proj_std(fan_in: int, mode: str, L: int) -> float:
+        base = (0.33 ** 0.5) / (fan_in ** 0.5)
+        if mode == "musoft":
+            return base / (L ** 0.5)
+        elif mode == "mumedium":
+            return base / L
+        elif mode == "muall":
+            return base / (L ** 0.5)
+        elif mode == "smallconst":
+            return 1e-3
+        else:
+            raise ValueError(mode)
+
+    def _is_block_residual_proj(name: str) -> bool:
+        return (name.startswith("blocks.") and
+                (".attn.proj.weight" in name or ".mlp.proj.weight" in name))
+
+    def _is_block_nonresidual_2d(name: str) -> bool:
+        return (name.startswith("blocks.") and
+                name.endswith(".weight") and
+                not _is_block_residual_proj(name))
+
     # initialize model parameters
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if _is_block_residual_proj(name):
+                # residual-injection paths — experiment axis
+                if args.depth_init_mode == "ctrl":
+                    w.zero_()
+                else:
+                    std = _resid_proj_std(w.size(-1), args.depth_init_mode, NUM_LAYERS)
+                    w.normal_(std=std)
+            elif "proj" in name:
+                # lm_head (model.proj.weight) — keep zero-init for ALL cells
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # default torch init
+                w.normal_()  # N(0,1) — unchanged
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                # non-residual 2D weights (block Q/K/V/fc and any others)
+                std_base = (0.33 ** 0.5) / (w.size(-1) ** 0.5)
+                if args.depth_init_mode == "muall" and _is_block_nonresidual_2d(name):
+                    w.normal_(std=std_base / (NUM_LAYERS ** 0.5))
+                else:
+                    w.normal_(std=std_base)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Sanity print — will appear in W&B stdout logs
+    _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
+    print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
