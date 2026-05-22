@@ -21,7 +21,7 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (7 in-flight + 1 idle, 16:15 UTC — assigning fresh axis to fern)
+## Active experiments (8 in-flight, 16:25 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
@@ -32,7 +32,7 @@ Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primar
 | **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` β=0.97 step 2125/3250, val=3.40 (healthy), ETA ~17:00 UTC. **Arm B (β=0.98) NOT YET LAUNCHED** (`nt5ycb0t` crashed at step 0). Advisor 15:55 UTC pinged student to confirm chain-gate. |
 | **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` step 2100/3250, val=3.42 (healthy), ETA ~17:00 UTC. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. |
 | **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | Smoke retry 1 `ako6z01l` FAILED step 108 (SGD-fallback weight explosion); retry 2 `f8v71ops` FAILED step 112 (same mode). **Retry 3 `gn8lw0x8` HEALTHY** step 197, train_loss=4.30 (salvage worked). If smoke completes, full Arm A (LR=0.3) launches. |
-| **fern** | fern | IDLE — researcher-agent generating fresh hypothesis (assignment imminent) | — |
+| **#821** | fern | Kahan BF16 compensated weight update for body-Muon late-cooldown precision | ASSIGNED 16:25 UTC. Arm A (Kahan on body-Muon only) vs Arm B (Kahan on body-Muon + EMA lerp). Targets BF16 mantissa-floor issue where lr_eff ≈ 0.008 ≈ 1 ULP for unit params at step 2500+. FP32 comp buffer same memory footprint as EMA. |
 
 ## Recently closed (since session start)
 
