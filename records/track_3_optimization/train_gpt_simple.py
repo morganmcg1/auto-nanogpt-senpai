@@ -61,6 +61,11 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ademamix_alpha", type=float, default=0.0,
+                        help="AdEMAMix mix strength α for aux groups (0=disabled, uses AdamW). "
+                             "Adds a slow long-horizon EMA m2 (β3=0.9999) to the standard Adam update, "
+                             "warmed up linearly from 0 to α over T_alpha=512 steps. "
+                             "Reference: Pagliardini et al. 2024 (https://arxiv.org/abs/2409.03137).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -586,6 +591,58 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class AdEMAMixAux(torch.optim.Optimizer):
+    """AdEMAMix dual first-moment optimizer for aux groups.
+
+    Adds a slow long-horizon EMA m2 (β3) to the standard Adam fast EMA m1, mixed
+    with coefficient α_t (linear warmup from 0 to α over T_alpha steps).
+    No bias correction on m2 (accumulation is intentionally one-sided).
+    Reference: Pagliardini et al. 2024 (https://arxiv.org/abs/2409.03137).
+    """
+    def __init__(self, params, lr, betas=(0.8, 0.95, 0.9999),
+                 eps=1e-10, weight_decay=0, alpha=8.0, T_alpha=512):
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, alpha=alpha, T_alpha=T_alpha)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None if closure is None else closure()
+        for group in self.param_groups:
+            beta1, beta2, beta3 = group['betas']
+            alpha = group['alpha']
+            T_alpha = group['T_alpha']
+            lr = group['lr']
+            eps = group['eps']
+            wd = group['weight_decay']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                g = p.grad.data
+                state = self.state[p]
+                if not state:
+                    state['step'] = 0
+                    state['m1'] = torch.zeros_like(p.data)
+                    state['m2'] = torch.zeros_like(p.data)
+                    state['v']  = torch.zeros_like(p.data)
+                state['step'] += 1
+                t = state['step']
+                m1, m2, v = state['m1'], state['m2'], state['v']
+                m1.mul_(beta1).add_(g, alpha=1 - beta1)
+                m2.mul_(beta3).add_(g, alpha=1 - beta3)
+                v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+                bc1 = 1 - beta1 ** t
+                bc2 = 1 - beta2 ** t
+                m1_hat = m1 / bc1
+                v_hat  = v  / bc2
+                alpha_t = alpha * min(t / T_alpha, 1.0)
+                update = (m1_hat + alpha_t * m2) / (v_hat.sqrt() + eps)
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update, alpha=-lr)
+        return loss
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -717,6 +774,11 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            # AdEMAMix-Aux (Pagliardini et al. 2024; PR #846)
+            "ademamix_alpha": args.ademamix_alpha,
+            "ademamix_active": int(args.ademamix_alpha > 0),
+            "ademamix_beta3": 0.9999,
+            "ademamix_T_alpha": 512,
         },
     )
 
@@ -748,10 +810,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    AUX_GROUPS = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                  dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                  dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")]
+    if args.ademamix_alpha > 0:
+        # Per-group lr in AUX_GROUPS overrides the constructor `lr` (used as default).
+        # LR scheduling continues to work via group["lr"] = group["initial_lr"] * lr_mult.
+        optimizer1 = AdEMAMixAux(AUX_GROUPS, lr=0.3,
+                                 betas=(0.8, 0.95, 0.9999), eps=1e-10, weight_decay=0,
+                                 alpha=args.ademamix_alpha, T_alpha=512)
+    else:
+        optimizer1 = AdamW(AUX_GROUPS, betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1034,6 +1103,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.ademamix_alpha > 0:
+                alpha_t = args.ademamix_alpha * min(train_step / 512, 1.0)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "aux/ademamix_alpha_t": alpha_t,
+                    "aux/ademamix_alpha_target": args.ademamix_alpha,
+                    "aux/ademamix_alpha_progress": min(train_step / 512, 1.0),
+                }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
