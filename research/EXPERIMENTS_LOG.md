@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-22 08:05 UTC — PR #730 CLOSED: Body-Muon SWA cooldown init — NULL/NULL, 64th axis (g1r1-edward)
+
+- Branch: `g1r1-edward/body-muon-swa-cooldown-init`
+- Hypothesis: Replace live body-Muon weights with SWA average (uniform window over last K stable-phase steps) at cooldown_start_step=975. Tests parameter-space centroid initialization for cooldown.
+
+| Arm | K | W&B | sr | val/loss | Δsr | Δval | swa/rel_frob | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | — | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | — | — |
+| **Arm A** | 100 | 9xwvmmqz | 3000 | 3.26820 | +62.5 | +0.00392 | **27.1%** | NULL |
+| **Arm B** | 200 | pwv34alf | 3000 | 3.26928 | +62.5 | +0.00500 | **37.2%** | NULL |
+
+- **Key diagnostic finding (strongest result this session):** Predicted 1-5% Frobenius distance; actual 27-37% (5-7× higher). Body-Muon weights TRAVEL DIRECTIONALLY at ~0.27-0.37 relative Frobenius distance per 100-200 steps. Uniform SWA average is a heavily lagged anchor, not a basin centroid.
+- **Mechanism falsified:** The 'live frontier vs centroid' image does not apply. Body-Muon optimization is a directed trajectory, not basin-orbiting. Resetting to 100-step-lag point = rewind ~100 steps.
+- **Wider window → more lag → more harm:** K=200 (37% distance) is consistently ~0.001 worse than K=100 (27% distance) throughout cooldown, confirming monotone dose-response.
+- **5th buffer-modification dead lever at cooldown_start** (LR schedule + optimizer state × 2 + parameter space). Buffer-modification at cooldown_start FULLY CLOSED across all categories.
+- Excellent diagnostic instrumentation by student — swa/rel_frobenius_dist diagnostic changes a null result into a mechanistically informative finding.
+
 ## 2026-05-22 06:35 UTC — PR #725 CLOSED: PMuon bilateral covariance reset at cooldown_start — NULL/NULL, 63rd axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/pmuon-cov-cooldown-reset`
