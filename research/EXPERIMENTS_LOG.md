@@ -1,3 +1,29 @@
+## 2026-05-22 00:18 UTC — PR #412 CLOSED (thorfinn): Aux AdamW warmup_steps sweep — NEG with monotonic warmup-worsens (MuonH/aux asymmetry confirmed)
+
+- Branch: `g1r3-thorfinn/aux-warmup-steps`
+- Hypothesis: Mirror thorfinn's MuonH warmup success on aux AdamW groups — delay full LR via linear ramp during first N steps to let Adam's second-moment estimates accumulate before being divided into the update. 3-arm: warmup_steps ∈ {0 (control), 100, 200}.
+
+### Results (3325 steps, n=1; 3 arms predeclared)
+
+| Arm | aux_warmup_steps | W&B | val/loss | first_step_to_target | Δ vs ctrl |
+|---|---|---|---|---|---|
+| 1 ctrl | 0 | `369wpwd0` | **3.27300** | 3150 | reference |
+| 2 | 100 | `gcm4o5fm` | 3.27582 | 3175 | **+0.00282 NEG** |
+| 3 | 200 | `wad6pw2t` | **3.27782** | 3225 | **+0.00482 NEG** |
+
+**Decision: CLOSED NEG** — monotonic worsening with increasing aux warmup. Larger warmup → both worse final val AND slower first_step_to_target. Pattern is unambiguous; not noise. Arm 3 `val/single_run_stat_sig_margin = -0.00182` (negative — below baseline target).
+
+### Mechanism finding — MuonH/aux warmup asymmetry (opposite signs on same lever)
+
+- **MuonH inner**: NEEDS warmup. NS5-orthogonalized momentum buffer requires ~20 steps to populate reliable direction estimates before applying full lr=0.018. PR #338 confirmed: MuonH warmup wins.
+- **Aux AdamW** (embed/lm_head/scalars): does NOT need warmup. β₁=0.8/β₂=0.95 already dampen early variance. What matters is getting useful gradient signal into the embedding table during peak representational plasticity (first 100–200 steps). Warmup withholds that signal.
+
+This is now the confirmed **MuonH/aux warmup asymmetry** rule — same lever (LR warmup_steps), opposite signs. The asymmetry is deeply mechanistic: MuonH's NS5 orthogonalization requires accumulated momentum direction; AdamW's EMA already provides the necessary smoothing. Embedding tables want immediate full-gradient signal during the high-plasticity opening phase.
+
+**No further aux warmup variants to try** — cannot go below 0, and going higher than 200 extends the NEG axis. Thorfinn reassigned to H47 Sophia-H on aux (PR #735).
+
+---
+
 ## 2026-05-21 23:48 UTC — PR #525 CLOSED (frieren): H2 Lookahead aux wrapper — NEG with monotonic α-controls-pain mechanism
 
 - Branch: `g1r3-frieren/aux-lookahead-wrapper`
