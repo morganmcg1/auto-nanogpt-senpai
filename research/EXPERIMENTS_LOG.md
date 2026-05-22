@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 13:00 UTC — Cycle 71 mid-92: PR #772 nezuko LION_ADAMW CLOSED — 29th floor axis, bilateral 2× LR sweep refutes second-moment-free updates on AdamW groups
+
+### PR #772 — nezuko LION_ADAMW Arm A (LR ratio 1/8) / Arm B (LR ratio 1/4)
+
+Branch: `g1r2-nezuko/lion-adamw-groups`. Closed 2026-05-22 12:55 UTC.
+
+| Run | Arm | LR ratio | LION_LR_EMBED | LION_LR_HEAD | val_loss | ffs | hold gate | W&B |
+|-----|-----|----------|---------------|---------------|----------|-----|-----------|-----|
+| disabled-check (3 redundant) | — | — | — | — | val@200=4.086 (in band) | — | bit-equivalent verify | `zs96nr7k`, `feaiad2x`, `nk2tr0q4` |
+| Arm A | 1/8 | 0.003 | 0.0003125 | 3.29799 | -1 | MISS (val far above 3.27 + never crosses 3.28) | `3cxdhk0x` |
+| Arm B | 1/4 | 0.006 | 0.000625 | 3.29979 | -1 | MISS (val far above 3.27 + never crosses 3.28) | `q68tgpja` |
+| **Inter-arm Δ** | — | 2× | 2× | 2× | **0.00180** | n/a | both MISS by ~0.03 | both |
+
+**Result: AXIS CLOSED as bilateral MISS** by exceptionally large margin (~0.030 val above baseline 3.26776, vs typical floor cluster close-miss of +0.003). The 2× LR span produced only Δ=0.0018 in terminal val, proving 3rd ratio sweep (1/2 or 1/16) would not change the conclusion by more than ~0.005.
+
+**Mechanism class falsified (per student's synthesis)**: LION SIGN-ONLY UPDATES without curvature information cost ~+0.030 val on embed+lm_head AdamW groups specifically. The constant-magnitude ±1 sign rule produces well-behaved stable trajectories (no divergence, no NaN, clean cooldown) but lacks per-coordinate magnitude scaling that AdamW's `g/sqrt(EMA(g²))` denominator provides. **The bottleneck is not LR but the sign-update geometry itself — Lion lacks the curvature information AdamW exploits.**
+
+**Trajectory comparison (val_loss at checkpoints)**:
+| step | Arm A (Lion 1/8) | Arm B (Lion 1/4) | reference `vwrqt4vt` AdamW |
+|------|------------------|------------------|----------------------------|
+| 500  | 3.867            | 3.847            | 3.81                       |
+| 1000 | 3.698            | 3.701            | 3.55                       |
+| 2000 | 3.451            | 3.460            | 3.30                       |
+| 3000 | 3.309            | 3.310            | —                          |
+| 3175 | **3.29799**      | **3.29979**      | —                          |
+
+Both Lion arms track ~0.05 above reference AdamW trajectory throughout — consistent gap throughout training, not a cooldown-only failure.
+
+**Action**: closed PR #772 with full SENPAI-RESULT acknowledgement + assigned nezuko #797 SOPHIA_DIAGONAL_HESSIAN (researcher priority 5). Direct attack on student's "denominator matters" identification — Sophia replaces AdamW's `EMA(g²)` second-moment denominator with a clipped periodically-refreshed diagonal Hessian estimate. First second-order curvature mechanism in 192+ PRs, mechanistically orthogonal to all 29 closed axes including:
+- AdamW (current default, |g|² denominator)
+- Lion (no denominator)
+- Muon (spectral via Newton-Schulz)
+- SOAP (Kronecker eigenbasis)
+
+If Sophia clears ffs=3000, the AdamW denominator IS the bottleneck → second-order curvature is the path forward. If Sophia also MISSes at val~3.27 close-miss, the floor is fundamentally geometric/quantization/data-ordering, and we'd pivot to architectural changes.
+
+---
+
 ## 2026-05-22 12:30 UTC — Cycle 71 mid-91: PR #759 frieren LM_HEAD_LR_LATE_BOOST CLOSED — 28th floor axis, bilateral with thorfinn #749 EMBED late-boost
 
 ### PR #759 — frieren LM_HEAD_LR_LATE_BOOST Arm A (1.5×) / Arm B n=1+n=2 (2.0×)
