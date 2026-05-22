@@ -577,6 +577,9 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Orthogonal (Haar-measure) init for body Muon 2D weights (attn.q/k/v, mlp.fc).
+# 0.0 = disabled (bit-identical normal init). >0 = enable with given gain.
+NANOGPT_ORTHO_INIT_GAIN = float(os.environ.get("NANOGPT_ORTHO_INIT_GAIN", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -813,6 +816,9 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"ORTHO_INIT_GAIN: {NANOGPT_ORTHO_INIT_GAIN} "
+       f"({'ACTIVE (orthogonal init for attn.q/k/v, mlp.fc)' if NANOGPT_ORTHO_INIT_GAIN > 0 else 'INACTIVE (standard normal init)'})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -873,6 +879,7 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_ortho_init_gain": NANOGPT_ORTHO_INIT_GAIN,
         },
     )
 
@@ -894,6 +901,11 @@ for trial_idx in range(args.num_trials):
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+            elif NANOGPT_ORTHO_INIT_GAIN > 0 and p.ndim == 2 and any(
+                part in name for part in ("attn.q", "attn.k", "attn.v", "mlp.fc")
+            ):
+                # Orthogonal (Haar-measure) init for non-proj body Muon 2D weight matrices.
+                torch.nn.init.orthogonal_(w, gain=NANOGPT_ORTHO_INIT_GAIN)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
