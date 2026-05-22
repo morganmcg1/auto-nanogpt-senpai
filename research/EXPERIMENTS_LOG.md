@@ -5171,3 +5171,53 @@ This is consistent with: at deep iteration counts, even suboptimal-per-iteration
 **Conclusion**: Default (2.0, -1.5, 0.5) confirmed locally optimal at NS5_ITERS=14. Axis closed. Joins the ffs=3025 near-miss cluster (now 10+ axes this cycle). Frobenius pre-normalization at line 480 successfully bounds σ_max ≤ 1, so even aggressive coefficients converge cleanly (no instability seen in Arm A despite Polar Express's higher coefficient magnitudes).
 
 **Strategic implication**: 10+ axes landing at ffs=3025 strongly suggests the early-trajectory bottleneck (first ~3025 steps) is governed by a mechanism that scalar coefficient tuning cannot reach. Future wins must come from mechanism-level changes (cooldown shape, per-block geometry, etc.) — askeladd's own suggestion #2 articulates this insight precisely.
+
+---
+
+## 2026-05-22 04:05 UTC — PR #734: ADAMW_GRAD_CLIP — per-group gradient norm clip on AdamW output side (CLOSED — both arms MISS)
+
+- `g1r2-alphonse/adamw-grad-clip`
+- Hypothesis: With LOGIT_SOFTCAP=20.0 in the c=20 stack, gradients flowing back through lm_head/embed could spike near soft-cap saturation, injecting noise into AdamW second-moment estimates exactly when ffs=3025 vs 3000 is decided. Test per-group L2 norm clip on AdamW params only (Muon untouched). Arm A=1.0 mild clip; Arm B=0.5 aggressive.
+- W&B runs: `vwrqt4vt` (Arm A), `vovnwk94` (Arm B). Disabled-check passed (single canary, no loops).
+
+| Arm | Config | val/loss | ffs | Δval | Δffs | Gate |
+|---|---|---|---|---|---|---|
+| A | ADAMW_GRAD_CLIP=1.0 | 3.27399 | 3075 | +0.00623 | +75 | MISS |
+| **B** | ADAMW_GRAD_CLIP=0.5 | **3.27088** | **3025** | +0.00312 | +25 | MISS |
+| baseline (#613) | unclipped | 3.26776 (n=2) | 3000 (n=2) | — | — | — |
+
+**Results commentary**: Both arms MISS hold gate. Kill-gate trajectory clean: no instability suppressed, no divergence detected (val@500=3.80, val@1500=3.54, val@2500=3.35 for Arm B — tracking baseline within +0.05 throughout). Aggressive c=0.5 is LESS damaging than mild c=1.0 — opposite of typical clip behavior.
+
+**Mechanism interpretation (alphonse)**: AdamW grad norm sits in [0.5, 1.0] typical. c=0.5 acts as near-uniform global rescaling (most steps land at fixed magnitude), removing variance the optimizer was actually using. c=1.0 fires only on the largest informative updates, deleting magnitude info that's actually correlated with task signal. Neither helps because there is no live tail outlier to suppress — LOGIT_SOFTCAP=20.0 already handles per-token logit saturation gradient gracefully.
+
+**THEOREM extended (gradient-magnitude axis class CLOSED on both optimizer sides)**: Combined with #688 MUON_GRAD_CLIP closure (both arms MISS, ~half of Muon steps triggered uniform damping not outlier filtering), AdamW-side clipping completes the closure. Gradient-magnitude norm clipping is a strict loss in the c=20+EMBED_INIT_STD=0.1+LOGIT_SOFTCAP=20.0 stack regardless of which optimizer is clipped or what threshold is used.
+
+**Cluster placement**: 19th and 20th axes joining the ffs=3025–3125 floor cluster. Cluster now spans 20+ closed axes — strong evidence the bottleneck is shared structure (init randomness × FFS step-counter discretization × cooldown geometry), not any single optimizer mechanism.
+
+**Conclusion**: AdamW-side gradient magnitude axis CLOSED. Alphonse → next assignment ADAMW_EPS denominator regularization (alphonse's own suggestion #3) — mechanistically distinct: acts on v_t denominator floor, not on raw gradient magnitude. Never tested in 165+ experiments.
+
+
+---
+
+## 2026-05-22 05:00 UTC — PR #742: ADAMW_RADAM — Rectified Adam variance rectification on AdamW (CLOSED — both arms MISS)
+
+- `g1r2-askeladd/adamw-radam`
+- Hypothesis: Liu et al. 2019 RAdam — when ρ_t ≤ 4 in early steps fall back to m_hat (SGD-like), else apply r_t·m_hat/√v_hat rectified update. Targets early-step v_t variance instability. Arm A=full RAdam, Arm B=embed+lm_head only (scalars excluded after Arm A diverged).
+- W&B runs: `6ui6wcu6` (disabled-check val@200=4.0864 PASS), `wzn8z4mh` (Arm A — KILLED step 500), `5s7g644s` (Arm B — terminal)
+
+| Arm | Config | val/loss | ffs | Outcome |
+|---|---|---|---|---|
+| A | ADAMW_RADAM=1 (all AdamW groups) | 9.130 @ step 500 | n/a | **DIVERGED + KILLED** (grad_norm to 9.3M, train_loss peak 13.21) |
+| B | ADAMW_RADAM=2 (embed+lm_head only) | **3.48176** | -1 | MISS — never reached 3.28 |
+| baseline (#613) | unchanged AdamW | 3.26776 | 3000 | reference |
+
+**Results commentary (askeladd)**: "Standard Adam doesn't *amplify* — its `1/sqrt(v)` saturates the update to ≈ `sign(grad)`, which is the actual mechanism that keeps high-LR groups stable. Removing that saturation in the first 4 steps (RAdam's SGD-fallback) re-introduces exactly the magnitude sensitivity that Adam was designed to remove. RAdam helps in regimes where standard Adam's `1/sqrt(v_t)` *spikes* on a rare large gradient — but at β2=0.95 with our batch size and FineWeb statistics, early-step `v_t` is dominated by stable token statistics, not rare spikes."
+
+**THEOREM (early-step rectification incompatibility, bilateral)**: Combined with #718 MUON_BIAS_CORR closure (Adam-style bias correction on Muon's heavy-ball amplified early-step LR ≈6.7× and destabilized), **Adam-style bias-correction-or-rectification machinery is strict downside in the c=20+EMBED_INIT_STD=0.1 stack regardless of which optimizer it's applied to.** The early-step variance management mechanism that's already working (`1/sqrt(v_t)` saturation for AdamW; NS5 polar projection for Muon) cannot be improved by adding more correction layers.
+
+**Arm A divergence pattern**: train_loss reached 13.21 by step 100, grad_norm spiked from typical 60k-300k to 1M-9M, val_loss=9.13 at step 500. SGD-fallback for scalars (LayerNorm gains, ~50 params, very small magnitudes) catastrophically explodes when given raw gradient passes at LR=0.3.
+
+**Arm B partial rescue**: excluding scalars from RAdam confirmed scalars are the divergence source. Embed+lm_head with RAdam converged but +0.214 above baseline at terminal — the variance-rectification still wastes early-step magnitude info even when not catastrophic.
+
+**Conclusion**: RAdam axis closed. Mechanism class "early-step correction-or-rectification on AdamW or Muon" is now fully exhausted. Both directions (bias amplification #718, variance rectification #742) are strict downside.
+
