@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--pmuon_mu_cooldown_target", type=float, default=None,
+        help="If set, linearly ramp body-Muon mu from 0.95 to this target over cooldown_frac. None = no ramp.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -853,6 +855,15 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Body-Muon mu cooldown ramp
+        if args.pmuon_mu_cooldown_target is not None:
+            mu_base = 0.95
+            if sched_cooldown_progress > 0:
+                mu_t = mu_base + (args.pmuon_mu_cooldown_target - mu_base) * sched_cooldown_progress
+            else:
+                mu_t = mu_base
+            for group in optimizer2.param_groups:
+                group["mu"] = mu_t
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -920,6 +931,15 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.pmuon_mu_cooldown_target is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/muon_mu/mu_t": optimizer2.param_groups[0]["mu"],
+                    "train/muon_mu/mu_base": 0.95,
+                    "train/muon_mu/mu_target": args.pmuon_mu_cooldown_target,
+                    "train/muon_mu/cooldown_progress": sched_cooldown_progress,
+                }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
