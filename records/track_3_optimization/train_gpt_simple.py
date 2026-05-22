@@ -71,6 +71,15 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H65 per-block-TYPE LR split for MuonH body 2D matrices. When enabled, splits the
+    # 72 body matrices into two param groups: 48 attn (q/k/v/proj) and 24 mlp (fc/proj),
+    # each with its own LR scaled from --muonh_lr. Bit-identical to baseline when off.
+    parser.add_argument("--muonh_lr_per_type", type=int, default=int(os.environ.get("MUONH_LR_PER_TYPE", "0")),
+                        help="If 1, apply per-block-TYPE LR scaling to MuonH body 2D params.")
+    parser.add_argument("--muonh_lr_attn_mult", type=float, default=float(os.environ.get("MUONH_LR_ATTN_MULT", "1.0")),
+                        help="LR multiplier for ATTN body matrices (q/k/v/proj).")
+    parser.add_argument("--muonh_lr_mlp_mult", type=float, default=float(os.environ.get("MUONH_LR_MLP_MULT", "1.0")),
+                        help="LR multiplier for MLP body matrices (fc/proj).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -592,9 +601,16 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Support both raw param lists and PyTorch-style list-of-dicts (for per-group LR).
+        # Sort by tensor size descending in either case for round-robin GPU distribution.
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            for group in params:
+                assert isinstance(group, dict) and "params" in group
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -705,6 +721,12 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.muonh_lr_per_type:
+    print0(f"MuonH per-TYPE LR ENABLED: attn_mult={args.muonh_lr_attn_mult} mlp_mult={args.muonh_lr_mlp_mult} "
+           f"(effective: attn_lr={args.muonh_lr * args.muonh_lr_attn_mult:.6f} mlp_lr={args.muonh_lr * args.muonh_lr_mlp_mult:.6f})",
+           console=True)
+else:
+    print0("MuonH per-TYPE LR DISABLED (single muonh_blocks group)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,6 +788,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_lr_per_type": args.muonh_lr_per_type,
+            "muonh_lr_attn_mult": args.muonh_lr_attn_mult,
+            "muonh_lr_mlp_mult": args.muonh_lr_mlp_mult,
         },
     )
 
@@ -816,11 +841,30 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if args.muonh_lr_per_type:
+        # H65: split body 2D matrices into ATTN (q/k/v/proj) and MLP (fc/proj) buckets
+        # with independent LR multipliers. Sanity assertions guarantee that every body
+        # 2D param lands in exactly one bucket.
+        attn_params = [p for name, p in model.named_parameters()
+                       if p.requires_grad and p.ndim >= 2 and "blocks." in name and ".attn." in name]
+        mlp_params = [p for name, p in model.named_parameters()
+                      if p.requires_grad and p.ndim >= 2 and "blocks." in name and ".mlp." in name]
+        all_body_2d = set(p for p in model.blocks.parameters() if p.ndim >= 2)
+        assert set(attn_params) | set(mlp_params) == all_body_2d, \
+            "per-type split missed some body 2D params"
+        assert len(set(attn_params) & set(mlp_params)) == 0, "attn/mlp overlap"
+        optimizer2 = MuonH(
+            [dict(params=attn_params, lr=args.muonh_lr * args.muonh_lr_attn_mult, name="muonh_attn"),
+             dict(params=mlp_params,  lr=args.muonh_lr * args.muonh_lr_mlp_mult,  name="muonh_mlp")],
+            lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+            hyperball=True, budget_mult=args.muonh_budget_mult,
+            mode=args.muonh_mode)
+    else:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -833,6 +877,17 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+    # H65 sanity log: when per-TYPE LR is enabled, emit per-group initial_lr and param
+    # counts at trial start so we can verify the scaling factor lands exactly on
+    # base_lr * mult. This is the load-bearing check called out in the PR brief.
+    if args.muonh_lr_per_type and dist.get_rank() == 0:
+        per_type_metrics = {"trial": trial_idx}
+        for pg in optimizer2.param_groups:
+            grp_name = pg.get("name", "muonh_unknown")
+            per_type_metrics[f"muonh/group_initial_lr_{grp_name}"] = pg["initial_lr"]
+            per_type_metrics[f"muonh/group_param_count_{grp_name}"] = len(pg["params"])
+        wandb.log(per_type_metrics, step=trial_idx * (args.train_steps + 1))
+        print0(f"MuonH per-TYPE param groups (trial {trial_idx}): {per_type_metrics}", console=True)
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
@@ -1038,6 +1093,12 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H65 per-group telemetry: when per-TYPE split is on, log each group's
+                    # current LR so we can compare cooldown / warmup curves between attn/mlp.
+                    for pg in opt.param_groups:
+                        grp_name = pg.get("name")
+                        if grp_name:
+                            muonh_metrics[f"train/muonh/effective_lr_{grp_name}"] = pg["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
