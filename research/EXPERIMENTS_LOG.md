@@ -1,3 +1,58 @@
+## 2026-05-22 06:50 UTC — PR #770 ASSIGNED (edward): H58 Aux v_t freeze at cooldown onset (mechanism complement to PR #740)
+
+- Branch: `g1r3-edward/aux-vt-freeze`
+- Hypothesis: At cooldown onset (step 2493 ≈ 75% of training), FREEZE aux AdamW `exp_avg_sq` (v_t) buffer at its peak-conditioning value. Snapshot at freeze step; restore after each subsequent step. Preserves well-saturated denominator built up during high-LR main training, prevents late-cooldown noise from leaking into the v_t estimate when small gradients dominate. **Mechanism complement to PR #740**: same axis (mid-training v_t intervention) but OPPOSITE direction — preserve vs zero. Maintains bias-correction invariant (`1-β2^step ≈ 1` for step >> 60, so frozen v̂_t = V/1 = V).
+- Builds on closure pattern: PR #689 (long-horizon EMA hurts cooldown), PR #721 (annealing long-horizon down didn't help), PR #740 (zeroing v_t catastrophic). Freeze tests the "preserve at peak conditioning" extreme directly.
+- Arms (4, n=1, 3325 steps): ctrl, freeze@step 2493 all groups (primary), freeze@step 2493 embed+lmhead only (isolates large-tensor effect), freeze@step 1663 (50%, tests earlier freeze).
+- Direct follow-up from PR #740 student suggested follow-up #1 ("gradual second-moment dampening" — freeze is the extreme case).
+- ~20 LoC: 2 CLI flags + snapshot/restore logic in train loop after `optimizer1.step()`.
+- Telemetry: `aux/vt_norm_embed`, `aux/vt_norm_lmhead`, `aux/vt_norm_scalars_mean`, `aux/vt_pre_freeze_max_abs`, `aux/vt_post_freeze_drift` (should be 0 if freeze working).
+- W&B group `h58_aux_vt_freeze`. Reassignment after PR #746 RACS NEG closure.
+
+---
+
+## 2026-05-22 06:50 UTC — PR #746 CLOSED (edward): H51 RACS rank-2 factorization NEG (Δ+0.067 ~130σ, axis closed)
+
+- Branch: `g1r3-edward/racs-aux`
+- Hypothesis: Replace AdamW's per-element v_t with rank-2 row-column factored `sqrt(v_row · v_col) + eps`. Test on embed+lm_head (vocab-anisotropic groups), then optionally all 2D body weights.
+- Arms (2 terminal + 1 correctly skipped, n=1, 3325 steps):
+
+| Arm | Mode | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|---|
+| 1 ctrl | off (fused AdamW) | `ijtugr6u` | **3.27438** | 3175 | — |
+| 2 RACS embed_lmhead_only | rank-2 row-col | `9rjql9qg` | **3.34131** | -1 (never reached 3.28) | **+0.06693 NEG (~130σ)** |
+| 3 RACS all_2d | rank-2 row-col on all 2D body weights | SKIPPED | — | — | — |
+
+Arm 3 skip justified: `adam_scalars` group contains only `ndim<2` tensors → RACSAdamW `use_racs = racs_apply and (g.dim() == 2)` gate forces per-element fallback even with `racs_apply=True`. all_2d is bit-identical to embed_lmhead_only on this stack since only embed.weight and proj.weight are 2D aux. Saved 1.7h GPU.
+
+### Mechanism finding — rank-2 factorization systematically under-conditions
+
+Trajectory analysis (cleanest closure mechanism in cycle):
+
+| step | ctrl | RACS | Δ |
+|---|---|---|---|
+| 500 | 3.91 | 4.24 | **+0.33 (immediate gap)** |
+| 1500 | 3.62 | 3.74 | +0.13 |
+| 2000 | 3.48 | 3.55 | +0.07 |
+| 3325 | 3.27438 | 3.34131 | +0.067 (steady deficit) |
+
+Rank-2 outer product `sqrt(v_row · v_col)` enforces a rank-1 second-moment surface. Actual `g²` on embed.weight has substantial (token × channel) **interaction noise** that per-element v_t captures but rank-2 smears. Shape (immediate +0.33, narrowing to steady +0.067, NO cooldown rescue) confirms **systematic under-conditioning**, not instability or divergence. Structural row/column anisotropy hypothesis is real but insufficient to dominate (token × channel) interaction structure.
+
+### Rule logged — aux preconditioner-structure axis CLOSED
+
+Joint closure across 7 mechanism classes:
+- PR #643 PAdam (v_t power)
+- PR #631 β2=0 (v_t memory)
+- PR #612 β1=0 (m_t memory)
+- PR #670 per-group eps
+- PR #592/#672 GC (gradient-direction projection)
+- **PR #746 RACS (preconditioner-structure axis)** ← THIS
+
+Future factored-preconditioner proposals (Adafactor, Shampoo-aux, rank-3 row × col + diag) pre-closed by structural analogy. Edward's follow-up #1 correctly predicts rank-3 closes ≤10% of the gap (mechanism is high-rank interaction noise, not a missing diagonal).
+
+### Follow-up routing
+Edward → PR #770 H58 aux v_t freeze (state-preservation, fresh axis distinct from state-modification). PR #770 is the mechanism complement to PR #740 (v_t reset NEG) — preserve vs zero, both probe v_t-at-cooldown question.
+
 ## 2026-05-22 05:58 UTC — PR #767 ASSIGNED (tanjiro): H57 MuonH inner momentum schedule
 
 - Branch: `g1r3-tanjiro/muonh-inner-mu-schedule`
