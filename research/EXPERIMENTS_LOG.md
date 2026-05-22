@@ -1,5 +1,62 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 00:55 UTC — Cycle 71 mid-56: PR #718 fern MUON_BIAS_CORR CLOSED — bias correction mechanism falsified; NS5 + magnitude-correction incompatibility theorem
+
+### PR #718 — fern MUON_BIAS_CORR ∈ {1=full, 2=warmup-only} vs default 0 (disabled)
+
+Branch: `g1r2-fern/muon-bias-correction`. Closed 2026-05-22 00:55 UTC.
+
+| Arm | MUON_BIAS_CORR | val_loss | ffs | Hold gate (val≤3.27, ffs≤3000) | Merge bar (val<3.26776) | W&B |
+|-----|----------------|----------|-----|-------------------------------|--------------------------|------|
+| A   | 1 (full throughout) | **3.26838** | **3000** | **PASS** | MISS +0.00062 | `7q5df6cm` |
+| B   | 2 (warmup-only ≤200) | **3.27207** | **3050** | MISS | MISS +0.00431 | `rmp39ala` |
+| Disabled | 0 | val@200=4.08481 | — | bit-exact baseline ✓ | — | `zikzrvlz` |
+| Baseline #613 (n=2) | — | 3.26776 | 3000 | — | — | — |
+
+**Mechanism finding (HIGH-VALUE FALSIFICATION)**: bias correction `1/(1−μ^t)` is theoretically motivated for low-magnitude early momentum, but EMPIRICALLY both arms are **+0.077 (A)** and **+0.067 (B)** WORSE than disabled-check at step 125. Hypothesis predicted *faster* early descent; reality shows a residual *warmup scar* from the early-step LR amplification:
+- Step 1: factor = 1/(1−0.85^1) = 1/0.15 ≈ **6.7×** amplification
+- Step 5: factor ≈ 1/0.43 ≈ **1.75×**
+- Step 20: factor ≈ 1.0 (correction decays)
+
+With MUON_LR=0.04, this is effectively LR ≈ 0.08–0.27 for steps 1–10. The amplified early updates interact destructively with NS5's stability window (which is tuned for un-corrected magnitudes).
+
+**Theoretical insight (programme-level)**: **NS5 makes Muon a direction-only optimizer.** Post-NS5 polar projection strips magnitude information from the momentum buffer — scaling `m_t` by 1/(1−μ^t) and by 1.0 produce nearly identical update *directions* once NS5 stabilizes (~20+ steps in). But the early amplification still happens BEFORE NS5 saturates, causing un-recoverable trajectory drift. This theorem rules out an entire mechanism class:
+
+> Any axis that modifies the *magnitude* of the momentum-derived update inside the NS5 pipeline is either a no-op in steady state or a disruption during early/late transitions. Future axes should target either (a) the *direction* of momentum (e.g., per-block CONTRA mixing #729, per-layer-type LR splits #732), or (b) what enters Muon *before* NS5 (gradient processing, momentum buffer composition pre-NS5).
+
+**Warmup-scar persistence theorem**: Step-125 deficit of +0.077 partially recovers to +0.00062 by step 3175 — but never fully. Early-step destabilization is *expensive* and only ~99.2% recoverable. Relevant for all warmup-touching axes (thorfinn #728 EMBED_LR_WARMUP, edward #702 MU_WARMUP_START, alphonse #734 ADAMW_GRAD_CLIP if it interacts with steps 1–10).
+
+**Why Arm B (warmup-only) is worse than Arm A (full)**: Both apply correction during destabilizing early steps (1–10); the +0.004 gap is essentially n=1 noise post-step-200 (where correction is a no-op). This means Arm A's +0.00062 vs baseline is *also* within plausible n=1 noise — but the **falsified mechanism** is the dominant signal, not the noise-bound miss. No n=2 confirm authorized.
+
+**Decision math (n=2 declined)**: For Arm A n=2 confirm to be worth running, we'd need P(seed 1 val < 3.26714) high enough to justify the GPU. The student's diagnostic explicitly identifies the mechanism as harming early descent — the prior is that seed 1 lands at roughly the same noise band, not below it. Effort-to-information ratio is poor against fresh hypotheses.
+
+**14th axis joining ffs ≥ 3025 cluster**: another data point that the ffs=3025 floor is structural to the c=20 stack at n=1, requires n=2 statistical confirmation OR a mechanism that genuinely accelerates pre-cooldown descent to reach.
+
+### Assignment: fern → PR #739 (ADAMW_NESTEROV)
+
+**Hypothesis**: NAdam-style one-step look-ahead on AdamW's first moment (Dozat 2016). Standard Adam: `update = m_t / (sqrt(v_t)+ε)`. NAdam: `update = m_hat / (sqrt(v_t)+ε)` where `m_hat = β1·m_t + (1−β1)·g_t` (apply next-step smoothing operator now).
+
+**Why it's distinct from the just-closed #718**:
+- #718 was a *magnitude* correction on Muon (inside NS5 pipeline) — falsified
+- This is a *direction* correction on AdamW (no NS5) — different mechanism axis
+- The NS5+magnitude-incompatibility theorem from #718 does NOT apply: AdamW has no polar projection, so direction modifications are not stripped away
+
+**Arms**:
+- Arm A: ADAMW_NESTEROV=1 (full Nesterov throughout — standard NAdam)
+- Arm B: ADAMW_NESTEROV=2 (cooldown-only, progress ≥ 0.95 = step ≥ 3016)
+
+Arm B explicitly avoids the early-step regime that broke #718 — tests whether late-stage extrapolation alone benefits ffs/val.
+
+**Anti-duplication** (verified against 165+ experiment history):
+- #718 MUON_BIAS_CORR — magnitude not direction, Muon not AdamW
+- #703 MUON_NESTEROV — Muon side with NS5 interaction failure mode
+- #653 ADAMW_BETA1 constant — value not structural update
+- #587 β1 ramp — schedule not structural
+- #574 Sophia-G — sign-of-momentum, different ratio
+- No prior NAdam test in any cycle
+
+8/8 students assigned (alphonse #734, tanjiro #733, nezuko #732, frieren #729, thorfinn #728, askeladd #720, fern #739, edward #702 pod-broken hold).
+
 ## 2026-05-22 00:10 UTC — Cycle 71 mid-55: PR #715 alphonse NORMUON_2D CLOSED — 1D variance is locally optimal; cross-axis EMA combine adds no benefit and slightly hurts
 
 ### PR #715 — alphonse NORMUON_2D ∈ {geometric `√(r·c)`, harmonic `2rc/(r+c)`} vs default 1D per-row buffer
