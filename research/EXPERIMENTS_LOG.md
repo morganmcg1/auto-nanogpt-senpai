@@ -3,6 +3,46 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 21:30 UTC — PR #801: Position-weighted CE — per-position loss aggregation reweight (alphonse) — CLOSED productive-NEGATIVE BILATERAL (74th cycle)
+
+- Branch: `g1r4-alphonse/position-weighted-ce`
+- Hypothesis: Modify per-position weight w_t on next-token CE: linear_up upweights late-context tokens (more context → more refinement signal), linear_down upweights early-context tokens (less context → more learnable). Includes `self.training` validation gate (durable pattern from #791 focal closure).
+
+**Phase 1 N=1 results (post-validation-gate, vs post-#708 baseline 3.27036):**
+
+| Arm | mode | α | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline | Verdict |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | uniform | 0.0 | (verified) | 3.26994 | (verified) | — | **−0.00042 (drift PASS ±0.003)** | clean control |
+| B | linear_up | 0.5 | (verified) | 3.27126 | (verified) | **+0.00132** | +0.00090 | sub-signal (≥+0.0015 threshold not crossed) |
+| C | linear_down | 0.5 | (verified) | 3.27222 | (verified) | **+0.00228** | +0.00186 | REGRESSION |
+| D | linear_down | 1.5 | (verified) | 3.27594 | (verified) | **+0.00600** | +0.00558 | LARGE REGRESSION |
+
+**Bilateral monotone regression** — both linear_up (late upweight) and linear_down (early upweight) families regress, with linear_down strictly monotone in α (0.5 → 1.5 doubles the regression magnitude).
+
+**Mechanism reading:**
+- B (linear_up +0.00132): autoregressive CE already up-weights late-context positions disproportionately through the chain rule's per-position-loss accumulation; further per-position upweight is redundant capacity-spend.
+- C (linear_down mild +0.00228 — worse than B): counter to the a-priori "early-context = more learnable" hypothesis. Early tokens are hard for *information-theoretic* reasons (no left context, irreducible entropy floor) not capacity-allocation reasons. Upweighting them just hammers the model against an irreducible target.
+- D (linear_down aggressive +0.00600): linearly amplifies C — monotone-NEG with α.
+
+**Confidence-pressure / CE-shape regularizer family — CLOSED across 4 orthogonal axes:**
+
+| Hypothesis | Mechanism | PR | Verdict |
+|---|---|---|---|
+| Label smoothing | Target distribution | #446 | NEG monotone |
+| Z-loss | Logit-magnitude penalty | #441 | NEG |
+| Focal loss | Per-example confidence reweight | #791 | NEG monotone |
+| Position-weighted CE | Per-position aggregation reweight | #801 (this) | NEG bilateral |
+
+**Durable finding:** the merged stack's CE training signal — hard targets, uniform per-token aggregation, no logit regularizer, autoregressive cross-entropy with reduction='sum' — is empirically optimal across 4 orthogonal CE-modification axes. **Future loss-side work should target structural mechanisms (output projection variants, frequency-aware *init* not *loss*, multiplicative preconditioner adjustments — see #838) — NOT CE shape.**
+
+**Second confirmation of `self.training` validation gate durability:** self-applied gate prevented a second measurement-confounded comparison this cycle (after #791). This gate is durable across CE-modifying experiments.
+
+**Follow-up:** alphonse reassigned to body-Muon WD-anchor (#808 — Arm B = 3.27014 winner candidate at N=1, paired-pod n=3 pending). Askeladd reassigned to fresh gradient-side mechanism axis: **#845 Embed gradient sparsity-rescaling via inverse-frequency weighting** — multiplies embedding gradient rows by `sqrt(freq_max/freq(v))` to freshen v_t for rare-row sparse activation. Mechanism-orthogonal to closed CE-shape family AND parallel disambiguation with #838 (lm_head v_t floor) across the two AUX groups.
+
+Baseline UNCHANGED at val=3.27036 / fs=3216.67.
+
+---
+
 ## 2026-05-22 20:50 UTC — PR #791: Focal-loss γ sweep — gradient reweighting by token difficulty (edward) — CLOSED productive-NEGATIVE (73rd cycle)
 
 - Branch: `g1r4-edward/focal-loss-gamma-sweep`

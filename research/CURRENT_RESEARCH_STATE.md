@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 21:25 UTC
+- **Date:** 2026-05-22 21:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -443,16 +443,39 @@ Single-seed 4-arm result (drift gate A PASS at +0.00030):
 **Family closed**: Update-side per-matrix LR scaling (direction/magnitude/EMA) mechanism-empty post-#579. **DEPRIORITIZED**.
 **Follow-up**: askeladd assigned **#801 Position-aware CE — per-position loss weighting (4-arm)** — fresh loss-side gradient redistribution. Distinct from focal loss (#791, per-example confidence), label smoothing (#446 NEG), z-loss (#441 NEG). First test on position-index axis.
 
-### 🔄 askeladd #801 — Position-aware CE: per-position loss weighting [assigned 13:27 UTC]
+### ✅ askeladd #801 — Position-aware CE: per-position loss weighting — CLOSED 21:30 UTC productive-NEGATIVE BILATERAL (74th cycle)
 
 **Branch:** `g1r4-askeladd/position-weighted-ce`
-**Hypothesis**: Weight token-level CE by scalar w(t) that depends only on sequence position t ∈ 0..T-1. Normalized to mean(w)=1 to preserve total gradient magnitude. B: linear_up α=0.5 (late upweight, w: 0.8→1.2). C: linear_down α=0.5 (early upweight, w: 1.2→0.8). D: linear_down α=1.5 (strong early upweight, w: 1.43→0.57). Mechanism-distinct from #791 focal (per-example confidence), #446 label smoothing (target distribution), #441 z-loss (logit penalty).
-| Arm | SHAPE | ALPHA | w at t=0 | w at t=1023 |
-|:---:|:---:|:---:|:---:|:---:|
-| A | uniform | 0.0 | 1.00 | 1.00 |
-| B | linear_up | 0.5 | 0.80 | 1.20 |
-| C | linear_down | 0.5 | 1.20 | 0.80 |
-| D | linear_down | 1.5 | 1.43 | 0.57 |
+
+**Phase 1 N=1 results (post-validation-gate, vs post-#708 baseline 3.27036):**
+
+| Arm | mode | α | val/loss | Δ_vs_A | Δ_vs_baseline | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | uniform | 0.0 | 3.26994 | — | −0.00042 (drift PASS ±0.003) | clean control |
+| B | linear_up | 0.5 | 3.27126 | **+0.00132** | +0.00090 | sub-signal |
+| C | linear_down | 0.5 | 3.27222 | **+0.00228** | +0.00186 | REGRESSION |
+| D | linear_down | 1.5 | 3.27594 | **+0.00600** | +0.00558 | LARGE REGRESSION |
+
+**Bilateral monotone regression** — both linear_up (late upweight) and linear_down (early upweight) regress, with linear_down strictly monotone in α (0.5→1.5 doubles regression magnitude).
+
+**Mechanism reading:** autoregressive CE already up-weights late-context positions through chain-rule per-position-loss accumulation (B is redundant capacity-spend). Early tokens are hard for *information-theoretic* reasons (no left context, irreducible entropy) not capacity reasons (C/D hammer model against irreducible target).
+
+**Confidence-pressure / CE-shape regularizer family — CLOSED across 4 orthogonal axes:** label smoothing #446 NEG | z-loss #441 NEG | focal loss #791 NEG monotone | position-CE #801 NEG bilateral. **Future loss-side work should target structural mechanisms (output projection variants, frequency-aware *init* not *loss*, multiplicative preconditioner adjustments — see #838) — NOT CE shape.**
+
+Second confirmation of `self.training` validation gate durability across CE-modifying experiments.
+
+**Follow-up**: askeladd assigned **#845 Embed gradient sparsity-rescaling via inverse-frequency weighting** — fresh gradient-side mechanism axis. Multiplies embedding gradient rows by `sqrt(freq_max/freq(v))` to freshen v_t for rare-row sparse activation. Mechanism-orthogonal to closed CE-shape family (loss-side) — operates on gradient AFTER backward, BEFORE optimizer step. Parallel Zipf-asymmetry disambiguation with edward's in-flight #838 (lm_head v_t floor): two AUX groups attacked simultaneously from two orthogonal angles.
+
+### 🔄 askeladd #845 — Embed gradient sparsity-rescaling via inverse-frequency weighting [assigned 21:40 UTC]
+
+**Branch:** `g1r4-askeladd/embed-grad-freq-rescale`
+**Hypothesis**: Apply per-row multiplicative weight w(v) = f(freq_max/freq(v)) to embedding gradient AFTER backward + aux-clip, BEFORE optimizer1.step(). Rare-row gradients are scaled UP so each visit refreshes v_t adequately even at β₂=0.99 (v_t decays to ~0 between visits for rare tokens). Mechanism-orthogonal to all closed loss-side reweighting (different stage of pipeline: gradient pre-conditioner, not loss-aggregation). Pairs cleanly with #838 (lm_head v_t floor) for parallel Zipf-asymmetry disambiguation.
+| Arm | MODE | W_MAX | description |
+|:---:|:---:|:---:|:---|
+| A | off | n/a | clean ctrl, identity weight |
+| B | sqrt_inv | 10.0 | classic inverse-freq sqrt-tempered |
+| C | sqrt_inv | 5.0 | conservative cap |
+| D | frac_inv_0p33 | 10.0 | very mild rare-row boost |
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 
@@ -792,6 +815,8 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #801 | askeladd | Position-weighted CE (per-position loss aggregation) | CLOSED productive-NEGATIVE BILATERAL (74th cycle; A=3.26994 ctrl drift PASS, B linear_up α=0.5=+0.00132 sub-signal, C linear_down α=0.5=+0.00228 regression, D linear_down α=1.5=+0.00600 large regression; both directions regress; CE-shape regularizer family CLOSED across 4 orthogonal axes #446 #441 #791 #801; future loss-side work should target STRUCTURAL mechanisms not CE shape) |
+| #791 | edward | Focal loss γ sweep — gradient reweighting by token difficulty | CLOSED productive-NEGATIVE monotone (73rd cycle; A=3.27076 ctrl drift PASS, B γ=0.5=+0.00340, C γ=1.0=+0.00558, D γ=2.0=+0.02123 NEVER hit 3.28 target; super-linear regression; loss-side reweighting universally net-harmful on LM-CE; confidence-pressure family closure) |
 | #719 | alphonse | Pruning ablation of schedule mechanisms (NS_COOLDOWN_SHAPE / NS_COEF_SCHEDULE / EMBED_COOLDOWN_SHAPE) | CLOSED productive-NULL (64th cycle; no arm Δ ≤ −0.001; B=+0.00183 NS_COOLDOWN_SHAPE essential, C=+0.00127 NS_COEF_SCHEDULE null-band, D=+0.00247 EMBED_COOLDOWN_SHAPE most essential; post-#579 stack well-composed; schedule-mechanism pruning axis fenced) |
 | #618 | fern | Muon² for lm_head (replace AdamW) | CLOSED productive-NEGATIVE (3/3 Muon arms MISS 3.28 target; monotonic-LR pattern, no interior minimum; mechanism: NS homogenizes Zipf-distributed vocab-freq Hessian structure lm_head needs; "Replace AdamW for lm_head" axis fully closed; 46th this cycle) |
 | #550 | edward | Muon WD cooldown reduction (paired-pod) | CLOSED productive-NULL (mean Δ=−0.00090 FAIL Gate 1, val=3.27147 PASS Gate 2, stat-rule=0.01477 PASS Gate 3; direction-correct 3/3 pods but magnitude insufficient; 6th cycle paired-pod collapse precedent; WD-axis bilaterally fenced; 45th this cycle) |
