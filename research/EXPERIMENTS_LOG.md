@@ -1,3 +1,38 @@
+## 2026-05-22 09:50 UTC — PR #782 ASSIGNED (alphonse): H60 Outer optimizer Nesterov vs heavy-ball Polyak (MuLoCo outer CHOICE axis — fresh)
+
+- Branch: `g1r3-alphonse/outer-nesterov-vs-polyak`
+- Hypothesis: Replace MuLoCo's outer Nesterov-SGDM update with classical heavy-ball Polyak SGDM. Current outer step is `p ← anchor - outer_lr * (outer_momentum * v + delta)` (Nesterov lookahead); heavy-ball alternative is `p ← anchor - outer_lr * v` (pure velocity). Nesterov correction is well-motivated for noisy single-batch INNER gradients, but at MuLoCo's outer aggregation step (sync_interval=30) the `delta` IS the accumulated 30-step trajectory — already low-variance. Lookahead may be redundant or structurally harmful.
+- **Fresh axis**: outer optimizer CHOICE has never been tested. PR #563 closed outer-momentum SCHEDULE NEG, PR #763 (in-flight) tests outer ON/OFF, #536 established outer-momentum is load-bearing. None has touched the UPDATE RULE.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl Nesterov): `--outer_nesterov 1 --outer_momentum 0.5 --outer_lr 0.7`
+  - arm_b (heavy-ball, same LR): `--outer_nesterov 0 --outer_momentum 0.5 --outer_lr 0.7` (PRIMARY direct swap)
+  - arm_c (heavy-ball, LR-matched): `--outer_nesterov 0 --outer_momentum 0.5 --outer_lr 1.0` (compensates for ~33% smaller effective step — fair magnitude comparison)
+- ~5 LoC diff: 1 CLI flag (`--outer_nesterov`), branch outer step on flag, wandb config + banner update.
+- Telemetry: `outer/delta_rms` (should differ between arms), `outer/velocity_rms`, NEW `outer/effective_step_norm` to distinguish direction vs magnitude effects.
+- 4 outcomes all give clean mechanism info: arm_b WINS → "outer should be pure momentum-averaged delta", arm_b NULL → axis closed (free simplification), arm_b NEG + arm_c WINS → Nesterov works as coupled direction×magnitude device, both NEG → Nesterov load-bearing through both.
+- W&B group `h60_outer_nesterov_vs_polyak`. Reassignment after PR #750 NULL closure.
+
+---
+
+## 2026-05-22 09:50 UTC — PR #750 CLOSED (alphonse): aux AGC cooldown SCHEDULE NULL — joint closure of AGC axis with PR #483/#595
+
+- Branch: `g1r3-alphonse/aux-agc-cooldown-schedule`
+- Hypothesis: Schedule `aux_agc_clip_ratio` across training (tight γ→loose γ ramp during cooldown) — let cooldown trade off the tight clamp once LR decay tames update magnitudes naturally. Direct exploit of PR #483/#595's combined "AGC is flat from 0.02-0.10" + "AGC ON/OFF flat" findings: maybe magnitude isn't the dimension; TIMING is.
+- Arms (3, n=1, 3325 steps):
+
+| Arm | γ schedule | W&B run | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|---|
+| 1 ctrl | γ=0.05 constant | (per PR results) | 3.27353 | ~3100 | — |
+| 2 | γ=0.05→0.10 ramp over cooldown | (per PR results) | 3.27345 | ~3100 | -0.00008 |
+| 3 | γ=0.05→∞ (effective release) | (per PR results) | 3.27343 | ~3100 | -0.00010 |
+
+- All 3 arms inside σ=0.0006 noise floor. Stat margin (3.28 - 3.27343)·√1 = 0.00657 ≥ 0.004 ✓ but well above merge bar 3.27039 by +0.00304.
+- **Mechanism finding (joint axis closure)**: AGC is *dynamically engaging* (alphonse telemetry confirms clip-rate active during cooldown), but val/loss is independent of magnitude AND timing. The aux preconditioner's natural step-size is sufficiently bounded that AGC engagement is mechanically real but functionally irrelevant.
+- **Joint axis closure (3 PRs)**: PR #483 (static magnitude sweep 0.02-0.10) — flat. PR #595 (AGC ON/OFF static) — flat-NULL. **PR #750 (cooldown schedule) — flat-NULL despite mechanical engagement**. AGC dimension closed across magnitude × on-off × timing. Stop testing AGC variants.
+- Routing: Alphonse → PR #782 H60 (outer optimizer Nesterov vs heavy-ball Polyak — fresh CHOICE axis).
+
+---
+
 ## 2026-05-22 07:40 UTC — PR #775 ASSIGNED (fern): H59 Soft-Muon α SCHEDULE (cooldown-blend ramp 1.0→0.85, direct follow-up to PR #744)
 
 - Branch: `g1r3-fern/soft-muon-alpha-schedule`
