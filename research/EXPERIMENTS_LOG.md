@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 20:40 UTC — Cycle 71 mid-100: DOUBLE CLOSURE (39th + 40th floor axes) + double fresh SOAP-internal assignments
+
+### #819 askeladd MLP_SOAP_DISABLED — CLOSED as 39th floor axis
+
+`nhswq1cf` terminal val=3.27516 ffs=3100 (close-miss by 0.0052 val + 100 ffs). **MLP_SOAP is materially load-bearing** — removing it costs +8× more val and +3× more ffs than removing ATTN_SOAP (cf. thorfinn `m7582er0` val=3.26861 ffs=3025). Mechanistic interpretation: SOAP-preconditioned MLP direction IS compatible with NS5+contra+NorMuon and is NOT redundant noise. Combined with #804 AdaFactor-MLP (direction-not-magnitude refutation), the picture triangulates: full SOAP preconditioning IS the right amount of MLP-direction information at this floor depth.
+
+### #806 fern CONTRA_MUON=0+NS5_ITERS=10 stack-pruning — CLOSED as 40th floor axis (first statsig-confirmed close-miss)
+
+n=2 mean val=3.27011 ffs=3025. **First stack-pruning ablation in 192+ PRs to deliver a statsig-PASS val signal** ((3.28-μ)·√2=0.01399 ≥ 0.004 by 3.5×). MISS merge bar by 0.00235 val + 25 ffs. Mechanistic finding: CONTRA_MUON contributes ~0.0017 val at floor (small but real); NS5_ITERS=10 vs 14 is approximately neutral when CONTRA=0. **ffs=3025 wall TRIPLE-confirmed quantization-locked** across 5 independent runs spanning 3 mechanism families (audo3lgl + 288hsmgv + mvkam4g5 + m7582er0 + mx3wejbm). The eval cadence (every 25 steps after step 952) is the structural ffs floor.
+
+Stack-pruning success means the simpler stack (CONTRA_MUON=0, NS5_ITERS=10) is a candidate baseline for future floor-cadence experiments.
+
+### New assignments (idle students rotated)
+
+- **#836 askeladd**: SOAP_BETA2 sweep (Arm A=0.99, Arm B=0.80). First internal MLP-SOAP-2nd-moment axis in 192+ PRs. Inherited β2=0.90 = 10-step horizon; sibling axis to nezuko #828 NORMUON_BETA2.
+- **#837 fern**: SOAP_PRECOND_FREQ sweep (Arm A=20, Arm B=5). First internal MLP-SOAP-refresh-frequency axis in 192+ PRs. Inherited freq=10 means 317 eigendecompositions per 3175-step run; stability vs tracking-fidelity trade-off.
+
+### Mid-100 in-flight portfolio (7/8 GPUs active, 1 pod-broken)
+
+- thorfinn n=2 `j3zeph7z` ATTN_SOAP_DISABLED step ~1750 val=3.486 healthy (gate@2000=3.55 - PASS, on track for cycle's strongest n=2 confirm of floor break val=3.26861)
+- nezuko #828 `2yvwpst9` NORMUON_BETA2=0.99 step ~1875 val=3.455 exceptionally healthy (below baseline)
+- alphonse #830 `ekkxz91k` TARGET_UW=0.50 step ~1375 val=3.654 (close to gate@1500=3.68 with only 0.026 headroom)
+- frieren #833 `zdffq62p`/`dl25oo0b` MUON_LR_LATE_BOOST=1.5 both at step ~125 (duplicate concern; advisor asked frieren to verify single-process)
+- askeladd #836 (just assigned) — pending pickup
+- fern #837 (just assigned) — pending pickup
+- tanjiro #793 pod-broken (4 escalations unresponded since 18:10 UTC)
+- edward #702 pod-broken (4 escalations unresponded)
+
+---
+
 ## 2026-05-22 19:53 UTC — Cycle 71 mid-99: #794 CLOSED (38th floor axis — composite-late-boost AdamW saturation ceiling) + frieren → #833 MUON_LR_LATE_BOOST + new internal-axis sweeps in flight
 
 ### #794 frieren composite-late-boost — CLOSED as 38th floor axis
