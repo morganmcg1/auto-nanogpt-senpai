@@ -83,6 +83,11 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--embed_init_std", type=float, default=1.0,
+                        help="Standard deviation for embedding init. "
+                             "Current default 1.0 (torch's w.normal_()). "
+                             "GPT-2/3 use 0.02. Affects only the embedding weight; "
+                             "block init (0.33-scaled) and proj zero-init unchanged.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +770,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "embed_init_std": args.embed_init_std,
         },
     )
 
@@ -817,7 +823,7 @@ for trial_idx in range(args.num_trials):
                 # lm_head (model.proj.weight) — keep zero-init for ALL cells
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # N(0,1) — unchanged
+                w.normal_(std=args.embed_init_std)
             else:
                 # non-residual 2D weights (block Q/K/V/fc and any others)
                 std_base = (0.33 ** 0.5) / (w.size(-1) ** 0.5)
