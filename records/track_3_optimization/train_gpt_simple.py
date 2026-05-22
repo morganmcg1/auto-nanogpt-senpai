@@ -536,6 +536,12 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Body-Muon momentum bias correction (PR #709).
+# When enabled, the Nesterov-mixed pre-NS update is scaled by 1/(1 - mu^t) at step t,
+# undoing the early-step EMA bias. window=0 means full training (factor decays to ~1.0
+# by step ~140 at mu=0.95), window>0 disables BC after the first N steps.
+NANOGPT_MUON_BC_ENABLE = os.environ.get("NANOGPT_MUON_BC_ENABLE", "0") == "1"
+NANOGPT_MUON_BC_WINDOW = int(os.environ.get("NANOGPT_MUON_BC_WINDOW", "0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -635,9 +641,13 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True, bc_factor=None):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    # Optional bias correction on pre-NS update (PR #709).
+    # bc_factor is a 0-D tensor at trace time; None keeps the graph bit-identical to baseline.
+    if bc_factor is not None:
+        update = update * bc_factor
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
@@ -672,6 +682,10 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Bias-correction state (PR #709). Reusable 0-D CUDA tensor; created lazily
+        # so __init__ is safe before CUDA is fully ready.
+        self._bc_factor_t: Tensor | None = None
+        self._bc_last_value: float = float("nan")
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -687,6 +701,7 @@ class Muon(torch.optim.Optimizer):
         self.spectral_stats = None
         for group in self.param_groups:
             params = group["params"]
+            mu = group["mu"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -695,9 +710,25 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                        state["step"] = 0
+                    state["step"] += 1
+                    t = state["step"]
+                    # PR #709: optional bias correction factor 1/(1 - mu^t) on pre-NS update.
+                    # Bit-identical to baseline when disabled (bc_factor=None).
+                    bc_factor = None
+                    if NANOGPT_MUON_BC_ENABLE and (NANOGPT_MUON_BC_WINDOW == 0 or t <= NANOGPT_MUON_BC_WINDOW):
+                        bc_value = 1.0 / (1.0 - mu ** t)
+                        if self._bc_factor_t is None:
+                            self._bc_factor_t = torch.tensor(bc_value, dtype=torch.float32, device=p.device)
+                            self._bc_last_value = bc_value
+                        elif bc_value != self._bc_last_value:
+                            self._bc_factor_t.fill_(bc_value)
+                            self._bc_last_value = bc_value
+                        bc_factor = self._bc_factor_t
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         mu=mu, beta2=group["beta2"], eps=group["eps"],
+                                         bc_factor=bc_factor)
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -713,6 +744,12 @@ class Muon(torch.optim.Optimizer):
                                 "u_singular_range": float((svals.max() - svals.min()).item()),
                                 "u_singular_std": float(svals.std(unbiased=False).item()),
                                 "ns_iters_used": float(ns_iters),
+                                # PR #709 telemetry: pre-NS momentum norm and post-NS update norm
+                                # on the spectral_target param so mechanism is observable.
+                                "muon_m_norm": float(state["momentum"].norm().item()),
+                                "muon_update_norm": float(update.norm().item()),
+                                "muon_step": float(t),
+                                "muon_bc_factor": float(self._bc_last_value) if bc_factor is not None else 1.0,
                             }
                         except Exception:
                             self.spectral_stats = None
@@ -769,6 +806,9 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"MUON_BC: enable={NANOGPT_MUON_BC_ENABLE} window={NANOGPT_MUON_BC_WINDOW} "
+       f"(window=0 => full training; at mu=0.95: t=1 factor=20.0, t=20 ~1.56, t=100 ~1.006)",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -826,6 +866,8 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_bc_enable": NANOGPT_MUON_BC_ENABLE,
+            "nanogpt_muon_bc_window": NANOGPT_MUON_BC_WINDOW,
         },
     )
 
