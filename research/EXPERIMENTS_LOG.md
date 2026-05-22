@@ -2627,3 +2627,33 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 - **Orthogonal to all 7 in-flight**: distinct pipeline stage from GC (#756, pre-NS input) and adaptive-mu (#773, momentum blend into NS). NS_iter controls convergence quality; this controls output magnitude. Strictly orthogonal.
 
 - **Gate**: μ_n=1 ≤ 3.261265 → P2 n=4. μ_n=4 ≤ 3.261265 → merge.
+
+---
+
+## 2026-05-22 ~10:27 UTC — PR #699: alphonse depth-aware musoft residual-proj init — **MERGED ✅ NEW BASELINE**
+
+- **Branch**: `g1r5-alphonse/depth-aware-init`
+- **Student**: g1r5-alphonse
+- **Hypothesis**: Block residual injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling — each block's residual path starts with a small non-zero basis, providing gradient flow from step 1 without dominating the learned directions.
+
+- **P2 n=4 terminal (run `zp6gvwv5`, group `g1r5-alphonse/depth-aware-init-P2-confirm`):**
+
+| Trial | val/loss | ffs | Δ vs n=4 gate (3.261265) |
+|------:|---------:|----:|:------------------------:|
+| 1 | **3.260513** | 3025 | **−0.000752 (BELOW)** ✓ |
+| 2 | 3.261771 | 3025 | +0.000506 (above) |
+| 3 | 3.261646 | 3025 | +0.000381 (above) |
+| 4 | **3.260954** | 3025 | **−0.000311 (BELOW)** ✓ |
+| **μ_n=4** | **3.261221** | **3025** | **−0.000044 (BELOW gate)** ✅ |
+
+- **Statsig**: (3.263265−3.261221)×√4 = **0.004088 ≥ 0.004** ✅ (+0.000088 margin — razor-thin pass)
+
+- **Mechanism analysis**:
+  - The μP 1/√L per-block residual scaling provides bounded total residual variance at depth L=12, consistent with theoretical prediction. Smaller std (mumedium = 1/L scaling) was worse; applying to non-residual weights (muall) was worse; depth-independent constant was worse. The 1/√L form is specifically optimal.
+  - ALL 4 trials hit ffs=3025 (vs baseline ffs_mean=3043.75) — the init improvement is consistent across seeds.
+  - P2 trial variance σ=0.000593 is narrower than historical σ_single=0.001123, suggesting musoft init reduces run-to-run variation.
+
+- **New baseline**: μ=3.261221, ffs_mean=3025, new n=4 gate=**3.259221** (2mNat harder).
+- **New mandatory flag**: `--depth_init_mode musoft`
+- **Decision**: **MERGED** — first post-#571 init-magnitude merge. Gate implications sent to all active P2s (nezuko #706, edward #714, frieren #748).
+

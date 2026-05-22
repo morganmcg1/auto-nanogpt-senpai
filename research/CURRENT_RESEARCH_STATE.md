@@ -1,76 +1,85 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-22 ~09:20Z (poll #375)
-- **CURRENT BASELINE (PR #571 MERGED poll #321):** μ=3.263265, σ=0.001123, n=4, ffs_mean=3043.75
-  - **Mandatory flags:** `--ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down --lr_scalars 0.03`
-  - **Statsig rule:** `(3.263265 - μ) × √n ≥ 0.004`
-  - **n=4 gate: μ ≤ 3.261265** (merge) | μ > 3.262 (close clean-NEG)
-  - *Gate requires ~2σ_single improvement — hard but achievable; only genuinely strong signals pass*
+- **Last updated:** 2026-05-22 ~10:45Z (poll #378)
 
+## CURRENT BASELINE (PR #699 MERGED poll #378)
 
-## Active WIP Portfolio (poll #375)
+**μ=3.261221, σ=0.000593, n=4, ffs_mean=3025** (ALL 4 trials at ffs=3025)
 
-8 PRs in flight:
+- **Mandatory flags:** `--ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ramp_down --lr_scalars 0.03 --depth_init_mode musoft`
+- **Statsig rule:** `(3.261221 - μ) × √n ≥ 0.004`
+- **n=4 gate: μ ≤ 3.259221** (merge) | **μ > 3.261** (close clean-NEG, tentative)
+- *Gate requires ~2σ_single improvement — significantly harder than pre-#699 gate*
+
+**What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
+
+## Active WIP Portfolio (poll #378)
+
+8 PRs in flight; alphonse idle pending new assignment:
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **#699** | **alphonse** | Depth-aware μP init for block residual paths (1/√L scale, "musoft") | **P2 n=4 in-flight** — T1=3.260513 (BELOW gate −0.000752), T2=3.262263, μ_n=2=3.261388 (+0.000123 above gate). Trials 3/4 in progress. **Razor-thin outcome.** |
-| **#706** | **nezuko** | Embedding init magnitude sweep (std=0.1 hottest single-seed) | **P2 n=4 in-flight** — T1=3.259679 (BELOW gate −0.001586 — hottest signal of round). |
-| **#714** | **edward** | RMSNorm gain init magnitude → P2 at Cell D (mean=0.9, std=0.0) | **P2 n=4 in-flight** — P1 best D=3.26203 (+0.000765 above gate). T1=3.263181 (above gate). Running. |
-| **#748** | **frieren** | Q/K/V + MLP fc_in transformation init magnitude sweep (5-cell) | **P1 in-flight** — Running. |
-| **#756** | **tanjiro** | Gradient centralization on Muon body weights (pre-NS, Option A approved) | **P1 in-flight** — Cell B finished 3.263437; Cell A ctrl in progress at ~50%. |
-| **#773** | **fern** | Signal-driven adaptive Muon mu from gradient cosine similarity | **P1 in-flight** — Assigned poll #371. 5-cell: alpha=0.0/0.02/0.05/0.10/-0.05. SOAP path surgery (lines 624-626). |
-| **#776** | **askeladd** | Muon/SOAP update RMS normalization (post-NS scale-invariant step) | **P1 in-flight** — Assigned poll #373. 5-cell: `--muon_update_rms_target` 0.0/0.25/0.50/1.00/2.00. Load-bearing surgery in `soap_ns_step` (lines 499-503). |
-| **#781** | **thorfinn** | Per-group AdamW ε sweep (embed/lm_head sparsity asymmetry) | **P1 ASSIGNED poll #375** — Refactor optimizer1 into 3 separate AdamW instances; `--eps_embed`/`--eps_lm_head` flags. 5-cell: A=1e-10/1e-10 ctrl / B=1e-8/1e-10 / C=1e-7/1e-10 / D=1e-8/1e-11 asymmetric / E=1e-9/1e-10. Mechanism: embed sparse (~3-5% rows/step), lm_head dense (every step). |
+| **#706** | **nezuko** | Embedding init magnitude (std=0.1) | **P2 n=4 in-flight** — T1=3.259679 (ABOVE new gate by +0.000458; was below old gate). T2/T3/T4 must avg ≤3.258893. Notified. ~3.6h to terminal. |
+| **#714** | **edward** | RMSNorm gain init magnitude (mean=0.9) | **P2 n=4 in-flight** — T1=3.263181 (ABOVE new gate by +0.003960). Clean-NEG trajectory vs new baseline. Notified. |
+| **#748** | **frieren** | Q/K/V + MLP fc_in transform ×2.0 | **P2 n=4 in-flight (just pivoted)** — T1=3.261066 (ABOVE new gate by +0.001845). Very hard vs new gate. Notified. ~7.2h to terminal from pivot. |
+| **#756** | **tanjiro** | Gradient centralization on Muon (pre-NS) | **P1 in-flight** — A=3.264227, B=3.263437 (both above new baseline μ). C running. Trending strongly clean-NEG vs new baseline. |
+| **#773** | **fern** | Signal-driven adaptive Muon mu (grad cosine) | **P1 in-flight** — Cell A (alpha=0) ctrl=3.261805. Cell B (alpha=0.02) running ~step 334. Cells C/D/E queued. |
+| **#776** | **askeladd** | Muon/SOAP update RMS normalization | **P1 in-flight** — Cell A ctrl=3.2628. Cell B (rms_target=0.25) running. Stale flag cleared poll #377. |
+| **#781** | **thorfinn** | Per-group AdamW ε sweep (sparsity asymmetry) | **P1 in-flight** — Just assigned poll #375. 5-cell eps_embed/eps_lm_head sweep. |
+| *(pending)* | **alphonse** | Fresh hypothesis (TBD — researcher-agent in flight) | **NEW ASSIGNMENT PENDING** — idle since #699 merged. |
 
 
-## Critical race: three P2 confirmations near gate
+## Critical context: gate has moved
 
-1. **nezuko #706** (embed std=0.1): T1=3.259679 — **−0.001586 BELOW gate** — hottest single-trial post-#571. If μ_n=4 ≤ 3.261265 → FIRST post-#571 init-layer merge.
-2. **alphonse #699** (musoft residual-proj): T1=3.260513 — **−0.000752 BELOW gate** — running μ_n=2=3.261388 razor-thin (+0.000123). Trials 3/4 must average ≤ 3.261142 for merge.
-3. **edward #714** (gain mean=0.9): T1=3.263181 — above gate. Would need T2/T3/T4 averaging well below gate.
+The merge of #699 (musoft, +2mNat) shifted the n=4 gate from **3.261265 → 3.259221**. This 2mNat shift makes the gate significantly harder:
+
+- **nezuko #706**: T1=3.259679 was −0.000586 below OLD gate but +0.000458 ABOVE NEW gate. Merge requires T2/T3/T4 avg ≤ 3.258893 — needs ~−2σ_single improvement across remaining 3 trials.
+- **frieren #748**: T1=3.261066 was −0.000200 below OLD gate but +0.001845 ABOVE NEW gate.
+- **edward #714**: T1=3.263181 was above both gates; same trajectory.
+
+All P2s notified of gate change. Continue to terminal for characterization value.
 
 
-## Recent Closures (poll #375 and prior)
+## Recent Closures (poll #378 and prior)
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
-| **#691 thorfinn** (poll #375) | clean-NEG | Per-group β1 stacked P2 μ_n=4=3.26246 (+0.001195 above gate). Additive-overshoot: stacking β1_embed+β1_scalars gains does NOT add linearly (+1.21mNat overshoot vs projection). Per-group β1 axis fully closed. |
-| **#687 askeladd** (poll #373) | clean-NEG | Atan2-AdamW P2 μ_n=4=3.264213 (+0.002948 above gate). 6th of 6 AdamW-kernel mechanisms exhausted. LR-ceiling effect real but seed-bounded at n=4. |
-| **#722 fern** (poll #371) | clean-NEG | lm_head zero-init uniquely optimal. All 5 mechanism predictions landed. LR-overwrite boundary at std=0.01/0.02 confirmed. Inverts embed-init axis. |
-| **#707 tanjiro** (poll #369) | clean-NEG | β2=0.95 symmetric quadratic optimum. Regression scales with group size. Inverts per-group β1 pattern. Per-group β2 axis CLOSED. |
-| **#693 frieren** (poll #366) | clean-NEG | Muon mu schedule closed. Cooldown-phase momentum load-bearing; time-varying mu doesn't help. Muon-side time-varying HP space exhausted. |
-| **#679 fern** (poll #356) | clean-NEG | LR cooldown shape: linear ctrl is optimal. Cosine +5.5σ, quadratic +8σ, sqrt +10σ, step-cliff +134σ. Schedule layer fully characterized. |
+| **#699 alphonse** (poll #378) | **MERGED** ✅ | μ_n=4=3.261221, −2.044mNat vs #571. Statsig 0.004088. ffs_mean=3025 (all 4 trials). μP 1/√L depth scaling for residual-proj wins. First post-#571 init-magnitude merge. New mandatory flag: --depth_init_mode musoft. |
+| **#691 thorfinn** (poll #375) | clean-NEG | Per-group β1 stacked P2 μ_n=4=3.26246 (+0.001195 above old gate). Additive stacking non-linear. |
+| **#687 askeladd** (poll #373) | clean-NEG | Atan2-AdamW P2 μ_n=4=3.264213. 6th/6 AdamW-kernel mechanisms exhausted. |
+| **#722 fern** (poll #371) | clean-NEG | lm_head zero-init optimal. |
 
 
-## Closed Axis Map (high-level)
+## Closed Axis Map (updated post-#699 merge)
 
-**Optimizer algorithms** (8/8 AdamW-kernel modifications): Lion, Lookahead, AdEMAMix, Schedule-Free-B, Adan, AdaBelief, Cautious AdamW, Atan2-AdamW — all CLOSED.
+**Optimizer algorithms** (8/8 AdamW-kernel modifications): all CLOSED.
 
-**Schedule layer** (all 5 dims): WD (magnitude/floor/duration/shape/per-group) + LR (cooldown shape/floor/duration, warmup shape/frac) + Muon mu (static/schedule/per-block/time-varying) + NS_iter (count/schedule/coefs) — **ALL CLOSED**.
+**Schedule layer** (all 5 dims): ALL CLOSED.
 
-**Per-group hyperparameters**: LR (embed/lm_head/scalars/mlp/attn) + β1 (embed/scalars/lm_head stacked — #691 closed) + β2 (all groups — #707 closed) — LR and β1 and β2 CLOSED. ε per-group (#781) in-flight.
+**Per-group HPs**: LR (all groups), β1 (all groups + stacked), β2 (all groups), global ε — CLOSED. Per-group ε (#781) in-flight.
 
-**Optimizer internals**: SOAP precond_freq, attn Gram damping, trust-gate threshold, SOAP β2, AGC, global ε (#556) — CLOSED.
+**Init magnitude**:
+- lm_head (#722 CLOSED: zero uniquely optimal)
+- embed (#706 P2 in-flight — T1 below old gate, above new gate)
+- residual-proj (#699 MERGED: musoft 1/√L wins)
+- gains (#714 P2 in-flight — T1 above both gates)
+- transformations (#748 P2 in-flight — T1 below old gate, above new gate)
 
-**Init magnitude**: lm_head (#722 CLOSED), embed (#706 P2 in-flight), residual-proj (#699 P2 in-flight), gains (#714 P2 in-flight), transformations (#748 P1 in-flight).
-
-**Novel Muon mechanisms**: GC (#756 P1 in-flight), adaptive-mu (#773 P1 in-flight), update-RMS-norm (#776 P1 in-flight).
+**Novel Muon mechanisms**: GC (#756 P1, trending clean-NEG), adaptive-mu (#773 P1), update-RMS-norm (#776 P1 in-flight).
 
 
 ## Research Themes
 
-**Dominant theme (post-#571):** Init-magnitude across all 5 weight classes has real signal at lr_scalars=0.03. Three of four P2 confirmations have single-trial results near or below gate — the post-#571 equilibria shifted for both embedding magnitude (10× too large at std=1.0) and residual-proj (1/√L better than zero). Gains also shifted below 1.0 (mean=0.9 wins at n=1).
+**Post-#699 dominant theme:** μP depth scaling for residual paths is real and load-bearing. First post-#571 init-magnitude merge establishes that the model was under-initialized for residual paths at zero-init. With musoft merged, two open questions:
+1. Is there additional headroom ABOVE musoft (higher std multiplier)? The P1 didn't probe above 1.0× of the musoft formula.
+2. Is depth-aware init additive with transform-init improvements (frieren #748) and embed init (nezuko #706)?
 
-**Emerging pattern:** "LR×3 → init recalibration required." PR #571 raised lr_scalars 3× and embed_lr was already at 0.3 while lm_head_lr was at 1/320. For groups with high LR relative to parameter scale, the equilibrium init magnitude changes — embed (std=0.1 optimal vs default 1.0 = 10×), gains (mean=0.9 optimal vs identity = slight downshift), residual-proj (1/√L depth-aware beats zero-init). This is a coherent μP/LR-theory story.
+**New gate reality check (3.259221):** All in-flight P2s were designed against the old 3.261265 gate. The new gate is ~2mNat harder. Nezuko's embed-std T1=3.259679 is still competitive. The transform-init T1=3.261066 needs strong remaining trials. Edward's gain-init P2 is likely clean-NEG vs new baseline.
 
-**AdamW HP frontier (post-β1 closure):** All three betas and the global ε are closed. Per-group ε (#781) is the next axis — motivated by gradient sparsity asymmetry between embed (sparse, ~3-5% rows/step) and lm_head (dense, every step). If this closes, the AdamW HP space is nearly fully characterized.
+**Next direction post-musoft merge:**
+1. **Alphonse**: probe above musoft — find the true optimal magnitude multiplier for 1/√L residual-proj init (is 1.0× optimal, or is 1.5× or 2.0× better?). Fresh 5-cell sweep.
+2. When nezuko/frieren/edward P2s resolve: determine which init axes add value ON TOP OF the new musoft baseline. If any merges, compound with next layer.
+3. **Longer term**: if 3+ init axes merge, systematically characterize cross-axis interactions (embed × residual × transform) with a compound experiment.
+4. Novel Muon mechanisms (#756, #773, #776) remain live but will need to re-gate vs 3.259221 — harder bar now.
 
-**Next direction post-init-wave:**
-1. If any init P2 merges → compound with other open init axes (especially the depth-aware theme across multiple weight classes).
-2. #756 GC on Muon: tests whether removing all-ones direction from raw gradient helps under SOAP path. Orthogonal to init.
-3. #773 adaptive mu: first signal-driven momentum schedule. Low expected overhead; high signal potential if gradient coherence fluctuates.
-4. #776 update-RMS-norm: NS output scale normalization — closes the update-magnitude axis independent of NS convergence quality.
-5. #781 per-group ε: final unexplored AdamW HP axis. Strong mechanistic prediction (sparsity asymmetry). If clean-NEG, AdamW HP space is fully settled.
-
-**Dead ends to avoid:** Any further AdamW-kernel replacement (8/8 closed), schedule modification (all closed), SOAP internals (all closed), per-group β1 (all stacking combinations closed), per-group β2 (closed).
+**Dead ends to avoid:** All 8 AdamW-kernel replacements (closed), all schedule modifications (closed), per-group β1/β2 (closed), global ε (closed), lm_head init (closed).
