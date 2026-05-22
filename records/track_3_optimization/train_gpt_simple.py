@@ -536,6 +536,12 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Cautious optimizer masks (Liang et al. 2024, arXiv:2411.16085). Zero out
+# proposed-update coordinates where direction disagrees with current gradient
+# sign, then rescale by mask mean to preserve average step magnitude. At 0,
+# the optimizer paths are bit-identical to the merged baseline.
+CAUTIOUS_MUON = int(os.environ.get("NANOGPT_CAUTIOUS_MUON", "0"))   # 0=off, 1=on
+CAUTIOUS_ADAMW = int(os.environ.get("NANOGPT_CAUTIOUS_ADAMW", "0")) # 0=off, 1=on
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -672,6 +678,9 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Cautious-mask telemetry (populated each step when CAUTIOUS_MUON=1).
+        self._cautious_mask_fracs: list[float] = []
+        self._cautious_norm_ratios: list[float] = []
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -685,6 +694,10 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        # Reset cautious-mask telemetry buffers each step (only populated when
+        # CAUTIOUS_MUON=1; left empty otherwise so the training loop can skip log).
+        self._cautious_mask_fracs.clear()
+        self._cautious_norm_ratios.clear()
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -695,6 +708,9 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    # Save the immediate (pre-lerp) gradient for the cautious mask.
+                    # muon_update mutates p.grad in-place via grad.lerp_(momentum, mu).
+                    grad_orig = p.grad.clone() if CAUTIOUS_MUON else None
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
@@ -716,9 +732,95 @@ class Muon(torch.optim.Optimizer):
                             }
                         except Exception:
                             self.spectral_stats = None
+                    if CAUTIOUS_MUON:
+                        # Per-coordinate sign-agreement mask on post-NS update,
+                        # rescaled by mask mean so average step magnitude is
+                        # preserved.
+                        pre_norm = float(update.norm().item())
+                        mask = (grad_orig * update > 0).to(update.dtype)
+                        mask_mean = mask.mean().clamp_min(1e-8)
+                        update = update * mask / mask_mean
+                        self._cautious_mask_fracs.append(float(mask.mean().item()))
+                        post_norm = float(update.norm().item())
+                        self._cautious_norm_ratios.append(post_norm / max(pre_norm, 1e-8))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+
+class AuxAdamW(torch.optim.AdamW):
+    """AdamW with optional cautious-mask (Liang et al. 2024, arXiv:2411.16085).
+
+    When CAUTIOUS_ADAMW=0, falls through to the fused AdamW path so the
+    baseline is bit-identical. When CAUTIOUS_ADAMW=1, runs a manual step that
+    applies a sign-agreement mask between the current gradient and the
+    bias-corrected step direction m_hat / (sqrt(v_hat)+eps), then rescales by
+    mask mean before subtracting from the parameter.
+
+    State keys (exp_avg, exp_avg_sq, step) match torch's standard AdamW so
+    downstream telemetry reading optimizer.state continues to work.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Cautious-mask telemetry, keyed by group name.
+        self._cautious_mask_fracs: dict[str, list[float]] = {}
+        self._cautious_norm_ratios: dict[str, list[float]] = {}
+
+    @torch.no_grad()
+    def step(self):
+        if not CAUTIOUS_ADAMW:
+            return super().step()
+        # Custom step path with cautious masking.
+        self._cautious_mask_fracs = {}
+        self._cautious_norm_ratios = {}
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "unknown")
+            mask_fracs: list[float] = []
+            norm_ratios: list[float] = []
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+                step_val = float(state["step"].item())
+                # exp_avg = beta1*exp_avg + (1-beta1)*grad
+                exp_avg.lerp_(grad, 1 - beta1)
+                # exp_avg_sq = beta2*exp_avg_sq + (1-beta2)*grad^2
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bias1 = 1.0 - beta1 ** step_val
+                bias2 = 1.0 - beta2 ** step_val
+                m_hat = exp_avg / bias1
+                v_hat = exp_avg_sq / bias2
+                direction = m_hat / (v_hat.sqrt() + eps)
+                # Cautious mask on the bias-corrected direction, applied
+                # before decoupled weight decay so WD is not masked.
+                pre_norm = float(direction.norm().item())
+                mask = (grad * direction > 0).to(direction.dtype)
+                mask_mean = mask.mean().clamp_min(1e-8)
+                direction = direction * mask / mask_mean
+                mask_fracs.append(float(mask.mean().item()))
+                post_norm = float(direction.norm().item())
+                norm_ratios.append(post_norm / max(pre_norm, 1e-8))
+                # Decoupled weight decay (no-op when wd=0 as in current config).
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(direction, alpha=-lr)
+            if mask_fracs:
+                self._cautious_mask_fracs[group_name] = mask_fracs
+                self._cautious_norm_ratios[group_name] = norm_ratios
+        return None
 
 
 ########################################
@@ -761,6 +863,9 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"CAUTIOUS: muon={CAUTIOUS_MUON} adamw={CAUTIOUS_ADAMW} "
+       f"(arXiv:2411.16085 sign-agreement mask, rescaled by mask.mean)",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -826,6 +931,8 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_cautious_muon": CAUTIOUS_MUON,
+            "nanogpt_cautious_adamw": CAUTIOUS_ADAMW,
         },
     )
 
@@ -857,10 +964,13 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # AuxAdamW wraps torch.optim.AdamW with optional cautious-mask path. When
+    # CAUTIOUS_ADAMW=0, falls through to the fused AdamW for bit-identical
+    # baseline; when CAUTIOUS_ADAMW=1, runs a manual step with the mask.
+    optimizer1 = AuxAdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
+                           dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
+                          betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1102,6 +1212,51 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Cautious-mask telemetry (Liang et al. 2024). Per-step buffers are
+        # populated inside Muon/AuxAdamW step() only when the env-gated mask
+        # is enabled; otherwise these blocks are no-ops at 0.
+        cautious_due = (train_step % 100 == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and cautious_due:
+            cautious_metrics: dict[str, float] = {}
+            muon_fracs = optimizer2._cautious_mask_fracs
+            muon_ratios = optimizer2._cautious_norm_ratios
+            if muon_fracs:
+                cautious_metrics["train/cautious/muon_mask_fraction_mean"] = (
+                    sum(muon_fracs) / len(muon_fracs)
+                )
+                cautious_metrics["train/cautious/muon_update_norm_ratio"] = (
+                    sum(muon_ratios) / max(1, len(muon_ratios))
+                )
+                cautious_metrics["train/cautious/muon_param_count"] = float(len(muon_fracs))
+            adamw_fracs = optimizer1._cautious_mask_fracs
+            adamw_ratios = optimizer1._cautious_norm_ratios
+            if adamw_fracs:
+                all_fracs = [v for vs in adamw_fracs.values() for v in vs]
+                all_ratios = [v for vs in adamw_ratios.values() for v in vs]
+                if all_fracs:
+                    cautious_metrics["train/cautious/adamw_mask_fraction_mean"] = (
+                        sum(all_fracs) / len(all_fracs)
+                    )
+                    cautious_metrics["train/cautious/adamw_update_norm_ratio"] = (
+                        sum(all_ratios) / max(1, len(all_ratios))
+                    )
+                # Per-group breakdown (embed/lm_head/scalars).
+                for gname, gfracs in adamw_fracs.items():
+                    if gfracs:
+                        cautious_metrics[
+                            f"train/cautious/adamw_{gname}_mask_fraction_mean"
+                        ] = sum(gfracs) / len(gfracs)
+                        granks = adamw_ratios.get(gname, [])
+                        if granks:
+                            cautious_metrics[
+                                f"train/cautious/adamw_{gname}_update_norm_ratio"
+                            ] = sum(granks) / len(granks)
+            if cautious_metrics:
+                cautious_metrics["trial"] = trial_idx
+                cautious_metrics["train/step"] = train_step
+                cautious_metrics["train/cautious/muon_enabled"] = float(CAUTIOUS_MUON)
+                cautious_metrics["train/cautious/adamw_enabled"] = float(CAUTIOUS_ADAMW)
+                wandb.log(cautious_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
