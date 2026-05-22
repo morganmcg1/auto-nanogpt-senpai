@@ -5294,3 +5294,82 @@ The bilateral early-step correction-or-rectification incompatibility theorem is 
 
 **Fern → #764 MUON_COOLDOWN_SHAPE** assigned — first per-group cooldown SHAPE test on this stack (mechanistically orthogonal to all closed scalar/cooldown-frac/eta_min axes).
 
+---
+
+## 2026-05-22 06:36 UTC — PR #758: ADAMW_GC gradient centralization (CLOSED — pod-untestable, 5/5 NaN runs)
+
+- `g1r2-tanjiro/adamw-grad-centralization`
+- Hypothesis: Yong et al. CVPR 2020 — subtract per-channel grad mean before AdamW step on lm_head/embed AdamW groups (3D weights → mean across in-dim). Test if grad-mean-removal stabilizes the lm_head and embed AdamW updates which #688/#734 GRAD_CLIP showed are sensitive to gradient magnitude conditioning.
+- W&B runs: `x8uwt5ct` (canary NaN), `a8ppu1uo` (canary NaN), `jzwyc0qs` (canary NaN, #768 filed), `46qstw75` (canary NaN), `fdvflhec` (Arm A path-1 override → NaN at step 175)
+
+| Run | Group | Step at NaN | Notes |
+|---|---|---:|---|
+| `x8uwt5ct` | pod-canary | 200 | true baseline (no diff), NaN |
+| `a8ppu1uo` | pod-canary | 200 | true baseline, NaN |
+| `jzwyc0qs` | pod-canary | 200 | true baseline, NaN, filed in #768 |
+| `46qstw75` | pod-canary | 200 | true baseline, retry NaN |
+| `fdvflhec` | adamw-gc-A | 175 | ADAMW_GC=1, NaN (100% Linear/RMSNorm nonfinite) |
+
+**Results commentary (advisor)**: Pod g1r2-tanjiro entered broken state ~05:24 UTC. 4/4 true-baseline canaries NaN'd; advisor issued path-1 override to skip 200-step canary and run 3175-step Arm A directly (hypothesis: longer runs bypass early-step compressed-config flakiness). Arm A also NaN'd at step 175 with 100% of Linear (123.7M elements) and RMSNorm gains (19.9k elements) nonfinite — full weight divergence. Override hypothesis falsified.
+
+**Closure as pod-untestable**: Same precedent as #747 β2_SCHEDULE (7 consecutive NaNs on tanjiro pod proved platform-flakiness not diff-bug). 5/5 NaN here including true baseline definitively isolates failure to pod state, not ADAMW_GC mechanism.
+
+**Axis status**: ADAMW_GC remains scientifically OPEN. Will reassign to recovered tanjiro pod or another idle student.
+
+**Ops escalation**: #768 updated to human-needed remediation request — full table of 5 NaN runs documented, requested pod restart/GPU reset for g1r2-tanjiro.
+
+**Cluster placement**: Pod-untestable (not on floor cluster).
+
+---
+
+## 2026-05-22 06:52 UTC — PR #732: MUON_LR_ATTN/MLP asymmetry — per-block-TYPE body Muon LR split (CLOSED — both arms MISS)
+
+- `g1r2-nezuko/muon-lr-attn-mlp-asym`
+- Hypothesis: split body Muon LR by block type (attention vs mlp) using MUON_LR_ATTN_MULT and MUON_LR_MLP_MULT. Arm A boosted attn (1.25/1.0), Arm B boosted mlp (1.0/1.25), each at effective lr=0.05 on boosted side, 0.04 baseline on other side.
+- W&B runs: `7wzj39l2` (Arm A attn-boost), `w01d0lt0` (Arm B mlp-boost)
+
+| Arm | Config (attn/mlp effective lr) | val/loss | ffs | Δval | Δffs | Hold gate |
+|---|---|---:|---:|---:|---:|:---:|
+| A (attn-boost) | 0.05 / 0.04 | 3.27235 | 3050 | +0.00459 | +50 | MISS both |
+| B (mlp-boost) | 0.04 / 0.05 | 3.28248 | -1 | +0.01473 | catastrophic | MISS both |
+| baseline (#613) | 0.04 / 0.04 | 3.26776 | 3000 | — | — | — |
+
+**Trajectory comparison** (Arm A vs Arm B, every checkpoint):
+- step 250: A=4.055, B=4.0452 → Δ=-0.010 (B better very early)
+- step 500: A=3.820, B=3.8301 → Δ=+0.010 (B worse)
+- step 750: A=3.739, B=3.7512 → Δ=+0.012
+- step 1000: A=3.6835, B=3.6980 → Δ=+0.015
+- terminal: A=3.27235, B=3.28248 → Δ=+0.010
+
+**Results commentary (nezuko)**: After step 500, mlp-boosted Arm B tracks 0.010-0.015 above attn-boosted Arm A at every checkpoint. The asymmetry signal is **mechanistically informative**: attn weights tolerate more Muon-LR than mlp weights at this stack, suggesting MUON_LR=0.04 may slightly under-LR attention while approximately-correct for mlp. But the effect is too small to flip merge state — Arm A's mlp_lr=0.04 (baseline-equivalent) + attn_lr=0.05 (boosted) lands +0.00459 val over baseline.
+
+**Closure logic**: Per-block-TYPE Muon LR split direction is correct (attn>mlp tolerance) but magnitude wrong at 1.25× delta. Smaller delta would just shrink the signal; larger delta requires re-tuning warmup/cooldown to prevent the 0.015 gap observed by step 1000.
+
+**Cluster placement**: 25th axis joining ffs=3025+ floor cluster.
+
+**Nezuko → idle**, awaiting fresh mechanism-level assignment from research-agent batch.
+
+---
+
+## 2026-05-22 06:53 UTC — PR #749: EMBED_LR_LATE_BOOST — boost embed-only AdamW LR in final 7.5% (CLOSED — both arms MISS, closest-miss in recent series)
+
+- `g1r2-thorfinn/embed-lr-late-boost`
+- Hypothesis: embed AdamW group is undertrained in the cooldown tail because the overall lr cooldown applies uniformly. Boost embed-only LR by 1.5× (Arm A) or 2.0× (Arm B) during the final 7.5% of training (240 steps from step 2935 to 3175) to recover signal.
+- W&B runs: `lnhj5hta` (Arm A boost=1.5×), `b20t2prc` (Arm B boost=2.0×)
+
+| Arm | boost | EMBED_LR_LATE_BOOST_FRAC | val/loss | ffs | Δval | Δffs | Hold gate |
+|---|---:|---|---:|---:|---:|---:|:---:|
+| A | 1.5× | 0.075 | 3.27075 | 3025 | +0.00299 | +25 | MISS both |
+| B | 2.0× | 0.075 | 3.26937 | 3025 | +0.00161 | +25 | MISS ffs (val passes 3.27 leg) |
+| baseline (#613) | — | — | 3.26776 | 3000 | — | — | — |
+
+**Results commentary (thorfinn)**: Arm B val=3.26937 is the **closest-miss in the recent series** at +0.00161 val. Direction (embed group needs more LR during cooldown tail) is consistent with the trajectory shape — `vwrqt4vt` reference run val from step 3000→3175 drops only 0.005 — so 25 extra steps of ffs penalty isn't easily reclaimed by lever tuning alone. At 2.0× boost we're already at the destabilization-risk edge for embed params; pushing to 3.0× or 5.0× has poor risk/reward.
+
+**Theorem (falsification)**: "Embed undertrained in cooldown tail, can be rescued by group-specific LR boost" is falsified at 7.5%/2.0× lever. Direction correct, magnitude too small at viable lever range.
+
+**Cross-link**: Symmetric test #759 (frieren LM_HEAD_LR_LATE_BOOST) in-flight. If frieren also close-misses, the boost-during-cooldown class closes more broadly.
+
+**Cluster placement**: 24th axis joining ffs=3025+ floor cluster.
+
+**Thorfinn → idle**, awaiting fresh mechanism-level assignment from research-agent batch.
+
