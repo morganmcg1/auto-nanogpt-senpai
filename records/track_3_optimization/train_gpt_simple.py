@@ -71,6 +71,21 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H57: piecewise-linear schedule for MuonH inner momentum mu.
+    # Three regimes: warm (ramp start->mid), mid (flat), cooldown (ramp mid->end).
+    # Default 0 (disabled) keeps mu=0.95 constant for bit-identical baseline.
+    parser.add_argument("--muonh_mu_schedule", type=int, default=int(os.environ.get("MUONH_MU_SCHEDULE", "0")),
+                        help="If 1, enable scheduled inner mu (overrides constant mu=0.95).")
+    parser.add_argument("--muonh_mu_start", type=float, default=float(os.environ.get("MUONH_MU_START", "0.85")),
+                        help="Inner mu at step 0 (warm-phase start).")
+    parser.add_argument("--muonh_mu_mid", type=float, default=float(os.environ.get("MUONH_MU_MID", "0.95")),
+                        help="Inner mu during mid phase (matches current default).")
+    parser.add_argument("--muonh_mu_end", type=float, default=float(os.environ.get("MUONH_MU_END", "0.97")),
+                        help="Inner mu at final step (cooldown-phase end).")
+    parser.add_argument("--muonh_mu_warm_frac", type=float, default=float(os.environ.get("MUONH_MU_WARM_FRAC", "0.30")),
+                        help="Fraction of training over which mu ramps start->mid.")
+    parser.add_argument("--muonh_mu_cooldown_start_frac", type=float, default=float(os.environ.get("MUONH_MU_COOLDOWN_START_FRAC", "0.70")),
+                        help="Training fraction at which mu begins ramping mid->end.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -578,6 +593,20 @@ def scale_invariant_update_(param, update, lr, eps=1e-10):
     param.copy_(new_param / new_norm * p_norm)
 
 
+def get_muonh_mu(step, total_steps, mu_start, mu_mid, mu_end,
+                 warm_frac=0.30, cooldown_start_frac=0.70):
+    """Piecewise-linear ramp mu_start -> mu_mid -> mu_end across training (H57)."""
+    frac = step / max(total_steps, 1)
+    if frac <= warm_frac:
+        t = frac / max(warm_frac, 1e-12)
+        return mu_start + (mu_mid - mu_start) * t
+    elif frac <= cooldown_start_frac:
+        return mu_mid
+    else:
+        t = (frac - cooldown_start_frac) / max(1.0 - cooldown_start_frac, 1e-12)
+        return mu_mid + (mu_end - mu_mid) * t
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
@@ -766,6 +795,12 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_mu_schedule": int(args.muonh_mu_schedule),
+            "muonh_mu_start": args.muonh_mu_start,
+            "muonh_mu_mid": args.muonh_mu_mid,
+            "muonh_mu_end": args.muonh_mu_end,
+            "muonh_mu_warm_frac": args.muonh_mu_warm_frac,
+            "muonh_mu_cooldown_start_frac": args.muonh_mu_cooldown_start_frac,
         },
     )
 
@@ -821,6 +856,16 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H57: when scheduling inner mu, store it as a shared 0-d CUDA tensor so the
+    # @torch.compile'd muon_update sees a Tensor (dynamic) input instead of a
+    # Python float (value-specialized). Otherwise dynamo hits its recompile_limit
+    # at step ~4 when mu changes each step and falls back to slow eager mode.
+    if args.muonh_mu_schedule:
+        muonh_mu_buf = torch.tensor(args.muonh_mu_mid, device="cuda", dtype=torch.float32)
+        for pg in optimizer2.param_groups:
+            pg["mu"] = muonh_mu_buf
+    else:
+        muonh_mu_buf = None
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1018,6 +1063,21 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H57: piecewise-linear schedule for MuonH inner momentum mu.
+        # When disabled, leave the param group's mu untouched (constant 0.95 baseline).
+        if args.muonh_mu_schedule:
+            current_muonh_mu = get_muonh_mu(
+                step, train_steps,
+                args.muonh_mu_start, args.muonh_mu_mid, args.muonh_mu_end,
+                warm_frac=args.muonh_mu_warm_frac,
+                cooldown_start_frac=args.muonh_mu_cooldown_start_frac,
+            )
+            # In-place fill so the shared tensor reference in every param_group
+            # picks up the new value without re-binding (avoids torch.compile
+            # recompiles that would otherwise trip the dynamo recompile_limit).
+            muonh_mu_buf.fill_(current_muonh_mu)
+        else:
+            current_muonh_mu = float(optimizer2.param_groups[0]["mu"])
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1038,6 +1098,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H57: log scheduled (or constant) inner mu every telemetry/warmup tick.
+                    muonh_metrics["train/muonh/scheduled_mu"] = current_muonh_mu
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
