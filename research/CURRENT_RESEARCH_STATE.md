@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 21:05 UTC
+- **Date:** 2026-05-22 21:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -138,6 +138,16 @@ Single-seed 4-arm (drift gate A PASS, Δ=−0.00008):
 **Sent-back protocol**: Paired-pod n=3 on Arm C (cd=2) vs Arm A (cd=0), now layered ON TOP of full post-#708 stack (adds NANOGPT_GRAD_CLIP_BODY=10.0, NANOGPT_GRAD_CLIP_AUX=5.0). 3 pods × 2 arms = 6 runs. Pre-staged merge gates: mean(C,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift gate ±0.003. ETA ~10.8h.
 
 **Risk**: N=1 Δ_vs_A=−0.00174 sits exactly at the magnitude that has collapsed in 10 single-seed→paired-pod tests post-#579 on this stack. Speedrun improvement (−25 fs steps) is informative either way. If C confirms, mechanism is real and orthogonal to #708's per-group clip; if it collapses, axis closes cleanly.
+
+**Paired-pod chain progress (21:25 UTC, launched 19:20 UTC, ~2h elapsed):**
+
+| Pod | Arm | run_id | state | step | val/loss | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| 0 | A (ctrl) | t5c70etd | finished | 3350/3350 | **3.26989** | −0.00047 (favorable-seed control, drift PASS) |
+| 0 | C (treat) | o8o8rw9q | running | 335/3350 (~10%) | mid | TBD |
+| 1-2 | A,C | — | pending | — | — | — |
+
+Pod0-A came in below baseline (favorable seed); Pod0-C must beat 3.26989 to show within-pod Δ ≤ 0. The paired-pod statistical signal is Δ_within not absolute treat value. ETA terminal ~05:50 UTC 2026-05-23.
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
