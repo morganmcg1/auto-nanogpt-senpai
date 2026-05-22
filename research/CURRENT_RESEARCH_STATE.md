@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 00:25 UTC
+- **Last update:** 2026-05-22 00:40 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -18,7 +18,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 |---|---|---|---|
 | **#697** | alphonse | QHM body-Muon ν=0.20 β=0.95 (Arm B) | **Arm A TERMINAL NULL** val=3.27137 sr=3025. Mid-run −40/−50 mnat advantage eroded during cooldown — 2nd cooldown-erosion instance. Arm B terminal ETA ~00:24 UTC. |
 | **#698** | nezuko | NAdam-Aux Nesterov-AdamW (Arm B β₁=0.9 retuned) | **Arm A TERMINAL NULL** val=3.26811 sr=3000. Cross-family Nesterov NULL. Arm B retuned β₁=0.9. Terminal ETA ~01:00 UTC. |
-| **#695** | thorfinn | Polyak EMA β=0.95 warmup=2250 (Arm B) | **Arm A TERMINAL NULL** val=3.26648 sr=2950. Peak EMA −5.02 mnat (12× predicted reduction). Arm B terminal ETA ~00:09 UTC. |
+| **#737** | thorfinn | Polyak EMA cooldown-aware β (ramp 0.95→0.99 or 0.999 as LR→0) | **NEWLY ASSIGNED 00:40 UTC.** Decouples averaging benefit from lag cost: β increases toward 1.0 as LR shrinks during cooldown (live params stationary → lag cost suppressed). Direct follow-up to the lag/signal coupling finding in #695. |
 | **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | **NEWLY ASSIGNED 00:25 UTC.** Tests whether attn and MLP layers have different optimal whitening intensity. Arm B is the stronger prior (higher γ for attn, lower for MLP). |
 | **#725** | askeladd | PMuon cov buffer reset at cooldown_start (Arm B=full, Arm A=partial re-launch) | Arm A disrupted at step 543; Arm B (cov_scale=0.0) running ETA ~02:14 UTC. Arm A re-launch after. |
 | **#723** | frieren | Body-Muon momentum reset at cooldown_start (Arm A=0.5, Arm B=0.0) | Arm A running, ETA ~01:51 UTC. First direct cooldown-mechanism intervention (step 975 event). |
@@ -29,6 +29,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#695** thorfinn | 59th | Polyak EMA β=0.9/0.95 short-window NULL/NULL | Peak EMA signal and lag shrink together — no static (β, warmup) separates them. Arm B sr=2925 boundary but val>baseline. Full β-scan closure: intrinsic lag/signal coupling in PMuon-EMA. |
 | **#696** tanjiro | 58th | Contra-Muon NULL/NULL (val=3.276/3.269, sr=3125/3000) | PMuon whitening compresses slow EMA ~6× in polar space → effective sub 1.5-3% vs design 15-25%. Monotone dose-response in wrong direction. Post-NS perturbation family adds to spectral absorption pattern. |
 | **#690** edward | 57th | SGDR NULL/NULL (val=3.306/3.323, sr=-1/-1) | Restart spike +0.13-0.17 unrecoverable in cycle budget. More restarts → worse. 3rd cooldown-erosion instance: mid-cycle advantage eroded at terminal. LR schedule SHAPE closed (non-monotone direction). |
 | **#686** fern | 56th | β_cov schedule SYMMETRIC NULL | Arm A (0.90→0.95) and Arm B (0.95→0.98) produce IDENTICAL regression in opposite directions = canonical static-optimum. β_cov axis FULLY CLOSED (scalar + schedule). |
@@ -85,7 +86,7 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 *Body-Muon operator ordering CLOSED:* post-NS momentum (#658 49th), Nesterov (#660 52nd).
 
-*Body-Muon parameter-space averaging:* Lookahead (#505), Polyak EMA β=0.999 (LMC failure), β=0.99 centroid-lag (#662 50th), β=0.9 short-window (#695 Arm A NULL), β=0.95 (#695 Arm B in flight).
+*Body-Muon parameter-space averaging FULLY CLOSED:* Lookahead (#505 NULL), Polyak EMA β=0.999 (LMC failure), β=0.99 centroid-lag (#662 50th), β=0.9/0.95 short-window (#695 59th — all NULL via intrinsic lag/signal coupling). Cooldown-aware β ramp (#737 in flight — decouples lag from signal via LR-coupled β schedule).
 
 *Aux AdamW update-rule FULLY CLOSED (9 families):* AdaBelief (#545), NadamW (#575), AdEMAMix (#585), AMSGrad (#578), Adamax (#583), LAMB (#609), Lion (#604), Lookahead (#617), Schedule-Free Adam (#623).
 

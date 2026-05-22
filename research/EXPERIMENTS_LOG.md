@@ -3393,3 +3393,24 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 - **Dose-response analysis:** Halving coefficient (0.2→0.1) halved the damage (Δsr +187.5 → +62.5). Monotone in wrong direction: more subtraction = worse. Extrapolated coeff=1.0 would give ~Δsr +1500 = catastrophic. Pre-NS contra injection (alternative) untested but family context (gradient-domain perturbations uniformly NULL in this stack) makes it unlikely to help.
 
 - **Conclusion:** Contra-Muon as post-NS body-Muon mechanism CLOSED. Design hypothesis untestable at any coefficient due to structural PMuon whitening compression. Adds to the broader pattern: spectral/gradient perturbations in the whitened update space all absorbed by PMuon. 58th closed axis.
+
+## 2026-05-22 00:38 UTC — PR #695 CLOSED: Polyak EMA β=0.9/0.95 short-window — NULL/NULL, 59th axis (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/polyak-ema-shortwindow`
+- Hypothesis: Short-window Polyak EMA with late-start to suppress centroid-lag. Two arms: Arm A β=0.9 warmup=2500 (N_eff~10), Arm B β=0.95 warmup=2250 (N_eff~20). Direct follow-up to #662 β=0.99 centroid-lag finding.
+
+| Arm | β | warmup | N_eff | peak Δ (step) | terminal Δ | W&B | sr | val/loss | Δsr | Δval |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Baseline | — | — | — | — | — | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — |
+| Arm A | 0.9 | 2500 | ~10 | −5.02 mnat (2625) | +0.01 mnat | g915dzx4 | 2950 | 3.26648 | +12.5 | +0.002 |
+| Arm B | 0.95 | 2250 | ~20 | −16.42 mnat (2375) | +0.06 mnat | p4mm3e85 | 2925 | 3.26562 | −12.5 (boundary) | +1.34 mnat |
+
+- **Win analysis Arm B:** sr=2925 hits boundary but val=3.26562 > 3.264278 by +1.34 mnat → AND clause fails. Marginal Δsr=12.5 triggering n=2 rule, but EMA mechanism ≈0 at terminal → seed noise. Both arms NULL.
+
+- **Decisive mechanism — β-scan completes full geometric picture:**
+  - Peak EMA advantage scales ~linearly with N_eff: 5 / 16.4 / 63 mnat = 1× / 3.3× / 12.6×, matching window ratios 1× / 2× / 10×
+  - Terminal lag drops 60× from β=0.99 → β=0.9 (lag ∝ live-param drift × N_eff)
+  - Both signal AND lag shrink together — no (β, warmup) setting separates them
+  - At β=0.9 (N_eff~10), both terms drop below seed noise (~0.5 mnat)
+
+- **Conclusion:** Lag/signal coupling is intrinsic to PMuon-EMA at this benchmark geometry. No static window setting works. FULL CLOSURE of Polyak EMA on body-Muon across β ∈ {0.9, 0.95, 0.99}. Next step: cooldown-aware β ramp (dynamic window coupled to LR decay, targets "free averaging when params stationary") — assigned as #737 to thorfinn.
