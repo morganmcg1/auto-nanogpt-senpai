@@ -458,6 +458,10 @@ MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
+MUON_BIAS_CORR = int(os.environ.get("MUON_BIAS_CORR", "0"))
+# 0 = disabled (default, no change)
+# 1 = full correction (all steps)
+# 2 = warmup-only correction (steps <= MU_WARMUP_STEPS only)
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
 # Attention SOAP (record #16) hyperparameters
@@ -658,6 +662,8 @@ class Muon(torch.optim.Optimizer):
 
     @torch.no_grad()
     def step(self):
+        if MUON_BIAS_CORR:
+            self.step_count = getattr(self, "step_count", 0) + 1
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -669,6 +675,9 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        if MUON_BIAS_CORR:
+                            # Running product mu_1 * mu_2 * ... * mu_t (handles varying mu during warmup ramp)
+                            state["mu_product"] = torch.ones(1, device=p.device, dtype=torch.float64)
                         # NorMuon-lite per-row (or per-col) variance buffer.
                         if p.size(-2) >= p.size(-1):
                             state["second_moment"] = torch.zeros(
@@ -694,6 +703,12 @@ class Muon(torch.optim.Optimizer):
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if MUON_BIAS_CORR:
+                        state["mu_product"].mul_(group["mu"])
+                        bias_correction = 1.0 - state["mu_product"].item()
+                        if MUON_BIAS_CORR == 1 or (MUON_BIAS_CORR == 2 and
+                                                    self.step_count <= MU_WARMUP_STEPS):
+                            momentum_update = momentum_update / max(bias_correction, 1e-8)
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
