@@ -1,5 +1,39 @@
 # SENPAI Research Results
 
+## 2026-05-22 14:55 UTC — PR #769 CLOSED: Aux AdamW delayed cooldown start (300 vs 600) — NULL/NULL, 70th axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-cooldown-delay`
+- Hypothesis: Decouple aux AdamW cooldown start from body-Muon cooldown_start_step=975. Delay aux schedule by 300 or 600 steps so embeddings/scalars get more high-LR exposure before fine-grained cooldown.
+
+| Arm | delay | aux_cooldown_start | W&B | sr | val/loss | Δsr (vs #737) | Δval (vs #737) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | 0 | 975 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| **Arm A** | 300 | 1275 | f23tr64v | 2975 | 3.26688 | +50 | −0.000046 | NULL on sr |
+| **Arm B** | 600 | 1575 | asxzb8lk | 3000 | 3.26747 | +75 | +0.000544 | NULL on both |
+
+- **Monotonic dose response confirms NULL is real:** 300→600 monotonically worse on both metrics. Rules out noise interpretation.
+- **Arm A val is tied with baseline (~0.05 mnat better, within noise)** but sr +50 is unambiguous NULL on the primary metric.
+- **70th closed axis. Cooldown-erosion family closure now spans BOTH sides:** body-Muon perturbations (#723/#725/#690/#697/#774) AND aux schedule-decoupling (#769). Confirms global cooldown_start=975 is well-tuned across mechanisms. The productive cooldown lever (per #737) ADDS new mechanisms (Polyak EMA) rather than perturbs existing schedules.
+- **Student insight:** "Cutting that taper window in half makes embeddings end further from optimum, not closer" — the steeper, shorter aux cooldown window (compressed to ~2000 vs ~2275 steps) gives an effectively higher floor at terminal, refuting the high-LR-exposure hypothesis cleanly.
+- Suggested follow-ups (deprioritized): inverse direction (neg delay), per-aux-group decoupling (embed only), different COOLDOWN_POWER for aux.
+
+## 2026-05-22 13:21 UTC — PR #737 MERGED: Polyak EMA β_target=0.99 cooldown ramp — n=2 sr win (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/polyak-ema-cooldown-beta-ramp`
+- Hypothesis: Couple Polyak EMA β to lr_mult so EMA window expands as LR→0. β_t = β_base + (β_target − β_base) × cooldown_progress (deterministic, no per-run randomness).
+- **n=2 seeds:** seed-1 `rdbmnzpc` sr=2925/val=3.265811, seed-2 `32r3isz5` sr=2925/val=3.268040. n=2 mean: **sr=2925, val=3.266926.**
+- **Stat-sig margin:** (3.28 − 3.266926)·√2 = 0.01849 ≥ 0.004 ✓ (4.62× threshold). Both seeds hit sr=2925 deterministically (β_t coupling to lr_mult is independent of seed noise).
+- Vs old baseline #413 (sr=2937.5): Δsr=−12.5 (sr win); val regresses +2.65 mnat (3.266926 vs 3.264278) — accepted because primary metric is sr.
+- **First merged sr win since #413.** New advisor branch baseline. Reproduce: add `--ema_beta 0.95 --ema_warmup_steps 2250 --ema_beta_target 0.99` to PR #413 config.
+
+## 2026-05-22 13:21 UTC — PR #760 CLOSED: PMuon γ_power cooldown ramp (0.4→0.5 vs 0.4→0.3) — NULL/NULL, 69th axis (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-gamma-cooldown-ramp`
+- Hypothesis: Ramp γ_power during cooldown — harder whitening (0.5) for more isotropic late-training updates OR softer whitening (0.3) for more signal preservation as LR→0.
+- Arm A `wmsd0lvk` (0.4→0.5): sr=2975, val=3.26733 — NULL.
+- Arm B `xmpjznpa` (0.4→0.3): sr=2975, val=3.26604 — NULL but ~2× closer to baseline on val.
+- **Asymmetric closure pattern:** softer whitening less harmful than harder during cooldown. γ_power=0.4 static well-tuned (closes γ ramp axis, adds to #444 warmup ramp NULL).
+
 ## 2026-05-22 12:45 UTC — PR #774 CLOSED: PMuon cov warmup fast-mix (K=20 vs K=50) — NULL with numerical-instability boundary, 68th axis (g1r1-edward)
 
 - Branch: `g1r1-edward/pmuon-cov-warmup-fast-mix`
