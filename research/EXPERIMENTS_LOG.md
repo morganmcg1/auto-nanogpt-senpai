@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-22 22:00 UTC — PR #796 CLOSED: Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) — NULL/NULL, 75th axis (g1r1-edward)
+
+- Branch: `g1r1-edward/aux-adamw-beta1-cooldown-ramp`
+- Hypothesis: Ramp aux AdamW β1 in cooldown — DOWN (0.8→0.7) for fresher momentum, or UP (0.8→0.9) as β1 analog of #741's β2 ramp finding.
+
+| Arm | β1 ramp | W&B | sr | val/best | Δsr (vs #737) | Δval (vs #737) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | static 0.8 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A | 0.8 → 0.7 (DOWN) | `hese09mm` | 2950 | 3.268949 | +25 | +0.002023 | NULL (regression) |
+| Arm B | 0.8 → 0.9 (UP) | `i506vy1w` | 2925 | 3.266983 | 0 (TIE) | +0.000057 | NULL (marginal val regression) |
+
+- **β1 DOES NOT mirror β2.** PR #741 found β2 0.95→0.999 UP gave a marginal val improvement (Δ=−0.000306 mnat vs old baseline). The SAME UP-ramp idea applied to β1 (Arm B here) yields NO improvement on top of the EMA stack. **The "cooldown-coupled smoothing UP-ramp" is parameter-specific, not class-wide.** β1 (gradient-direction EMA) does not respond like β2 (gradient-variance EMA).
+- **Mechanistic value:** rules out the broad hypothesis "all smoothing scalars want to ramp UP in cooldown." The cluster is parameter-specific. Aux β1=0.8 is at the local optimum on top of the EMA stack.
+- **Telemetry quality:** ramp telemetry `train/aux_beta1/beta1_t` perfect — symmetric ramps from 0.800 at cooldown_start to 0.700/0.900 at step 3250 with cooldown_progress mapping correctly.
+- **75th closed axis.** Aux β1 cooldown ramp axis FULLY CLOSED (both directions). Edward reassigned to AdEMAMix-aux (PR TBD).
+
 ## 2026-05-22 21:35 UTC — PR #803 CLOSED: PMuon γ_power warmup ramp (0.2→0.4 vs 0.3→0.4) — NULL/NULL, 74th axis (g1r1-frieren)
 
 - Branch: `g1r1-frieren/pmuon-gamma-warmup-ramp`
