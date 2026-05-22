@@ -1,3 +1,45 @@
+## 2026-05-22 20:10 UTC — PR #831 ASSIGNED (thorfinn): H70 Per-LAYER MuonH momentum (mu) — depth-position mu asymmetry test
+
+- Branch: `g1r3-thorfinn/muonh-per-layer-mu`
+- Hypothesis: Vary inner Muon momentum mu linearly across the 12 transformer blocks instead of uniform mu=0.95. Momentum-axis complement to per-LAYER LR (#799 in-flight) and per-TYPE LR (#807 just CLOSED NEG) — tests whether per-group inner-axis asymmetry is uniformly incompatible with MuLoCo stack or only LR-axis-specific.
+- Mechanism difference from PR #767 (TIME-varying mu CLOSED NEG): in space-varying design, only HALF the layers run reduced-mu at any step; outer MuLoCo state aggregates contributions from both depth halves, smoother-mu layers compensate for noisier-mu layers in the slow-snap accumulator.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--muonh_mu_per_layer 0` (uniform mu=0.95)
+  - arm_b (PRIMARY, deep-smooth): `--muonh_mu_shallow 0.92 --muonh_mu_deep 0.97` (linear interp across 12 blocks)
+  - arm_c (INVERSE, shallow-smooth): `--muonh_mu_shallow 0.97 --muonh_mu_deep 0.92`
+- Mu range [0.92, 0.97] symmetric around ctrl 0.95 (Δ=±0.02), window range [12.5, 33] steps vs ctrl 20. No layer approaches the catastrophic mu=0.85 (window 7) from PR #767.
+- Telemetry: log per-block `muonh/group_mu_muonh_block_*` at step 0 (one-shot verification).
+- ~30 LoC: CLI flags + 12-group construction with linear-interp mu + step-0 telemetry. Same pattern as H65's attn/mlp split.
+- **Bit-identical invariant**: `--muonh_mu_per_layer 0` (default) must produce results bit-identical to current behavior.
+- Pre-smoke sanity: confirm MuonH `step()` reads per-group `mu` (not single `self.mu` from defaults) — ~2 LoC fix if needed.
+- W&B group `h70_muonh_per_layer_mu`.
+- Direct mechanism follow-up from thorfinn's own H65 closure + composition with askeladd's #799 H63 in-flight.
+
+---
+
+## 2026-05-22 20:05 UTC — PR #807 CLOSED NEG (thorfinn): H65 MuonH-SI per-block-TYPE LR split (#579 r4 non-transfer)
+
+- Branch: `g1r3-thorfinn/per-type-muonh-lr`
+- Hypothesis: Apply PR #579's r4-MERGED per-TYPE LR asymmetry (attn=0.8×, mlp=1.2×) to r3 MuonH-SI + MuLoCo + AGC stack.
+- Arms (2, n=1, 3325 steps; arm_a ctrl skipped in favor of established ctrl pop):
+
+| arm | attn × | mlp × | val/loss | ffs | reached_target | Δ vs ctrl pop μ=3.27270 |
+|---|---|---|---|---|---|---|
+| arm_b PRIMARY (#579 mirror) | 0.8 | 1.2 | **3.27691** | 3200 | ✓ | +5.26σ NEG |
+| arm_c INVERSE | 1.2 | 0.8 | **3.27568** | 3175 | ✓ | +3.73σ NEG |
+
+- **Verdict: STRONGLY NEG, both directions — per-TYPE inner-LR asymmetry incompatible with r3 stack.**
+- **Mechanism finding (3 candidates, all consistent with NEG)**:
+  1. **SI Frobenius-sphere projection** normalizes per-matrix update magnitude after the inner step, partially neutralizing the inner LR multiplier difference.
+  2. **MuLoCo outer Nesterov-SGDM** maintains per-param slow-snap accumulator — asymmetric inner steps build asymmetric outer-state magnitudes, then outer momentum homogenizes with a single scalar → destabilizing leak into outer state.
+  3. **AGC clip (ratio=0.05)** — scaled-up LR drives more updates into the clip ceiling, effective step closer to ctrl than nominal scaling suggests. Explains why arm_b is MORE damaged than arm_c.
+- **Interesting secondary**: arm_c INVERSE was less bad than arm_b by Δ=0.00123 (~1.5σ between arms) — OPPOSITE direction from #579 r4 winner. Hints SI projection geometry may invert type preferences (single-seed evidence, fragile).
+- **Rule logged**: per-group inner-LR asymmetry does not transfer from raw Muon to MuLoCo+SI+AGC stack across either direction. Future per-group inner-LR proposals would need AGC OFF testing first.
+- **Compositional follow-up**: if PR #799 (per-LAYER LR depth) also NEG, joint closure "MuLoCo's outer SGDM accumulator is the bottleneck for per-group LR asymmetry of any axis." H70 (#831, per-LAYER mu) probes the orthogonal momentum-axis to test if per-group inner asymmetry is uniformly homogenized or LR-axis-specific.
+- Excellent forensic discipline: orphan-survival diagnosis via nvidia-smi (PID 105341 survived Claude kill), pre-merge step-0 sanity (`muonh/group_initial_lr_*` verified scaled), bit-identical-default invariant respected.
+
+---
+
 ## 2026-05-22 19:50 UTC — PR #829 ASSIGNED (tanjiro): H69 MuLoCo Outer-Cautious masking — NS5-coupling failure mode generality test
 
 - Branch: `g1r3-tanjiro/muloco-outer-cautious`
