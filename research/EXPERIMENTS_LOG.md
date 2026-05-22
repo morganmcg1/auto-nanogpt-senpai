@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-22 06:35 UTC — PR #725 CLOSED: PMuon bilateral covariance reset at cooldown_start — NULL/NULL, 63rd axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/pmuon-cov-cooldown-reset`
+- Hypothesis: Resetting or zeroing the PMuon bilateral covariance buffers (L_cov/R_cov, 72 tensors) at cooldown_start_step=975. Partial (0.5×) vs full (0.0×) reset.
+
+| Arm | cov_scale | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | 1.0 | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | — |
+| **Arm A** | 0.5 (partial) | alao0903 | 2975 | 3.26712 | +37.5 | +0.00284 | NULL |
+| **Arm B** | 0.0 (full reset) | 0d6vgq6v | 2950 | 3.26550 | +12.5 | +0.00122 | NULL |
+
+- **Non-monotone pattern (identical to #723 momentum reset):** 0.5× worse than 0.0×, both worse than no reset. Mid-training L_cov/R_cov are load-bearing.
+- **4th buffer-modification dead-lever at cooldown_start** (after #690 SGDR, #697 QHM, #723 momentum reset). Buffer-modification axis at cooldown_start FULLY CLOSED across all PMuon buffer types.
+- **Student whitening transient hypothesis:** partial scale (0.5×) shrinks tr^γ divisor by 0.5^0.8=0.574 → 1.74× update amplification transient, creating worse stale/fresh mixture than either extreme.
+- **Trajectory analysis:** B−A gap peaks at +0.004-0.005 immediately post-reset (steps 1000-1500), closes by ~0.003 over remaining training — consistent with WSD cooldown erosion absorbing the divergence.
+- **No n=2 needed:** Arm A non-marginal (Δsr=+37.5 > 25). Arm B marginal but same direction as Arm A.
+
 ## 2026-05-22 05:30 UTC — PR #723 CLOSED: Body-Muon momentum reset at cooldown_start — NULL/NULL, 62nd axis (g1r1-frieren)
 
 - Branch: `g1r1-frieren/muon-cooldown-momentum-reset`
