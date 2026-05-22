@@ -52,6 +52,15 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--ema_beta", type=float, default=0.0,
+                        help="EMA decay (base) for body-Muon param averaging. 0=disabled.")
+    parser.add_argument("--ema_warmup_steps", type=int, default=975,
+                        help="Steps to TRACK params live before EMA averaging begins.")
+    parser.add_argument("--ema_beta_target", type=float, default=None,
+                        help="If set, dynamically ramp EMA β from --ema_beta (base) to "
+                             "--ema_beta_target during cooldown, coupling β to the LR schedule. "
+                             "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
+                             "× (1 - lr_mult_t).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +713,10 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "ema_beta": args.ema_beta,
+            "ema_warmup_steps": args.ema_warmup_steps,
+            "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
+            "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
         },
     )
 
@@ -749,7 +762,41 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    # Polyak/EMA inference weights for body-Muon matrix params (FP32 buffer).
+    # During the first args.ema_warmup_steps the buffer tracks params live
+    # (handles attn.proj/mlp.proj zero-init bias and seeds buffer with stable
+    # post-warmup params). After warmup, EMA averaging begins. If
+    # --ema_beta_target is set, the EMA β is dynamically ramped from
+    # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
+    ema_params = None
+    if args.ema_beta > 0:
+        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
+    def compute_lr_mult(step, cooldown_frac=0.7):
+        """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
+        if step >= train_steps:
+            return 0.0
+        progress = step / train_steps
+        if progress < 1 - cooldown_frac:
+            return 1.0
+        cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
+        w = 1.0 - cooldown_progress
+        return w ** COOLDOWN_POWER
+
+    def compute_ema_beta_t(step):
+        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
+        Returns β_base when β_target unset; clamped to [β_base, β_target]."""
+        if args.ema_beta <= 0:
+            return 1.0  # EMA disabled; sentinel
+        if args.ema_beta_target is None:
+            return args.ema_beta
+        lr_mult = compute_lr_mult(step)
+        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+        lo = min(args.ema_beta, args.ema_beta_target)
+        hi = max(args.ema_beta, args.ema_beta_target)
+        return max(lo, min(hi, beta_t))
+
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
@@ -797,6 +844,32 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # If EMA active: first measure val on LIVE train weights, then swap in
+            # EMA buffer to produce val_loss_ema. val_loss is the EMA-swapped value
+            # (since EMA is what we'd ship); val_loss_live is the unmodified train model.
+            val_loss_live_float = float("nan")
+            buffer_frob_dist = float("nan")
+            if ema_params is not None:
+                val_loss_live = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_live += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_live, op=dist.ReduceOp.SUM)
+                val_loss_live /= val_tokens
+                val_loss_live_float = float(val_loss_live.item())
+            # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
+            train_bufs = None
+            if ema_params is not None:
+                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
+                # Compute Frobenius distance ||ema - live|| across all body-Muon params.
+                sq_sum = 0.0
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    diff = (ema_p - p.detach().float())
+                    sq_sum += float(diff.square().sum().item())
+                buffer_frob_dist = sq_sum ** 0.5
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -805,6 +878,10 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # Restore train weights immediately after eval so subsequent backward passes use them.
+            if train_bufs is not None:
+                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                    p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -825,6 +902,24 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if ema_params is not None:
+                    lr_mult_now = compute_lr_mult(step)
+                    beta_t_now = compute_ema_beta_t(step)
+                    metrics["val/loss_live"] = val_loss_live_float
+                    metrics["val/ema_minus_live"] = val_loss_float - val_loss_live_float
+                    metrics["ema/val_loss_ema"] = val_loss_float
+                    metrics["ema/val_loss_live"] = val_loss_live_float
+                    metrics["ema/delta_ema_minus_live"] = val_loss_float - val_loss_live_float
+                    # delta in mnat (millinats) for legibility in the dashboard.
+                    metrics["ema/delta_ema_minus_live_mnat"] = (val_loss_float - val_loss_live_float) * 1000.0
+                    metrics["ema/buffer_frob_dist"] = buffer_frob_dist
+                    metrics["ema/lr_mult_t"] = lr_mult_now
+                    metrics["ema/beta_t"] = beta_t_now
+                    metrics["ema/beta_target"] = (args.ema_beta_target if args.ema_beta_target is not None
+                                                  else args.ema_beta)
+                    metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
+                    metrics["ema/active"] = int(step >= args.ema_warmup_steps)
+                    metrics["ema/warmup_steps"] = args.ema_warmup_steps
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -881,6 +976,25 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # EMA buffer update on body-Muon matrix params.
+        # During warmup: track params live (no averaging) so post-warmup buffer is
+        # seeded with stable, non-zero params (handles proj zero-init bias and lets
+        # the EMA window cover only the late-cooldown regime).
+        # After warmup: lerp at (1 - β_t) where β_t is the dynamic cooldown-aware β.
+        ema_beta_t_now = float("nan")
+        ema_lr_mult_now = float("nan")
+        if ema_params is not None:
+            if step < args.ema_warmup_steps:
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    ema_p.copy_(p.detach().float())
+                ema_beta_t_now = args.ema_beta
+                ema_lr_mult_now = compute_lr_mult(step)
+            else:
+                ema_lr_mult_now = compute_lr_mult(step)
+                ema_beta_t_now = compute_ema_beta_t(step)
+                lerp_w = 1.0 - ema_beta_t_now
+                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                    ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -920,6 +1034,21 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if ema_params is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "ema/beta": args.ema_beta,
+                    "ema/beta_target_param": (args.ema_beta_target if args.ema_beta_target is not None
+                                              else args.ema_beta),
+                    "ema/beta_t_train": ema_beta_t_now,
+                    "ema/lr_mult_t_train": ema_lr_mult_now,
+                    "ema/n_eff_train": (1.0 / max(1e-12, (1.0 - ema_beta_t_now))
+                                        if ema_beta_t_now < 1.0 else float("inf")),
+                    "ema/warmup_steps": args.ema_warmup_steps,
+                    "ema/active_train": int(step >= args.ema_warmup_steps),
+                    "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
