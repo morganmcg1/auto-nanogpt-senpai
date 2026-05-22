@@ -1,3 +1,40 @@
+## 2026-05-22 18:30 UTC — PR #813 ASSIGNED (edward): H67 Aux AdamW eps cooldown schedule (1e-6 → 1e-5/1e-4)
+
+- Branch: `g1r3-edward/aux-eps-cooldown-schedule`
+- Hypothesis: Schedule `aux_adamw_eps` to ramp UP during cooldown (1e-6 → 1e-5, then stronger 1e-4). Direct mechanism-pair complement of PR #770 H58: the H58 catastrophe identified the small-denominator regime `(√v̂ + eps)` as the failure mode. Growing eps grows the denominator floor during cooldown — without touching the v_t state machine (bias correction safe).
+- Mechanism: Constant eps sweeps (#333, #493, #556 etc) found optimum at 1e-6 — a compromise between pre-cooldown (small eps, v̂ dominates) and cooldown (large eps, numerical stability). A schedule removes the compromise: small eps in main phase (proper Adam), large eps in cooldown (dampen small-v̂ amplification).
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--aux_adamw_eps_schedule 0 --aux_adamw_eps 1e-6`
+  - arm_b (mild ramp, PRIMARY): `--aux_adamw_eps_schedule 1 --aux_adamw_eps_start 1e-6 --aux_adamw_eps_end 1e-5 --aux_adamw_eps_cooldown_start_frac 0.6`
+  - arm_c (strong ramp): `--aux_adamw_eps_end 1e-4` (100× ramp)
+- ~15 LoC: CLI flags + `set_hparams` hook + telemetry `aux/eps_{group_name}`
+- **Critical invariant check**: verify fused AdamW kernel honors dynamic `group["eps"]` mutation. If not, fall back to non-fused.
+- W&B group `h67_aux_eps_cooldown_schedule`. Direct mechanism follow-up from edward's own H58 closure.
+
+---
+
+## 2026-05-22 18:25 UTC — PR #770 CLOSED NEG (edward): H58 Aux v_t freeze at cooldown — CATASTROPHIC, joint structural closure
+
+- Branch: `g1r3-edward/aux-vt-freeze`
+- Hypothesis: Freeze aux AdamW v_t state at cooldown onset to prevent stale variance accumulation from hurting cooldown precision. 3 variants: ALL aux groups, EML (embed+lm_head) only, ALL at earlier step (1663).
+- Arms (4, n=1, 3325 steps):
+
+| arm | freeze_step | groups | final val/loss | W&B |
+|---|---|---|---|---|
+| arm_a ctrl | — | — | **3.27472** (ffs 3175) | `g0rv9u7b` |
+| arm_b @2493 ALL | 2493 | all aux (101 params) | **5.3618** (+2.09) | `jo5q0d21` |
+| arm_c @2493 EML | 2493 | embed+lm_head (2 params) | **5.2081** (+1.93) | `rkv9cc1x` |
+| arm_d @1663 ALL | 1663 | all aux | **4.6810** (+1.41) | `i2gip1pd` |
+
+- **Verdict: CATASTROPHIC NEG — joint structural closure with PR #740.**
+- **Mechanism (confirmed at 4 independent configurations)**: AdamW bias correction `v̂_t = v_t/(1−β2^t)` requires v_t to track β2^t. Freezing v_t stalls denominator while numerator m_t accumulates fresh cooldown gradients → effective LR explosion. Both directions of mid-training v_t intervention (RESET #740, FREEZE #770) are catastrophically broken.
+- **arm_c (EML-only) also catastrophic** — embed/lm_head freeze diverges identically to all-aux freeze. Heavy-tail layers do NOT tolerate v_t intervention.
+- **Rule established**: "Never touch v_t mid-training; only modify how v̂ is consumed downstream."
+- **Closed sub-axes**: v_t RESET (#740), v_t FREEZE (all, subgroup, timed) (#770), v_t per-element factorization (#746), AdEMAMix β3 (#689), AdEMAMix α_t cooldown anneal (#721). Full mid-training-v_t-intervention axis closed.
+- Routing: edward → PR #813 H67 aux_adamw_eps cooldown schedule (same diagnostic question, benign intervention).
+
+---
+
 ## 2026-05-22 17:00 UTC — PR #809 ASSIGNED (fern): H66 Soft-Muon warm-blend α strength sweep (0.70/0.80/0.90)
 
 - Branch: `g1r3-fern/warm-blend-strength-sweep`
