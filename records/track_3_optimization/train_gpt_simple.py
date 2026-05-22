@@ -71,6 +71,17 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H63: Layer-wise depth-position LR scaling for MuonH body params.
+    # When enabled, splits MuonH params into per-block param groups and scales
+    # the base LR by a depth-dependent multiplier. Default 0 keeps a single
+    # group with uniform LR (bit-identical to baseline).
+    parser.add_argument("--muonh_lr_layerwise", type=int, default=int(os.environ.get("MUONH_LR_LAYERWISE", "0")),
+                        help="If 1, apply layer-position-dependent LR scaling to MuonH body 2D params.")
+    parser.add_argument("--muonh_lr_depth_alpha", type=float, default=float(os.environ.get("MUONH_LR_DEPTH_ALPHA", "0.5")),
+                        help="Scaling magnitude: LR_i = LR_base * (1 + alpha * depth_factor(i)).")
+    parser.add_argument("--muonh_lr_depth_mode", type=str, default=os.environ.get("MUONH_LR_DEPTH_MODE", "amplify"),
+                        choices=["amplify", "attenuate"],
+                        help="amplify: deeper=higher LR. attenuate: shallower=higher LR.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -592,9 +603,17 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        # Accept either a flat list of Parameters (original API) or a list of
+        # param_group dicts (used by H63 layer-wise LR). Sort params by size
+        # descending in both cases — required for the all_gather padding logic.
+        if isinstance(params[0], torch.nn.Parameter):
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            for group in params:
+                assert isinstance(group, dict) and "params" in group
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -713,7 +732,27 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_lr_layerwise:
+    print0(f"MuonH layer-wise LR ENABLED: mode={args.muonh_lr_depth_mode} alpha={args.muonh_lr_depth_alpha} base_lr={args.muonh_lr}", console=True)
+else:
+    print0("MuonH layer-wise LR DISABLED (uniform LR across depth)", console=True)
 print0("="*100)
+
+
+def get_layer_lr_multiplier(layer_idx: int, n_layers: int, alpha: float, mode: str) -> float:
+    """Per-block LR multiplier for layer-wise MuonH scaling (H63).
+
+    amplify  : layer 0 -> 1.0,  layer n-1 -> 1+alpha (deeper = larger LR)
+    attenuate: layer 0 -> 1+alpha, layer n-1 -> 1.0 (shallower = larger LR)
+    """
+    assert n_layers >= 2
+    norm_position = layer_idx / (n_layers - 1)  # 0.0 to 1.0
+    if mode == "amplify":
+        return 1.0 + alpha * norm_position
+    elif mode == "attenuate":
+        return 1.0 + alpha * (1.0 - norm_position)
+    else:
+        raise ValueError(f"unknown muonh_lr_depth_mode: {mode}")
 
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
@@ -766,6 +805,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_lr_layerwise": bool(args.muonh_lr_layerwise),
+            "muonh_lr_depth_alpha": args.muonh_lr_depth_alpha,
+            "muonh_lr_depth_mode": args.muonh_lr_depth_mode,
         },
     )
 
@@ -816,11 +858,40 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if args.muonh_lr_layerwise:
+        # H63: split MuonH params into one group per transformer block, with
+        # base LR scaled by a depth-dependent multiplier. Each block contributes
+        # 6 2D matrices (attn Q/K/V/proj + mlp fc/proj). The LR schedule
+        # (warmup + cooldown) is computed per-group from group["initial_lr"]
+        # so every layer follows the same temporal shape but with its own
+        # magnitude.
+        n_layers = len(model.blocks)
+        muonh_param_groups = []
+        for layer_idx in range(n_layers):
+            layer_params = [p for p in model.blocks[layer_idx].parameters() if p.ndim >= 2]
+            mult = get_layer_lr_multiplier(
+                layer_idx, n_layers, args.muonh_lr_depth_alpha, args.muonh_lr_depth_mode,
+            )
+            muonh_param_groups.append({
+                "params": layer_params,
+                "lr": args.muonh_lr * mult,
+                "layer_idx": layer_idx,
+                "layer_lr_mult": mult,
+                "name": f"muonh_blocks_L{layer_idx:02d}",
+            })
+        optimizer2 = MuonH(muonh_param_groups,
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        if dist.get_rank() == 0:
+            for g in optimizer2.param_groups:
+                print0(f"  MuonH layer L{g['layer_idx']:02d}: lr={g['lr']:.6f} (mult={g['layer_lr_mult']:.4f})", console=True)
+    else:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1038,6 +1109,15 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H63 layer-wise LR telemetry: log per-block initial_lr (post-multiplier,
+                    # pre-warmup/cooldown) and effective lr (post-schedule) at every telemetry
+                    # event so the depth-position scaling is visible across the run.
+                    if args.muonh_lr_layerwise:
+                        for group in opt.param_groups:
+                            if "layer_idx" in group:
+                                idx = group["layer_idx"]
+                                muonh_metrics[f"train/muonh/layer_lr/L{idx:02d}_base"] = group["initial_lr"]
+                                muonh_metrics[f"train/muonh/layer_lr/L{idx:02d}_eff"] = group["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
