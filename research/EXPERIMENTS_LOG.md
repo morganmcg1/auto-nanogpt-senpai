@@ -1,3 +1,54 @@
+## 2026-05-22 23:55 UTC — PR #852 ASSIGNED (alphonse): H76 Neelakantan gradient noise injection — fresh stack-noise-absorption probe
+
+- Branch: `g1r3-alphonse/gradient-noise-injection`
+- Hypothesis: Add Neelakantan-style annealed Gaussian gradient noise injection before each optimizer step. `σ_t = η / (1 + t)^γ` schedule (default γ=0.55 per Neelakantan et al. 2015). Applied to BOTH MuonH body and aux AdamW grads (uniform global noise floor). Fresh axis — never tested in this programme.
+- Background: Neelakantan et al. 2015 ("Adding gradient noise improves learning for very deep networks", arXiv:1511.06807) — ~1500 citations, foundational paper. Noise floor smooths loss landscape, helps escape sharp local minima, anti-correlates parameter updates mildly across steps. Schmidhuber-style old-idea revival.
+- **Mechanism-distinct from in-flight work**:
+  - vs Cautious masking (#795/#829/#839/#849 axes): filters within-step direction; noise PERTURBS direction before optimizer sees it.
+  - vs Lookahead (#849): aggregates ACROSS optimizer steps; gradient noise is within-step pre-optimizer.
+  - vs z-loss (#835): logits-side; gradient noise is parameter-gradient-side.
+- **Direct mechanism follow-up to alphonse's H60+H68 closures**: H60 + H68 established "direction WITH magnitude is load-bearing at outer scale". H76 is the inverse probe: can the stack's existing FIVE noise-absorption mechanisms (NS5 orthogonalization, MuonH-SI Frobenius projection, AdamW v_t, MuLoCo outer Nesterov averaging, AGC clip) absorb additional controlled noise while extracting implicit regularization benefit?
+- 3 arms (n=1, 3325 steps):
+  - arm_a (ctrl): `--gradient_noise_eta 0.0` (bit-identical baseline)
+  - arm_b (PRIMARY, Neelakantan default): `--gradient_noise_eta 0.01 --gradient_noise_gamma 0.55`
+  - arm_c (stronger): `--gradient_noise_eta 0.05 --gradient_noise_gamma 0.55` (5× η)
+- LoC ~10: `if eta > 0: p.grad.add_(torch.randn_like(p.grad) * sigma_t)` gated by CLI flag, inserted just before inner-MuonH and aux-AdamW `.step()`.
+- Mandatory smoke: 300 steps, arm_a must match prev nesterov-ctrl smoke 4.22940 (bit-identical); arm_b must show `noise/sigma_t` decreasing η→η/4 by step 100, `noise/grad_snr` in [3, 20]. If `grad_norm_post ≈ grad_norm_pre`, noise gate is broken; abort.
+- Telemetry (mandatory): `noise/sigma_t`, `noise/grad_norm_pre`, `noise/grad_norm_post`, `noise/grad_snr` per 100 steps. Alphonse's noise/signal telemetry strength (from H60 `effective_step_rms` + H68 `direction_alignment`) is gold-standard for this probe.
+- Decision tree:
+  - WIN arm_b: gradient noise regularization works at our short horizon
+  - WIN arm_c > arm_b monotone: noise floor load-bearing, amplifiable
+  - NULL both: existing stack noise absorption leaves no headroom
+  - NEG both: noise destroys signal at our LR magnitudes (mechanism finding)
+  - arm_c NEG but arm_b NULL/WIN: sharp η threshold near AGC clip ratio
+- W&B group `h76_gradient_noise_neelakantan`. Reassignment after #820 closure.
+
+---
+
+## 2026-05-22 23:50 UTC — PR #820 CLOSED NEG (alphonse): H68 MuLoCo outer Lion — joint outer-rule axis closure with #782
+
+- Branch: `g1r3-alphonse/muloco-outer-lion`
+- Hypothesis: Replace MuLoCo outer Nesterov-SGDM with Lion (sign-of-momentum). Direct follow-up to alphonse's own PR #782 H60 finding (Polyak NEG; direction matters not magnitude) — Lion's `sign(...)` update is direction purified. Test whether outer-scale aggregation tolerates magnitude-stripped direction-only updates.
+- Arms (3, n=1, 3325 steps; arm_b PRIMARY Lion β1=0.9):
+
+| arm | rule | β1 | outer_lr_lion | run_id | val/loss | best | ffs | Δ vs ctrl pop μ=3.27270 |
+|---|---|---|---|---|---|---|---|---|
+| arm_a re-run | Nesterov ctrl | — | — | `i88xyxix` | **3.27263** | 3.27263 | **3125** ✓ | −0.00007 (in-distribution; default path verified) |
+| arm_b PRIMARY | Lion | 0.9 | 0.0125 | `aqo1ds5s` | **3.36563** | 3.31490 | -1 | +0.0929 (~116σ NEG) |
+| arm_c | Lion | 0.95 | 0.0125 | `s2zg7k9b` | **3.38372** | — | -1 | +0.1110 (~139σ NEG) |
+
+- **Verdict: NEG**, sharpest of session. Both Lion arms catastrophically lose. arm_c (β1=0.95) is WORSE than arm_b (β1=0.9), **refuting** "higher momentum anchor salvages Lion at outer scale" branch of the decision tree.
+- **Integrated mechanism finding (H60+H68 closure of outer-rule axis)**:
+  - H60 (PR #782): Polyak (full magnitude, weaker direction) NEG ~7.5σ. effective_step_rms +21% larger yet lost → magnitude alone not sufficient.
+  - H68 (this PR): Lion (sign-of-momentum, magnitude destroyed) NEG ~116-139σ. direction_alignment(delta, m_prev) ≈ 0.04 (vs Nesterov 0.07) → sign(low-alignment direction) amplifies noise.
+  - **Rule logged**: "**Direction WITH magnitude is load-bearing at outer aggregation scale.** Neither alone is sufficient. Nesterov-SGDM's direction-blended step preserves both."
+- **Outer-rule axis structurally CLOSED across 3 failure modes**: PR #763 H55 wrapper removal (~11σ NEG), PR #782 H60 Polyak (~7.5σ NEG), PR #820 H68 Lion (~116-139σ NEG). Future outer-rule proposals (signSGD-momentum, sign+norm hybrid, AdamW-outer, AdaGrad-outer, signum etc.) **pre-closed by joint structural analogy**.
+- **Forensic discipline highlights**: chain auto-recovery from arm_a transient crash (step 664 grad_norm 109,062 + AGC max_ratio 88,817 — single-run instability, not default-path bug); post-hoc analytical default-path verification via bit-identical math equivalence proof; all 3 arms reached terminal at 3325 steps despite mid-run failure (no cherry-picking).
+- **Reusable telemetry pattern**: `update_rms` + `direction_alignment(delta, m_prev)` per-step = cleanest 2-knob diagnostic for outer-rule mechanism questions.
+- Routing → PR #852 H76 Neelakantan gradient noise (fresh axis exploiting alphonse's noise/signal telemetry strengths).
+
+---
+
 ## 2026-05-22 22:45 UTC — PR #849 ASSIGNED (fern): H75 Lookahead optimizer wrapper on aux AdamW — fresh outer-aggregation axis
 
 - Branch: `g1r3-fern/lookahead-aux-wrapper`
