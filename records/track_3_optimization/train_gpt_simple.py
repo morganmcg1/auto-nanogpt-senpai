@@ -536,6 +536,14 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# AggMo (Aggregated Momentum) for body Muon — multi-β momentum buffers aggregated pre-NS.
+# With NANOGPT_MUON_AGGMO_BETAS="0.95" (K=1), behavior is bit-identical to single-buffer baseline.
+NANOGPT_MUON_AGGMO_BETAS = os.environ.get("NANOGPT_MUON_AGGMO_BETAS", "0.95")
+_AGGMO_BETAS = tuple(float(b) for b in NANOGPT_MUON_AGGMO_BETAS.split(","))
+_AGGMO_K = len(_AGGMO_BETAS)
+assert _AGGMO_K >= 1, f"NANOGPT_MUON_AGGMO_BETAS must define K>=1 betas: {_AGGMO_BETAS}"
+assert all(0.0 <= b < 1.0 for b in _AGGMO_BETAS), f"AggMo betas must be in [0,1): {_AGGMO_BETAS}"
+_AGGMO_MU_EFF = sum(_AGGMO_BETAS) / _AGGMO_K
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -635,9 +643,17 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
-    momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+def muon_update(grad, momentums, v, ns_iters: int, betas, mu_eff: float,
+                beta2=0.999, eps=1e-8, nesterov=True):
+    # AggMo: K parallel β-EMA buffers, aggregated (mean) pre-NS for passive damping.
+    # K=1 with betas=(0.95,) is bit-identical to the prior single-buffer baseline.
+    for k in range(len(momentums)):
+        momentums[k].lerp_(grad, 1 - betas[k])
+    if len(momentums) == 1:
+        momentum_agg = momentums[0]
+    else:
+        momentum_agg = torch.stack(momentums, dim=0).mean(dim=0)
+    update = grad.lerp_(momentum_agg, mu_eff) if nesterov else momentum_agg
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
@@ -693,11 +709,13 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     if len(state) == 0:
-                        state["momentum"] = torch.zeros_like(p)
+                        state["momentums"] = [torch.zeros_like(p) for _ in range(_AGGMO_K)]
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
+                    update = muon_update(p.grad, state["momentums"], state["v"],
                                          ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                                         betas=list(_AGGMO_BETAS),
+                                         mu_eff=_AGGMO_MU_EFF,
+                                         beta2=group["beta2"], eps=group["eps"])
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -761,6 +779,7 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"MUON_AGGMO: K={_AGGMO_K} betas={_AGGMO_BETAS} mu_eff={_AGGMO_MU_EFF:.4f}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -826,6 +845,9 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_muon_aggmo_k": _AGGMO_K,
+            "nanogpt_muon_aggmo_betas": str(_AGGMO_BETAS),
+            "nanogpt_muon_aggmo_mu_eff": _AGGMO_MU_EFF,
         },
     )
 
