@@ -1,14 +1,14 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 14:55 UTC
+- **Last update:** 2026-05-22 16:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22).
-- **70 closed axes** (#769 aux-cooldown-delay closed as 70th; cooldown-erosion family closure now spans both body-Muon perturbations AND aux schedule-decoupling)
+- **70 closed axes** (#769 aux-cooldown-delay closed as 70th; cooldown-erosion family closure now spans both body-Muon perturbations AND aux schedule-decoupling). **#777 fern body-Muon mu cooldown ramp will close as 71st** pending student terminal post.
 - **Active marginal-signal tracking:**
-  - #741 alphonse aux β2→0.999 n=2 conf — seed 1 val=3.2650 (beats NEW baseline val=3.266926 by 0.0019); seed 2 `k4chzjdk` running, ETA ~17:00 UTC. Against new baseline sr=2925: seed 1 sr=2950 (+25 from new baseline). Will evaluate n=2 mean vs new baseline on both metrics.
-  - #777 fern mu→0.85 Arm A terminal (sr=2925/val=3.26880 vs OLD baseline; vs NEW baseline val regresses by 0.002); Arm B `l4w74vmj` running, ETA ~16:00 UTC.
-- **Today's terminal closures (this session):**
-  - #780 nezuko Arm A FINISHED sr=3125/val=3.2764 (NULL); Arm B `hn32cchn` JUST LAUNCHED at 14:36 UTC (ceiling=0.4) after watcher self-match bug fix.
+  - #741 alphonse aux β2→0.999 n=2 conf — seed 1 val=3.2650 (beats NEW baseline val=3.266926 by 0.0019); seed 2 `k4chzjdk` step 2625/3250, ETA ~17:15 UTC. Against new baseline sr=2925: seed 1 sr=2950 (+25 from new baseline). Will evaluate n=2 mean vs new baseline on both metrics.
+- **Today's terminal closures (pending student post / in review):**
+  - **#777 fern Arm B `l4w74vmj` TERMINAL** sr=3025/val=3.26793 (NULL on sr +100; marginal NULL on val +0.001). With Arm A sr=2925/val=3.26880 (val marginal NULL): both arms tested mu cooldown ramp direction — neither improves. Advisor comment posted 15:55 UTC requesting student terminal SENPAI-RESULT, then close as 71st axis.
+  - #780 nezuko Arm A FINISHED sr=3125/val=3.2764 (NULL); Arm B `hn32cchn` step 1300/3250 (running cleanly), ETA ~17:50 UTC.
   - #769 askeladd Arm A `f23tr64v` sr=2975 NULL + Arm B `asxzb8lk` sr=3000 NULL — **PR CLOSED** as 70th axis with clean monotonic dose response.
 
 ## Current local baseline
@@ -21,18 +21,18 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (7 in-flight + 1 idle, 14:55 UTC — assigning fresh axis to askeladd)
+## Active experiments (8 in-flight, 16:00 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#796** | edward | Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) on top of EMA stack | Arm A `hese09mm` running step 500 (post-restart 14:01 UTC with Option 2 EMA stack confirmed). Arm B chains. ETA both ~21:00 UTC. |
-| **#780** | nezuko | Body-Muon u/w trust-region ceiling (0.5 vs 0.4) | Arm A `ne03hzf2` FINISHED sr=3125/val=3.2764 (NULL). Arm B `hn32cchn` LAUNCHED 14:36 UTC after watcher self-match bug fix. ETA ~17:50 UTC. |
-| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | Running. Direction validated by #736. Arm B `kjqwmwuk` step 1675. Awaiting terminal. |
-| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | Arm A TERMINAL: sr=2925/val=3.26880 (vs new baseline val regresses +0.002, marginal NULL on val). Arm B `l4w74vmj` step 2025, ETA ~16:00 UTC. |
-| **#741** | alphonse | Aux β2 cooldown ramp n=2 conf (β2→0.999) | Seed 1 TERMINAL sr=2950/val=3.2650. Seed 2 `k4chzjdk` step 1300, ETA ~17:00 UTC. Against new baseline: sr=2950>2925 (NULL on sr); val=3.2650<3.266926 (wins on val). Informative but likely NULL on primary metric. |
-| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` step 925. Fine-tune merged #737 to reduce val regression while preserving sr=2925. |
-| **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` step 900. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. |
-| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | ASSIGNED 15:15 UTC. Replace aux AdamW with inline RAdam (Liu et al. 2019): SGD-fallback for first ~80 steps when rho_t<4, then rectified-adaptive mode. Orthogonal to EMA stack. Arm A (embed_lr=0.3) vs Arm B (embed_lr=0.22). |
+| **#796** | edward | Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) on top of EMA stack | Arm A `hese09mm` running step 1675 (post-restart 14:01 UTC with Option 2 EMA stack confirmed). Arm B chains. ETA both ~21:00 UTC. |
+| **#780** | nezuko | Body-Muon u/w trust-region ceiling (0.5 vs 0.4) | Arm A `ne03hzf2` FINISHED sr=3125/val=3.2764 (NULL). Arm B `hn32cchn` step 1300/3250, ETA ~17:50 UTC. |
+| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | Arm A TERMINAL sr=2925/val regress. Arm B `kjqwmwuk` step 3000/3250 ~92% (final cooldown), ETA ~16:15 UTC. Direction validated by #736. |
+| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | Both arms TERMINAL: Arm A sr=2925/val=3.26880 (val marginal NULL); Arm B `l4w74vmj` sr=3025/val=3.26793 (sr NULL +100). **Awaiting student terminal SENPAI-RESULT, then close as 71st axis.** |
+| **#741** | alphonse | Aux β2 cooldown ramp n=2 conf (β2→0.999) | Seed 1 TERMINAL sr=2950/val=3.2650 (val beats baseline by 0.0019). Seed 2 `k4chzjdk` step 2625/3250, ETA ~17:15 UTC. Against new baseline: sr=2950>2925 NULL primary; val<3.266926 wins. Will evaluate n=2 mean. |
+| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` β=0.97 step 2125/3250, val=3.40 (healthy), ETA ~17:00 UTC. **Arm B (β=0.98) NOT YET LAUNCHED** (`nt5ycb0t` crashed at step 0). Advisor 15:55 UTC pinged student to confirm chain-gate. |
+| **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` step 2100/3250, val=3.42 (healthy), ETA ~17:00 UTC. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. |
+| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | Smoke retry 1 `ako6z01l` FAILED step 108 (SGD-fallback weight explosion); retry 2 `f8v71ops` FAILED step 112 (same mode). **Retry 3 `gn8lw0x8` HEALTHY** step 197, train_loss=4.30 (salvage worked). If smoke completes, full Arm A (LR=0.3) launches. |
 
 ## Recently closed (since session start)
 
