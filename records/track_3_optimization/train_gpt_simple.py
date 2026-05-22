@@ -438,6 +438,10 @@ class GPT(nn.Module):
 
 # Contra-Muon + SOAP-on-MLP hyperparameters
 CONTRA_MUON = float(os.environ.get("CONTRA_MUON", "0.5"))
+# PR #729: per-block CONTRA_MUON (depth-differentiated). Defaults to CONTRA_MUON
+# scalar so any unset configuration is byte-identical to prior behavior.
+CONTRA_MUON_EARLY = float(os.environ.get("CONTRA_MUON_EARLY", str(CONTRA_MUON)))  # blocks 0..5
+CONTRA_MUON_LATE  = float(os.environ.get("CONTRA_MUON_LATE",  str(CONTRA_MUON)))  # blocks 6..11
 MU = float(os.environ.get("MU_START", "0.95"))
 MU_END = float(os.environ.get("MU_END", "0.95"))
 # Cooldown-only mu schedule (Arm B of PR #288): hold MU_COOLDOWN_START during
@@ -504,13 +508,17 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2, contra=CONTRA_MUON):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    `contra` defaults to the global `CONTRA_MUON` so existing callers stay
+    byte-identical; PR #729 passes a per-param override (early vs late block).
+    """
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
-    # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
-    update = update - CONTRA_MUON / 2 * normalized_grad
+    # Contra correction: subtract contra / 2 * op-norm-normalized momentum.
+    update = update - contra / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
@@ -652,6 +660,18 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #729: build per-param CONTRA_MUON map keyed on block index (0..11).
+        # Names from model.blocks.named_parameters() look like "0.attn.q.weight",
+        # "11.mlp.proj.weight", etc. — leading integer is the block index.
+        import re as _re
+        _block_re = _re.compile(r'(?:^|\.)(\d+)\.')
+        self.param_contra: dict[int, float] = {}
+        for n, p in named_params:
+            m = _block_re.search(n)
+            assert m is not None, f"Could not infer block index from param name {n!r}"
+            block_idx = int(m.group(1))
+            contra = CONTRA_MUON_LATE if block_idx >= 6 else CONTRA_MUON_EARLY
+            self.param_contra[id(p)] = contra
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -701,7 +721,8 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    contra_p = self.param_contra.get(id(p), CONTRA_MUON)
+                    update = contra_normuon_update(momentum_update, state["second_moment"], contra=contra_p)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -847,6 +868,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
+            "optimizer/contra_muon_early": CONTRA_MUON_EARLY,
+            "optimizer/contra_muon_late": CONTRA_MUON_LATE,
             "optimizer/mu": MU,
             "optimizer/mu_start": MU,
             "optimizer/mu_end": MU_END,
