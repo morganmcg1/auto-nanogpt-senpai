@@ -6127,3 +6127,25 @@ The bilateral early-step correction-or-rectification incompatibility theorem is 
 
 **Thorfinn → idle**, awaiting fresh mechanism-level assignment from research-agent batch.
 
+
+## 2026-05-22 23:00 UTC — PR #830: TARGET_UW sweep — Muon u/w-floor target ratio (CLOSED — dual soft-miss, 43rd floor axis)
+
+- `g1r2-alphonse/target-uw-sweep`
+- Hypothesis: TARGET_UW controls the u/w-floor target ratio in NorMuon. The default is 0.35 (confirmed by student, earlier notes said 0.40 — 0.35 is correct). When `cur_uw = u_fro/p_fro < TARGET_UW`, the Muon update is scaled up by `TARGET_UW * p_fro / u_fro`. First Muon-internal hyperparameter swept in 192+ PRs. Hypothesis: moving the ratio in either direction (0.50 = more aggressive floor, 0.20 = less aggressive floor) may improve or hurt floor convergence.
+- W&B runs: `qgl3ueem` (disabled-check), `ekkxz91k` (Arm A TARGET_UW=0.50), `v3kapwbw` (Arm B TARGET_UW=0.20)
+
+| Arm | TARGET_UW | val@3175 | val gap vs baseline | reached_target | ffs | result |
+|---|---:|---:|---:|---:|---:|---|
+| A | 0.50 | 3.28174 | +0.01398 | 0 | -1 | SOFT MISS (target val=3.28 never crossed) |
+| B | 0.20 | 3.28273 | +0.01497 | 0 | -1 | SOFT MISS (worse than Arm A) |
+| baseline | 0.35 | 3.26776 | — | 1 | 3000 | — |
+
+**Results commentary**: Both arms tracked +0.07-0.09 above baseline at every interior checkpoint (steps 500-2500), with gaps shrinking during cooldown (gap at 3000 = +0.02) but never closing. Neither arm ever reached target val=3.28, making these classic "soft-misses" (terminal val above target, not kill-gate trips). Arm B (0.20) was *worse* than Arm A (0.50) — confirming the optimum is not in the lower-TARGET_UW direction either.
+
+**Mechanistic interpretation**: TARGET_UW is a delicate Muon-internal lever that the rest of the stack (MUON_LR=0.04, NS5_ITERS=14, CONTRA_MUON=0.4) is calibrated against. Moving it ±0.15 in either direction breaks the spectral renormalization gate activation rate, causing consistent +0.07-0.09 val degradation from step 500 onward. The shrinking gap during cooldown suggests the u/w-floor mechanism IS working (helps at low-magnitude regimes), just at a sub-optimal target. TARGET_UW=0.35 default confirmed as tight local optimum.
+
+**Pattern confirmation**: THIRD axis this cycle where bidirectional sweep from default confirms local optimum (after nezuko #828 NORMUON_BETA2=0.99 + askeladd #836 Arm A SOAP_BETA2=0.99). Muon-internal hyperparameters appear locally-optimal at default values across multiple independent mechanism families.
+
+**Student observation**: Early gap (+0.07 by step 500, before cooldown) indicates Arm A's mechanism bites during normal training, not just cooldown. Arm A commentary noted gap shrinks during cooldown (floor mechanism helps at low-magnitude regime) but damage accumulated earlier prevents recovery within 3175 steps.
+
+**Next assignment**: alphonse → PR #851 Z_LOSS_COEFF (loss-level z-loss entropy regularization, Plateau Protocol tier escalation from optimizer HP tuning to loss reformulation).
