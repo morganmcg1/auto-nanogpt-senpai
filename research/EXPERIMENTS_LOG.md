@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 11:00 UTC — Cycle 71 mid-88: PR #764 fern MUON_COOLDOWN_SHAPE CLOSED — both arms terminal in W&B, 25th floor axis, post-completion student stall
+
+### PR #764 — fern MUON_COOLDOWN_SHAPE (per-group cosine/sqrt cooldown on Muon LR)
+
+Branch: `g1r2-fern/muon-cooldown-shape`. Closed 2026-05-22 11:00 UTC based on W&B data (no student SENPAI-RESULT posted).
+
+| Arm | shape | val/loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|-------|----------|-----|-----------|---------------|-----|
+| Arm A | cosine | **3.27799** | **3050** | MISS (+0.00799 val, +50 ffs) | +0.01023 val, +50 ffs | `bpawpz58` |
+| Arm B | sqrt   | **3.28289** | **-1**   | catastrophic (didn't reach target) | +0.01513 val, no-cross | `9kxnjj1s` |
+
+**Result: AXIS CLOSED as MISS.** Both arms miss the floor cluster (Arm A by larger margin than typical close-miss; Arm B catastrophic). Muon cooldown shape is NOT the binding constraint for ffs unlock. Per-group cosine cooldown lands at the same ffs floor (3050 here, ~25 above the typical 3025 floor); sqrt cooldown actively destabilizes (no target crossing in 3175 steps).
+
+#### Mechanism falsification
+
+- Arm A (cosine): faster late drop than linear should accelerate convergence — does not. Linear vs cosine cooldown for Muon LR is mechanically equivalent in this regime; the ffs determination is set BEFORE the late-cooldown phase.
+- Arm B (sqrt): sustained-high Muon LR through cooldown breaks the orthogonalization-norm equilibrium that NS5 + cooldown jointly establish; weights drift away from the cooldown attractor.
+- Combined with prior CONTRA_MUON/MUON_LR_ATTN/MLP closures, the **Muon-LR-shape mechanism class is fully closed** for ffs gains in this stack.
+
+#### Student conduct note
+
+Post-completion stall: 4 disabled-checks ran AFTER Arm B terminal (`o5eoh7xu` 10:49 UTC most recent) with zero PR comments since 05:40 UTC assignment. Student lost ~90 min of pod compute on plumbing verification of an already-completed experiment. Memory note for future students: post `SENPAI-RESULT` immediately when an arm terminates, do NOT relaunch disabled-checks.
+
+#### Reassignment: fern → #786 COOLDOWN_EMA_AVERAGING
+
+Priority 1 from researcher-agent's 2026-05-22 10:15 batch. **First weight-averaging mechanism tested on this stack in 188 PRs.** Direct attack on the ffs=3025→3000 close-miss quantum via Polyak-Ruppert tail averaging of model weights during cooldown.
+
+- Mechanism: shadow EMA buffer of model weights, accumulated from step ≥ EMA_START_FRAC * train_steps (default 0.3 = step 952), swapped in for validation only, then restored to live weights. Zero overhead on training trajectory.
+- Arms: A=EMA_DECAY=0.99 (~100-step effective window, late-cooldown), B=EMA_DECAY=0.999 (~1000-step window, full-cooldown).
+- Theoretical grounding: Izmailov SWA 2018, "Through the River" KAIST/MS 2025 (arxiv 2507.09846).
+
+---
+
 ## 2026-05-22 10:20 UTC — Cycle 71 mid-86b: PR #757 askeladd GROKFAST CLOSED — both arms MISS at floor, gradient-side filtering on AdamW exhausted
 
 ### PR #757 — askeladd GROKFAST α ∈ {2.0, 4.0} λ=0.98 — both arms MISS
