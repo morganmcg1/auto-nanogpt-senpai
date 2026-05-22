@@ -71,6 +71,28 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Soft-Muon alpha blend (PR #775 / H59). Optionally schedule the convex
+    # blend coefficient between NS5(g) and the (norm-matched) pre-NS5
+    # gradient. alpha=1.0 is the baseline (pure NS5 update); alpha<1.0 mixes
+    # in the raw gradient. Default schedule_off keeps baseline behavior.
+    parser.add_argument("--muonh_soft_alpha_schedule", type=int,
+                        default=int(os.environ.get("MUONH_SOFT_ALPHA_SCHEDULE", "0")),
+                        help="If 1, schedule Soft-Muon alpha blend (0 = baseline / arm_a).")
+    parser.add_argument("--muonh_soft_alpha_start", type=float,
+                        default=float(os.environ.get("MUONH_SOFT_ALPHA_START", "1.0")),
+                        help="Soft-Muon alpha at step 0.")
+    parser.add_argument("--muonh_soft_alpha_mid", type=float,
+                        default=float(os.environ.get("MUONH_SOFT_ALPHA_MID", "1.0")),
+                        help="Soft-Muon alpha during main phase (after warm, before cooldown).")
+    parser.add_argument("--muonh_soft_alpha_end", type=float,
+                        default=float(os.environ.get("MUONH_SOFT_ALPHA_END", "0.85")),
+                        help="Soft-Muon alpha at final step.")
+    parser.add_argument("--muonh_soft_alpha_warm_frac", type=float,
+                        default=float(os.environ.get("MUONH_SOFT_ALPHA_WARM_FRAC", "0.0")),
+                        help="Fraction of train_steps spent ramping start->mid at the beginning.")
+    parser.add_argument("--muonh_soft_alpha_cooldown_start_frac", type=float,
+                        default=float(os.environ.get("MUONH_SOFT_ALPHA_COOLDOWN_START_FRAC", "0.75")),
+                        help="Fractional step at which the mid->end cooldown ramp begins.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -80,6 +102,29 @@ def parse_args():
 
 
 args = parse_args()
+
+
+def get_soft_alpha(step, total_steps, alpha_start, alpha_mid, alpha_end,
+                   warm_frac=0.0, cooldown_start_frac=0.75):
+    """3-phase piecewise schedule for Soft-Muon alpha blend (PR #775 / H59).
+
+    Phase 1 (frac in [0, warm_frac)): linear ramp alpha_start -> alpha_mid.
+    Phase 2 (frac in [warm_frac, cooldown_start_frac)): constant alpha_mid.
+    Phase 3 (frac in [cooldown_start_frac, 1]): linear ramp alpha_mid -> alpha_end.
+    """
+    frac = step / max(total_steps, 1)
+    if warm_frac > 0.0 and frac < warm_frac:
+        t = frac / warm_frac
+        return alpha_start + (alpha_mid - alpha_start) * t
+    if frac < cooldown_start_frac:
+        return alpha_mid
+    denom = max(1e-9, 1.0 - cooldown_start_frac)
+    t = (frac - cooldown_start_frac) / denom
+    if t < 0.0:
+        t = 0.0
+    elif t > 1.0:
+        t = 1.0
+    return alpha_mid + (alpha_end - alpha_mid) * t
 
 
 def clean_metric_name(name: str) -> str:
@@ -493,6 +538,28 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.compile
+def muon_update_soft(grad, momentum, soft_alpha, mu=0.95, nesterov=True):
+    """Soft-Muon variant: blend NS5(g) with raw pre-NS5 gradient.
+
+    ``soft_alpha`` is a 0-dim float tensor (avoids torch.compile recompiles
+    on each scheduled value). The raw pre-NS5 gradient is rescaled to match
+    the Frobenius norm of the NS5 output, then the two are convex-combined
+    with weights (alpha, 1-alpha). Also returns the cosine similarity
+    between the NS5 output and the pre-NS5 input (telemetry).
+    """
+    momentum.lerp_(grad, 1 - mu)
+    update_grad = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_newtonschulz5(update_grad)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    pre_norm = update_grad.norm().clamp(min=1e-10)
+    ns_norm = update.norm().clamp(min=1e-10)
+    cos_sim = (update_grad.float() * update.float()).sum() / (pre_norm.float() * ns_norm.float())
+    raw_scaled = update_grad * (ns_norm / pre_norm)
+    update = soft_alpha * update + (1.0 - soft_alpha) * raw_scaled
+    return update, cos_sim
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -596,11 +663,14 @@ class MuonH(torch.optim.Optimizer):
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        soft_alpha=1.0, soft_alpha_active=False)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_inner_cos_sim = float("nan")
+        self._last_soft_alpha = 1.0
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +680,22 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        cos_sim_sum_local = torch.zeros((), device="cuda", dtype=torch.float64)
+        cos_sim_count_local = 0
+        soft_alpha_for_log = 1.0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            soft_alpha_active = bool(group.get("soft_alpha_active", False))
+            soft_alpha_val = float(group.get("soft_alpha", 1.0))
+            soft_alpha_for_log = soft_alpha_val
+            if soft_alpha_active:
+                # Pre-create soft_alpha as a 0-dim tensor once per group so
+                # @torch.compile does not recompile on each scheduled value.
+                soft_alpha_t = torch.tensor(soft_alpha_val, device="cuda", dtype=torch.float32)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +704,14 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if soft_alpha_active:
+                        update, cos_sim = muon_update_soft(
+                            p.grad, state["momentum"], soft_alpha_t, mu=group["mu"],
+                        )
+                        cos_sim_sum_local += cos_sim.double()
+                        cos_sim_count_local += 1
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -655,18 +742,31 @@ class MuonH(torch.optim.Optimizer):
             ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            cos_sim_acc = torch.stack([cos_sim_sum_local,
+                                       torch.tensor(float(cos_sim_count_local),
+                                                    device="cuda", dtype=torch.float64)])
+            dist.all_reduce(cos_sim_acc, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            cos_sim_sum_global = float(cos_sim_acc[0].item())
+            cos_sim_count_global = float(cos_sim_acc[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            cos_sim_sum_global = float(cos_sim_sum_local.item()) if cos_sim_count_local > 0 else 0.0
+            cos_sim_count_global = float(cos_sim_count_local)
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if cos_sim_count_global > 0:
+            self._last_inner_cos_sim = cos_sim_sum_global / cos_sim_count_global
+        else:
+            self._last_inner_cos_sim = float("nan")
+        self._last_soft_alpha = soft_alpha_for_log
 
 
 ########################################
@@ -713,6 +813,16 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_soft_alpha_schedule:
+    print0(
+        f"Soft-Muon alpha SCHEDULE ENABLED: start={args.muonh_soft_alpha_start} "
+        f"mid={args.muonh_soft_alpha_mid} end={args.muonh_soft_alpha_end} "
+        f"warm_frac={args.muonh_soft_alpha_warm_frac} "
+        f"cooldown_start_frac={args.muonh_soft_alpha_cooldown_start_frac}",
+        console=True,
+    )
+else:
+    print0("Soft-Muon alpha SCHEDULE DISABLED (arm_a / baseline path)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +876,12 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_soft_alpha_schedule": bool(args.muonh_soft_alpha_schedule),
+            "muonh_soft_alpha_start": args.muonh_soft_alpha_start,
+            "muonh_soft_alpha_mid": args.muonh_soft_alpha_mid,
+            "muonh_soft_alpha_end": args.muonh_soft_alpha_end,
+            "muonh_soft_alpha_warm_frac": args.muonh_soft_alpha_warm_frac,
+            "muonh_soft_alpha_cooldown_start_frac": args.muonh_soft_alpha_cooldown_start_frac,
         },
     )
 
@@ -982,6 +1098,24 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         muonh_warmup_factor = set_hparams(step)
+        # Soft-Muon alpha schedule (PR #775 / H59). When schedule is enabled,
+        # update soft_alpha on every MuonH group before the inner step uses it.
+        if args.muonh_soft_alpha_schedule:
+            current_soft_alpha = get_soft_alpha(
+                step, train_steps,
+                args.muonh_soft_alpha_start,
+                args.muonh_soft_alpha_mid,
+                args.muonh_soft_alpha_end,
+                warm_frac=args.muonh_soft_alpha_warm_frac,
+                cooldown_start_frac=args.muonh_soft_alpha_cooldown_start_frac,
+            )
+            for opt in optimizers:
+                if isinstance(opt, MuonH):
+                    for pg in opt.param_groups:
+                        pg["soft_alpha"] = current_soft_alpha
+                        pg["soft_alpha_active"] = True
+        else:
+            current_soft_alpha = 1.0
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1028,7 +1162,11 @@ for trial_idx in range(args.num_trials):
             and step < args.muonh_warmup_steps + 50
             and (step == 0 or (step + 1) % 10 == 0)
         )
-        if dist.get_rank() == 0 and (telemetry_due or warmup_due):
+        soft_alpha_due = (
+            args.muonh_soft_alpha_schedule
+            and (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
+        )
+        if dist.get_rank() == 0 and (telemetry_due or warmup_due or soft_alpha_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             for opt in optimizers:
                 if isinstance(opt, MuonH):
@@ -1038,6 +1176,17 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    if args.muonh_soft_alpha_schedule:
+                        muonh_metrics["train/muonh/soft_alpha"] = opt._last_soft_alpha
+                        # cos_sim between NS5 output and pre-NS5 input
+                        # (sanity check from PR #744 telemetry).
+                        if opt._last_inner_cos_sim == opt._last_inner_cos_sim:  # not NaN
+                            muonh_metrics["train/muonh/inner_cos_sim"] = opt._last_inner_cos_sim
+                        # Convex-blend sanity: ||(1-a)*raw_scaled|| / ||a*NS5||
+                        # = (1-a)/a since raw_scaled is matched to NS5's norm.
+                        a = opt._last_soft_alpha
+                        if a > 0.0:
+                            muonh_metrics["train/muonh/blend_norm_ratio"] = (1.0 - a) / a
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
