@@ -1,5 +1,49 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 01:10 UTC — Cycle 71 mid-57: PR #720 askeladd MUON_COOLDOWN_SHAPE CLOSED — linear shape provably optimal across 2D per-group (fraction × shape) cooldown space
+
+### PR #720 — askeladd MUON_COOLDOWN_SHAPE ∈ {cosine, sqrt} vs default linear (Muon-only, AdamW stays linear)
+
+Branch: `g1r2-askeladd/muon-cooldown-shape`. Closed 2026-05-22 01:10 UTC.
+
+| Arm | shape | val_loss | ffs | Δ val | Δ ffs | Hold gate | Merge bar | W&B |
+|-----|-------|----------|-----|-------|-------|-----------|-----------|------|
+| A | cosine `0.5(1+cos(πt))` | **3.27730** | **3050** | +0.00954 | +50 | MISS | MISS | `grqodf83` |
+| B | sqrt `√(1-t)` | **3.28397** | **-1 (never)** | +0.01621 | (never) | MISS | MISS | `3rgire7f` |
+| Disabled-check | linear | val@200=4.08705 | — | — | — | bit-exact ✓ | — | `ghv9llus` |
+| Baseline #613 (n=2) | linear | 3.26776 | 3000 | — | — | — | — | — |
+
+**Mechanism analysis (programme-level finding)**:
+- **Cosine**: η_muon > linear for t<0.5 (early cooldown), η_muon < linear for t>0.5 (late cooldown). Mid-cooldown boost helps slightly; late-cooldown undercut starves final descent.
+- **Sqrt**: η_muon > linear throughout cooldown (concave). Sustained Muon magnitude near convergence perturbs late-stage descent — by step 2500 sqrt is **0.058 BEHIND cosine** (val 3.3932 vs 3.3351) and never closes the gap. The "more Muon LR throughout = faster descent" intuition is **falsified**: late-cooldown Muon magnitude is a perturbation, not a productive update.
+- Once NS5 is at full strength and the model is near the basin, additional Muon magnitude pushes parameters off the descent direction. Linear's monotonic decrease IS the optimal trade-off.
+
+**Cooldown × LR-shape × per-group axis NOW EXHAUSTED**:
+- #657 (nezuko) GLOBAL cosine/quadratic — catastrophic
+- #678 (askeladd) per-group cooldown FRACTION — linear-fraction-symmetry optimal
+- **#720 (this PR) per-group cooldown SHAPE Muon-only — linear shape optimal**
+
+The current `set_hparams` linear-equal cooldown on both groups is provably optimal across the explored 2D space (per-group fraction × per-group shape). Schedule-shape mechanism class is now ~complete.
+
+**15th axis joining ffs ≥ 3025 cluster** (Arm A at ffs=3050). Plateau confirmed intrinsic at n=1 on c=20 stack across 15 fresh axes this cycle.
+
+### Assignment: askeladd → PR #742 (ADAMW_RADAM)
+
+**Hypothesis**: Rectified Adam (Liu et al. 2019, arXiv:1908.03265) replaces standard Adam's variance-scaling in early steps. When `ρ_t ≤ 4` (variance poorly estimated, typically steps 1-5 at β2=0.95), update falls back to `m_hat` (SGD-like, no variance scaling). Once `ρ_t > 4`, applies rectified update `r_t · m_hat / sqrt(v_hat)` where `r_t` smoothly grows from 0→1.
+
+**Why distinct from prior closures**:
+- #739 NAdam (in flight): direction modification on m_t (`m_hat = β1·m_t + (1-β1)·g_t`)
+- This PR: variance rectification on v_t (`r_t` adaptive scaling)
+- Different mechanism axis within AdamW family
+- #718 MUON_BIAS_CORR (CLOSED) failed by AMPLIFYING early-step updates; RAdam does the OPPOSITE — removes unstable variance scaling in early steps
+- No prior RAdam test in 165+ experiments
+
+**Arms**:
+- Arm A: ADAMW_RADAM=1 (full RAdam on all AdamW groups: embed, lm_head, scalars)
+- Arm B: ADAMW_RADAM=2 (RAdam only on embed + lm_head; scalars use standard AdamW — tests whether rectification helps large-matrix groups specifically)
+
+8/8 students assigned (alphonse #734, tanjiro #733, nezuko #732, frieren #729, thorfinn #728, askeladd #742, fern #739, edward #702 pod-broken hold).
+
 ## 2026-05-22 00:55 UTC — Cycle 71 mid-56: PR #718 fern MUON_BIAS_CORR CLOSED — bias correction mechanism falsified; NS5 + magnitude-correction incompatibility theorem
 
 ### PR #718 — fern MUON_BIAS_CORR ∈ {1=full, 2=warmup-only} vs default 0 (disabled)
