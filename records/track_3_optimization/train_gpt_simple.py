@@ -455,6 +455,8 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+MUON_LR_ATTN_MULT = float(os.environ.get("MUON_LR_ATTN_MULT", "1.0"))  # multiplier on MUON_LR for body attn params (PR #732)
+MUON_LR_MLP_MULT = float(os.environ.get("MUON_LR_MLP_MULT", "1.0"))  # multiplier on MUON_LR for body mlp params (PR #732)
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -652,6 +654,16 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # Per-param LR multiplier (PR #732): per-block-TYPE asymmetric MUON_LR.
+        # Names from model.blocks.named_parameters() are like "0.attn.q.weight" / "0.mlp.fc.weight".
+        self.param_lr_mult: dict[int, float] = {}
+        for n, p in named_params:
+            if ".attn." in n:
+                self.param_lr_mult[id(p)] = MUON_LR_ATTN_MULT
+            elif ".mlp." in n:
+                self.param_lr_mult[id(p)] = MUON_LR_MLP_MULT
+            else:
+                self.param_lr_mult[id(p)] = 1.0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -709,7 +721,8 @@ class Muon(torch.optim.Optimizer):
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
-                    p.add_(update, alpha=-group["lr"])
+                    lr_mult = self.param_lr_mult.get(id(p), 1.0)
+                    p.add_(update, alpha=-group["lr"] * lr_mult)
                     # Refresh SOAP state with the raw grad (after applying the step).
                     if use_soap:
                         soap_refresh(grad, state)
@@ -856,6 +869,8 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_lr_attn_mult": MUON_LR_ATTN_MULT,
+            "optimizer/muon_lr_mlp_mult": MUON_LR_MLP_MULT,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
