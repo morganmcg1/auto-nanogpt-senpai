@@ -1,5 +1,36 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 15:30 UTC — Cycle 71 mid-95: Sophia bilateral CLOSURE (34th floor axis) — second-order curvature strictly weaker than AdamW EMA(g²)
+
+### PR #797 — nezuko SOPHIA_DIAGONAL_HESSIAN on AdamW groups (Liu Stanford 2023, arxiv 2305.14342)
+
+Branch: `g1r2-nezuko/sophia-diagonal-hessian`. Closed 2026-05-22 15:30 UTC.
+
+| Run | Arm | γ | ρ | β1 | K | killed at step | val at kill | gate trip | gap vs baseline |
+|-----|-----|----|----|----|---|---:|---:|---|---:|
+| disabled-check (2) | — | — | — | — | — | val@200=4.085-4.087 (in band) | bit-equivalent verify | — | `3kikzrni`, `rsugdmv2` |
+| Arm A | paper defaults | 0.05 | 0.05 | 0.965 | 10 | 2410 (val@2000=3.49782 > 3.35) | 3.44752@2375 | step 2000 > 3.35 | +0.17 |
+| Arm B | looser γ | 0.1 | 0.05 | 0.965 | 10 | 506 (val@500=4.06772 > 4.0) | 4.06772@500 | step 500 > 4.0 | +0.79 strictly worse |
+
+W&B runs: Arm A `pmahogn7`, Arm B `t83fiw62`.
+
+**Result: AXIS CLOSED at bilateral kill-gate trip — Sophia diagonal-Hessian preconditioner is strictly WEAKER than AdamW EMA(g²)** on this stack at this scale. **34th axis joining floor cluster** by very large margin (gap +0.17 to +0.79 vs typical cluster gap 0.008).
+
+**Mechanism analysis (student's sharp γ-direction inversion catch)**: Sophia's update is `clip(m_hat / max(γ·h, ε), ±ρ)`. With γ=0.1 (vs Arm A γ=0.05), the denominator `γ·h` is LARGER → the un-clipped ratio `m_hat/(γ·h)` is SMALLER → fewer elements saturate at ±ρ → effective update is SMALLER. **This is the opposite of "looser scaling allows larger steps"** — Sophia's γ scales the denominator NOT the update. Both arms produce sub-AdamW updates because:
+1. The Hessian-via-g² rank-1 GNB estimator is more conservative than AdamW's sqrt(EMA(g²)) at the embed/lm_head LR regime
+2. The clip ceiling at ρ=0.05 caps update magnitude even when m_hat/(γ·h) > ρ in regions of small curvature
+
+**Mechanistic implication**: Sophia substituting in a different curvature object (rank-1 GNB Hessian estimate) gets strictly WEAKER updates. This refutes the load-bearing assumption from PR #772 mechanistic synthesis that AdamW's EMA(g²) is "the wrong curvature object" for embed+lm_head undertraining in cooldown. AdamW's `sqrt(EMA(g²))` IS the right curvature shape; head-undertraining must be addressed via LR/schedule (which is what #794 COMPOSITE_LATE_BOOST is testing in flight). Combined floor-cluster signal across 34 axes now:
+- Iterate-side mechanisms (Lookahead, MARS-M, Cooldown EMA): 3 axes refuted
+- Schedule mechanisms (SF-AdamW): 1 axis refuted by very large margin
+- Sign-only mechanisms (Lion): 1 axis refuted by small margin
+- **Second-order curvature mechanisms (Sophia): 1 axis refuted by very large margin**
+- Scalar/schedule axes: 28 axes MISS at floor
+
+### Conclusions
+
+**The floor IS in optimizer's reachable loss landscape AND in the AdamW-side preconditioner shape.** Orthogonal mechanism classes that change WHAT the optimizer computes (not how it weights/clips) are still in flight: alphonse NS5 polynomial coefficients (#811), thorfinn Z-Loss loss-level penalty (#805), fern CONTRA=0 stack-pruning (#806), askeladd AdaFactor factored 2nd-moment preconditioner (#804), nezuko AdEMAMix dual-EMA gradient memory (#816 just assigned). Frieren composite late-boost (#794) at val=3.269/ffs=3025 is the closest n=1 close-miss in the entire 34-axis cluster — n=2 confirm via accidental re-launch `ptshctmv` is the cycle's most important pending result. If n=2 mean clears merge bar (val≤3.26776 AND ffs≤3000), this is the cycle's first FLOOR BREAK.
+
 ## 2026-05-22 13:40 UTC — Cycle 71 mid-93: TRIPLE CLOSURE — Arm A cluster all MISS at floor (Lookahead, MARS-M, Cooldown EMA → 30th/31st/32nd floor axes); 3 iterate-side mechanism classes ALL fail
 
 ### PR #784 — askeladd LOOKAHEAD on AdamW (Zhang NeurIPS 2019, arxiv 1907.08610)
