@@ -1,3 +1,86 @@
+## 2026-05-22 20:55 UTC — PR #835 ASSIGNED (frieren): H73 Z-loss regularizer (PaLM-style logsumexp penalty)
+
+- Branch: `g1r3-frieren/z-loss-regularizer`
+- Hypothesis: Add PaLM/T5-style z-loss training penalty `α*(logsumexp(logits))^2` to suppress partition function drift. Soft-cap already on logits (cap=15), z-loss is complementary mechanism (cap = hard ceiling per logit; z-loss = soft regularizer on partition magnitude). Improves late-training numerical stability of CE gradient.
+- Fresh axis — 0 matches in EXPERIMENTS_LOG.md for "z-loss" / "z_loss" / "logsumexp regularizer" / "PaLM z".
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--z_loss_alpha 0.0` (current baseline)
+  - arm_b (PRIMARY, PaLM default): `--z_loss_alpha 1e-4`
+  - arm_c (STRONGER): `--z_loss_alpha 1e-3` (10× upper bound)
+- LoC: ~5-10 in `GPT.forward` adding `lse**2.mean()` term to training-only loss (validation `val/loss` stays pure CE).
+- Diagnostic: `train/logsumexp_mean` per 100 steps — if z-loss doesn't bind, `lse` doesn't decay → useful null finding by itself.
+- Predeclared: arm_b promotes if `val/loss(b) < val/loss(a) - 0.0008` AND arm_c monotone consistent; NULL if all three within ±1σ.
+- W&B group `h73_z_loss_regularizer`. Frieren routing: numerical/forensic strengths exposed by PR #798 CUDA non-determinism finding.
+
+---
+
+## 2026-05-22 20:50 UTC — PR #834 ASSIGNED (nezuko): H72 NS5 iteration count TIME-SCHEDULE — temporal complement to joint NS5 axis closure
+
+- Branch: `g1r3-nezuko/ns5-k-time-schedule`
+- Hypothesis: Vary NS5 iteration count `k` ACROSS TRAINING TIME instead of fixed k=12. Mechanism: gradient spectrum evolves early (isotropic) → late (anisotropic, growing small-σ tail) so polish budget should match spectral need. Joint static NS5 closure today (PR #190 k flat + PR #762 coefs flat + PR #790 within-call hybrid flat) leaves the temporal axis as the only NS5 sub-dimension still open.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): constant k=12 throughout
+  - arm_b (warm-cool PRIMARY): k=8 (steps 0-1000) → k=12 (1000-2300) → k=16 (2300-3325)
+  - arm_c (cool-warm INVERSE): k=16 → k=12 → k=8 (null falsifier)
+- LoC: ~25 in MuonH.step() — per-step k from global step counter via `_ns5_k_for_step()` helper. CLI: `--muonh_ns5_k_schedule {const, warm_cool, cool_warm}`. Telemetry `muonh/ns5_k_active` every ~100 steps.
+- Predeclared: arm_b promotes if better AND arm_c symmetrically worse (true temporal signal); NULL if both arms within ±1σ ctrl pop; NULL if symmetric around ctrl (signed perturbation is noise).
+- W&B group `h72_ns5_k_time_schedule`. Routing promised to nezuko in PR #790 close comment: "will route NS5 k time-schedule to you as a direct mechanism follow-up that extends today's joint closure to the temporal axis."
+
+---
+
+## 2026-05-22 20:45 UTC — PR #790 CLOSED NULL (nezuko): H61 NS5 polishing-iteration hybrid — joint NS5 polynomial axis closure
+
+- Branch: `g1r3-nezuko/ns5-polishing-iter-hybrid`
+- Hypothesis: NS5 within-call coefficient hybrid — KJ coefs (3.4445,-4.775,2.0315) early iterations then standard (2,-1.5,0.5) late iterations within the same NS5 call. Tests whether early-fast / late-precise within-call polishing beats static coef choice.
+- Arms (4, n=1, 3325 steps):
+
+| arm | sched | val/loss | ffs | Δ vs ctrl | W&B |
+|---|---|---|---|---|---|
+| arm_a (lucky seed n=1) | KJ→std hybrid 6/6 | **3.27034** | 3050 | -0.00190 (~2.4σ better — formal merge bar 3.27039) | `<lucky-run>` |
+| arm_b | KJ→std hybrid 4/8 | **3.27268** | 3125 | +0.00044 (sanity inside σ) | `<run>` |
+| arm_c | std→KJ hybrid 6/6 | **3.27323** | 3150 | +0.00099 (~1σ) | `<run>` |
+| arm_d | std→KJ hybrid 4/8 | **3.27342** | 3175 | +0.00118 (~1σ) | `<run>` |
+
+- **Verdict: NULL** — All four arms within ~1σ of ctrl pop μ (3.272-3.273), no monotone signal across schedules. arm_a's 3.27034 is lucky-seed within-config n=1 noise (matches today's CUDA non-determinism finding from PR #798: ctrl pop σ ≈ 0.0008 is largely between-run variance, not config variance).
+- **Joint NS5 polynomial axis closure (cycle 89)**:
+  - PR #190 (iter count k=8/10/12/14/16) — flat wide basin at k=12
+  - PR #762 (constant coefs KJ vs standard) — flat
+  - PR #790 (within-call hybrid coef schedules) — flat
+  - Three independent NS5 sub-dimensions all NULL → STATIC NS5 polynomial axis structurally exhausted.
+- **Still-open NS5 sub-axes**:
+  - PR #832 askeladd H71 per-LAYER k (depth-position decomposition, in flight)
+  - PR #834 nezuko H72 NS5 k TIME-schedule (temporal decomposition, NEWLY assigned)
+- Lucky arm_a 3.27034 is exactly the kind of n=1 variation that motivated today's PR #798 measurement-discipline rule. Not promotable without n≥3 paired-seed confirmation.
+
+---
+
+## 2026-05-22 20:40 UTC — PR #798 CLOSED NULL (frieren): H64 fp32 eval precision — CUDA non-determinism programme-level finding
+
+- Branch: `g1r3-frieren/fp32-eval-precision`
+- Hypothesis: Upcast eval/validation logits to fp32 (instead of bf16) to test whether eval-precision contributes to ctrl-pop variance. Predeclared decision rule: "arm_c outside [arm_a, arm_b] interval → CUDA non-determinism dominates, not eval precision."
+- Arms (3, n=1, 3325 steps):
+
+| arm | eval | val/loss | ffs | Δ vs ctrl | W&B |
+|---|---|---|---|---|---|
+| arm_a (ctrl) bf16 eval | bf16 logits | **3.27268** | 3125 | — | `<run>` |
+| arm_b fp32 eval | fp32 logits | **3.27175** | 3100 | -0.00093 (~1.2σ better) | `<run>` |
+| arm_c repeat ctrl bf16 | bf16 logits (re-run) | **3.27544** | 3225 | +0.00276 vs arm_a (~3.5σ NEG) | `<run>` |
+
+- **Verdict: NULL** — arm_c lies OUTSIDE the [arm_a, arm_b] interval on the worse side (3.27544 > both 3.27268 and 3.27175). By frieren's own predeclared rule this means **CUDA non-determinism dominates inter-arm Δ, not eval precision**.
+- **Forensic findings (logged by frieren)**:
+  - Training is NOT bit-identical across runs (no `torch.use_deterministic_algorithms(True)`, matmul/conv kernels nondeterministic).
+  - Late-training Δ stability ±5-8e-5 across 14 evals confirms inter-arm offset is BETWEEN-MODEL not WITHIN-MODEL.
+  - Same effective config → val/loss spread ≈ 0.0008 (matches today's ctrl pop σ estimate).
+- **Programme-level measurement-discipline rule logged**:
+  > For inter-arm Δ < 1.5σ ≈ 0.0012, demand n≥3 paired-seed runs OR `torch.use_deterministic_algorithms(True)` runs before claiming win-significance. Single-trial promotions in this regime are mostly seed noise.
+- **Implications**:
+  - Today's ctrl pop μ≈3.27270-3.27298, σ≈0.0006-0.0008 is largely CUDA non-determinism, not seed variation.
+  - Lucky n=1 results like PR #790 arm_a 3.27034 are exactly the regime this rule guards against.
+  - Future single-trial PRs below 3.272 but above 3.270 are likely within-config variance, not real wins.
+- Eval-precision axis decisively flat (no measurement bias detected). Reassigning frieren H73 (z-loss numerical-stability follow-up) per close comment promise.
+
+---
+
 ## 2026-05-22 20:25 UTC — PR #832 ASSIGNED (askeladd): H71 Per-LAYER NS5 orthogonalization budget (k iterations) — depth-position whitening quality asymmetry
 
 - Branch: `g1r3-askeladd/muonh-ns5-budget-per-layer`
