@@ -536,6 +536,16 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# LARS-style trust-ratio LR scaling for body Muon matrices. Applied AFTER NS
+# orthogonalization (so post-NS update Frobenius norm is ~constant per matrix
+# shape) and multiplicatively with the per-block-TYPE LR multiplier downstream.
+#   ENABLE = 0 => bit-identical to baseline (no LARS)
+#   LO/HI  => clamp range for the per-matrix trust ratio
+#   EMA    => 0 disables smoothing; β in (0,1) EMA-smooths the clamped trust ratio
+NANOGPT_LARS_MUON_ENABLE = int(os.environ.get("NANOGPT_LARS_MUON_ENABLE", "0"))
+NANOGPT_LARS_MUON_LO = float(os.environ.get("NANOGPT_LARS_MUON_LO", "0.5"))
+NANOGPT_LARS_MUON_HI = float(os.environ.get("NANOGPT_LARS_MUON_HI", "2.0"))
+NANOGPT_LARS_MUON_EMA = float(os.environ.get("NANOGPT_LARS_MUON_EMA", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -672,6 +682,12 @@ class Muon(torch.optim.Optimizer):
         # the training loop reads back after the optimizer step.
         self.spectral_telemetry_param: torch.nn.Parameter | None = None
         self.spectral_stats: dict[str, float] | None = None
+        # Optional per-param LARS telemetry: list of (label, Parameter) pairs.
+        # When LARS is enabled, `step()` populates `self.lars_telemetry_stats`
+        # with per-label trust-ratio info plus aggregate stats across all
+        # body Muon params (mean/min/max/median/n_clamped_lo/n_clamped_hi).
+        self.lars_telemetry_params: list[tuple[str, torch.nn.Parameter]] = []
+        self.lars_telemetry_stats: dict[str, float] | None = None
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
@@ -685,6 +701,13 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        # Per-step LARS telemetry collection (active only on this rank's params).
+        lars_enabled = NANOGPT_LARS_MUON_ENABLE != 0
+        lars_target_params = {id(p): label for label, p in self.lars_telemetry_params}
+        lars_per_param: dict[str, dict[str, float]] = {}
+        lars_tr_all: list[float] = []
+        lars_n_clamped_lo = 0
+        lars_n_clamped_hi = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -716,9 +739,61 @@ class Muon(torch.optim.Optimizer):
                             }
                         except Exception:
                             self.spectral_stats = None
+                    if lars_enabled:
+                        # LARS trust ratio: ||θ|| / (||U|| + ε). NS makes ||U||_F
+                        # roughly constant per matrix shape, so growth in ||θ||
+                        # during training drives per-matrix LR adaptation.
+                        theta_norm = float(p.data.norm().item())
+                        update_norm = float(update.norm().item())
+                        tr_raw = theta_norm / (update_norm + 1e-12)
+                        tr_clamped = max(NANOGPT_LARS_MUON_LO, min(NANOGPT_LARS_MUON_HI, tr_raw))
+                        if NANOGPT_LARS_MUON_EMA > 0:
+                            beta = NANOGPT_LARS_MUON_EMA
+                            tr_ema_prev = state.get("lars_tr_ema", tr_clamped)
+                            tr_ema = beta * tr_ema_prev + (1.0 - beta) * tr_clamped
+                            state["lars_tr_ema"] = tr_ema
+                            tr_final = tr_ema
+                        else:
+                            tr_final = tr_clamped
+                        update = update * tr_final
+                        # Telemetry: per-tracked-param + aggregate
+                        lars_tr_all.append(tr_final)
+                        if tr_raw <= NANOGPT_LARS_MUON_LO:
+                            lars_n_clamped_lo += 1
+                        elif tr_raw >= NANOGPT_LARS_MUON_HI:
+                            lars_n_clamped_hi += 1
+                        label = lars_target_params.get(id(p))
+                        if label is not None:
+                            lars_per_param[label] = {
+                                "theta_norm": theta_norm,
+                                "update_norm": update_norm,
+                                "tr_raw": tr_raw,
+                                "tr_clamped": tr_clamped,
+                                "tr_final": tr_final,
+                            }
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        if lars_enabled and lars_tr_all:
+            lars_tr_sorted = sorted(lars_tr_all)
+            n = len(lars_tr_sorted)
+            median = lars_tr_sorted[n // 2] if n % 2 == 1 else 0.5 * (lars_tr_sorted[n // 2 - 1] + lars_tr_sorted[n // 2])
+            stats: dict[str, float] = {
+                "tr_mean": sum(lars_tr_all) / n,
+                "tr_min": lars_tr_sorted[0],
+                "tr_max": lars_tr_sorted[-1],
+                "tr_median": median,
+                "n_params": float(n),
+                "n_clamped_lo": float(lars_n_clamped_lo),
+                "n_clamped_hi": float(lars_n_clamped_hi),
+                "frac_clamped": float(lars_n_clamped_lo + lars_n_clamped_hi) / n,
+            }
+            for label, info in lars_per_param.items():
+                for k, v in info.items():
+                    stats[f"{label}/{k}"] = float(v)
+            self.lars_telemetry_stats = stats
+        else:
+            self.lars_telemetry_stats = None
 
 
 ########################################
@@ -761,6 +836,11 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(
+    f"LARS_MUON: enable={NANOGPT_LARS_MUON_ENABLE} lo={NANOGPT_LARS_MUON_LO} "
+    f"hi={NANOGPT_LARS_MUON_HI} ema={NANOGPT_LARS_MUON_EMA}",
+    console=True,
+)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -826,6 +906,10 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_lars_muon_enable": NANOGPT_LARS_MUON_ENABLE,
+            "nanogpt_lars_muon_lo": NANOGPT_LARS_MUON_LO,
+            "nanogpt_lars_muon_hi": NANOGPT_LARS_MUON_HI,
+            "nanogpt_lars_muon_ema": NANOGPT_LARS_MUON_EMA,
         },
     )
 
@@ -878,6 +962,14 @@ for trial_idx in range(args.num_trials):
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    # LARS per-matrix trust-ratio telemetry: 3 representative body Muon matrices
+    # (attn-q at layer 0, mlp-fc at layer 6, mlp-proj at layer 11) to span both
+    # depth and matrix shape — fan_in/fan_out=1, 4, 1/4 respectively.
+    optimizer2.lars_telemetry_params = [
+        ("l0_attn_q", model.blocks[0].attn.q.weight),
+        ("l6_mlp_fc", model.blocks[6].mlp.fc.weight),
+        ("l11_mlp_proj", model.blocks[11].mlp.proj.weight),
+    ]
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
@@ -1119,6 +1211,9 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            if optimizer2.lars_telemetry_stats is not None:
+                for k, v in optimizer2.lars_telemetry_stats.items():
+                    ns_metrics[f"train/lars/{k}"] = v
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
