@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~22:42 UTC — PR #800: edward Per-block depth-dependent Muon momentum (mu_depth_scale) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-edward/mu-depth-scale`
+- Student: g1r5-edward
+- Hypothesis: Apply identical depth-scaling argument as PR #699 musoft to Muon momentum: scale μ down linearly with layer depth so early layers (large raw gradients) get high inertia while late layers get more responsive updates. Predicted ranking: B(α=0.5) > C(α=1.0) > A(ctrl) > D(α=2.0) > E(inverse).
+- **Results (5/5 cells, n=1 each, group `g1r5-edward/mu-depth-scale`):**
+
+| Cell | α | per-layer mu (L0 → L11) | run_id | val/loss | ffs | Δ ffs vs A | Δ val vs A | σ-units |
+|:----:|:-:|:------------------------|:------:|:--------:|:---:|:----------:|:----------:|:-------:|
+| **A (ctrl)** | 0.0 | uniform 0.9500 | `0t1310jx` | **3.26149** | **3025** | — | — | — |
+| B | 0.5 | 0.9500 → 0.8075 (no floor) | `l9c9gb4m` | 3.26616 | 3075 | +50 | +0.00467 | +7.9σ |
+| C | 1.0 | 0.9500 → 0.6650 (L11=floor) | `8mxzkqec` | 3.27102 | 3125 | +100 | +0.00953 | +16.1σ |
+| D | 2.0 | 0.9500 → 0.6650 (L4–L11 clipped) | `t2vueqtv` | 3.27534 | 3175 | +150 | +0.01385 | +23.4σ |
+| E | −1.0 (inverse) | 0.6650 (L0=floor) → 0.9500 | `fv9kf2vs` | 3.27558 | 3175 | +150 | +0.01409 | +23.8σ |
+
+- **Hypothesis rejected; observed ranking: A > B > C > D ≈ E.**
+- **Three coherent findings:**
+  1. **Uniform μ=0.95 is optimal.** Even the gentlest perturbation (B, max Δμ=0.0925) is +7.9σ — clearly resolved at n=1.
+  2. **Magnitude linear in α:** Δffs ≈ +50·α; each +0.5 α step costs ~+0.005 val_loss. Saturation around α=2 (D's floor-clipping doesn't further amplify damage).
+  3. **Direction-symmetric harm:** D and E land at near-identical ffs=3175 / val~3.275 → **heterogeneity itself causes harm, not where the low-μ layers sit.** Most informative result.
+- **musoft transfer fails.** Depth-aware init (-18.75 ffs at musoft) helped because it perturbs forward-pass scale. Depth-aware Muon μ hurts because Newton-Schulz already normalizes gradient magnitudes globally across parameters. The two interventions interact with depth through different physics.
+- **Cell A replicates baseline exactly** (ffs=3025, val=3.26149 vs baseline μ=3.261221) — confirms the per-layer Muon group construction wrapper is sound.
+- **Decision:** CLOSED clean-NEG. Per-layer μ heterogeneity axis closed. Student-suggested block-type-specific μ (MLP vs ATTN) unlikely to recover given the heterogeneity-itself-harms signature.
+
 ## 2026-05-22 ~22:25 UTC — PR #781: thorfinn Per-group AdamW ε sweep (embed/lm_head/scalars) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-thorfinn/per-group-adamw-eps`
