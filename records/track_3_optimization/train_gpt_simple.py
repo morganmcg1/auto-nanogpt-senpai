@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--target_uw_ceiling", type=float, default=None,
+        help="If set, clamp body-Muon u/w ratio to this maximum value (None = no ceiling, default).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -523,12 +525,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, target_uw_ceiling=None):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
+        self.target_uw_ceiling = target_uw_ceiling
 
     @torch.no_grad()
     def step(self):
@@ -538,6 +541,7 @@ class Muon(torch.optim.Optimizer):
         TARGET_UW = 0.35
         floor_fired_count = 0
         floor_eligible_count = 0
+        ceiling_fired_count = 0
         polar_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
@@ -570,10 +574,17 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
+                        elif self.target_uw_ceiling is not None and ratio > self.target_uw_ceiling:
+                            ceiling_fired_count += 1
+                            update.mul_(self.target_uw_ceiling / ratio)
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
-        self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
+        self._floor_diag = {
+            "fired": floor_fired_count,
+            "eligible": floor_eligible_count,
+            "ceiling_fired": ceiling_fired_count,
+        }
         self._polar_diag = polar_diag
 
 
@@ -701,6 +712,7 @@ if dist.get_rank() == 0:
             "ns_coef_c": NS_C,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
+            "target_uw_ceiling": args.target_uw_ceiling,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
@@ -740,7 +752,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      target_uw_ceiling=args.target_uw_ceiling)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -893,12 +906,15 @@ for trial_idx in range(args.num_trials):
             if floor_diag is not None:
                 eligible = floor_diag.get("eligible", 0)
                 fired = floor_diag.get("fired", 0)
+                ceiling_fired = floor_diag.get("ceiling_fired", 0)
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/uw_floor/eligible": eligible,
                     "train/uw_floor/fired": fired,
                     "train/uw_floor/fired_fraction": (fired / eligible) if eligible > 0 else 0.0,
+                    "train/muon/uw_ceiling_fired": ceiling_fired,
+                    "train/muon/uw_ceiling_fired_fraction": (ceiling_fired / eligible) if eligible > 0 else 0.0,
                 }, step=wandb_step)
             polar_diag = getattr(optimizer2, "_polar_diag", None)
             if polar_diag and "residual" in polar_diag:
