@@ -3,6 +3,25 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~18:15 UTC — PR #776: askeladd Muon/SOAP update RMS normalization (post-NS clamp) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-askeladd/muon-rms-norm`
+- Student: g1r5-askeladd
+- Hypothesis: Post-NS RMS-clamp on Muon/SOAP update — target a fixed `rms_target` by rescaling the update vector. NorMuon-style but with a swept target magnitude.
+- **Results (n=1 each, group `g1r5-askeladd/muon-update-rms-norm`):**
+
+| Cell | rms_target | run_id | val/loss | ffs | Δ vs ctrl A |
+|:----:|:----------:|:------:|:--------:|:---:|:-----------:|
+| **A** | 0.00 (ctrl) | `v3ml2xml` | **3.26279** | 3050 | — |
+| B | 0.25 | `kx4l44yn` | 3.27382 | 3150 | +0.01103 |
+| C | 0.50 | `wcqranoc` | 3.27953 | 3250 | +0.01674 |
+| D | 1.00 | `ob0cnmgm` | 3.28378 | −1 | +0.02099 |
+| E | 2.00 | `kc151qw3` | 3.28722 | −1 | +0.02443 |
+
+- **Mechanism falsified:** Monotone-worse pattern. Interior-optimum hypothesis (C or D < B < A < E) fully rejected. Slope halves per doubling (log-saturation) → operational baseline RMS sits well below 0.25; clamping FROM ABOVE inflates effective steps.
+- **Cell A refactor neutral:** 3.26279, within strong-ctrl band [3.26129, 3.26480]. CLI flag default 0.0 is safe.
+- **Decision:** CLOSED clean-NEG. Post-NS update-RMS-clamp axis closed. Mechanistically distinct from SignMuon (#823 pre-NS input), Polar Express (#824 NS coefficients), NS-WarmUp (#815 iteration count) — those axes remain open.
+
 ## 2026-05-22 ~17:40 UTC — PR #748: frieren Q/K/V + MLP fc_in init magnitude sweep (×2.0 P2) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-frieren/transform-init-magnitude`
