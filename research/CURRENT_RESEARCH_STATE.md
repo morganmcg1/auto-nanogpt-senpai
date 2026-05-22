@@ -250,19 +250,38 @@ Single-seed 4-arm (drift gate A PASS):
 
 **Follow-up**: tanjiro assigned **#752 Gradient Centralization (Yong 2020)** — per-row mean subtraction on pre-NS / pre-AdamW gradients. Fresh axis: GC orthogonalizes against constant vector (1ᵀ direction) per row, structurally distinct from NS-orthogonalization (singular-value normalization) and OrthoGrad (#477, against parameter direction). Mechanism is spatial (per-row) not temporal (momentum). ~5 LOC implementation.
 
-### 🔄 tanjiro #752 — Gradient Centralization (Yong 2020) — per-row mean subtraction pre-NS / pre-AdamW [assigned 03:15 UTC]
+### ✅ tanjiro #752 — Gradient Centralization (Yong 2020) — CLOSED 11:24 UTC productive-NEGATIVE (66th cycle)
 
 **Branch:** `g1r4-tanjiro/gradient-centralization`
-**Hypothesis**: Yong et al. 2020 (arXiv:2004.01461) demonstrated per-row mean subtraction `g_c[i,:] = g[i,:] − g[i,:].mean()` improves generalization on classification/segmentation/detection. Mathematically: projects gradient onto null-space of `1ᵀ` per row = orthogonal complement of constant vector. For body Muon: GC applies BEFORE momentum buffer update and BEFORE Newton-Schulz. Mechanically distinct from prior closures: **#477 OrthoGrad** orthogonalizes against parameter direction (closed NULL); **NS-orthogonalization** removes singular-value imbalance (spectral); **GC** removes a single rank-1 component (the constant direction per row). For aux AdamW: GC before moment-buffer updates acts as soft regularizer on row-mean magnitudes. **Fresh axis**: spatial per-row gradient structure, orthogonal to all closed temporal/spectral interventions.
 
-| Arm | NANOGPT_GC_MUON | NANOGPT_GC_ADAMW | Tests |
+**Terminal 4-arm N=1 result (drift gate A PASS at Δ=−0.00012):**
+
+| Arm | gc_muon / gc_adamw | val/loss | Δ_vs_A | Δ_vs_baseline | fs_to_target | Verdict |
+|---|:---:|---|---|---|---|---|
+| A (ctrl) | 0 / 0 | 3.27058 | — | −0.00012 | 3225 | drift PASS |
+| B (Muon only) | 1 / 0 | 3.27250 | +0.00192 | +0.00180 | 3250 | **regression** |
+| C (AdamW only) | 0 / 1 | 3.27167 | +0.00109 | +0.00097 | 3225 | sub-threshold null |
+| D (both) | 1 / 1 | 3.27281 | +0.00223 | +0.00211 | 3250 | **regression (sub-additive)** |
+
+W&B: A=066vqhon, B=eju4vxds, C=ivoigede, D=bh4ruhj8.
+
+**Mechanism**: GC removes rank-1 constant-mode component from gradient before NS. NS-orthogonalization already reshapes singular structure; removing constant-mode erases signal the NS path was relying on. B/D cross regression gate; C sub-threshold null (same direction). D sub-additive vs naive B+C sum — shared information-removal pathway. **Constant-mode-per-row subspace is NOT a removable nuisance on this stack.** 'Remove rank-1 from gradient' mechanism family DEPRIORITIZED (per-column GC, layer-norm-style centralization likely share this fate). Spatial additive variants (per-row variance whitening, gradient covariance preconditioning) still open.
+
+**Follow-up**: tanjiro assigned **#789 NS polynomial degree swap (cubic vs quintic)** — first test of NS polynomial DEGREE on this stack. 4-arm: cubic FLOP-equivalent (NS=18/24), same-iter-count (NS=12/16), 2× iters (NS=24/32) vs quintic control. Mechanism-distinct from all in-flight NS experiments (#787 stochastic, #710/#724 per-depth/type).
+
+### 🔄 tanjiro #789 — NS polynomial degree: cubic vs quintic FLOP-equivalent sweep [assigned 11:30 UTC]
+
+**Branch:** `g1r4-tanjiro/ns-polynomial-degree`
+**Hypothesis**: Current NS uses quintic polynomial `f(s) = a + b·s + c·s²` (3 matmuls/iter). Cubic `f(s) = 1.5 − 0.5s` uses only 2 matmuls/iter. At FLOP-equivalent budget (cubic×18 = quintic×12 matmuls), cubic and quintic apply identical total compute but with different convergence trajectories. First test of NS polynomial DEGREE on this stack — all prior NS experiments vary iter count or coefficient schedule WITHIN the quintic family.
+
+| Arm | NS_DEGREE | NS_ITERS (mid / cooldown) | Description |
 |---|:---:|:---:|---|
-| A (ctrl) | 0 | 0 | Bit-identical merged baseline |
-| B | 1 | 0 | GC body Muon only |
-| C | 0 | 1 | GC aux AdamW only |
-| D | 1 | 1 | GC both — compound |
+| A (ctrl) | 5 (quintic) | 12 / 16 | Current merged baseline |
+| B | 3 (cubic) | 18 / 24 | FLOP-equivalent (18×2 = 12×3 matmuls) |
+| C | 3 (cubic) | 12 / 16 | Same iter-count, 33% fewer matmuls |
+| D | 3 (cubic) | 24 / 32 | 2× iters, ~33% more total matmuls |
 
-**ETA full chain:** ~7.3h. Implementation: ~5 LOC (apply `g - g.mean(dim=tuple(range(1, g.dim())), keepdim=True)` before momentum buffer + NS for Muon; before moment buffer for aux AdamW). Gradient-aware single-line intervention. Decision gates: Δ ≤ −0.002 → paired-pod follow-up; Δ ∈ [−0.002, +0.0015] → productive-null; Δ ≥ +0.0015 → arm closed.
+ETA ~7.3h. Implementation: ~20 LOC (cubic branch `for _ in range(ns_iters): A = X@X.T; X = 1.5*X - 0.5*(A@X)` inside `zeropower_via_newtonschulz5`). NS_COEF_SCHEDULE=linear_ramp_down inert for degree=3 (c=0). Decision gates: Δ ≤ −0.002 → paired-pod n=3; sub-threshold → productive-NULL; any Δ ≥ +0.0015 → arm regression.
 
 ### ✅ tanjiro #487 — Cooldown-NS pruning ablation — CLOSED 13:05 UTC productive-NULL [paired-pod n=3]
 

@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 11:24 UTC — PR #752: Gradient Centralization (Yong 2020) — per-row mean subtraction pre-NS / pre-AdamW (tanjiro) — CLOSED productive-NEGATIVE (66th cycle)
+
+- Branch: `g1r4-tanjiro/gradient-centralization`
+- Hypothesis: Per-row mean subtraction `g_c[i,:] = g[i,:] − g[i,:].mean()` on weight-matrix gradients before NS-orthogonalization and before AdamW moment-buffer update. GC removes rank-1 constant-mode component per row (projects gradient onto null-space of `1ᵀ`), orthogonal to NS-orthogonalization (singular-value) and OrthoGrad (#477, parameter direction).
+
+**Terminal 4-arm N=1 result (drift gate A PASS at Δ=−0.00012):**
+
+| Arm | gc_muon / gc_adamw | val/loss | Δ_vs_A | Δ_vs_baseline | fs_to_target | Verdict |
+|---|:---:|---|---|---|---|---|
+| A (ctrl) | 0 / 0 | 3.27058 | — | −0.00012 (favorable drift) | 3225 | drift PASS |
+| B (Muon only) | 1 / 0 | 3.27250 | +0.00192 | +0.00180 | 3250 | **regression** |
+| C (AdamW only) | 0 / 1 | 3.27167 | +0.00109 | +0.00097 | 3225 | sub-threshold null |
+| D (both) | 1 / 1 | 3.27281 | +0.00223 | +0.00211 | 3250 | **regression (sub-additive)** |
+
+W&B runs: A=066vqhon, B=eju4vxds, C=ivoigede, D=bh4ruhj8.
+
+**Mechanism reading (definitive closure):**
+1. **B regression (+0.00180)**: GC removes rank-1 constant-mode component from gradient before NS. NS-orthogonalization in the merged stack already aggressively reshapes singular structure; removing the constant-mode component appears to erase signal the NS path was relying on (not noise as Yong 2020 framed for classification/segmentation). first_step degraded 3225→3250.
+2. **C sub-threshold null (+0.00097)**: Per-row mean subtraction on embed+lm_head gradients applies implicit L2 pressure on constant-mode weights. Combined with merged ADAMW_EMBED_LR_MULT=1.5, partially cancels the LR boost (same fs=3225 as control — degradation concentrated in late training).
+3. **D sub-additive (+0.00211 vs naive sum +0.00277)**: Confirms B and C share an information-removal pathway; once one GC is applied, the other contributes less marginal regression. Both project onto similar constant-mode subspaces.
+
+**Mechanism axis closed**: The constant-mode-per-row subspace is NOT a removable nuisance for either Muon-body or AdamW-aux at this stack. Per-column GC, per-block GC, layer-norm-style centralization likely share this fate — DEPRIORITIZE the 'remove rank-1 from gradient' mechanism family. GC was beneficial for classification/segmentation/detection (Yong 2020) with SGD/Adam; decoder-only LM with Muon body + AdamW aux on embeds does NOT share that inductive structure. Spatial additive variants (per-row variance whitening, gradient covariance preconditioning) remain untested and open. **66th productive-null/negative this cycle.**
+
+**Follow-up**: tanjiro assigned **#789 NS polynomial degree swap (cubic vs quintic)** — first test of NS polynomial DEGREE on this stack. Cubic `f(s) = 1.5 − 0.5s` (2 matmuls/iter) vs quintic `f(s) = a + b·s + c·s²` (3 matmuls/iter) at FLOP-equivalent budgets. 4-arm design: A (quintic ctrl), B (cubic FLOP-equiv NS=18/24), C (cubic same-iter NS=12/16), D (cubic 2× iters NS=24/32). Mechanism-distinct from all in-flight (#787 stochastic iter count, #710 per-depth, #724 per-type). ~20 LOC.
+
 ## 2026-05-22 11:10 UTC — PR #751: Cautious Optimizers — sign-agreement mask on body Muon + aux AdamW (fern) — CLOSED productive-NEGATIVE (65th cycle)
 
 - Branch: `g1r4-fern/cautious-optimizer`
