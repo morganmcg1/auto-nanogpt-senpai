@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 23:08 UTC
+- **Date:** 2026-05-22 23:32 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -139,15 +139,19 @@ Single-seed 4-arm (drift gate A PASS, Δ=−0.00008):
 
 **Risk**: N=1 Δ_vs_A=−0.00174 sits exactly at the magnitude that has collapsed in 10 single-seed→paired-pod tests post-#579 on this stack. Speedrun improvement (−25 fs steps) is informative either way. If C confirms, mechanism is real and orthogonal to #708's per-group clip; if it collapses, axis closes cleanly.
 
-**Paired-pod chain progress (21:25 UTC, launched 19:20 UTC, ~2h elapsed):**
+**Paired-pod chain progress (23:30 UTC, launched 19:20 UTC, ~4h10m elapsed of ~10.5h):**
 
-| Pod | Arm | run_id | state | step | val/loss | Δ_vs_baseline 3.27036 |
-|:---:|:---:|---|:---:|:---:|:---:|:---:|
-| 0 | A (ctrl) | t5c70etd | finished | 3350/3350 | **3.26989** | −0.00047 (favorable-seed control, drift PASS) |
-| 0 | C (treat) | o8o8rw9q | running | 335/3350 (~10%) | mid | TBD |
-| 1-2 | A,C | — | pending | — | — | — |
+| Pod | Arm | run_id | state | step | val/loss | Δ_within | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| 0 | A (ctrl) | t5c70etd | finished | 3350 | **3.26989** | — | −0.00047 drift PASS |
+| 0 | C (treat) | o8o8rw9q | finished | 3350 | **3.26969** | **−0.00020** | −0.00067 |
+| 1 | A (ctrl) | vfe8xt9g | running | 825/3350 (~25%) | 3.6924 (in-prog) | — | — |
+| 1 | C | — | not yet | — | — | — | — |
+| 2 | A,C | — | not yet | — | — | — | — |
 
-Pod0-A came in below baseline (favorable seed); Pod0-C must beat 3.26989 to show within-pod Δ ≤ 0. The paired-pod statistical signal is Δ_within not absolute treat value. ETA terminal ~05:50 UTC 2026-05-23.
+**Pod-0 within-pod Δ = −0.00020** is ~10× weaker than N=1 single-seed Δ_vs_A=−0.00174 — matches the 10× paired-pod-collapse precedent flagged in send-back. Two more pods needed before final verdict; current trajectory leans productive-NULL/borderline. Posted #787 stale_wip refresh comment 23:30 UTC with pre-staged decision matrix.
+
+**Operational note**: fern's pod hit GitHub API rate-limit 23:12-23:27 UTC (~15min of "No assigned PRs" in heartbeat output). GPU stayed at 100% — training was unaffected. Limit cleared, fern resumed normal heartbeats at 23:27 UTC. Independent finding: liveness check `train[.]py` regex doesn't match `train_gpt_simple.py`, so all auto-nanogpt PRs falsely flag stale_wip after 2h (advisor verifies via W&B/pod query directly).
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
