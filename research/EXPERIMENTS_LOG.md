@@ -1,3 +1,42 @@
+## 2026-05-22 20:25 UTC — PR #832 ASSIGNED (askeladd): H71 Per-LAYER NS5 orthogonalization budget (k iterations) — depth-position whitening quality asymmetry
+
+- Branch: `g1r3-askeladd/muonh-ns5-budget-per-layer`
+- Hypothesis: Direct mechanism follow-up to askeladd's own PR #799 closure ("MuonH-SI's spectral whitening is ALREADY the right invariant for handling per-layer curvature heterogeneity"). H71 probes that claim by adjusting the spectral whitening ITSELF per-LAYER (vary NS5 iterations k per block) instead of adding outer LR scaling on top. Tests whether SI projection is truly load-bearing as the depth-aware invariant.
+- PR #190 closed GLOBAL NS5 iter count axis at k=12 ("wide basin"); PR #762 closed GLOBAL polynomial coefs NULL. Per-LAYER decomposition of these axes is fresh — first per-LAYER NS5 quality test.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): uniform k=12 (`--muonh_budget_per_layer 0`)
+  - arm_b (PRIMARY, deep-precise): k_shallow=8, k_deep=14 (`--muonh_budget_shallow 0.667 --muonh_budget_deep 1.167`)
+  - arm_c (INVERSE, shallow-precise): k_shallow=14, k_deep=8
+- Range bounded [8, 14] near k=12 wide basin (no extreme over/under-orthogonalization). Net wall-clock impact ~-1% from mean k=11 (NS5 ~10-15% of step time).
+- Telemetry: `muonh/group_k_muonh_block_*` per-block k_eff at step 0 (one-shot verification of plumbing — askeladd's H63-style forensic pattern).
+- ~40 LoC: budget_mult move from constructor arg into per-group defaults dict (requires MuonH internals ~5 LoC change), CLI flags, 12-group construction with linear interp.
+- **Bit-identical invariant**: `--muonh_budget_per_layer 0` (default) must produce results bit-identical to current behavior.
+- W&B group `h71_muonh_ns5_per_layer`.
+- Compositional outcome with #799 + #807: if H71 ALSO NEG, 3-axis joint closure "MuonH-SI is per-LAYER and per-TYPE structurally homogeneous across LR-axis, NS5-quality-axis."
+- Direct mechanism follow-up from askeladd's own H63 closure analysis.
+
+---
+
+## 2026-05-22 20:20 UTC — PR #799 CLOSED NEG (askeladd): H63 Per-LAYER depth-position LR — joint per-group LR closure with #807
+
+- Branch: `g1r3-askeladd/layerwise-muonh-lr`
+- Hypothesis: Scale MuonH body LR by layer depth position (α=0.5 magnitude). Tests whether depth-position-aware step magnitude beats uniform under MuonH-SI's spectral whitening.
+- Arms (3, n=1, 3325 steps):
+
+| arm | mode | LR span | val/loss | ffs | Δ vs ctrl | W&B |
+|---|---|---|---|---|---|---|
+| arm_a ctrl uniform | — | 0.018 flat | **3.27283** | 3150 | — (sanity ✓ inside σ noise floor) | `75qaki0i` |
+| arm_b amplify α=0.5 PRIMARY | shallow→deep amplify | 0.018→0.027 | **3.27806** | 3250 | +0.00523 (~6.5σ NEG) | `1p68di5r` |
+| arm_c attenuate α=0.5 INVERSE | deep→shallow amplify | 0.027→0.018 | **3.28247** | -1 missed target | +0.00964 (~12σ NEG) | `ew8o4qsd` |
+
+- **Verdict: STRONGLY NEG both directions, asymmetric magnitude (arm_c worse than arm_b) confirms NEG via direction-symmetry.**
+- **Critical mechanism finding (load-bearing for joint closure)**: "MuonH-SI's spectral whitening (newton-schulz orthogonalization → unit-spectral-norm step) is **already the right invariant** for handling per-layer curvature heterogeneity. Adding an outer multiplicative LR scaling on top **breaks that invariant** rather than refining it. μP/LARS/LAMB-style depth-aware step magnitudes are correct for Adam-family raw-gradient optimizers, but do not transfer to Muon-family orthogonalized-step optimizers because the spectral whitening step IS the per-layer normalization."
+- Validation curve tail (steps 3225-3325) shows arm gap permanent throughout cooldown — directly rules out cooldown-timing alternative hypothesis. Step_avg flat across arms (1.82s) — param-group splitting overhead-free.
+- **Joint closure with #807 (per-TYPE LR also NEG)**: "MuLoCo's outer SGDM accumulator + MuonH-SI's spectral whitening collectively homogenize per-group inner-LR asymmetry across ANY grouping axis (depth-position, layer type, or other partitioning)." Future per-group inner-LR proposals on this stack pre-closed by structural analogy.
+- Routing → PR #832 H71 per-LAYER NS5 budget (probes whether the SI-as-invariant claim extends to per-LAYER orthogonalization quality, not just magnitude). PR #831 H70 (thorfinn per-LAYER mu) tests momentum-axis with same depth granularity.
+
+---
+
 ## 2026-05-22 20:10 UTC — PR #831 ASSIGNED (thorfinn): H70 Per-LAYER MuonH momentum (mu) — depth-position mu asymmetry test
 
 - Branch: `g1r3-thorfinn/muonh-per-layer-mu`
