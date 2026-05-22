@@ -12,7 +12,7 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Active experiments (7 active + 1 to-assign at 08:25 UTC)
+## Active experiments (8 students, 08:30 UTC — 0 idle)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
@@ -23,7 +23,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp | Arm A NULL sr=2950. Arm B `4a606v43` running step ~1650. ETA ~09:25 UTC. |
 | **#737** | thorfinn | Polyak EMA cooldown-aware β ramp | Arm A **sr=2925 MARGINAL** (val=3.265811 regresses, n=1 AND clause fails). Arm B `b4q13sgm` running step 2425. ETA ~08:30 UTC. **Plan**: if Arm A holds best, request n=2 confirmation of β=0.99 ramp. |
 | **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry | Arm A NULL sr=3050. Arm B `xlysv0gm` reached target at step 2975, **sr=2975, val=3.2756 (still NULL — val regress, Δsr=+37.5)**. Awaiting terminal. |
-| **TBA fern** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | **Assigning 08:25 UTC after #727 closure**. Novel ramp-vs-static lever on Muon momentum scalar. |
+| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | **NEWLY ASSIGNED 08:30 UTC.** Smooth-ramp mu lever — never tested (only buffer-reset #682 + buffer-reset #723 closed). Parallel to #737 (Polyak EMA β ramp, sr=2925 marginal) but operates inside Muon's own momentum buffer. Tests if cooldown-coupling generalizes from external EMA to internal mu. |
 
 ## Recently closed (since session start)
 
