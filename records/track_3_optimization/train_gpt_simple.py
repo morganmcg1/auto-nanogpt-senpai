@@ -1129,6 +1129,9 @@ for trial_idx in range(args.num_trials):
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "outer/enabled": int(use_outer),
+            "outer/applied_steps_total": outer_applied_steps,
+            "outer/sync_interval": args.sync_interval if use_outer else 0,
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
