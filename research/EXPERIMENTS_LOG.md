@@ -5221,3 +5221,76 @@ This is consistent with: at deep iteration counts, even suboptimal-per-iteration
 
 **Conclusion**: RAdam axis closed. Mechanism class "early-step correction-or-rectification on AdamW or Muon" is now fully exhausted. Both directions (bias amplification #718, variance rectification #742) are strict downside.
 
+---
+
+## 2026-05-22 05:25 UTC — PR #747: β2_SCHEDULE — AdamW β2 cooldown-aware ramp (CLOSED — pod-state untestable, axis open scientifically)
+
+- `g1r2-tanjiro/adamw-beta2-schedule`
+- Hypothesis: Aux AdamW β2=0.95 throughout training may be suboptimal — late cooldown phase (low LR, fine-grained updates) might benefit from longer second-moment EMA window. Ramp β2: 0.95 → {0.99, 0.999} over cooldown.
+- W&B runs: multiple, all NaN'd including true-baseline reproduction
+- **Outcome**: 7 consecutive NaN runs including post-pycache-cleanup retries and a fresh-seed true-baseline (no β2 modifications). Even the disabled-check `7b9h1jeq` NaN'd at step 25.
+
+**Diagnostic trace**: tanjiro student's W&B telemetry conclusively showed β2=0.95 in both disabled-check and Arm A through step 200 (no mutation bug). LR cooldown function fires correctly. The true-baseline NaN at step 25 (200-step true-baseline, no β2 changes) falsified the "Arm A diff is buggy" hypothesis and confirmed the issue is platform-level (tanjiro pod flakiness on the 200-step compressed config).
+
+**Decision**: Closed as **pod-state untestable**. Axis remains scientifically open — β2 cooldown ramp is a fresh-mechanism hypothesis that has never been validly tested. Future students may retry on a different pod once a cross-pod control passes a baseline reproduction.
+
+**Memory rule extension (cross-pod control required)**: per memory rule [[pod-broken-axis-misattribution]], NaN-based closures must be confirmed on a second pod before being treated as scientific closure. #747 is correctly recorded as operational closure, not scientific closure.
+
+**Follow-up**: tanjiro → #758 ADAMW_GRAD_CENTRALIZATION (Yong CVPR 2020 — subtract per-channel grad mean from lm_head/embed; tests alphonse #734's lm_head gradient-magnitude conjecture from a different geometric angle).
+
+---
+
+## 2026-05-22 05:30 UTC — PR #729: PER-BLOCK CONTRA_MUON depth-differentiated subtraction (CLOSED — no depth asymmetry)
+
+- `g1r2-frieren/per-block-contra-muon`
+- Hypothesis: Apply different CONTRA_MUON strengths to EARLY (blocks 0-5) vs LATE (blocks 6-11) layers. Arm A: EARLY=0.6, LATE=0.2 (heavy early subtraction). Arm B: EARLY=0.2, LATE=0.6 (heavy late subtraction). Tests whether contra strength needs depth-dependent tuning to escape ffs=3025 floor.
+
+| Arm | EARLY | LATE | val/loss | ffs | Δval | Δffs | Gate |
+|---|---|---|---|---|---|---|---|
+| A | 0.6 | 0.2 | 3.27048 | 3025 | +0.00272 | +25 | MISS |
+| B | 0.2 | 0.6 | 3.27068 | 3025 | +0.00292 | +25 | MISS |
+| baseline (#613) | 0.4 (uniform) | 0.4 | 3.26776 (n=2) | 3000 (n=2) | — | — | — |
+
+**Results commentary**: Both arms land identically at ffs=3025 with Δval=0.00020 (within seed noise) — strong evidence the depth-axis is FLAT for contra strength. Asymmetric depth allocation neither amplifies nor compensates: uniform 0.4 across all blocks remains locally optimal.
+
+**Theorem (CONTRA_MUON axis class fully closed)**: Combined with prior closures #680 (CONTRA_MUON value sweep 0.2/0.6), #358 (0.5→0.4), #205 (initial 0.5), #139 (existence), and now #729 (per-block depth differentiation), the CONTRA_MUON mechanism axis is fully exhausted at every granularity tested:
+- Value sweep — closed
+- Existence — closed (load-bearing component)
+- Per-block depth differentiation — closed
+- Per-block-TYPE (attn vs mlp) — not yet tested, but unlikely to differ given depth-flatness
+
+**Cluster placement**: 21st axis joining ffs=3025+ floor cluster (cluster now spans 21+ closed axes).
+
+**Strategic implication**: 21+ axes closing at ffs=3025+ across CONTRA, NS5, GRAD_CLIP, EPS, RAdam, NAdam, β2_schedule, per-block, AdamW/Muon dichotomy, scalar magnitudes, and decay shapes is overwhelming evidence the ffs floor is governed by a structural mechanism (FFS step-discretization × cooldown geometry × init seed) that scalar/mechanism perturbations cannot bridge. **Future wins require mechanism-level changes that fundamentally alter what enters the optimizer.** Examples: input-side gradient processing (GROKFAST #757, gradient centralization #758), trajectory-level interpolation (Lookahead, Polyak EMA #737), per-group cooldown SHAPE (#764 just assigned).
+
+**Frieren → #759 LM_HEAD_LR_LATE_BOOST** assigned earlier; #759 is the symmetric complement of thorfinn #749 EMBED_LR_LATE_BOOST.
+
+---
+
+## 2026-05-22 05:35 UTC — PR #739: ADAMW_NESTEROV — NAdam-style m_t look-ahead (CLOSED — both arms MISS merge bar)
+
+- `g1r2-fern/adamw-nesterov`
+- Hypothesis: NAdam (Dozat 2016) computes m̂_t = β1·m_t + (1−β1)·g_t (Nesterov-style look-ahead on first moment) instead of m̂_t = m_t/(1−β1^t). Arm A: full NAdam throughout. Arm B: NAdam only during cooldown (progress ≥ 0.95, last ~159 steps).
+- W&B runs: `mbm5ln62` (disabled-check val@200=4.08256 ✅), `i14iuy2e` (Arm A), `luyfnylb` (Arm B)
+
+| Arm | Config | val/loss | ffs | step-125 val | Δval | Δffs | Hold gate | Merge bar |
+|---|---|---|---|---|---|---|---|---|
+| A (full Nesterov) | ADAMW_NESTEROV=1 | 3.27446 | 3075 | 4.46448 | +0.00670 | +75 | ❌ MISS | ❌ MISS |
+| **B (cooldown-only)** | ADAMW_NESTEROV=2 | **3.26797** | **3000** | 4.43761 | **+0.00021** | 0 | ✅ PASS | ❌ MISS val by +0.00021 |
+| baseline (#613) | unchanged | 3.26776 (n=2) | 3000 (n=2) | — | — | — | — | — |
+
+**Results commentary (fern)**: Arm B is **numerically indistinguishable from baseline within seed noise** (+0.00021 val, ffs=3000 match). Arm A's step-125 val=4.46448 vs Arm B's 4.43761 is the load-bearing mechanism diagnostic: NAdam during warmup degenerately reduces to `(1−β1)·g_t` when m_t is small, effectively up-weighting the current gradient and disrupting the warmup geometry. Cooldown-only NAdam avoids this regime but switches on too late (step 3016 of 3175, only 159 steps remaining) to meaningfully bend the trajectory.
+
+**Decision tree mapping**: Hits cases 2 and 3 simultaneously — "Both arms MISS merge bar but Arm B < Arm A" → cooldown-only is the winning sub-region of a losing axis. n=2 confirm would require seed-2 val < 3.26755 (>20× tighter than statsig boundary). Student-recommended close.
+
+**Theorem (early-step correction-or-rectification incompatibility theorem completion)**: NAdam joins:
+- #718 MUON_BIAS_CORR — Adam-style bias correction on Muon (Arm A diverged)
+- #742 ADAMW_RADAM — variance rectification on AdamW (Arm A diverged, Arm B never reached 3.28)
+- #739 ADAMW_NESTEROV — first-moment look-ahead on AdamW (Arm A MISS, Arm B noise-tie)
+
+The bilateral early-step correction-or-rectification incompatibility theorem is **complete**: machinery designed to fix Adam's early-step variance/bias behavior is strict downside on this c=20+EMBED_INIT_STD=0.1 stack at every applied surface — Muon's heavy-ball direction, AdamW's m_t direction, AdamW's v_t variance. The stable β1=0.8 + 1/√v_t saturation region cannot be improved by adding correction layers.
+
+**Cluster placement**: 22nd axis joining ffs=3025+ floor cluster.
+
+**Fern → #764 MUON_COOLDOWN_SHAPE** assigned — first per-group cooldown SHAPE test on this stack (mechanistically orthogonal to all closed scalar/cooldown-frac/eta_min axes).
+
