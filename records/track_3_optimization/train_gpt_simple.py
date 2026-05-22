@@ -464,10 +464,35 @@ SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
+# PR #771: optional cooldown-window ramp of the SOAP trust-gate threshold from
+# ATTN_SOAP_TRUST_THRESHOLD up to ATTN_SOAP_TRUST_RAMP_TARGET during the final
+# ATTN_SOAP_TRUST_RAMP_FRAC of total steps. RAMP_FRAC=0.0 -> static baseline.
+ATTN_SOAP_TRUST_RAMP_FRAC = float(os.environ.get("ATTN_SOAP_TRUST_RAMP_FRAC", "0.0"))
+ATTN_SOAP_TRUST_RAMP_TARGET = float(os.environ.get("ATTN_SOAP_TRUST_RAMP_TARGET", "0.95"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+
+
+def effective_attn_soap_trust(step: int, total_steps: int) -> float:
+    """PR #771 cooldown ramp: linearly raise the SOAP trust threshold from
+    ATTN_SOAP_TRUST_THRESHOLD up to ATTN_SOAP_TRUST_RAMP_TARGET across the final
+    ATTN_SOAP_TRUST_RAMP_FRAC of training. RAMP_FRAC <= 0.0 keeps the static
+    baseline threshold and reproduces the pre-#771 behavior exactly."""
+    base = ATTN_SOAP_TRUST_THRESHOLD
+    if ATTN_SOAP_TRUST_RAMP_FRAC <= 0.0 or total_steps <= 0:
+        return base
+    ramp_window = ATTN_SOAP_TRUST_RAMP_FRAC * total_steps
+    ramp_start = (1.0 - ATTN_SOAP_TRUST_RAMP_FRAC) * total_steps
+    if step < ramp_start:
+        return base
+    t = (step - ramp_start) / ramp_window
+    if t < 0.0:
+        t = 0.0
+    elif t > 1.0:
+        t = 1.0
+    return base + t * (ATTN_SOAP_TRUST_RAMP_TARGET - base)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,6 +680,11 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #771: per-step effective attention SOAP trust threshold; the
+        # training loop refreshes this each step via effective_attn_soap_trust().
+        # Defaults to the static baseline so behavior matches pre-#771 when the
+        # ramp is disabled or the optimizer is used standalone.
+        self.attn_soap_trust_threshold = ATTN_SOAP_TRUST_THRESHOLD
 
     @torch.no_grad()
     def step(self):
@@ -717,7 +747,7 @@ class Muon(torch.optim.Optimizer):
                         soap_refresh(grad, state, beta2=ATTN_SOAP_BETA2,
                                      refresh_freq=ATTN_SOAP_PRECOND_FREQ,
                                      use_trust_gate=True,
-                                     trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
+                                     trust_threshold=self.attn_soap_trust_threshold)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
     def trust_gate_stats(self) -> dict[str, float]:
@@ -864,6 +894,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
+            "optimizer/attn_soap_trust_ramp_frac": ATTN_SOAP_TRUST_RAMP_FRAC,
+            "optimizer/attn_soap_trust_ramp_target": ATTN_SOAP_TRUST_RAMP_TARGET,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
@@ -936,6 +968,9 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+        # PR #771: refresh the SOAP attention trust gate threshold for this step
+        # (no-op when ATTN_SOAP_TRUST_RAMP_FRAC <= 0.0).
+        optimizer2.attn_soap_trust_threshold = effective_attn_soap_trust(step, train_steps)
 
 
     ########################################
@@ -1059,6 +1094,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "attn_soap_trust_threshold"):
+                    wandb.log({
+                        "train/attn_soap_trust_gate/effective_threshold": float(opt.attn_soap_trust_threshold),
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
