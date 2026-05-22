@@ -61,6 +61,10 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--pmuon_gamma_warmup_start", type=float, default=None,
+                        help="If set, linearly ramp PMuon gamma_power from this value up to "
+                             "PMUON_GAMMA over [0, cooldown_start_step]. None = static "
+                             "gamma_power throughout.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -717,6 +721,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "pmuon_gamma_warmup_start": (args.pmuon_gamma_warmup_start
+                                          if args.pmuon_gamma_warmup_start is not None else PMUON_GAMMA),
+            "pmuon_gamma_warmup_ramp_active": int(args.pmuon_gamma_warmup_start is not None),
         },
     )
 
@@ -796,6 +803,20 @@ for trial_idx in range(args.num_trials):
         lo = min(args.ema_beta, args.ema_beta_target)
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
+
+    # cooldown_start_step is the first step of the cooldown phase (matches set_hparams).
+    cooldown_start_step = int(round(train_steps * (1 - 0.7)))  # cooldown_frac=0.7 → 975 at train_steps=3250
+
+    def compute_pmuon_gamma_t(step):
+        """γ_t ramps linearly from args.pmuon_gamma_warmup_start → PMUON_GAMMA over
+        [0, cooldown_start_step]; holds PMUON_GAMMA from cooldown_start_step onward.
+        Returns PMUON_GAMMA when warmup_start unset."""
+        if args.pmuon_gamma_warmup_start is None:
+            return PMUON_GAMMA
+        if step < cooldown_start_step:
+            warmup_progress = step / cooldown_start_step
+            return args.pmuon_gamma_warmup_start + (PMUON_GAMMA - args.pmuon_gamma_warmup_start) * warmup_progress
+        return PMUON_GAMMA
 
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -974,6 +995,13 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PMuon γ_power warmup ramp: inject γ_t into optimizer2 param_groups before step.
+        # Ramp γ from args.pmuon_gamma_warmup_start → PMUON_GAMMA over [0, cooldown_start_step],
+        # then hold PMUON_GAMMA through cooldown. When --pmuon_gamma_warmup_start is unset
+        # this returns the static PMUON_GAMMA each step (no-op).
+        pmuon_gamma_t = compute_pmuon_gamma_t(step)
+        for group in optimizer2.param_groups:
+            group["gamma"] = pmuon_gamma_t
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1034,6 +1062,17 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.pmuon_gamma_warmup_start is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/pmuon/gamma_warmup/gamma_t": pmuon_gamma_t,
+                    "train/pmuon/gamma_warmup/warmup_progress": min(step / cooldown_start_step, 1.0),
+                    "train/pmuon/gamma_warmup/start": args.pmuon_gamma_warmup_start,
+                    "train/pmuon/gamma_warmup/target": PMUON_GAMMA,
+                    "train/pmuon/gamma_warmup/cooldown_start_step": cooldown_start_step,
+                    "train/pmuon/gamma_warmup/active": int(step < cooldown_start_step),
+                }, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
@@ -1050,7 +1089,7 @@ for trial_idx in range(args.num_trials):
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2, pmuon_gamma_t)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
