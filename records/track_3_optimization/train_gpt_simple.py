@@ -468,6 +468,13 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# AdaFactor for MLP body matrices (Shazeer & Stern 2018, arxiv 1804.04235)
+ADAFACTOR_MLP_ENABLED = int(os.environ.get("ADAFACTOR_MLP_ENABLED", "0"))
+ADAFACTOR_LR = float(os.environ.get("ADAFACTOR_LR", "0.04"))  # match MUON_LR for fair comparison
+ADAFACTOR_EPS1 = float(os.environ.get("ADAFACTOR_EPS1", "1e-30"))  # regularize R, C from 0
+ADAFACTOR_EPS2 = float(os.environ.get("ADAFACTOR_EPS2", "1e-3"))   # regularize update RMS
+ADAFACTOR_BETA2 = float(os.environ.get("ADAFACTOR_BETA2", "0.999"))
+ADAFACTOR_CLIP = float(os.environ.get("ADAFACTOR_CLIP", "1.0"))  # update RMS clipping threshold
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -624,6 +631,57 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class AdaFactor(torch.optim.Optimizer):
+    """AdaFactor (Shazeer & Stern 2018, arxiv 1804.04235).
+    Per-row and per-column factored second-moment, applied to 2D weight matrices.
+    """
+    def __init__(self, params, lr=0.04, beta2=0.999, eps1=1e-30, eps2=1e-3, clip=1.0,
+                 weight_decay=0.0):
+        defaults = dict(lr=lr, beta2=beta2, eps1=eps1, eps2=eps2, clip=clip,
+                        weight_decay=weight_decay, initial_lr=lr)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta2 = group["beta2"]
+            eps1 = group["eps1"]
+            eps2 = group["eps2"]
+            clip = group["clip"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                assert g.dim() == 2, f"AdaFactor requires 2D params, got {g.shape}"
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["R"] = torch.zeros(g.shape[0], dtype=torch.float32, device=g.device)
+                    state["C"] = torch.zeros(g.shape[1], dtype=torch.float32, device=g.device)
+                state["step"] += 1
+                # update factored second moments: R = β2·R + (1-β2)·sum(g², dim=1); C similarly
+                g_sq = (g.float() ** 2) + eps1
+                state["R"].mul_(beta2).add_(g_sq.sum(dim=1), alpha=1.0 - beta2)
+                state["C"].mul_(beta2).add_(g_sq.sum(dim=0), alpha=1.0 - beta2)
+                # estimate per-element second moment: M_ij ≈ R_i · C_j / sum(R)
+                R = state["R"]
+                C = state["C"]
+                R_sum = R.sum().clamp_min(eps1)
+                M = (R.unsqueeze(1) * C.unsqueeze(0)) / R_sum  # shape (rows, cols)
+                # update direction: u = g / sqrt(M)
+                u = g.float() / (M.sqrt() + eps1)
+                # RMS clipping of the update (AdaFactor specific)
+                rms = u.float().pow(2).mean().sqrt().clamp_min(eps2)
+                scale = (clip / rms).clamp_max(1.0)
+                u.mul_(scale)
+                # apply update with optional decoupled weight decay
+                if wd > 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(u.to(p.dtype), alpha=-lr)
 
 
 class Muon(torch.optim.Optimizer):
@@ -866,6 +924,12 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/adafactor_mlp_enabled": ADAFACTOR_MLP_ENABLED,
+            "optimizer/adafactor_lr": ADAFACTOR_LR,
+            "optimizer/adafactor_clip": ADAFACTOR_CLIP,
+            "optimizer/adafactor_beta2": ADAFACTOR_BETA2,
+            "optimizer/adafactor_eps1": ADAFACTOR_EPS1,
+            "optimizer/adafactor_eps2": ADAFACTOR_EPS2,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -902,10 +966,38 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
-                      lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
-    optimizers = [optimizer1, optimizer2]
+    # Identify MLP body matrices vs attention body matrices for split optimizer routing.
+    mlp_named_params = []
+    attn_named_params = []
+    for n, p in model.blocks.named_parameters():
+        if p.ndim < 2:
+            continue
+        nl = n.lower()
+        if ("mlp" in nl or "fc" in nl or "up_proj" in nl or "down_proj" in nl or "gate" in nl):
+            mlp_named_params.append((n, p))
+        else:
+            attn_named_params.append((n, p))
+    if dist.get_rank() == 0:
+        print0(
+            f"[adafactor] MLP params: {len(mlp_named_params)}, attn params: {len(attn_named_params)}",
+            console=True,
+        )
+
+    if ADAFACTOR_MLP_ENABLED and len(mlp_named_params) > 0:
+        optimizer2 = Muon(attn_named_params,
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_attn"
+        optimizer3 = AdaFactor([p for _, p in mlp_named_params],
+                               lr=ADAFACTOR_LR, beta2=ADAFACTOR_BETA2,
+                               eps1=ADAFACTOR_EPS1, eps2=ADAFACTOR_EPS2,
+                               clip=ADAFACTOR_CLIP, weight_decay=MUON_WEIGHT_DECAY)
+        optimizer3.param_groups[0]["name"] = "adafactor_mlp"
+        optimizers = [optimizer1, optimizer2, optimizer3]
+    else:
+        optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
+                          lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
+        optimizer2.param_groups[0]["name"] = "muon_blocks"
+        optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -934,7 +1026,7 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-                if group.get("name") == "muon_blocks":
+                if group.get("name") in ("muon_blocks", "muon_attn"):
                     group["mu"] = cur_mu
 
 
