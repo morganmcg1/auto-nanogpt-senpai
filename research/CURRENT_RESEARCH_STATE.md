@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 22:00 UTC
+- **Date:** 2026-05-22 22:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -665,17 +665,32 @@ W&B Phase 2: trdfa7c6/si0n5039, hjs2ww65/4eoi63uk, enxvvgga/f16ktn1n.
 
 **Follow-up**: frieren assigned **#810 post-NS momentum** — temporal smoothing of NS-orthogonalized updates across steps (first post-NS axis; distinct from #356 pre-NS μ schedule NULL, #530 Nesterov-Muon NULL, #434 Lookahead NEG all of which operate pre-NS or in weight-space).
 
-### 🔄 frieren #810 — Post-NS momentum: temporal smoothing of NS-orthogonalized updates [assigned 14:25 UTC]
+### 🔄 frieren #810 — Post-NS momentum [22:10 UTC: WINNER CANDIDATE α=0.3, sent back for paired-pod n=3 on full post-#708 stack]
 
 **Branch:** `g1r4-frieren/post-ns-momentum`
-**Hypothesis**: After NS-orthogonalization, maintain post-NS buffer w_t = α×w_{t-1} + (1-α)×u_t. Apply w_t as update instead of u_t. Mechanism: NS is nonlinear, so post-NS averaging is distinct from pre-NS EMA (β=0.95). Tests whether temporal coherence in the orthogonal subspace helps convergence.
+**Hypothesis**: After NS-orthogonalization, maintain post-NS buffer w_t = α×w_{t-1} + (1-α)×u_t. Apply w_t as update instead of u_t. Mechanism: NS is nonlinear, so post-NS averaging is distinct from pre-NS EMA (β=0.95). **First POST-NS axis explored — mechanism-distinct from #356 pre-NS μ schedule NULL, #530 Nesterov-Muon NULL, #434 Lookahead weight-space NEG.**
 
-| Arm | NANOGPT_POST_NS_ALPHA | w memory depth | Description |
-|:---:|:---:|:---:|:---|
-| A | 0.0 | — | Control (bit-identical merged stack) |
-| B | 0.3 | ~3 steps | Mild temporal smoothing |
-| C | 0.5 | ~2 steps | Moderate |
-| D | 0.7 | ~3.3 steps | Strong |
+**Phase 1 N=1 results (W&B-verified, post-#708 baseline 3.27036):**
+
+| Arm | α | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+|  A  | 0.0 | et21o2vx | 3.27225 | 3250 | — | +0.00189 (drift PASS) | ctrl |
+|  **B** | **0.3** | **j7yipric** | **3.26831** | **3200** | **−0.00394 (SIGNAL)** | **−0.00205 (barely past −0.002)** | **WINNER CANDIDATE** |
+|  C  | 0.5 | uarp5kkm | 3.27465 | 3275 | +0.00240 (regression) | +0.00429 | regression |
+|  D  | 0.7 | 1kpbp0ss | 3.28980 | NEVER hit | +0.01755 (severe) | +0.01944 | catastrophic |
+
+**Non-monotone concave-down surface with α=0.3 peak.** Textbook Goldilocks signature: mild smoothing helps, moderate hurts, strong catastrophic (target never hit at α=0.7). Within-pod Δ_B-A=−0.00394 ~2× signal threshold.
+
+**Confound:** Student's A_ctrl uses only `NANOGPT_GRAD_CLIP=10.0` (no per-group BODY=10/AUX=5 from post-#708). W&B confirms `NANOGPT_GRAD_CLIP_BODY` and `NANOGPT_GRAD_CLIP_AUX` UNSET on all 4 runs. A_ctrl drift +0.00189 vs post-#708 baseline confirms this. Within-pod Δ robust regardless, but absolute baseline comparison requires full stack to be conclusive.
+
+**Sent back 22:10 UTC for paired-pod n=3 confirmation on FULL post-#708 stack** (with per-group BODY=10/AUX=5). Total: 6 runs (3 pods × 2 arms) × 108 min ≈ 10.8h sequential.
+
+**Pre-staged outcomes:**
+- **MERGE candidate**: 3/3 pods Δ_within ≤ 0 AND mean(B) ≤ 3.27036 AND stat-rule pass → first POST-NS mechanism merge
+- **Borderline**: 2/3 direction-correct, mean(B) ∈ [3.27036, 3.27050] → close productive-NULL (consistent with 10 prior paired-pod collapses)
+- **Collapse**: ≤1/3 direction-correct OR mean(B) > 3.27050 → close productive-NEGATIVE (11th paired-pod collapse on this stack)
+
+Mechanism is structural-novel — if it holds, opens up post-NS-side as a fresh axis (α schedule, per-block-type α, α + cooldown interaction).
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
