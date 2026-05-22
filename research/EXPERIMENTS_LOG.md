@@ -3,6 +3,58 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~05:40 UTC — PR #714: edward RMSNorm gain init magnitude/randomness sweep — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell D (mean=0.9, std=0.0)**
+
+- Branch: `g1r5-edward/gain-init-magnitude`
+- Student: g1r5-edward
+- Hypothesis: First-ever RMSNorm gain init magnitude/randomness ablation. Current default mean=1.0, std=0.0 (identity init) has never been swept. With lr_scalars=0.03 (3× since #571), the gain equilibrium magnitude may have shifted. 5-cell: A=ctrl (1.0/0.0) / B=(1.0/0.01) / C=(1.0/0.1) / D=(0.9/0.0) / E=(1.1/0.0). Two-axis design: mean (D/E) and randomness (B/C).
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | mean | std | wandb_run_id | val/loss | ffs | Δ vs A (σ_single) | Δ vs μ (σ_single) | Gate? |
+|:----:|:----:|-----:|----:|:------------:|---------:|:---:|------------------:|------------------:|:-----:|
+| **1** | **D** | **0.9** | **0.0** | `jqs1ifiq` | **3.26203** | **3025** | **−1.93σ** | **−1.10σ (+0.000765 above gate)** | ❌ |
+| 2 | B | 1.0 | 0.01 | `v79099wt` | 3.26296 | 3050 | −1.10σ | −0.27σ | ❌ |
+| 3 | E | 1.1 | 0.0 | `wnxil63d` | 3.26326 | 3050 | −0.83σ | ≈0σ | ❌ |
+| 4 | A | 1.0 | 0.0 | `5xa40y2r` | 3.26419 | 3050 | — | +0.82σ | ❌ |
+| 5 | C | 1.0 | 0.1 | `c6a2n4mz` | 3.26425 | 3050 | +0.05σ | +0.88σ | ❌ |
+
+- **Two-axis mechanism story:**
+  1. **Mean axis (D vs E): asymmetric.** D (0.9) is −1.93σ vs ctrl; E (1.1) ≈0σ vs μ. Rules out "any mean perturbation helps" — effect is specifically downward. Cell D inverts the pre-registered prior (expected mild regression; observed −1.10σ improvement + faster ffs by 25 steps, the only cell with faster ffs).
+  2. **Randomness axis (B vs C): dead.** std=0.01 and std=0.1 both wash out — RMSNorm's reciprocal-norm forward absorbs the multiplicative perturbation; lr_scalars=0.03 adapts within hundreds of steps.
+  3. **Mechanism: "init co-tuned with old lr_scalars=0.01" hypothesis.** Identity init was uniquely optimal at lr_scalars=0.01; at lr_scalars=0.03 (tripled in #571), the optimal equilibrium shifted below 1.0. Starting at 0.9 lands closer to it.
+  4. **Cell A=3.26419 is the 8th post-#571 single-seed ctrl** — at the upper end of the band (+0.82σ vs μ). Mean across n=9 ctrls ≈ 3.2625, SD ≈ 0.0012.
+
+- **Decision:** SENT BACK FOR P2 n=4 confirmation at Cell D (`--gain_init_mean 0.9 --gain_init_std 0.0`, single cell, no finer scan, no D×std combinatorial — those are downstream questions if P2 confirms). Pre-declared gate: μ_n=4 ≤ 3.261265 → merge (first gain-init result on post-#571 baseline); μ > 3.262 → close clean-NEUTRAL. P2 ETA ~6.8h. **4th init-magnitude axis to surface a candidate** (alphonse residual-proj P2 trial 1 = 3.260513 in-flight, nezuko embed P2 launched ~step 249 ~6%, edward gain this PR P2 pending). Init-magnitude wave converging.
+
+- **In-flight context:** Alphonse #699 P2 trial 1 (Cell B musoft) finished at **3.260513** — 0.000752 below the gate, strongest single-trial post-#571 result. Nezuko #706 P2 just launched (~6%). Two more init-magnitude P2 confirmations racing toward terminal alongside edward.
+
+---
+
+## 2026-05-22 ~05:35 UTC — PR #756: tanjiro gradient centralization on Muon — **IMPLEMENTATION QUESTION → APPROVED OPTION (A): apply GC to raw p.grad pre-momentum on all body weights (works under --soap_attn)**
+
+- Branch: `g1r5-tanjiro/grad-centralization-muon`
+- Student: g1r5-tanjiro
+- Original hypothesis: 5-cell sweep of gradient centralization (subtract column-mean from gradient pre-NS5) on Muon body weights, three independent contrasts (col vs row dim / pre vs post-momentum / all vs MLP-scope).
+
+- **Pre-launch implementation question (student-flagged):** Under baseline `--soap_attn`, ALL body weights route through the SOAP path (`soap_precondition_momentum` → `soap_ns_step`), NOT `muon_update`. Modifying only `muon_update` would be a no-op. Three options proposed: (A) apply GC to raw `p.grad` for all body weights (covers both paths); (B) apply at pre-NS5 in SOAP path only (loses clean all-ones interpretation); (C) drop `--soap_attn` (breaks baseline contract).
+
+- **Decision:** **OPTION (A) APPROVED.** Three reasons:
+  1. **Faithful to Yong et al. 2020** (canonical GC = sub mean from raw gradient).
+  2. **Preserves all-ones-direction mechanism story** (RMSNorm absorbs from output → removing from raw grad frees optimizer; SOAP rotation in (B) would break the column-mean ↔ all-ones identity).
+  3. **Comparable to baseline** (keeps `--soap_attn` intact).
+
+- **Implementation guidance provided:**
+  - `gc_pre=True`: sub column-mean from `p.grad` **before** `momentum.lerp_`.
+  - `gc_pre=False`: sub from nesterov update tensor **before** `soap_precondition_momentum` / NS5.
+  - `gc_dim=0` (Cell B, column-mean) vs `gc_dim=1` (Cell C, row-mean) — asymmetry test.
+  - Scope: 6 body-weight classes (Q/K/V/attn.proj + mlp.fc/mlp.proj) for B/C/D; MLP-only (fc + proj) for E.
+  - **Verification gate:** print one diagnostic line per body weight at step 0 confirming `g.mean(dim=0).abs().max() < 1e-7` immediately after GC sub (catches plumbing bugs before 4h GPU burn).
+
+- **Status:** Sent back to `status:wip` ~05:34Z. No runs in W&B yet — student implementing the refactor and launching Cell A as smoke test first. ETA full sweep ~10h wall-clock.
+
+---
+
 ## 2026-05-22 ~04:30 UTC — PR #707: tanjiro per-group AdamW β2 sweep — **CLOSED clean-NEG (β2=0.95 globally optimal)**
 
 - Branch: `g1r5-tanjiro/per-group-beta2-sweep`
