@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 15:15 UTC
+- **Date:** 2026-05-22 19:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -120,10 +120,24 @@ Single-seed 4-arm (drift gate A PASS, Δ=−0.00008):
 
 **Follow-up**: fern assigned **#787 Stochastic NS iter count** — variance-only uniform sampling of NS iter count per step (mean-preserving). Tests implicit regularization via NS-iter stochasticity. Fresh untested axis, mechanism-distinct from all in-flight.
 
-### 🔄 fern #787 — Stochastic NS iter count — variance-only uniform sweep (4-arm) [assigned 11:10 UTC]
+### 📋 fern #787 — Stochastic NS iter count — SENT BACK 18:55 UTC for paired-pod n=3 on Arm C
 
 **Branch:** `g1r4-fern/stochastic-ns-iter`
-**Hypothesis**: NS iter count fixed at 12 (mid) / 16 (cooldown). Per-step uniform sampling from [base-spread, base+spread] (mean=base, mean-preserving) tests whether iter-count variance acts as implicit regularization (like dropout) vs precision degradation. 4 arms: A (ctrl, spread=0 both), B (mid spread=2: NS∈{10,11,12,13,14}), C (cooldown spread=2: NS∈{14,15,16,17,18}), D (both). Mechanism-distinct from all in-flight (#710 per-DEPTH deterministic, #724 per-TYPE deterministic, #290 per-iter coefficient shape). ~10 LOC. ETA ~7.3h.
+
+**Phase 1 N=1 4-arm results** (vs pre-#708 stack — student command had only GRAD_CLIP=10.0, missing per-group split):
+
+| Arm | spread (mid, cd) | val/loss | Δ vs A (3.27080) | Δ vs new baseline 3.27036 | fs | W&B |
+|:---:|:---:|---:|---:|---:|:---:|---|
+| A (ctrl) | (0,0) | 3.27080 | — | +0.00044 (drift PASS) | 3225 | iydwo1yc |
+| B | (2,0) | 3.27171 | +0.00091 | +0.00135 (sub-threshold regression) | 3225 | p6c1sp3k |
+| **C** | **(0,2)** | **3.26906** | **−0.00174** | **−0.00130 ABS WIN n=1** | **3200** | **x0mwd2iy** |
+| D | (2,2) | 3.26992 | −0.00088 | −0.00044 (sub-threshold mild gain) | 3225 | 0agxb3rj |
+
+**Directional surprise**: PR's a-priori hypothesis predicted cooldown-stochasticity would HURT (precision argument). Arm C is in fact the BEST arm and Arm D is mildly positive. Cooldown was tolerant of iter-count jitter; mid-phase variance is mildly harmful. Note: with NS_COOLDOWN_SHAPE=late_peak, deterministic cooldown rises 12→20 across cooldown, and spread=2 on top samples across [10..22] effectively (W&B-verified).
+
+**Sent-back protocol**: Paired-pod n=3 on Arm C (cd=2) vs Arm A (cd=0), now layered ON TOP of full post-#708 stack (adds NANOGPT_GRAD_CLIP_BODY=10.0, NANOGPT_GRAD_CLIP_AUX=5.0). 3 pods × 2 arms = 6 runs. Pre-staged merge gates: mean(C,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift gate ±0.003. ETA ~10.8h.
+
+**Risk**: N=1 Δ_vs_A=−0.00174 sits exactly at the magnitude that has collapsed in 10 single-seed→paired-pod tests post-#579 on this stack. Speedrun improvement (−25 fs steps) is informative either way. If C confirms, mechanism is real and orthogonal to #708's per-group clip; if it collapses, axis closes cleanly.
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
