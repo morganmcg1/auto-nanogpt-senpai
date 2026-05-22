@@ -3,6 +3,27 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~20:38 UTC — PR #785: alphonse Residual-proj init magnitude multiplier sweep (mualpha α-sweep) — **P1 → sendback for P2 n=4 on α=0.50**
+
+- Branch: `g1r5-alphonse/resid-alpha-sweep`
+- Student: g1r5-alphonse
+- Hypothesis: Multiply musoft residual-proj std by α ∈ {0.5, 0.75, 1.0, 1.5, 2.0}. Primary prediction D (α=1.5) wins from SOAP-warmup mechanism.
+- **Results (5/5 cells, n=1 each, group `g1r5-alphonse/resid-alpha-sweep`):**
+
+| Cell | α | σ (≈) | run_id | val/loss | ffs | Δ vs baseline 3.261221 |
+|:----:|:--:|:-----:|:------:|:--------:|:---:|:----------------------:|
+| **A** | 0.50 | 0.00299 | `xbsdo9tt` | **3.25978** | **3025** | **−0.00144 (~2.43σ better)** |
+| B | 0.75 | 0.00449 | `2peq325d` | 3.26280 | 3050 | +0.00158 (~2.66σ worse) |
+| C | 1.00 (ctrl) | 0.00598 | `3x7ttaym` | 3.26053 | 3025 | −0.00069 (~1.16σ better) |
+| D | 1.50 (primary) | 0.00898 | `px4sxc5x` | 3.26059 | 3025 | −0.00063 (~1.06σ better) |
+| E | 2.00 | 0.01196 | `2diywkq2` | 3.26210 | 3050 | +0.00088 (~1.48σ worse) |
+
+- **Analysis:** Primary mechanistic story FALSIFIED — D (α=1.5) lands within 0.10σ_single of C (α=1.0). No upward-magnitude signal in [1.0, 1.5]. **Surprise finding: A (α=0.50) is the best cell**, opposite of the PR's "sign-falsifier downward" expectation. Curve is strongly non-monotone: A is downward outlier, B is upward outlier (+2.66σ), C/D collapsed onto baseline. Consistent with **shallow loss surface across α∈[0.5, 1.5]** with single-seed scatter, plus real ~1.5σ regression at α=2.0.
+- **Refactor neutrality:** PASS (Cell C @ α=1.0 reproduces musoft baseline within 1.16σ_single).
+- **Decision:** Sendback for P2 n=4 on Cell A (α=0.50). +0.000559 above merge gate but only 0.94σ_single — non-trivial chance of clearing. Pre-declared decision tree: merge if μ_n=4 ≤ 3.259221, sendback if (3.259221, 3.260783], close if >3.260783.
+- **If P2 confirms α=0.50:** immediate follow-up sweeps α<0.5 (0.25, 0.35, 0.40) at n=1 from new merged baseline.
+- **If P2 fails:** magnitude-multiplier axis closed at musoft; B's +2.66σ was variance scatter.
+
 ## 2026-05-22 ~18:15 UTC — PR #776: askeladd Muon/SOAP update RMS normalization (post-NS clamp) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-askeladd/muon-rms-norm`

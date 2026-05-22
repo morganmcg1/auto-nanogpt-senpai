@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-22 ~18:15Z (poll #439)
+- **Last updated:** 2026-05-22 ~20:40Z (poll #460)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,7 +13,7 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #439)
+## Active WIP Portfolio (poll #460)
 
 8 PRs in flight; no idle students:
 
@@ -26,7 +26,7 @@
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | **Assigned poll #434.** 5 cells: A=ctrl, B=sign MLP-only, C=sign all, D=sign all + lr_mlp 0.06, E=sign all + ns_iter 4. Prediction: D > C > B > E > A. Kill: Cell B <0.001 improvement vs A → close. ETA ~9h. |
 | **#826** | **askeladd** | Lookahead outer slow-weights wrapper (Zhang et al. NeurIPS 2019) | **Assigned poll #439.** 5 cells: A=ctrl, B=k=5 α=0.5 all (primary), C=k=10 α=0.5, D=k=5 α=0.8, E=k=5 α=0.5 Muon-only. Prediction: B > C > D > A ≈ E. Kill: B val/loss >3.265 step 1000. ETA ~9h. |
 | **#781** | **thorfinn** | Per-group AdamW ε sweep (sparsity asymmetry) | **P1 in-flight on NEW musoft baseline** — Rebased poll #383 after duplicate-Cell-A driver bug. New W&B group `per-group-eps-musoft`. Cell A on musoft just started ~11:39Z. Sequential blocking-foreground chain (5 cells × ~1:48h = ~9h). ETA ~20:30Z. |
-| **#785** | **alphonse** | Residual-proj init magnitude α∈{0.5/0.75/1.0/1.5/2.0} | **P1 in-flight** — Cell A (α=0.50) at step ~1022 of 3250 as of 11:21Z. SMOKE@α=1.0 finished clean. Primary prediction: D (α=1.5) wins. |
+| **#785** | **alphonse** | Residual-proj init magnitude α∈{0.5/0.75/1.0/1.5/2.0} | **P1 TERMINAL poll #460 → sendback P2 n=4 α=0.50.** SURPRISE: A(α=0.50)=3.25978 best (−2.43σ_single), primary D(α=1.5)=3.26059 collapsed onto C(α=1.0)=3.26053. Non-monotone (B(0.75)=3.26280 worst). A is +0.000559 above n=4 merge gate (0.94σ_single → non-trivial gate-clearance). P2 group `resid-alpha-P2-a050-n4`. ETA ~7h. |
 
 ## Recent Closures
 
@@ -54,7 +54,7 @@
 **Init magnitude**:
 - lm_head (#722 CLOSED: zero uniquely optimal)
 - residual-proj (#699 MERGED: musoft 1/√L wins)
-- residual-proj magnitude multiplier (#785 P1 in-flight, alphonse α-sweep)
+- residual-proj magnitude multiplier (**#785 P1 terminal poll #460**, sub-canonical α=0.50 surprise winner at −2.43σ_single but +0.94σ above n=4 gate; **P2 n=4 on α=0.50** sent back)
 - gains (#714 CLOSED: identity init approximately optimal at n=4)
 - embed (#706 pre-#699 P2 cleared OLD gate / missed NEW; **#706 P3 compound now in-flight**)
 - transformations (#748 CLOSED clean-NEG: ×2.0 does not stack with musoft; smaller-magnitude catastrophically worse, larger-within-noise)
@@ -68,8 +68,9 @@
 
 ## Research Themes
 
-**Post-#699 dominant theme:** μP depth scaling for residual paths is real and load-bearing. Two compound questions in flight:
-1. **Magnitude axis: is musoft optimal at α=1.0 multiplier, or is α=1.5/2.0 better?** (#785 alphonse, P1 in-flight on musoft baseline)
+**Post-#699 dominant theme:** μP depth scaling for residual paths is real and load-bearing. **Surprising α<1 signal:** #785 alphonse P1 falsified the upward magnitude story (α=1.5 ≈ α=1.0) and instead found α=0.50 best at −2.43σ_single — the depth-aware musoft form may **over-initialize** by ~2×. P2 n=4 in flight to confirm.
+
+1. **Magnitude axis (sub-canonical):** Is α=0.50 musoft refinement real or n=1 noise? (#785 P2, alphonse) — P2 gate-clearance odds ~50% per Gaussian estimate; if confirmed → sweep α∈{0.25, 0.35, 0.40} next.
 2. **Do embed magnitude and residual musoft stack?** (#706 nezuko P3, in-flight on musoft baseline) — pre-#699 embed=0.1 was −2.5mNat below old baseline but only −0.5mNat below new baseline. Compound P3 will measure: additive / partially-redundant / competing.
 
 **Edward closure clarifies init landscape:** With #714 closed, gain init joins lm_head init as boundary-optimum axes (default identity wins). The remaining open init axes are:
@@ -78,9 +79,9 @@
 - transformations (#748 CLOSED clean-NEG: init-magnitude axis fully closed)
 
 **Next direction priorities (after current portfolio resolves):**
-1. **Alphonse #785 outcome →** Localizes the residual-magnitude axis on musoft. If α=1.5 or α=2.0 wins, immediately compound with embed-std=0.1 (if nezuko's P3 also clears).
+1. **Alphonse #785 P2 outcome →** If α=0.50 n=4 clears 3.259221, MERGE (new sub-canonical baseline) → sweep α<0.5 from new merged baseline. If misses, magnitude-multiplier axis closed at musoft.
 2. **Nezuko #706 P3 outcome →** Tells us if init-magnitude axes stack with musoft. If yes, the path forward is multi-axis stacking; if no, magnitude axes are subsumed by musoft.
-3. **Novel Muon mechanisms (#776, #800, #815, #823, #824)** all need to re-gate against 3.259221. Bar is harder. If any single cell shows >1σ below musoft baseline, escalate to P2.
+3. **Novel Muon mechanisms (#800, #815, #823, #824)** all need to re-gate against 3.259221. Bar is harder. If any single cell shows >1σ below musoft baseline, escalate to P2.
 4. **Polar Express (#824):** If B/C clear gate → merge and test at ns_iter=4 for efficiency. If B/C miss gate → NS polynomial coefficients axis closed.
 
 **Dead ends:** 8 AdamW-kernel replacements, all schedule modifications, per-group β1/β2, global ε, lm_head init, RMSNorm gain init (#714), transform init magnitude (#748), **post-NS update RMS-clamp (#776: operational RMS already below sweep floor)**.
