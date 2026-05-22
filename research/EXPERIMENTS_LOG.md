@@ -1,3 +1,41 @@
+## 2026-05-22 03:35 UTC — PR #750 ASSIGNED (alphonse): H52 Per-step AGC clip_ratio cooldown schedule
+
+- Branch: `g1r3-alphonse/agc-cooldown-schedule`
+- Hypothesis: Schedule AGC clip_ratio to tighten linearly during cooldown (0.05 → 0.02) instead of fixed throughout. Direct exploit of PR #689 mechanism rule ("cooldown demands sharp aux updates"). Mechanistically distinct from PR #595 (static ON/OFF) and PR #483 (static magnitude sweep in [0.02, 0.10]) — tests SCHEDULE structure, never before swept.
+- Arms (3 sequential, predeclared n=1, 3325 steps): ctrl (static 0.05), aux-only schedule (aux 0.05→0.02 from step 1995), both schedule (aux + muonh during respective cooldowns).
+- Fresh axis: fills the **schedule axis** which was empty in the active portfolio. Mechanism-distinct from in-flight aux preconditioner work (#726/#731/#735/#746), post-NS5 direction transforms (#743/#744), and cooldown state reset (#740).
+- ~25 LoC, bit-identical when `--aux_agc_cooldown_min -1` (default).
+- Builds on alphonse's NS5 expertise — schedule on a different axis (gradient trust radius) while keeping his "clean smoke + 3-arm" experimental hygiene.
+
+---
+
+## 2026-05-22 03:30 UTC — PR #190 CLOSED (alphonse): NS5 iteration count sweep k ∈ {8, 12, 16} — NEG decisive, axis fully closed at k=12
+
+- Branch: `g1r3-alphonse/ns5-iter-sweep-si`
+- Hypothesis: Sweep NS5 iteration count k ∈ {8, 12, 16} on MuonH-SI baseline. 3-arm predeclared n=1.
+
+### Results (3325 steps, n=1; 3 arms terminal)
+
+| Arm | NS5 k | W&B | val/loss | ffs | Δ vs k=12 ctrl |
+|---|---|---|---|---|---|
+| 1 | 8 | `jm1dv8xp` | **3.27659** | 3200 | **+0.00349 NEG** (~7σ above k=12) |
+| 2 | 12 (current baseline) | `xwdkdlrt` | **3.27310** | 3150 | reference (matches today's μ≈3.273) |
+| 3 | 16 | `4o2qyxiy` | **3.27328** | 3150 | **+0.00018** noise-equivalent |
+
+**Decision: CLOSED NEG** — no arm clears merge bar 3.27039. Three-regime structure: k=8 under-orthogonalized → NEG ~7σ; k=12 ctrl reproduces baseline at noise floor; k=16 noise-equivalent → NS5 saturated at k=12.
+
+### Mechanism finding — NS5 iteration count axis FULLY CLOSED at k=12
+
+Combined with PR #621 hyperball pruning closure, integrated picture:
+
+> **The post-NS5 SI projection dominates inner update quality.** Both residual non-orthogonality (this PR, k=16 noise-equivalent) and Frobenius-sphere unit constraint (PR #621, hyperball=0 catastrophic NEG +0.052) point to SI as the load-bearing post-NS5 transform.
+
+**Generalized rule**: Future MuonH-direction interventions should target either the **NS5 coefficients** `(a, b, c) = (2, -1.5, 0.5)` directly, or **post-NS5 transforms** like Contra-Muon (#743) and Soft-Muon (#744), NOT iteration count or constraint pruning.
+
+Excellent execution: 100-step smoke per ablation arm, bit-identical parity check (`bw09ugfh` step 300 = 4.220 vs `4bnkbcf0` = 4.219), pod-rotation recovery, clean predeclared arms, honest SENPAI-RESULT analysis. Alphonse reassigned to H52 AGC cooldown schedule (PR #750).
+
+---
+
 ## 2026-05-22 02:00 UTC — PR #746 ASSIGNED (edward): H51 RACS row-column factored aux preconditioner
 
 - Branch: `g1r3-edward/racs-aux-preconditioner`
