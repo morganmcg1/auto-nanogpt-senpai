@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -468,6 +469,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #742: Rectified Adam (Liu 2019, arXiv:1908.03265) variance rectification on AdamW.
+# 0 = disabled (default; fused AdamW, bit-exact baseline).
+# 1 = full RAdam on all AdamW param groups (embed, lm_head, scalars).
+# 2 = RAdam ONLY on large-matrix groups (embed + lm_head); scalars use standard AdamW.
+ADAMW_RADAM = int(os.environ.get("ADAMW_RADAM", "0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -624,6 +630,110 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class RAdamAdamW(torch.optim.Optimizer):
+    """AdamW with optional per-group Rectified Adam (Liu 2019, arXiv:1908.03265).
+
+    For groups whose `name` is in `radam_groups`, the update follows RAdam:
+      rho_inf = 2 / (1 - beta2) - 1
+      rho_t   = rho_inf - 2 * t * beta2**t / (1 - beta2**t)
+      if rho_t > 4:  # variance well-estimated; rectified update
+        r_t = sqrt(((rho_t-4)(rho_t-2) rho_inf) / ((rho_inf-4)(rho_inf-2) rho_t))
+        update = r_t * m_hat / (sqrt(v_hat) + eps)
+      else:          # variance poorly-estimated; SGD-like fallback
+        update = m_hat
+
+    All other groups use standard AdamW. Decoupled weight decay is applied identically
+    in both paths (this is AdamW, not Adam).
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, radam_groups=None):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.radam_groups = set(radam_groups or [])
+        self._last_radam_diagnostics: dict[str, dict[str, float]] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        self._last_radam_diagnostics = {}
+
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            name = group.get("name", "")
+            use_radam = name in self.radam_groups
+
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                    state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["step"] += 1
+                t = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+
+                bc1 = 1 - beta1 ** t
+                if use_radam:
+                    rho_inf = 2.0 / (1.0 - beta2) - 1.0
+                    rho_t = rho_inf - 2.0 * t * (beta2 ** t) / (1.0 - beta2 ** t)
+                    if rho_t > 4.0:
+                        bc2 = 1 - beta2 ** t
+                        r_t = math.sqrt(
+                            ((rho_t - 4.0) * (rho_t - 2.0) * rho_inf)
+                            / ((rho_inf - 4.0) * (rho_inf - 2.0) * rho_t)
+                        )
+                        denom = (exp_avg_sq / bc2).sqrt().add_(eps)
+                        # Single fused step: p += -(lr * r_t / bc1) * exp_avg / denom
+                        p.addcdiv_(exp_avg, denom, value=-lr * r_t / bc1)
+                        if name not in self._last_radam_diagnostics:
+                            self._last_radam_diagnostics[name] = {
+                                "rho_t": float(rho_t),
+                                "r_t": float(r_t),
+                                "rectified": 1.0,
+                            }
+                    else:
+                        # SGD-like fallback: p += -(lr / bc1) * exp_avg
+                        p.add_(exp_avg, alpha=-lr / bc1)
+                        if name not in self._last_radam_diagnostics:
+                            self._last_radam_diagnostics[name] = {
+                                "rho_t": float(rho_t),
+                                "r_t": 0.0,
+                                "rectified": 0.0,
+                            }
+                else:
+                    bc2 = 1 - beta2 ** t
+                    denom = (exp_avg_sq / bc2).sqrt().add_(eps)
+                    p.addcdiv_(exp_avg, denom, value=-lr / bc1)
+
+        return loss
+
+    def radam_stats(self) -> dict[str, float]:
+        """Flattened per-group diagnostics for wandb logging."""
+        out: dict[str, float] = {}
+        for name, d in self._last_radam_diagnostics.items():
+            for k, v in d.items():
+                out[f"{name}/{k}"] = v
+        return out
 
 
 class Muon(torch.optim.Optimizer):
@@ -866,6 +976,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/adamw_radam": ADAMW_RADAM,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +1009,24 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    adamw_param_groups = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if ADAMW_RADAM == 0:
+        optimizer1 = AdamW(adamw_param_groups,
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    elif ADAMW_RADAM in (1, 2):
+        if ADAMW_RADAM == 1:
+            radam_groups = {"adam_embed", "adam_lm_head", "adam_scalars"}
+        else:
+            radam_groups = {"adam_embed", "adam_lm_head"}
+        optimizer1 = RAdamAdamW(adamw_param_groups,
+                                betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+                                radam_groups=radam_groups)
+    else:
+        raise ValueError(f"ADAMW_RADAM must be 0, 1, or 2; got {ADAMW_RADAM}")
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1059,6 +1184,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "radam_stats"):
+                    stats = opt.radam_stats()
+                    if stats:
+                        wandb.log(prefixed("train/adamw_radam", stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
