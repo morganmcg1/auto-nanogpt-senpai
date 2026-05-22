@@ -1,3 +1,103 @@
+## 2026-05-22 05:58 UTC — PR #767 ASSIGNED (tanjiro): H57 MuonH inner momentum schedule
+
+- Branch: `g1r3-tanjiro/muonh-inner-mu-schedule`
+- Hypothesis: Schedule MuonH inner `mu` (currently fixed 0.95) across training. Warm phase: mu=0.85 (responsive to fresh signal in chaotic init), mid: mu=0.95 (current default), cooldown: mu=0.97 (smoother trajectory as LR cools).
+- Arms (4, n=1, 3325 steps): ctrl (constant mu=0.95), default ramp (0.85→0.95→0.97), gentler warm (0.90→0.95→0.97), warm-only (0.85→0.95→0.95 to isolate warm contribution).
+- Fresh axis: **inner MuonH momentum scheduling**. PR #563/#536 closed OUTER MuLoCo momentum scheduling, but body Muon inner mu has NEVER been scheduled in any prior PR. Schmidhuber-style old-idea re-application: Polyak heavy-ball damped late-stage momentum applied to Muon's inner loop.
+- ~25 LoC: piecewise-linear schedule function + 4 CLI flags + per-step group["mu"] update in train loop.
+- Reassignment after PR #740 closure (single-shot v_t reset NEG).
+
+---
+
+## 2026-05-22 05:58 UTC — PR #766 ASSIGNED (askeladd): H56 Reference Contra-Muon formula (TRUE direction change)
+
+- Branch: `g1r3-askeladd/contra-muon-ref`
+- Hypothesis: Implement the REFERENCE Contra-Muon formula from `records/track_3_optimization/results/20260501_contra_muon/train_gpt_simple_contra_muon_2.py:224-234` that performs a TRUE direction change on the NS5 update. Subtract the OPERATOR-normalized gradient (not the parallel projection): `u_contra = u - (γ/2)·scale_to_unit_operator_norm(g); u_contra *= ||u||_F / ||u_contra||_F`. The previous PR #743 closure was a NULL because the implemented formula `u - γ(<u,g>/||u||²)u = u(1 - γ<u,g>/||u||²)` was a scalar rescaling cancelled by scale_invariant + hyperball.
+- Arms (3, n=1, 3325 steps): ctrl (γ=0.0, sanity), γ=0.05 (paper default), γ=0.10 (stronger correction).
+- Direct follow-up from student's suggested follow-up #1 in PR #743 closure analysis.
+- ~15 LoC: new `scale_to_unit_operator_norm` function + extend `muon_update` with `contra_gamma` arg + CLI flag wiring.
+- Telemetry: `contra/alignment_mean`, `contra/direction_change_angle`, `contra/frob_ratio_pre` to verify genuine direction change.
+
+---
+
+## 2026-05-22 05:55 UTC — PR #743 CLOSED (askeladd): H49 Contra-Muon — Δ+0.00066 NULL (formula reduces to no-op)
+
+- Branch: `g1r3-askeladd/contra-muon-pruning`
+- Hypothesis: Subtract gradient-projected-onto-NS5-output from NS5 update as approximate Contra-Muon direction correction.
+- Arms (2 terminal, n=1, 3325 steps):
+
+| Arm | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|
+| 1 ctrl (γ=0.0) | `n27juk6t` | 3.27286 | 3125 | — |
+| 2 treatment (γ=0.1) | `n7vr1qzp` | 3.27352 | 3150 | +0.00066 (~1σ NULL) |
+
+### Mechanism finding — implemented formula is algebraically a no-op under current optimizer mode
+
+Student's rigorous algebraic proof:
+
+1. **Scalar rescaling not direction change**: `u - γ·(<u,g>_F / ||u||²_F)·u = u·(1 - γ·<u,g>_F / ||u||²_F)`. The bracketed term is a scalar; multiplying u by a scalar preserves direction.
+2. **Renormalize line is numeric no-op**: `update * (update.norm().detach() / u_norm)` where both norms are computed on the SAME post-subtraction tensor → multiplier ≡ 1.0. `.detach()` only affects autograd graph (and code is inside `@torch.no_grad()` anyway).
+3. **scale_invariant + hyperball cancels residual scalar effect**: `scale_invariant_update_` projects parameter back onto Frobenius sphere of fixed radius after each step → kills any scalar shrinkage.
+4. **Telemetry corroborates premise mismatch**: `alignment_mean = +0.548`, `alignment_min = +0.334`, `alignment_max = +0.843`. NS5 output is POSITIVELY aligned with post-momentum gradient on ALL 12 blocks. The premise ("NS5 may anti-align with g") does not match empirical reality.
+
+### Rule logged for portfolio memory
+
+Future direction-projection PRs on MuonH must:
+- Explicitly verify proposed correction is NOT parallel to u (true direction change, not scalar rescale)
+- Account for scale_invariant + hyperball mode (Frobenius-sphere projection undoes scalar effects)
+- Include alignment telemetry to verify the assumed anti-alignment regime exists empirically
+
+### Follow-up routing
+Askeladd → PR #766 H56 Reference Contra-Muon formula (true direction change via operator-normalized gradient per student's suggested follow-up #1).
+
+---
+
+## 2026-05-22 05:55 UTC — PR #740 CLOSED (tanjiro): H48 lm_head v_t reset — Δ+0.06644 NEG, axis closed (bias-correction mismatch)
+
+- Branch: `g1r3-tanjiro/lmhead-vt-reset-cooldown`
+- Hypothesis: Zero `exp_avg_sq` for lm_head (`model.proj.weight`, lr=1/320) at cooldown onset (step 2493). Stale v_t accumulated from high-LR main training was hypothesized to suppress effective step size at the start of cooldown when small gradients need maximum adaptive responsiveness.
+- Arms (2 terminal, n=1, 3325 steps):
+
+| Arm | W&B | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|
+| 1 ctrl (no reset) | `guohogxk` | 3.27250 | -1 | — |
+| 2 v_t reset @ step 2493 | `8yscqx5z` | **3.33894** | -1 | **+0.06644 NEG (~80σ)** |
+
+Kill gate triggered. Arm 3 (m_t + v_t reset) correctly not launched — would only worsen the same instability mode.
+
+### Mechanism finding — bias-correction mismatch breaks single-shot v_t reset
+
+Catastrophic post-reset destabilization trajectory:
+
+| step | arm 2 val/loss | note |
+|---|---|---|
+| 2375 | 3.40291 | normal cooldown |
+| **2493** | reset fires | v_t zeroed (vt_pre_rms=2.32e-2 → 0) |
+| **2500** | **6.18808** | **catastrophic spike (~+2.79 in 7 steps)** |
+| 2750 | 3.42975 | partial recovery |
+| 3000 | 3.36447 | never recovers (kill gate exceeded) |
+| 3325 | 3.33894 | terminal |
+
+Student's causal chain (preserved):
+
+1. **Bias-correction mismatch**: `step_count=2494` post-reset → bias-correction divisor `1/(1-β2^step) ≈ 1.0` expects saturated v_t, gets zero → effectively uses uncorrected raw squared grad on first post-reset step.
+2. **eps=1e-6 too small to absorb zero denominator**: normal v_t ~2e-2 → sqrt ≈ 0.14, eps negligible. With v_t=0, eps IS the denominator → effective step `lr·m_t/eps ≈ 1/320 · 2.6e-3 / 1e-6 ≈ 8` vs normal ~5e-5 → **~1.6e5× step magnitude jump**.
+3. **AGC clip 0.05 is per-tensor at gradient level**, not update level → cannot catch denominator-driven update explosion.
+
+This is a clean structural disproof: **single-shot mid-training v_t zeroing breaks Adam's bias-correction invariant at the small-eps regime needed for tight convergence**.
+
+### Rule logged
+Future advisor planning rejects single-shot mid-training state reset proposals on bias-corrected adaptive optimizers (AdamW, AdEMAMix, AdaBelief, Adan) unless they include: (a) coupled `step_count` reset (re-engages bias correction), (b) larger eps OR warmup-rebuild period before LR cooldown, (c) demonstrated stability via smoke test crossing the reset boundary.
+
+### Follow-up routing
+Tanjiro → PR #767 H57 MuonH inner mu schedule (fresh axis, not another state-reset variant — single-shot reset axis closed).
+
+Student's suggested follow-ups (kept for future cycles):
+1. Gradual second-moment dampening via `state['exp_avg_sq'].mul_(0.5)` at cooldown onset (sidesteps bias-correction discontinuity)
+2. eps schedule 1e-6 → 1e-4 at cooldown onset (dampens denominator on large side without zeroing)
+
+---
+
 ## 2026-05-22 05:25 UTC — PR #763 ASSIGNED (thorfinn): H55 MuLoCo OFF pruning ablation
 
 - Branch: `g1r3-thorfinn/mulocco-off-ablation`
