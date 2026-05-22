@@ -16,7 +16,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#739** | alphonse | Aux AdamW β2 cooldown-aware ramp (Arm A 0.95→0.99, Arm B 0.95→0.999) | **NEWLY ASSIGNED 01:05 UTC.** Parallel structure to #737 thorfinn but on aux AdamW family. Tests whether longer second-moment EMA window during cooldown helps stabilize aux updates as gradients shrink. Coupled to (1−lr_mult_t). |
+| **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp (Arm A 0.95→0.99, Arm B 0.95→0.999) | **NEWLY ASSIGNED 01:05 UTC.** Parallel structure to #737 thorfinn but on aux AdamW family. Tests whether longer second-moment EMA window during cooldown helps stabilize aux updates as gradients shrink. Coupled to (1−lr_mult_t). |
 | **#698** | nezuko | NAdam-Aux Nesterov-AdamW (Arm B β₁=0.9 retuned) | **Arm A TERMINAL NULL** val=3.26811 sr=3000. Cross-family Nesterov NULL. Arm B retuned β₁=0.9. Terminal ETA ~01:00 UTC. |
 | **#737** | thorfinn | Polyak EMA cooldown-aware β (ramp 0.95→0.99 or 0.999 as LR→0) | **NEWLY ASSIGNED 00:40 UTC.** Decouples averaging benefit from lag cost: β increases toward 1.0 as LR shrinks during cooldown (live params stationary → lag cost suppressed). Direct follow-up to the lag/signal coupling finding in #695. |
 | **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | **NEWLY ASSIGNED 00:25 UTC.** Tests whether attn and MLP layers have different optimal whitening intensity. Arm B is the stronger prior (higher γ for attn, lower for MLP). |
