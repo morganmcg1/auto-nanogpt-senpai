@@ -3,6 +3,24 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 06:25 UTC — PR #724: Per-block-TYPE NS_ITERS_COOLDOWN — Phase 1 N=1 (nezuko) — SENT BACK for paired-pod n=3 (strongest winner candidate since #579)
+
+- Branch: `g1r4-nezuko/per-type-ns-cooldown`
+- Hypothesis: Per-block-TYPE NS_ITERS_COOLDOWN axis is the last untested per-type Muon hparam axis. Attn (square, fast NS convergence + #579's 0.80× LR) vs MLP (4:1 aspect ratio + #579's 1.20× LR) may have different precision needs in cooldown.
+
+**Phase 1 N=1 screening** — all 3 asymmetric arms WINNER, Arm D chain-best:
+
+| Arm | attn / mlp | val/loss | Δ vs A | Δ vs baseline | first_step | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A | 16 / 16 ctrl | 3.27116 | — | +0.00046 (drift OK) | 3225 | 4y1d8crk |
+| B | 20 / 16 | 3.26942 | −0.00174 | −0.00128 | 3200 | e8e3qt6c |
+| C | 16 / 20 | 3.26972 | −0.00144 | −0.00098 | 3200 | hlhwsog0 |
+| **D** | **12 / 20** | **3.26924** | **−0.00192 (chain-best)** | **−0.00146** | **3200** | **euk5xk3w** |
+
+**Striking spectral finding (Arm D)**: `u_singular_range_attn=0.96` — attn matrices FAR from orthogonal under attn=12 throughout cooldown — yet model trains BEST. This is direct evidence that NS over-convergence on square attn matrices is wasteful work. Square attn TOLERATES under-convergence; rectangular mlp benefits from extra precision. Mechanism aligns with PR hypothesis but stronger: reducing attn precision below NS=16 (to body-phase 12) is actively beneficial, not neutral.
+
+**Sent back for Phase 2 paired-pod n=3 on Arm D**. Pre-staged gates apply (mean(D,n=3)≤3.27070, stat-rule, drift gate). 8 paired-pod collapse precedents (#344/#351/#408/#487/#560/#593/#550/#577) — risk acknowledged. But if D confirms, this is the strongest merge candidate since #579 (Δ_vs_baseline=−0.00146 at N=1, comparable to #579's N=1 −0.00137).
+
 ## 2026-05-22 05:15 UTC — PR #719: Schedule mechanism pruning ablation (alphonse) — CLOSED productive-NULL (64th cycle)
 
 - Branch: `g1r4-alphonse/prune-schedule-mechs`

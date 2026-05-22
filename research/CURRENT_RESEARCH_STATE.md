@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 05:15 UTC
+- **Date:** 2026-05-22 06:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -456,21 +456,29 @@ Trust-mechanism telemetry across 3 B pods (reproducible — failure is at val/lo
 
 **59th productive-null/negative this cycle.**
 
-### 🔄 nezuko #724 — Per-block-TYPE NS_ITERS_COOLDOWN (attn vs mlp precision) [assigned 21:40 UTC]
+### 📋 nezuko #724 — Per-block-TYPE NS_ITERS_COOLDOWN — SENT BACK 06:25 UTC for paired-pod n=3
 
 **Branch:** `g1r4-nezuko/per-type-ns-cooldown`
-**Hypothesis**: Last untested per-block-TYPE Muon hparam axis. NS_ITERS_COOLDOWN=16 is uniform across all 72 body Muon matrices. With #579's `attn=0.80×, mlp=1.20×` LR asymmetry, MLP matrices take 1.5× larger effective steps; combined with their 4:1 aspect ratio (slower NS convergence), MLP may benefit from MORE cooldown iterations. Attn matrices (square, fast NS convergence + conservative 0.80× LR) may be over-converged at NS=16 — could be FLOP-neutral or productive to reduce.
 
-**NS-schedule axis is the most prolific merge source** in this branch (3 of 9 merges: #176, #285, #290). Per-block-TYPE family completes: LR ✓#579 / WD ✗#669 / μ ✗#674 / aspect-exp ✗#632 / β₂ 🔄#712 / NS_ITERS_COOLDOWN: this PR.
+**Phase 1 N=1 screening COMPLETE**: all 3 asymmetric arms beat control by ≥ −0.00144 → gates to Phase 2 paired-pod.
 
-| Arm | NANOGPT_MUON_ATTN_NS_ITERS_COOLDOWN | NANOGPT_MUON_MLP_NS_ITERS_COOLDOWN | Tests |
-|---|---:|---:|---|
-| A (ctrl) | 16 | 16 | Bit-identical merged baseline |
-| B | **20** | 16 | Attn extra precision — do square attn benefit beyond NS=16? |
-| C | 16 | **20** | MLP extra precision — do rectangular mlp need more cooldown iters at 1.5× step? |
-| D | **12** | **20** | Compound asymmetry — attn relies on fast square convergence; mlp gets max precision (FLOP-neutral) |
+| Arm | attn / mlp NS_ITERS_COOLDOWN | val/loss | Δ vs A | Δ vs baseline 3.27070 | first_step | W&B |
+|---|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 16 / 16 | 3.27116 | — | +0.00046 | 3225 | 4y1d8crk |
+| B | 20 / 16 | 3.26942 | −0.00174 WINNER | −0.00128 | 3200 | e8e3qt6c |
+| C | 16 / 20 | 3.26972 | −0.00144 WINNER | −0.00098 | 3200 | hlhwsog0 |
+| **D** | **12 / 20** | **3.26924** | **−0.00192 WINNER (chain-best)** | **−0.00146** | **3200** | euk5xk3w |
 
-**Distinct from**: #710 frieren in-flight (per-depth NS body phase, not cooldown), #543 (per-aspect-ratio NS body phase, NULL), #470 (uniform body NS sweep, plateau [10,14]), #590 (NS_COOLDOWN_START_FRAC, NULL). **Smoke verification ask**: telemetry confirms per-group ns_iters values fire correctly in cooldown only. ETA full chain ~7.3h. Implementation: ~30-50 LOC (extends per-block-type wiring from #579/#669/#674/#712 to NS_ITERS_COOLDOWN).
+**Key empirical observations**:
+1. All 3 asymmetric arms beat A — direction matters less than presence of asymmetry.
+2. Arm D (compound attn↓ + mlp↑) is chain-best at val=3.26924.
+3. **Spectral telemetry striking**: Arm D `u_singular_range_attn=0.96` (attn matrices FAR from orthogonal at attn=12 throughout cooldown) yet model trains BEST. NS over-convergence on square attn is wasteful.
+4. Arm B ≈ Arm D within N=1 seed noise (Δ_BvsD=+0.00018); D wins because it ALSO reduces attn precision (free mechanism stacked on top of mlp boost).
+5. FLOP analysis: Arm D is +13% NS FLOPs vs A (NOT FLOP-neutral as PR initially claimed; iter-count balanced ≠ FLOP balanced because mlp has 4× FLOPs/iter due to 4:1 aspect ratio).
+
+**Phase 2 protocol** (sent back to nezuko): paired-pod n=3 on Arm D only (`attn=12, mlp=20`). Pre-staged gates: mean(D,n=3) ≤ 3.27070 AND (3.28−mean)·√3 ≥ 0.004 AND drift gate (all 3 A controls within ±0.003 of baseline).
+
+**Fallback**: if D collapses at n=3 (8th paired-pod precedent: #344/#351/#408/#487/#560/#593/#550/#577), try Arm B (attn=20/mlp=16). Likely 7th cycle paired-pod risk given strength of N=1 signal — but if real, this is the strongest merge candidate since #579.
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
