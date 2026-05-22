@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-22 21:35 UTC — PR #803 CLOSED: PMuon γ_power warmup ramp (0.2→0.4 vs 0.3→0.4) — NULL/NULL, 74th axis (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-gamma-warmup-ramp`
+- Hypothesis: γ_power warmup ramp from low value → 0.4 by cooldown_start (step 975), testing whether gentler early whitening produces a better pre-cooldown trajectory.
+
+| Arm | γ_warmup_start | sr | val/loss | Δsr (vs #737) | Δval (vs #737) | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | static 0.4 | 2925 | 3.266926 | — | — | ref |
+| Arm A | 0.2 | 2975 | 3.266392 | +50 | -0.000534 | NULL |
+| Arm B | 0.3 | 2950 | 3.265617 | +25 | -0.001309 | NULL |
+
+- **Both arms regress on primary metric (sr).** Monotone ordering: Arm A (start=0.2) > Arm B (start=0.3) > baseline in sr — "less whitening early = worse trajectory."
+- **Val improvements dominated by sr regression.** Arm B val -0.001309 is past marginal threshold but sr regression (+25) disqualifies win.
+- **γ_power axis FULLY CLOSED** across both cooldown ramp (#760) and warmup ramp (#803) directions. Static γ=0.4 is a tight local optimum robust to schedule perturbations at either end.
+- **Key insight from student:** γ_power schedule dead = L_cov/R_cov EMAs equilibrate fast enough that γ schedules can't help. "A cleaner intervention would be to manipulate the EMA β (the covariance buffer momentum) rather than γ."
+- **74th closed axis.** Frieren reassigned to EMA β ramp shape (PR #841) — delayed nonlinear ramp.
+
 ## 2026-05-22 18:35 UTC — PR #780 CLOSED: Body-Muon u/w trust-region CEILING (0.5 vs 0.4) — NULL/NULL, 73rd axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/body-muon-uw-ceiling`

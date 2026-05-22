@@ -1,11 +1,11 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 18:45 UTC
+- **Last update:** 2026-05-22 21:40 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22).
-- **73 closed axes** (#780 nezuko u/w ceiling closed as 73rd — both arms NULL, monotone tighter→worse; high u/w updates are PRODUCTIVE, ceiling is anti-productive; floor at 0.35 is load-bearing asymmetrically).
-- **Active marginal-signal tracking:**
-  - **#778 tanjiro γ_attn=0.45/γ_mlp=0.4 — REQUEST n=2** Arm B `kjqwmwuk` n=1 sr=2950 (marginal NULL +25) BUT val=3.265461 (−0.001465 below baseline, past 0.001 marginal threshold). Seed-2 `is177ib5` running at step 1300/3250 (post-cooldown_start=975). ETA terminal ~20:30 UTC.
+- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL NEW RECORD PENDING:** #822 alphonse Arm A sr=2875 (Δsr=−50) — near terminal.
+- **74 closed axes** (#803 frieren γ_power warmup ramp closed as 74th — both arms NULL sr regression, monotone less-whitening→worse; γ_power=0.4 static is fully pinned across both warmup and cooldown ramps).
+- **🚨 HIGH PRIORITY:** PR #822 alphonse tracking sr=2875 — BIGGEST WIN SINCE SESSION START. Bias correction on L_cov/R_cov warmup phase is proving highly productive.
+- **Active n=2 confirmation:** #778 tanjiro — seed-2 `is177ib5` TERMINAL sr=2925/val=3.2656 (Δval=−0.00137 past marginal). Sent back for clean seed-1 re-run `b958vx2r` (running step 200).
 
 ## Current local baseline
 
@@ -17,23 +17,24 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 18:45 UTC)
+## Active experiments (8 in-flight, 21:40 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#796** | edward | Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) on top of EMA stack | Arm A `hese09mm` TERMINAL sr=2950/val=3.2689 (NULL primary +25). Arm B `i506vy1w` (UP ramp 0.8→0.9) launched 17:57 UTC, step ~300/3250. ETA both terminal ~21:30 UTC. |
-| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.45, γ_mlp=0.4) — n=2 confirm Arm B seed-2 | `is177ib5` running step 1300/3250 (in cooldown). ETA terminal ~20:30 UTC. |
-| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (warmup preconditioner fix) | Arm A `8b0m4nzt` β_cov=0.95+bias-corr running step 800/3250. Arm B chains. ETA both ~23:30 UTC. |
-| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` TERMINAL sr=2950/val=3.2678 (marginal NULL). Arm B `y3lh1e79` (β=0.98) running step 700/3250. ETA ~21:15 UTC. |
-| **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` TERMINAL sr=2975/val=3.2664 (NULL primary, val win Δ=−0.0005). Arm B `rhxri381` (γ 0.3→0.4) running step 775/3250. ETA ~21:10 UTC. |
-| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | Arm A `o9et1cs6` step 1950/3250, val=3.448, slope −0.022/100. ETA terminal ~19:30 UTC. Arm B chains. |
-| **#821** | fern | Kahan BF16 compensated weight update for body-Muon late-cooldown precision | Arm A `1segjgvo` step 1000/3250, just hit cooldown_start=975. ETA terminal ~21:20 UTC. Arm B chains. |
-| **#827** | nezuko | Post-NS Frobenius normalization: consistent NS output scale | ASSIGNED 18:35 UTC. Arm A (post=normalize polar output to per-element RMS=1); Arm B (pre=normalize m_pre input). Directly motivated by #780 finding that floor is load-bearing with variable NS output. |
+| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (warmup preconditioner fix) | Arm A `8b0m4nzt` NEAR TERMINAL step 3125/3250, **sr=2875 (Δsr=−50!)**, val=3.2670. Arm B (β_cov=0.98) chains. ETA Arm A terminal ~21:40 UTC. **POTENTIAL RECORD BREAKER.** |
+| **#778** | tanjiro | PMuon per-type γ narrow — n=2 clean seed-1 re-run (γ_attn=0.45, γ_mlp=0.4) | Seed-2 TERMINAL sr=2925/val=3.2656. Seed-1 re-run `b958vx2r` running step 200 (just launched 20:51 UTC). ETA terminal ~00:30 UTC. |
+| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | ASSIGNED 21:40 UTC. Hold β=0.95 for first X% of cooldown, then ramp 0.95→0.99 over remaining fraction. Tests whether delaying the EMA β increase preserves early-cooldown parameter freedom. |
+| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup | Arm A `o9et1cs6` TERMINAL sr=2925 (TIES), val=3.26659 (≈ baseline, axis closing). Arm B `t80hfeqy` (LR=0.22) running step 900/3250. ETA ~23:30 UTC. |
+| **#821** | fern | Kahan BF16 compensated weight update for body-Muon | Arm A `1segjgvo` NEAR TERMINAL step 3125/3250, sr=2925 (TIES), val=3.2689. Params are FP32 so Kahan is no-op (informative-NULL). Arm B chains. |
+| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` TERMINAL sr=2950 (NULL +25). Arm B `y3lh1e79` (β_target=0.98) step 3050/3250, sr=2925 (TIES). ETA terminal ~21:30 UTC. |
+| **#796** | edward | Aux AdamW β1 cooldown ramp (DOWN 0.8→0.7 vs UP 0.8→0.9) | Arm A `hese09mm` TERMINAL sr=2950 (NULL +25), val=3.2689. Arm B `i506vy1w` (UP ramp) step 2650/3250, val=3.3027. ETA ~22:00 UTC. |
+| **#827** | nezuko | Post-NS Frobenius normalization (post-NS polar RMS=1) | Arm A `q72w28l9` (post) step 1950/3250, val=3.4973. Implementation pushed at 251596e. Arm B (pre) chains after Arm A. ETA ~22:50 UTC. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#803** frieren | 74th | γ_power WARMUP ramp NULL/NULL (A sr=2975 0.2→0.4, B sr=2950 0.3→0.4) | Both arms regress on sr. Monotone less-whitening→worse. γ_power=0.4 static is fully pinned across both warmup (#803) and cooldown (#760) ramp axes. Student insight: EMA β is the clean manipulation target. |
 | **#780** nezuko | 73rd | u/w CEILING NULL/NULL (A sr=3125 ceiling=0.5, B sr=3225 ceiling=0.4) | Monotone tighter→worse. Ceiling fires 43-71% events. High u/w updates are productive (confident PMuon directions); clamping removes per-tensor adaptivity. Floor at 0.35 is load-bearing (49% fire rate, asymmetric). |
 | **#741** alphonse | 72nd | Aux β2 cooldown ramp NULL on primary (n=2 sr=2950), val-frontier shift (−0.0017) | Val-frontier shift confirmed at n=2; doesn't move primary sr. Pattern: cooldown mechanism changes shift (sr,val) Pareto frontier but rarely improve both. |
 | **#777** fern | 71st | Body-Muon mu cooldown ramp NULL/NULL (A sr=2925/val=3.269, B sr=3025/val=3.268) | Body-Muon momentum spec PINNED at static mu=0.95 across 5 sub-axes. |
