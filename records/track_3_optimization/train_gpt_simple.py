@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muon_cooldown_momentum_scale", type=float, default=1.0,
+        help="Scale factor applied to body-Muon momentum buffer at cooldown_start step (1.0 = no-op). PR #723.")
+    parser.add_argument("--num_steps", type=int, default=None,
+        help="Override train_steps (defaults to 3250). Use for debug/smoke tests only.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +708,9 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            # PR #723: body-Muon momentum reset at cooldown_start.
+            "muon_cooldown_momentum_scale": args.muon_cooldown_momentum_scale,
+            "num_steps_override": args.num_steps,
         },
     )
 
@@ -715,7 +722,10 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = args.num_steps if args.num_steps is not None else 3250
+    # PR #723: body-Muon momentum reset at cooldown_start (== first step of LR cooldown phase).
+    # cooldown_frac=0.7 means stable phase = 30% of training; reset fires when step reaches cooldown_start.
+    cooldown_start_step = int(train_steps * (1.0 - 0.7))
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -879,6 +889,65 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PR #723: body-Muon momentum periodic telemetry + one-shot reset at cooldown_start.
+        # Note: state["momentum"] is initialized on the first opt.step() call, so it only
+        # exists from step 1 onwards. Each rank owns a disjoint slice of params; with
+        # world_size=1 rank 0 owns all params. Logging is rank-0 only.
+        momentum_log_steps = {1, 974, 975, 976, 980, 1000, 1100, 1500, 2000, 2500, 3000}
+        if dist.get_rank() == 0 and step in momentum_log_steps:
+            frobs = []
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    st = optimizer2.state.get(p)
+                    if st and "momentum" in st:
+                        frobs.append(float(st["momentum"].norm().item()))
+            if frobs:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/momentum_frob/mean_pre_step": sum(frobs) / len(frobs),
+                    "muon/momentum_frob/max_pre_step": max(frobs),
+                    "muon/momentum_frob/min_pre_step": min(frobs),
+                    "muon/momentum_frob/sum_pre_step": sum(frobs),
+                    "muon/momentum_frob/count": len(frobs),
+                }, step=wandb_step)
+
+        if step == cooldown_start_step and args.muon_cooldown_momentum_scale != 1.0:
+            # Scale on every rank (each rank owns a disjoint slice of state). Logging on rank 0.
+            pre_scale_frobs = []
+            for group in optimizer2.param_groups:
+                for p in group["params"]:
+                    st = optimizer2.state.get(p)
+                    if st and "momentum" in st:
+                        pre_scale_frobs.append(float(st["momentum"].norm().item()))
+                        st["momentum"].mul_(args.muon_cooldown_momentum_scale)
+            if dist.get_rank() == 0 and pre_scale_frobs:
+                post_scale_frobs = []
+                for group in optimizer2.param_groups:
+                    for p in group["params"]:
+                        st = optimizer2.state.get(p)
+                        if st and "momentum" in st:
+                            post_scale_frobs.append(float(st["momentum"].norm().item()))
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/momentum_reset/triggered": 1.0,
+                    "muon/momentum_reset/scale": args.muon_cooldown_momentum_scale,
+                    "muon/momentum_reset/cooldown_start_step": cooldown_start_step,
+                    "muon/momentum_reset/n_scaled": len(pre_scale_frobs),
+                    "muon/momentum_reset/pre_mean_frob": sum(pre_scale_frobs) / len(pre_scale_frobs),
+                    "muon/momentum_reset/pre_max_frob": max(pre_scale_frobs),
+                    "muon/momentum_reset/post_mean_frob": sum(post_scale_frobs) / len(post_scale_frobs),
+                    "muon/momentum_reset/post_max_frob": max(post_scale_frobs),
+                }, step=wandb_step)
+                print0(
+                    f"[PR723] step={step} cooldown_start scale={args.muon_cooldown_momentum_scale} "
+                    f"n_scaled={len(pre_scale_frobs)} "
+                    f"pre_mean_frob={sum(pre_scale_frobs) / len(pre_scale_frobs):.4f} -> "
+                    f"post_mean_frob={sum(post_scale_frobs) / len(post_scale_frobs):.4f}",
+                    console=True,
+                )
+
         for opt in optimizers:
             opt.step()
         if dist.get_rank() == 0 and telemetry_due:
