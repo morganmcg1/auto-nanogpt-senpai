@@ -1,5 +1,27 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 11:47 UTC — Cycle 71 mid-90: PR #754 alphonse ADAMW_EPS CLOSED — 27th floor axis, n=2 confirm refutes 1e-13 seed luck
+
+### PR #754 — alphonse ADAMW_EPS Arm A (1e-7) / Arm B (1e-13) + n=2 confirm
+
+Branch: `g1r2-alphonse/adamw-eps-ramp`. Closed 2026-05-22 11:42 UTC.
+
+| Run | eps | val_loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|-----|----------|-----|-----------|---------------|-----|
+| disabled-check | — | val@200=4.08524 (in band) | — | bit-equivalent verify | — | `i9mgr90u` |
+| Arm A n=1 | 1e-7 | 3.27102 | 3025 | MISS (+0.00326 val, +25 ffs) | +0.00326, +25 ffs | `dmjzp0ew` |
+| Arm B n=1 | 1e-13 | **3.26872** | **3000** | PASS (val ≤3.27 ✓ ffs ≤3000 ✓) | +0.00096, baseline ffs | `iyu08uc7` |
+| Arm B n=2 | 1e-13 | 3.27180 | 3050 | MISS (+0.00404 val, +50 ffs) | +0.00404, +50 ffs | `syj66r93` |
+| **Mean (n=2)** | **1e-13** | **3.27026** | **3025** | **MISS (val>3.26776, ffs>3000)** | **+0.00250, +25 ffs** | combined |
+
+**Result: AXIS CLOSED as MISS.** The n=1 Arm B ffs=3000 result was seed luck — n=2 confirm regressed to 3.27180/ffs=3050, dragging the mean to 3.27026/ffs=3025, the same floor cluster as the other 26 closed axes. Mechanistic read (eps inert at 1e-13 << typical sqrt(v_t)) holds, but the lever is genuinely zero-effect for the floor crossing — n=1 ffs=3000 was within ~±25-step seed noise envelope.
+
+**Mechanism class falsified: ADAMW_EPS denominator floor**. The denominator floor in AdamW does not gate ffs=3025; the floor is not set by eps-driven preconditioner numerics.
+
+**Action**: closed PR #754 with full SENPAI-RESULT (n=2 fails merge bar) + assigned alphonse #792 SCHEDULE_FREE_ADAMW (researcher batch priority 3, Defazio primal-dual averaging) — first three-iterate parameterization in 192 PRs, orthogonal to all 27 closed axes (gradient transforms, preconditioners, trust gates, eps, LR groups, schedule shapes, init, etc.).
+
+---
+
 ## 2026-05-22 11:15 UTC — Cycle 71 mid-89: PR #771 thorfinn ATTN_SOAP_TRUST_RAMP CLOSED — 26th floor axis, dynamic SOAP trust gate falsified
 
 ### PR #771 — thorfinn ATTN_SOAP_TRUST_RAMP 0.85→0.95 (RAMP_FRAC 0.05/0.10)
