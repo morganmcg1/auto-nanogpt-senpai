@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Contra-Muon direction correction on MuonH-SI NS5 output. After NS5 returns
+    # the orthogonalized update u and we have the post-momentum gradient g, compute
+    # u_contra = u - gamma * (<u, g>_F / ||u||_F^2) * u, then renormalize. 0.0 = disabled
+    # (no-op vs baseline). PR #743 (H49).
+    parser.add_argument("--contra_gamma", type=float, default=float(os.environ.get("CONTRA_GAMMA", "0.0")),
+                        help="Contra-Muon correction strength (0=disabled). "
+                             "Corrects anti-aligned component of NS5 update. Try 0.1 or 0.3.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -589,18 +596,32 @@ class MuonH(torch.optim.Optimizer):
     rescale the update to the param's current norm scale, then renormalise the
     new param back onto the sphere of radius ||initial param||. Holds Frobenius
     norm exactly constant; weight_decay must be 0.
+
+    contra_gamma > 0 enables Contra-Muon direction correction on the NS5 update
+    u using the post-momentum gradient g (PR #743 / H49). Formula:
+        u_contra = u - gamma * (<u, g>_F / ||u||_F^2) * u
+    followed by a Frobenius-norm renormalization. 0.0 (default) keeps the
+    inner path bit-identical to baseline.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 contra_gamma=0.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        contra_gamma=contra_gamma)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_contra_alignment_mean = 0.0
+        self._last_contra_alignment_min = 0.0
+        self._last_contra_alignment_max = 0.0
+        self._last_contra_correction_mag_mean = 0.0
+        self._last_contra_correction_mag_max = 0.0
+        self._last_contra_active = False
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +631,23 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        contra_count_local = 0
+        contra_align_sum_local = 0.0
+        contra_align_min_local = float("inf")
+        contra_align_max_local = float("-inf")
+        contra_mag_sum_local = 0.0
+        contra_mag_max_local = 0.0
+        contra_any_active = False
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            contra_gamma = float(group.get("contra_gamma", 0.0))
+            contra_enabled = contra_gamma > 0.0
+            if contra_enabled:
+                contra_any_active = True
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -625,6 +657,32 @@ class MuonH(torch.optim.Optimizer):
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
                     update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # Contra-Muon direction correction (PR #743 / H49). Applied AFTER
+                    # NS5 and aspect-ratio scaling, BEFORE the scale_invariant or
+                    # hyperball projection. After muon_update returns, p.grad still
+                    # holds the post-momentum gradient (modified in-place via lerp_).
+                    if contra_enabled:
+                        grad_pm = p.grad
+                        ug = (update * grad_pm).sum()
+                        uu = (update * update).sum()
+                        if uu.item() > 1e-12:
+                            update = update - contra_gamma * (ug / uu) * update
+                            u_norm = update.norm()
+                            if u_norm.item() > 1e-12:
+                                update = update * (update.norm().detach() / u_norm)
+                            g_norm = grad_pm.norm()
+                            denom = (uu.sqrt() * g_norm + 1e-12)
+                            align = float((ug / denom).item())
+                            mag = float((contra_gamma * ug.abs() / uu.clamp_min(1e-30)).item())
+                            contra_count_local += 1
+                            contra_align_sum_local += align
+                            if align < contra_align_min_local:
+                                contra_align_min_local = align
+                            if align > contra_align_max_local:
+                                contra_align_max_local = align
+                            contra_mag_sum_local += mag
+                            if mag > contra_mag_max_local:
+                                contra_mag_max_local = mag
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -659,14 +717,59 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            if contra_any_active:
+                contra_sums = torch.tensor(
+                    [contra_count_local, contra_align_sum_local, contra_mag_sum_local],
+                    device="cuda", dtype=torch.float64,
+                )
+                dist.all_reduce(contra_sums, op=dist.ReduceOp.SUM)
+                contra_maxes = torch.tensor(
+                    [contra_align_max_local if contra_count_local > 0 else float("-inf"),
+                     contra_mag_max_local],
+                    device="cuda", dtype=torch.float64,
+                )
+                dist.all_reduce(contra_maxes, op=dist.ReduceOp.MAX)
+                contra_mins = torch.tensor(
+                    [contra_align_min_local if contra_count_local > 0 else float("inf")],
+                    device="cuda", dtype=torch.float64,
+                )
+                dist.all_reduce(contra_mins, op=dist.ReduceOp.MIN)
+                contra_count = float(contra_sums[0].item())
+                contra_align_sum = float(contra_sums[1].item())
+                contra_mag_sum = float(contra_sums[2].item())
+                contra_align_max = float(contra_maxes[0].item())
+                contra_mag_max = float(contra_maxes[1].item())
+                contra_align_min = float(contra_mins[0].item())
+            else:
+                contra_count = 0.0
+                contra_align_sum = 0.0
+                contra_mag_sum = 0.0
+                contra_align_max = 0.0
+                contra_mag_max = 0.0
+                contra_align_min = 0.0
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            contra_count = float(contra_count_local)
+            contra_align_sum = contra_align_sum_local
+            contra_mag_sum = contra_mag_sum_local
+            contra_align_max = contra_align_max_local if contra_count_local > 0 else 0.0
+            contra_align_min = contra_align_min_local if contra_count_local > 0 else 0.0
+            contra_mag_max = contra_mag_max_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if contra_count > 0:
+            self._last_contra_alignment_mean = contra_align_sum / contra_count
+            self._last_contra_alignment_min = contra_align_min
+            self._last_contra_alignment_max = contra_align_max
+            self._last_contra_correction_mag_mean = contra_mag_sum / contra_count
+            self._last_contra_correction_mag_max = contra_mag_max
+            self._last_contra_active = True
+        else:
+            self._last_contra_active = contra_any_active
 
 
 ########################################
@@ -713,6 +816,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.contra_gamma > 0:
+    print0(f"Contra-Muon ENABLED on MuonH NS5 output: gamma={args.contra_gamma}", console=True)
+else:
+    print0("Contra-Muon DISABLED (contra_gamma=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +873,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "contra_gamma": args.contra_gamma,
         },
     )
 
@@ -819,7 +927,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       contra_gamma=args.contra_gamma)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1145,12 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if opt._last_contra_active:
+                            muonh_metrics["train/muonh/contra/alignment_mean"] = opt._last_contra_alignment_mean
+                            muonh_metrics["train/muonh/contra/alignment_min"] = opt._last_contra_alignment_min
+                            muonh_metrics["train/muonh/contra/alignment_max"] = opt._last_contra_alignment_max
+                            muonh_metrics["train/muonh/contra/correction_mag_mean"] = opt._last_contra_correction_mag_mean
+                            muonh_metrics["train/muonh/contra/correction_mag_max"] = opt._last_contra_correction_mag_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
