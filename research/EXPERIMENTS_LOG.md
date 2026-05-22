@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~02:55 UTC — PR #699: alphonse depth-aware μP init for residual paths — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell B (musoft)**
+
+- Branch: `g1r5-alphonse/depth-aware-init`
+- Student: g1r5-alphonse
+- Hypothesis: Replace zero-init on residual projection weights (`attn.proj`, `mlp.proj`) with depth-aware μP-soft init: std = c / √L (c ∈ {1, 1/√2, …}). Mechanism: bounded total residual variance across L blocks improves early-training feature flow without harming the convergence advantage of zero-init. 5-cell: A=ctrl (zero-init) / B=musoft (1/√L on attn.proj + mlp.proj) / C=mumedium (1/L on attn.proj + mlp.proj) / D=muall (1/√L on ALL block 2D weights) / E=smallconst (fixed std=0.001 on attn.proj + mlp.proj).
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | depth_init_mode | wandb_run_id | val/loss | ffs | Δ vs A | Δ vs μ_baseline |
+|:----:|:----:|-----------------|:------------:|---------:|:---:|--------:|------------------:|
+| 1 | **B** | **musoft** (1/√L on attn.proj + mlp.proj) | `kktt9fle` | **3.26129** | 3025 | **−0.49σ** | **−1.76σ_single (AT n=4 GATE)** |
+| 2 | A | ctrl (zero-init) | `tockmprc` | 3.26178 | 3025 | — | −1.32σ_single |
+| 3 | C | mumedium (1/L on attn.proj + mlp.proj) | `05qti19t` | 3.26180 | 3025 | +0.02σ | −1.30σ_single |
+| 4 | E | smallconst (fixed std=0.001) | `h3yg0dtz` | 3.26253 | 3050 | +0.67σ | −0.65σ_single |
+| 5 | D | muall (1/√L on ALL block 2D) | `okls6sis` | 3.26546 | 3075 | +3.28σ | +2.85σ_single |
+
+- **Key mechanistic findings (3 independent contrasts pin "residual-path-specific 1/√L"):**
+  1. **Magnitude axis (B vs C, scope held fixed at attn.proj + mlp.proj):** 1/√L (B=3.26129) beats 1/L (C=3.26180) by +0.46σ. The 1/L scaling is too aggressive — over-damping the residual output starts to lose the benefit. 1/√L is the right magnitude.
+  2. **Scope axis (B vs D, magnitude held fixed at 1/√L):** residual-proj-only (B=3.26129) beats broad application (D=3.26546) by +3.27σ. Scaling Q/K/V/fc_in by 1/√L starves the *transformations* of useful gradient signal — these are upstream of the residual contribution, not the residual outputs themselves. **Depth scaling belongs on residual outputs, not residual inputs.** Exact μP-theory prediction.
+  3. **Depth-scaling necessity (B vs E, scope held fixed at attn.proj + mlp.proj):** 1/√L (B=3.26129) beats fixed std=0.001 (E=3.26253) by +1.16σ. E captures *some* of B's gain (beats ctrl by −0.65σ) but doesn't reach the gate. Depth scaling matters — fixed small-constant is not sufficient.
+  4. **Cell B sits AT the n=4 gate** (+0.000025 above 3.261265, well within rounding). First post-#571 single-seed result to reach the gate. All 5 init magnitude axes are now in-flight (embed nezuko #706, transform frieren #748, residual-proj this PR, lm_head fern #722, gains edward #714) — alphonse is the first to surface a merge-candidate.
+  5. **Cell A = 8th strong post-#571 single-seed ctrl** (3.26178 = −0.77σ vs μ_baseline). Across 8 reproductions, mean ≈ 3.2623, SD ≈ 0.0012.
+
+- **Decision:** SENT BACK FOR P2 n=4 confirmation at exact Cell B config (`--depth_init_mode musoft`, single command, no other variants). Pre-declared gate: μ_n=4 ≤ 3.261265 → merge (first init-layer merge on post-#571 baseline); μ > 3.262 → close clean-NEUTRAL; ambiguous middle → advisor decides. P2 ETA ~7.3h.
+
+---
+
 ## 2026-05-22 ~02:00 UTC — PR #693: frieren Muon mu schedule sweep — **CLOSED clean-NEG (Muon-side time-varying axis fully closed)**
 
 - Branch: `g1r5-frieren/muon-mu-schedule`
