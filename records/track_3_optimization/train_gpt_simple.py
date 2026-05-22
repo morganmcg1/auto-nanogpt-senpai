@@ -583,6 +583,12 @@ NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # Applied as: ns_iters = uniform[det - spread, det + spread] (inclusive endpoints).
 NANOGPT_NS_STOCHASTIC_MID = int(os.environ.get("NANOGPT_NS_STOCHASTIC_MID", "0"))
 NANOGPT_NS_STOCHASTIC_COOLDOWN = int(os.environ.get("NANOGPT_NS_STOCHASTIC_COOLDOWN", "0"))
+# Optional pod label that feeds the stochastic-NS RNG so paired-pod runs each
+# draw an independent NS-iter sequence. When unset, NS RNG falls back to its
+# legacy (trial_idx, step) key — preserves bit-identical behavior for all prior
+# stochastic-NS runs (Arm B/C/D N=1 in PR #787).
+_SENPAI_SEED_RAW = os.environ.get("SENPAI_SEED", "")
+NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -881,6 +887,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
+            "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
         },
     )
 
@@ -1158,9 +1165,16 @@ for trial_idx in range(args.num_trials):
         ns_in_cooldown = NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
         ns_spread = NANOGPT_NS_STOCHASTIC_COOLDOWN if ns_in_cooldown else NANOGPT_NS_STOCHASTIC_MID
         if ns_spread > 0:
-            # Deterministic RNG keyed by (trial_idx, step) so runs are reproducible
-            # and all ranks compute the same sampled value without communication.
-            ns_rng = random.Random((trial_idx, step))
+            # Deterministic RNG keyed by (SENPAI_SEED?, trial_idx, step) so runs
+            # are reproducible and all ranks compute the same sampled value
+            # without communication. When SENPAI_SEED is set (paired-pod), each
+            # pod draws its own independent NS-iter sequence; when unset the
+            # legacy (trial_idx, step) key is used for back-compat.
+            if NANOGPT_SENPAI_SEED is None:
+                ns_rng_key = (trial_idx, step)
+            else:
+                ns_rng_key = (NANOGPT_SENPAI_SEED, trial_idx, step)
+            ns_rng = random.Random(ns_rng_key)
             ns_low = max(1, ns_iters_deterministic - ns_spread)
             ns_high = ns_iters_deterministic + ns_spread
             ns_iters_this_step = ns_rng.randint(ns_low, ns_high)
