@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 14:00 UTC
+- **Date:** 2026-05-22 14:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -552,22 +552,27 @@ Single-seed 4-arm (drift gate A PASS, exceptional parity +0.00014): A=3.27159, B
 Single-seed 4-arm on NEW post-#579 stack (drift gate A2 PASS, +0.00154 within ±0.003): A2 ""=3.27224 ctrl, B2 embed=3.27143 (Δ=−0.00081 sub-threshold null), C2 lm_head=3.27144 (Δ=−0.00080 sub-threshold null), D2 all_aux=3.27217 (Δ=−0.00007, **saturation/interference**). No arm passes within-pod −0.002 winner threshold; best singletons B2/C2 at −0.0008 ~2.5× below threshold. **B2 ≈ C2 within single-seed noise σ≈0.001**: bias-correction disable on EITHER aux group produces nearly-identical marginal effect — the mid-training LR-boost mechanism applies uniformly across aux groups with no per-group structural preference. **D2 (all_aux) flattens to ctrl** rather than compounding additively (~−0.0016 expected if independent) — **saturation/interference**: the early-training relative-magnitude structure between embed/lm_head/scalar is maintained by their RELATIVE bias-correction factors; disabling on ALL three preserves the relative ratios while disabling on only one breaks them. The single-aux disable signal is a relative-magnitude shift, not a single-group mechanistic effect. Implementation clean (telemetry verified bc_scale_factor ramp matches expected curve, rebased onto post-#579 cleanly, wall-clock parity 1893-1894ms across all 4 arms). All 4 arms hit 3.28 target. **54th productive-null/negative this cycle.** Bilateral closure with per-group AdamW family: #599 β₁ NEG + #560 β₂ NEG + #593 WD NULL + #652 eps NEG + #664 BC NULL — AdamW-internal axes now FULLY exhausted on merged stack; only LR-mult #393 MERGED extracted gain.
 **Follow-up**: frieren assigned **#710 per-depth body Muon NS_ITERS variation** — fresh axis distinct from per-block-TYPE wiring (avoids the impl-bug class seen in #669/#674). Tests early/mid/deep bucket NS-iter budget allocation; orthogonal to #543 (per-aspect-ratio, only differentiates mlp.fc/mlp.proj per layer because q/k/v/attn.proj are 1× aspect square 768×768) and #470 (uniform escalation) and #506 (time-axis warmup CLOSED-NEG). Mechanism: gradient magnitudes vary by depth (early layers diluted by backward chain depth; mid layers full backward flow / capacity bottleneck; deep layers closer to output); NS=12 uniform may over-invest on well-conditioned mid-layer matrices and under-invest on edge layers. 4-arm: A (12,12,12) ctrl, B (10,14,10) mid-heavy, C (14,12,10) front-loaded, D (10,12,14) back-loaded.
 
-### 📋 frieren #710 — Per-depth body Muon NS_ITERS variation [SENT BACK 02:50 UTC for paired-pod n=3]
+### ✅ frieren #710 — Per-depth body Muon NS_ITERS variation — CLOSED 14:09 UTC productive-NEGATIVE (70th cycle, 9th paired-pod collapse)
 
 **Branch:** `g1r4-frieren/per-depth-muon-ns-iters`
 
-**Phase 1 — single-seed 4-arm screening (terminal 02:39 UTC)**:
+**Phase 2 n=3 final:** mean_A=3.27060, mean_C=3.27177 — Δ=+0.00117 regression, 3/3 pods direction-wrong. Both binding gates FAIL (mean_C > baseline, 0/3 pods C<A). Phase 1 N=1 Δ=−0.00138 → Phase 2 n=3 Δ=+0.00117: classic sign-flip. **Mechanism**: NS normalizes depth-scale variation — all 12 body Muon depths converge to same polar factor quality at NS=12. DEPTH-asymmetric iter allocation provides no signal (same as #753 per-DEPTH LR NULL). Per-DEPTH bucket family fully closed. **9th paired-pod collapse precedent.**
 
-| Arm | NS (E/M/D) | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | W&B |
-|---|:---:|---:|---:|---:|---:|---|
-| A (ctrl) | 12/12/12 | 3.26910 | — | −0.00160 | 3200 | `aigxob1c` |
-| B | 10/14/10 | 3.26933 | +0.00023 | −0.00137 | 3200 | `2iz8vbk0` |
-| **C** | **14/12/10** | **3.26772** | **−0.00138** | **−0.00298** | **3200** | `3c8ccu1l` |
-| D | 10/12/14 | 3.27098 | +0.00188 | +0.00028 | 3225 | `14hjt028` |
+W&B Phase 2: trdfa7c6/si0n5039, hjs2ww65/4eoi63uk, enxvvgga/f16ktn1n.
 
-**Monotone front-vs-back NS quality bias** (C > A > B > D) — front-loading NS budget for early layers (where backward-chain gradient dilution is worst) is the load-bearing direction. Mechanistically clean. Drift gate A Δ=−0.00160 (favorable seed) → PASS within ±0.003. Arm C Δ_vs_A=−0.00138 is sub-threshold-but-direction-correct per pre-staged plan.
+**Follow-up**: frieren assigned **#810 post-NS momentum** — temporal smoothing of NS-orthogonalized updates across steps (first post-NS axis; distinct from #356 pre-NS μ schedule NULL, #530 Nesterov-Muon NULL, #434 Lookahead NEG all of which operate pre-NS or in weight-space).
 
-**Phase 2: paired-pod n=3 confirmation on Arm C** (NS_E=14, M=12, D=10, NANOGPT_SEED∈{1,2,3}, group `g1r4-frieren/per-depth-muon-ns-iters-paired-pod`). Risk acknowledged: sub-threshold signal collapse precedent (#628, #632, #669, #674) suggests possible productive-NULL outcome — but front-load mechanism is mechanistically distinct from prior sub-threshold collapses.
+### 🔄 frieren #810 — Post-NS momentum: temporal smoothing of NS-orthogonalized updates [assigned 14:25 UTC]
+
+**Branch:** `g1r4-frieren/post-ns-momentum`
+**Hypothesis**: After NS-orthogonalization, maintain post-NS buffer w_t = α×w_{t-1} + (1-α)×u_t. Apply w_t as update instead of u_t. Mechanism: NS is nonlinear, so post-NS averaging is distinct from pre-NS EMA (β=0.95). Tests whether temporal coherence in the orthogonal subspace helps convergence.
+
+| Arm | NANOGPT_POST_NS_ALPHA | w memory depth | Description |
+|:---:|:---:|:---:|:---|
+| A | 0.0 | — | Control (bit-identical merged stack) |
+| B | 0.3 | ~3 steps | Mild temporal smoothing |
+| C | 0.5 | ~2 steps | Moderate |
+| D | 0.7 | ~3.3 steps | Strong |
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 

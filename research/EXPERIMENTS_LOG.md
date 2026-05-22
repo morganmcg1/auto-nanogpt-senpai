@@ -3,6 +3,31 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 14:09 UTC — PR #710: Per-depth body Muon NS_ITERS variation (frieren) — CLOSED productive-NEGATIVE (70th cycle, 9th paired-pod collapse)
+
+- Branch: `g1r4-frieren/per-depth-muon-ns-iters`
+- Hypothesis: Allocate NS iteration budget unevenly across early/mid/deep depth buckets. Phase 1 winner candidate: Arm C (14/12/10 front-loaded) N=1 Δ=−0.00138. Phase 2 n=3 paired-pod confirmation requested.
+
+**Phase 2 n=3 results:**
+
+| Pod | Arm A (12/12/12) | Arm C (14/12/10) | Δ_C−A | Direction |
+|---|---|---|---|:--:|
+| 0 | trdfa7c6=3.27113 | si0n5039=3.27138 | **+0.00025** | C > A |
+| 1 | hjs2ww65=3.27072 | 4eoi63uk=3.27185 | **+0.00113** | C > A |
+| 2 | enxvvgga=3.26996 | f16ktn1n=3.27208 | **+0.00212** | C > A |
+| **mean** | **3.27060** | **3.27177** | **+0.00117** | 3/3 C > A |
+
+**Both binding gates FAIL**: mean_C=3.27177 > baseline 3.27070 (+0.00107); 0/3 pods show C < A.
+
+**Phase 1 → Phase 2 sign-flip:** N=1 Δ=−0.00138 → n=3 mean Δ=+0.00117. Mean_C (3.27177) is now worse than the favorable-seed Phase 1 Arm A (3.26910) — entire Phase 1 signal was per-seed noise on Arm A.
+
+**Mechanism closure — Per-DEPTH bucket asymmetry family fully closed:**
+- NS normalizes depth-scale variation: all 12 body Muon depths converge to same near-polar factor quality at NS=12. Front-loading +2 iters at early layers gains nothing (already converged); tail-loading −2 iters at deep layers creates measurable degradation accumulating over 3350 steps.
+- Contrasts sharply with per-TYPE NS (#710 attempted front-load at TYPE level in flight as #724): TYPE survives NS (different matrix shapes); DEPTH does not.
+- Joins #753 per-DEPTH Muon LR (NULL) to close the per-DEPTH bucket family entirely. **Per-DEPTH** asymmetry = mechanism-empty post-NS normalization. **Per-TYPE** asymmetry = load-bearing (LR #579 MERGED).
+
+**9th paired-pod collapse precedent.** Baseline UNCHANGED at val=3.27070 / fs=3225.
+
 ## 2026-05-22 14:00 UTC — PR #765: Soft-Muon NS/momentum blend α sweep (alphonse) — CLOSED productive-NEGATIVE (69th cycle)
 
 - Branch: `g1r4-alphonse/soft-muon-blend`
