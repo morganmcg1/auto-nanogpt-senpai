@@ -1,3 +1,39 @@
+## 2026-05-22 11:35 UTC — PR #790 ASSIGNED (nezuko): H61 NS5 polishing-iteration hybrid (coef SCHEDULE within single NS call)
+
+- Branch: `g1r3-nezuko/ns5-polishing-iteration-hybrid`
+- Hypothesis: NS5 coefficient SCHEDULE within a single orthogonalization call — KJ aggressive coefs for first `k_aggressive` iters (fast basin entry) then standard coefs for remaining iters (high-precision finish). Total `k_total ≤ 8`. Exploits nezuko's PR #762 trajectory finding ("KJ converges fast early but washes out by step 500") at the per-call level instead of per-training-step level.
+- **Fresh axis**: every prior NS5 PR (#190 iter count, #762 coefficients) used CONSTANT coefs across all k iterations. H61 schedules `(a, b, c)` across the inner iteration index. Untested.
+- Arms (4, n=1, 3325 steps):
+  - arm_a (ctrl k=12 standard) — sanity vs PR #762 ctrl
+  - arm_b (k_total=8, k_agg=4 KJ + k_std=4) — PRIMARY: 33% NS compute reduction, hypothesis preserves val
+  - arm_c (k_total=10, k_agg=4 KJ + k_std=6) — moderate compute reduction (~17%), more polish
+  - arm_d (k_total=8, k_agg=6 KJ + k_std=2) — more aggressive entry, minimal polish (tests if polish phase matters at all)
+- ~15 LoC: 5 CLI flags + extend `zeropower_via_newtonschulz5` with per-iter coef selection + wire to `muon_update` + wandb config + banner.
+- Telemetry: `muonh/ns5_residual_norm_pre` (verifies KJ aggressive entry), `muonh/ns5_residual_norm_post` (verifies standard polish convergence).
+- W&B group `h61_ns5_polishing_hybrid`. Direct follow-up from nezuko's own suggestion #1 in PR #762.
+- 4-outcome decision tree all gives clean info (free wall-time win, novel finding, full axis closure, etc.). No-lose.
+
+---
+
+## 2026-05-22 11:30 UTC — PR #762 CLOSED (nezuko): NS5 polynomial coefficient sweep FLAT-NULL (joint NS5 axis closure with PR #190)
+
+- Branch: `g1r3-nezuko/ns5-coefs-kj`
+- Hypothesis: NS5 polynomial coefficients (a, b, c) — currently hardcoded (2, -1.5, 0.5) — control fixed-point dynamics. Keller Jordan aggressive coefs (3.4445, -4.7750, 2.0315) converge in ~5 iterations vs ~12 standard. PR #190 closed ITERATION COUNT at k=12; this PR tests COEFFICIENT axis (mechanistically distinct).
+- Arms (3, n=1, 3325 steps):
+
+| Arm | NS5 coefs | k | val/loss | ffs | step_avg_ms | W&B id | Δ vs ctrl |
+|---|---|---|---|---|---|---|---|
+| ctrl | (2.0, -1.5, 0.5) | 12 | **3.27278** | 3150 | 1800.4 | `1ngj4lsy` | — |
+| KJ k=12 | (3.4445, -4.7750, 2.0315) | 12 | 3.27286 | **3125** | 1799.5 | `369eyjay` | +0.00008 (~0.11σ) |
+| KJ k=8 | KJ coefs | 8 | 3.27299 | 3150 | **1790.2** | `ropketa8` | +0.00021 (~0.30σ) |
+
+- All 3 arms inside ±1σ of today's ctrl pop (μ≈3.27297, σ≈0.0007). Best arm KJ k=12 lands at +0.00247 above formal merge bar 3.27039.
+- **Mechanism finding (key trajectory insight)**: KJ coefs produce early-step divergence (steps 125-250 KJ +0.02-0.04 above ctrl) but full convergence by step 500. The aggressive polynomial over-rotates early gradient directions when weights are nearly random; once weights are sufficiently structured (post-warmup), both polynomials reach the same orthogonalization fixed point. **At k=12, basin is wide enough that polynomial choice is irrelevant.** KJ k=8 saves 10ms/step (~0.6% wall-time) with no val degradation — but compute savings don't translate to val/loss merge.
+- **Joint NS5 axis closure (2 PRs)**: PR #190 (iteration count k∈{8,12,16}) closed at k=12. PR #762 (coefficients) closed flat-NULL. Further NS5-only work pre-closed by joint structural analogy.
+- Routing: nezuko → PR #790 H61 polishing-iteration hybrid (her own suggestion #1 — schedule coefs WITHIN single NS call as fresh axis).
+
+---
+
 ## 2026-05-22 10:00 UTC — PR #761 SENT BACK (frieren): 3rd programme-level PR-body bug caught — EMA decay/horizon mismatch
 
 - Branch: `g1r3-frieren/ema-weights-eval`
