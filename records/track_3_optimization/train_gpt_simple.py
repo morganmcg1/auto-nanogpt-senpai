@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Soft-Muon: blend NS5 orthogonalized direction with unit-Frobenius raw direction.
+    # u = soft_alpha * NS5(g) + (1 - soft_alpha) * g / ||g||_F, then re-normalize to ||NS5(g)||.
+    # 1.0 = pure NS5 (bit-identical to baseline); < 1.0 enables the soft blend.
+    parser.add_argument('--soft_alpha', type=float, default=float(os.environ.get("SOFT_ALPHA", "1.0")),
+                        help='Soft-Muon interpolation weight for NS5 vs normalized-raw gradient on MuonH params. '
+                             '1.0=pure NS5 (baseline), 0.0=pure normalized-gradient. '
+                             'Try 0.85-0.95. Output is re-normalized to NS5 Frobenius norm to preserve scale_invariant LR.')
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -493,6 +500,34 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.compile
+def muon_update_soft(grad, momentum, mu=0.95, nesterov=True, soft_alpha=1.0):
+    """Soft-Muon variant of muon_update.
+
+    Blends NS5(direction) with the unit-Frobenius raw direction:
+        blend = soft_alpha * NS5(d) + (1 - soft_alpha) * d / ||d||_F
+    Then rescales the blend to match ||NS5(d)||_F (preserves scale_invariant LR
+    since the SI projection assumes a fixed-Frobenius update). Aspect-ratio
+    scaling is applied after the blend, matching muon_update's convention.
+
+    Returns (update, cos_sim) where cos_sim is the cosine between the NS5 output
+    and the normalized raw direction, useful as a diagnostic for blend benefit.
+    """
+    momentum.lerp_(grad, 1 - mu)
+    direction = grad.lerp_(momentum, mu) if nesterov else momentum
+    ns5_update = zeropower_via_newtonschulz5(direction)
+    direction_b = direction.to(ns5_update.dtype)
+    g_norm = direction_b.norm().clamp_min(1e-12)
+    g_normalized = direction_b / g_norm
+    ns5_norm = ns5_update.norm()
+    blended = soft_alpha * ns5_update + (1.0 - soft_alpha) * g_normalized
+    b_norm = blended.norm().clamp_min(1e-12)
+    update = blended * (ns5_norm / b_norm)
+    cos_sim = (ns5_update * g_normalized).sum() / ns5_norm.clamp_min(1e-12)
+    update = update * (max(1, grad.size(-2) / grad.size(-1))**0.5)
+    return update, cos_sim
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -591,16 +626,18 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip", soft_alpha=1.0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        soft_alpha=soft_alpha)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_soft_cos_sim = float("nan")
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +647,16 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        soft_cos_sum_local = 0.0
+        soft_cos_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            soft_alpha = group.get("soft_alpha", 1.0)
+            use_soft = soft_alpha < 1.0
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +665,15 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if use_soft:
+                        update, cos_sim = muon_update_soft(
+                            p.grad, state["momentum"], mu=group["mu"],
+                            soft_alpha=soft_alpha,
+                        )
+                        soft_cos_sum_local += float(cos_sim.item())
+                        soft_cos_count_local += 1
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -659,14 +708,22 @@ class MuonH(torch.optim.Optimizer):
             total_count = float(counts[1].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            soft_stats = torch.tensor([soft_cos_sum_local, float(soft_cos_count_local)],
+                                      device="cuda", dtype=torch.float64)
+            dist.all_reduce(soft_stats, op=dist.ReduceOp.SUM)
+            soft_cos_sum = float(soft_stats[0].item())
+            soft_cos_count = float(soft_stats[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            soft_cos_sum = soft_cos_sum_local
+            soft_cos_count = float(soft_cos_count_local)
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        self._last_soft_cos_sim = (soft_cos_sum / soft_cos_count) if soft_cos_count > 0 else float("nan")
 
 
 ########################################
@@ -705,6 +762,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.soft_alpha < 1.0:
+    print0(f"Soft-Muon ENABLED on MuonH inner update: soft_alpha={args.soft_alpha} (blend NS5 with normalized raw direction)", console=True)
+else:
+    print0(f"Soft-Muon DISABLED (soft_alpha={args.soft_alpha}, pure NS5)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,6 +827,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "soft_alpha": args.soft_alpha,
         },
     )
 
@@ -819,7 +881,7 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode, soft_alpha=args.soft_alpha)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1098,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.soft_alpha < 1.0 and math.isfinite(opt._last_soft_cos_sim):
+                            muonh_metrics["train/muonh/soft_ns5_raw_cos_sim"] = opt._last_soft_cos_sim
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
