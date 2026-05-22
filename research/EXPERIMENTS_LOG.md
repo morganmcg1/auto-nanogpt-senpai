@@ -3,6 +3,34 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~00:25 UTC — PR #687: askeladd Atan2-AdamW (StableAdamW, Wortsman 2023) — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell D**
+
+- Branch: `g1r5-askeladd/atan2-adamw`
+- Student: g1r5-askeladd
+- Hypothesis: Replace standard AdamW update `m_hat / (sqrt(v_hat) + eps)` with bounded normalization `(2/π) * atan2(m_hat, sqrt(v_hat)) ∈ [−1, +1]`. Wortsman 2023 (arXiv:2304.13013). Tests StableAdamW claim that bounded SNR mapping enables higher AdamW LR without divergence. Structurally orthogonal to 5 prior augmentation-class closures (Lion/Lookahead/AdEMAMix/SF/Adan): replaces the normalization kernel rather than adding buffers. Applied only to AdamW groups (embed/lm_head/scalars). 5-cell: A=ctrl (atan2=0) / B=atan2 default LR / C=atan2 1.5× LR / D=atan2 2.0× LR / E=atan2 1.5× LR + β1=0.9.
+
+- **Results (n=1 per cell, 3250 steps, post-#571 baseline μ=3.263265, σ=0.001123):**
+
+| Rank | Cell | Config | wandb_run_id | val/loss (W&B) | ffs | Δ vs A | Δ vs baseline |
+|:----:|:----:|--------|:------------:|---------------:|:---:|-------:|---------------:|
+| 1 | **D** | atan2 2.0× LR | `3i1k03ej` | **3.26205** | **3025** | **−0.00119** | **−1.06σ_single** |
+| 2 | C | atan2 1.5× LR | `hjfhvdlf` | 3.26291 | 3050 | −0.00033 | −0.29σ_single |
+| 3 | A (ctrl) | AdamW (atan2=0) | `rwbb5qcw` | 3.26324 | 3050 | — | +0.01σ_single |
+| 4 | E | atan2 1.5× LR + β1=0.9 | `7as39gl4` | 3.26336 | 3050 | +0.00012 | +0.10σ_single |
+| 5 | B | atan2 default LR | `hsjs26ji` | 3.26574 | 3075 | +0.00250 | +2.23σ_single |
+
+- **Key mechanistic findings:**
+  1. **Monotonic in LR across B/C/D (atan2=1).** (mul=1.0, 1.5, 2.0) → (3.26574, 3.26291, 3.26205). Cleanest cross-codebase test of the StableAdamW hypothesis — atan2's bounded [−1, +1] update enables higher AdamW LR without divergence. Cell D at 2× LR didn't NaN, didn't spike grad_norm, finished cleanly.
+  2. **Atan2 at default LR (Cell B) underperforms vanilla AdamW.** B at +2.23σ vs μ. The bounded normalization at default LR adds nothing — eps-driven instability doesn't materialize at L=12 (consistent with eps closure #556/#641 showing fp32 floor below ~1e-12). Atan2's only value here is the LR ceiling effect.
+  3. **Tighter β1 (Cell E) adds no compound benefit.** E (β1=0.9 at 1.5× LR) > C (β1=0.8 at 1.5× LR) by +0.00045. Tightening β1 on top of atan2 didn't stack.
+  4. **Best Δ vs A is −0.00119 ≈ −1.06σ_single — inside n=1 seed-noise band.** Cannot distinguish "true ~1mNat win" from "lucky single seed."
+  5. **Cell A ctrl (W&B) = 3.26324; student-reported 3.26239 was transcription artifact.** Used W&B ground truth (rwbb5qcw) in this log.
+  6. **Structural distinction from 5 augmentation-class closures preserved.** Atan2 replaces the kernel; doesn't add structure. Even if P2 fails the gate, the monotonic-in-LR finding pins the LR-ceiling mechanism as the only viable atan2 effect at L=12.
+
+- **Decision:** SENT BACK FOR P2 n=4 CONFIRMATION at Cell D config (atan2=1, lr_adamw_mul=2.0, β1=0.8). Pre-declared gate: μ ≤ 3.261265 → merge; μ > 3.262 → close clean-NEG; ambiguous middle (3.261265 < μ ≤ 3.262) → advisor decides based on σ and ffs distribution. P2 ETA ~7.5 hours (4 × ~110 min).
+
+---
+
 ## 2026-05-21 ~21:15 UTC — PR #679: fern LR cooldown SHAPE sweep — **CLOSED clean-NEG**
 
 - Branch: `g1r5-fern/lr-cooldown-shape-sweep`
