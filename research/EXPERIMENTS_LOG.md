@@ -3,6 +3,29 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~22:25 UTC — PR #781: thorfinn Per-group AdamW ε sweep (embed/lm_head/scalars) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-thorfinn/per-group-adamw-eps`
+- Student: g1r5-thorfinn
+- Hypothesis: Raise eps_embed from default 1e-10 to 1e-8 or 1e-7 stabilizes stale-v_t re-activations on sparse vocab rows; asymmetric eps_lm_head↓ may help early dense curvature adaptation.
+- **Results (5/5 cells, n=1 each, group `g1r5-thorfinn/per-group-eps-musoft`):**
+
+| Cell | eps_embed | eps_lm_head | run_id | val/loss | ffs | Δ vs baseline 3.261221 |
+|:----:|:---------:|:-----------:|:------:|:--------:|:---:|:----------------------:|
+| A (ctrl) | 1e-10 | 1e-10 | `6mwbmr2k` | 3.26138 | 3025 | +0.000159 (+0.27σ_n4) |
+| **B** | **1e-8** | 1e-10 | `mrx51wjj` | **3.26046** | 3025 | **−0.000761 (−1.28σ_n4)** |
+| C | 1e-7 | 1e-10 | `tfmx7nkp` | 3.26067 | 3025 | −0.000551 (−0.93σ_n4) |
+| D | 1e-8 | 1e-11 | `nwan8l7p` | 3.26178 | **3050** | +0.000559 (+0.94σ_n4) |
+| E | 1e-9 | 1e-10 | `0ac6dabg` | 3.26174 | 3025 | +0.000519 (+0.87σ_n4) |
+
+- **Analysis:** Direction matches mechanism (embed↑ improves); B/C plateau around 1e-8 (saturation); E (1e-9) flat with A (non-monotone; rising edge in (1e-9, 1e-8]). Cell D (asymmetric lm_head↓) clearly hurts: ffs degrades to 3050, confirming lm_head ε=1e-11 destabilizes early dense curvature — asymmetry hypothesis refuted.
+- **No cell clears n=1 P2 trigger (3.259221).** Best B is +0.00124 above trigger (~+1.04σ_single). ffs unchanged at 3025 for A/B/C/E — primary speedrun metric null.
+- **Pre-declared old threshold (3.261265) would escalate B/C to P2, but stale under new musoft baseline.** Under new gate, ~7.5% P2 gate-clearance odds for B — not worth 7h GPU time.
+- **Decision:** CLOSED clean-NEG. Per-group AdamW HP family (LR, β1, β2, global ε, per-group ε) fully exhausted.
+- **Refactor preserved:** 3-way AdamW split (embed/lm_head/scalars) preserved in codebase as reusable lever for future per-group AdamW experiments.
+
+---
+
 ## 2026-05-22 ~21:59 UTC — PR #706: nezuko Embed-init std=0.1 compound P3 (musoft×embed) — **CLOSED clean-NEG (subsumed)**
 
 - Branch: `g1r5-nezuko/embed-init-sweep`

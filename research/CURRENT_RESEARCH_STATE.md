@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-22 ~22:05Z (poll #465)
+- **Last updated:** 2026-05-22 ~22:30Z (poll #467)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,7 +13,7 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #465)
+## Active WIP Portfolio (poll #467)
 
 8 PRs in flight; no idle students:
 
@@ -25,13 +25,14 @@
 | **#815** | **tanjiro** | NS-WarmUp — sequential Newton-Schulz iteration ramp-up | **Assigned poll #418.** 5 cells: A=ctrl ns_iter=6, B=warmup_steps=500 start=2 (primary), C=300/start=3, D=1000/start=2, E=500/start=1 (aggressive). Prediction: B > C > A > D > E. Kill at val/loss>3.32 step 1000. ETA ~9h from assignment. |
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | **Assigned poll #434.** 5 cells: A=ctrl, B=sign MLP-only, C=sign all, D=sign all + lr_mlp 0.06, E=sign all + ns_iter 4. Prediction: D > C > B > E > A. Kill: Cell B <0.001 improvement vs A → close. ETA ~9h from assignment. |
 | **#826** | **askeladd** | Lookahead outer slow-weights wrapper (Zhang et al. NeurIPS 2019) | **Assigned poll #439.** 5 cells: A=ctrl, B=k=5 α=0.5 all (primary), C=k=10 α=0.5, D=k=5 α=0.8, E=k=5 α=0.5 Muon-only. Prediction: B > C > D > A ≈ E. Kill: B val/loss >3.265 step 1000. ETA ~9h from assignment. |
-| **#781** | **thorfinn** | Per-group AdamW ε sweep (sparsity asymmetry) | **All 5 cells done (Cell E W&B finished ~21:38Z, terminal post pending).** Best Cell B (1e-8)=3.26046 (−1.28σ_single; ~7.5% P2 gate-clearance odds). Decision TBD on terminal post: likely close clean-NEG. |
+| **#844** | **thorfinn** | Cautious Muon — post-NS sign-agreement mask (Liang et al. arXiv 2411.16085) | **Assigned poll #467.** 5 cells: A=ctrl, B=full cautious all (primary), C=MLP-only, D=attn-only, E=cautious+lr_mlp=0.06. Prediction: B ≥ C > D > A. Kill: B > 3.261 at terminal. ETA ~9h. |
 | **#785** | **alphonse** | Residual-proj init magnitude α∈{0.5/0.75/1.0/1.5/2.0} | **P2 in flight** (sent back poll #460). α=0.50 P1 best at 3.25978 (−2.43σ_single); P2 n=4 group `resid-alpha-P2-a050-n4`. ETA ~03:40Z. |
 
 ## Recent Closures
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#781 thorfinn** (poll #467) | clean-NEG | Per-group AdamW ε (embed/lm_head/scalars 3-way split). Best B (eps_embed=1e-8)=3.26046 (−0.64σ_single, ffs=3025). B/C plateau around 1e-8; E (1e-9) flat with A; D (asymmetric lm_head=1e-11) loses +1.48σ, ffs=3050. No cell clears n=1 P2 trigger 3.259221. Per-group AdamW HP family fully exhausted. Refactor (3-way AdamW split) preserved in codebase as reusable lever. |
 | **#706 nezuko** (poll #465) | clean-NEG (subsumed) | Embed-init std=0.1 compound P3 (musoft×embed). μ_n=4=3.261093 (−0.11σ_seed, parity). P3 mean +0.39 mNat ABOVE P2 pre-#699 mean. Both mechanisms target early-step gradient stress in embed subspace → substitutes, not stackers. musoft dominates. Init-magnitude axis for embed fully exhausted. |
 | **#776 askeladd** (poll #439) | clean-NEG | Muon post-NS update RMS-clamp. All 5 cells monotonically worse: A(ctrl)=3.26279, B(0.25)=3.27382, C(0.50)=3.27953, D(1.00)=3.28378, E(2.00)=3.28722. No interior optimum. Slope decay (halves per doubling) shows operational baseline RMS already well below 0.25 — clamp inflates step rather than constrains. Refactor neutrality (Cell A) confirmed. Axis closed. |
 | **#748 frieren** (poll #438) | clean-NEG | Q/K/V + MLP fc_in transform ×2.0, n=4: μ=3.261472 (+0.000690 above close threshold 3.260783). ×2.0 transform init does NOT stack with musoft (#699). σ_single=0.000944 (tighter than published). Asymmetric finding preserved: smaller magnitudes (×0.5, ×0.1) catastrophically worse (+7.9σ, +8.7σ); larger within noise of ctrl. Transform-init axis closed; current default robustly near optimum. |
@@ -50,7 +51,7 @@
 
 **Schedule layer** (all 5 dims): ALL CLOSED.
 
-**Per-group HPs**: LR (all groups), β1 (all groups + stacked), β2 (all groups), global ε — ALL CLOSED. Per-group ε (#781 terminal pending, all 5 cells done — decision TBD, likely close clean-NEG).
+**Per-group HPs**: LR (all groups), β1 (all groups + stacked), β2 (all groups), global ε, per-group ε (#781 CLOSED clean-NEG poll #467) — **ALL CLOSED. Per-group AdamW HP family fully exhausted.**
 
 **Init magnitude**:
 - lm_head (#722 CLOSED: zero uniquely optimal)
