@@ -1,5 +1,53 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 21:55 UTC — Cycle 71 mid-102: #833 frieren MUON_LR_LATE_BOOST=1.5× Arm A terminal CLOSE-MISS + Arm B 2.0× authorized
+
+### #833 frieren MUON_LR_LATE_BOOST Arm A — TERMINAL CLOSE-MISS (Arm B authorized per pre-set decision tree)
+
+W&B verified `u6ovrf8t` terminal at step 3175:
+
+| metric | MUON_LR_LATE_BOOST=1.5× (Arm A) | merge bar | n=1 hold gate | result |
+|---|---:|---:|---:|---|
+| val_loss@3175 | **3.27029** | val_mean ≤ 3.26776 | val ≤ 3.27 | **CLOSE-MISS by 0.00029** (just above hold gate val side) |
+| ffs | **3050** | ffs_mean ≤ 3000 | ffs ≤ 3000 | **MISS by 50** |
+| trajectory (last 4) | (2800, 3.284) → (2925, 3.280) → (3050, 3.277) → (3175, 3.270) | — | — | steep cooldown drop in last 175 steps |
+
+**Mechanistic interpretation**: Pure Muon LR boost @1.5× during last 7.5% of training delivers a measurably steeper cooldown slope (0.000075/step vs baseline 0.000057/step), but early-body val at step 2925 starts ~0.001 ABOVE baseline. Net terminal val=3.27029 is essentially baseline-tied (+0.00253 above baseline mean 3.26776, well within seed noise). Late-boost has its own small ffs penalty (3050 vs the quintuple-confirmed 3025 wall) — the late boost defers val crossing 3.27 because the body of training was slightly higher.
+
+**Action**: Arm B 2.0× authorized per pre-set decision tree (PR body: "If Arm A close-miss → launch Arm B 2.0× for orthogonal direction"). Mechanism question — does 2.0× scale linearly (potential merge candidate) or destabilize (close axis)? #794 composite-late-boost precedent suggests close-miss bucket bounded by both directions (Arm A 1.5×/1.5% val=3.27040, Arm B 2.0×/2.0% val=3.26941 — both close-missed). But pure-LR mechanism could behave differently from composite.
+
+**THIRD val-side floor approach this cycle**: 3 orthogonal mechanism families have now converged at this floor depth:
+1. fern audo3lgl (stack-pruning CONTRA=0+NS5=10) val=3.26956 ffs=3025
+2. thorfinn m7582er0+j3zeph7z (ATTN_SOAP_DISABLED) n=2 mean val=3.26958 ffs=3025
+3. frieren u6ovrf8t (MUON_LR_LATE_BOOST=1.5×) val=3.27029 ffs=3050
+
+The floor val cluster sits at 3.270 ± 0.001 = tight band. ffs locked at 3025-3050 across mechanisms. Floor structure (val + ffs together) is robust under multiple orthogonal interventions.
+
+### Status correction — thorfinn #842 healthy (initial sub-agent misread)
+
+Initial W&B sub-agent report flagged `uxl7ac0a` as "CRASHED" — clarification: `uxl7ac0a` was the SECOND disabled-check (crashed post-eval at step ~180, normal pattern when the disabled-check completes step 200 eval but wandb sync doesn't flush cleanly). The actual Arm A=0.99 run is `lhfxbo3y` now at step 400 healthy. No action needed for thorfinn — Arm A is progressing normally.
+
+### nezuko #843 step 500 kill gate PASSED
+
+`iyfei0ra` (MUON_LR_EARLY_BOOST=1.5× during stable phase) at step 500 val=3.887 — PASSED kill gate (>3.92) by margin 0.033. Early boost mechanism is on a stability cusp (val=4.478 at step 200 was +0.43 above baseline 4.04 — concerning early signal), but body training has caught up to be within kill-gate by step 500. Continuing.
+
+### In-flight portfolio at 21:55 UTC
+
+| PR | student | run_id | step | val | status |
+|---|---|---|---:|---:|---|
+| #833 | frieren | u6ovrf8t | 3175 | 3.27029 | TERMINAL (Arm A close-miss, Arm B 2.0× authorized) |
+| #842 | thorfinn | lhfxbo3y | 400 | early | RUNNING Arm A=0.99 healthy |
+| #843 | nezuko | iyfei0ra | 500 | 3.887 | RUNNING (passed step 500 kill gate) |
+| #830 | alphonse | v3kapwbw | 1450 | 3.506 | RUNNING Arm B=0.20 (below baseline interp) |
+| #836 | askeladd | vpo1dz28 | 2544 | 3.360 | RUNNING (within seed noise) |
+| #837 | fern | e0hvk4tk | 2450 | 3.365 | RUNNING (within seed noise) |
+| #793 | tanjiro | — | — | — | POD-BROKEN (4+ escalations unresponded) |
+| #702 | edward | — | — | — | POD-BROKEN (4+ escalations unresponded) |
+
+42 axes in refuted floor cluster + #833 Arm A added as close-miss pending Arm B outcome.
+
+---
+
 ## 2026-05-22 21:25 UTC — Cycle 71 mid-101: TRIPLE CLOSURE (41st + 42nd floor axes + alphonse soft-miss) + 2 auto-launched followup kills + 2 fresh assignments
 
 ### #818 thorfinn ATTN_SOAP_DISABLED — CLOSED as 41st floor axis (n=2 val-side floor break, ffs wall holds)
