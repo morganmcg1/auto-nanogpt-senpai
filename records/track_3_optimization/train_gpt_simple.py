@@ -83,6 +83,10 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--eps_embed", type=float, default=1e-10,
+                        help="AdamW eps for adam_embed group (default 1e-10, matches current global).")
+    parser.add_argument("--eps_lm_head", type=float, default=1e-10,
+                        help="AdamW eps for adam_lm_head group (default 1e-10, matches current global).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +769,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "eps_embed": args.eps_embed,
+            "eps_lm_head": args.eps_lm_head,
         },
     )
 
@@ -837,10 +843,14 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    # Split into 3 separate AdamW instances to allow per-group eps (fused AdamW
+    # does not honor per-param-group eps from the param_group dict).
+    optimizer1_embed = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed")],
+                             betas=(0.8, 0.95), eps=args.eps_embed, weight_decay=0, fused=True)
+    optimizer1_lm_head = AdamW([dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head")],
+                               betas=(0.8, 0.95), eps=args.eps_lm_head, weight_decay=0, fused=True)
+    optimizer1_scalars = AdamW([dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
+                               betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -854,7 +864,7 @@ for trial_idx in range(args.num_trials):
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
     )
-    optimizers = [optimizer1, optimizer2]
+    optimizers = [optimizer1_embed, optimizer1_lm_head, optimizer1_scalars, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
