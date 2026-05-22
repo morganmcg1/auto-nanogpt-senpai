@@ -467,6 +467,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+PROJ_INIT_STD = float(os.environ.get("PROJ_INIT_STD", "0.0"))  # body block proj init std; 0.0 = current zero-init
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
@@ -885,7 +886,12 @@ for trial_idx in range(args.num_trials):
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                # Body block proj (blocks.N.attn.proj, blocks.N.mlp.proj) gets PROJ_INIT_STD if >0;
+                # lm_head model.proj.weight always stays zero (#602 confirmed optimal).
+                if name.startswith("blocks.") and PROJ_INIT_STD > 0:
+                    w.normal_(std=PROJ_INIT_STD)
+                else:
+                    w.zero_()
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
@@ -896,6 +902,13 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # PR #733 init verification (proj weight stds; lm_head must stay zero)
+    if dist.get_rank() == 0 and trial_idx == 0:
+        for _name, _p in model.named_parameters():
+            if "proj" in _name and _name.endswith("weight"):
+                _w = _p.data
+                print(f"DEBUG INIT PR#733: name={_name} std={_w.float().std().item():.6f} max_abs={_w.float().abs().max().item():.6f}")
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
