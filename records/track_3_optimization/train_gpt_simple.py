@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_adamw_eps_schedule", type=int, default=0,
+                        help="If 1, ramp aux_adamw_eps during cooldown.")
+    parser.add_argument("--aux_adamw_eps_start", type=float, default=1e-6,
+                        help="Initial eps value (before cooldown ramp begins).")
+    parser.add_argument("--aux_adamw_eps_end", type=float, default=1e-5,
+                        help="Final eps value at last step.")
+    parser.add_argument("--aux_adamw_eps_cooldown_start_frac", type=float, default=0.6,
+                        help="Step fraction at which eps ramp begins. Should match aux cooldown_frac.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +721,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_adamw_eps_schedule:
+    print0(f"Aux AdamW eps schedule ENABLED: {args.aux_adamw_eps_start:.0e} -> {args.aux_adamw_eps_end:.0e} from frac={args.aux_adamw_eps_cooldown_start_frac}", console=True)
+else:
+    print0(f"Aux AdamW eps schedule DISABLED (constant eps={args.aux_adamw_eps:.0e})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +778,10 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_adamw_eps_schedule": bool(args.aux_adamw_eps_schedule),
+            "aux_adamw_eps_start": args.aux_adamw_eps_start,
+            "aux_adamw_eps_end": args.aux_adamw_eps_end,
+            "aux_adamw_eps_cooldown_start_frac": args.aux_adamw_eps_cooldown_start_frac,
         },
     )
 
@@ -876,6 +892,17 @@ for trial_idx in range(args.num_trials):
                 if opt is optimizer2:
                     eta = eta * muonh_warmup
                 group["lr"] = group["initial_lr"] * eta
+        # H67: aux_adamw_eps cooldown schedule (independent of LR cooldown shape).
+        # Applied every step to optimizer1 (AdamW aux groups only). Linear ramp from
+        # start -> end across [cooldown_start_frac, 1.0]; held at start before that.
+        if args.aux_adamw_eps_schedule:
+            if progress <= args.aux_adamw_eps_cooldown_start_frac:
+                current_eps = args.aux_adamw_eps_start
+            else:
+                t = (progress - args.aux_adamw_eps_cooldown_start_frac) / (1.0 - args.aux_adamw_eps_cooldown_start_frac)
+                current_eps = args.aux_adamw_eps_start + (args.aux_adamw_eps_end - args.aux_adamw_eps_start) * t
+            for group in optimizer1.param_groups:
+                group["eps"] = current_eps
         return muonh_warmup
 
 
@@ -1054,6 +1081,10 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_adamw_eps_schedule:
+                for group in optimizer1.param_groups:
+                    muonh_metrics[f"aux/eps_{group['name']}"] = float(group["eps"])
+                muonh_metrics["aux/eps_progress"] = step / train_steps
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
