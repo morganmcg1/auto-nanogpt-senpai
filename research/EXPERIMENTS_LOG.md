@@ -1,3 +1,74 @@
+## 2026-05-22 15:30 UTC — PR #799 ASSIGNED (askeladd): H63 Layer-wise depth-position LR scaling for MuonH body
+
+- Branch: `g1r3-askeladd/layerwise-muonh-lr`
+- Hypothesis: Scale MuonH body LR by layer depth position. Currently all 72 2D body params share a single `muonh_lr=0.018`. Linear scaling with α=0.5: deepest layer (i=11) gets 1.5× base LR (amplify mode) or shallowest (i=0) gets 1.5× (attenuate mode).
+- Mechanism: Curvature heterogeneity across depth is well-established (μP, LARS, LAMB). Muon spectral normalization makes per-layer effective LR uniform-per-spectral-unit but does NOT equalize whole-layer step magnitude. Depth-aware scaling rebalances the degree of freedom.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--muonh_lr_layerwise 0` (uniform LR=0.018)
+  - arm_b (depth-amplified, PRIMARY): `--muonh_lr_layerwise 1 --muonh_lr_depth_alpha 0.5 --muonh_lr_depth_mode amplify` (deeper→higher LR, range 0.018→0.027)
+  - arm_c (depth-attenuated): `--muonh_lr_layerwise 1 --muonh_lr_depth_alpha 0.5 --muonh_lr_depth_mode attenuate` (shallower→higher LR)
+- Telemetry: `muonh/layer_lr_{i}` at step 0 (sanity: verify scaling is applied)
+- W&B group `h63_muonh_layerwise_lr`. Reassignment after PR #766 closure.
+
+---
+
+## 2026-05-22 15:30 UTC — PR #798 ASSIGNED (frieren): H64 fp32 eval precision — logits + LayerNorm in fp32 at eval
+
+- Branch: `g1r3-frieren/fp32-eval-precision`
+- Hypothesis: Run eval-time forward pass in fp32 logits + fp32 LayerNorm/RMSNorm while training remains in bf16. Pure eval-time mechanism. bf16 logits have ~3 decimal digits precision; cross-entropy at our merge margin (Δ~0.001) is sensitive to log-prob errors at tail tokens.
+- Mechanism: Standard speedrun pattern — most winning LM speedruns use fp32 eval logits. Doesn't change training trajectory, only eval measurement. Memory cost: negligible (only eval pass). Frieren's own suggestion from PR #761 closure.
+- Arms (3, n=1, 3325 steps):
+  - arm_a (ctrl): `--eval_fp32 0` (sanity vs baseline)
+  - arm_b (fp32 logits + norm, PRIMARY): `--eval_fp32 1 --eval_fp32_norm_only 0`
+  - arm_c (fp32 norm-only): `--eval_fp32 1 --eval_fp32_norm_only 1` (isolates norm contribution)
+- **Critical Step 0**: verify current eval precision before implementing. If already fp32 everywhere → early axis closure (no GPU needed).
+- W&B group `h64_eval_fp32`. Reassignment after PR #761 closure.
+
+---
+
+## 2026-05-22 15:30 UTC — PR #766 CLOSED NEG (askeladd): H56 Reference Contra-Muon formula — Contra-Muon axis CLOSED
+
+- Branch: `g1r3-askeladd/contra-muon-ref`
+- Hypothesis: Reference Contra-Muon formula (Abrahamsen) applying operator-normalized gradient subtraction to NS5 output — TRUE direction change (distinguished from PR #743's algebraic no-op).
+- Arms:
+
+| Arm | γ | W&B | val/loss | ffs | Δ vs ctrl |
+|-----|---|-----|----------|-----|-----------|
+| arm_a (ctrl γ=0.0) | 0.0 | `uo91liaf` | **3.27179** | 3125 | — |
+| arm_b (paper default) | 0.05 | `sf4aem6g` | **3.27216** | 3125 | +0.00037 (~0.6σ NULL) |
+| arm_c (stronger) | 0.10 | `yq464xkt` | **3.27308** | 3150 | +0.00129 (~2σ NEG) |
+
+- **Verdict: Monotonic NEG trend, axis CLOSES across γ ∈ [0.0, 0.10]**. No arm clears merge bar (3.27039 formal / ~3.272 informal).
+- Key telemetry: `alignment_mean` = 0.55 (update_ns NOT parallel to normalized_grad — true direction change confirmed). `direction_change_angle` = 0.17° at γ=0.10 (mechanically weak; renormalization absorbs parallel component, only perpendicular tilt survives).
+- **Mechanism**: perpendicular tilt is mechanically weak at γ ∈ {0.05, 0.10}; tilting away from a positively-aligned direction (alignment 0.55) is mildly harmful. Extrapolating: γ=0.15 ≈ +0.0025, γ=0.20 ≈ +0.0040.
+- **Alignment trajectory finding**: `alignment_mean` climbs 0.15 (early) → 0.55 (late). Perpendicular tilt has more leverage in warmup (vectors ~80° apart). Schedule-conditional Contra-Muon (γ>0 only early) is mechanistically possible but bounded magnitude — not funding.
+- **Contra-Muon axis: CLOSED** across 2 formulations (#743 algebraic no-op + #766 reference formula).
+- Routing: askeladd → PR #799 H63 layer-wise MuonH LR.
+
+---
+
+## 2026-05-22 15:30 UTC — PR #761 CLOSED NULL (frieren): H53 EMA-of-weights — eval-time mechanism NULL (structural sandbox incompatibility)
+
+- Branch: `g1r3-frieren/ema-weights-eval`
+- Hypothesis: Maintain EMA of model weights during training, evaluate on EMA weights at end. Standard speedrun-winner pattern, expected +0.001-0.005.
+- Arms:
+
+| Run | Arm | live val | EMA val | EMA − live |
+|-----|-----|---------|---------|-----------|
+| `ducf060p` | ctrl (no EMA) | **3.27385** | — | — |
+| `c06cn7xl` | d=0.9999 (PR-body bug: init-anchored) | 3.27162 | 6.29971 | +3.028 |
+| `gibjwo6q` | d=0.999 (corrected, PRIMARY) | 3.27273 | **3.36892** | **+0.09619** |
+
+- **Verdict: EMA WORSE than live by +0.096 at PRIMARY arm. arm 3'' (d=0.99) skipped per pre-declared gate.**
+- **Mechanism (frieren's pathology sandwich argument)**: Long decays → init contamination (d=0.999 gives 4.4% init weight at k=3125, drags EMA val +0.1 above live). Short decays → vanishing wandering (cosine cooldown drives live to near-stationary; nothing to smooth). Useful regime ~zero width.
+- **Programme-level bug #3**: PR-body decay values {0.9999, 0.99999} calibrated for 100k+ step training but useless at 3325 steps. Frieren caught this pre-launch via `decay^k` math, proposed corrected d=0.999, got green light, executed correctly.
+- **Rule added**: future PR-body EMA decay specs must satisfy `decay^(train_steps - warmup_steps) ≤ 0.05`.
+- Population stats update from 3 H53 ctrl-equivalent runs: {3.27385, 3.27162, 3.27273} → mean 3.27273, σ≈0.0009.
+- **EMA-of-weights axis: CLOSED** at our 3k-step cosine-cooldown regime. Cooldown drives live trajectory to near-stationary; EMA sandwiched by init contamination (long decays) and vanishing wandering (short decays).
+- Routing: frieren → PR #798 H64 fp32 eval precision.
+
+---
+
 ## 2026-05-22 14:00 UTC — PR #795 ASSIGNED (tanjiro): H62 Cautious-MuonH — sign-agreement masking on orthogonalized update
 
 - Branch: `g1r3-tanjiro/cautious-muonh-sign-mask`
