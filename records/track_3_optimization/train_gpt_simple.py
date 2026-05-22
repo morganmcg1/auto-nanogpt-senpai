@@ -71,6 +71,16 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H48: Selective lm_head v_t reset at cooldown onset. AdamW's exp_avg_sq
+    # accumulates over all training; for the lm_head group (lr=1/320) this stale
+    # v_t may suppress cooldown-phase updates. If --aux_vt_reset_step > 0, zero
+    # exp_avg_sq (and optionally exp_avg) for model.proj.weight at that step.
+    parser.add_argument("--aux_vt_reset_step", type=int,
+                        default=int(os.environ.get("AUX_VT_RESET_STEP", "-1")),
+                        help="If > 0, reset lm_head v_t at this train_step (e.g. 2493 = cooldown onset).")
+    parser.add_argument("--aux_vt_reset_include_mt", type=int,
+                        default=int(os.environ.get("AUX_VT_RESET_INCLUDE_MT", "0")),
+                        help="If 1, also reset m_t (exp_avg) for lm_head at the reset step.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +723,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_vt_reset_step > 0:
+    print0(f"AUX V_T RESET ENABLED: lm_head v_t (include_mt={bool(args.aux_vt_reset_include_mt)}) at step {args.aux_vt_reset_step}", console=True)
+else:
+    print0("AUX V_T RESET DISABLED (aux_vt_reset_step<=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +780,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_vt_reset_step": args.aux_vt_reset_step,
+            "aux_vt_reset_include_mt": bool(args.aux_vt_reset_include_mt),
         },
     )
 
@@ -1020,6 +1036,34 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H48 selective lm_head v_t reset (Reddi et al. 2018 AMSGrad-style partial
+        # reset). Fires once at args.aux_vt_reset_step. Zeros AdamW exp_avg_sq for
+        # model.proj.weight only; optionally also exp_avg. Telemetry: log pre/post
+        # v_t RMS so we can verify the reset and watch later update-size dynamics.
+        if args.aux_vt_reset_step > 0 and train_step == args.aux_vt_reset_step:
+            lmhead_param = model.proj.weight
+            if lmhead_param in optimizer1.state:
+                state = optimizer1.state[lmhead_param]
+                vt_pre_rms = float(state["exp_avg_sq"].float().square().mean().sqrt().item()) if "exp_avg_sq" in state else 0.0
+                mt_pre_rms = float(state["exp_avg"].float().square().mean().sqrt().item()) if "exp_avg" in state else 0.0
+                if "exp_avg_sq" in state:
+                    state["exp_avg_sq"].zero_()
+                if args.aux_vt_reset_include_mt and "exp_avg" in state:
+                    state["exp_avg"].zero_()
+                if dist.get_rank() == 0:
+                    print(f"[reset] lm_head v_t zeroed at step {train_step}"
+                          f" (vt_pre_rms={vt_pre_rms:.3e}, mt_pre_rms={mt_pre_rms:.3e},"
+                          f" include_mt={bool(args.aux_vt_reset_include_mt)})", flush=True)
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "train/aux/lmhead_vt_reset_step": train_step,
+                        "train/aux/lmhead_vt_rms_pre_reset": vt_pre_rms,
+                        "train/aux/lmhead_mt_rms_pre_reset": mt_pre_rms,
+                        "train/aux/lmhead_vt_reset_include_mt": int(args.aux_vt_reset_include_mt),
+                    }, step=wandb_step)
+            elif dist.get_rank() == 0:
+                print(f"[reset] WARNING: lm_head param not in optimizer1.state at step {train_step}", flush=True)
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
