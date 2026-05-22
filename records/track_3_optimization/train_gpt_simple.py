@@ -83,6 +83,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--sign_before_ns", type=str, default="none",
+                        choices=["none", "mlp", "all"],
+                        help="Sign-transform Nesterov momentum before Newton-Schulz orthogonalization. "
+                             "none=disabled; mlp=apply to MLP param updates; all=apply to MLP and attn. "
+                             "Affects the non-SOAP muon_update path and the SOAP trust-gate u_muon leg "
+                             "(soap_ns_step(raw_nesterov)). Does not modify the SOAP-preconditioned leg.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,9 +506,11 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, sign_before_ns=False):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if sign_before_ns:
+        update = update.sign()
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -571,12 +579,13 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, sign_before_ns="none"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
         #       → multiple param groups, one per dict
         assert isinstance(named_params, list) and len(named_params) >= 1
+        assert sign_before_ns in ("none", "mlp", "all")
         if isinstance(named_params[0], dict):
             groups_raw = named_params
             all_named = [(n, p) for g in groups_raw for n, p in g["named_params"]]
@@ -594,6 +603,17 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+
+        self.sign_before_ns = sign_before_ns
+        if sign_before_ns == "all":
+            self.sign_param_ids = {id(p) for _, p in all_named}
+        elif sign_before_ns == "mlp":
+            self.sign_param_ids = {
+                id(p) for n, p in all_named
+                if any(n.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES)
+            }
+        else:
+            self.sign_param_ids = set()
 
         param_groups = []
         for g in groups_raw:
@@ -633,13 +653,15 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    sign_this = id(p) in self.sign_param_ids
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            raw_ns_input = raw_nesterov.sign() if sign_this else raw_nesterov
+                            u_muon = soap_ns_step(raw_ns_input)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +671,8 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                             sign_before_ns=sign_this)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +788,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "sign_before_ns": args.sign_before_ns,
         },
     )
 
@@ -853,6 +877,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        sign_before_ns=args.sign_before_ns,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
