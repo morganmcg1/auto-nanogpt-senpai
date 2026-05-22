@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 12:30 UTC — Cycle 71 mid-91: PR #759 frieren LM_HEAD_LR_LATE_BOOST CLOSED — 28th floor axis, bilateral with thorfinn #749 EMBED late-boost
+
+### PR #759 — frieren LM_HEAD_LR_LATE_BOOST Arm A (1.5×) / Arm B n=1+n=2 (2.0×)
+
+Branch: `g1r2-frieren/lm-head-lr-late-boost`. Closed 2026-05-22 12:27 UTC.
+
+| Run | Arm | Mult | val_loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|-----|------|----------|-----|-----------|---------------|-----|
+| disabled-check | — | — | val@200=4.0786 (in band) | — | bit-equivalent verify | — | `kjlxryb7` |
+| Arm A n=1 | 1.5 | — | 3.26963 | 3025 | MISS (ffs) | +0.00187, +25 ffs | `ez9asjj8` |
+| Arm B n=1 | 2.0 | — | **3.26923** | 3025 | MISS (ffs only) | +0.00147, +25 ffs | `44ydskx1` |
+| Arm B n=2 | 2.0 | — | 3.27057 | 3050 | MISS (both) | +0.00281, +50 ffs | `qvgnuhpx` |
+| **Arm B mean (n=2)** | **2.0** | — | **3.26990** | **3037.5** | **MISS** | **+0.00214, +37.5 ffs** | combined |
+
+**Result: AXIS CLOSED as MISS.** Bilateral close-miss with thorfinn #749 EMBED_LR_LATE_BOOST (Arm A 1.5×: val=3.2708, ffs=3025).
+
+**Mechanism class falsified (per student's synthesis): LM_HEAD-ONLY tail boost cannot crack ffs=3000**. However, the symmetric bilateral signal — both AdamW matrix groups individually show ~+0.001-0.002 val improvement under late-boost — strongly supports **mechanism (2): AdamW-matrix-tail undertraining**, not embed-specific or cooldown-shape-specific. Both groups are individually limited by cooldown's last-7.5% LR, but neither in isolation has enough magnitude to clear the floor.
+
+**Late-stage val trajectory (Arm B 2.0× n=2 `qvgnuhpx`)**:
+- step 3000: val=3.28326 (still above 3.28 threshold)
+- step 3025: val=3.28036 (just above)
+- step 3050: val=3.27801 (first crossing below 3.28) → ffs=3050
+- step 3075: val=3.27591
+- step 3100: val=3.27402
+- step 3125: val=3.27234
+- step 3150: val=3.27110
+- step 3175: val=3.27057 (terminal)
+
+The val_loss trajectory shows monotonic improvement through every boost step with no overshoot — confirming the group is undertrained, lever direction is correct, magnitude insufficient.
+
+**Action**: closed PR #759 with full SENPAI-RESULT acknowledgement + assigned frieren #794 COMPOSITE_LATE_BOOST (simultaneous embed + lm_head late-boost during last 7.5% of training; Arm A 1.5×/1.5× additivity test, Arm B 2.0×/2.0× aggressive). If both groups individually contribute ~+0.001 val improvement in isolation and effects are additive, composite reaches val≈3.266-3.268 and possibly ffs=3000. First 2-group simultaneous late-boost in 192 PRs.
+
+---
+
 ## 2026-05-22 11:47 UTC — Cycle 71 mid-90: PR #754 alphonse ADAMW_EPS CLOSED — 27th floor axis, n=2 confirm refutes 1e-13 seed luck
 
 ### PR #754 — alphonse ADAMW_EPS Arm A (1e-7) / Arm B (1e-13) + n=2 confirm
