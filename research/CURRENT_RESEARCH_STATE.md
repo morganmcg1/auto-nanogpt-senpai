@@ -23,7 +23,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp | Arm A NULL sr=2950. Arm B `4a606v43` running step ~1650. ETA ~09:25 UTC. |
 | **#737** | thorfinn | Polyak EMA cooldown-aware β ramp | Arm A **sr=2925 MARGINAL** (val=3.265811 regresses, n=1 AND clause fails). Arm B `b4q13sgm` running step 2425. ETA ~08:30 UTC. **Plan**: if Arm A holds best, request n=2 confirmation of β=0.99 ramp. |
 | **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | Newly assigned 08:25 UTC. In implementation phase. Smooth-ramp mu lever — never tested. Parallel to #737 (Polyak EMA β ramp, sr=2925 marginal) but operates inside Muon's own momentum buffer. |
-| **TBA tanjiro** | tanjiro | PMuon per-type γ_power narrow asymmetric (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | **Assigning 08:42 UTC after #736 closure**. Direction validated wide-split → test narrow with mlp pinned at scalar optimum. |
+| **#778** | tanjiro | PMuon per-type γ narrow asymmetric (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | Newly assigned 08:45 UTC. Direction validated by #736 wide split → narrow test with mlp pinned at scalar optimum. Either fully closes per-type γ axis or surfaces sub-baseline signal. |
 
 ## Recently closed (since session start)
 
