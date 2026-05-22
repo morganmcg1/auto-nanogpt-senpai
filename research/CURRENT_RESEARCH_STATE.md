@@ -15,7 +15,7 @@
 
 ## Active WIP Portfolio (poll #472)
 
-7 PRs in flight; 1 idle (edward — fresh assignment in progress):
+8 PRs in flight; 0 idle students:
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
@@ -25,6 +25,7 @@
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | **Assigned poll #434.** 5 cells: A=ctrl, B=sign MLP-only, C=sign all, D=sign all + lr_mlp 0.06, E=sign all + ns_iter 4. Prediction: D > C > B > E > A. Kill: Cell B <0.001 improvement vs A → close. ETA ~9h from assignment. |
 | **#826** | **askeladd** | Lookahead outer slow-weights wrapper (Zhang et al. NeurIPS 2019) | **Assigned poll #439.** 5 cells: A=ctrl, B=k=5 α=0.5 all (primary), C=k=10 α=0.5, D=k=5 α=0.8, E=k=5 α=0.5 Muon-only. Prediction: B > C > D > A ≈ E. Kill: B val/loss >3.265 step 1000. ETA ~9h from assignment. |
 | **#844** | **thorfinn** | Cautious Muon — post-NS sign-agreement mask (Liang et al. arXiv 2411.16085) | **Assigned poll #467.** 5 cells: A=ctrl, B=full cautious all (primary), C=MLP-only, D=attn-only, E=cautious+lr_mlp=0.06. Prediction: B ≥ C > D > A. Kill: B > 3.261 at terminal. ETA ~9h. |
+| **#850** | **edward** | Bias-Corrected Muon — Adam-style 1/(1-β^t) debiasing of Nesterov buffer before NS ortho | **Assigned poll #472.** 5 cells: C1=ctrl, C2=full BC all steps (primary ★), C3=BC 200 steps, C4=BC 500 steps, C5=full BC β=0.90. Prediction: C2≈C3≈C4>C1. Kill: C2 val >3.265. ETA ~9h. |
 | **#785** | **alphonse** | Residual-proj init magnitude α∈{0.5/0.75/1.0/1.5/2.0} | **P2 in flight** (sent back poll #460). α=0.50 P1 best at 3.25978 (−2.43σ_single); P2 n=4 group `resid-alpha-P2-a050-n4`. ETA ~03:40Z. |
 
 ## Recent Closures
@@ -61,7 +62,7 @@
 - embed (**#706 CLOSED clean-NEG poll #465, subsumed by musoft**; std=0.1 mechanism real but redundant with musoft residual-stream calming)
 - transformations (#748 CLOSED clean-NEG: ×2.0 does not stack with musoft; smaller-magnitude catastrophically worse, larger-within-noise)
 
-**Novel Muon mechanisms**: GC (#756 CLOSED), adaptive-mu (#773 CLOSED), update-RMS-norm (#776 CLOSED), **per-block mu-depth-scale (#800 CLOSED clean-NEG poll #472 — heterogeneity itself harms)**, NS-WarmUp (#815 P1 in-flight), SignMuon (#823 P1 in-flight), Polar Express polynomial (#824 P1 in-flight), Muon-AdEMAMix dual slow EMA (#840 P1 in-flight — gradient memory horizon), Cautious Muon post-NS mask (#844 P1 in-flight).
+**Novel Muon mechanisms**: GC (#756 CLOSED), adaptive-mu (#773 CLOSED), update-RMS-norm (#776 CLOSED), per-block mu-depth-scale (#800 CLOSED), NS-WarmUp (#815 P1 in-flight), SignMuon (#823 P1 in-flight), Polar Express polynomial (#824 P1 in-flight), Muon-AdEMAMix dual slow EMA (#840 P1 in-flight), Cautious Muon post-NS mask (#844 P1 in-flight), **Bias-Corrected Muon pre-NS buffer debiasing (#850 P1 new — early-training NS conditioning)**.
 
 **Outer-loop mechanisms**: Lookahead (#826 P1 in-flight — operates outside NS/SOAP/Nesterov pipeline entirely).
 
