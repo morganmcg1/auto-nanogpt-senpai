@@ -577,6 +577,18 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Embed-row gradient amplification by inverse token-frequency (#845).
+# Multiplies model.embed.weight.grad per-row, post grad-clip / pre AdamW step.
+# Intent: freshen v_t for rare-token rows whose visits gap >> 1/(1-beta2).
+NANOGPT_EMBED_GRAD_FREQ_MODE = os.environ.get("NANOGPT_EMBED_GRAD_FREQ_MODE", "off")  # "off" | "sqrt_inv" | "frac_inv_0p33"
+NANOGPT_EMBED_GRAD_FREQ_WMAX = float(os.environ.get("NANOGPT_EMBED_GRAD_FREQ_WMAX", "10.0"))  # cap on per-row weight
+NANOGPT_EMBED_GRAD_FREQ_SHARD = os.environ.get("NANOGPT_EMBED_GRAD_FREQ_SHARD", "fineweb_train_000001.bin")
+_VALID_EMBED_GRAD_FREQ_MODES = ("off", "sqrt_inv", "frac_inv_0p33")
+if NANOGPT_EMBED_GRAD_FREQ_MODE not in _VALID_EMBED_GRAD_FREQ_MODES:
+    raise ValueError(
+        f"NANOGPT_EMBED_GRAD_FREQ_MODE={NANOGPT_EMBED_GRAD_FREQ_MODE!r}, "
+        f"must be one of {_VALID_EMBED_GRAD_FREQ_MODES}"
+    )
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # Stochastic NS iter count: per-step uniform sampling around the deterministic mean.
 # spread=0 -> deterministic (default, bit-identical to merged stack).
@@ -824,6 +836,8 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"EMBED_GRAD_FREQ: mode={NANOGPT_EMBED_GRAD_FREQ_MODE} w_max={NANOGPT_EMBED_GRAD_FREQ_WMAX} shard={NANOGPT_EMBED_GRAD_FREQ_SHARD} "
+       f"({'ACTIVE' if NANOGPT_EMBED_GRAD_FREQ_MODE != 'off' else 'INACTIVE (off => bit-identical)'})", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -840,6 +854,47 @@ for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else N
            console=True)
 print0("="*100)
 
+
+def compute_embed_freq_weight(vocab_size: int, mode: str, w_max: float, shard_path: str):
+    """Per-token gradient amplification weights from a FineWeb training shard (#845).
+
+    Returns: tensor [vocab_size] in [1.0, w_max], mean-normalized to 1.0.
+    Tokens unseen in the shard get the rarest treatment (Laplace count=1).
+    Returns None when mode='off' so the call site stays bit-identical.
+    """
+    if mode == "off":
+        return None
+    import numpy as np
+    candidates = [
+        Path("data/fineweb10B") / shard_path,
+        Path(__file__).parent.parent.parent / "data" / "fineweb10B" / shard_path,
+        Path(__file__).parent / shard_path,
+    ]
+    shard_full = next((p for p in candidates if p.exists()), None)
+    if shard_full is None:
+        raise FileNotFoundError(
+            f"Frequency-stat shard '{shard_path}' not found; looked in: "
+            + ", ".join(str(p) for p in candidates)
+        )
+    # FineWeb shards: 256-int32 header (1024 bytes) then uint16 tokens.
+    tokens = np.memmap(str(shard_full), dtype=np.uint16, mode="r", offset=1024)
+    n_sample = min(len(tokens), 10_000_000)
+    sample = np.asarray(tokens[:n_sample])
+    counts = np.bincount(sample, minlength=vocab_size).astype(np.float64)
+    counts = np.maximum(counts, 1.0)  # Laplace smoothing
+    freqs = counts / counts.sum()
+    freq_max = freqs.max()
+    if mode == "sqrt_inv":
+        w = np.sqrt(freq_max / freqs)
+    elif mode == "frac_inv_0p33":
+        w = (freq_max / freqs) ** 0.33
+    else:
+        raise ValueError(f"Unknown NANOGPT_EMBED_GRAD_FREQ_MODE={mode}")
+    w = np.clip(w, 1.0, w_max)
+    w = w / w.mean()  # preserve total gradient magnitude on average
+    return torch.from_numpy(w).float()
+
+
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
 mbs = 64
@@ -847,6 +902,27 @@ val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/finew
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
+
+embed_freq_w = compute_embed_freq_weight(
+    vocab_size=model.embed.weight.shape[0],
+    mode=NANOGPT_EMBED_GRAD_FREQ_MODE,
+    w_max=NANOGPT_EMBED_GRAD_FREQ_WMAX,
+    shard_path=NANOGPT_EMBED_GRAD_FREQ_SHARD,
+)
+if embed_freq_w is not None:
+    # Cast to embed grad dtype (bfloat16) so the in-place mul_ broadcasts cleanly.
+    embed_freq_w = embed_freq_w.to(device=model.embed.weight.device,
+                                    dtype=model.embed.weight.dtype)
+    print0(
+        f"EMBED_FREQ_WEIGHT: mode={NANOGPT_EMBED_GRAD_FREQ_MODE} w_max={NANOGPT_EMBED_GRAD_FREQ_WMAX} "
+        f"vocab={embed_freq_w.numel()} "
+        f"w.mean={embed_freq_w.float().mean().item():.4f} "
+        f"w.max={embed_freq_w.float().max().item():.4f} "
+        f"w.min={embed_freq_w.float().min().item():.4f} "
+        f"w[0]={embed_freq_w[0].float().item():.4f} "
+        f"w[-1]={embed_freq_w[-1].float().item():.4f}",
+        console=True,
+    )
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -891,6 +967,9 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_embed_grad_freq_mode": NANOGPT_EMBED_GRAD_FREQ_MODE,
+            "nanogpt_embed_grad_freq_wmax": NANOGPT_EMBED_GRAD_FREQ_WMAX,
+            "nanogpt_embed_grad_freq_shard": NANOGPT_EMBED_GRAD_FREQ_SHARD,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
@@ -898,6 +977,17 @@ if dist.get_rank() == 0:
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
         },
     )
+    if embed_freq_w is not None:
+        with torch.no_grad():
+            w_f32 = embed_freq_w.detach().float().cpu()
+        wandb.log({
+            "embed_freq_weight/mean": float(w_f32.mean().item()),
+            "embed_freq_weight/max": float(w_f32.max().item()),
+            "embed_freq_weight/min": float(w_f32.min().item()),
+            "embed_freq_weight/std": float(w_f32.std(unbiased=False).item()),
+            "embed_freq_weight/p99": float(torch.quantile(w_f32, 0.99).item()),
+            "embed_freq_weight/p01": float(torch.quantile(w_f32, 0.01).item()),
+        }, step=0)
 
 for trial_idx in range(args.num_trials):
 
@@ -1205,6 +1295,12 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Per-row gradient amplification for sparse embed rows (#845).
+        # Placed AFTER grad-clip so amplified rows don't re-inflate clipped grads beyond
+        # the aux clip threshold, and BEFORE optimizer1.step() so AdamW's m_t and v_t
+        # accumulate the amplified signal (the v_t-staleness mechanism this targets).
+        if embed_freq_w is not None and model.embed.weight.grad is not None:
+            model.embed.weight.grad.mul_(embed_freq_w.unsqueeze(1))
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
