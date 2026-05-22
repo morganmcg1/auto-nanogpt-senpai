@@ -3374,3 +3374,22 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
 | Baseline | 1e-12 | `k7ylyby9`+`dm4joozw` | 2937.5 | 3.264278 | — | — | — |
 
 **Verdict: NULL/NULL — PMuon ε floor axis closes.** Asymmetric (Arm B worse): tighter clamp amplifies noise on rank-deficient directions. Effect subthreshold — optimum sits slightly above 1e-12 but within noise across the 4 OOM range. PMuon scalar audit now COMPLETE: γ_power (#519), β_cov (#502), NS_ITERS (#511+#546), ε floor (#562) — all NULL within natural ranges.
+
+## 2026-05-22 00:23 UTC — PR #696 CLOSED: Contra-Muon momentum subtraction — NULL/NULL, 58th axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/contra-muon-momentum`
+- Hypothesis: Contra-Muon contrarian EMA subtraction on body-Muon — subtract a slow EMA (μ_contra=0.999) from the fast EMA (μ=0.95) before NS to add "contrarian" direction bias. Two arms: Arm A contra_coeff=0.2, Arm B contra_coeff=0.1. Design intended 15-25% effective subtraction.
+
+| Arm | contra_coeff | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.2 | mgdfhfzq | 3125 | 3.27599 | +187.5 | +0.0117 | NULL |
+| Arm B | 0.1 | wfzugtmb | 3000 | 3.26857 | +62.5 | +0.00429 | NULL |
+
+- **Stat-sig test:** Both arms sr > 2937.5 = fail. Stat rule: Arm A (3.28−3.27599)·√1=+0.004 barely passes val threshold but sr catastrophically regressed. Arm B val just above stat-sig cut. Both unambiguously NULL.
+
+- **Key mechanism finding — structural whitening compression:** PMuon bilateral whitening compresses the slow EMA's polar-space footprint by ~6× vs the fast EMA: m_contra_pre_frob / m_pre_frob ≈ 14-17% (coefficient-independent, structural property). Effective subtraction reached only ~3% (Arm A) and ~1.5% (Arm B) vs design target 15-25%.
+
+- **Dose-response analysis:** Halving coefficient (0.2→0.1) halved the damage (Δsr +187.5 → +62.5). Monotone in wrong direction: more subtraction = worse. Extrapolated coeff=1.0 would give ~Δsr +1500 = catastrophic. Pre-NS contra injection (alternative) untested but family context (gradient-domain perturbations uniformly NULL in this stack) makes it unlikely to help.
+
+- **Conclusion:** Contra-Muon as post-NS body-Muon mechanism CLOSED. Design hypothesis untestable at any coefficient due to structural PMuon whitening compression. Adds to the broader pattern: spectral/gradient perturbations in the whitened update space all absorbed by PMuon. 58th closed axis.

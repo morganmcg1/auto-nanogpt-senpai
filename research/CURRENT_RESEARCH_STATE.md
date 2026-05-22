@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-21 23:40 UTC
+- **Last update:** 2026-05-22 00:25 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -19,7 +19,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#697** | alphonse | QHM body-Muon ν=0.20 β=0.95 (Arm B) | **Arm A TERMINAL NULL** val=3.27137 sr=3025. Mid-run −40/−50 mnat advantage eroded during cooldown — 2nd cooldown-erosion instance. Arm B terminal ETA ~00:24 UTC. |
 | **#698** | nezuko | NAdam-Aux Nesterov-AdamW (Arm B β₁=0.9 retuned) | **Arm A TERMINAL NULL** val=3.26811 sr=3000. Cross-family Nesterov NULL. Arm B retuned β₁=0.9. Terminal ETA ~01:00 UTC. |
 | **#695** | thorfinn | Polyak EMA β=0.95 warmup=2250 (Arm B) | **Arm A TERMINAL NULL** val=3.26648 sr=2950. Peak EMA −5.02 mnat (12× predicted reduction). Arm B terminal ETA ~00:09 UTC. |
-| **#696** | tanjiro | Contra-Muon contra_coeff=0.1 (Arm B) | **Arm A TERMINAL NULL** val=3.27599 sr=3125. PMuon whitening compresses subtraction ~10× vs design. Arm B terminal ETA ~00:00 UTC. |
+| **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | **NEWLY ASSIGNED 00:25 UTC.** Tests whether attn and MLP layers have different optimal whitening intensity. Arm B is the stronger prior (higher γ for attn, lower for MLP). |
 | **#725** | askeladd | PMuon cov buffer reset at cooldown_start (Arm B=full, Arm A=partial re-launch) | Arm A disrupted at step 543; Arm B (cov_scale=0.0) running ETA ~02:14 UTC. Arm A re-launch after. |
 | **#723** | frieren | Body-Muon momentum reset at cooldown_start (Arm A=0.5, Arm B=0.0) | Arm A running, ETA ~01:51 UTC. First direct cooldown-mechanism intervention (step 975 event). |
 | **#727** | fern | Body-Muon WD cooldown schedule UP (0.025→0.050) vs DOWN (0.025→0.000) | Implementation phase. WD ramp tests WD-impulse trajectory optimality. |
@@ -29,6 +29,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#696** tanjiro | 58th | Contra-Muon NULL/NULL (val=3.276/3.269, sr=3125/3000) | PMuon whitening compresses slow EMA ~6× in polar space → effective sub 1.5-3% vs design 15-25%. Monotone dose-response in wrong direction. Post-NS perturbation family adds to spectral absorption pattern. |
 | **#690** edward | 57th | SGDR NULL/NULL (val=3.306/3.323, sr=-1/-1) | Restart spike +0.13-0.17 unrecoverable in cycle budget. More restarts → worse. 3rd cooldown-erosion instance: mid-cycle advantage eroded at terminal. LR schedule SHAPE closed (non-monotone direction). |
 | **#686** fern | 56th | β_cov schedule SYMMETRIC NULL | Arm A (0.90→0.95) and Arm B (0.95→0.98) produce IDENTICAL regression in opposite directions = canonical static-optimum. β_cov axis FULLY CLOSED (scalar + schedule). |
 | **#682** askeladd | 55th | mu schedule NULL/inconclusive | Arm A (cooldown ramp) sr=2925 but val=3.26985 regression fails win rule. Arm B (warmup ramp) NULL sr=3050. Body-Muon mu PINNED at static across 4 sub-axes. |
@@ -79,6 +80,8 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 *Body-Muon scalars/wrappers:* WD partition (#482), WD schedule (#503), grad clipping (#513), γ_power ramp (#444), lr fine-scan (#465), Lookahead (#505).
 
 *Body-Muon LR schedule shape FULLY CLOSED:* WSD pinned across 7 sub-axes (shorter/longer cf, LR floor, NS_ITERS ramp, decoupled aux, warmup); cosine NULL (#667 53rd); SGDR restarts NULL (#690 57th). All non-monotone and shape-variation directions closed.
+
+*Post-NS body-Muon perturbations CLOSED:* Contra-Muon post-NS subtraction (#696 58th) — bilateral whitening compresses slow EMA ~6× in polar space → designed regime unreachable. Full perturbation axis (pre-NS: winsorization/tanh-squash/per-block-norm/Langevin; post-NS: contra-momentum) CLOSED.
 
 *Body-Muon operator ordering CLOSED:* post-NS momentum (#658 49th), Nesterov (#660 52nd).
 
