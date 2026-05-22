@@ -52,6 +52,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--pmuon_cov_warmup_steps", type=int, default=0,
+        help="For the first N steps, use beta_cov=0.0 (no EMA, fresh per-step outer product) "
+             "to pre-populate PMuon covariance buffers. After N steps, switch to the standard "
+             "beta_cov. 0 = disabled (default).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +708,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "pmuon_cov_warmup_steps": args.pmuon_cov_warmup_steps,
         },
     )
 
@@ -879,8 +884,52 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # PMuon covariance warmup-phase fast-mix: for the first K steps use
+        # beta_cov=0.0 (pure per-step outer product, no EMA blend) to pre-populate
+        # L_cov/R_cov, then snap back to the configured beta_cov.
+        if args.pmuon_cov_warmup_steps > 0:
+            in_warmup = step < args.pmuon_cov_warmup_steps
+            beta_cov_t = 0.0 if in_warmup else 0.95
+            for group in optimizer2.param_groups:
+                group["beta_cov"] = beta_cov_t
+        else:
+            in_warmup = False
+            beta_cov_t = 0.95
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and args.pmuon_cov_warmup_steps > 0 and (
+            telemetry_due or step <= args.pmuon_cov_warmup_steps + 1
+        ):
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "pmuon/beta_cov_t": beta_cov_t,
+                "pmuon/cov_warmup_phase": int(in_warmup),
+            }, step=wandb_step)
+        # Log L_cov/R_cov Frobenius norms across the warmup transition (steps
+        # K-1, K, K+1) to confirm the snap.
+        if (
+            dist.get_rank() == 0
+            and args.pmuon_cov_warmup_steps > 0
+            and (step == args.pmuon_cov_warmup_steps - 1
+                 or step == args.pmuon_cov_warmup_steps
+                 or step == args.pmuon_cov_warmup_steps + 1)
+        ):
+            for group in optimizer2.param_groups:
+                logged = False
+                for p in group["params"]:
+                    state = optimizer2.state.get(p, None)
+                    if state and "L" in state:
+                        wandb.log({
+                            "trial": trial_idx,
+                            "train/step": train_step,
+                            "pmuon/L_cov_frob_at_warmup_transition": float(torch.linalg.norm(state["L"]).item()),
+                            "pmuon/R_cov_frob_at_warmup_transition": float(torch.linalg.norm(state["R"]).item()),
+                        }, step=wandb_step)
+                        logged = True
+                        break
+                if logged:
+                    break
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
