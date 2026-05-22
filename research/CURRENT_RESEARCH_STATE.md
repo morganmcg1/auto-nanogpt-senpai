@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 06:25 UTC
+- **Date:** 2026-05-22 08:13 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -576,14 +576,20 @@ Single-seed 4-arm result (drift gate A PASS at +0.00032):
 **Branch:** `g1r4-edward/per-depth-muon-lr`
 **Hypothesis**: Extend #579 per-block-TYPE LR (MERGED) to DEPTH axis. Apply per-depth multipliers on top of per-TYPE multipliers: `LR_layer_l = LR_base × MUON_TYPE_LR_MULT × MUON_DEPTH_LR_MULT`. 3-bucket partition (early=L0-3, mid=L4-7, deep=L8-11). Each arm conserves geometric mean = 1.0 across depth buckets (total LR budget invariant).
 
-| Arm | EARLY (L0-3) | MID (L4-7) | DEEP (L8-11) | Description |
-|---|---:|---:|---:|---|
-| A (ctrl) | 1.00 | 1.00 | 1.00 | Bit-identical merged stack |
-| **B** | **1.20** | 1.00 | **0.80** | **Front-loaded** — primary winner candidate (parallels #710 Arm C front-load NS winner direction) |
-| C | 0.80 | 1.00 | 1.20 | Back-loaded — directional control |
-| D | 0.90 | 1.20 | 0.90 | Mid-heavy — directional control |
+**N=1 single-seed status (08:11 UTC W&B verification — Arm C still running ~37%):**
 
-**Why fresh and informed**: Direct parallel to #710 Phase 1 winner direction (front-load wins Δ_vs_A=−0.00138). NS-iter front-loading and LR front-loading share the same proposed mechanism (early-layer signal dilution by backward chain). Distinct from #409 LLRD (uniform geometric decay NULL pre-#579) — 3-bucket non-monotone parametrization untested. Implementation: ~10-15 LOC (env var reads + per-layer LR resolution in Muon group setup). ETA ~7.3h.
+| Arm | EARLY (L0-3) | MID (L4-7) | DEEP (L8-11) | val/loss | Δ_vs_A_ctrl | Δ_vs_baseline (3.27070) |
+|---|---:|---:|---:|---:|---:|---:|
+| A (ctrl) | 1.00 | 1.00 | 1.00 | **3.26788** | — | **−0.00282 favorable-seed drift OUTSIDE ±0.003 (borderline)** |
+| B | 1.20 | 1.00 | 0.80 | 3.26984 | **+0.00196 REGRESSION vs ctrl** | −0.00086 |
+| C | 0.80 | 1.00 | 1.20 | step ~1250/3350 running | TBD | TBD |
+| D | 0.90 | 1.20 | 0.90 | TBD | TBD | TBD |
+
+**Drift concern flagged on PR**: Arm A control at 3.26788 = Δ=−0.00282 vs baseline, just under ±0.003 gate but close to it. Use Δ_vs_A_control as primary signal (not Δ_vs_baseline), else apparent baseline-beaters reflect favorable-seed drift rather than mechanism.
+
+**Provisional reading (B vs A)**: Front-loaded per-DEPTH Muon LR REGRESSES vs control by +0.00196 — sign-flipped vs #710 front-load NS_ITERS Phase 1 winner. Mechanism dissimilarity: NS-iter front-loading allocates **convergence precision** (compute) early; LR front-loading allocates **update magnitude** early. The depth-aspect of magnitude allocation is apparently NOT load-bearing on the post-#579 stack — possibly because per-TYPE LR (#579 attn=0.80/mlp=1.20) already captures the relevant magnitude-asymmetry signal. Awaiting Arm C (back-loaded) and Arm D (mid-heavy) to confirm.
+
+**Why fresh and informed**: Direct parallel to #710 Phase 1 winner direction (front-load wins Δ_vs_A=−0.00138). Distinct from #409 LLRD (uniform geometric decay NULL pre-#579) — 3-bucket non-monotone parametrization untested.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
