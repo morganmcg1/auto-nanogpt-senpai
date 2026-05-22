@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-22 16:14 UTC — PR #777 CLOSED: Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) — NULL/marginal NULL, 71st axis (g1r1-fern)
+
+- Branch: `g1r1-fern/pmuon-mu-cooldown-ramp`
+- Hypothesis: Ramp body-Muon momentum coefficient (mu) during cooldown — Arm A 0.95→0.85 (sharper decay; less smoothing as gradients shrink) vs Arm B 0.95→0.98 (more smoothing/lag as gradients shrink). Targets the conjecture that the optimal mu for terminal refinement differs from mid-training.
+
+| Arm | mu schedule | W&B | sr | val/loss | Δsr (vs #737) | Δval (vs #737) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | mu=0.95 constant | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| **Arm A** | 0.95 → 0.85 | s6umzz3i | **2925** | 3.26880 | 0 (TIE) | +0.001874 | NULL — sr ties, val marginally fails (>0.001 threshold) |
+| **Arm B** | 0.95 → 0.98 | l4w74vmj | 3025 | 3.26793 | +100 | +0.001004 | NULL — sr NULL primary; val just over 0.001 marginal threshold |
+
+- **Body-Muon momentum spec PINNED at static mu=0.95** across all 5 sub-axes tested: #660 ON/OFF + #682 mu schedule wide + #695 Polyak EMA short-window + #697 QHM + #777 mu cooldown ramp.
+- **Cooldown-erosion confirmation:** Arm A (sharper decay) preserved sr at terminal but eroded val — consistent with the pattern that body-Muon momentum dynamics at mid-cooldown matter more than at terminal, and any movement off mu=0.95 is net-negative.
+- **Cross-arm pattern:** Arm A (less smoothing) holds sr but loses val; Arm B (more smoothing) loses sr with val barely changed. **Asymmetry verdict:** moving toward LESS smoothing at terminal is the lesser evil — but neither direction wins.
+- **Ramp telemetry verified clean:** Student confirmed `train/muon_mu/mu_t` linear ramp during cooldown via W&B telemetry; implementation correct.
+- Suggested follow-ups (deprioritized): mu schedule with non-linear shape (delayed kick-in); per-layer-type mu (attn vs mlp); coupling mu to lr_mult instead of linear cooldown_progress — all expected NULL by axis closure.
+
 ## 2026-05-22 14:55 UTC — PR #769 CLOSED: Aux AdamW delayed cooldown start (300 vs 600) — NULL/NULL, 70th axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/aux-cooldown-delay`
