@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -455,6 +456,8 @@ MU_COOLDOWN_END = float(os.environ.get("MU_COOLDOWN_END", "0.95"))
 MU_WARMUP_STEPS = int(os.environ.get("MU_WARMUP_STEPS", "0"))
 MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
+MUON_COOLDOWN_SHAPE = os.environ.get("MUON_COOLDOWN_SHAPE", "linear")
+# linear (default) | cosine | sqrt
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
@@ -856,6 +859,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_cooldown_shape": MUON_COOLDOWN_SHAPE,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -918,8 +922,19 @@ for trial_idx in range(args.num_trials):
         assert 0 <= progress < 1
         if progress < 1 - cooldown_frac:
             eta = 1.0
+            eta_muon = 1.0
         else:
-            eta = (1 - progress) / cooldown_frac
+            # Within-cooldown fraction t: 0 at cooldown start, 1 at train end
+            t = (progress - (1 - cooldown_frac)) / cooldown_frac
+            eta = 1.0 - t  # linear default (equivalent to original (1-progress)/cooldown_frac)
+            if MUON_COOLDOWN_SHAPE == "cosine":
+                # Cosine: 0.5*(1+cos(πt)); higher than linear for t<0.5, lower for t>0.5
+                eta_muon = 0.5 * (1.0 + math.cos(math.pi * t))
+            elif MUON_COOLDOWN_SHAPE == "sqrt":
+                # Sqrt: concave, stays above linear throughout cooldown
+                eta_muon = math.sqrt(max(1.0 - t, 0.0))
+            else:  # linear (default — identical to non-Muon)
+                eta_muon = eta
         if MU_COOLDOWN_ENABLED:
             if step < MU_WARMUP_STEPS:
                 w = step / MU_WARMUP_STEPS
@@ -927,15 +942,17 @@ for trial_idx in range(args.num_trials):
             elif progress < 1 - cooldown_frac:
                 cur_mu = MU_COOLDOWN_START
             else:
-                t = (progress - (1 - cooldown_frac)) / cooldown_frac
-                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
+                t_mu = (progress - (1 - cooldown_frac)) / cooldown_frac
+                cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t_mu
         else:
             cur_mu = MU + (MU_END - MU) * progress
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
+                    group["lr"] = group["initial_lr"] * eta_muon
                     group["mu"] = cur_mu
+                else:
+                    group["lr"] = group["initial_lr"] * eta
 
 
     ########################################
