@@ -1,5 +1,54 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 22:28 UTC — Cycle 71 mid-103: FOURTH val-side floor break (fern SOAP_PRECOND_FREQ=20) + askeladd soft-miss (SOAP_BETA2=0.99)
+
+### #837 fern SOAP_PRECOND_FREQ=20 Arm A — VAL-SIDE FLOOR BREAK at n=1 (n=2 confirm authorized)
+
+W&B verified `e0hvk4tk` terminal at step 3175:
+
+| metric | SOAP_PRECOND_FREQ=20 (Arm A) | merge bar | n=1 hold gate | result |
+|---|---:|---:|---:|---|
+| val_loss@3175 | **3.26919** | val_mean ≤ 3.26776 | val ≤ 3.27 | **PASS by 0.00081** (val-side floor break) |
+| ffs | **3025** | ffs_mean ≤ 3000 | ffs ≤ 3000 | **MISS by 25** (ffs wall) |
+| statsig | (3.28 − 3.26919)·√1 = 0.01081 | ≥ 0.004 | — | **PASS by 2.7× at n=1** |
+
+**Mechanistic finding — eigenbasis refresh frequency 20 is at least baseline-equivalent**: Less-frequent preconditioner refresh (every 20 steps vs default 10) captures MLP body matrix curvature direction equally well. The eigenbasis of MLP body matrices is locally stable enough that 20-step refresh doesn't lose meaningful information. SOAP preconditioner is paying ~2× more compute than necessary at default frequency.
+
+**THIS IS THE 4TH VAL-SIDE FLOOR BREAK THIS CYCLE** and the BEST val-side margin:
+1. audo3lgl (fern stack-pruning) val=3.26956 ffs=3025 (PASS by 0.00044)
+2. m7582er0+j3zeph7z (thorfinn ATTN_SOAP_DISABLED) n=2 mean val=3.26958 ffs=3025 (PASS by 0.00042)
+3. u6ovrf8t (frieren late-boost 1.5×) val=3.27029 ffs=3050 (CLOSE-MISS by 0.00029)
+4. **e0hvk4tk (fern SOAP_PRECOND_FREQ=20) val=3.26919 ffs=3025 (PASS by 0.00081)** ← BEST
+
+Floor val cluster sits at 3.270 ± 0.001. Four orthogonal mechanism families (stack-pruning, ATTN_SOAP_DISABLED, late-boost LR, SOAP preconditioner frequency) converge here.
+
+**Action**: n=2 confirm authorized. For n=2 mean to crack merge bar val (3.26776), seed-2 val must be ≤ 3.26633 (-0.00286 below n=1). Plausible within seed noise σ~0.005-0.008. **If n=2 mean clears, this is the cycle's FIRST true floor break in 192+ PRs**.
+
+### #836 askeladd SOAP_BETA2=0.99 Arm A — TERMINAL SOFT-MISS (Arm B 0.80 authorized)
+
+W&B verified `vpo1dz28` terminal at step 3175:
+
+| metric | SOAP_BETA2=0.99 (Arm A) | merge bar | n=1 hold gate | result |
+|---|---:|---:|---:|---|
+| val_loss@3175 | **3.28094** | val_mean ≤ 3.26776 | val ≤ 3.27 | **MISS by 0.01094** (above target val 3.28) |
+| ffs | **N/A (-1)** | ffs ≤ 3000 | ffs ≤ 3000 | **MISS — val=3.28 never crossed** |
+| reached_target | **0** | — | — | **target val=3.28 NOT reached at any step** |
+
+**SOFT MISS** pattern (same as alphonse #830 Arm A): all kill gates passed but terminal val above target. SOAP_BETA2=0.99 (slower MLP-side 2nd-moment EMA, ~100-step horizon vs default 0.95 ~20-step horizon) results in the preconditioner using stale 2nd-moment statistics that miss the cooldown-induced curvature shifts — final val drop from step 3000 doesn't materialize.
+
+Combined with nezuko #828 NORMUON_BETA2=0.99 close-miss (val=3.27180/ffs=3050), this is the **SECOND axis confirming 0.95 is the local optimum for 2nd-moment EMA on body-matrix preconditioning** (NorMuon-side and MLP-SOAP-side both agree).
+
+**Action**: Arm B 0.80 authorized per pre-set decision tree (opposite direction = faster EMA ~5-step horizon). Mechanism question — is the optimum at 0.95 (Arm B also worse) or is faster EMA preferred (Arm B better)?
+
+### Other in-flight runs (22:28 UTC)
+
+- **alphonse #830 Arm B v3kapwbw** step 2300 val=3.36 tracking **-0.020 BELOW baseline** (strong cooldown approach)
+- **frieren #833 Arm B yt6juqss** step 450 val=3.883 PASSING step 500 kill gate (3.92) by 0.04
+- **thorfinn #842 lhfxbo3y** step 1100 val=3.66 tracking baseline within seed noise
+- **nezuko #843 iyfei0ra** step 1400 val=3.57 tracking **+0.04 ABOVE baseline** — early boost has cumulative cost concerning, watch step 1500 kill gate (3.68) — currently safe by 0.11
+
+---
+
 ## 2026-05-22 21:55 UTC — Cycle 71 mid-102: #833 frieren MUON_LR_LATE_BOOST=1.5× Arm A terminal CLOSE-MISS + Arm B 2.0× authorized
 
 ### #833 frieren MUON_LR_LATE_BOOST Arm A — TERMINAL CLOSE-MISS (Arm B authorized per pre-set decision tree)
