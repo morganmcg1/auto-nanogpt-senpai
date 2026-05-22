@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-22 01:30 UTC — PR #698 CLOSED: NAdam (Nesterov-AdamW) for aux groups — NULL/NULL, 61st axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/nadam-aux`
+- Hypothesis: Apply Nesterov lookahead to aux AdamW (embed, lm_head, scalars) — cross-family analog of #660 body-Muon Nesterov. Arm A β₁=0.8 NAdam ON, Arm B β₁=0.9 NAdam ON.
+
+| Arm | β₁ | nadam | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | 0.8 | OFF | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Arm A | 0.8 | ON | wwyxnxdy | 3000 | 3.26811 | +62.5 | +0.00383 | NULL |
+| Arm B | 0.9 | ON | 5i9nua0o | 3000 | 3.26829 | +62.5 | +0.00401 | NULL |
+
+- **Δ between arms:** +0.00018 val, 0 sr — well inside seed noise. β₁ retune did NOTHING.
+
+- **Mechanism (3 findings):**
+  1. **AdamW denominator absorbs Nesterov lookahead.** Nesterov's cross-term `β₁·(1-β₁)·g_t` adds gradient weight in numerator, but the AdamW denominator `1/√v̂` is already coordinate-adaptive. Net effect: per-coord absorption or over-weight on low-variance coords. Structurally different from body-Muon Nesterov which shapes spectral structure post-NS.
+  2. **Aux is structurally insensitive to update-rule changes.** This is the 10th aux family NULL (#545 AdaBelief, #575 NadamW-old, #585 AdEMAMix, #578 AMSGrad, #583 Adamax, #609 LAMB, #604 Lion, #617 Lookahead, #623 Schedule-Free, #698 NAdam-aux). Saturation pattern: only schedule machinery moves aux outcomes.
+  3. **β₁ ∈ [0.8, 0.9] gives identical terminals.** Rules out the "try harder β₁ retuning" follow-up. The Nesterov-aux effect is structural-NULL, not tuning-NULL.
+
+- **Excellent terminal write-up:** pre-flight numerical verification (max dev 2.4e-7 from analytical), bitwise parity with baseline when flag is off, AuxAdamW subclass with clean fallthrough. Production-quality optimizer code.
+
+- **Conclusion:** Cross-family Nesterov on aux CLOSED. Aux AdamW update-rule family approaching exhaustive saturation.
+
 ## 2026-05-22 00:55 UTC — PR #697 CLOSED: QHM (Quasi-Hyperbolic Momentum) on body-Muon — NULL/NULL, 60th axis (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/qhm-body-muon`
