@@ -52,6 +52,12 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--body_muon_attn_cooldown_mult", type=float, default=1.0,
+                        help="Additional multiplier on attn-type body-Muon LR during cooldown only "
+                             "(progress >= 1 - cooldown_frac). 1.0 = baseline.")
+    parser.add_argument("--body_muon_mlp_cooldown_mult", type=float, default=1.0,
+                        help="Additional multiplier on mlp-type body-Muon LR during cooldown only. "
+                             "1.0 = baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -524,8 +530,13 @@ def pmuon_update(
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], dict):
+            for group in params:
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
                         ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
@@ -704,6 +715,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "body_muon_attn_cooldown_mult": args.body_muon_attn_cooldown_mult,
+            "body_muon_mlp_cooldown_mult": args.body_muon_mlp_cooldown_mult,
         },
     )
 
@@ -739,9 +752,38 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
-    optimizer2.param_groups[0]["name"] = "muon_blocks"
+    # PR #745: partition body-Muon params by block_type (attn vs mlp) so the cooldown
+    # phase can apply asymmetric per-type LR multipliers via args.body_muon_*_cooldown_mult.
+    attn_body_params, mlp_body_params, body_other_params = [], [], []
+    for name, p in model.blocks.named_parameters():
+        if p.ndim < 2:
+            continue
+        if ".attn." in name:
+            attn_body_params.append((name, p))
+        elif ".mlp." in name:
+            mlp_body_params.append((name, p))
+        else:
+            body_other_params.append((name, p))
+    assert not body_other_params, (
+        f"body-Muon: {len(body_other_params)} 2D+ param(s) not classified attn/mlp: "
+        f"{[n for n, _ in body_other_params][:5]}"
+    )
+    all_body_count = sum(1 for p in model.blocks.parameters() if p.ndim >= 2)
+    assert len(attn_body_params) + len(mlp_body_params) == all_body_count, (
+        f"body-Muon partition mismatch: attn={len(attn_body_params)} + mlp={len(mlp_body_params)} "
+        f"!= total={all_body_count}"
+    )
+    if dist.get_rank() == 0 and trial_idx == 0:
+        attn_total = sum(p.numel() for _, p in attn_body_params)
+        mlp_total = sum(p.numel() for _, p in mlp_body_params)
+        print0(f"body-Muon partition: attn={len(attn_body_params)} tensors / {attn_total:,} params; "
+               f"mlp={len(mlp_body_params)} tensors / {mlp_total:,} params", console=True)
+        print0(f"per-type cooldown multipliers: attn={args.body_muon_attn_cooldown_mult}, "
+               f"mlp={args.body_muon_mlp_cooldown_mult}", console=True)
+    optimizer2 = Muon([
+        dict(params=[p for _, p in attn_body_params], name="muon_blocks_attn", block_type="attn"),
+        dict(params=[p for _, p in mlp_body_params], name="muon_blocks_mlp", block_type="mlp"),
+    ], lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -756,13 +798,23 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta = 1.0
             cooldown_progress = 0.0
+            in_cooldown = False
         else:
             cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
             w = 1.0 - cooldown_progress  # equivalent to (1 - progress) / cooldown_frac
             eta = w ** COOLDOWN_POWER
+            in_cooldown = True
+        # PR #745: apply per-type cooldown LR multiplier ONLY during cooldown phase
+        # (stable phase tracks baseline exactly).
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
+                if in_cooldown:
+                    bt = group.get("block_type")
+                    if bt == "attn":
+                        group["lr"] *= args.body_muon_attn_cooldown_mult
+                    elif bt == "mlp":
+                        group["lr"] *= args.body_muon_mlp_cooldown_mult
         return progress, cooldown_progress, eta
 
 
