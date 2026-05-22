@@ -1,5 +1,44 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 19:53 UTC — Cycle 71 mid-99: #794 CLOSED (38th floor axis — composite-late-boost AdamW saturation ceiling) + frieren → #833 MUON_LR_LATE_BOOST + new internal-axis sweeps in flight
+
+### #794 frieren composite-late-boost — CLOSED as 38th floor axis
+
+W&B terminal `mx3wejbm` (Arm B 2.0×/2.0×):
+
+| run | arm | val | ffs | hold gate | result |
+|---|---|---:|---:|---|---|
+| `mvkam4g5` | Arm A 1.5×/1.5× n=1 | 3.26890 | 3025 | val PASS, ffs MISS | close-miss |
+| `ptshctmv` | Arm A 1.5×/1.5× n=2 seed | 3.27189 | 3050 | val MISS, ffs MISS | miss |
+| n=2 mean | Arm A | 3.27040 | 3037.5 | MISS bilateral | floor cluster |
+| `mx3wejbm` | **Arm B 2.0×/2.0× n=1** | **3.26941** | **3025** | val PASS, ffs MISS by 25 | **close-miss** |
+
+Arm B holds val=3.26941 (2nd-best single-seed in 192+ PRs, behind only thorfinn m7582er0 at 3.26861). But per decision tree, ffs=3025 miss triggers close-miss closure. The axis is saturated: 1.5×→2.0× moved val by Δ~−0.001 (within seed noise σ~0.005), confirming AdamW-tail-undertraining mechanism ceiling at ~3.269.
+
+**Key mechanistic findings from #749 / #759 / #794 composite:**
+- AdamW-side late-boost (+0.002-0.003 val improvement) is real but capped
+- The ffs=3025 rate-limiter is upstream of AdamW — likely Muon-side dynamics or schedule shape
+- No destructive interference at 2.0×/2.0× — model absorbed double boost magnitude cleanly
+
+### #833 frieren — MUON_LR_LATE_BOOST sweep (NEW ASSIGNMENT)
+
+Frieren's own follow-up from #794: Muon-side cooldown-tail boost, symmetric to AdamW-side. Arms: MUON_LR_LATE_BOOST=1.5 (Arm A) and 2.0× (Arm B), MUON_LATE_BOOST_FRAC=0.075. Tests whether Muon under-trains in cooldown tail like AdamW, or is already at LR-Goldilocks.
+
+### Floor-break n=2 confirms in flight (MID-99 SNAPSHOT)
+
+| student | run | mechanism | val n=1 | ffs n=1 | n=2 status |
+|---|---|---|---:|---:|---|
+| thorfinn | `j3zeph7z` | ATTN_SOAP_DISABLED | 3.26861 | 3025 | running step ~125 (launched ~19:00 UTC) |
+| fern | `288hsmgv` | CONTRA_MUON=0+NS5=10 | 3.26956 | 3025 | running step ~2250 |
+
+### Other in-flight
+
+- askeladd `nhswq1cf` MLP_SOAP_DISABLED #819: step 2875 val=3.302 → very close to terminal (~300 steps), likely close-miss
+- nezuko `2yvwpst9` NORMUON_BETA2=0.99 #828 Arm A: step 250 val=4.04 healthy (~3hr)
+- alphonse `qgl3ueem` TARGET_UW=0.50 #830 Arm A: just launched (disabled-check val=4.087 passed, nudge sent 19:28 UTC)
+
+---
+
 ## 2026-05-22 18:00 UTC — Cycle 71 mid-98: SECOND ADVISOR CALIBRATION ERROR (single-value ffs) + #806 fern audo3lgl CONFIRMED VAL-SIDE FLOOR BREAK terminal val=3.26956 ffs=3025 + dual-mechanism floor convergence
 
 ### audo3lgl floor break — fern CONTRA_MUON=0 NS5_ITERS=10 (PR #806 Arm B terminal)
