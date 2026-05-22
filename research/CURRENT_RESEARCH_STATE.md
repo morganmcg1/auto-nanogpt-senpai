@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 11:12 UTC
+- **Date:** 2026-05-22 13:27 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -388,19 +388,23 @@ Single-seed 4-arm result (drift gate A PASS at +0.00030):
 
 **Follow-up**: askeladd assigned **#755 LARS-style trust-ratio LR scaling for body Muon** — per-PARAM runtime LR adaptation via `tr = ‖θ‖_F / (‖update‖_F + ε)` clamped. Mechanism-distinct from all closed Muon momentum modifications AND all bucket-based asymmetry experiments. Distinct from #628 (cos-EMA direction-agreement, NULL) which used DIRECTION not MAGNITUDE ratio. Composes orthogonally with #579 per-block-TYPE LR (MERGED) — both layers multiplicative.
 
-### 🔄 askeladd #755 — LARS-style trust-ratio LR scaling for body Muon [assigned 04:59 UTC]
+### ✅ askeladd #755 — LARS-style trust-ratio LR scaling for body Muon — CLOSED 13:13 UTC productive-NULL (68th cycle)
 
 **Branch:** `g1r4-askeladd/lars-trust-ratio-muon`
-**Hypothesis**: Per-matrix runtime LR adaptation via trust ratio `tr = ‖θ‖_F / (‖update‖_F + ε)`. Apply `clamp(tr, lo, hi)` to each body Muon matrix's NS-orthogonalized update. After NS, `‖update_NS‖_F ≈ sqrt(rank) ≈ 27.7` is approximately constant across body matrices, so trust ratio variation comes from `‖θ‖_F` which **grows during training at different rates per matrix**. Matrices that gain weight norm fastest get largest LR multiplier — implicit self-correcting LR adaptation. Composes multiplicatively with #579 per-block-TYPE LR.
+**Result**: B (moderate clamp 0.5-2.0) Δ_vs_A=−0.00056 sub-threshold NULL. C (wide clamp 0.25-4.0) catastrophic REGRESSION (+0.01022). D (EMA β=0.9) essentially no-op (−0.00002). **3rd update-magnitude LR-adaptation closure**: #628 (cos-EMA direction) + #688 (ratio-EMA) + #755 (LARS). NS normalizes ‖update‖_F ≈ const per matrix; trust ratio variation from ‖θ‖_F growth is small/uniform at GPT-117M scale. Per-block-TYPE LR #579 already captured all per-matrix asymmetry headroom.
+**Family closed**: Update-side per-matrix LR scaling (direction/magnitude/EMA) mechanism-empty post-#579. **DEPRIORITIZED**.
+**Follow-up**: askeladd assigned **#801 Position-aware CE — per-position loss weighting (4-arm)** — fresh loss-side gradient redistribution. Distinct from focal loss (#791, per-example confidence), label smoothing (#446 NEG), z-loss (#441 NEG). First test on position-index axis.
 
-| Arm | LARS_ENABLE | LO | HI | EMA β | Description |
-|---|:---:|:---:|:---:|:---:|---|
-| A (ctrl) | 0 | — | — | — | Bit-identical merged baseline |
-| B | 1 | 0.5 | 2.0 | 0.0 | LARS-vanilla, moderate range |
-| C | 1 | 0.25 | 4.0 | 0.0 | LARS-vanilla, wider range |
-| D | 1 | 0.5 | 2.0 | 0.9 | LARS-EMA — anti-noise variant |
+### 🔄 askeladd #801 — Position-aware CE: per-position loss weighting [assigned 13:27 UTC]
 
-**Why fresh and mechanism-distinct**: per-PARAM runtime adaptation, not predetermined bucket (vs #579/#710/#753); magnitude ratio not direction-agreement (vs #628 NULL); update-side not gradient-side (vs #408 AGC NULL paired-pod). LARS-on-Muon not tested in 500+ scanned PRs. Implementation: ~15 LOC. ETA ~7.3h.
+**Branch:** `g1r4-askeladd/position-weighted-ce`
+**Hypothesis**: Weight token-level CE by scalar w(t) that depends only on sequence position t ∈ 0..T-1. Normalized to mean(w)=1 to preserve total gradient magnitude. B: linear_up α=0.5 (late upweight, w: 0.8→1.2). C: linear_down α=0.5 (early upweight, w: 1.2→0.8). D: linear_down α=1.5 (strong early upweight, w: 1.43→0.57). Mechanism-distinct from #791 focal (per-example confidence), #446 label smoothing (target distribution), #441 z-loss (logit penalty).
+| Arm | SHAPE | ALPHA | w at t=0 | w at t=1023 |
+|:---:|:---:|:---:|:---:|:---:|
+| A | uniform | 0.0 | 1.00 | 1.00 |
+| B | linear_up | 0.5 | 0.80 | 1.20 |
+| C | linear_down | 0.5 | 1.20 | 0.80 |
+| D | linear_down | 1.5 | 1.43 | 0.57 |
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 

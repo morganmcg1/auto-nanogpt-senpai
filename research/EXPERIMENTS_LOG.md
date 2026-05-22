@@ -3,6 +3,30 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 13:13 UTC — PR #755: LARS-style trust-ratio LR scaling for body Muon (askeladd) — CLOSED productive-NULL (68th cycle)
+
+- Branch: `g1r4-askeladd/lars-trust-ratio-muon`
+- Hypothesis: Per-matrix runtime LR adaptation via LARS trust ratio `tr = ‖θ‖_F / (‖update‖_F + ε)`. Apply LR multiplier `clamp(tr, lo, hi)` to each body Muon NS-orthogonalized update. Mechanistically distinct from #628 cos-EMA trust-region (direction axis) — LARS uses magnitude ratio.
+
+**4-arm screening results:**
+
+| Arm | LARS | LO/HI | EMA β | val/loss | Δ vs baseline (3.27070) | Δ vs A (3.27147) | W&B |
+|---|:---:|:---:|:---:|---|---|---|---|
+| A (ctrl) | 0 | — | — | **3.27147** | +0.00077 | — | agl7nxnr |
+| B | 1 | 0.5/2.0 | 0.0 | **3.27091** | +0.00021 | **−0.00056** | njbssx8t |
+| C | 1 | 0.25/4.0 | 0.0 | **3.28169** | +0.01099 | **+0.01022** | knqnbh7w |
+| D | 1 | 0.5/2.0 | 0.9 | **3.27145** | +0.00075 | −0.00002 | c3jovr12 |
+
+**Mechanism analysis and conclusions:**
+
+1. **Moderate clamp (B, 0.5-2.0) mechanism-neutral** (Δ_vs_A=−0.00056, sub-threshold). Per-matrix `‖θ‖_F` growth on GPT-117M is slow and roughly uniform across body Muon matrices — limited per-matrix variation to exploit.
+2. **Wide clamp (C, 0.25-4.0) catastrophic** (+0.01022 vs A). The 4× upper bound amplifies LR beyond the post-#579 optimum on matrices that gain weight norm fastest. Fights the `linear_ramp_down` NS coef schedule during cooldown.
+3. **EMA-smoothed (D, β=0.9) is essentially a no-op** (Δ_vs_A=−0.00002). EMA damps per-step trust ratio variation toward steady ≈1.0 effective multiplier.
+4. **Root cause**: NS-orthogonalization normalizes ‖update‖_F ≈ √rank ≈ 27.7 per matrix (constant). Trust ratio variation comes only from ‖θ‖_F growth, which is small/uniform at this scale. The merged per-block-TYPE LR (#579, attn=0.80×/mlp=1.20×) already captures all available per-matrix asymmetry.
+5. **3rd update-magnitude LR-adaptation closure on this stack**: #628 (cos-EMA direction, NULL) + #688 (ratio-EMA magnitude, NULL) + #755 (LARS per-matrix magnitude, NULL). Update-side per-matrix LR scaling mechanism family **DEPRIORITIZED** regardless of axis.
+
+**69th cycle note**: Baseline UNCHANGED at val=3.27070 / fs=3225.
+
 ## 2026-05-22 11:30 UTC — PR #753: Per-block-DEPTH body Muon LR asymmetry (edward) — CLOSED productive-NULL (67th cycle)
 
 - Branch: `g1r4-edward/per-depth-muon-lr`
