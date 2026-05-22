@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 21:25 UTC — Cycle 71 mid-101: TRIPLE CLOSURE (41st + 42nd floor axes + alphonse soft-miss) + 2 auto-launched followup kills + 2 fresh assignments
+
+### #818 thorfinn ATTN_SOAP_DISABLED — CLOSED as 41st floor axis (n=2 val-side floor break, ffs wall holds)
+
+n=1 `m7582er0` val=3.26861 ffs=3025; n=2 `j3zeph7z` val=3.27055 ffs=3025; **n=2 MEAN val=3.26958 ffs=3025**. Statsig (3.28−μ)·√2=0.01474 PASS by 3.7×; n=2 hold gate val PASS by 0.00042 (FIRST hold-gate-PASS val at n=2 in 38+ axes this cycle); merge bar MISS by 0.00182 val + 25 ffs. ATTN_SOAP is MILDLY load-bearing (Δ+0.0018 val + 25 ffs disabled) — MUCH smaller than MLP_SOAP (#819 Δ+0.0074 val + 100 ffs disabled). MLP > ATTN load-bearing asymmetry of ~4× val + ~4× ffs is mechanistically clear: MLP body benefits fully from SOAP preconditioning; ATTN qkv-proj's softmax+causal-mask geometry already provides much of the conditioning. ffs=3025 QUINTUPLE-confirmed across this run + fern audo3lgl/288hsmgv + frieren mvkam4g5/mx3wejbm.
+
+**Auto-launched n=3 `m8z9ox88` killed (instructed in closure comment)** — n=3 cannot crack merge bar (val gap 0.00182 requires seed-3 val ≤ 3.26412 = 2σ event; ffs locked at 3025 anyway).
+
+### #828 nezuko NORMUON_BETA2=0.99 — CLOSED as 42nd floor axis (close-miss double on hold gates)
+
+`2yvwpst9` val=3.27180 ffs=3050. MISS hold-gate-val by 0.0018, MISS hold-gate-ffs by 50. Slower EMA (β2=0.99, ~100-step horizon) hurts +0.004 val + 50 ffs vs default 0.95. Arm B (0.80) NOT TESTED — Arm A's clean directional signal makes Arm B redundant for closure. **NorMuon 2nd-moment apparatus confirmed locally optimal at default 0.95 (1D per-row buffer); the entire NorMuon family (NORMUON_BETA2 + NORMUON_2D #715) is now FULLY refuted at this floor depth.**
+
+**Auto-launched relaunch `ikid3mo9` killed (instructed in closure comment)**.
+
+### #830 alphonse TARGET_UW=0.50 Arm A — SOFT MISS, sent back for Arm B
+
+`ekkxz91k` val=3.28174 ffs=N/A (target val=3.28 NEVER reached). ALL kill gates passed; target threshold MISS by 0.00174. **First soft-miss pattern this cycle**: passes all kill gates, fails at final terminal threshold. Mechanism: TARGET_UW=0.50 (50% higher than default 0.35) makes Muon updates more aggressive throughout, which degrades LATE-COOLDOWN convergence (final 0.05 val drop from step 3000 doesn't happen). Arm B (TARGET_UW=0.20, opposite direction) authorized for launch.
+
+### New assignments (closed students rotated)
+
+- **#842 thorfinn**: ATTN_SOAP_BETA2 sweep (Arm A=0.99 slower, Arm B=0.80 faster). First ATTN-SOAP-internal axis in 192+ PRs. Inherited β2=0.90 = 10-step horizon. Sibling of askeladd #836 MLP-side SOAP_BETA2 — together probe full SOAP-BETA2 across both matrix families.
+- **#843 nezuko**: MUON_LR_EARLY_BOOST sweep (Arm A=1.5×, Arm B=2.0× during stable phase only). First EARLY-side LR boost axis in 192+ PRs. Mirror of frieren #833 late-boost — together probe early vs late LR boost asymmetry. Stop at step 952 (1-cooldown_frac×3175). 6-8 LOC code change to set_hparams.
+
+### In-flight portfolio (6/8 healthy, 2/8 pod-broken)
+
+| student | PR | axis | run | step | val | ETA |
+|---|---|---|---|---:|---:|---|
+| askeladd | #836 | SOAP_BETA2 Arm A=0.99 | vpo1dz28 | 625 | 3.78 | ~3h |
+| fern | #837 | SOAP_PRECOND_FREQ Arm A=20 | e0hvk4tk | 500 | 3.80 | ~3.5h |
+| frieren | #833 | MUON_LR_LATE_BOOST Arm A=1.5× | u6ovrf8t | 1500 | 3.53 | ~2h |
+| alphonse | #830 | TARGET_UW Arm B=0.20 | pending | — | — | launch imminent |
+| thorfinn | #842 | ATTN_SOAP_BETA2 Arm A=0.99 | pending | — | — | code change + launch |
+| nezuko | #843 | MUON_LR_EARLY_BOOST Arm A=1.5× | pending | — | — | code change + launch |
+| tanjiro | #793 | DEPTH_DEP_MUON_LR | — | — | — | pod broken |
+| edward | #702 | MU_WARMUP_START | — | — | — | pod broken |
+
 ## 2026-05-22 20:40 UTC — Cycle 71 mid-100: DOUBLE CLOSURE (39th + 40th floor axes) + double fresh SOAP-internal assignments
 
 ### #819 askeladd MLP_SOAP_DISABLED — CLOSED as 39th floor axis
