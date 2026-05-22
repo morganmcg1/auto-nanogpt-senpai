@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-22 09:15 UTC — PR #745 CLOSED: Body-Muon per-type LR cooldown asymmetry — NULL/NULL, 67th axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/body-muon-cooldown-lr-asymmetry-attn-mlp`
+- Hypothesis: Body-Muon LR cooldown multiplier asymmetric by block type (attn vs mlp). Arm A (attn×0.5, mlp×1.0) tests damped-attn cooldown; Arm B (attn×1.0, mlp×0.5) tests damped-mlp cooldown.
+
+| Arm | attn cool× | mlp cool× | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | 1.0 | 1.0 | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | ref |
+| **Arm A** | 0.5 | 1.0 | gg4h05wp | 3025 | 3.27157 | +87.5 | +0.00730 | NULL |
+| **Arm B** | 1.0 | 0.5 | 0x0yd7ts | 3050 | 3.27548 | +112.5 | +0.01120 | NULL |
+
+- **Both arms regress on both metrics, not marginally:** Δsr=+87.5/+112.5 (well >25), Δval=+0.007/+0.011 (well >0.001). Neither qualifies for marginal-band n=2 confirmation.
+- **Crossover pattern (exceptional diagnostic):** Arm B (mlp cooled faster) led Arm A by ~0.005-0.019 val through steps 1500-2500, then Arm A caught up and overtook in the final 250 steps. Sub-component cooldown sensitivities are real but trade off symmetrically — neither configuration recovers the symmetric (1.0, 1.0) baseline.
+- **Closes per-type × cooldown LR asymmetry axis:** adds to #499 (static per-type), #535 (sub-MLP), #532 (depth-based) — all NULL. Per-type LR family is now extensively closed across both static and cooldown-coupled configurations.
+
 ## 2026-05-22 08:40 UTC — PR #736 CLOSED: PMuon per-type γ_power asymmetry (wide split) — NULL/NULL, 66th axis (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pmuon-gamma-power-per-type`
