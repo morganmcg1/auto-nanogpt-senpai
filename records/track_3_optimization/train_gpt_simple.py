@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -466,6 +467,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# Embed-only cosine LR warmup (PR #728): ramps the AdamW embed group LR from
+# EMBED_LR_WARMUP_START_FRAC -> 1.0 over the first EMBED_LR_WARMUP_STEPS steps,
+# applied multiplicatively on top of eta. Default 0 disables (byte-identical to baseline).
+EMBED_LR_WARMUP_STEPS = int(os.environ.get("EMBED_LR_WARMUP_STEPS", "0"))
+EMBED_LR_WARMUP_START_FRAC = float(os.environ.get("EMBED_LR_WARMUP_START_FRAC", "0.1"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -866,6 +872,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/embed_lr_warmup_steps": EMBED_LR_WARMUP_STEPS,
+            "optimizer/embed_lr_warmup_start_frac": EMBED_LR_WARMUP_START_FRAC,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -936,6 +944,13 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
                     group["mu"] = cur_mu
+                if EMBED_LR_WARMUP_STEPS > 0 and group.get("name") == "adam_embed":
+                    if step < EMBED_LR_WARMUP_STEPS:
+                        warmup_frac = step / EMBED_LR_WARMUP_STEPS
+                        cosine_factor = EMBED_LR_WARMUP_START_FRAC + \
+                                        (1.0 - EMBED_LR_WARMUP_START_FRAC) * \
+                                        0.5 * (1.0 - math.cos(math.pi * warmup_frac))
+                        group["lr"] = group["lr"] * cosine_factor
 
 
     ########################################
