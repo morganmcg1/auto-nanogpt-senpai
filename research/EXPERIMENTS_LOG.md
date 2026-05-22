@@ -1,3 +1,52 @@
+## 2026-05-22 17:00 UTC — PR #809 ASSIGNED (fern): H66 Soft-Muon warm-blend α strength sweep (0.70/0.80/0.90)
+
+- Branch: `g1r3-fern/warm-blend-strength-sweep`
+- Hypothesis: PR #775 closed with arm_c warm-blend (α_start=0.85 over warm_frac=0.30) at informal WIN val=3.27184 (−0.00160 vs same-cell ctrl) but NOT beating baseline 3.27119. Sweep α_start ∈ {0.70, 0.80, 0.90} to find the optimum warm-blend strength, with cooldown phase held at α=1.0 throughout (cooldown-blend direction closed NEG in #775).
+- Mechanism: NS5 orthogonalization on near-random-init weights (warm phase) is poorly conditioned; blending raw gradient at α<1 reduces spectral overreach. cos_sim trajectory (0.42 warm → 0.61 cooldown) from #744 confirms warmup is where blend has most rotational effect.
+- Arms (4, n=1, 3325 steps):
+  - arm_a (ctrl): `--muonh_soft_alpha_schedule 0` — sanity
+  - arm_b (α_start=0.80, PRIMARY): `--muonh_soft_alpha_start 0.80 --muonh_soft_alpha_warm_frac 0.30`
+  - arm_c (α_start=0.70, aggressive): `--muonh_soft_alpha_start 0.70 --muonh_soft_alpha_warm_frac 0.30`
+  - arm_d (α_start=0.90, mild, #775 arm_c strength replication): `--muonh_soft_alpha_start 0.90 --muonh_soft_alpha_warm_frac 0.30`
+- Note: Since PR #775 was CLOSED (not merged), student must re-apply the schedule infrastructure to the new branch.
+- Kill gate: if PRIMARY arm_b NEG by Δ ≥ +0.0015, skip arm_c (likely worse, being more aggressive).
+- W&B group `h66_soft_muon_warm_blend_strength`. Direct follow-up from fern's own suggestion #2 in PR #775 closure.
+
+---
+
+## 2026-05-22 16:55 UTC — PR #775 CLOSED NULL (fern): H59 Soft-Muon α SCHEDULE — cooldown vs warm direction asymmetry
+
+- Branch: `g1r3-fern/soft-muon-alpha-schedule`
+- Hypothesis: Schedule Soft-Muon blend coefficient α across training (ramp in cooldown vs ramp in warmup) to test WHEN constant-α effect originates. Follow-up to PR #744 (constant α∈{0.85, 0.95} flat-NULL).
+- Arms (3, n=1, 3325 steps):
+
+| arm | schedule | val/loss | Δ vs arm_a | ffs | run_id |
+|---|---|---|---|---|---|
+| arm_a (ctrl α=1.0 const) | — | 3.27344 | — | 3150 | `ur80gxxg` |
+| arm_b (cooldown-blend 1.0→0.85) | end ramp over cooldown | 3.27549 | **+0.00205 (+3σ NEG)** | 3175 | `wjucgeas` |
+| arm_c (warm-blend 0.85→1.0) | start ramp warm_frac=0.30 | **3.27184** | **−0.00160 (INFORMAL WIN)** | 3125 | `t5ikmu6m` |
+
+- **Verdict: PRODUCTIVE-NULL. Does NOT beat baseline 3.27119 (+0.00065 above)**. arm_c informal WIN at single-point edge of σ band (n=1, need replication).
+- **Mechanism findings (load-bearing for programme)**:
+  - Rule 1: "Cooldown demands sharp updates" (from #689) extends to NS5 path — softening NS5 in cooldown injects isotropic noise at precisely the phase when orthogonalization is most well-conditioned (cos_sim ~0.61). NEG is mechanistically STRONG.
+  - Rule 2: Warm phase admits mild NS5-softening (cos_sim ~0.42, weights near-random, spectral overreach reduced by blend). Marginal informal WIN suggests warm-blend has a real but weak/optimum-not-at-α=0.85 effect.
+- **Soft-Muon axis sub-directions opened**:
+  - #744 constant-α: CLOSED NULL
+  - #775 cooldown-blend direction: CLOSED NEG
+  - #775 warm-blend direction: informally productive, strength unoptimized → PR #809 H66 follow-up
+- Routing: fern → PR #809 H66 warm-blend strength sweep.
+
+---
+
+## 2026-05-22 16:50 UTC — PR #782 STATUS (alphonse): H60 Outer Nesterov vs heavy-ball Polyak — arm_b strongly NEG, arm_a on track
+
+- Branch: `g1r3-alphonse/outer-nesterov-vs-polyak`
+- Status: ACTIVE. arm_b Polyak `gry25ydd` TERMINAL: val=3.2790 (+0.0079 above baseline, ~9σ NEG). arm_a nesterov ctrl `9ewxaej9` running at step 2790/3325 mid-cooldown (~expected final ~3.273).
+- **Pre-verdict**: Nesterov outer STRONGLY better than heavy-ball Polyak in MuLoCo. H60 is almost certainly CLOSED NEG for Polyak; Nesterov outer confirmed load-bearing.
+- Advisor status comment posted at #issuecomment-4519394561.
+
+---
+
 ## 2026-05-22 16:15 UTC — PR #807 ASSIGNED (thorfinn): H65 MuonH-SI per-block-type LR split (attn vs mlp)
 
 - Branch: `g1r3-thorfinn/per-type-muonh-lr`
