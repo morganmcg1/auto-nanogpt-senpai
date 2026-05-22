@@ -825,9 +825,12 @@ for trial_idx in range(args.num_trials):
     # post-warmup params). After warmup, EMA averaging begins. If
     # --ema_beta_target is set, the EMA β is dynamically ramped from
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
+    # Flat list of all body-Muon matrix params across param groups so EMA covers
+    # every PMuon-managed weight even when per-type γ splits introduce >1 group.
+    body_muon_params = [p for group in optimizer2.param_groups for p in group["params"]]
     ema_params = None
     if args.ema_beta > 0:
-        ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        ema_params = [p.detach().float().clone() for p in body_muon_params]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -918,14 +921,14 @@ for trial_idx in range(args.num_trials):
             # Swap in EMA weights (body-Muon matrix params only) for the eval pass.
             train_bufs = None
             if ema_params is not None:
-                train_bufs = [p.detach().clone() for p in optimizer2.param_groups[0]["params"]]
+                train_bufs = [p.detach().clone() for p in body_muon_params]
                 # Compute Frobenius distance ||ema - live|| across all body-Muon params.
                 sq_sum = 0.0
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     diff = (ema_p - p.detach().float())
                     sq_sum += float(diff.square().sum().item())
                 buffer_frob_dist = sq_sum ** 0.5
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     p.data.copy_(ema_p.to(p.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -937,7 +940,7 @@ for trial_idx in range(args.num_trials):
             val_loss_float = float(val_loss.item())
             # Restore train weights immediately after eval so subsequent backward passes use them.
             if train_bufs is not None:
-                for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
+                for train_p, p in zip(train_bufs, body_muon_params):
                     p.data.copy_(train_p)
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
@@ -1042,7 +1045,7 @@ for trial_idx in range(args.num_trials):
         ema_lr_mult_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
@@ -1050,7 +1053,7 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                for ema_p, p in zip(ema_params, body_muon_params):
                     ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
