@@ -3,6 +3,25 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~16:45 UTC — PR #773: fern Signal-driven adaptive Muon mu (grad cosine similarity) — **CLOSED clean-NEG (mechanism falsified)**
+
+- Branch: `g1r5-fern/adaptive-mu-cossim`
+- Student: g1r5-fern
+- Hypothesis: Modulate Muon's Nesterov momentum coefficient per-step using the cosine similarity between consecutive gradient tensors: `mu_t = base_mu + α × cos(g_t, g_{t-1})`. High cos-sim → high mu (amplify persistent signal); low cos-sim → low mu (dampen noise).
+- **Results (n=1 each, group `g1r5-fern/adaptive-mu-cossim`):**
+
+| Cell | α | run_id | val/loss | ffs | Δ vs baseline μ (3.261221) |
+|:----:|:-:|:------:|:--------:|:---:|:--------------------------:|
+| **A** | **0.0 (ctrl)** | `810dkuev` | **3.26181** | 3025 | +0.000589 (+0.99σ) |
+| B | 0.02 | `09f013uq` | 3.26474 | 3075 | +0.003519 (+5.93σ) |
+| C | 0.05 (primary) | `q3dsodk4` | 3.26887 | 3125 | +0.007649 (+12.9σ) |
+| D | 0.10 (large) | `ricw2si1` | 3.27568 | 3200 | +0.014459 (+24.4σ) |
+| E | −0.05 (falsifier) | `y698zbrj` | 3.26920 | 3100 | +0.007979 (+13.5σ) |
+
+- **Mechanism falsified:** Both signs of α degrade val/loss monotonically vs control. Cell E (−α) is nearly identical to Cell C (+α) at |α|=0.05 (+0.00739 vs +0.00706). The sign-falsifier pattern definitively kills the directional-coherence story.
+- **Why it failed:** After SOAP eigenbasis rotation, residual cos(g_t, g_{t-1}) reflects high-frequency noise rather than coherent low-frequency signal. Static mu=0.95 is a well-tuned fixed point for this benchmark; any unbiased noise perturbation is a strict regression in expectation. Alpha=0.10 (range [0.85, 0.99]) reaching mu=0.85 in low-coherence regions explains Cell D's 2× degradation vs Cell C.
+- **Decision:** CLOSED clean-NEG. Pre-#699 codebase (per poll #379 advisory). Mechanism fully falsified by sign-falsifier Cell E. Adaptive-mu-from-gradient-cosine axis closed.
+
 ## 2026-05-22 ~15:05 UTC — PR #756: tanjiro Gradient Centralization on Muon body weights (5-cell) — **CLOSED clean-NEG (mechanism note kept)**
 
 - Branch: `g1r5-tanjiro/grad-centralization-muon`
