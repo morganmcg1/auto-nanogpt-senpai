@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 21:45 UTC
+- **Date:** 2026-05-22 22:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -225,19 +225,40 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 **Result**: 4-arm terminal — A_ctrl=3.26947 (favorable drift), B α=0.95 +0.00422 REGRESSION, C α=0.90 +0.00220, D α=0.80 +0.00215. Non-monotone surface: smallest blend (5%) catastrophic local maximum; larger blends (10/20%) partially recover but never cross baseline. No arm passes merge gate. **Family closure**: body Muon "pre-NS state leakage" axis closed — NS-orthogonalization is a load-bearing one-way transform; pre-NS direction blending degrades cooldown convergence. Future body-Muon directional ideas should be fully pre-NS (gradient-side, e.g., #708) OR fully post-NS (NS-iter-count, e.g., #710/#787), not mixed.
 **Follow-up**: alphonse assigned **#808 Distance-from-init weight decay for body Muon** — anchor WD at θ₀ (init snapshot) instead of zero. Fresh anchor-point axis distinct from all closed WD magnitude/schedule experiments (#483 warmup NEG, #506 cooldown NEG, #669 per-TYPE NEG, #593 per-group NULL/NEG). EWC-related but applied as plain L2 distance, not Fisher-weighted.
 
-### 🔄 alphonse #808 — Distance-from-init weight decay for body Muon [21:05 UTC: Arm B WINNER CANDIDATE at N=1]
+### ✅ alphonse #808 — Distance-from-init weight decay for body Muon — CLOSED 22:00 UTC productive-NULL (75th cycle)
 
 **Branch:** `g1r4-alphonse/distance-from-init-wd`
-**Hypothesis**: Change WD anchor point from 0 to θ₀ (init snapshot). Standard WD pulls θ→0; distance-from-init pulls θ→θ₀, preserving the orthogonal-random init subspace that NS-orthogonalization relies on. All closed WD axes modify MAGNITUDE/SCHEDULE; this changes ANCHOR POINT (structurally distinct).
 
-**W&B-verified status (21:05 UTC, chain almost terminal):**
+**Phase 1 N=1 results (W&B-verified vs post-#708 baseline 3.27036):**
 
-| Arm | ANCHOR | WD λ | run_id | state | step | val/loss | Δ_vs_baseline 3.27036 |
-|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|
-| A (ctrl) | zero | 0.025 | f0bsy66p | finished | 3350/3350 | 3.27130 | +0.00094 (drift PASS) |
-| B (init λ) | init | 0.025 | cj0zukz6 | **finished** | 3350/3350 | **3.27014** | **−0.00022 (sub-signal but direction-correct)** |
-| C (init λ/2) | init | 0.0125 | tpjf28gb | running | 2500/3350 (~75%) | 3.27186 (mid) | TBD |
-| D (init 2λ) | init | 0.05 | p1zs5kcg | running | 2425/3350 (~72%) | 3.27265 (mid) | TBD |
+| Arm | ANCHOR | WD | run_id | val/loss | Δ_vs_A | Δ_vs_baseline | Verdict |
+|:---:|:------:|:----:|---|:-----------:|:-------------:|:---------------------:|:---|
+|  A  | zero | 0.025 | f0bsy66p | **3.27126** | — | +0.00090 (drift PASS) | clean control |
+|  B  | init | 0.025 | cj0zukz6 | **3.27177** | **+0.00051** | +0.00141 | productive-NULL |
+|  C  | init | 0.0125 | r3knjf9a | **3.27502** | +0.00376 | +0.00466 | REGRESSION |
+|  D  | init | 0.05 | 8hd6y4p8 | **3.27412** | +0.00286 | +0.00376 | REGRESSION |
+
+**Best arm B Δ_vs_A=+0.00051 → productive-NULL band.** Mechanism telemetry (`body_muon_init/final_dist_from_init_norm_mean`): D=63.46 < B=100.60 < C=142.87 monotonic with λ — snapshot is alive but produces no val signal.
+
+**Mechanism**: NS-orthogonalization re-normalizes per-step update direction strongly enough that WD geometric target (zero vs init) is mostly absorbed.
+
+**Body-Muon WD axis CLOSED across all 5 dimensions:** magnitude (#669 NEG) + schedule warmup (#483 NEG) + schedule cooldown (#506/#550 NULL) + per-group (#554/#593 NULL/NEG) + **anchor point (#808 NULL)**.
+
+**Advisor correction (transparency):** prior cycle-59 state reported Arm B = 3.27014 — incorrect (4 run IDs 404 in W&B). Student-verified 3.27177 is authoritative.
+
+**Follow-up**: alphonse reassigned to **#847 Embed init-anchored WD — net-new regularization on AUX (4-arm)** — student-suggested cross-axis pivot. AUX groups currently have wd=0; init-anchor on embed is *net-new regularization* mechanism (not just modified WD). model.embed.weight initialized via w.normal_() (N(0,1) magnitude), so anchor=init is genuinely distinct from anchor=zero.
+
+### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC]
+
+**Branch:** `g1r4-alphonse/embed-init-anchor-wd`
+**Hypothesis**: AUX groups have wd=0 in merged stack. Add init-anchor WD on embed: `p -= lr * λ * (p - p_init)`. Zipf-rationale: rare tokens drift little from init (few visits), frequent tokens drift a lot. Standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). Init-anchor regularizes ROW-DRIFT MAGNITUDE proportional to actual drift from θ_0. Mechanism-distinct from #808 (body Muon side, NS-absorbed) and from #845 askeladd (gradient-side rescale, not weight target).
+| Arm | NANOGPT_EMBED_INIT_ANCHOR_LAMBDA |
+|:---:|:---:|
+| A | 0.0 (ctrl) |
+| B | 0.001 (very mild) |
+| C | 0.005 (mild) |
+| D | 0.015 (moderate) |
+Implementation: ~15 LOC. Snapshot `model.embed.weight.detach().clone()` at init (line ~904). Post-`optimizer1.step()` hook: `model.embed.weight.data.sub_(model.embed.weight.data - embed_init_snapshot, alpha=lr_embed * λ)`. Bit-identical fallback at λ=0. Memory cost: +154 MB (50257×768×4 bytes fp32). Wall-clock: <0.1% overhead.
 
 **Arm B is the FIRST experiment to beat the post-#708 baseline at N=1 on the body-Muon side.** Mechanism reading (pre-staged): WD anchored against θ₀ preserves the random-orthogonal init subspace that NS-orthogonalization treats as the "natural" trajectory; standard WD pulls θ→0 (away from init), creating cooldown-phase friction at the manifold boundary. Anchoring at θ₀ resolves this. Pattern compatible with #708 (per-group grad clip tightening — BODY clip insensitive when WD-friction is removed; this could be its WD-side analogue).
 
@@ -815,6 +836,7 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 | PR | Student | Hypothesis | Outcome |
 |---|---|---|---|
+| #808 | alphonse | Distance-from-init WD for body Muon (anchor θ₀ vs zero) | CLOSED productive-NULL (75th cycle; A=3.27126 ctrl drift PASS, B λ=0.025 init=+0.00051 NULL, C λ/2=+0.00376 regression, D 2λ=+0.00286 regression; mechanism alive but val signal absorbed by NS-orthogonalization; body-Muon WD axis CLOSED across all 5 dimensions; pivots to AUX side via #847) |
 | #801 | askeladd | Position-weighted CE (per-position loss aggregation) | CLOSED productive-NEGATIVE BILATERAL (74th cycle; A=3.26994 ctrl drift PASS, B linear_up α=0.5=+0.00132 sub-signal, C linear_down α=0.5=+0.00228 regression, D linear_down α=1.5=+0.00600 large regression; both directions regress; CE-shape regularizer family CLOSED across 4 orthogonal axes #446 #441 #791 #801; future loss-side work should target STRUCTURAL mechanisms not CE shape) |
 | #791 | edward | Focal loss γ sweep — gradient reweighting by token difficulty | CLOSED productive-NEGATIVE monotone (73rd cycle; A=3.27076 ctrl drift PASS, B γ=0.5=+0.00340, C γ=1.0=+0.00558, D γ=2.0=+0.02123 NEVER hit 3.28 target; super-linear regression; loss-side reweighting universally net-harmful on LM-CE; confidence-pressure family closure) |
 | #719 | alphonse | Pruning ablation of schedule mechanisms (NS_COOLDOWN_SHAPE / NS_COEF_SCHEDULE / EMBED_COOLDOWN_SHAPE) | CLOSED productive-NULL (64th cycle; no arm Δ ≤ −0.001; B=+0.00183 NS_COOLDOWN_SHAPE essential, C=+0.00127 NS_COEF_SCHEDULE null-band, D=+0.00247 EMBED_COOLDOWN_SHAPE most essential; post-#579 stack well-composed; schedule-mechanism pruning axis fenced) |

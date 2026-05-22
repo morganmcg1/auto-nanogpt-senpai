@@ -3,6 +3,46 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 22:00 UTC — PR #808: Distance-from-init weight decay for body Muon (alphonse) — CLOSED productive-NULL (75th cycle)
+
+- Branch: `g1r4-alphonse/distance-from-init-wd`
+- Hypothesis: Anchor body-Muon WD at θ₀ (init snapshot) instead of zero. Mechanism: preserve random-orthogonal-Kaiming init subspace that NS-orthogonalization depends on. Fresh anchor-point axis distinct from all prior WD magnitude/schedule/scope experiments.
+
+**Phase 1 N=1 results (W&B-verified vs post-#708 baseline 3.27036):**
+
+| Arm | ANCHOR | WD | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline | Verdict |
+|:---:|:------:|:----:|---|:-----------:|:----:|:-------------:|:---------------------:|:---|
+|  A  | zero | 0.025 | f0bsy66p | **3.27126** | 3225 | — | +0.00090 (drift PASS ±0.003) | clean control |
+|  B  | init | 0.025 | cj0zukz6 | **3.27177** | 3225 | **+0.00051** | +0.00141 | productive-NULL |
+|  C  | init | 0.0125 | r3knjf9a | **3.27502** | 3250 | **+0.00376** | +0.00466 | REGRESSION |
+|  D  | init | 0.05 | 8hd6y4p8 | **3.27412** | 3275 | **+0.00286** | +0.00376 | REGRESSION |
+
+**Best arm B Δ_vs_A=+0.00051 → productive-NULL band; off-baseline λ regresses bilaterally.** No arm crosses signal threshold; paired-pod n=3 not warranted.
+
+**Mechanism telemetry (`body_muon_init/final_dist_from_init_norm_mean`):** D=63.46 (high WD → small drift) < B=100.60 < C=142.87 (low WD → large drift), monotonic with λ. **Snapshot mechanism is mechanically alive but produces no validation-loss signal.**
+
+**Mechanism reading:** NS-orthogonalization re-normalizes per-step update direction strongly enough that the WD geometric target (zero vs init) is mostly absorbed. The body-Muon subspace at step 0 is not load-bearing relative to the eventual optimum at step 3350; small bias toward θ₀ is a wash (≈null) and modulating it via λ degrades.
+
+**Body-Muon WD axis CLOSED across all dimensions:**
+
+| Dimension | PR | Verdict |
+|---|---|---|
+| Magnitude (per-TYPE) | #669 | NEG |
+| Schedule (warmup) | #483 | NEG |
+| Schedule (cooldown) | #506 / #550 | NULL |
+| Per-group (lm_head/scalar WD addition) | #554 / #593 | NULL/NEG |
+| **Anchor point (zero vs init)** | **#808 (this)** | **NULL** |
+
+**Durable finding:** body Muon WD on this stack is fully exhausted across magnitude, schedule, scope, and anchor-point dimensions. wd=0.025 anchored at zero is empirically optimal. Future WD work must shift to AUX side (currently wd=0 across all 3 AUX groups — net-new regularization opportunity).
+
+**Advisor mid-cycle correction (transparency):** Prior cycle-59 advisor state reported Arm B = 3.27014 and listed extra run IDs (tpjf28gb, p1zs5kcg, r0ugq02g, s6pij8yz) — all 4 IDs 404 in `wandb-applied-ai-team/modded-nanogpt-senpai`. Student-verified W&B values (3.27126/3.27177/3.27502/3.27412) are authoritative. Mid-train read or stale W&B filter view caused the incorrect mid-cycle table.
+
+**Follow-up:** alphonse reassigned to **#847 Embed init-anchored WD — net-new regularization on AUX (4-arm)** — student-suggested follow-up #1 from #808 closure. Cross-axis pivot: AUX groups currently have wd=0; adding init-anchor pulling on embed is *net-new regularization* mechanism-distinct from #808 (body Muon side). `model.embed.weight` initialized via `w.normal_()` (large N(0,1) magnitude), so anchor=init is genuinely distinct from anchor=zero. Magnitude sweep λ ∈ {0.0, 0.001, 0.005, 0.015} on embed scope only.
+
+Baseline UNCHANGED at val=3.27036 / fs=3216.67. **11th productive-NULL/NEGATIVE pivot this PR week.**
+
+---
+
 ## 2026-05-22 21:30 UTC — PR #801: Position-weighted CE — per-position loss aggregation reweight (alphonse) — CLOSED productive-NEGATIVE BILATERAL (74th cycle)
 
 - Branch: `g1r4-alphonse/position-weighted-ce`
