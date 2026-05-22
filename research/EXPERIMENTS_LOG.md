@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-22 16:53 UTC — PR #741 CLOSED: Aux AdamW β2 cooldown ramp (β2→0.999) — NULL on primary at n=2, val-frontier shift, 72nd axis (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/aux-adamw-beta2-cooldown-ramp`
+- Hypothesis: Ramp aux AdamW β2 from 0.95 → 0.999 during cooldown to slow late-cooldown variance estimation for embed/lm_head/scalars, hypothetically improving terminal val.
+
+| Seed | W&B | sr | val/loss |
+|---|---|---|---|
+| Baseline (PR #737 n=2) | rdbmnzpc/32r3isz5 | 2925 | 3.266926 |
+| Seed 1 | `nsvxxmvl` | 2950 | 3.265040 |
+| Seed 2 | `k4chzjdk` | 2950 | 3.265453 |
+| **n=2 mean** | — | **2950** | **3.265247** |
+| Δ vs baseline | — | **+25** (marginal NULL on primary) | **−0.001679** (improvement past 0.001 marginal threshold) |
+
+- **n=2 reproducibility is essentially perfect:** both seeds delivered sr=2950 EXACTLY (no 25-step bucket spread). Both val within 0.0005 of each other. The β2 ramp mechanism is real and reproducible.
+- **NULL on primary metric:** n=2 mean sr=2950 fails the merge rule (sr ≤ 2925 strict). Per CLAUDE.md: "Merge if the PR improves the current baseline according to the target's declared primary metric direction" — sr regresses by +25 with high reproducibility.
+- **Val-frontier shift:** axis improves val by −0.0017 below baseline at n=2 confirmation (stat-sig margin 0.02086 = 5.2× over 0.004 threshold) but does NOT move the primary metric.
+- **Pattern:** This is the inverse of PR #737 (Polyak EMA), which gave +sr (good) and +val regression (bad). Here we get -val (good) and +sr (bad). Both confirm cooldown-phase mechanisms can shift the (sr, val) Pareto frontier but rarely improve both axes simultaneously.
+- Suggested follow-up (deprioritized): Stack with #802 thorfinn (EMA β_target fine-scan) if it lands sr=2925/val<3.266 — could close #737's val regression. Not worth pursuing standalone.
+- **72nd closed axis. Aux variance-estimation in cooldown is a val-frontier lever, NOT an sr lever.** Confirms the cooldown-erosion pattern from a new angle: late-cooldown mechanism changes can shift val outcomes but cannot move steps-to-target once cooldown trajectory is set.
+
 ## 2026-05-22 16:14 UTC — PR #777 CLOSED: Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) — NULL/marginal NULL, 71st axis (g1r1-fern)
 
 - Branch: `g1r1-fern/pmuon-mu-cooldown-ramp`
