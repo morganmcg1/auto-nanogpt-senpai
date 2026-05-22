@@ -1,3 +1,44 @@
+## 2026-05-22 02:00 UTC — PR #746 ASSIGNED (edward): H51 RACS row-column factored aux preconditioner
+
+- Branch: `g1r3-edward/racs-aux-preconditioner`
+- Hypothesis: Replace AdamW's per-element v_t with a rank-2 row-column factored preconditioner (RACS, ICLR 2026): `scale[i,j] = sqrt(v_row[i] * v_col[j]) + eps`. Tests STRUCTURE axis of aux preconditioner (mechanism-distinct from all closed scale/power/eps axes #643, #631, #612, #670).
+- Arms: ctrl (per-element AdamW), embed_lmhead_only (RACS on vocab-anisotropic groups only), all_2d (full replacement).
+- Custom `RACSAdamW` class via `torch.optim.Optimizer` (fused kernel preserved when `--aux_racs_mode off`).
+- Rationale: Embed/lm_head have severe vocab-frequency row anisotropy + d_model column structure. Factored second-moment captures dominant rank-2 structure with O(rows+cols) state. Adafactor/Shampoo precedent; RACS is the recent ICLR 2026 refinement. Last untested STRUCTURE axis in the aux preconditioner closure map.
+
+---
+
+## 2026-05-22 01:55 UTC — PR #592 CLOSED (edward): H28 Gradient Centralization on aux AdamW — NEG decisive
+
+- Branch: `g1r3-edward/aux-gradient-centralization`
+- Hypothesis: Apply Gradient Centralization (Yong et al CVPR 2020) — pre-step row-mean subtraction — to aux AdamW gradients (embed/lm_head). 2-arm: ctrl vs GC ON.
+
+### Results (3325 steps, n=1; 2 arms)
+
+| Arm | W&B | GC | val/loss | ffs | Δ vs ctrl |
+|---|---|---|---|---|---|
+| 1 ctrl | `7a35fj59` | OFF | **3.27273** | 3125 | reference (matches today's μ≈3.273 ctrl pop) |
+| 2 GC ON | `24fpcf8m` | ON | **3.27391** | 3150 | **+0.00118 NEG** (above +0.001 threshold) |
+
+**Decision: CLOSED NEG decisive** — Δ+0.00118 is ~2.4σ above ctrl. GC code path verified active (centering_rms ~1.8e-3, two orders above floor). Both arms clean (nonfinite_count=0).
+
+### Mechanism finding — Gradient-direction-projection mechanism axis fully CLOSED
+
+Combined with PR #672 (GC-on-MuonH-inner NEG via RMSNorm null-space):
+
+- **PR #672 GC-on-MuonH-inner**: algebraic no-op (RMSNorm projects row-mean to zero pre-optimizer)
+- **PR #592 GC-on-aux** (this): NOT a no-op (aux has no preceding RMSNorm), but the projection is mildly counterproductive. Two predicted-and-observed mechanisms:
+  1. Common-mode row component on embed/lm_head encodes useful warmup-phase signal ("shift toward predicting average-frequency tokens") that GC strips
+  2. AdamW per-coord v_t (eps=1e-6 floor) already handles gradient noise; GC has no headroom to help
+
+Both mechanisms predict small NEG (not catastrophic) — exactly the +0.00118 observed.
+
+**Generalized rule**: AGC + NorMuon + Polar Express already condition gradient direction well on this stack. Explicit per-row mean-projection adds no headroom and removes signal. Future proposals on gradient-direction transforms should be deprioritized unless they target a NEW projection structure (e.g., per-channel column-mean, or signal-noise-separated directions).
+
+Pod rotation episode (4.5h broken silicon, esc#38-39 → operator rotation at 17:55 UTC) handled cleanly by edward with 7-run smoke validation + auto-launcher chain script. Excellent engineering hygiene under adverse conditions. Edward reassigned to H51 RACS aux preconditioner (PR #746).
+
+---
+
 ## 2026-05-22 01:05 UTC — PR #298 CLOSED (tanjiro): Residual-branch init rescaling — NEG across 3 scales; MuonH-SI is a strong init-equalizer
 
 - Branch: `g1r3-tanjiro/res-init-rescale`
