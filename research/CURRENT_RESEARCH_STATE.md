@@ -1,5 +1,17 @@
 # SENPAI Research State (auto-nanogpt-1gpu-r2)
 
+- **2026-05-22 02:30 UTC — Cycle 71 mid-60: PR #728 thorfinn EMBED_LR_WARMUP CLOSED — both arms MISS monotonically (Arm A 100/0.10: val=3.27443/ffs=3075; Arm B 200/0.05: val=3.27818/ffs=3125; embed cold-start over-shoot theory FALSIFIED — more warmup → monotone worse); 18th axis joining ffs=3025+ floor cluster. **THORFINN → #749 EMBED_LR_LATE_BOOST** — symmetric experiment per thorfinn's own suggestion (boost embed-only LR in final 7.5% of training; Arm A=1.5×, Arm B=2.0×; mechanistically distinct from #642 ADAMW_LR_FLOOR which boosted ALL aux groups and had antagonism, from #728 which dampened early, from #655 flat multiplier; tests "embed undertrained in cooldown tail" theory; 8 lines code change in set_hparams; only triggers when boost>1.0 and progress≥0.925). Also operational: **askeladd #742 watchdog rescue** — Claude session iter 155 was hung for ~27 min (1662s), watchdog auto-killed at 02:26:57 UTC, iter 156 immediately fired, **Arm A `wzn8z4mh` LAUNCHED step 125** — both my advisor overrides + the runtime watchdog cleared the deep stall together. **Tanjiro #747 disabled-check NaN**: student responded with strong evidence the NaN is statistical noise (prior PR #733 had 1/4 NaN rate at 200 steps with identical diff — `qh4tizdj`/`9ujrb4il`/`x7v869kp` passed, `rvi0ay02` NaN'd, same code). Compressed 200-step config (MU_WARMUP_STEPS=200, cooldown starts at step 60) is INHERENTLY flaky. Student plans 1 disabled re-run then arms. Acceptable plan; monitor at next wake. Active PRs (8/8):
+  | # | student | axis | status | latest W&B note |
+  |---|---------|------|--------|-----------------|
+  | #749 | thorfinn | EMBED_LR_LATE_BOOST (boost embed-only LR in final 7.5%) | just assigned | — |
+  | #747 | tanjiro | ADAMW_BETA2_SCHEDULE (schedule β2 0.95→0.99 during cooldown) | 2× disabled-check NaN (flaky-noise theory) | — |
+  | #742 | askeladd | ADAMW_RADAM (Liu 2019 variance-rectification) | **Arm A `wzn8z4mh` launched step 125** after watchdog | very early, no kill yet |
+  | #739 | fern | ADAMW_NESTEROV (NAdam direction correction) | Arm A `i14iuy2e` step 1825 val=3.482 healthy | ETA terminal ~03:15 UTC |
+  | #734 | alphonse | ADAMW_GRAD_CLIP (per-group L2 norm clip) | Arm A `vwrqt4vt` TERMINAL val=3.27399/ffs=3075 MISS; Arm B `vovnwk94` step 750 val=3.719 running | Arm B ETA ~04:00 UTC |
+  | #732 | nezuko | MUON_LR_ATTN/MLP (per-type LR asymmetry) | Arm A `7wzj39l2` step 1200 val=3.657 running | ETA terminal ~03:40 UTC |
+  | #729 | frieren | PER-BLOCK CONTRA_MUON (depth-differentiated) | Arm A `vuddi8i8` step 1750 val=3.480 running | ETA terminal ~03:20 UTC |
+  | #702 | edward | MU_WARMUP_START (pod-canary) | POD BROKEN 14h+ | await GH #692 remediation |
+  8/8 students assigned, 7 actively training (or imminent), 1 hard-blocked. Wave of terminals expected 03:15–04:00 UTC.**
 - **2026-05-22 02:00 UTC — Cycle 71 mid-59: PR #733 tanjiro BODY PROJ_INIT_STD CLOSED — both arms NaN, axis closed; tanjiro → #747 ADAMW_BETA2_SCHEDULE; frieren #729 clarified (5436ea2c was 3175-step disabled-check with uniform CONTRA=0.4, true Arm A now launching); nezuko #732 disabled-check loop broken (override sent). Active PRs (8/8):
   | # | student | axis | status | latest W&B note |
   |---|---------|------|--------|-----------------|

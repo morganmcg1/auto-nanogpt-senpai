@@ -1,5 +1,44 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 02:25 UTC — Cycle 71 mid-60: PR #728 thorfinn EMBED_LR_WARMUP CLOSED — both arms MISS monotonically, embed cold-start over-shoot theory falsified
+
+### PR #728 — thorfinn EMBED_LR_WARMUP ∈ {(100, 0.10), (200, 0.05)} vs disabled — both arms MISS
+
+Branch: `g1r2-thorfinn/embed-lr-warmup`. Closed 2026-05-22 02:25 UTC.
+
+| Arm | EMBED_LR_WARMUP_STEPS | EMBED_LR_WARMUP_START_FRAC | val/loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|---|---|---|---|---|---|---|
+| disabled-smoke | 0 (disabled) | (n/a) | val@200=**4.0837** PASS | — | bit-equivalent to baseline | — | `rlnpeh5v` |
+| Arm A | 100 | 0.10 | **3.27443** | **3075** | MISS (+0.00443 val, +75 ffs) | +0.00667 val, +75 ffs | `gufymt0r` |
+| Arm B | 200 | 0.05 | **3.27818** | **3125** | MISS (+0.00818 val, +125 ffs) | +0.01042 val, +125 ffs | `p4u5apji` |
+
+**Result: AXIS CLOSED as MISS with mechanism falsification.** Both arms degrade monotonically from baseline; more warmup → worse on both val and ffs. The hypothesis "EMBED_INIT_STD=0.1 shrinks initial embed norms → AdamW v_t cold-start → over-shoot at step 1" is falsified.
+
+#### Mechanism analysis
+
+If embed cold-start over-shoot were the bottleneck, damping early embed LR via warmup should have improved val/ffs. Instead, both arms moved monotonically worse, with Arm B (more aggressive warmup: 200 steps, start at 5%) worse than Arm A (100 steps, 10% start). The disabled-smoke `rlnpeh5v` reproduced baseline-equivalent val@200=4.0837, confirming the regression is from the warmup itself, not a code bug.
+
+**Theorem (embed cold-start innocence)**: Under EMBED_INIT_STD=0.1 in the c=20 stack, the embed AdamW group does NOT suffer a cold-start over-shoot. Damping early embed LR removes useful signal during the warmup window and the model never recovers fully by the standard 3175-step budget. The ffs=3025+ floor mechanism is NOT located in early-embed dynamics.
+
+#### Coverage update
+
+Combined with #469 (EMBED_LR ±25% sweep), #655 (EMBED_LR_MULT 0.5×/2.0×), #252 (decoupled embed warmup for NaN suppression), #591 (orthogonal embed init), the **early-trajectory embed mechanism surface is now fully closed**. 18th axis joining the ffs=3025+ near-miss cluster this cycle.
+
+#### Strategic implication
+
+The ffs=3025+ floor lives elsewhere — candidates: mid/late trajectory (post-cooldown-start at step ~955), cross-group coupling (embed↔lm_head balance during cooldown), or body-side dynamics post-NS5. Thorfinn's own suggested follow-ups (late-trajectory embed LR boost, smaller flat embed LR, late-step Muon spectrum, post-cooldown v_t behavior) are mechanism-rich next directions.
+
+#### Reassignment: thorfinn → #749 EMBED_LR_LATE_BOOST
+
+Symmetric experiment to this closure. Boost embed-only LR by 1.5× (Arm A) or 2.0× (Arm B) in the final 7.5% of training (steps ~2937–3175). Mechanistically distinct from:
+- #642 ADAMW_LR_FLOOR (CLOSED MISS): floored ALL aux groups, antagonism from lm_head/scalars
+- #728 (this PR): opposite end of trajectory, opposite intervention sign
+- #655 EMBED_LR_MULT (CLOSED MISS): flat scaling, no schedule
+
+Tests whether embed is undertrained specifically in the cooldown tail, isolated from lm_head/scalars which were the suspected #642 antagonism source. ~8 line code change in `set_hparams`, triggers only when `EMBED_LR_LATE_BOOST > 1.0` and `progress >= 0.925`.
+
+---
+
 ## 2026-05-22 01:45 UTC — Cycle 71 mid-59: PR #733 tanjiro BODY PROJ_INIT_STD CLOSED — both arms NaN, body proj zero-init is load-bearing in c=20 stack
 
 ### PR #733 — tanjiro PROJ_INIT_STD ∈ {1e-3, 1e-4} vs default 0.0 (zero-init), body block proj weights only
