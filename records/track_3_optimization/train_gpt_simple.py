@@ -536,6 +536,12 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Adan-style preconditioner (momentum-of-gradient-differences) before NS for body Muon.
+# When 0, the body Muon path is bit-identical to the muon_update baseline.
+NANOGPT_ADAN_BODY_ENABLE = int(os.environ.get("NANOGPT_ADAN_BODY_ENABLE", "0"))
+NANOGPT_ADAN_BETA1 = float(os.environ.get("NANOGPT_ADAN_BETA1", "0.98"))
+NANOGPT_ADAN_BETA2 = float(os.environ.get("NANOGPT_ADAN_BETA2", "0.92"))
+NANOGPT_ADAN_BETA3 = float(os.environ.get("NANOGPT_ADAN_BETA3", "0.99"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -645,6 +651,27 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+@torch.compile
+def muon_update_adan(grad, m, g_prev, v_adan, n, ns_iters: int,
+                     beta1: float = 0.98, beta2: float = 0.92,
+                     beta3: float = 0.99, eps: float = 1e-8):
+    # Adan (Xie et al. 2022, arXiv:2208.06677) pre-NS preconditioner.
+    # First moment: EMA of gradients.
+    m.lerp_(grad, 1 - beta1)
+    # Gradient difference (rate of change) and EMA of differences.
+    diff = grad - g_prev
+    g_prev.copy_(grad)
+    v_adan.lerp_(diff, 1 - beta2)
+    # Nesterov-corrected gradient and its second moment.
+    grad_n = grad + beta2 * diff
+    n.mul_(beta3).addcmul_(grad_n, grad_n, value=1 - beta3)
+    # Adan update direction (pre-NS).
+    update = (m + beta2 * v_adan) / (n.sqrt() + eps)
+    # Newton-Schulz orthogonalization + aspect-ratio scaling.
+    update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
         assert isinstance(params, list) and len(params) >= 1
@@ -695,9 +722,20 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
-                                         ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                        if NANOGPT_ADAN_BODY_ENABLE:
+                            state["g_prev"] = torch.zeros_like(p)
+                            state["v_adan"] = torch.zeros_like(p)
+                    if NANOGPT_ADAN_BODY_ENABLE:
+                        update = muon_update_adan(
+                            p.grad, state["momentum"], state["g_prev"], state["v_adan"], state["v"],
+                            ns_iters=ns_iters,
+                            beta1=NANOGPT_ADAN_BETA1, beta2=NANOGPT_ADAN_BETA2,
+                            beta3=NANOGPT_ADAN_BETA3, eps=group["eps"],
+                        )
+                    else:
+                        update = muon_update(p.grad, state["momentum"], state["v"],
+                                             ns_iters=ns_iters,
+                                             mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -761,6 +799,13 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+if NANOGPT_ADAN_BODY_ENABLE:
+    print0(
+        f"ADAN_BODY: enabled | beta1={NANOGPT_ADAN_BETA1} beta2={NANOGPT_ADAN_BETA2} beta3={NANOGPT_ADAN_BETA3}",
+        console=True,
+    )
+else:
+    print0("ADAN_BODY: disabled (muon_update baseline)", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -826,6 +871,10 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_adan_body_enable": NANOGPT_ADAN_BODY_ENABLE,
+            "nanogpt_adan_beta1": NANOGPT_ADAN_BETA1,
+            "nanogpt_adan_beta2": NANOGPT_ADAN_BETA2,
+            "nanogpt_adan_beta3": NANOGPT_ADAN_BETA3,
         },
     )
 
