@@ -71,6 +71,13 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--atan2_adamw", type=int, default=0, choices=[0, 1],
+                        help="If 1, replace AdamW update m_hat/(sqrt(v_hat)+eps) with "
+                             "(2/pi)*atan2(m_hat, sqrt(v_hat)). Default 0 = standard AdamW.")
+    parser.add_argument("--lr_adamw_mul", type=float, default=1.0,
+                        help="Multiplier applied to initial_lr for embed/lm_head/scalars groups.")
+    parser.add_argument("--adamw_beta1", type=float, default=0.8,
+                        help="β1 for the AdamW groups. Default 0.8 matches existing baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -694,6 +701,39 @@ def print0(s, console=False, log=True):
             with open(logfile, "a") as f:
                 print(s, file=f)
 
+
+import math as _math
+
+@torch.no_grad()
+def atan2_adamw_step(optimizer):
+    for group in optimizer.param_groups:
+        lr = group["lr"]
+        beta1, beta2 = group["betas"]
+        wd = group.get("weight_decay", 0.0)
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            g = p.grad
+            state = optimizer.state[p]
+            if "step" not in state:
+                state["step"] = 0
+                state["exp_avg"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+                state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
+            state["step"] += 1
+            t = state["step"]
+            m = state["exp_avg"]
+            v = state["exp_avg_sq"]
+            m.mul_(beta1).add_(g, alpha=1 - beta1)
+            v.mul_(beta2).addcmul_(g, g, value=1 - beta2)
+            bc1 = 1.0 - beta1 ** t
+            bc2 = 1.0 - beta2 ** t
+            m_hat = m / bc1
+            v_hat = v / bc2
+            update = (2.0 / _math.pi) * torch.atan2(m_hat, v_hat.sqrt())
+            if wd > 0.0:
+                p.mul_(1.0 - lr * wd)
+            p.add_(update, alpha=-lr)
+
 # we begin by logging this file itself
 print0(code)
 print0("="*100)
@@ -752,6 +792,9 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "atan2_adamw": args.atan2_adamw,
+            "lr_adamw_mul": args.lr_adamw_mul,
+            "adamw_beta1": args.adamw_beta1,
         },
     )
 
@@ -786,7 +829,7 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+                       betas=(args.adamw_beta1, 0.95), eps=1e-10, weight_decay=0, fused=False)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
@@ -807,6 +850,8 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
             group["initial_wd"] = group.get("weight_decay", 0.0)
+            if group.get("name", "").startswith("adam_"):
+                group["initial_lr"] *= args.lr_adamw_mul
 
     def _wd_multiplier(step, total_steps, schedule):
         if schedule == "constant":
@@ -954,7 +999,10 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         for opt in optimizers:
-            opt.step()
+            if opt is optimizer1 and args.atan2_adamw == 1:
+                atan2_adamw_step(opt)
+            else:
+                opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
