@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--mu_depth_scale",
+        type=float,
+        default=0.0,
+        help="Per-block depth scaling of Muon momentum. 0.0=uniform mu=0.95 (default). "
+             "alpha>0: deeper layers get lower mu via mu_i = 0.95 * (1 - alpha * (i/(L-1)) * 0.3), "
+             "floored at 0.95 * 0.7 = 0.665. "
+             "alpha<0 (inverse): earlier layers get lower mu (flip index). "
+             "Applied only to Muon body parameter groups; embed/lm_head/scalars unaffected.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +775,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "mu_depth_scale": args.mu_depth_scale,
         },
     )
 
@@ -847,13 +858,59 @@ for trial_idx in range(args.num_trials):
     attn_named = [(n, p) for n, p in named_blocks
                   if not (n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"))]
     assert len(mlp_named) + len(attn_named) == len(named_blocks)
-    optimizer2 = Muon(
-        [
-            dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
-            dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
-        ],
-        soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
-    )
+
+    BASE_MU = 0.95
+    MIN_MU_RATIO = 0.7
+
+    def _mu_for_layer(layer_idx: int, alpha: float, L: int) -> float:
+        if alpha == 0.0:
+            return BASE_MU
+        if alpha > 0:
+            frac = layer_idx / max(L - 1, 1)
+        else:
+            frac = (L - 1 - layer_idx) / max(L - 1, 1)
+        mu_i = BASE_MU * (1.0 - abs(alpha) * frac * (1.0 - MIN_MU_RATIO))
+        return max(mu_i, BASE_MU * MIN_MU_RATIO)
+
+    def _layer_idx_from_name(n: str) -> int:
+        # names look like "{i}.attn.q.weight" since model.blocks.named_parameters()
+        # strips the "blocks." prefix (ModuleList indexing).
+        return int(n.split(".", 1)[0])
+
+    if args.mu_depth_scale != 0.0:
+        muon_group_specs = []
+        for i in range(NUM_LAYERS):
+            mu_i = _mu_for_layer(i, args.mu_depth_scale, NUM_LAYERS)
+            layer_mlp = [(n, p) for n, p in mlp_named if _layer_idx_from_name(n) == i]
+            if layer_mlp:
+                muon_group_specs.append(dict(
+                    named_params=layer_mlp, lr=args.lr_mlp, weight_decay=args.wd_mlp,
+                    mu=mu_i, name=f"muon_mlp_L{i:02d}",
+                ))
+            layer_attn = [(n, p) for n, p in attn_named if _layer_idx_from_name(n) == i]
+            if layer_attn:
+                muon_group_specs.append(dict(
+                    named_params=layer_attn, lr=args.lr_attn, weight_decay=args.wd_attn,
+                    mu=mu_i, name=f"muon_attn_L{i:02d}",
+                ))
+        # Sanity: per-layer groups must still cover every named_block param.
+        assert sum(len(g["named_params"]) for g in muon_group_specs) == len(named_blocks)
+        optimizer2 = Muon(
+            muon_group_specs,
+            soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        )
+        mu_table = ", ".join(f"L{i}={_mu_for_layer(i, args.mu_depth_scale, NUM_LAYERS):.4f}"
+                             for i in range(NUM_LAYERS))
+        print0(f"[mu_depth_scale] alpha={args.mu_depth_scale} L={NUM_LAYERS} "
+               f"floor={BASE_MU * MIN_MU_RATIO:.4f}  per-layer mu: {mu_table}", console=True)
+    else:
+        optimizer2 = Muon(
+            [
+                dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
+                dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
+            ],
+            soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
@@ -1023,8 +1080,14 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
-                per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
-                per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
+                per_group_metrics["train/wd_mlp_now"] = next(
+                    (wd for name, wd in current_wds.items() if name.startswith("muon_mlp")),
+                    current_wds.get("muon_mlp", 0.0),
+                )
+                per_group_metrics["train/wd_attn_now"] = next(
+                    (wd for name, wd in current_wds.items() if name.startswith("muon_attn")),
+                    current_wds.get("muon_attn", 0.0),
+                )
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
