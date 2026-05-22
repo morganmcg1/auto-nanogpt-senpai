@@ -3587,3 +3587,32 @@ Excellent early-kill execution by fern — saved ~3 hours of GPU on a structural
   - At β=0.9 (N_eff~10), both terms drop below seed noise (~0.5 mnat)
 
 - **Conclusion:** Lag/signal coupling is intrinsic to PMuon-EMA at this benchmark geometry. No static window setting works. FULL CLOSURE of Polyak EMA on body-Muon across β ∈ {0.9, 0.95, 0.99}. Next step: cooldown-aware β ramp (dynamic window coupled to LR decay, targets "free averaging when params stationary") — assigned as #737 to thorfinn.
+
+## 2026-05-22 13:21 UTC — PR #737 MERGED: Polyak EMA β_target=0.99 cooldown ramp — n=2 sr win (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/polyak-ema-cooldown-aware-beta`
+- Hypothesis: Ramping Polyak EMA β from 0.95→0.99 during LR cooldown lengthens the averaging window as gradients become small/noisy, shifting the val-trajectory crossing of 3.28 earlier.
+- Mechanism: deterministic β_t = 0.95 + 0.04 × cooldown_progress (coupled to lr_mult). EMA buffer stores FP32 body-Muon matrix params; inference uses EMA-swapped weights.
+
+| Run | β_target | sr | val/loss | vs baseline |
+|---|---|---|---|---|
+| Seed-1 `rdbmnzpc` | 0.99 | **2925** | 3.265811 | sr −12.5 ✅ |
+| Seed-2 `32r3isz5` | 0.99 | **2925** | 3.268040 | sr −12.5 ✅ |
+| n=2 mean | 0.99 | **2925** | **3.266926** | **sr −12.5, val +2.65 mnat** |
+| Arm B `b4q13sgm` | 0.999 | 2950 | ~3.270 | NULL |
+| Old baseline (PR #413) | — | 2937.5 | 3.264278 | ref |
+
+**Verdict: MERGED — first n=2-confirmed sr win of the cooldown-coupled-ramp cluster.** Both seeds independently reproduce sr=2925. Val regresses +2.65 mnat (N_eff=100 EMA lag bias) but primary metric sr improves. New baseline: sr=2925 / val=3.266926. EMA telemetry: β_t ramp 0.95→0.99 correct; `ema/delta_ema_minus_live = +0.54 mnat` deterministic across seeds. β_target=0.999 NULL (N_eff=1000 too wide, lag dominates).
+
+## 2026-05-22 13:21 UTC — PR #760 CLOSED: PMuon γ_power cooldown ramp (69th axis, NULL/NULL) (g1r1-frieren)
+
+- Branch: `g1r1-frieren/pmuon-gamma-power-cooldown-ramp`
+- Hypothesis: Ramping PMuon's whitening exponent γ_power during cooldown adjusts preconditioner geometry as LR decays.
+
+| Arm | γ_power schedule | sr | val/loss | vs old baseline |
+|---|---|---|---|---|
+| Arm A `4yzrav20` | 0.4→0.5 (harder) | 2975 | 3.26724 | NULL (+37.5 sr, +0.00296 val) |
+| Arm B `1mvtoyib` | 0.4→0.3 (softer) | 2975 | 3.26581 | NULL (+37.5 sr, +0.00153 val) |
+| Baseline (PR #413) | 0.4 static | 2937.5 | 3.264278 | ref |
+
+**Verdict: CLOSED NULL (69th axis).** Arm B "less bad" than Arm A (softer whitening in cooldown is ~2× closer to baseline) but both regress. Cooldown-erosion pattern dominates. γ_power=0.4 static is well-tuned; ramping the whitening exponent during cooldown degrades update geometry. Student correctly identified: whitening precision is not a free knob during cooldown — it couples to the LR decay mechanism. Softward direction (γ<0.4) is slightly more permissive, consistent with #736 tanjiro's per-type γ pattern.

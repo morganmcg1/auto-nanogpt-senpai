@@ -1,41 +1,44 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 13:00 UTC
+- **Last update:** 2026-05-22 13:30 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
-- **68 closed axes** (#774 cov-warmup-fast-mix closed 13:00 UTC)
-- **3 sub-baseline-marginal signals in n=2 confirmation pipeline:**
-  - #737 thorfinn Polyak EMA β=0.99 (sr=2925/val=3.265811; seed-2 `32r3isz5` in flight)
-  - #741 alphonse aux β2→0.999 (sr=2950/val=**3.263972** beats baseline mean; seed-1 `nsvxxmvl` in flight)
-  - #777 fern body-Muon mu→0.85 (sr=2925/val=3.26880, just terminal; pending Arm B + n=2)
+- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22).
+- **69 closed axes** (#760 γ_power cooldown ramp closed as 69th; #737 MERGED as first n=2 sr win of session)
+- **Active marginal-signal tracking:**
+  - #741 alphonse aux β2→0.999 n=2 conf — seed 1 val=3.2650 (beats NEW baseline val=3.266926 by 0.0019); seed 2 `k4chzjdk` running, ETA ~17:00 UTC. Against new baseline sr=2925: seed 1 sr=2950 (+25 from new baseline). Will evaluate n=2 mean vs new baseline on both metrics.
+  - #777 fern mu→0.85 Arm A terminal (sr=2925/val=3.26880 vs OLD baseline; vs NEW baseline val regresses by 0.002); Arm B `l4w74vmj` running, ETA ~16:00 UTC.
 
 ## Current local baseline
 
-**sr=2937.5 (n=2 mean), val/loss=3.264278 (n=2 mean)** — PR #413 (g1r1-alphonse, scalar_lr=0.025). **MERGED 11:48 UTC.**
+**sr=2925 (n=2 mean, both seeds 2925), val/loss=3.266926 (n=2 mean)** — PR #737 (g1r1-thorfinn, Polyak EMA β_target=0.99 cooldown ramp). **MERGED 2026-05-22 13:21 UTC.**
 
-Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (TARGET_UW=0.35) + COOLDOWN_POWER=1.4 + Muon lr=0.035 wd=0.025 STATIC + aux AdamW embed_lr=0.3, lm_head_lr=1/160, **scalar_lr=0.025**, betas=(0.8, 0.95), eps=1e-10, **wd=0**, **β_cov=0.95 STATIC**.
+Config: PR #413 config + `--ema_beta 0.95 --ema_warmup_steps 2250 --ema_beta_target 0.99` (β ramps 0.95→0.99 during cooldown, coupled to lr_mult). EMA buffer: FP32 body-Muon matrix params; inference uses EMA-swapped weights.
 
-W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
+W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266926). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001 vs new baseline): request n=2 before merge. n=1 stat-sig threshold: val ≤ 3.276.
 
-## Active experiments (8 students, 08:30 UTC — 0 idle)
+Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
+
+## Active experiments (8 students, 13:30 UTC — 0 idle)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#774** | edward | PMuon cov warmup fast-mix (β_cov=0→0.95 at K=20 vs K=50) | Newly assigned 08:10 UTC. In implementation phase. |
-| **#769** | askeladd | Aux AdamW delayed cooldown start (300 vs 600 step delay) | Newly assigned 06:40 UTC. In implementation phase. |
-| **#760** | frieren | PMuon γ_power cooldown ramp (0.4→0.5 vs 0.4→0.3) | Arm A `4yzrav20` running step ~1650. ETA ~08:45 UTC. |
-| **#741** | alphonse | Aux AdamW β2 cooldown ramp **n=2 confirmation of Arm B** | Sent back 09:15 UTC for n=2. Both arms marginal; **Arm B sr=2950/val=3.263972 (Δval=−0.000306, beats baseline mean)**. n=2 will decide merge vs close. ETA ~7h32min. |
-| **#780** | nezuko | Body-Muon u/w trust-region ceiling (0.5 vs 0.4) | Newly assigned 09:25 UTC. Fresh direction (NOT cooldown-coupled). u/w-floor exists (TARGET_UW=0.35); this adds upper bound. Diagnostic: ceiling_fired counts will reveal upper-tail of u/w distribution. Tied mechanistically to #730 directional-travel finding. |
-| **#737** | thorfinn | Polyak EMA cooldown-aware β ramp | Arm A **sr=2925 MARGINAL** (val=3.265811 regresses, n=1 AND clause fails). Arm B `b4q13sgm` running step 2825 val=3.292. ETA ~09:10 UTC. **Plan**: if Arm A holds best, request n=2 confirmation of β=0.99 ramp. |
-| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | Newly assigned 08:25 UTC. In implementation phase. Smooth-ramp mu lever — never tested. Parallel to #737 (Polyak EMA β ramp, sr=2925 marginal) but operates inside Muon's own momentum buffer. |
-| **#778** | tanjiro | PMuon per-type γ narrow asymmetric (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | Newly assigned 08:45 UTC. Direction validated by #736 wide split → narrow test with mlp pinned at scalar optimum. Either fully closes per-type γ axis or surfaces sub-baseline signal. |
+| **#796** | edward | Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) | Assigned 12:37 UTC. In implementation phase. Analog to #741 β2 ramp for first-moment EMA. |
+| **#780** | nezuko | Body-Muon u/w trust-region ceiling (0.5 vs 0.4) | Running. Arm A `ne03hzf2` ETA ~14:45 UTC. Then Arm B (ceiling=0.4). |
+| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | Running. Direction validated by #736. Awaiting terminal result. |
+| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | Arm A TERMINAL: sr=2925/val=3.26880 (vs new baseline val regresses +0.002, marginal NULL on val). Arm B `l4w74vmj` running ETA ~16:00 UTC. |
+| **#769** | askeladd | Aux AdamW delayed cooldown start (300 vs 600 step delay) | Arm A NULL (sr=2975). Arm B `asxzb8lk` step ~1925/3250, ETA ~14:10 UTC. |
+| **#741** | alphonse | Aux β2 cooldown ramp n=2 conf (β2→0.999) | Seed 1 TERMINAL sr=2950/val=3.2650. Seed 2 `k4chzjdk` running step ~100, ETA ~17:00 UTC. Against new baseline: sr=2950>2925 (NULL on sr); val=3.2650<3.266926 (wins on val). Informative but likely NULL on primary metric. |
+| **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | JUST ASSIGNED 13:25 UTC. Fine-tune merged #737 to reduce val regression while preserving sr=2925. |
+| **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | JUST ASSIGNED 13:28 UTC. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. Tests whether softer whitening in early training improves convergence. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
-| **#745** nezuko | 67th | Per-type LR cooldown asymmetry NULL/NULL (A sr=3025 attn0.5, B sr=3050 mlp0.5) | Both arms regress non-marginally (Δsr=+87.5/+112.5, Δval=+0.007/+0.011). CROSSOVER pattern: B led through mid-cooldown, A overtook in final 250 steps — sub-component cooldown sensitivities trade off symmetrically, neither recovers symmetric (1.0,1.0) baseline. Closes per-type LR family (#499 static, #535 sub-MLP, #532 depth, #745 cooldown). |
-| **#736** tanjiro | 66th | Per-type γ asymmetry wide split NULL/NULL (A sr=3050 attn0.3, B sr=2975 attn0.5) | Direction validated (B>A by ~0.005 val from step 1250) — γ_attn > γ_mlp helps. Magnitude insufficient: 0.5/0.3 places both endpoints below scalar optimum γ=0.4 (per #519). Wide-split axis closed; narrow attn-only-raised remains open via #778. |
+| **#760** frieren | 69th | γ_power COOLDOWN ramp NULL/NULL (A sr=2975 γ→0.5, B sr=2975 γ→0.3) | Both arms regress vs old baseline (+37.5 sr, +0.003/+0.002 val). Arm B "less bad" — softer whitening in cooldown ~2× closer to baseline. γ_power=0.4 static well-tuned; ramping exponent during cooldown over-rotates spectral geometry. Closes γ_power cooldown axis. |
+| **#774** edward | 68th | PMuon cov warmup fast-mix NULL/crash (A K=20 sr=2975 NULL; B K=50 crashed step 41) | Arm A: mild over-smooth, no benefit. Arm B: numerical instability intrinsic to β_cov=0.0 collapsing EMA to outer-product accumulation (rank-deficient R_cov → eigh divergence). K=50 fast-warmup with β=0 is structurally unstable. |
+| **#745** nezuko | 67th | Per-type LR cooldown asymmetry NULL/NULL (A sr=3025 attn0.5, B sr=3050 mlp0.5) | Both arms regress non-marginally. CROSSOVER pattern: sub-component cooldown sensitivities trade off symmetrically, neither recovers baseline. Closes per-type LR family (#499, #535, #532, #745). |
+| **#736** tanjiro | 66th | Per-type γ asymmetry wide split NULL/NULL (A sr=3050 attn0.3, B sr=2975 attn0.5) | Direction validated — γ_attn > γ_mlp helps. Magnitude insufficient. Wide-split closed; narrow test open via #778. |
 | **#727** fern | 65th | WD cooldown schedule NULL/NULL (A sr=2975, B sr=2975) | Symmetric-NULL: both UP/DOWN regress identically (Δsr=+37.5, Δval ≈+0.003/+0.002). Cross-arm Δval=+0.001 below marginal threshold. WD-temporal-schedule axis EXHAUSTED — WD=0.025 STATIC sits at local optimum. Adds to cooldown-trajectory lever cluster (#647, #607, #717+#690). |
 | **#730** edward | 64th | SWA cooldown init NULL/NULL (A sr=3000, B sr=3000) | Body-Muon weights travel directionally (27-37% Frobenius distance per 100-200 steps) — not basin-orbiting. SWA average is lagged anchor, not centroid. Buffer-modification at cooldown_start FULLY CLOSED across all categories (state + parameter space). |
 | **#725** askeladd | 63rd | PMuon cov reset NULL/NULL (Arm A sr=2975, Arm B sr=2950) | Covariance buffer (L_cov/R_cov, 72 tensors) also load-bearing. Same non-monotone pattern as #723. Buffer-modification axis at cooldown_start FULLY CLOSED across all PMuon buffer types (momentum + covariance). |
