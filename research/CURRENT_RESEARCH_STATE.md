@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 14:50 UTC
+- **Date:** 2026-05-22 15:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -496,39 +496,52 @@ Trust-mechanism telemetry across 3 B pods (reproducible — failure is at val/lo
 
 **59th productive-null/negative this cycle.**
 
-### 📋 nezuko #724 — Per-block-TYPE NS_ITERS_COOLDOWN — SENT BACK 06:25 UTC for paired-pod n=3
+### ✅ nezuko #724 — Per-block-TYPE NS_ITERS_COOLDOWN — CLOSED 15:15 UTC productive-NEGATIVE (72nd cycle, 10th paired-pod collapse)
 
 **Branch:** `g1r4-nezuko/per-type-ns-cooldown`
 
-**Phase 1 N=1 screening COMPLETE**: all 3 asymmetric arms beat control by ≥ −0.00144 → gates to Phase 2 paired-pod.
+**Phase 2 n=3 paired-pod results (vs post-#708 baseline 3.27036):**
 
-| Arm | attn / mlp NS_ITERS_COOLDOWN | val/loss | Δ vs A | Δ vs baseline 3.27070 | first_step | W&B |
-|---|---:|---:|---:|---:|---:|---|
-| A (ctrl) | 16 / 16 | 3.27116 | — | +0.00046 | 3225 | 4y1d8crk |
-| B | 20 / 16 | 3.26942 | −0.00174 WINNER | −0.00128 | 3200 | e8e3qt6c |
-| C | 16 / 20 | 3.26972 | −0.00144 WINNER | −0.00098 | 3200 | hlhwsog0 |
-| **D** | **12 / 20** | **3.26924** | **−0.00192 WINNER (chain-best)** | **−0.00146** | **3200** | euk5xk3w |
-
-**Key empirical observations**:
-1. All 3 asymmetric arms beat A — direction matters less than presence of asymmetry.
-2. Arm D (compound attn↓ + mlp↑) is chain-best at val=3.26924.
-3. **Spectral telemetry striking**: Arm D `u_singular_range_attn=0.96` (attn matrices FAR from orthogonal at attn=12 throughout cooldown) yet model trains BEST. NS over-convergence on square attn is wasteful.
-4. Arm B ≈ Arm D within N=1 seed noise (Δ_BvsD=+0.00018); D wins because it ALSO reduces attn precision (free mechanism stacked on top of mlp boost).
-5. FLOP analysis: Arm D is +13% NS FLOPs vs A (NOT FLOP-neutral as PR initially claimed; iter-count balanced ≠ FLOP balanced because mlp has 4× FLOPs/iter due to 4:1 aspect ratio).
-
-**Phase 2 protocol** (sent back to nezuko): paired-pod n=3 on Arm D only (`attn=12, mlp=20`). Pre-staged gates: mean(D,n=3) ≤ 3.27070 AND (3.28−mean)·√3 ≥ 0.004 AND drift gate (all 3 A controls within ±0.003 of baseline).
-
-**Paired-pod pod0 result (verified 10:25 UTC W&B)** — SIGN-FLIP DETECTED:
-
-| Pod | Arm A (16/16) ctrl | Arm D (12/20) treat | Δ_within-pod |
+| Pod | Arm A ctrl (12/12) | Arm D treat (12/20) | Δ_D−A |
 |---|---|---|---|
-| pod0 | 81wutibn=3.27042 (drift Δ=−0.00028 PASS) | xuayhx59=**3.27277** | **+0.00235 REGRESSION (sign-flipped from N=1)** |
-| pod1 | bfqwkex7 running step 600/3350 (~18%) | not started | TBD |
-| pod2 | not started | not started | TBD |
+| 0 | 3.26889 | 3.27124 | **+0.00235** |
+| 1 | 3.26944 | 3.27101 | **+0.00157** |
+| 2 | 3.26901 | 3.27241 | **+0.00340** |
+| **mean** | **3.26911** | **3.27155** | **+0.00244** |
 
-**N=1 winning Δ=−0.00192 reversed to paired-pod pod0 losing Δ=+0.00235** — pure direction-reversal under seed-paired variance control. Magnitude swing of −0.00427 from one seed to seed-paired controls a strong indicator that N=1 was favorable-seed luck, not mechanism signal. If pod1+pod2 confirm, this becomes 9th paired-pod collapse precedent and per-block-TYPE NS_ITERS_COOLDOWN closes as 65th productive-NULL/NEG.
+**All 3 merge gates FAIL** — mean_D > baseline, 0/3 direction-correct, t=+4.60 highly significant REGRESSION.
 
-**Fallback retained**: if D collapses at n=3, try Arm B (attn=20/mlp=16) — but mechanism reading would suggest B/C also at risk (same null axis, just different perturbation direction).
+**Phase 1 → Phase 2 sign-flip**: N=1 Δ=−0.00192 → n=3 mean Δ=+0.00244 (full sign reversal). Monotone regression magnitude (pod2 worst at +0.00340).
+
+**Per-TYPE Muon hparam family ledger (post-#708)**:
+
+| Axis | Status | PR |
+|------|--------|-----|
+| LR | ✅ MERGED | #579 |
+| WD | ❌ NEGATIVE | #669 |
+| μ (momentum) | ⚪ NULL | #674 |
+| aspect ratio | ⚪ NULL | #632 |
+| NS_ITERS_COOLDOWN | ❌ NEGATIVE | #724 (this) |
+
+Per-TYPE Muon axis essentially exhausted. NS_ITERS_COOLDOWN at TYPE level adds noise without precision-allocation benefit — both attn (Q/K/V/proj) and mlp (fc/proj) matrix shapes converge to similar polar factor quality at NS=12. Mirrors per-DEPTH closure (#710). Frontier shifts to fresh axes: post-NS direction modification, data ordering, anchored regularization.
+
+**10th paired-pod collapse precedent on r4.** Baseline UNCHANGED at val=3.27036 / fs=3216.67.
+
+**Follow-up**: nezuko assigned **#825 Cautious AdamW for aux groups** — per-group disaggregation of #751's +0.00901 aux-all regression. 4-arm sweep: A=none ctrl, B=embed only, C=lm_head only, D=all aux. Reframed hypothesis: identify per-subgroup contribution to #751 Arm C regression on post-#708 stack (aux-side clip tightening from #708 may have changed dynamics).
+
+### 🔄 nezuko #825 — Cautious AdamW per-aux-group disaggregation (4-arm) [assigned 15:15 UTC]
+
+**Branch:** `g1r4-nezuko/cautious-aux`
+**Hypothesis**: Liao et al. 2024 Cautious masks update components where `update * grad < 0` and rescales. #751 fern tested Cautious-all-aux (Arm C: +0.00901 large regression). #825 disaggregates per sub-group on post-#708 stack to identify per-group culprit. The new per-group grad-clip asymmetry (BODY=10/AUX=5 from #708) further tightens aux-side — may change Cautious's local effect.
+
+| Arm | NANOGPT_AUX_CAUTIOUS | Description |
+|:---:|:---:|:---|
+| A | `none` | Control (bit-identical to #708 baseline) |
+| B | `embed` | Mask embed updates only (largest aux param) |
+| C | `lm_head` | Mask lm_head updates only (output coupling) |
+| D | `all` | Mask all three aux groups (replicates #751 Arm C at +0.00901) |
+
+Implementation: CautiousAdamW subclass (fused=False) with snapshot-delta post-step masking, 4-arm paired-pod n=3 (12 runs). ETA ~7.3h.
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 

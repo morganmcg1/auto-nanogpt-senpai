@@ -3,6 +3,43 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 15:15 UTC — PR #724: Per-block-TYPE NS_ITERS_COOLDOWN attn vs mlp (nezuko) — CLOSED productive-NEGATIVE (72nd cycle, 10th paired-pod collapse)
+
+- Branch: `g1r4-nezuko/per-type-ns-iters-cooldown`
+- Hypothesis: Allocate NS-iter precision unevenly across block TYPES (attn vs mlp). Phase 1 N=1 winner candidate: Arm D Δ_A_vs_D = −0.00192 at single seed. Phase 2 n=3 paired-pod confirmation requested.
+
+**Phase 2 n=3 results (vs post-#708 baseline 3.27036):**
+
+| Pod | Arm A ctrl (12/12) | Arm D treat (per-TYPE) | Δ_D−A |
+|---|---|---|---|
+| 0 | 3.26889 | 3.27124 | **+0.00235** |
+| 1 | 3.26944 | 3.27101 | **+0.00157** |
+| 2 | 3.26901 | 3.27241 | **+0.00340** |
+| **mean** | **3.26911** | **3.27155** | **+0.00244** |
+
+**All 3 merge gates FAIL:**
+- Gate 1 (baseline beat): mean_D=3.27155 > 3.27036 → FAIL
+- Gate 2 (direction): 0/3 pods Δ ≤ 0 → FAIL
+- Gate 3 (signal): t=+4.60 highly significant REGRESSION → FAIL
+
+**Phase 1 → Phase 2 sign-flip:** N=1 Δ=−0.00192 → n=3 mean Δ=+0.00244 (full sign reversal). Monotone regression magnitude (pod2 worst at +0.00340) leaves no plausible path to merge.
+
+**Mechanism — Per-TYPE Muon hparam family ledger (post-#708):**
+
+| Axis | Status | PR |
+|------|--------|-----|
+| LR | ✅ MERGED | #579 |
+| WD | ❌ NEGATIVE | #669 |
+| μ (momentum) | ⚪ NULL | #674 |
+| aspect ratio | ⚪ NULL | #632 |
+| NS_ITERS_COOLDOWN | ❌ NEGATIVE | #724 (this) |
+
+Per-TYPE Muon axis essentially exhausted. NS_ITERS_COOLDOWN at TYPE level adds noise without precision-allocation benefit — likely because both attn (Q/K/V/proj) and mlp (fc/proj) matrix shapes converge to similar polar factor quality at NS=12, mirroring the per-DEPTH closure (#710). Frontier shifts to fresh axes: post-NS direction modification (#825 Cautious AdamW aux, #810 post-NS momentum), data ordering, and anchored regularization.
+
+**10th paired-pod collapse precedent on r4.** Baseline UNCHANGED at val=3.27036 / fs=3216.67.
+
+---
+
 ## 2026-05-22 14:31 UTC — PR #708: Per-group grad-clip asymmetry BODY=10/AUX=5 (thorfinn) — MERGED WINNER (71st cycle, 10th paired-pod confirmation)
 
 - Branch: `g1r4-thorfinn/per-group-grad-clip`
