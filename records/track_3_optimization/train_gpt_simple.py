@@ -577,6 +577,10 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Post-NS momentum: temporal EMA of NS-orthogonalized updates across steps.
+# 0.0 = control (bit-identical to merged stack); >0 enables post-NS blending
+# w_t = alpha * w_{t-1} + (1-alpha) * u_t (where u_t is the NS-orthogonalized update)
+NANOGPT_POST_NS_ALPHA = float(os.environ.get("NANOGPT_POST_NS_ALPHA", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -736,9 +740,14 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                        if NANOGPT_POST_NS_ALPHA > 0:
+                            state["post_ns_momentum"] = torch.zeros_like(p, dtype=torch.bfloat16)
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if NANOGPT_POST_NS_ALPHA > 0:
+                        state["post_ns_momentum"].lerp_(update, 1 - NANOGPT_POST_NS_ALPHA)
+                        update = state["post_ns_momentum"]
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -813,6 +822,9 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"POST_NS_ALPHA: {NANOGPT_POST_NS_ALPHA} "
+       f"({'ENABLED — post-NS temporal blend' if NANOGPT_POST_NS_ALPHA > 0 else 'DISABLED — control'})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -873,6 +885,7 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_post_ns_alpha": NANOGPT_POST_NS_ALPHA,
         },
     )
 
