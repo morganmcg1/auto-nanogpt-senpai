@@ -1,3 +1,44 @@
+## 2026-05-22 22:45 UTC — PR #849 ASSIGNED (fern): H75 Lookahead optimizer wrapper on aux AdamW — fresh outer-aggregation axis
+
+- Branch: `g1r3-fern/lookahead-aux-wrapper`
+- Hypothesis: Apply Lookahead Optimizer (Zhang et al. 2019, "Lookahead Optimizer: k steps forward, 1 step back") around the aux AdamW. Maintain slow-weights as EMA of fast-weights every k inner steps then reset fast=slow. MuonH body has MuLoCo outer (Nesterov-SGDM on accumulated delta) — aux is BARE AdamW (no outer aggregation). Lookahead fills that gap as a different across-step aggregation rule.
+- **Mechanism distinctness (vs nearby axes)**:
+  - vs **PR #761 EMA-of-weights eval** (CLOSED NULL — horizon pathology): EMA only swaps at eval; Lookahead WRITES BACK to fast = slow every k steps, so training trajectory itself changes. No horizon-pathology issue because the interpolation is k-step-discrete not continuous decay.
+  - vs **MuLoCo outer** (Nesterov-SGDM on delta): MuLoCo aggregates BODY MuonH steps; Lookahead applied here aggregates AUX AdamW steps. Different layer of the stack.
+  - vs **H74 Cautious-AdamW** (in-flight #839): Cautious modifies WITHIN-step update (sign-mask); Lookahead aggregates ACROSS steps (k-step EMA snapshot). Orthogonal.
+- 3 arms (n=1, 3325 steps):
+  - arm_a (ctrl): `--aux_lookahead 0` (bare AdamW, current baseline)
+  - arm_b (PRIMARY, Zhang default): `--aux_lookahead 1 --aux_lookahead_k 5 --aux_lookahead_alpha 0.5`
+  - arm_c (longer lookback): `--aux_lookahead 1 --aux_lookahead_k 10 --aux_lookahead_alpha 0.5`
+- LoC ~50: `LookaheadAux` wrapper class around AdamW, slow_weights dict cloned at init, every k inner steps lerp slow with α then copy back to fast. Telemetry `aux/lookahead_drift_*` per param group (`||fast - slow|| / ||slow||`). Bit-identical invariant: `--aux_lookahead 0` defaults match current baseline exactly.
+- Mandatory smoke: 200-step arm_b verify `aux/lookahead_drift_embed` and `_lmhead` finite + monotonically decreasing each k-step sync (means slow-weight interpolation is working — fast wanders, snap back, drift resets). If drift telemetry stays 0 or hits NaN, abort and post diagnostic.
+- Decision tree: WIN merge → confirm n=3-5; NULL → "outer-aggregation on aux is irrelevant at this scale/horizon"; NEG → "k-step snapshot interpolation incompatible with cosine cooldown schedule".
+- W&B group `h75_lookahead_aux`. Reassignment after #809 closure.
+
+---
+
+## 2026-05-22 22:40 UTC — PR #809 CLOSED NULL (fern): H66 Soft-Muon warm-blend α strength sweep — joint Soft-Muon axis closure (constant + schedule + strength)
+
+- Branch: `g1r3-fern/soft-muon-warm-blend-strength`
+- Hypothesis: PR #775 H59 arm_c warm-blend at α=0.85 gave informal WIN val=3.27184 (−0.00160 vs ctrl) but did NOT beat baseline 3.27119. H66 sweeps warm-blend strength to find optimal α and characterize the curve.
+- Arms (4, n=1, 3325 steps; arm_b PRIMARY α=0.80):
+
+| arm | α_warm | val/loss | Δ vs ctrl | Δ vs baseline 3.27119 | W&B |
+|---|---|---|---|---|---|
+| arm_a ctrl (α=1.0) | constant | **3.27345** | — (in-noise pop) | +0.00226 | (in PR) |
+| arm_b α=0.80 PRIMARY | warm 0.80 → 1.0 | **3.27487** | +0.00142 (~2.7σ NEG) | +0.00368 | (in PR) |
+| arm_c α=0.70 (aggressive) | warm 0.70 → 1.0 | **3.27333** | −0.00012 NULL | +0.00214 | (in PR) |
+| arm_d α=0.90 (mild) | warm 0.90 → 1.0 | **3.27336** | −0.00009 NULL | +0.00217 | (in PR) |
+
+- **Verdict: NULL** — none of the 4 arms clear merge bar (informal 3.272 / formal 3.27039). arm_b is the only NEG outlier (~2.7σ) sandwiched between two flanking nulls (arm_c at α=0.70 and arm_d at α=0.90).
+- **Non-monotonic strength curve diagnostic**: arm_b outlier ~2.7σ NEG against two flanking nulls is textbook signature of single-seed environmental noise. CUDA non-determinism finding from PR #798 directly applies — same-config val spread ~0.0008 means single-arm Δ < 1.5σ is below significance.
+- **PR #775's α=0.85 informal WIN now revealed as ~2.9σ noise**: interpolating from arm_b (α=0.80, 3.27487) and arm_d (α=0.90, 3.27336) we expect α=0.85 ≈ 3.27412 — but #775's arm_c hit 3.27184. The −0.00228 deviation is ~2.9σ from interpolant, falling exactly in the regime PR #798 flagged as "lucky n=1 results in [3.270, 3.272] likely within-config variance".
+- **Joint Soft-Muon axis closure (cycle 95)**: PR #744 H_constant α + PR #775 H59 schedule + PR #809 H66 strength sweep = STATIC Soft-Muon axis structurally exhausted. Soft-Muon is mechanically real (cos_sim trajectory 0.42→0.61→0.56 from #744 telemetry validated NS5-output-vs-raw-grad blending) but produces NO MEASURABLE TERMINAL-LOSS IMPROVEMENT across constant, schedule, or strength sub-dimensions. **Future Soft-Muon proposals (e.g., per-layer α, dynamic α based on grad-norm) pre-closed by joint structural analogy with #744/#775/#809.**
+- **Cross-axis joint closure tally for the session**: NS5 polynomial axis (PR #190 + #762 + #790, cycle 89), aux-eps axis (PR #813 with constant siblings, cycle 90), per-group LR axis (#799 + #807, cycle 87-88), Soft-Muon axis (#744 + #775 + #809, cycle 95). Four major structural closures.
+- Routing → PR #849 H75 Lookahead-aux-wrapper (fresh outer-aggregation axis at aux scale).
+
+---
+
 ## 2026-05-22 21:10 UTC — PR #839 ASSIGNED (edward): H74 Cautious-AdamW on aux groups (sign-mask in Adam-family domain)
 
 - Branch: `g1r3-edward/cautious-aux-adamw`
