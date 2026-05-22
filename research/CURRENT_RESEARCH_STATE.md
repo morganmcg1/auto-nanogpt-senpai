@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 08:13 UTC
+- **Date:** 2026-05-22 10:28 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -478,7 +478,17 @@ Trust-mechanism telemetry across 3 B pods (reproducible — failure is at val/lo
 
 **Phase 2 protocol** (sent back to nezuko): paired-pod n=3 on Arm D only (`attn=12, mlp=20`). Pre-staged gates: mean(D,n=3) ≤ 3.27070 AND (3.28−mean)·√3 ≥ 0.004 AND drift gate (all 3 A controls within ±0.003 of baseline).
 
-**Fallback**: if D collapses at n=3 (8th paired-pod precedent: #344/#351/#408/#487/#560/#593/#550/#577), try Arm B (attn=20/mlp=16). Likely 7th cycle paired-pod risk given strength of N=1 signal — but if real, this is the strongest merge candidate since #579.
+**Paired-pod pod0 result (verified 10:25 UTC W&B)** — SIGN-FLIP DETECTED:
+
+| Pod | Arm A (16/16) ctrl | Arm D (12/20) treat | Δ_within-pod |
+|---|---|---|---|
+| pod0 | 81wutibn=3.27042 (drift Δ=−0.00028 PASS) | xuayhx59=**3.27277** | **+0.00235 REGRESSION (sign-flipped from N=1)** |
+| pod1 | bfqwkex7 running step 600/3350 (~18%) | not started | TBD |
+| pod2 | not started | not started | TBD |
+
+**N=1 winning Δ=−0.00192 reversed to paired-pod pod0 losing Δ=+0.00235** — pure direction-reversal under seed-paired variance control. Magnitude swing of −0.00427 from one seed to seed-paired controls a strong indicator that N=1 was favorable-seed luck, not mechanism signal. If pod1+pod2 confirm, this becomes 9th paired-pod collapse precedent and per-block-TYPE NS_ITERS_COOLDOWN closes as 65th productive-NULL/NEG.
+
+**Fallback retained**: if D collapses at n=3, try Arm B (attn=20/mlp=16) — but mechanism reading would suggest B/C also at risk (same null axis, just different perturbation direction).
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
