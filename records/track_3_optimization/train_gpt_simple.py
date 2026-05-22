@@ -52,6 +52,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--pmuon_gamma_power_cooldown_target", type=float, default=None,
+        help="If set, linearly ramp PMuon gamma_power from PMUON_GAMMA to this target over the cooldown phase. None = static.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +706,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "pmuon_gamma_power_cooldown_target": args.pmuon_gamma_power_cooldown_target,
         },
     )
 
@@ -763,7 +766,13 @@ for trial_idx in range(args.num_trials):
         for opt in optimizers:
             for group in opt.param_groups:
                 group["lr"] = group["initial_lr"] * eta
-        return progress, cooldown_progress, eta
+        if args.pmuon_gamma_power_cooldown_target is not None:
+            gamma_t = PMUON_GAMMA + (args.pmuon_gamma_power_cooldown_target - PMUON_GAMMA) * cooldown_progress
+        else:
+            gamma_t = PMUON_GAMMA
+        for group in optimizer2.param_groups:
+            group["gamma"] = gamma_t
+        return progress, cooldown_progress, eta, gamma_t
 
 
     ########################################
@@ -852,7 +861,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        sched_progress, sched_cooldown_progress, sched_eta, sched_gamma_t = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -919,9 +928,10 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/cooldown_progress": sched_cooldown_progress,
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
+                "pmuon/gamma_power_t": sched_gamma_t,
             }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
-            spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
+            spec = pmuon_spectral_diag(optimizer2, sched_gamma_t)
             if spec:
                 spec["trial"] = trial_idx
                 spec["train/step"] = train_step
