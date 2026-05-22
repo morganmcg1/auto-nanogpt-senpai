@@ -55,6 +55,9 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    parser.add_argument("--outer_nesterov", type=int, default=int(os.environ.get("OUTER_NESTEROV", "1")),
+                        help="If 1, use Nesterov-corrected outer SGDM (current default). "
+                             "If 0, use classical heavy-ball Polyak SGDM (no lookahead).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -701,7 +704,8 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval} "
+           f"nesterov={bool(args.outer_nesterov)}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -761,6 +765,7 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_outer_nesterov": bool(args.outer_nesterov),
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1089,28 +1094,35 @@ for trial_idx in range(args.num_trials):
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
+                effective_step_sq = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    if args.outer_nesterov:
+                        step_term = args.outer_momentum * outer_velocity[n] + delta
+                    else:
+                        step_term = outer_velocity[n]
+                    p.data.copy_(outer_anchor[n] - args.outer_lr * step_term)
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        effective_step_sq = effective_step_sq + (args.outer_lr * step_term).float().square().sum()
                         total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                effective_step_rms = (effective_step_sq.item() / max(1, total_count)) ** 0.5
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/muloco/effective_step_rms": effective_step_rms,
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
