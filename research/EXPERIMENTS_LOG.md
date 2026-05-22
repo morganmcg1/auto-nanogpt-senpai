@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-22 12:45 UTC — PR #774 CLOSED: PMuon cov warmup fast-mix (K=20 vs K=50) — NULL with numerical-instability boundary, 68th axis (g1r1-edward)
+
+- Branch: `g1r1-edward/pmuon-cov-warmup-fast-mix`
+- Hypothesis: β_cov=0.0 for first K steps to rapidly populate L_cov/R_cov buffers, then snap to β_cov=0.95 stable EMA. Tests whether early-training cov buffer init quality is a lever.
+
+| Arm | K | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | — | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | ref |
+| **Arm A** | 20 | ih0bs1wn | 2975 | 3.26713 | +37.5 | +0.00285 | NULL |
+| **Arm B** | 50 | ibl7esmh | crashed step 41 | — | — | — | INSTABILITY |
+
+- **Arm A NULL on both metrics, n=1:** Δsr=+37.5 (>25 marginal threshold), Δval=+0.00285 (>0.001 marginal threshold). Stat-sig threshold (val ≤ 3.276) passes — within noise floor but consistently worse than baseline mean.
+- **Arm B numerical-instability INTRINSIC to hypothesis:** With β_cov=0.0, EMA collapses to `R_cov ← g.T @ g` — rank-deficient by construction. After ~40 steps of pure outer-product accumulation, `torch.linalg.eigh` cannot decompose. eps=1e-12 clamp does nothing because it activates POST eigendecomposition. Rules out K=50 (and larger) as viable. K=20 happened to escape this window by luck.
+- **Closes 68th axis cleanly:** the cov-warmup-fast-mix hypothesis adds nothing useful at K=20 (NULL) and corrupts the estimator at K=50 (instability). The cluster (#727, #769, #760, #774) confirms β_cov=0.95 / cooldown stack is at a Pareto-balanced operating point.
+- **Operational note:** student handled chain-launcher chaos (7 aborted runs) with clean recovery — diagnosed duplicate-launch pattern, killed artifact at 09:58 UTC, produced definitive Arm A + clean Arm B failure-mode analysis.
+
 ## 2026-05-22 09:15 UTC — PR #745 CLOSED: Body-Muon per-type LR cooldown asymmetry — NULL/NULL, 67th axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/body-muon-cooldown-lr-asymmetry-attn-mlp`

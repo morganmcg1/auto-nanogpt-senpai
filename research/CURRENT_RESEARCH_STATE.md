@@ -1,8 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 09:18 UTC
+- **Last update:** 2026-05-22 13:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
+- **68 closed axes** (#774 cov-warmup-fast-mix closed 13:00 UTC)
+- **3 sub-baseline-marginal signals in n=2 confirmation pipeline:**
+  - #737 thorfinn Polyak EMA β=0.99 (sr=2925/val=3.265811; seed-2 `32r3isz5` in flight)
+  - #741 alphonse aux β2→0.999 (sr=2950/val=**3.263972** beats baseline mean; seed-1 `nsvxxmvl` in flight)
+  - #777 fern body-Muon mu→0.85 (sr=2925/val=3.26880, just terminal; pending Arm B + n=2)
 
 ## Current local baseline
 
