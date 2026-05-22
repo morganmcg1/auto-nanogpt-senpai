@@ -16,7 +16,6 @@ from pathlib import Path
 
 import torch
 from torch import Tensor, nn
-from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
@@ -52,6 +51,10 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--nadam_aux", type=lambda x: x.lower() != "false", default=False,
+                        help="Use NAdam (Nesterov-AdamW) variant for aux groups (default: False)")
+    parser.add_argument("--aux_beta1", type=float, default=None,
+                        help="Override AdamW beta1 for aux groups (default: 0.8 baseline)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -447,6 +450,72 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+class AuxAdamW(torch.optim.AdamW):
+    """AdamW with optional Dozat 2016 NAdam (Nesterov-AdamW) numerator.
+
+    When `nadam=True` is set on a parameter group, the update uses
+    `m_nesterov = beta1 * m_t + (1 - beta1) * g_t` (with m_t the standard
+    EMA at the current step) in place of m_t. Denominator and decoupled
+    weight decay are unchanged. When no group has `nadam=True`, the step
+    defers to the parent fused AdamW step for bitwise parity with baseline.
+    """
+
+    def __init__(self, params, *args, nadam: bool = False, **kwargs):
+        super().__init__(params, *args, **kwargs)
+        for group in self.param_groups:
+            group.setdefault("nadam", nadam)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if not any(group.get("nadam", False) for group in self.param_groups):
+            return super().step(closure)
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            use_nadam = group.get("nadam", False)
+            params, grads, exp_avgs, exp_avg_sqs = [], [], [], []
+            step_count = group.get("_aux_step", 0) + 1
+            group["_aux_step"] = step_count
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                params.append(p)
+                grads.append(p.grad)
+                state = self.state[p]
+                if "exp_avg" not in state:
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] = step_count
+                exp_avgs.append(state["exp_avg"])
+                exp_avg_sqs.append(state["exp_avg_sq"])
+            if not params:
+                continue
+            bc1 = 1.0 - beta1 ** step_count
+            bc2 = 1.0 - beta2 ** step_count
+            if wd != 0:
+                torch._foreach_mul_(params, 1.0 - lr * wd)
+            torch._foreach_lerp_(exp_avgs, grads, 1.0 - beta1)
+            torch._foreach_mul_(exp_avg_sqs, beta2)
+            torch._foreach_addcmul_(exp_avg_sqs, grads, grads, value=1.0 - beta2)
+            denoms = torch._foreach_div(exp_avg_sqs, bc2)
+            torch._foreach_sqrt_(denoms)
+            torch._foreach_add_(denoms, eps)
+            if use_nadam:
+                numerators = torch._foreach_mul(exp_avgs, beta1)
+                torch._foreach_add_(numerators, grads, alpha=1.0 - beta1)
+                torch._foreach_div_(numerators, bc1)
+            else:
+                numerators = torch._foreach_div(exp_avgs, bc1)
+            torch._foreach_addcdiv_(params, numerators, denoms, value=-lr)
+        return loss
+
+
 def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
@@ -704,6 +773,8 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "nadam_aux": args.nadam_aux,
+            "aux_beta1": args.aux_beta1 if args.aux_beta1 is not None else 0.8,
         },
     )
 
@@ -735,10 +806,12 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    aux_beta1 = args.aux_beta1 if args.aux_beta1 is not None else 0.8
+    optimizer1 = AuxAdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                           dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                          betas=(aux_beta1, 0.95), eps=1e-10, weight_decay=0,
+                          fused=True, nadam=args.nadam_aux)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
