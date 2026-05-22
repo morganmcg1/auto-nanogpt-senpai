@@ -503,7 +503,24 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+
+        B, T = targets.shape
+        flat_logits = logits.view(B * T, -1)
+        flat_targets = targets.view(B * T)
+
+        # Position-aware loss weighting applies only during training, so val/loss
+        # stays unweighted CE — directly comparable to checked-in baselines.
+        if (not self.training) or NANOGPT_POS_LOSS_SHAPE == "uniform" or NANOGPT_POS_LOSS_ALPHA == 0.0:
+            return F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+
+        per_token_ce = F.cross_entropy(flat_logits, flat_targets, reduction="none").view(B, T)
+        pos = torch.arange(T, device=targets.device, dtype=torch.float32)
+        if NANOGPT_POS_LOSS_SHAPE == "linear_up":
+            w = 1.0 + NANOGPT_POS_LOSS_ALPHA * (pos / (T - 1))
+        else:  # "linear_down"
+            w = 1.0 + NANOGPT_POS_LOSS_ALPHA * (1.0 - pos / (T - 1))
+        w = w / w.mean()
+        return (per_token_ce * w.unsqueeze(0)).sum()
 
 
 ########################################
@@ -536,6 +553,19 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Position-aware loss weighting (training-only; val/loss remains unweighted CE).
+# NANOGPT_POS_LOSS_SHAPE: "uniform" (bit-identical control), "linear_up", "linear_down"
+# NANOGPT_POS_LOSS_ALPHA: float >= 0; 0.0 = no effect (bit-identical control).
+# Weights are normalized to mean=1.0 across positions; total gradient magnitude preserved.
+NANOGPT_POS_LOSS_SHAPE = os.environ.get("NANOGPT_POS_LOSS_SHAPE", "uniform")
+NANOGPT_POS_LOSS_ALPHA = float(os.environ.get("NANOGPT_POS_LOSS_ALPHA", "0.0"))
+_VALID_POS_LOSS_SHAPES = ("uniform", "linear_up", "linear_down")
+if NANOGPT_POS_LOSS_SHAPE not in _VALID_POS_LOSS_SHAPES:
+    raise ValueError(
+        f"NANOGPT_POS_LOSS_SHAPE={NANOGPT_POS_LOSS_SHAPE!r}, must be one of {_VALID_POS_LOSS_SHAPES}"
+    )
+if NANOGPT_POS_LOSS_ALPHA < 0.0:
+    raise ValueError(f"NANOGPT_POS_LOSS_ALPHA={NANOGPT_POS_LOSS_ALPHA}, must be >= 0")
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -769,6 +799,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"POS_LOSS: shape={NANOGPT_POS_LOSS_SHAPE} alpha={NANOGPT_POS_LOSS_ALPHA} (train-only; val/loss unweighted)",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -826,8 +858,26 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_pos_loss_shape": NANOGPT_POS_LOSS_SHAPE,
+            "nanogpt_pos_loss_alpha": NANOGPT_POS_LOSS_ALPHA,
         },
     )
+    # One-time scalar log of the position weight distribution for verification.
+    _T_seq = 1024
+    _pos = torch.arange(_T_seq, dtype=torch.float32)
+    if NANOGPT_POS_LOSS_SHAPE == "linear_up" and NANOGPT_POS_LOSS_ALPHA != 0.0:
+        _w = 1.0 + NANOGPT_POS_LOSS_ALPHA * (_pos / (_T_seq - 1))
+    elif NANOGPT_POS_LOSS_SHAPE == "linear_down" and NANOGPT_POS_LOSS_ALPHA != 0.0:
+        _w = 1.0 + NANOGPT_POS_LOSS_ALPHA * (1.0 - _pos / (_T_seq - 1))
+    else:
+        _w = torch.ones(_T_seq)
+    _w = _w / _w.mean()
+    wandb.log({
+        "pos_loss/weight_mean": float(_w.mean()),
+        "pos_loss/weight_std": float(_w.std()),
+        "pos_loss/weight_at_t0": float(_w[0]),
+        "pos_loss/weight_at_t_last": float(_w[-1]),
+    }, step=0)
 
 for trial_idx in range(args.num_trials):
 
