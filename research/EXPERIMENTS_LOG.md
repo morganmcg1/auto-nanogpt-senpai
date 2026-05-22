@@ -2526,3 +2526,59 @@ Critical diagnostic: **at the moments where SOAP and Muon updates disagree most 
 Useful telemetry logged: `trust/fired_fraction`, `trust/cos_sim_mean`, `trust/cos_sim_min/max`, attn vs mlp breakdown. Cos_sim is consistently lower for attn (~0.82) than mlp (~0.88) — potentially useful diagnostic for future SOAP scope experiments.
 
 New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this run; targets single-seed variance).
+
+---
+
+## 2026-05-22 ~09:45 UTC — PR #687: askeladd Atan2-AdamW P2 n=4 confirmation (Cell D) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-askeladd/atan2-adamw-sweep`
+- Student: g1r5-askeladd
+- Hypothesis: P2 n=4 confirmation at Cell D config (atan2=1, lr_adamw_mul=2.0, β1=0.8) — the P1 best cell (val/loss=3.26205 at n=1, +0.000785 above gate, -1.93σ vs ctrl A=3.26419).
+
+- **P2 n=4 results (run `jcmxx5sc`, group `g1r5-askeladd/atan2-adamw-P2-confirm`):**
+
+| Trial | val/loss | ffs | vs gate (3.261265) |
+|------:|---------:|----:|:-------------------|
+| 0 | 3.26525 | 3075 | +0.003985 (above) |
+| 1 | 3.26544 | 3075 | +0.004175 (above) |
+| 2 | 3.26377 | 3050 | +0.002505 (above) |
+| 3 | 3.26240 | 3050 | +0.001135 (above) |
+| **μ_{n=4}** | **3.264213** | **3062.5** | **+0.002948 above gate** |
+| σ_single | 0.001419 | — | — |
+| SEM | 0.000710 | — | — |
+
+- **Gate verdict: clean-NEG.** μ_{n=4} = 3.264213 is +0.002213 above clean-NEG cutoff (3.262). The P1 single-seed win at Cell D (3.26205) was seed noise — trials 0/1/2/3 all failed to reproduce it; the 4-seed mean sits inside the strong-ctrl band (3.26129–3.26480).
+
+- **Mechanism analysis:**
+  1. **Atan2 normalization + 2× LR is mechanically stable** — all 4 trials reached target, no divergence, step time stable ~1.9 s/step (~7.3h wall-clock). StableAdamW bounded SNR claim (Wortsman 2023) reproduces: higher LR is safe.
+  2. **But the bounded normalization does not lower terminal loss** at L=12, 3250 steps, post-#571 baseline. The P1 LR-ceiling effect (B=3.26574, C=3.26291, D=3.26205 at 1×/1.5×/2.0×) is real (small magnitude, monotone) but does not survive n=4 — sits inside σ_single=0.001419.
+  3. **6th non-Muon AdamW-kernel mechanism closure**: Lion #638 / Lookahead #581 / AdEMAMix #626 / Schedule-Free-B #659 / Adan #645 / Atan2 #687. **AdamW-kernel axis exhausted at L=12, 3250-step horizon.** No further AdamW-kernel modifications worth chasing.
+  4. **Cross-PR inference**: eps-stability tests (#556, #641) + atan2 P2 (#687) together imply: the *only* remaining potential atan2 value was the LR ceiling, which n=4 confirms is seed-bounded. Axis exhausted.
+
+- **Student commendation**: post-trial gate-tracking math was precise. At trial 1 correctly predicted clean-NEG: "for μ_{n=4} ≤ 3.261265, trials 2 and 3 must average ≤ 3.257185 — far below the strong-ctrl band lower edge (3.26129). Vanishingly unlikely." Terminal outcome exactly as forecasted.
+
+- **Decision:** CLOSED clean-NEG per pre-declared rule (μ > 3.262). **Askeladd reassigned #776 Muon/SOAP update RMS normalization.**
+
+---
+
+## 2026-05-22 ~09:45 UTC — PR #776: askeladd Muon/SOAP update RMS normalization — **ASSIGNED (P1 sweep in flight)**
+
+- Branch: `g1r5-askeladd/muon-update-rms-norm`
+- Student: g1r5-askeladd
+- Hypothesis: Normalize post-NS Muon/SOAP update matrix to a fixed target RMS per matrix. Decouples update direction (NS) from update magnitude (explicit RMS). Analogue of LARS/LAMB for orthogonalization-based optimizers.
+
+- **5-cell P1 sweep (--muon_update_rms_target values):**
+
+| Cell | target RMS | Expected role |
+|:----:|:----------:|:--------------|
+| A | 0.0 (ctrl) | Confirm baseline; establish σ reference |
+| B | 0.25 | Weak normalization |
+| C | 0.50 | Moderate (expected interior optimum) |
+| D | 1.00 | Unit-RMS — most principled |
+| E | 2.00 | Strong — boundary probe |
+
+- **Implementation**: `soap_ns_step` modification at lines 499-503 (load-bearing surgery under --soap_attn baseline); `muon_update` at lines 491-496 modified for consistency (dead code under --soap_attn). New `--muon_update_rms_target` CLI flag; `@torch.compile` specializes on 0.0 ctrl — zero overhead on baseline.
+
+- **Orthogonal to all 7 in-flight**: distinct pipeline stage from GC (#756, pre-NS input) and adaptive-mu (#773, momentum blend into NS). NS_iter controls convergence quality; this controls output magnitude. Strictly orthogonal.
+
+- **Gate**: μ_n=1 ≤ 3.261265 → P2 n=4. μ_n=4 ≤ 3.261265 → merge.
