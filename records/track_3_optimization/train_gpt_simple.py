@@ -536,6 +536,11 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Soft-Muon NS/momentum blend (Public Leaderboard #20 ingredient). At alpha=1.0 the
+# Muon update is the pure Newton-Schulz orthogonalization (baseline). At alpha<1.0
+# the update becomes alpha*NS(m) + (1-alpha) * (m / ||m||_F), tilting the orthogonalized
+# direction toward the normalized raw-momentum direction.
+SOFT_MUON_ALPHA = float(os.environ.get("NANOGPT_SOFT_MUON_ALPHA", "1.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -635,15 +640,28 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8,
+                nesterov=True, alpha: float = 1.0):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
     v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
     update = update / (v.sqrt() + eps)
-    update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
+    m_pre_ns = update
+    u_ns = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
+    # Cosine similarity between NS output and normalized raw pre-NS direction,
+    # both normalized to unit Frobenius norm. Value in [-1, 1].
+    m_norm = m_pre_ns / (m_pre_ns.norm() + 1e-7)
+    u_ns_unit = u_ns / (u_ns.norm() + 1e-7)
+    blend_cos_sim = (u_ns_unit * m_norm).sum()
+    # Soft-Muon blend: tilt the NS update toward the raw pre-NS direction at
+    # ratio (1 - alpha). alpha=1.0 reduces to the baseline pure-NS update.
+    if alpha < 1.0:
+        update = alpha * u_ns + (1.0 - alpha) * m_norm
+    else:
+        update = u_ns
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    return update
+    return update, blend_cos_sim
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -695,9 +713,12 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
-                                         ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    update, blend_cos_sim = muon_update(
+                        p.grad, state["momentum"], state["v"],
+                        ns_iters=ns_iters,
+                        mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                        alpha=SOFT_MUON_ALPHA,
+                    )
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -713,6 +734,8 @@ class Muon(torch.optim.Optimizer):
                                 "u_singular_range": float((svals.max() - svals.min()).item()),
                                 "u_singular_std": float(svals.std(unbiased=False).item()),
                                 "ns_iters_used": float(ns_iters),
+                                "blend_cos_sim_block0_q": float(blend_cos_sim.item()),
+                                "soft_muon_alpha": SOFT_MUON_ALPHA,
                             }
                         except Exception:
                             self.spectral_stats = None
@@ -769,6 +792,11 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(
+    f"SOFT_MUON_ALPHA={SOFT_MUON_ALPHA:.3f} "
+    f"({'pure NS' if SOFT_MUON_ALPHA >= 1.0 else 'NS+momentum blend'})",
+    console=True,
+)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -826,6 +854,7 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_soft_muon_alpha": SOFT_MUON_ALPHA,
         },
     )
 
@@ -1117,8 +1146,14 @@ for trial_idx in range(args.num_trials):
                 "train/ns_schedule/cumulative_iters": ns_cumulative_iters,
             }
             if optimizer2.spectral_stats is not None:
+                # Soft-Muon blend stats live under train/muon/; other NS-spectral
+                # stats keep their historical train/ns_schedule/ prefix.
+                _muon_prefix_keys = ("blend_cos_sim_block0_q", "soft_muon_alpha")
                 for k, v in optimizer2.spectral_stats.items():
-                    ns_metrics[f"train/ns_schedule/{k}"] = v
+                    if k in _muon_prefix_keys:
+                        ns_metrics[f"train/muon/{k}"] = v
+                    else:
+                        ns_metrics[f"train/ns_schedule/{k}"] = v
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
