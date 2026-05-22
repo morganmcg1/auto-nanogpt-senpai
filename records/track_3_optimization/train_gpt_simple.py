@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import math
 import uuid
 import time
 from pathlib import Path
@@ -52,6 +53,8 @@ def parse_args():
     parser.add_argument("--histogram_interval", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_INTERVAL", "125")))
     parser.add_argument("--histogram_samples", type=int, default=int(os.environ.get("NANOGPT_HISTOGRAM_SAMPLES", "65536")))
     parser.add_argument("--param_histogram_limit", type=int, default=int(os.environ.get("NANOGPT_PARAM_HISTOGRAM_LIMIT", "24")))
+    parser.add_argument("--muon_swa_cooldown_k", type=int, default=0,
+        help="If > 0: maintain a uniform SWA average of body-Muon weights over the last K stable-phase steps and reset live weights to the average at cooldown_start_step. 0 = disabled (default).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -704,6 +707,7 @@ if dist.get_rank() == 0:
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
+            "muon_swa_cooldown_k": args.muon_swa_cooldown_k,
         },
     )
 
@@ -749,6 +753,23 @@ for trial_idx in range(args.num_trials):
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
 
+    cooldown_frac = 0.7
+    cooldown_start_step = int(train_steps * (1 - cooldown_frac))
+
+    # Body-Muon SWA cooldown init (#730): collect body-Muon param refs and per-param accumulators.
+    body_muon_params_swa: list[Tensor] = []
+    if args.muon_swa_cooldown_k > 0:
+        for opt in optimizers:
+            for group in opt.param_groups:
+                if group.get("name") == "muon_blocks":
+                    body_muon_params_swa.extend(group["params"])
+    swa_buffer: dict[int, Tensor] = {}
+    swa_count: dict[int, int] = {}
+    if args.muon_swa_cooldown_k > 0:
+        for p in body_muon_params_swa:
+            swa_buffer[id(p)] = torch.zeros_like(p.data)
+            swa_count[id(p)] = 0
+
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
@@ -786,6 +807,43 @@ for trial_idx in range(args.num_trials):
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
+
+        # --------------- SWA COOLDOWN-INIT RESET (#730) -----------------
+        # At cooldown_start_step, replace live body-Muon weights with the uniform
+        # average accumulated over the last K stable-phase post-update states.
+        if args.muon_swa_cooldown_k > 0 and step == cooldown_start_step:
+            total_swa_sq_dist = 0.0
+            total_norm_sq = 0.0
+            replaced_count = 0
+            samples_per_param = 0
+            for p in body_muon_params_swa:
+                n = swa_count[id(p)]
+                if n > 0:
+                    samples_per_param = n
+                    swa_mean = swa_buffer[id(p)] / n
+                    if dist.get_rank() == 0:
+                        diff_sq = float((swa_mean - p.data).pow(2).sum().item())
+                        total_swa_sq_dist += diff_sq
+                        total_norm_sq += float(p.data.pow(2).sum().item())
+                    with torch.no_grad():
+                        p.data.copy_(swa_mean)
+                    replaced_count += 1
+            if dist.get_rank() == 0:
+                rel_dist = (math.sqrt(total_swa_sq_dist / max(total_norm_sq, 1e-12))
+                            if total_norm_sq > 0 else 0.0)
+                wandb.log({
+                    "trial": trial_idx,
+                    "swa/relative_frobenius_dist": rel_dist,
+                    "swa/abs_frobenius_dist": math.sqrt(total_swa_sq_dist),
+                    "swa/live_frobenius_norm": math.sqrt(total_norm_sq),
+                    "swa/reset_step": step,
+                    "swa/samples_per_param": samples_per_param,
+                    "swa/replaced_tensors": replaced_count,
+                    "swa/window_k": args.muon_swa_cooldown_k,
+                }, step=trial_idx * (train_steps + 1) + step)
+                print0(f"SWA reset at step {step}: replaced {replaced_count} body-Muon tensors "
+                       f"with K={samples_per_param}-step uniform average; "
+                       f"rel_frobenius_dist={rel_dist:.6f}", console=True)
 
         # --------------- VALIDATION SECTION -----------------
         val_step_freq = 125 if step / train_steps < 0.9 else 25
@@ -881,6 +939,16 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # SWA accumulation (#730): record post-update body-Muon weights during the
+        # last K steps of the stable phase. step < cooldown_start_step ensures we
+        # only sample stable-phase states; window_start excludes earlier steps.
+        if args.muon_swa_cooldown_k > 0 and step < cooldown_start_step:
+            window_start = cooldown_start_step - args.muon_swa_cooldown_k
+            if step >= window_start:
+                with torch.no_grad():
+                    for p in body_muon_params_swa:
+                        swa_buffer[id(p)].add_(p.data)
+                        swa_count[id(p)] += 1
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
