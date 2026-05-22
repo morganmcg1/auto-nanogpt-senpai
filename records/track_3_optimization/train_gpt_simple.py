@@ -71,6 +71,16 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_racs_mode", type=str, default=os.environ.get("AUX_RACS_MODE", "off"),
+                        choices=["off", "embed_lmhead_only", "all_2d"],
+                        help="RACS row-column factored preconditioner mode on aux groups. "
+                             "'off': standard fused AdamW (bit-identical baseline). "
+                             "'embed_lmhead_only': RACS for embed+lm_head groups; standard for scalars. "
+                             "'all_2d': RACS for any 2D aux tensor; standard for 1D scalars. "
+                             "Reference: Row-and-Column Scaled SGD, ICLR 2026.")
+    parser.add_argument("--aux_racs_beta2", type=float, default=float(os.environ.get("AUX_RACS_BETA2", "0.95")),
+                        help="β2 EMA decay for RACS v_row and v_col accumulators. "
+                             "Default 0.95 matches the standard aux AdamW β2.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +679,95 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class RACSAdamW(torch.optim.Optimizer):
+    """AdamW with a Row-and-Column Scaled (RACS) factored second moment on
+    aux 2D weight matrices. Per-element exp_avg (m) and bias correction follow
+    standard Adam. The second-moment preconditioner on 2D tensors is replaced
+    with the rank-2 outer product of row- and column-wise EMA accumulators::
+
+        v_row[i] = β2*v_row[i] + (1-β2) * mean_j(g[i,j]²)   # shape (out, 1)
+        v_col[j] = β2*v_col[j] + (1-β2) * mean_i(g[i,j]²)   # shape (1,  in)
+        scale[i,j] = sqrt(v_row[i] * v_col[j] / (1 - β2^t)) + eps
+                   = sqrt(v_row[i] * v_col[j]) / sqrt(1 - β2^t) + eps
+        update[i,j] = (m / (1-β1^t)) / scale
+
+    Bias correction matches standard Adam: treat ``v_row * v_col`` as the rank-2
+    estimator of the per-element second moment ``v``, bias-correct it once by
+    dividing by ``(1 - β2^t)``, then take the sqrt — equivalent to dividing the
+    outer-product sqrt by ``sqrt(1 - β2^t)`` (i.e. ``bias_corr2 ** 0.5``). This
+    matches the PR brief and keeps the early-step update scale aligned with the
+    fused-AdamW baseline so the only difference vs. ctrl is the preconditioner
+    structure (factored vs. per-element), not the bias-correction profile.
+
+    Per-group flag ``racs_apply``:
+      - ``False``  → use standard per-element exp_avg_sq (default; matches
+        PyTorch AdamW math).
+      - ``True``   → use RACS on params with ``g.dim() == 2``. 1D params in the
+        group still use standard exp_avg_sq.
+
+    State (``exp_avg``, ``exp_avg_sq``, ``v_row``, ``v_col``) is kept in float32
+    for stability across bf16 parameters such as the token embedding.
+
+    Used ONLY when ``--aux_racs_mode != off``. When ``off``, the training loop
+    keeps the fused PyTorch AdamW so the PR #443 baseline path stays
+    bit-identical.
+    """
+
+    def __init__(self, params, lr, betas=(0.8, 0.95), eps=1e-6, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, racs_apply=False)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            racs_apply = bool(group.get("racs_apply", False))
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                use_racs = racs_apply and (g.dim() == 2)
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros(p.shape, device=p.device, dtype=torch.float32)
+                    if use_racs:
+                        state["v_row"] = torch.zeros(g.shape[0], 1, device=g.device, dtype=torch.float32)
+                        state["v_col"] = torch.zeros(1, g.shape[1], device=g.device, dtype=torch.float32)
+                    else:
+                        state["exp_avg_sq"] = torch.zeros(p.shape, device=p.device, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                g_f32 = g.to(torch.float32)
+                m = state["exp_avg"]
+                m.mul_(beta1).add_(g_f32, alpha=1 - beta1)
+                bias_corr1 = 1 - beta1 ** t
+                bias_corr2 = 1 - beta2 ** t
+                if use_racs:
+                    g_sq = g_f32.square()
+                    v_row = state["v_row"]
+                    v_col = state["v_col"]
+                    v_row.mul_(beta2).add_(g_sq.mean(dim=1, keepdim=True), alpha=1 - beta2)
+                    v_col.mul_(beta2).add_(g_sq.mean(dim=0, keepdim=True), alpha=1 - beta2)
+                    scale = (v_row * v_col).clamp_min_(0).sqrt_().div_(bias_corr2 ** 0.5).add_(eps)
+                else:
+                    v = state["exp_avg_sq"]
+                    v.mul_(beta2).addcmul_(g_f32, g_f32, value=1 - beta2)
+                    scale = (v / bias_corr2).sqrt_().add_(eps)
+                update = (m / bias_corr1) / scale
+                if wd > 0:
+                    update.add_(p.to(torch.float32), alpha=wd)
+                p.add_(update.to(p.dtype), alpha=-lr)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -713,6 +812,7 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+print0(f"aux_racs_mode={args.aux_racs_mode} aux_racs_beta2={args.aux_racs_beta2}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +866,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_racs_mode": args.aux_racs_mode,
+            "aux_racs_beta2": args.aux_racs_beta2,
         },
     )
 
@@ -812,16 +914,49 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    #
+    # --aux_racs_mode != "off" swaps the fused AdamW for the RACSAdamW class
+    # (row-column factored second moment on 2D aux tensors). When "off", the
+    # fused PyTorch kernel is retained so the merged PR #443 baseline path stays
+    # bit-identical.
+    aux_groups_spec = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars"),
+    ]
+    if args.aux_racs_mode == "off":
+        optimizer1 = AdamW(aux_groups_spec,
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    else:
+        # racs_apply per group: in this stack aux 2D tensors are {embed.weight,
+        # proj.weight}, both shape (50304, 768). embed_lmhead_only flags both
+        # named groups; all_2d additionally flags the scalars group (the in-step
+        # guard `g.dim() == 2` skips actual 1D tensors so this is a no-op for
+        # the current scalars composition but keeps the mode general).
+        embed_racs = True  # both modes turn on embed
+        lm_head_racs = True  # both modes turn on lm_head
+        scalars_racs = (args.aux_racs_mode == "all_2d")
+        racs_flags = [embed_racs, lm_head_racs, scalars_racs]
+        for spec, racs_apply in zip(aux_groups_spec, racs_flags):
+            spec["racs_apply"] = racs_apply
+        optimizer1 = RACSAdamW(aux_groups_spec, lr=0.01,
+                               betas=(0.8, args.aux_racs_beta2), eps=args.aux_adamw_eps,
+                               weight_decay=0)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
+    if trial_idx == 0:
+        print0(f"optimizer1 class: {type(optimizer1).__name__} "
+               f"(aux_racs_mode={args.aux_racs_mode})", console=True)
+        if args.aux_racs_mode != "off":
+            for group in optimizer1.param_groups:
+                print0(f"  group {group['name']}: racs_apply={group.get('racs_apply', False)} "
+                       f"n_params={len(group['params'])} "
+                       f"first_shape={tuple(group['params'][0].shape) if group['params'] else None}",
+                       console=True)
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
     aux_params_for_agc = [p for g in optimizer1.param_groups for p in g["params"]]
@@ -1054,6 +1189,35 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # RACS telemetry: row/column anisotropy and v_row/v_col scale per group.
+            # Anisotropy = max / mean of the EMA accumulator — a value near 1.0 means
+            # uniform, larger values mean concentrated. Sampling the first param of each
+            # RACS-enabled group keeps the cost low.
+            if telemetry_due and args.aux_racs_mode != "off" and isinstance(optimizer1, RACSAdamW):
+                for group in optimizer1.param_groups:
+                    if not group.get("racs_apply", False):
+                        continue
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "v_row" in st and "v_col" in st:
+                            vr = st["v_row"]
+                            vc = st["v_col"]
+                            vr_mean = float(vr.mean().item())
+                            vc_mean = float(vc.mean().item())
+                            vr_max = float(vr.max().item())
+                            vc_max = float(vc.max().item())
+                            prefix = f"train/racs/{group['name']}"
+                            muonh_metrics[f"{prefix}/row_anisotropy"] = (
+                                vr_max / vr_mean if vr_mean > 0 else 0.0
+                            )
+                            muonh_metrics[f"{prefix}/col_anisotropy"] = (
+                                vc_max / vc_mean if vc_mean > 0 else 0.0
+                            )
+                            muonh_metrics[f"{prefix}/v_row_mean"] = vr_mean
+                            muonh_metrics[f"{prefix}/v_col_mean"] = vc_mean
+                            muonh_metrics[f"{prefix}/v_row_max"] = vr_max
+                            muonh_metrics[f"{prefix}/v_col_max"] = vc_max
+                            break
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
