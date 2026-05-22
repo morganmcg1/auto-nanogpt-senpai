@@ -71,6 +71,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--mu_adaptive_alpha", type=float, default=0.0,
+                        help="Signal-driven adaptive Muon mu coefficient on gradient "
+                             "cosine similarity: mu_eff = clip(mu + alpha*cos(g_t, g_{t-1}), 0, 0.99). "
+                             "0.0 = baseline static mu=0.95 (no-op).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -559,7 +563,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, mu_adaptive_alpha=0.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -582,6 +586,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.adaptive_alpha = float(mu_adaptive_alpha)
+        self.adaptive_mu_buffer: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -601,6 +607,7 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.adaptive_mu_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -614,6 +621,8 @@ class Muon(torch.optim.Optimizer):
                     use_soap = p in self.soap_params
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
+                        if self.adaptive_alpha != 0.0:
+                            state["prev_grad"] = None
                         if use_soap:
                             state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
                             state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
@@ -621,9 +630,20 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    if self.adaptive_alpha != 0.0:
+                        pg = state.get("prev_grad", None)
+                        if pg is not None:
+                            cs = float((p.grad * pg).sum() / (p.grad.norm() * pg.norm() + 1e-8))
+                            mu_eff = min(0.99, max(0.0, group["mu"] + self.adaptive_alpha * cs))
+                        else:
+                            mu_eff = group["mu"]
+                        state["prev_grad"] = p.grad.clone()
+                        self.adaptive_mu_buffer[self.param_names[id(p)]] = mu_eff
+                    else:
+                        mu_eff = group["mu"]
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        state["momentum"].lerp_(p.grad, 1 - mu_eff)
+                        raw_nesterov = p.grad.lerp(state["momentum"], mu_eff)
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -637,7 +657,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=mu_eff)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -752,6 +772,7 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "mu_adaptive_alpha": args.mu_adaptive_alpha,
         },
     )
 
@@ -799,6 +820,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        mu_adaptive_alpha=args.mu_adaptive_alpha,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1006,6 +1028,23 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.adaptive_mu_buffer:
+            amu = optimizer2.adaptive_mu_buffer
+            amu_names = list(amu.keys())
+            amu_vals = list(amu.values())
+            amu_metrics = {"trial": trial_idx, "train/step": train_step}
+            amu_mlp = [v for n, v in zip(amu_names, amu_vals)
+                       if any(n.endswith(suf) for suf in Muon.SOAP_MLP_SUFFIXES)]
+            amu_attn = [v for n, v in zip(amu_names, amu_vals)
+                        if any(n.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES)]
+            amu_metrics["optimizer/muon_adaptive_mu_mean"] = sum(amu_vals) / len(amu_vals)
+            amu_metrics["optimizer/muon_adaptive_mu_min"] = min(amu_vals)
+            amu_metrics["optimizer/muon_adaptive_mu_max"] = max(amu_vals)
+            if amu_mlp:
+                amu_metrics["optimizer/muon_adaptive_mu_mean_mlp"] = sum(amu_mlp) / len(amu_mlp)
+            if amu_attn:
+                amu_metrics["optimizer/muon_adaptive_mu_mean_attn"] = sum(amu_attn) / len(amu_attn)
+            wandb.log(amu_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
