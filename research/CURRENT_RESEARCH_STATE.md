@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 13:27 UTC
+- **Date:** 2026-05-22 14:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -192,23 +192,25 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 
 **Follow-up**: alphonse assigned **#765 Soft-Muon NS/momentum blend** — Public Leaderboard #20 ingredient, convex blend of NS-orthogonalized update with normalized raw momentum direction. Fresh mechanism on r4 post-#579 stack (never tested here). W&B runs: sdbyszuw, 5gwf4x45, 49e7scir, yzrz5en6.
 
-### 🔄 alphonse #765 — Soft-Muon NS/momentum blend — alpha sweep α∈{0.80, 0.90, 0.95} [assigned 05:15 UTC]
+### ✅ alphonse #765 — Soft-Muon NS/momentum blend — CLOSED 14:00 UTC productive-NEGATIVE (69th cycle)
 
 **Branch:** `g1r4-alphonse/soft-muon-blend`
-**Hypothesis**: Blend NS-orthogonalized update direction with normalized raw momentum: `u_final = α·NS(m) + (1−α)·(m/‖m‖_F)`. Public Leaderboard #20 (3030 steps) names this as a stack ingredient ("Soft-Muon"). At α < 1.0, reintroduces gradient-EMA directional memory discarded by pure NS, while preserving most of NS's regularization benefit. Mechanism-distinct from all in-flight work:
-- Post-NS direction blend (vs Contra-Soft #126 = pre-NS element-wise shaping)
-- Direction blend (vs LARS #755 = magnitude ratio scaling)
-- Soft convex mix (vs Cautious #751 = binary sign-agreement mask)
-- Direction blending (vs GC #752 = row-mean subtraction)
+**Result**: 4-arm terminal — A_ctrl=3.26947 (favorable drift), B α=0.95 +0.00422 REGRESSION, C α=0.90 +0.00220, D α=0.80 +0.00215. Non-monotone surface: smallest blend (5%) catastrophic local maximum; larger blends (10/20%) partially recover but never cross baseline. No arm passes merge gate. **Family closure**: body Muon "pre-NS state leakage" axis closed — NS-orthogonalization is a load-bearing one-way transform; pre-NS direction blending degrades cooldown convergence. Future body-Muon directional ideas should be fully pre-NS (gradient-side, e.g., #708) OR fully post-NS (NS-iter-count, e.g., #710/#787), not mixed.
+**Follow-up**: alphonse assigned **#808 Distance-from-init weight decay for body Muon** — anchor WD at θ₀ (init snapshot) instead of zero. Fresh anchor-point axis distinct from all closed WD magnitude/schedule experiments (#483 warmup NEG, #506 cooldown NEG, #669 per-TYPE NEG, #593 per-group NULL/NEG). EWC-related but applied as plain L2 distance, not Fisher-weighted.
 
-| Arm | NANOGPT_SOFT_MUON_ALPHA | Role |
-|---|---|---|
-| A | 1.0 (pure NS, ctrl) | sanity — reproduce val≈3.2707 |
-| B | 0.95 (5% blend) | conservative |
-| C | 0.90 (10% blend) | primary candidate |
-| D | 0.80 (20% blend) | aggressive |
+### 🔄 alphonse #808 — Distance-from-init weight decay for body Muon [assigned 14:00 UTC]
 
-Gate: Δ ≤ −0.001 → paired-pod n=3. ETA ~14h sequential.
+**Branch:** `g1r4-alphonse/distance-from-init-wd`
+**Hypothesis**: Change WD anchor point from 0 to θ₀ (init snapshot). Standard WD pulls θ→0; distance-from-init pulls θ→θ₀, preserving the orthogonal-random init subspace that NS-orthogonalization relies on. All closed WD axes modify MAGNITUDE/SCHEDULE; this changes ANCHOR POINT (structurally distinct).
+
+| Arm | NANOGPT_BODY_WD_ANCHOR | NANOGPT_BODY_MUON_WD | Description |
+|:---:|:---:|:---:|:---|
+| A | zero | 0.025 | Control (bit-identical merged) |
+| B | init | 0.025 | Dist-from-init at baseline λ |
+| C | init | 0.0125 | Dist-from-init at 0.5× λ |
+| D | init | 0.05 | Dist-from-init at 2× λ |
+
+Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices. ETA ~7.3h.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 

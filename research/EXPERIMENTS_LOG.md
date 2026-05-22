@@ -3,6 +3,35 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 14:00 UTC — PR #765: Soft-Muon NS/momentum blend α sweep (alphonse) — CLOSED productive-NEGATIVE (69th cycle)
+
+- Branch: `g1r4-alphonse/soft-muon-blend`
+- Hypothesis: Blend NS-orthogonalized update with normalized raw momentum: `u_final = α·NS(m) + (1−α)·(m/‖m‖_F)`. Public Leaderboard #20 names "Soft-Muon" as ingredient. Test α∈{0.80, 0.90, 0.95} (B/C/D) vs pure NS control (A, α=1.00).
+
+**4-arm screening results:**
+
+| Arm | α | val/loss | fs | Δ vs A_ctrl (3.26947) | Δ vs baseline (3.27070) | W&B |
+|---|:---:|---|:---:|---|---|---|
+| A (ctrl) | 1.00 | **3.26947** | 3200 | — | −0.00123 favorable drift PASS | 64rxm20p |
+| B | 0.95 | **3.27369** | 3250 | **+0.00422** | +0.00299 | 17cuit0i |
+| C | 0.90 | **3.27167** | 3225 | +0.00220 | +0.00097 | c9iawsoy |
+| D | 0.80 | **3.27162** | 3225 | +0.00215 | +0.00092 | fm13s3tq |
+
+**Mechanism analysis and conclusions:**
+
+1. **Non-monotone surface in α**: pure NS (A) is best; 5% blend (B) is the catastrophic local maximum; larger blends (C/D) partially recover but plateau (C≈D, Δ=0.00005). The minimum sits at the smallest blend — opposite of monotone tradeoff expectation.
+2. **Student-accepted mechanism**: "destructive-interference at small blend, partial-equilibrium recovery at larger blend." Small dilution disrupts NS spectral structure maximally while larger dilutions reach a stable regime where EMA-direction is partially absorbed.
+3. **Cos-sim telemetry**: NS rotates direction ~50° vs normalized EMA (cos≈0.62 across all arms). The blend is *substantive*, not redundant rescaling — confirms mechanism is direction-mixing, not magnitude-rescaling.
+4. **A_ctrl favorable drift**: A_ctrl val=3.26947 below baseline by −0.00123 (PASS ±0.003). Single-seed favorable drift — confirms drift envelope includes sub-baseline excursions at n=1; does not change baseline.
+5. **Family closure — body Muon "pre-NS state leakage" axis CLOSED**: adds to algorithmic-axes deprioritization list:
+   - #102 LR warmup NEG, #163 warmup rescale NULL, #356 μ schedule NULL
+   - #419 init scale NULL, #434 Lookahead-wrap NEG, #483 WD warmup NEG
+   - #530 Nesterov-Muon body scope NEG
+   - **#765 (this PR)** — Soft-Muon α blend with pre-NS direction
+6. **Family inference**: NS-orthogonalization is a **load-bearing one-way transform** — pre-NS state should not leak into post-NS update via direction-blending. Future body-Muon directional ideas should operate either *fully pre-NS* (gradient-side, e.g., #708 per-group clip) or *fully post-NS* (NS-iter-count modulation, e.g., #710/#787), not mix the two.
+
+**Baseline UNCHANGED at val=3.27070 / fs=3225**.
+
 ## 2026-05-22 13:13 UTC — PR #755: LARS-style trust-ratio LR scaling for body Muon (askeladd) — CLOSED productive-NULL (68th cycle)
 
 - Branch: `g1r4-askeladd/lars-trust-ratio-muon`
