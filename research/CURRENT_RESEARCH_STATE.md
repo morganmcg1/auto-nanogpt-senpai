@@ -32,7 +32,7 @@ Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primar
 | **#741** | alphonse | Aux β2 cooldown ramp n=2 conf (β2→0.999) | Seed 1 TERMINAL sr=2950/val=3.2650. Seed 2 `k4chzjdk` step 1300, ETA ~17:00 UTC. Against new baseline: sr=2950>2925 (NULL on sr); val=3.2650<3.266926 (wins on val). Informative but likely NULL on primary metric. |
 | **#802** | thorfinn | EMA β_target fine-scan (0.97 vs 0.98) | Arm A `453h9twy` step 925. Fine-tune merged #737 to reduce val regression while preserving sr=2925. |
 | **#803** | frieren | PMuon γ_power warmup ramp (0.2→0.4 or 0.3→0.4) | Arm A `wvk7uc89` step 900. Ramp γ up to 0.4 by cooldown_start; hold 0.4 through cooldown. |
-| **PENDING** | askeladd | (fresh assignment in progress — researcher-agent generating hypothesis) | IDLE 14:55 UTC after #769 closure. New PR coming. |
+| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup for embed/lm_head/scalars | ASSIGNED 15:15 UTC. Replace aux AdamW with inline RAdam (Liu et al. 2019): SGD-fallback for first ~80 steps when rho_t<4, then rectified-adaptive mode. Orthogonal to EMA stack. Arm A (embed_lr=0.3) vs Arm B (embed_lr=0.22). |
 
 ## Recently closed (since session start)
 
