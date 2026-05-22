@@ -536,6 +536,12 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Gradient Centralization (Yong et al. 2020, arXiv:2004.01461): per-row mean
+# subtraction on weight-matrix gradients before optimizer momentum buffer
+# updates. NANOGPT_GC_MUON applies to body Muon (attn/mlp); NANOGPT_GC_ADAMW
+# applies to aux AdamW (embed + lm_head). Both default off (0).
+NANOGPT_GC_MUON = int(os.environ.get("NANOGPT_GC_MUON", "0"))
+NANOGPT_GC_ADAMW = int(os.environ.get("NANOGPT_GC_ADAMW", "0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -769,6 +775,8 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"GC: muon={'ON' if NANOGPT_GC_MUON else 'OFF'} adamw={'ON' if NANOGPT_GC_ADAMW else 'OFF'} "
+       f"(per-row mean subtraction pre-momentum, Yong et al. 2020)", console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -826,6 +834,8 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_gc_muon": NANOGPT_GC_MUON,
+            "nanogpt_gc_adamw": NANOGPT_GC_ADAMW,
         },
     )
 
@@ -1061,6 +1071,27 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Gradient Centralization (Yong et al. 2020, arXiv:2004.01461):
+        # subtract per-row gradient mean on weight matrices BEFORE optimizer
+        # momentum buffer updates. NANOGPT_GC_MUON => attn+mlp Muon body groups;
+        # NANOGPT_GC_ADAMW => embed + lm_head AdamW aux groups (scalars skipped
+        # by g.dim() >= 2 filter).
+        if NANOGPT_GC_MUON or NANOGPT_GC_ADAMW:
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    gname = group.get("name", "")
+                    if gname in ("muon_attn", "muon_mlp"):
+                        apply_gc = bool(NANOGPT_GC_MUON)
+                    elif gname in ("adam_embed", "adam_lm_head"):
+                        apply_gc = bool(NANOGPT_GC_ADAMW)
+                    else:
+                        apply_gc = False
+                    if not apply_gc:
+                        continue
+                    for p in group["params"]:
+                        if p.grad is None or p.grad.dim() < 2:
+                            continue
+                        p.grad.sub_(p.grad.mean(dim=tuple(range(1, p.grad.dim())), keepdim=True))
         for opt in optimizers:
             opt.step()
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
