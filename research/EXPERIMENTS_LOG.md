@@ -1,5 +1,73 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 18:00 UTC — Cycle 71 mid-98: SECOND ADVISOR CALIBRATION ERROR (single-value ffs) + #806 fern audo3lgl CONFIRMED VAL-SIDE FLOOR BREAK terminal val=3.26956 ffs=3025 + dual-mechanism floor convergence
+
+### audo3lgl floor break — fern CONTRA_MUON=0 NS5_ITERS=10 (PR #806 Arm B terminal)
+
+W&B verified terminal (student SENPAI-RESULT + Agent subagent W&B query):
+
+| metric | audo3lgl actual | merge bar | n=1 hold gate | result |
+|---|---:|---:|---:|---|
+| terminal val/loss | **3.26956** | 3.26776 | 3.27 | **val PASS by 0.0004** |
+| ffs (final_first_step_to_target) | **3025** | 3000 | 3000 | **ffs MISS by 25 (0.83%)** |
+
+**Trajectory verification** (full-resolution from student's mid-flight + terminal comments):
+
+| step | baseline n=2 mean | audo3lgl | Δ vs baseline |
+|---:|---:|---:|---:|
+|  500 | 3.8034 | 3.80659 | +0.0032 |
+| 1000 | 3.66028 | 3.66576 | +0.0055 |
+| 2000 | 3.43285 | 3.43108 | **−0.0018** |
+| 2500 | 3.35 | 3.34658 | **−0.0034** |
+| 3000 | 3.28 | 3.28089 | +0.0009 |
+| 3175 | 3.26776 | **3.26956** | +0.0018 |
+
+Tracks baseline within seed noise the entire trajectory; ACTUALLY BELOW baseline at steps 2000-2500. The simplified stack (no contra-Muon, NS5_ITERS=10 vs 14) hits essentially the same floor as the full stack — **the cycle's first STACK-SIMPLIFICATION evidence**.
+
+### Calibration error #2 caught (single-value ffs, not row-shift)
+
+In my 17:25 UTC advisor comment on #806 I wrote: `| ffs | **3150** | ... | **ffs MISS by 150** |`. **Wrong.** Actual ffs=3025 (student SENPAI-RESULT + Agent W&B verification both agree). I copy-pasted from a wrong source/typo.
+
+**This is a different calibration error mode than the mid-97 row-shift**: that was systematic across 8 PRs; this is a single-number paste error in one comment. The corrective response is the same: post a correction + send PR back for re-verification. Acknowledged in correction comment posted to #806 at 18:00 UTC; PR labels flipped review→wip.
+
+### Dual-mechanism floor convergence
+
+**Two val-side floor breaks** of the cycle land at near-identical floor metrics via completely orthogonal mechanism families:
+
+| run | mechanism class | val | ffs |
+|---|---|---:|---:|
+| frieren mvkam4g5 | composite-late-boost (EMBED+LM_HEAD 1.5×/1.5% boost last 7.5%) | 3.26890 | 3025 |
+| fern audo3lgl | stack-pruning (CONTRA_MUON=0 + NS5_ITERS=10) | 3.26956 | 3025 |
+
+These are NOT the same mechanism. Composite-late-boost EXPLOITS AdamW-tail-undertraining via aggressive LR knob; stack-pruning REMOVES two of the mandatory env-flags. Both crossing val<3.27 at n=1 with identical ffs=3025 strongly suggests **(a)** floor val IS crossable but **(b)** floor ffs is structural at 3025 — quantized at the eval cadence (every 25 steps after step 952).
+
+### Implications
+
+1. **Stack-simplification finding stands regardless of merge outcome**: CONTRA_MUON contributes ~zero measurable to floor val. NS5_ITERS=10 vs 14 is similarly neutral. Two mandatory env-flags candidate-removable.
+2. **Floor ffs may be quantization-locked at 3025**: requires evaluation cadence change or sub-eval-step ffs interpolation to crack ffs=3000. Mechanism-side changes won't help.
+3. **#806 n=2 confirm is the cycle's most important pending result**: if seed-2 lands val ≤ 3.26597 AND ffs ≤ 2975, n=2 mean clears merge bar = first floor break in 38+ axes. Plausible but not certain (σ_val ~ 0.005 per seed, audo3lgl already 0.0018 above merge bar val).
+
+### Action taken at 18:00 UTC
+
+- PR #806 corrected + sent back to wip with corrected ffs and n=2 launch command
+- Updated memory: [[feedback_kill_gates_from_baseline]] strengthened (paste errors are another mode)
+- Pending pod escalations #768/#692: 3rd re-escalations posted 17:13/17:14 UTC, no infra response yet (4th will fire at next wake if still unresponded)
+
+### In-flight portfolio (mid-98, 6/8 GPUs healthy)
+
+| student | PR | run | status | step | val |
+|---|---|---|---|---:|---:|
+| fern | #806 (n=2) | (pending launch) | wip | — | — |
+| alphonse | #817 | jx1pylz0 NadamW Arm B | running | ~1500 | 3.536 |
+| thorfinn | #818 | m7582er0 ATTN_SOAP_DISABLED A | running | ~1000 | 3.667 |
+| askeladd | #819 | nhswq1cf MLP_SOAP_DISABLED A | running | ~125 | 4.501 |
+| nezuko | #816 | 4d8cq1je AdEMAMix B α=2 | running | ~636 | 3.754 |
+| frieren | #794 | mx3wejbm composite 2.0×/2.0% B | running | ~625 | 3.753 |
+| tanjiro | #793 | pod-broken hold | wip | — | — |
+| edward | #702 | pod-broken hold | wip | — | — |
+
+5 healthy in-flight + fern n=2 pending pickup + 2 pod-broken. Next terminal cluster lands ~18:30-19:30 UTC.
+
 ## 2026-05-22 17:00 UTC — Cycle 71 mid-97: ADVISOR CALIBRATION ERROR caught by fern + frieren #794 composite-late-boost n=2 close-miss + nezuko #816 AdEMAMix Arm A diverging
 
 ### The calibration error (caught by fern on #806 at 16:07 UTC)
