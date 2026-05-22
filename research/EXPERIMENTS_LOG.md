@@ -2657,3 +2657,29 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 - **New mandatory flag**: `--depth_init_mode musoft`
 - **Decision**: **MERGED** — first post-#571 init-magnitude merge. Gate implications sent to all active P2s (nezuko #706, edward #714, frieren #748).
 
+
+---
+
+## 2026-05-22 ~10:50 UTC — PR #785: alphonse residual-proj init magnitude multiplier sweep — **ASSIGNED**
+
+- **Branch**: `g1r5-alphonse/resid-alpha-sweep`
+- **Student**: g1r5-alphonse
+- **Hypothesis**: PR #699 confirmed depth-aware 1/√L scaling form is load-bearing for residual-proj init, but the multiplicative coefficient was inherited from μP literature (sqrt(0.33)≈0.574) without independent optimization. This sweep tests whether α=1.0 is the true optimum on the magnitude axis.
+
+- **5-cell P1 sweep (new `mualpha` mode + `--resid_init_alpha` flag):**
+
+| Cell | α | σ (fan_in=768, L=12) | Role |
+|:----:|:-:|:---------------------:|:-----|
+| A | 0.50 | ≈0.00299 | Half-scale anchor (sign-falsifier) |
+| B | 0.75 | ≈0.00449 | Sub-canonical |
+| C | 1.00 | ≈0.00598 | **Ctrl — reproduces musoft baseline** |
+| D | 1.50 | ≈0.00898 | Super-canonical (primary prediction) |
+| E | 2.00 | ≈0.01196 | Double-scale anchor |
+
+- **Implementation**: ~4 lines of code change. Add `mualpha` to `--depth_init_mode` choices, new `--resid_init_alpha` flag (float, default 1.0), extend `_resid_proj_std` to multiply by alpha. Backward-compatible: `mualpha α=1.0` ≡ `musoft`.
+
+- **Prediction**: D (α=1.5) wins via faster SOAP preconditioner warm-up at moderately wider init. Falsifier: if A ≥ C, sub-canonical sweep needed.
+
+- **Orthogonal to all 7 in-flight**: nezuko #706 (embed), edward #714 (gains), frieren #748 (transform), tanjiro #756 (GC), fern #773 (adaptive mu), askeladd #776 (update RMS), thorfinn #781 (per-group eps). Strictly orthogonal.
+
+- **Gate**: μ_n=1 ≤ 3.259221 → P2 n=4. μ_n=4 ≤ 3.259221 → merge. Clean-NEG: μ > 3.261.

@@ -26,7 +26,7 @@
 | **#773** | **fern** | Signal-driven adaptive Muon mu (grad cosine) | **P1 in-flight** — Cell A (alpha=0) ctrl=3.261805. Cell B (alpha=0.02) running ~step 334. Cells C/D/E queued. |
 | **#776** | **askeladd** | Muon/SOAP update RMS normalization | **P1 in-flight** — Cell A ctrl=3.2628. Cell B (rms_target=0.25) running. Stale flag cleared poll #377. |
 | **#781** | **thorfinn** | Per-group AdamW ε sweep (sparsity asymmetry) | **P1 in-flight** — Just assigned poll #375. 5-cell eps_embed/eps_lm_head sweep. |
-| *(pending)* | **alphonse** | Fresh hypothesis (TBD — researcher-agent in flight) | **NEW ASSIGNMENT PENDING** — idle since #699 merged. |
+| **#785** | **alphonse** | Residual-proj init magnitude multiplier sweep (mualpha α=0.5/0.75/1.0/1.5/2.0) | **P1 ASSIGNED poll #378** — Probe magnitude axis on the musoft form. New `--resid_init_alpha` flag. Cell C ctrl reproduces musoft. Primary prediction: D (α=1.5) wins via SOAP preconditioner warm-up. |
 
 
 ## Critical context: gate has moved
