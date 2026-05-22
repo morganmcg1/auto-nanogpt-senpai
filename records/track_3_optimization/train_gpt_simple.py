@@ -71,6 +71,12 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--beta1_embed", type=float, default=0.8,
+                        help="β1 for adam_embed group. Default 0.8 matches current global.")
+    parser.add_argument("--beta1_lm_head", type=float, default=0.8,
+                        help="β1 for adam_lm_head group. Default 0.8 matches current global.")
+    parser.add_argument("--beta1_scalars", type=float, default=0.8,
+                        help="β1 for adam_scalars group. Default 0.8 matches current global.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -752,6 +758,9 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "beta1_embed": args.beta1_embed,
+            "beta1_lm_head": args.beta1_lm_head,
+            "beta1_scalars": args.beta1_scalars,
         },
     )
 
@@ -783,10 +792,14 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AdamW([
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed",
+             betas=(args.beta1_embed, 0.95)),
+        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head",
+             betas=(args.beta1_lm_head, 0.95)),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars",
+             betas=(args.beta1_scalars, 0.95)),
+    ], eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
     mlp_named = [(n, p) for n, p in named_blocks
                  if n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight")]
