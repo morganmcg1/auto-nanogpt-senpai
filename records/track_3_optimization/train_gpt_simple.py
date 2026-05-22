@@ -71,6 +71,15 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H62 Cautious MuonH: sign-agreement mask between post-NS5 update and the
+    # pre-orthogonalization (nesterov lookahead) buffer. Zeroes anti-gradient
+    # coordinates introduced by Newton-Schulz rotation. Default 0 = bit-identical
+    # to baseline. When cautious_rescale=1, divide masked update by mean(mask)
+    # to preserve expected magnitude per tensor.
+    parser.add_argument("--cautious_muonh", type=int, default=int(os.environ.get("CAUTIOUS_MUONH", "0")),
+                        help="If 1, apply Cautious sign-agreement masking to MuonH update.")
+    parser.add_argument("--cautious_rescale", type=int, default=int(os.environ.get("CAUTIOUS_RESCALE", "1")),
+                        help="If 1 (default), rescale masked update by 1/mean(mask) to preserve magnitude.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -486,12 +495,26 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True,
+                cautious: bool = False, cautious_rescale: bool = True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    pre_sign = update.sign() if cautious else None
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
-    return update
+    if cautious:
+        # Sign-agreement mask between post-NS5 update and pre-orthogonalization
+        # nesterov-lookahead buffer. 1 where signs agree, 0 where NS5 rotated
+        # the coordinate to the anti-gradient direction.
+        mask = (update.sign() == pre_sign).to(update.dtype)
+        mask_mean = mask.mean()
+        if cautious_rescale:
+            update = mask * update / mask_mean.clamp(min=1e-8)
+        else:
+            update = mask * update
+    else:
+        mask_mean = update.new_ones(())
+    return update, mask_mean
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -513,7 +536,7 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update, _ = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -591,16 +614,23 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 cautious=False, cautious_rescale=True):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        cautious=cautious, cautious_rescale=cautious_rescale)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H62 Cautious-MuonH telemetry: rank-local average of mask.mean() across
+        # block params processed in the most recent step. 1.0 means all coords
+        # kept (mask is no-op or cautious=False). Lower values mean NS5 rotated
+        # more coordinates to anti-gradient direction.
+        self._last_cautious_mask_mean = 1.0
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +640,16 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        cautious_mask_sum = None
+        cautious_param_count = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            cautious = bool(group.get("cautious", False))
+            cautious_rescale = bool(group.get("cautious_rescale", True))
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +658,17 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update, mask_mean = muon_update(
+                        p.grad, state["momentum"], mu=group["mu"],
+                        cautious=cautious, cautious_rescale=cautious_rescale,
+                    )
+                    if cautious:
+                        mask_mean_f32 = mask_mean.detach().to(torch.float32)
+                        if cautious_mask_sum is None:
+                            cautious_mask_sum = mask_mean_f32.clone()
+                        else:
+                            cautious_mask_sum = cautious_mask_sum + mask_mean_f32
+                        cautious_param_count += 1
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -667,6 +711,8 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if cautious_param_count > 0 and cautious_mask_sum is not None:
+            self._last_cautious_mask_mean = float(cautious_mask_sum.item()) / cautious_param_count
 
 
 ########################################
@@ -713,6 +759,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.cautious_muonh:
+    rescale_str = "with rescale" if args.cautious_rescale else "no rescale"
+    print0(f"Cautious MuonH ENABLED ({rescale_str})", console=True)
+else:
+    print0("Cautious MuonH DISABLED", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +817,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "cautious_muonh": bool(args.cautious_muonh),
+            "cautious_rescale": bool(args.cautious_rescale) if args.cautious_muonh else None,
         },
     )
 
@@ -819,7 +872,9 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       cautious=bool(args.cautious_muonh),
+                       cautious_rescale=bool(args.cautious_rescale))
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1091,8 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if args.cautious_muonh:
+                            muonh_metrics["train/muonh/cautious_mask_mean"] = opt._last_cautious_mask_mean
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
