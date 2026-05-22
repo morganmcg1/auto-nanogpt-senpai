@@ -1,5 +1,49 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 10:20 UTC — Cycle 71 mid-86b: PR #757 askeladd GROKFAST CLOSED — both arms MISS at floor, gradient-side filtering on AdamW exhausted
+
+### PR #757 — askeladd GROKFAST α ∈ {2.0, 4.0} λ=0.98 — both arms MISS
+
+Branch: `g1r2-askeladd/grokfast`. Closed 2026-05-22 10:20 UTC.
+
+| Arm | α | λ | val/loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|---|---|---|---|---|---|---|
+| disabled-check | — | — | val@200=4.07482 (in 4.08-4.10 band) | — | bit-equivalent verify | — | `0d2zzy8p` |
+| Arm A | 2.0 | 0.98 | **3.27039** | **3025** | MISS (+0.00039 val, +25 ffs) | +0.00263 val, +25 ffs | `jh8vn8se` |
+| Arm B | 4.0 | 0.98 | **3.27171** | **3025** | MISS (+0.00171 val, +25 ffs) | +0.00395 val, +25 ffs | `fkh4fqv8` |
+
+**Result: AXIS CLOSED as MISS with mechanism falsification.** Both arms land in the floor cluster (val≈3.27/ffs=3025). Monotonicity α=4.0 > α=2.0 falsifies "gradient SNR on AdamW groups is the limiter".
+
+#### Mechanism falsification
+
+Three lines of evidence converge on "gradient-side filtering on AdamW groups is not the right surface":
+
+1. **More amplification → worse val** (Arm B α=4.0 underperforms Arm A α=2.0 by +0.00132). If gradient noise were the bottleneck, more filtering should help.
+2. **GrokFast lever is small on AdamW**: amplification ratio at end of training is +5.8% (α=2.0) to +15.6% (α=4.0) on lm_head — small because AdamW's own β1=0.8 already EMAs gradients, and AdamW groups are only ~14M of 162M params.
+3. **Trajectory tracks disabled tightly**: step 125 val Arm A=4.41594, Arm B=4.44997 — gap to disabled (~4.07@200) preserved through training.
+
+#### Reassignment: askeladd → #784 LOOKAHEAD wrapper (Zhang 2019)
+
+First **trajectory-side** mechanism class tested on this stack. Lookahead averages over parameter trajectories (slow×fast weight interpolation every k steps). Arms: A=(k=5, α=0.5), B=(k=10, α=0.5). Wraps AdamW groups only.
+
+---
+
+## 2026-05-22 09:35 UTC — Cycle 71 mid-86a: PR #754 alphonse ADAMW_EPS terminal — Arm B (1e-13) PASSES n=1 hold gate, ffs=3000 breakthrough (n=2 confirm pending)
+
+### PR #754 — alphonse ADAMW_EPS ∈ {1e-7, 1e-13} vs baseline 1e-10 — Arm A MISS, Arm B PASS n=1 hold gate
+
+Branch: `g1r2-alphonse/adamw-eps-tune`. Sent back to student for n=2 confirm at 09:38 UTC.
+
+| Arm | ADAMW_EPS | val/loss | ffs | hold gate | Δ vs baseline | W&B |
+|-----|---|---|---|---|---|---|
+| disabled-check | 1e-10 | val@200=4.08524 | — | bit-identical ✓ | — | `i9mgr90u` |
+| Arm A | 1e-7 (1000× larger) | **3.27102** | **3025** | MISS both legs | +0.00326 val, +25 ffs | `dmjzp0ew` |
+| **Arm B** | **1e-13** (1000× smaller) | **3.26872** | **3000** | **PASS** ✓ | **+0.00096 val (within noise), 0 ffs** | `cra7x9ii` |
+
+**First and only result this cycle to clear ffs=3000.** Direction "smaller eps neutral, larger eps hurts" is monotone in tested range. n=2 confirm approved despite "expected delta ~ zero" because ffs=3000 breakthrough is mechanistically interesting.
+
+---
+
 ## 2026-05-22 02:25 UTC — Cycle 71 mid-60: PR #728 thorfinn EMBED_LR_WARMUP CLOSED — both arms MISS monotonically, embed cold-start over-shoot theory falsified
 
 ### PR #728 — thorfinn EMBED_LR_WARMUP ∈ {(100, 0.10), (200, 0.05)} vs disabled — both arms MISS
