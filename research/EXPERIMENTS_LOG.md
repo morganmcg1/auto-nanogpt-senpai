@@ -3,6 +3,27 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-22 03:35 UTC — PR #712: Per-block-TYPE body Muon β₂ asymmetry (edward) — CLOSED productive-NULL (62nd cycle)
+
+- Branch: `g1r4-edward/muon-attn-mlp-beta2-asym`
+- Hypothesis: 4th per-block-TYPE Muon axis. β₂ controls 2nd-moment variance window (v.mul_(β₂).addcmul_(...)). β₂=0.999 globally established by #97 — per-TYPE asymmetry untested. Mechanism: attn Q/K/V/proj gradient direction may have high-variance directional spikes (faster β₂ needed) vs mlp fc/proj steadier (slower β₂ OK).
+- Single-seed 4-arm result (drift gate A PASS at +0.00032):
+
+| Arm | attn β₂ | mlp β₂ | val/loss | Δ_vs_A | Δ_vs_baseline | Band | W&B |
+|---|---:|---:|---:|---:|---:|---|---|
+| A (ctrl) | 0.999 | 0.999 | 3.27102 | — | +0.00032 | drift PASS | `xkig3uwx` |
+| B (attn-shorter) | 0.99 | 0.999 | **3.27027** | −0.00075 | −0.00043 | null | `1r22h0oj` |
+| C (mlp-shorter) | 0.999 | 0.99 | **3.27029** | −0.00073 | −0.00041 | null | `16jhiy1a` |
+| D (uniform-shorter) | 0.99 | 0.99 | 3.27280 | **+0.00178** | **+0.00210** | regression direction-incorrect | `ar7eiljw` |
+
+**Mechanism reading**: B/C symmetric magnitudes (Δ_vs_A = −0.00075 / −0.00073) confirm **no per-TYPE β₂ asymmetry sweet spot**. Both singleton shortenings direction-correct but ~3× below −0.002 paired-pod threshold. D compound regression (+0.00178) is informative: **non-additive failure** confirms uniform β₂=0.999 (#97) genuinely near-optimum at per-TYPE granularity too. Sub-threshold-direction-correct signals (|Δ| ≈ 0.0007) sit in the same magnitude band as the 12 paired-pod-collapse precedents this cycle.
+
+**Per-block-TYPE Muon family characterization complete**: LR ✓ MERGED (#579) is the only productive axis. mu ✗ NULL (#674), β₂ ✗ NULL (this), WD ✗ NEGATIVE (#669), aspect-exp ✗ NULL (#632), NS_ITERS_COOLDOWN 🔄 (#724 in-flight).
+
+**Hygiene note**: 11-crash pod-environment startup window + duplicate-chain incident handled cleanly by student (killed duplicate PIDs, renamed `.DUPLICATE_KILLED` suffix on duplicate script). Surviving runs uncontaminated. Good defensive engineering pattern for future complex chains.
+
+**Action: CLOSED productive-NULL; edward reassigned to #753 Per-block-DEPTH body Muon LR asymmetry** — extends #579 per-TYPE LR to DEPTH axis with 3 buckets (early=L0-3, mid=L4-7, deep=L8-11). Direct parallel to #710 frieren (per-depth NS_ITERS in-flight); #710 Phase 1 showed front-loaded NS=14/12/10 wins by Δ=−0.00138 monotone front-vs-back — per-DEPTH LR may extract gain via the same early-layer signal-dilution mechanism. Distinct from #409 LLRD (geometric decay, NULL pre-#579).
+
 ## 2026-05-22 03:15 UTC — PR #711: AggMo (Aggregated Momentum) for body Muon (tanjiro) — CLOSED productive-NEGATIVE (61st cycle)
 
 - Branch: `g1r4-tanjiro/aggmo-body-muon`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 03:15 UTC
+- **Date:** 2026-05-22 03:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -489,18 +489,48 @@ Single-seed 4-arm (drift gate A PASS, |3.27419−3.27174|=0.00245 ≤ 0.003): A=
 4-arm single-seed sweep (drift gate Arm A PASS at +0.00053): A=(0.95,0.95)=3.27123, B=(0.90,0.95)=3.27066 (Δ=−0.00057 sub-threshold direction-correct), **C=(0.95,0.99)=3.27986 (Δ=+0.00863 strong regression, fst=3350)**, D=(0.90,0.99)=3.27915 (Δ=+0.00792, tiny B-rescue from additive prediction +0.00806). No winner-candidate. **Per-block-TYPE momentum axis does NOT mirror #579 LR asymmetry pattern.** mlp_mu=0.99's ~100-step window staleness dominates variance reduction benefit. Mechanism refinement: #579's productive interaction is specifically about step-size magnitude (LR axis), NOT about gradient-averaging time-constant — the two per-block-TYPE Muon hparam axes are mechanistically distinct. **56th productive-null/negative this cycle.** Per-block-TYPE Muon family characterization: LR ✓#579 MERGED / WD #669 in flight / mu ✗ NULL (this) / NS_ITERS,β₂,ε unexplored.
 **Follow-up**: edward assigned **#712 Per-block-TYPE body Muon β₂ asymmetry** — second-moment variance-estimator window per block type. Orthogonal to mu (first moment), LR (step magnitude), WD (regularization). β₂ already a per-group field in Muon class; trivial ~5 LOC env-var change. 4-arm: A=(0.999,0.999) ctrl, B=(0.99,0.999) attn-shorter, C=(0.999,0.99) mlp-shorter, D=(0.99,0.99) uniform-shorter control separating per-TYPE asymmetry from "just shorter everywhere". Distinct from #97 (global β₂ sweep at 0.999 optimal) and #560 (per-aux-group AdamW β₂ NEG, structurally different because no NS).
 
-### 🔄 edward #712 — Per-block-TYPE body Muon β₂ asymmetry [assigned 19:20 UTC]
+### ✅ edward #712 — Per-block-TYPE body Muon β₂ asymmetry — CLOSED 03:35 UTC productive-NULL
 
 **Branch:** `g1r4-edward/muon-attn-mlp-beta2-asym`
-**Hypothesis**: 4th axis of per-block-TYPE Muon family. β₂ controls Adam-style second-moment variance-estimator window in `muon_update()` line 638-643 (`v.mul_(beta2).addcmul_(update, update, value=1-beta2); update = update/(v.sqrt()+eps)`); v then feeds NS orthogonalization. β₂=0.999 globally established by #97 (Muon² global β₂ sweep) — never tested per-block-TYPE. Mechanism: attn Q/K/V/proj gradients have high-variance directional spikes from attention re-routing; shorter β₂ (~100-step) may track these faster. mlp fc/proj gradients more stable via channel-mixing integration; standard ~1000-step window may be near-optimal.
 
-| Arm | NANOGPT_MUON_ATTN_BETA2 | NANOGPT_MUON_MLP_BETA2 | attn window | mlp window | Tests |
-|---|---:|---:|---:|---:|---|
-| A ctrl | 0.999 | 0.999 | ~1000 | ~1000 | Bit-identical control |
-| B | **0.99** | 0.999 | **~100** | ~1000 | Singleton attn-shorter |
-| C | 0.999 | **0.99** | ~1000 | **~100** | Singleton mlp-shorter |
-| D | **0.99** | **0.99** | **~100** | **~100** | Uniform shorter — controls for asymmetry vs just-shorter |
-**ETA full chain:** ~7h. Implementation: ~5 LOC (Muon class already supports per-group β₂; just env-var reads + dict kwarg). Closure of #674 mu axis means per-block-TYPE 2nd-moment axis is the natural next test in the family.
+Single-seed 4-arm result (drift gate A PASS at +0.00032):
+
+| Arm | attn β₂ | mlp β₂ | val/loss | Δ_vs_A | Δ_vs_baseline | Band |
+|---|---:|---:|---:|---:|---:|---|
+| A (ctrl) | 0.999 | 0.999 | 3.27102 | — | +0.00032 | drift PASS |
+| B (attn-shorter) | 0.99 | 0.999 | **3.27027** | −0.00075 | −0.00043 | null sub-threshold |
+| C (mlp-shorter) | 0.999 | 0.99 | **3.27029** | −0.00073 | −0.00041 | null sub-threshold |
+| D (uniform-shorter) | 0.99 | 0.99 | 3.27280 | **+0.00178** | **+0.00210** | regression direction-incorrect |
+
+**Mechanism reading**: B/C symmetric magnitudes (Δ_vs_A = −0.00075 / −0.00073) confirm **no per-TYPE β₂ asymmetry sweet spot exists**. Both singleton shortenings direction-correct but ~3× below −0.002 paired-pod threshold. D compound regression (+0.00178) is informative: **non-additive failure** confirms uniform β₂=0.999 (#97 finding) is genuinely near-optimum at per-TYPE granularity. Sub-threshold-direction-correct signals (B/C at |Δ| ≈ 0.0007) sit in the same magnitude band as the 12 paired-pod-collapse precedents this cycle.
+
+**Per-block-TYPE Muon family characterization complete**:
+- LR ✓ MERGED (#579) — only productive axis
+- mu ✗ NULL (#674)
+- β₂ ✗ NULL (this)
+- WD ✗ NEGATIVE (#669)
+- aspect-exp ✗ NULL (#632)
+- NS_ITERS_COOLDOWN 🔄 (#724 nezuko in-flight)
+
+**Hygiene note from student**: 11-crash pod-environment startup window + duplicate-chain incident handled cleanly by student (killed duplicate PIDs, renamed duplicate script to `.DUPLICATE_KILLED`). Surviving runs uncontaminated. Good defensive engineering practice for future PRs.
+
+**62nd productive-null/negative this cycle.**
+
+**Follow-up**: edward assigned **#753 Per-block-DEPTH body Muon LR asymmetry** — extends #579 (per-block-TYPE LR MERGED) to depth axis with 3 buckets (early=L0-3, mid=L4-7, deep=L8-11). Direct parallel to #710 frieren (per-depth NS_ITERS in-flight); #710 Phase 1 showed front-loaded NS=14/12/10 wins by Δ=−0.00138 monotone front-vs-back. Per-DEPTH LR may extract gain via same early-layer signal-dilution mechanism. Distinct from #409 LLRD (geometric decay NULL pre-#579) — 3-bucket non-monotone parametrization untested.
+
+### 🔄 edward #753 — Per-block-DEPTH body Muon LR asymmetry — early/mid/deep bucket multipliers on top of #579 per-TYPE [assigned 03:35 UTC]
+
+**Branch:** `g1r4-edward/per-depth-muon-lr`
+**Hypothesis**: Extend #579 per-block-TYPE LR (MERGED) to DEPTH axis. Apply per-depth multipliers on top of per-TYPE multipliers: `LR_layer_l = LR_base × MUON_TYPE_LR_MULT × MUON_DEPTH_LR_MULT`. 3-bucket partition (early=L0-3, mid=L4-7, deep=L8-11). Each arm conserves geometric mean = 1.0 across depth buckets (total LR budget invariant).
+
+| Arm | EARLY (L0-3) | MID (L4-7) | DEEP (L8-11) | Description |
+|---|---:|---:|---:|---|
+| A (ctrl) | 1.00 | 1.00 | 1.00 | Bit-identical merged stack |
+| **B** | **1.20** | 1.00 | **0.80** | **Front-loaded** — primary winner candidate (parallels #710 Arm C front-load NS winner direction) |
+| C | 0.80 | 1.00 | 1.20 | Back-loaded — directional control |
+| D | 0.90 | 1.20 | 0.90 | Mid-heavy — directional control |
+
+**Why fresh and informed**: Direct parallel to #710 Phase 1 winner direction (front-load wins Δ_vs_A=−0.00138). NS-iter front-loading and LR front-loading share the same proposed mechanism (early-layer signal dilution by backward chain). Distinct from #409 LLRD (uniform geometric decay NULL pre-#579) — 3-bucket non-monotone parametrization untested. Implementation: ~10-15 LOC (env var reads + per-layer LR resolution in Muon group setup). ETA ~7.3h.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
