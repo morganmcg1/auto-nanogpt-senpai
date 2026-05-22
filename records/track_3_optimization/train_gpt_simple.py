@@ -71,6 +71,11 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--lm_head_init_std", type=float, default=0.0,
+                        help="Init magnitude (std) for the lm_head (model.proj.weight). "
+                             "Default 0.0 = current zero-init. Sub-1.0 only — std=1.0 "
+                             "is known catastrophic (see PR #596 tied-embedding closure). "
+                             "Sweep range: {0.0 ctrl, 0.001, 0.01, 0.02, 0.05}.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,10 +771,18 @@ for trial_idx in range(args.num_trials):
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
 
     # initialize model parameters
+    # lm_head is the top-level model.proj.weight (name == "proj.weight"); block-internal
+    # projections appear as "blocks.N.attn.proj.weight" and "blocks.N.mlp.proj.weight".
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
-            if "proj" in name:
+            if name == "proj.weight":
+                # lm_head — experiment axis (PR #722)
+                if args.lm_head_init_std == 0.0:
+                    w.zero_()
+                else:
+                    w.normal_(std=args.lm_head_init_std)
+            elif "proj" in name:
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
@@ -781,6 +794,7 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+    print(f"[init] lm_head_init_std={args.lm_head_init_std}  (Cell A=0.0=zero-init)", flush=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
