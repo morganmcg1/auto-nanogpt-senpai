@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 00:40 UTC
+- **Last update:** 2026-05-22 00:55 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -12,11 +12,11 @@ Config: cubic-Newton NS (a=1.5, b=-0.5, c=0) + PMuon γ_power=0.4 + u/w-floor (T
 
 W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND val<3.264278). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Active experiments (8 students, 23:40 UTC — 0 idle)
+## Active experiments (8 students, 00:55 UTC — 0 idle)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#697** | alphonse | QHM body-Muon ν=0.20 β=0.95 (Arm B) | **Arm A TERMINAL NULL** val=3.27137 sr=3025. Mid-run −40/−50 mnat advantage eroded during cooldown — 2nd cooldown-erosion instance. Arm B terminal ETA ~00:24 UTC. |
+| **#738** | alphonse | Nesterov cross-term direct test (`update = μ²·m + (1-μ²)·g`) | **NEWLY ASSIGNED 00:55 UTC.** Direct test of which Nesterov functional piece is load-bearing: blend coefficients only OR lookahead-on-updated-momentum. Single-arm comparator vs ν=0 (#660A) and Nesterov-ON baseline. |
 | **#698** | nezuko | NAdam-Aux Nesterov-AdamW (Arm B β₁=0.9 retuned) | **Arm A TERMINAL NULL** val=3.26811 sr=3000. Cross-family Nesterov NULL. Arm B retuned β₁=0.9. Terminal ETA ~01:00 UTC. |
 | **#737** | thorfinn | Polyak EMA cooldown-aware β (ramp 0.95→0.99 or 0.999 as LR→0) | **NEWLY ASSIGNED 00:40 UTC.** Decouples averaging benefit from lag cost: β increases toward 1.0 as LR shrinks during cooldown (live params stationary → lag cost suppressed). Direct follow-up to the lag/signal coupling finding in #695. |
 | **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry (Arm A attn=0.3/mlp=0.5, Arm B attn=0.5/mlp=0.3) | **NEWLY ASSIGNED 00:25 UTC.** Tests whether attn and MLP layers have different optimal whitening intensity. Arm B is the stronger prior (higher γ for attn, lower for MLP). |
@@ -29,6 +29,7 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#697** alphonse | 60th | QHM (ν,β) NULL/NULL (val=3.271/3.278, sr=3025/3125) | Super-linear penalty in ν (Δν=0.10 cost +0.00188 → +0.00614, 3× acceleration). QHM blend `ν·g + (1-ν)·m` cannot replicate Nesterov cross-term. 4TH AND STRONGEST cooldown-erosion: -71 mnat mid → +8 mnat terminal (79 mnat swing). Body-Muon momentum spec PINNED across 9 sub-axes. |
 | **#695** thorfinn | 59th | Polyak EMA β=0.9/0.95 short-window NULL/NULL | Peak EMA signal and lag shrink together — no static (β, warmup) separates them. Arm B sr=2925 boundary but val>baseline. Full β-scan closure: intrinsic lag/signal coupling in PMuon-EMA. |
 | **#696** tanjiro | 58th | Contra-Muon NULL/NULL (val=3.276/3.269, sr=3125/3000) | PMuon whitening compresses slow EMA ~6× in polar space → effective sub 1.5-3% vs design 15-25%. Monotone dose-response in wrong direction. Post-NS perturbation family adds to spectral absorption pattern. |
 | **#690** edward | 57th | SGDR NULL/NULL (val=3.306/3.323, sr=-1/-1) | Restart spike +0.13-0.17 unrecoverable in cycle budget. More restarts → worse. 3rd cooldown-erosion instance: mid-cycle advantage eroded at terminal. LR schedule SHAPE closed (non-monotone direction). |
@@ -39,12 +40,13 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#660** alphonse | 52nd | Nesterov ON/OFF NULL | mu=0.95 AND nesterov=True both independently load-bearing. Cross-term coupling (μ²·m_prev + (1-μ²)·g) non-trivial. |
 | **#662** thorfinn | 50th | Polyak EMA β=0.99 NULL | Peak −63 mnat mid-cooldown REAL but centroid-lag flips sign as LR→0. Terminal EMA slightly worse than live. |
 
-## KEY MECHANISM: Cooldown-erosion pattern (3 confirmed instances)
+## KEY MECHANISM: Cooldown-erosion pattern (4 confirmed instances)
 
 Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 1. **#690 SGDR** — cycle-1 advantage −0.019 at step 2125 → +0.058 final regression
-2. **#697 QHM** — −40/−50 mnat advantage at steps 1000-1750 → +0.0071 val terminal
+2. **#697 QHM** — **STRONGEST**: −49 to −71 mnat advantage at steps 1000-1750 → +1.9 to +8.0 mnat penalty terminal (79 mnat mid→terminal swing)
 3. **#686 β_cov schedule** — symmetric NULL (opposite directions, same regression)
+4. **#695 Polyak EMA** — peak signal at step 2400 → centroid-lag sign flip as LR→0
 
 **Mechanism hypothesis:** WSD cooldown (steps 975-3250, 70% of training) is rate-limiting; optimizer differences compress toward zero as LR → 0. The monotone decay is already near-optimal for final refinement. **Implication:** Better targets are step 975 initialization or cooldown-phase buffer state. Current experiments directly test this:
 - **#723 frieren**: momentum reset at step 975 (direct event)
@@ -72,7 +74,7 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 `(3.28 − μ) × √n ≥ 0.004`. n=1 win: sr ≤ 2925 OR (sr = 2925 AND val < 3.264278). Stat-sig threshold: val ≤ 3.276 (n=1). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Closed axes reference (57 total)
+## Closed axes reference (60 total)
 
 *PMuon scalars COMPLETE (all 5 pinned):* γ_power=0.4, β_cov=0.95 (scalar+schedule CLOSED #686), NS_ITERS=12, NS coeff cubic (1.5,-0.5,0), ε=1e-12, mu=0.95 (schedule CLOSED #682).
 
@@ -84,7 +86,7 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 *Post-NS body-Muon perturbations CLOSED:* Contra-Muon post-NS subtraction (#696 58th) — bilateral whitening compresses slow EMA ~6× in polar space → designed regime unreachable. Full perturbation axis (pre-NS: winsorization/tanh-squash/per-block-norm/Langevin; post-NS: contra-momentum) CLOSED.
 
-*Body-Muon operator ordering CLOSED:* post-NS momentum (#658 49th), Nesterov (#660 52nd).
+*Body-Muon operator ordering CLOSED:* post-NS momentum (#658 49th), Nesterov (#660 52nd), QHM (ν,β) plane (#697 60th — super-linear penalty in ν, 4th cooldown-erosion instance).
 
 *Body-Muon parameter-space averaging FULLY CLOSED:* Lookahead (#505 NULL), Polyak EMA β=0.999 (LMC failure), β=0.99 centroid-lag (#662 50th), β=0.9/0.95 short-window (#695 59th — all NULL via intrinsic lag/signal coupling). Cooldown-aware β ramp (#737 in flight — decouples lag from signal via LR-coupled β schedule).
 

@@ -1,5 +1,30 @@
 # SENPAI Research Results
 
+## 2026-05-22 00:55 UTC — PR #697 CLOSED: QHM (Quasi-Hyperbolic Momentum) on body-Muon — NULL/NULL, 60th axis (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/qhm-body-muon`
+- Hypothesis: QHM linear blend `ν·g + (1-ν)·m` decouples gradient weight from momentum decay, potentially reaching variants Nesterov cannot. Arm A ν=0.10, Arm B ν=0.20, both nesterov=false, β=0.95.
+
+| Arm | ν | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline | — | k7ylyby9/dm4joozw | 2937.5 (n=2) | 3.264278 (n=2) | — | — | — |
+| Reference #660A (ν=0) | 0 | — | 3025 | 3.26949 | +87.5 | +0.00521 | reference |
+| Arm A | 0.10 | wkfhw41d | 3025 | 3.27137 | +87.5 | +0.00709 | NULL |
+| Arm B | 0.20 | oxy20p9p | 3125 | 3.27751 | +187.5 | +0.01323 | NULL (worse) |
+
+- **Stat-sig test:** Arm A: (3.28−3.27137)·√1=+0.0086 marginal pass on val, but sr=3025 fails win rule. Arm B: (3.28−3.27751)·√1=+0.0025 FAIL +0.004 rule + sr=3125. Both NULL.
+
+- **Mechanism (3 findings):**
+  1. **Super-linear penalty in ν along the β=0.95 slice.** ν=0→0.10 cost: +0.00188 val, 0 sr. ν=0.10→0.20 cost: +0.00614 val, +100 sr. Same Δν=0.10 step but ~3× cost — monotone wrong direction, accelerating.
+  2. **QHM blend cannot replicate Nesterov cross-term.** Nesterov's `μ²·m_prev + (1-μ²)·g` is structurally distinct from QHM's `ν·g + (1-ν)·m`. The (ν,β) decoupling family cannot reach Nesterov's lookahead-on-updated-momentum.
+  3. **STRONGEST cooldown-erosion instance to date.** Both arms showed -49 to -71 mnat advantage vs ν=0 reference at steps 1000-1750, COMPLETELY inverted to +1.9 to +8.0 mnat penalty at terminal. Largest mid-vs-terminal flip across all 4 cooldown-erosion instances (-71 → +8 mnat is a 79 mnat swing through cooldown).
+
+- **Joint with #660 (Nesterov ON/OFF NULL):** Body-Muon momentum spec now PINNED across 9 sub-axes: β=0.95, nesterov=True, no QHM blend, mu schedule static, post-NS momentum closed, Nesterov cross-term load-bearing.
+
+- **Conclusion:** QHM (ν,β) plane CLOSED at β=0.95 slice. Body-Muon momentum decoupling family fully closed.
+
+- **Operational incident (resolved):** student traced 20:40 UTC pgrep-x trap (`pgrep -x torchrun` returns empty because argv[0]="python3"). Recovery: killed dupes, deleted corrupted W&B runs `0fwetrtj`/`z8sxf1cl`, relaunched Arm B cleanly. Arm A unaffected. Memory updated.
+
 ## 2026-05-21 23:35 UTC — PR #690 CLOSED: SGDR cosine restarts — NULL/NULL, 57th axis (g1r1-edward)
 
 - Branch: `g1r1-edward/sgdr-cosine-restarts`
