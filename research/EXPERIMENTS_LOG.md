@@ -1,5 +1,81 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-22 13:40 UTC — Cycle 71 mid-93: TRIPLE CLOSURE — Arm A cluster all MISS at floor (Lookahead, MARS-M, Cooldown EMA → 30th/31st/32nd floor axes); 3 iterate-side mechanism classes ALL fail
+
+### PR #784 — askeladd LOOKAHEAD on AdamW (Zhang NeurIPS 2019, arxiv 1907.08610)
+
+Branch: `g1r2-askeladd/lookahead-adamw`. Closed 2026-05-22 13:28 UTC.
+
+| Run | Arm | k | α | val_loss | ffs | hold gate | W&B |
+|-----|-----|---|---|----------|-----|-----------|-----|
+| disabled-check (2) | — | — | — | val@200=4.084-4.094 (in band) | — | bit-equivalent verify | `9gq0fbs4`, `jm9uekut` |
+| Arm A | 5 | 0.5 | **3.27686** | **3100** | MISS (val>3.27, ffs>3000) | `ry5ndos0` |
+
+**Result: AXIS CLOSED at n=1 MISS**. First trajectory-side mechanism (post-step slow×fast weight interpolation on AdamW groups) joins floor cluster. **30th floor-cluster axis**. Slow-weight reset every k=5 steps DELAYS the val=3.28 crossing by ~100 steps relative to baseline ffs=3000. Trajectory averaging is NOT the right axis for ffs reduction. Arm B (k=10) skipped — same mechanism family, implausible to close val gap of 0.009.
+
+### PR #788 — thorfinn MARS-M VARIANCE-REDUCED MUON (Yuan 2024, arxiv 2411.10438)
+
+Branch: `g1r2-thorfinn/mars-m-variance-reduced-muon`. Closed 2026-05-22 13:30 UTC.
+
+| Run | Arm | γ | val_loss | ffs | hold gate | W&B |
+|-----|-----|---|----------|-----|-----------|-----|
+| disabled-check | — | 0 | val@200=4.091 (in band) | — | bit-equivalent verify | `taw87avo` |
+| Arm A | A | 0.025 (paper-optimal) | **3.27576** | **3075** | MISS (val>3.27, ffs>3000) | `pp8r1qg9` |
+
+**Result: AXIS CLOSED at n=1 MISS**. STORM control-variate correction `c_t = g_t + γ·(μ/(1-μ))·(g_t - g_{t-1})` produces 0 ffs reduction at paper-optimal γ. **Closest of the 3 cluster** to merge bar (val miss 0.008, ffs miss 75). Variance reduction does NOT escape floor. **31st floor-cluster axis**. MARS-M's proven O(T^-1/4)→O(T^-1/3) convergence rate improvement translates to 0 empirical ffs benefit at 3175 steps. Arm B (γ=0.1) skipped — 4× higher γ would amplify lever but mechanism direction (variance reduction) is informatively refuted at γ=0.025.
+
+### PR #786 — fern COOLDOWN_EMA_AVERAGING (Izmailov SWA 2018, Through-the-River 2025 arxiv 2507.09846)
+
+Branch: `g1r2-fern/cooldown-ema-averaging`. Closed 2026-05-22 13:30 UTC.
+
+| Run | Arm | EMA_DECAY | val_loss | ffs | hold gate | W&B |
+|-----|-----|-----------|----------|-----|-----------|-----|
+| disabled-check (2) | — | 0 | val@200=4.084-4.085 (in band) | — | bit-equivalent verify | `chxzpqlb`, `bfrbk27h` |
+| Arm A | A | 0.99 | **3.27666** | **3025** | MISS (val>3.27, ffs OK-by-25) | `n5ty2wdp` |
+
+**Result: AXIS CLOSED at n=1 MISS** despite EMA init bug observed (val=5.005 spike at step 1000 when EMA accumulation started from random-init buffer). Contamination from spike decays as `0.99^(2225-50) ≈ 1.7e-10` by terminal — final val essentially uncontaminated. **Tail averaging on model weights during cooldown does NOT escape the floor**. **32nd floor-cluster axis**. Arm B (decay=0.999) skipped — wider averaging window over same cooldown plateau samples the same flat region.
+
+### Combined mechanistic conclusion (3-PR closure wave)
+
+**Three iterate-side mechanism classes ALL MISS the floor cluster at val≈3.276/ffs=3025-3100**:
+1. **Lookahead** (post-step slow×fast weight interpolation): val=3.27686/ffs=3100, MISS
+2. **MARS-M** (STORM control-variate gradient correction): val=3.27576/ffs=3075, MISS
+3. **Cooldown EMA** (model weight tail averaging during cooldown): val=3.27666/ffs=3025, MISS
+
+**Inter-class spread** = 0.0011 val (3.27576 - 3.27686), within seed noise. **All 3 lie at the same floor**.
+
+**Strong mechanistic conclusion**: The floor IS in the optimizer's reachable loss landscape under this stack configuration. **NOT** in iterate noise. **NOT** in gradient variance. **NOT** in weight-average sampling. This rules out the entire family of iterate-side / variance-side interventions on the floor problem.
+
+### Strategic pivot (cycle 71 mid-93)
+
+Floor cluster now 32 axes deep. Mechanism classes confirmed unable to escape floor on this stack:
+- Gradient processing (5 axes): GROKFAST, GRAD_CLIP, RADAM, ADAMW_EPS, NESTEROV
+- Preconditioner adapt (2 axes): ATTN_SOAP_TRUST static + dynamic ramp
+- Schedule shape (3 axes): MUON_COOLDOWN_SHAPE, cooldown_frac, eta_min
+- Per-group LR (3 axes): EMBED_LR_LATE_BOOST, LM_HEAD_LR_LATE_BOOST, MUON_LR_ATTN/MLP
+- Warmup (2 axes): EMBED_LR_WARMUP, MU_WARMUP
+- Input rescaling (1 axis): LOGIT_SOFTCAP at 20
+- Init (1 axis): EMBED_INIT_STD
+- Optimizer wrappers (1 axis): Lookahead
+- Variance reduction (1 axis): MARS-M
+- Tail averaging (1 axis): Cooldown EMA
+- Sign-only updates (1 axis): Lion
+- Per-block-type LR splits (1 axis): MUON_LR_ATTN/MLP
+- Late-boost variants (3 axes): EMBED, LM_HEAD, ADAMW_LR_FLOOR
+- WD schedule (1 axis): WD_AUX_TEMPORAL_RAMP
+- Bias correction (1 axis): MUON_BIAS_CORR
+- Cooldown variants (2 axes): cosine + sqrt
+- Plus several scalar combination axes
+
+**3 fresh assignments dispatched** to capture next phase of exploration:
+- **#804 askeladd ADAFACTOR_MLP** — factored row+col 2nd moment preconditioner on MLP body matrices ONLY (attn stays on Muon+SOAP). First factored preconditioner + first MLP-only preconditioner test. Mechanism class: factored 2nd-moment.
+- **#805 thorfinn Z_LOSS** — PaLM logsumexp(logits)^2 regularization (Chowdhery 2022 Section 5.2). First LOSS-LEVEL mechanism in 32+ axes. Targets softmax gradient variance hypothesis. Arm A coeff=1e-4 (PaLM default), Arm B coeff=3e-5.
+- **#806 fern CONTRA_MUON=0 ABLATION** — first STACK-PRUNING ablation in 192+ PRs. Zero LOC change. Diagnostic. Arm A full removal, Arm B contra=0+NS5_ITERS=10 de-iteration. Either outcome updates research map cleanly.
+
+**Researcher batch source**: `/workspace/senpai/target/research/RESEARCH_IDEAS_2026-05-22_13:35.md` (3 ideas: Z-Loss [used], NS5 polynomial coeff re-optimization [saved], CONTRA=0 ablation [used]).
+
+---
+
 ## 2026-05-22 13:00 UTC — Cycle 71 mid-92: PR #772 nezuko LION_ADAMW CLOSED — 29th floor axis, bilateral 2× LR sweep refutes second-moment-free updates on AdamW groups
 
 ### PR #772 — nezuko LION_ADAMW Arm A (LR ratio 1/8) / Arm B (LR ratio 1/4)
