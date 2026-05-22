@@ -11,16 +11,26 @@ with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
 import math
+import re
 import uuid
 import time
 from pathlib import Path
 
 import torch
+import torch._dynamo
 from torch import Tensor, nn
 from torch.optim import AdamW
 import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
+
+# Per-depth-bucket NS-iter overrides (PR #710) can introduce up to 5 unique
+# ns_iters values per run (3 buckets in base + 2 from late_peak cooldown
+# schedule) × 2 unique matrix shapes (768×768 attn / 768×3072 mlp) = 10 trace
+# specializations of `muon_update`. The default dynamo cache (8) overflows and
+# falls back to eager mode, costing ~25-30% step time. Raise to 32 so all
+# trace combinations stay specialized for every arm in the 4-arm sweep.
+torch._dynamo.config.recompile_limit = 32
 
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
@@ -537,6 +547,31 @@ NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 
+# Per-depth-bucket base-phase NS-iter overrides (each defaults to NS_ITERS so
+# behavior is bit-identical to the merged uniform-NS=12 baseline when all three
+# env vars are unset). Buckets are derived from body-Muon layer index:
+#   layer_idx <  n_layers/3      -> "early"
+#   n_layers/3 <= idx < 2n/3     -> "mid"
+#   2n_layers/3 <= idx           -> "deep"
+# These overrides apply only in the BASE phase (step < cooldown_start_step).
+# In the cooldown phase, NS-iters remain uniform at the cooldown schedule value
+# (see PR #710 scope: keep cooldown iter count uniform).
+NS_ITERS_EARLY = int(os.environ.get("NANOGPT_NS_ITERS_EARLY", str(NS_ITERS)))
+NS_ITERS_MID = int(os.environ.get("NANOGPT_NS_ITERS_MID", str(NS_ITERS)))
+NS_ITERS_DEEP = int(os.environ.get("NANOGPT_NS_ITERS_DEEP", str(NS_ITERS)))
+BUCKET_NS_ITERS: dict[str, int] = {
+    "early": NS_ITERS_EARLY, "mid": NS_ITERS_MID, "deep": NS_ITERS_DEEP,
+}
+DEPTH_AWARE_NS = not (NS_ITERS_EARLY == NS_ITERS_MID == NS_ITERS_DEEP)
+
+
+def depth_bucket(layer_idx: int, n_layers: int = 12) -> str:
+    if layer_idx < n_layers // 3:
+        return "early"
+    if layer_idx < 2 * n_layers // 3:
+        return "mid"
+    return "deep"
+
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
     """Return (a, b, c) for NS iter iter_idx of total_iters.
@@ -666,6 +701,13 @@ class Muon(torch.optim.Optimizer):
         # Step-dependent NS iteration count. Set by the training loop before each step()
         # using `set_ns_iters_this_step()`. Defaults to the static NS_ITERS env var.
         self.ns_iters_this_step = NS_ITERS
+        # Optional per-depth-bucket NS-iter override. Populated externally with
+        # `param_to_bucket: dict[int(id(p)), str]` and `bucket_ns_iters: dict[str, int]`.
+        # When `use_per_bucket_this_step` is True, step() uses bucket_ns_iters[bucket]
+        # for each param via id(p) lookup; otherwise it uses ns_iters_this_step.
+        self.param_to_bucket: dict[int, str] = {}
+        self.bucket_ns_iters: dict[str, int] = {}
+        self.use_per_bucket_this_step: bool = False
         # Optional reference to the parameter whose orthogonalized update we
         # log spectral statistics for (e.g. blocks[0].attn.q.weight). When set,
         # `step()` populates `self.spectral_stats` with svd-based metrics that
@@ -680,7 +722,8 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        ns_iters = self.ns_iters_this_step
+        ns_iters_default = self.ns_iters_this_step
+        use_per_bucket = bool(self.use_per_bucket_this_step) and bool(self.param_to_bucket)
         spectral_target = self.spectral_telemetry_param
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
@@ -695,6 +738,11 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
+                    if use_per_bucket:
+                        bucket = self.param_to_bucket.get(id(p))
+                        ns_iters = self.bucket_ns_iters.get(bucket, ns_iters_default) if bucket is not None else ns_iters_default
+                    else:
+                        ns_iters = ns_iters_default
                     update = muon_update(p.grad, state["momentum"], state["v"],
                                          ns_iters=ns_iters,
                                          mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
@@ -826,6 +874,10 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_ns_iters_early": NS_ITERS_EARLY,
+            "nanogpt_ns_iters_mid": NS_ITERS_MID,
+            "nanogpt_ns_iters_deep": NS_ITERS_DEEP,
+            "nanogpt_depth_aware_ns": DEPTH_AWARE_NS,
         },
     )
 
@@ -875,6 +927,31 @@ for trial_idx in range(args.num_trials):
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
+    # Per-depth-bucket NS-iter mapping (PR #710). Identify layer index from the
+    # `<idx>.` prefix that `model.blocks.named_parameters()` produces, then map
+    # body-Muon params into early/mid/deep buckets. When BUCKET_NS_ITERS values
+    # all equal NS_ITERS, the lookup yields the legacy uniform iter count and
+    # the run is bit-identical to the prior baseline.
+    _n_layers = len(model.blocks)
+    param_to_bucket: dict[int, str] = {}
+    _bucket_counts = {"early": 0, "mid": 0, "deep": 0}
+    for _n, _p in model.blocks.named_parameters():
+        if _p.ndim < 2 or not (".attn." in _n or ".mlp." in _n):
+            continue
+        _m = re.match(r"^(\d+)\.", _n)
+        if _m is None:
+            continue
+        _bkt = depth_bucket(int(_m.group(1)), n_layers=_n_layers)
+        param_to_bucket[id(_p)] = _bkt
+        _bucket_counts[_bkt] += 1
+    optimizer2.param_to_bucket = param_to_bucket
+    optimizer2.bucket_ns_iters = dict(BUCKET_NS_ITERS)
+    print0(
+        f"NS_PER_DEPTH: early={NS_ITERS_EARLY} mid={NS_ITERS_MID} deep={NS_ITERS_DEEP} "
+        f"(bucket_counts={_bucket_counts}, depth_aware={DEPTH_AWARE_NS}); "
+        f"cooldown remains uniform via NS_ITERS_COOLDOWN={NS_ITERS_COOLDOWN}",
+        console=True,
+    )
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
@@ -1056,6 +1133,12 @@ for trial_idx in range(args.num_trials):
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
         )
         optimizer2.set_ns_iters_this_step(ns_iters_this_step)
+        # Per-depth-bucket NS-iters apply only in the BASE phase. In the cooldown
+        # phase (or when NS_ITERS_COOLDOWN is disabled but step < cooldown_start),
+        # all params use the scheduled uniform value. This matches PR #710's
+        # explicit scope: vary BASE-phase iters per depth, keep cooldown uniform.
+        _in_base_phase = (NS_ITERS_COOLDOWN <= 0) or (step < cooldown_start_step)
+        optimizer2.use_per_bucket_this_step = bool(DEPTH_AWARE_NS and _in_base_phase)
         if dist.get_rank() == 0:
             ns_iters_history.append(ns_iters_this_step)
             if len(ns_iters_history) > 100:
@@ -1103,6 +1186,18 @@ for trial_idx in range(args.num_trials):
                 wandb_step=wandb_step,
             )
         if dist.get_rank() == 0 and telemetry_due:
+            # Effective per-bucket iters being applied this step. In base phase
+            # under depth-aware NS, each bucket uses its env-var value; in
+            # cooldown phase all buckets use the uniform ns_iters_this_step.
+            _bucket_iters_now: dict[str, int]
+            if optimizer2.use_per_bucket_this_step:
+                _bucket_iters_now = dict(BUCKET_NS_ITERS)
+            else:
+                _bucket_iters_now = {
+                    "early": ns_iters_this_step,
+                    "mid": ns_iters_this_step,
+                    "deep": ns_iters_this_step,
+                }
             ns_metrics = {
                 "trial": trial_idx,
                 "train/step": train_step,
@@ -1115,6 +1210,10 @@ for trial_idx in range(args.num_trials):
                     NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
                 ),
                 "train/ns_schedule/cumulative_iters": ns_cumulative_iters,
+                "train/ns_schedule/iters_early": _bucket_iters_now["early"],
+                "train/ns_schedule/iters_mid": _bucket_iters_now["mid"],
+                "train/ns_schedule/iters_deep": _bucket_iters_now["deep"],
+                "train/ns_schedule/use_per_bucket": int(optimizer2.use_per_bucket_this_step),
             }
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
