@@ -71,6 +71,10 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--transform_init_scale", type=float, default=1.0,
+                        help="Multiplier on the std for Q/K/V/fc_in transformation weights "
+                             "(line 777 'else' branch). Default 1.0 reproduces current init. "
+                             "std_eff = transform_init_scale * sqrt(0.33 / n_in).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -774,7 +778,7 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=args.transform_init_scale * 0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
