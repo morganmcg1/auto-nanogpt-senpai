@@ -83,6 +83,18 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--muon_slow_beta", type=float, default=0.0,
+                        help="AdEMAMix-style slow EMA beta inside Muon (0=disabled). "
+                             "Mixes a slow grad EMA into Nesterov before Newton-Schulz.")
+    parser.add_argument("--muon_slow_alpha", type=float, default=0.3,
+                        help="Mixing coefficient: nesterov_input = raw_nesterov + alpha*m_slow")
+    parser.add_argument("--muon_slow_warmup", type=int, default=500,
+                        help="Steps to linearly ramp muon_slow_beta from 0 to target "
+                             "(avoids early dominance of the slow buffer).")
+    parser.add_argument("--muon_slow_scope", type=str, default="all",
+                        choices=["all", "mlp"],
+                        help="Which Muon params get the slow EMA: "
+                             "'all'=both MLP and attn SOAP groups; 'mlp'=MLP suffixes only.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +583,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 slow_beta=0.0, slow_alpha=0.3, slow_warmup=500, slow_scope="all"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -595,6 +608,27 @@ class Muon(torch.optim.Optimizer):
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
 
+        # AdEMAMix-style slow EMA inside Muon. When slow_beta=0, this is a no-op
+        # path that preserves the baseline behavior exactly (no state allocated).
+        self.slow_beta = float(slow_beta)
+        self.slow_alpha = float(slow_alpha)
+        self.slow_warmup = max(1, int(slow_warmup))
+        self.slow_scope = str(slow_scope)
+        self._slow_step = 0
+        if self.slow_beta > 0.0:
+            if self.slow_scope == "mlp":
+                self.slow_params = {
+                    p for n, p in all_named
+                    if any(n.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES)
+                }
+            else:  # 'all'
+                self.slow_params = {p for _, p in all_named}
+        else:
+            self.slow_params = set()
+        # Telemetry buffers (populated each step when slow EMA is active).
+        self.slow_cos_buffer: dict[str, Tensor] = {}
+        self.slow_norm_buffer: dict[str, Tensor] = {}
+
         param_groups = []
         for g in groups_raw:
             g_params = sorted([p for _, p in g["named_params"]], key=lambda x: x.size(), reverse=True)
@@ -613,8 +647,16 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.slow_cos_buffer = {}
+        self.slow_norm_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        if self.slow_beta > 0.0:
+            self._slow_step += 1
+            progress = min(1.0, self._slow_step / self.slow_warmup)
+            beta3_eff = self.slow_beta * progress
+        else:
+            beta3_eff = 0.0
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -624,6 +666,7 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    use_slow = (self.slow_beta > 0.0) and (p in self.slow_params)
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -633,9 +676,22 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    if use_slow and "m_slow" not in state:
+                        state["m_slow"] = torch.zeros_like(p)
+                    # Slow EMA is updated from raw gradient (not Nesterov), matching AdEMAMix.
+                    if use_slow:
+                        state["m_slow"].lerp_(p.grad, 1.0 - beta3_eff)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        if use_slow:
+                            pname = self.param_names[id(p)]
+                            rn_f = raw_nesterov.float()
+                            ms_f = state["m_slow"].float()
+                            cos_t = (rn_f * ms_f).sum() / (rn_f.norm() * ms_f.norm() + 1e-8)
+                            self.slow_cos_buffer[pname] = cos_t
+                            self.slow_norm_buffer[pname] = ms_f.norm()
+                            raw_nesterov = raw_nesterov + self.slow_alpha * state["m_slow"]
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -649,7 +705,20 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if use_slow:
+                            # Plain-Muon path with slow EMA injection (inline to access raw grad pre-NS).
+                            pname = self.param_names[id(p)]
+                            state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                            raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                            rn_f = raw_nesterov.float()
+                            ms_f = state["m_slow"].float()
+                            cos_t = (rn_f * ms_f).sum() / (rn_f.norm() * ms_f.norm() + 1e-8)
+                            self.slow_cos_buffer[pname] = cos_t
+                            self.slow_norm_buffer[pname] = ms_f.norm()
+                            raw_nesterov = raw_nesterov + self.slow_alpha * state["m_slow"]
+                            update = soap_ns_step(raw_nesterov)
+                        else:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +834,10 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "muon_slow_beta": float(args.muon_slow_beta),
+            "muon_slow_alpha": float(args.muon_slow_alpha),
+            "muon_slow_warmup": int(args.muon_slow_warmup),
+            "muon_slow_scope": str(args.muon_slow_scope),
         },
     )
 
@@ -853,6 +926,8 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        slow_beta=args.muon_slow_beta, slow_alpha=args.muon_slow_alpha,
+        slow_warmup=args.muon_slow_warmup, slow_scope=args.muon_slow_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1060,6 +1135,38 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due and optimizer2.slow_cos_buffer:
+            sc_names = list(optimizer2.slow_cos_buffer.keys())
+            sc_tensors = list(optimizer2.slow_cos_buffer.values())
+            sn_tensors = [optimizer2.slow_norm_buffer[n] for n in sc_names]
+            sc_values = torch.stack(sc_tensors).detach().cpu().tolist()
+            sn_values = torch.stack(sn_tensors).detach().cpu().tolist()
+            slow_metrics = {"trial": trial_idx, "train/step": train_step}
+            mlp_cos: list[float] = []
+            attn_cos: list[float] = []
+            mlp_norm: list[float] = []
+            attn_norm: list[float] = []
+            for n, cs, ns in zip(sc_names, sc_values, sn_values):
+                if any(n.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_cos.append(cs); attn_norm.append(ns)
+                else:
+                    mlp_cos.append(cs); mlp_norm.append(ns)
+            slow_metrics["muon_slow/cos_sim_mean"] = sum(sc_values) / len(sc_values)
+            slow_metrics["muon_slow/cos_sim_min"] = min(sc_values)
+            slow_metrics["muon_slow/norm_mean"] = sum(sn_values) / len(sn_values)
+            slow_metrics["muon_slow/norm_max"] = max(sn_values)
+            if mlp_cos:
+                slow_metrics["muon_slow/cos_sim_mean_mlp"] = sum(mlp_cos) / len(mlp_cos)
+                slow_metrics["muon_slow/norm_mean_mlp"] = sum(mlp_norm) / len(mlp_norm)
+            if attn_cos:
+                slow_metrics["muon_slow/cos_sim_mean_attn"] = sum(attn_cos) / len(attn_cos)
+                slow_metrics["muon_slow/norm_mean_attn"] = sum(attn_norm) / len(attn_norm)
+            # Current ramped beta3 for sanity checks
+            if optimizer2.slow_beta > 0:
+                progress = min(1.0, optimizer2._slow_step / optimizer2.slow_warmup)
+                slow_metrics["muon_slow/beta3_eff"] = optimizer2.slow_beta * progress
+                slow_metrics["muon_slow/warmup_progress"] = progress
+            wandb.log(slow_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
