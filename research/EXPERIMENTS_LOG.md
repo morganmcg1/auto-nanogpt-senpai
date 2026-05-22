@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-22 ~01:30 UTC — PR #691: thorfinn per-group AdamW β1 sweep — **P1 SWEEP COMPLETE → P2 STACKED n=4 (scalars=0.9 + embed=0.9 + lm_head=0.8)**
+
+- Branch: `g1r5-thorfinn/per-group-beta1-sweep`
+- Student: g1r5-thorfinn
+- Hypothesis: First per-group AdamW β1 sweep since global mapping #537. Test whether different AdamW parameter groups (scalars / embed / lm_head) have different optimal β1 values when the others are held at the global ctrl 0.8. 5-cell single-group perturbations: A=all 0.8 ctrl / B=scalars 0.9 / C=scalars 0.7 / D=embed 0.9 / E=lm_head 0.9. β1 vector ordering (embed/lm_head/scalars).
+
+- **Results (n=1 per cell, 3250 steps, baseline μ=3.263265, σ_single=0.001123):**
+
+| Rank | Cell | Varied | β1 (embed/lm_head/scalars) | wandb_run_id | val/loss | ffs | Δ vs ctrl A | Δ vs μ |
+|:----:|:----:|--------|:---------------------------:|:------------:|---------:|:---:|------------:|--------:|
+| 1 | **B** | scalars | 0.8/0.8/**0.9** | `bceps4t4` | **3.26178** | **3025** | **−0.94σ** | **−0.97σ_single** |
+| 2 | C | scalars | 0.8/0.8/**0.7** | `mp3n06ep` | 3.26227 | 3050 | −0.50σ | −0.50σ_single |
+| 3 | D | embed | **0.9**/0.8/0.8 | `97o4zixl` | 3.26230 | 3025 | −0.47σ | −0.47σ_single |
+| 4 | A | (ctrl) | 0.8/0.8/0.8 | `jj076kp2` | 3.26283 | 3050 | — | −0.39σ_single |
+| 5 | E | lm_head | 0.8/**0.9**/0.8 | `wa2cj20k` | 3.26307 | 3050 | +0.21σ | +0.04σ_single |
+
+- **Key mechanistic findings:**
+  1. **Sparsity-driven, not size-driven.** D (embed=0.9, 39M params, sparse-token visits, **helps** −0.47σ) vs E (lm_head=0.9, 39M params, dense per-step vocab gradient, **neutral** +0.21σ) at matched param count → ~0.7σ separation. Per-group β1 sensitivity tracks gradient density, not weight count.
+  2. **Scalars axis monotone-better at higher β1.** C/A/B at scalars β1=(0.7, 0.8, 0.9) → val (3.26227, 3.26283, 3.26178). The tripled-LR `lr_scalars=0.03` (3× pre-#571) prefers slower first moment so the cooldown's effective scalar-LR is smoother.
+  3. **Every single-group perturbation off ctrl=0.8 helped except E.** B (scalars 0.9) −1.05×10⁻³, C (scalars 0.7) −0.56×10⁻³, D (embed 0.9) −0.53×10⁻³, E (lm_head 0.9) +0.24×10⁻³. The ctrl β1=0.8 applied uniformly is slightly miscalibrated for the sparse-gradient classes.
+  4. **No single cell crosses n=4 gate.** Best B at 3.26178 is +0.000515 above the n=4 gate (3.261265). Stacked-best projection (B's −1.05 + D's −0.53 below A=3.26283) ≈ 3.26125 ≈ at-gate, which is the highest-EV P2 test.
+  5. **Sequential discipline preserved.** Driver `launch_bcde.sh` (PID 436268) executed B→C→D→E cleanly with pgrep+settle; one early crash on `lwnd4qwv` at step 465 (self-recovered to canonical `jj076kp2` Cell A); single-runner enforced throughout.
+
+- **Decision:** SENT BACK FOR P2 STACKED n=4 at `--beta1_embed 0.9 --beta1_lm_head 0.8 --beta1_scalars 0.9`. Pre-declared gate: μ_n=4 ≤ 3.261265 → merge; μ > 3.262 → close clean-NEG (effects don't compound); ambiguous middle → may request P3 walk (scalars β1=0.95) or P3 single-cell B confirm. P2 ETA ~7.3 hours.
+
+---
+
 ## 2026-05-22 ~00:25 UTC — PR #687: askeladd Atan2-AdamW (StableAdamW, Wortsman 2023) — **P1 SWEEP COMPLETE → P2 n=4 confirmation at Cell D**
 
 - Branch: `g1r5-askeladd/atan2-adamw`
