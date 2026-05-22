@@ -61,6 +61,8 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--aux_beta1_cooldown_target", type=float, default=None,
+        help="If set, linearly ramp aux AdamW β1 from 0.8 to this target over cooldown_frac. None = no ramp.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -948,6 +950,17 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
+        # Aux β1 cooldown ramp — linearly ramp β1 from 0.8 to target across cooldown_progress ∈ [0, 1].
+        # Must execute BEFORE optimizer1.step() so the new β1 takes effect for the upcoming update.
+        if args.aux_beta1_cooldown_target is not None:
+            beta1_base = 0.8
+            if sched_cooldown_progress > 0:
+                beta1_t = beta1_base + (args.aux_beta1_cooldown_target - beta1_base) * sched_cooldown_progress
+            else:
+                beta1_t = beta1_base
+            for group in optimizer1.param_groups:
+                old_beta1, old_beta2 = group["betas"]
+                group["betas"] = (beta1_t, old_beta2)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1048,6 +1061,14 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                }, step=wandb_step)
+            if args.aux_beta1_cooldown_target is not None:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/aux_beta1/beta1_t": optimizer1.param_groups[0]["betas"][0],
+                    "train/aux_beta1/beta1_target": args.aux_beta1_cooldown_target,
+                    "train/aux_beta1/cooldown_progress": sched_cooldown_progress,
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
