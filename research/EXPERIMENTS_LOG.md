@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-22 18:35 UTC — PR #780 CLOSED: Body-Muon u/w trust-region CEILING (0.5 vs 0.4) — NULL/NULL, 73rd axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/body-muon-uw-ceiling`
+- Hypothesis: Clamp body-Muon updates to a maximum u/w ratio (ceiling = 0.5 vs 0.4) to prevent overshoot from high-magnitude updates. Counter-hypothesis to the existing floor (TARGET_UW=0.35): tests whether the upper tail of the u/w distribution is destabilizing.
+
+| Arm | Ceiling | W&B | sr | val/loss | Δsr (vs #737) | Δval (vs #737) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | n/a | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A | 0.5 | `ne03hzf2` | 3125 | 3.27643 | +200 | +0.0095 | NULL |
+| Arm B | 0.4 | `hn32cchn` | 3225 | 3.27963 | +300 | +0.0127 | NULL (worse) |
+
+- **Monotone tighter→worse:** Arm B (tighter ceiling 0.4) is strictly worse than Arm A (0.5) on both sr and val.
+- **Ceiling fires heavily:** Arm A 43% of param×step events clamped; Arm B 71% clamped. This is NOT an idle ceiling — it substantially modifies the update distribution.
+- **Key informative-NULL finding: high u/w updates are PRODUCTIVE, not pathological.** PMuon's Kronecker preconditioner directs updates to confident, well-conditioned directions with high u/w ratios. Clamping them removes the per-tensor adaptivity PMuon was designed to provide.
+- **Asymmetric floor/ceiling story:** The floor at TARGET_UW=0.35 is load-bearing (fires 49% and boosts weak-signal updates). The ceiling is anti-productive (firing 43-71% and suppressing confident updates). This is a clean asymmetric result: the u/w distribution's lower tail needs boosting, but the upper tail should be left alone.
+- **73rd closed axis. u/w trust-region ceiling axis FULLY CLOSED. Follow-up H7 (Post-NS Frobenius norm) assigned to nezuko as PR #827 — directly motivated by the ceiling finding: NS output magnitude variability may be causing the floor to do inconsistent work across params.**
+
 ## 2026-05-22 16:53 UTC — PR #741 CLOSED: Aux AdamW β2 cooldown ramp (β2→0.999) — NULL on primary at n=2, val-frontier shift, 72nd axis (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/aux-adamw-beta2-cooldown-ramp`
