@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 21:00 UTC
+- **Date:** 2026-05-22 21:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -215,19 +215,25 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 **Result**: 4-arm terminal — A_ctrl=3.26947 (favorable drift), B α=0.95 +0.00422 REGRESSION, C α=0.90 +0.00220, D α=0.80 +0.00215. Non-monotone surface: smallest blend (5%) catastrophic local maximum; larger blends (10/20%) partially recover but never cross baseline. No arm passes merge gate. **Family closure**: body Muon "pre-NS state leakage" axis closed — NS-orthogonalization is a load-bearing one-way transform; pre-NS direction blending degrades cooldown convergence. Future body-Muon directional ideas should be fully pre-NS (gradient-side, e.g., #708) OR fully post-NS (NS-iter-count, e.g., #710/#787), not mixed.
 **Follow-up**: alphonse assigned **#808 Distance-from-init weight decay for body Muon** — anchor WD at θ₀ (init snapshot) instead of zero. Fresh anchor-point axis distinct from all closed WD magnitude/schedule experiments (#483 warmup NEG, #506 cooldown NEG, #669 per-TYPE NEG, #593 per-group NULL/NEG). EWC-related but applied as plain L2 distance, not Fisher-weighted.
 
-### 🔄 alphonse #808 — Distance-from-init weight decay for body Muon [assigned 14:00 UTC]
+### 🔄 alphonse #808 — Distance-from-init weight decay for body Muon [21:05 UTC: Arm B WINNER CANDIDATE at N=1]
 
 **Branch:** `g1r4-alphonse/distance-from-init-wd`
 **Hypothesis**: Change WD anchor point from 0 to θ₀ (init snapshot). Standard WD pulls θ→0; distance-from-init pulls θ→θ₀, preserving the orthogonal-random init subspace that NS-orthogonalization relies on. All closed WD axes modify MAGNITUDE/SCHEDULE; this changes ANCHOR POINT (structurally distinct).
 
-| Arm | NANOGPT_BODY_WD_ANCHOR | NANOGPT_BODY_MUON_WD | Description |
-|:---:|:---:|:---:|:---|
-| A | zero | 0.025 | Control (bit-identical merged) |
-| B | init | 0.025 | Dist-from-init at baseline λ |
-| C | init | 0.0125 | Dist-from-init at 0.5× λ |
-| D | init | 0.05 | Dist-from-init at 2× λ |
+**W&B-verified status (21:05 UTC, chain almost terminal):**
 
-Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices. ETA ~7.3h.
+| Arm | ANCHOR | WD λ | run_id | state | step | val/loss | Δ_vs_baseline 3.27036 |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | zero | 0.025 | f0bsy66p | finished | 3350/3350 | 3.27130 | +0.00094 (drift PASS) |
+| B (init λ) | init | 0.025 | cj0zukz6 | **finished** | 3350/3350 | **3.27014** | **−0.00022 (sub-signal but direction-correct)** |
+| C (init λ/2) | init | 0.0125 | tpjf28gb | running | 2500/3350 (~75%) | 3.27186 (mid) | TBD |
+| D (init 2λ) | init | 0.05 | p1zs5kcg | running | 2425/3350 (~72%) | 3.27265 (mid) | TBD |
+
+**Arm B is the FIRST experiment to beat the post-#708 baseline at N=1 on the body-Muon side.** Mechanism reading (pre-staged): WD anchored against θ₀ preserves the random-orthogonal init subspace that NS-orthogonalization treats as the "natural" trajectory; standard WD pulls θ→0 (away from init), creating cooldown-phase friction at the manifold boundary. Anchoring at θ₀ resolves this. Pattern compatible with #708 (per-group grad clip tightening — BODY clip insensitive when WD-friction is removed; this could be its WD-side analogue).
+
+**Pre-staged paired-pod n=3 follow-up:** When chain terminates, if Arm B holds at sub-threshold Δ ∈ [−0.002, 0) (i.e. direction-correct but signal-weak), send back for paired-pod n=3 confirmation given 10 prior paired-pod-collapse precedents this run. Sub-threshold N=1 wins are systematically attenuated to noise or sign-flipped at paired-pod scale on this stack. Stat merge rule for n=3: `(3.28 − μ) × √3 ≥ 0.004` translates to mean ≤ 3.27769; Arm B's N=1 value (3.27014) is comfortably below that, so the question is **direction stability**, not absolute level.
+
+Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
