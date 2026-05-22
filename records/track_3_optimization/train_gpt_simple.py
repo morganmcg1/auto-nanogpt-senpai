@@ -75,13 +75,21 @@ def parse_args():
         "--depth_init_mode",
         type=str,
         default="ctrl",
-        choices=["ctrl", "musoft", "mumedium", "muall", "smallconst"],
+        choices=["ctrl", "musoft", "mumedium", "muall", "smallconst", "mualpha"],
         help="Depth-aware init for block residual projections: "
              "ctrl=zero-init (current); "
              "musoft=std=sqrt(0.33)/sqrt(fan_in*L); "
              "mumedium=std=sqrt(0.33)/(L*sqrt(fan_in)); "
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
-             "smallconst=std=1e-3 depth-independent.",
+             "smallconst=std=1e-3 depth-independent; "
+             "mualpha=alpha*sqrt(0.33)/sqrt(fan_in*L) — magnitude multiplier on musoft form.",
+    )
+    parser.add_argument(
+        "--resid_init_alpha",
+        type=float,
+        default=1.0,
+        help="Multiplier on musoft residual-proj init std (active when --depth_init_mode mualpha). "
+             "sigma = alpha * sqrt(0.33) / sqrt(fan_in * L).",
     )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
@@ -765,6 +773,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "resid_init_alpha": args.resid_init_alpha,
         },
     )
 
@@ -780,10 +789,12 @@ for trial_idx in range(args.num_trials):
 
     NUM_LAYERS = len(model.blocks)  # = 12 for the fixed baseline architecture
 
-    def _resid_proj_std(fan_in: int, mode: str, L: int) -> float:
+    def _resid_proj_std(fan_in: int, mode: str, L: int, alpha: float = 1.0) -> float:
         base = (0.33 ** 0.5) / (fan_in ** 0.5)
         if mode == "musoft":
             return base / (L ** 0.5)
+        elif mode == "mualpha":
+            return alpha * base / (L ** 0.5)
         elif mode == "mumedium":
             return base / L
         elif mode == "muall":
@@ -811,7 +822,8 @@ for trial_idx in range(args.num_trials):
                 if args.depth_init_mode == "ctrl":
                     w.zero_()
                 else:
-                    std = _resid_proj_std(w.size(-1), args.depth_init_mode, NUM_LAYERS)
+                    std = _resid_proj_std(w.size(-1), args.depth_init_mode, NUM_LAYERS,
+                                          alpha=args.resid_init_alpha)
                     w.normal_(std=std)
             elif "proj" in name:
                 # lm_head (model.proj.weight) — keep zero-init for ALL cells
@@ -833,8 +845,10 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # Sanity print — will appear in W&B stdout logs
-    _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
-    print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
+    _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS,
+                                    alpha=args.resid_init_alpha) if args.depth_init_mode != "ctrl" else 0.0
+    print0(f"[init] mode={args.depth_init_mode}  alpha={args.resid_init_alpha:.3f}  "
+           f"L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
