@@ -2,6 +2,45 @@
 
 Ordered chronologically. Compare new results against the **most recent entry**.
 
+## 2026-05-22 10:27 UTC — PR #699: Depth-aware μP init for block residual paths (musoft) — n=4 confirm
+
+- **Primary metric:** `speedrun/final_first_step_to_target` = **3025** (ALL 4 trials at ffs=3025; −18.75 steps vs PR #571)
+- **val/loss (mu):** **3.261221** (sample std=0.000593, SE=0.000297)
+- **n:** 4 seeds (P2 confirm run `zp6gvwv5`, all 4 trials in single torchrun, group `g1r5-alphonse/depth-aware-init-P2-confirm`)
+- **Statsig:** `(3.263265 − 3.261221) × √4 = 0.002044 × 2 = 0.004088 ≥ 0.004` ✅ PASS (+0.000088 margin)
+- **New merge statsig rule:** `(3.261221 − mu) × sqrt(n) ≥ 0.004`
+  → need mu ≤ **3.259221** for n=4, ≤ **3.259588** for n=6, ≤ **3.259807** for n=8
+- **vs previous baseline (PR #571):** Δmu = −0.002044 (−1.82σ_single / −3.64σ_SE), Δffs = −18.75 steps
+- **W&B run:** `zp6gvwv5` (group `g1r5-alphonse/depth-aware-init-P2-confirm`)
+- **Student:** g1r5-alphonse
+- **What changed:** Added `--depth_init_mode musoft` CLI flag. Block residual injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) initialized to N(0, std) with `std = sqrt(0.33) / sqrt(fan_in × L)` instead of the previous zero-initialization. At L=12, fan_in=768: std ≈ 0.006 (≪ other 2D weights at ~0.019). The μP 1/√L scaling provides each block a small non-zero starting signal that allows gradient flow through the residual path from step 1, without overpowering the trained directions. Zero-init remains for the lm_head (`model.proj.weight`) and all other non-block parameters. The mechanism is orthogonal to Muon's spectral direction: init sets the starting basin, Muon constrains the update direction.
+- **Trial breakdown (all 4, no cherry-picking):**
+  | Trial | step boundary | val/loss | ffs |
+  |------:|:-------------:|---------:|----:|
+  | 1 | 3250 | **3.260513** | 3025 |
+  | 2 | 6501 | 3.261771 | 3025 |
+  | 3 | 9752 | 3.261646 | 3025 |
+  | 4 | 13003 | **3.260954** | 3025 |
+  | **mean** | | **3.261221** | **3025** |
+- **Reproduce:**
+
+```bash
+cd "$PROBLEM_DIR" && \
+  SENPAI_TRAIN_STEPS=3250 torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py \
+    --num_trials 4 \
+    --soap_attn \
+    --lr_mlp 0.055 \
+    --wd_schedule ramp_down \
+    --ns_iter 6 \
+    --lr_scalars 0.03 \
+    --depth_init_mode musoft \
+    --wandb_name "baseline-musoft-depthinit-n4" \
+    --wandb_group "baselines"
+```
+
+---
+
 ## 2026-05-21 04:22 UTC — PR #571: lr_scalars=0.03 (RMSNorm gain LR 3× higher) — n=4 confirm
 
 - **Primary metric:** `speedrun/final_first_step_to_target` = **3043.75** (mean, n=4); 3/4 trials at ffs=3050, 1/4 at ffs=3025
