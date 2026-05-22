@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 08:25 UTC
+- **Last update:** 2026-05-22 08:42 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2937.5 steps. LOCAL RECORD 2937.5 (PR #413).
 
@@ -22,13 +22,14 @@ W&B runs: seed-1 `k7ylyby9`, seed-2 `dm4joozw`. Win: sr≤2925 OR (sr=2925 AND v
 | **#745** | nezuko | Per-type Body-Muon LR cooldown asymmetry | Arm A NULL sr=3025. Arm B `0x0yd7ts` running step 2550. ETA ~08:55 UTC. |
 | **#741** | alphonse | Aux AdamW β2 cooldown-aware ramp | Arm A NULL sr=2950. Arm B `4a606v43` running step ~1650. ETA ~09:25 UTC. |
 | **#737** | thorfinn | Polyak EMA cooldown-aware β ramp | Arm A **sr=2925 MARGINAL** (val=3.265811 regresses, n=1 AND clause fails). Arm B `b4q13sgm` running step 2425. ETA ~08:30 UTC. **Plan**: if Arm A holds best, request n=2 confirmation of β=0.99 ramp. |
-| **#736** | tanjiro | PMuon per-block-TYPE γ_power asymmetry | Arm A NULL sr=3050. Arm B `xlysv0gm` reached target at step 2975, **sr=2975, val=3.2756 (still NULL — val regress, Δsr=+37.5)**. Awaiting terminal. |
-| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | **NEWLY ASSIGNED 08:30 UTC.** Smooth-ramp mu lever — never tested (only buffer-reset #682 + buffer-reset #723 closed). Parallel to #737 (Polyak EMA β ramp, sr=2925 marginal) but operates inside Muon's own momentum buffer. Tests if cooldown-coupling generalizes from external EMA to internal mu. |
+| **#777** | fern | Body-Muon mu cooldown ramp (0.95→0.85 vs 0.95→0.98) | Newly assigned 08:25 UTC. In implementation phase. Smooth-ramp mu lever — never tested. Parallel to #737 (Polyak EMA β ramp, sr=2925 marginal) but operates inside Muon's own momentum buffer. |
+| **TBA tanjiro** | tanjiro | PMuon per-type γ_power narrow asymmetric (γ_attn=0.5/0.45, γ_mlp=0.4 pinned) | **Assigning 08:42 UTC after #736 closure**. Direction validated wide-split → test narrow with mlp pinned at scalar optimum. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#736** tanjiro | 66th | Per-type γ asymmetry wide split NULL/NULL (A sr=3050 attn0.3, B sr=2975 attn0.5) | Direction validated (B>A by ~0.005 val from step 1250) — γ_attn > γ_mlp helps. Magnitude insufficient: 0.5/0.3 places both endpoints below scalar optimum γ=0.4 (per #519). Wide-split axis closed; narrow attn-only-raised remains open for follow-up. |
 | **#727** fern | 65th | WD cooldown schedule NULL/NULL (A sr=2975, B sr=2975) | Symmetric-NULL: both UP/DOWN regress identically (Δsr=+37.5, Δval ≈+0.003/+0.002). Cross-arm Δval=+0.001 below marginal threshold. WD-temporal-schedule axis EXHAUSTED — WD=0.025 STATIC sits at local optimum. Adds to cooldown-trajectory lever cluster (#647, #607, #717+#690). |
 | **#730** edward | 64th | SWA cooldown init NULL/NULL (A sr=3000, B sr=3000) | Body-Muon weights travel directionally (27-37% Frobenius distance per 100-200 steps) — not basin-orbiting. SWA average is lagged anchor, not centroid. Buffer-modification at cooldown_start FULLY CLOSED across all categories (state + parameter space). |
 | **#725** askeladd | 63rd | PMuon cov reset NULL/NULL (Arm A sr=2975, Arm B sr=2950) | Covariance buffer (L_cov/R_cov, 72 tensors) also load-bearing. Same non-monotone pattern as #723. Buffer-modification axis at cooldown_start FULLY CLOSED across all PMuon buffer types (momentum + covariance). |
@@ -80,7 +81,7 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 `(3.28 − μ) × √n ≥ 0.004`. n=1 win: sr ≤ 2925 OR (sr = 2925 AND val < 3.264278). Stat-sig threshold: val ≤ 3.276 (n=1). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Closed axes reference (65 total)
+## Closed axes reference (66 total)
 
 *PMuon scalars COMPLETE (all 5 pinned):* γ_power=0.4, β_cov=0.95 (scalar+schedule CLOSED #686), NS_ITERS=12, NS coeff cubic (1.5,-0.5,0), ε=1e-12, mu=0.95 (schedule CLOSED #682).
 

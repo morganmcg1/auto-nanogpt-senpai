@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-22 08:40 UTC — PR #736 CLOSED: PMuon per-type γ_power asymmetry (wide split) — NULL/NULL, 66th axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-gamma-power-per-type`
+- Hypothesis: Body-Muon per-block-TYPE γ_power asymmetric whitening (attn vs MLP). Arms A (γ_attn=0.3, γ_mlp=0.5) vs B (γ_attn=0.5, γ_mlp=0.3), symmetric split centered on baseline γ=0.4.
+
+| Arm | γ_attn | γ_mlp | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #413 n=2) | 0.4 (scalar) | 0.4 (scalar) | k7ylyby9/dm4joozw | 2937.5 | 3.264278 | — | — | ref |
+| **Arm A** | 0.3 | 0.5 | v8nsntg2 | 3050 | 3.27263 | +112.5 | +0.00835 | NULL |
+| **Arm B** | 0.5 | 0.3 | xlysv0gm | 2975 | 3.26734 | +37.5 | +0.00306 | NULL |
+
+- **Direction validated (Arm B > Arm A by ~0.005 val from step 1250 onward):** γ_attn > γ_mlp is the helpful direction — more whitening for attn (lower-rank per-head gradient covariance) and less for MLP (richer spread of signal across directions).
+- **Magnitude insufficient:** wide symmetric split (0.5/0.3 around scalar 0.4) places both endpoints individually too far from scalar optimum (per #519 γ pruning ablation). Both 0.3 and 0.5 hurt independently; Arm B lead just reflects 'less harm from lowering γ_mlp than from lowering γ_attn'.
+- **Partial axis closure:** wide symmetric split is closed; narrow attn-only-raised split (γ_attn=0.5, γ_mlp=0.4 — pin mlp at scalar optimum) remains open and will be tested as the follow-up.
+- Adds to PMuon γ_power cluster: scalar γ=0.4 PINNED (#519), γ_power ramp NULL (#444), cooldown ramp running (#760), per-type narrow follow-up next.
+
 ## 2026-05-22 08:20 UTC — PR #727 CLOSED: Body-Muon WD cooldown schedule — NULL/NULL, 65th axis (g1r1-fern)
 
 - Branch: `g1r1-fern/muon-wd-cooldown-schedule`
