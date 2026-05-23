@@ -435,6 +435,40 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~11:55Z — Cycle 71 mid-119 update
+
+### Thorfinn #901 label-smoothing — kill gates miscalibrated, split train/val loss authorized
+- Student flagged kill gates were 10× too low: label smoothing inflates val/loss by ~0.54 nats (= ε·log(V) for V=50257, ε=0.05)
+- Arm A `ss8zcpco` at step 1125 val=4.194 — looks "diverged" but actually healthy training, just inflated
+- Root cause: shared train/val loss function applies smoothing to BOTH paths; val/loss must be raw CE to compare against baseline 3.26776
+- **Fix authorized**: model.training-conditional smoothing (`smoothing = LABEL_SMOOTHING if self.training else 0.0`)
+  - 2-LOC change at line 432 (forward method of GPT)
+  - Train uses smoothed CE (the regularizer), val uses raw CE (comparable to baseline)
+  - Original kill gates and merge bar then apply unchanged
+- Decision: Option C ("re-instrument") chosen over A (close negative) and B (widen gates)
+  - B costs same compute but cannot beat baseline by construction
+  - C tests the actual hypothesis (does training-side smoothing help generalization?)
+- Student instructed to kill `ss8zcpco`, patch, relaunch as `g1r2-thorfinn/label-smoothing-fixed`
+
+### In-flight runs at 11:52Z (W&B confirmed)
+- askeladd #882 Arm B=400 `w91aqnob` started 11:38Z, step 375 (early)
+- nezuko #878 Arm B=0.85 `v8omthmw` step 2725/3175, val=3.3281 (likely refuted, tracking +0.058 vs Arm A=0.75 terminal 3.2703)
+- fern #876 Arm A=0.90 retry `4jlefr72` step 1750, val=3.4664 — **survived past step 900 crash zone** (3rd attempt held)
+- frieren #894 Arm A=5 retry `us0s0to4` step 2300/3175, val=3.3876 (healthy)
+- alphonse #903 Arm A=β2=0.90 `jiocg3ef` step 225, val=4.4170 (early warmup; disabled-check `u81wtgje` clean at val=4.0814)
+- thorfinn #901 `ss8zcpco` step 1250 (kill+patch pending student pickup)
+
+### Pod-broken
+- edward #702: heartbeat #7 posted 11:55Z, mtime unchanged at 2026-05-21 11:49 UTC (~48h6m corruption)
+- tanjiro #793: last activity 11:30Z canary clarification
+
+### Methodological note (saved for future)
+The smoothed-val-loss-vs-raw-baseline confusion is a recurring trap whenever a regularizer modifies the loss surface. Future PRs introducing loss modifications (focal loss, distillation, MUP-style scaling) must explicitly specify whether val/loss is comparable to baseline and document the inflation/deflation factor analytically before computing kill gates.
+
+### 56 axes refuted, 19 floor cluster landings, 0 merges
+
+---
+
 ## 2026-05-23 ~11:30Z — Cycle 71 mid-118 update
 
 ### Askeladd #882 Arm A=100 TERMINAL — 19th floor cluster landing
