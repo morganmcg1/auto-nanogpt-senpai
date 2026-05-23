@@ -71,6 +71,15 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # PSGD-Kron Kronecker preconditioner replacing NS5 in MuonH body path.
+    # When use_psgd_kron=0, all PSGD code paths are skipped and MuonH uses
+    # zeropower_via_newtonschulz5 unchanged (bit-identical to baseline).
+    parser.add_argument("--use_psgd_kron", type=int, default=int(os.environ.get("USE_PSGD_KRON", "0")),
+                        help="Replace NS5 with PSGD-Kron preconditioner in MuonH body path (0=disabled, bit-identical baseline).")
+    parser.add_argument("--psgd_kron_precond_lr", type=float, default=float(os.environ.get("PSGD_KRON_PRECOND_LR", "0.1")),
+                        help="PSGD-Kron preconditioner Lie-group step size.")
+    parser.add_argument("--psgd_kron_update_prob", type=float, default=float(os.environ.get("PSGD_KRON_UPDATE_PROB", "0.1")),
+                        help="Probability of updating Kron factors each step (0.1 = update every 10 steps deterministically).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -493,6 +502,83 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+@torch.no_grad()
+def psgd_kron_init_factors(grad: Tensor) -> tuple[Tensor, Tensor]:
+    """Initialize PSGD-Kron triangular factors Q_L (m×m) and Q_R (n×n) for a 2D gradient.
+
+    Factors stored in fp32 for triangular-solve stability (the gradient is bf16 in
+    practice, but Q accumulates state and benefits from extra precision).
+    Identity init means the first preconditioned gradient ≈ raw gradient,
+    ramping up as Q learns the curvature.
+    """
+    assert grad.ndim == 2, f"PSGD-Kron expects 2D gradient, got shape {tuple(grad.shape)}"
+    m, n = grad.shape
+    Q_L = torch.eye(m, device=grad.device, dtype=torch.float32)
+    Q_R = torch.eye(n, device=grad.device, dtype=torch.float32)
+    return Q_L, Q_R
+
+
+@torch.no_grad()
+def psgd_kron_update_factors(grad: Tensor, Q_L: Tensor, Q_R: Tensor, precond_lr: float):
+    """Lie-group update of triangular Q_L, Q_R (kron_torch _update_precond, 2D case).
+
+    Derivation: A = Q_L G Q_R^T and conjB = Q_L^{-T} V Q_R^{-1} for V ~ N(0,I).
+    At the fixed point, term1 = A A^T = conjB conjB^T (and similarly on the R side),
+    which gives Q_L^T Q_L ∝ (G G^T)^{-1/2}, the Kron half-inverse curvature.
+    Updates are normalized by ||t1+t2|| (Frobenius) — a cheap conservative proxy
+    for the kron_torch power-iteration spectral lower bound.
+    """
+    m, n = grad.shape
+    # Noise probe V — magnitude ~1e-4 * mean(|G|), negligible vs G but serves
+    # as the unbiased reference probe for the identity-in-preconditioned-space term.
+    V = torch.randn(m, n, device=grad.device, dtype=torch.float32)
+    grad_f = grad.float()
+    eps_scale = (torch.finfo(torch.float32).eps ** 0.5) * grad_f.abs().mean()
+    grad_perturbed = grad_f + eps_scale * V
+
+    # conjB = Q_L^{-T} @ V @ Q_R^{-1}, shape (m, n).
+    # solve_triangular with left=False solves X @ A = B → X = B @ A^{-1}.
+    # Step 1: V^T @ Q_L^{-1}, shape (n, m).
+    conjB_step1 = torch.linalg.solve_triangular(Q_L, V.T.contiguous(), upper=True, left=False)
+    # Step 2: (V^T @ Q_L^{-1})^T = Q_L^{-T} @ V, shape (m, n). Then right-multiply by Q_R^{-1}.
+    conjB = torch.linalg.solve_triangular(Q_R, conjB_step1.T.contiguous(), upper=True, left=False)
+
+    # A = Q_L @ G @ Q_R^T, shape (m, n). This is the "forward whitened" gradient.
+    A = Q_L @ grad_perturbed @ Q_R.T
+
+    # Q_L update: residual = triu(A A^T - conjB conjB^T).
+    t1_L = A @ A.T
+    t2_L = conjB @ conjB.T
+    grad_L = torch.triu(t1_L - t2_L)
+    denom_L = (t1_L + t2_L).norm().clamp_min(1e-30)
+    Q_L.sub_((precond_lr / denom_L) * (grad_L @ Q_L))
+
+    # Q_R update: residual = triu(A^T A - conjB^T conjB).
+    t1_R = A.T @ A
+    t2_R = conjB.T @ conjB
+    grad_R = torch.triu(t1_R - t2_R)
+    denom_R = (t1_R + t2_R).norm().clamp_min(1e-30)
+    Q_R.sub_((precond_lr / denom_R) * (grad_R @ Q_R))
+
+
+@torch.no_grad()
+def psgd_kron_precondition(grad: Tensor, Q_L: Tensor, Q_R: Tensor) -> tuple[Tensor, Tensor]:
+    """Apply Kron whitening Q_L @ G @ Q_R^T and rescale to match NS5 output magnitude.
+
+    NS5's polar factor has singular values ≈ 1 → Frobenius norm ≈ sqrt(min(m,n)).
+    Rescaling to that magnitude (rather than unit norm) keeps the effective body
+    learning rate on the same scale as the NS5 baseline. The same aspect-ratio
+    multiplier (max(1, m/n)**0.5) is applied downstream by the caller. Returned
+    `pre_norm` is a device tensor; caller may sync only on telemetry events.
+    """
+    m, n = grad.shape
+    g_pre = Q_L @ grad.float() @ Q_R.T
+    pre_norm = g_pre.norm()
+    target_norm = float(min(m, n)) ** 0.5
+    g_pre = g_pre * (target_norm / pre_norm.clamp_min(1e-30))
+    return g_pre.to(grad.dtype), pre_norm
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -591,7 +677,8 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 use_psgd_kron=False, psgd_kron_precond_lr=0.1, psgd_kron_update_prob=0.1):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
@@ -601,6 +688,22 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # PSGD-Kron configuration (off by default for bit-identical baseline path).
+        self._use_psgd_kron = bool(use_psgd_kron)
+        self._psgd_kron_precond_lr = float(psgd_kron_precond_lr)
+        # Deterministic period: update Q every round(1/update_prob) inner steps so
+        # global RNG state is unaffected by the choice between baseline / PSGD paths.
+        self._psgd_kron_period = max(1, round(1.0 / max(1e-9, float(psgd_kron_update_prob))))
+        # Telemetry state populated each step() when use_psgd_kron is True.
+        self._last_psgd_q_l_fro_mean = 0.0
+        self._last_psgd_q_l_fro_max = 0.0
+        self._last_psgd_q_r_fro_mean = 0.0
+        self._last_psgd_q_r_fro_max = 0.0
+        self._last_psgd_precond_ratio_mean = 0.0
+        self._last_psgd_precond_ratio_max = 0.0
+        self._last_psgd_cond_max = 0.0
+        self._last_psgd_q_updates = 0
+        self._last_psgd_q_layers = 0
 
     @torch.no_grad()
     def step(self):
@@ -610,6 +713,13 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # PSGD-Kron telemetry accumulators (only populated when _use_psgd_kron).
+        psgd_q_l_fro_norms: list[float] = []
+        psgd_q_r_fro_norms: list[float] = []
+        psgd_precond_ratios: list[float] = []
+        psgd_cond_estimates: list[float] = []
+        psgd_q_updates = 0
+        psgd_q_layers = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -624,7 +734,42 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # PSGD-Kron path replaces the NS5 polar map with a maintained
+                    # Kronecker-factored half-inverse curvature preconditioner.
+                    # 2D-only; 1D fallback uses muon_update unchanged.
+                    if self._use_psgd_kron and p.grad.dim() == 2:
+                        if "psgd_Q_L" not in state:
+                            state["psgd_Q_L"], state["psgd_Q_R"] = psgd_kron_init_factors(p.grad)
+                            state["psgd_step_count"] = 0
+                        state["psgd_step_count"] += 1
+                        Q_L = state["psgd_Q_L"]
+                        Q_R = state["psgd_Q_R"]
+                        raw_g = p.grad
+                        if state["psgd_step_count"] % self._psgd_kron_period == 0:
+                            psgd_kron_update_factors(raw_g, Q_L, Q_R, self._psgd_kron_precond_lr)
+                            psgd_q_updates += 1
+                        precond_g, pre_norm_t = psgd_kron_precondition(raw_g, Q_L, Q_R)
+                        psgd_q_layers += 1
+                        # Telemetry: sync once per param per step. Cheap (handful of params per layer
+                        # on 1-GPU) and used to diagnose Q stability per the advisor's request.
+                        psgd_q_l_fro_norms.append(float(Q_L.norm().item()))
+                        psgd_q_r_fro_norms.append(float(Q_R.norm().item()))
+                        raw_norm = float(raw_g.float().norm().item())
+                        if raw_norm > 0:
+                            psgd_precond_ratios.append(float(pre_norm_t.item()) / raw_norm)
+                        diag_L = Q_L.diag().abs()
+                        d_min = float(diag_L.min().item())
+                        d_max = float(diag_L.max().item())
+                        if d_min > 0:
+                            psgd_cond_estimates.append(d_max / d_min)
+                        # Apply Nesterov momentum to the preconditioned gradient,
+                        # then aspect-ratio scale (same multiplier as muon_update).
+                        momentum_buf = state["momentum"]
+                        momentum_buf.lerp_(precond_g, 1 - group["mu"])
+                        update = precond_g.lerp_(momentum_buf, group["mu"])
+                        update = update * (max(1, raw_g.size(-2) / raw_g.size(-1)) ** 0.5)
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -667,6 +812,22 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if self._use_psgd_kron:
+            self._last_psgd_q_layers = psgd_q_layers
+            self._last_psgd_q_updates = psgd_q_updates
+            if psgd_q_l_fro_norms:
+                self._last_psgd_q_l_fro_mean = sum(psgd_q_l_fro_norms) / len(psgd_q_l_fro_norms)
+                self._last_psgd_q_l_fro_max = max(psgd_q_l_fro_norms)
+            if psgd_q_r_fro_norms:
+                self._last_psgd_q_r_fro_mean = sum(psgd_q_r_fro_norms) / len(psgd_q_r_fro_norms)
+                self._last_psgd_q_r_fro_max = max(psgd_q_r_fro_norms)
+            if psgd_precond_ratios:
+                self._last_psgd_precond_ratio_mean = (
+                    sum(psgd_precond_ratios) / len(psgd_precond_ratios)
+                )
+                self._last_psgd_precond_ratio_max = max(psgd_precond_ratios)
+            if psgd_cond_estimates:
+                self._last_psgd_cond_max = max(psgd_cond_estimates)
 
 
 ########################################
@@ -713,6 +874,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_psgd_kron:
+    print0(f"PSGD-Kron ENABLED on MuonH body: precond_lr={args.psgd_kron_precond_lr} "
+           f"update_prob={args.psgd_kron_update_prob} (period={max(1, round(1.0 / max(1e-9, args.psgd_kron_update_prob)))} steps)", console=True)
+else:
+    print0("PSGD-Kron DISABLED on MuonH body (NS5 path)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +932,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "use_psgd_kron": bool(args.use_psgd_kron),
+            "psgd_kron_precond_lr": args.psgd_kron_precond_lr,
+            "psgd_kron_update_prob": args.psgd_kron_update_prob,
         },
     )
 
@@ -819,7 +988,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       use_psgd_kron=bool(args.use_psgd_kron),
+                       psgd_kron_precond_lr=args.psgd_kron_precond_lr,
+                       psgd_kron_update_prob=args.psgd_kron_update_prob)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1208,16 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if opt._use_psgd_kron and opt._last_psgd_q_layers > 0:
+                            muonh_metrics["psgd_kron/Q_L_fro_norm_mean"] = opt._last_psgd_q_l_fro_mean
+                            muonh_metrics["psgd_kron/Q_L_fro_norm_max"] = opt._last_psgd_q_l_fro_max
+                            muonh_metrics["psgd_kron/Q_R_fro_norm_mean"] = opt._last_psgd_q_r_fro_mean
+                            muonh_metrics["psgd_kron/Q_R_fro_norm_max"] = opt._last_psgd_q_r_fro_max
+                            muonh_metrics["psgd_kron/precond_to_raw_ratio_mean"] = opt._last_psgd_precond_ratio_mean
+                            muonh_metrics["psgd_kron/precond_to_raw_ratio_max"] = opt._last_psgd_precond_ratio_max
+                            muonh_metrics["psgd_kron/condition_number_max"] = opt._last_psgd_cond_max
+                            muonh_metrics["psgd_kron/q_updates_this_step"] = opt._last_psgd_q_updates
+                            muonh_metrics["psgd_kron/q_layers"] = opt._last_psgd_q_layers
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
