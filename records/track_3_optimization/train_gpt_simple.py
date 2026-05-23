@@ -61,6 +61,14 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--adaptive_ns_iters", action="store_true", default=False,
+                        help="Residual-driven adaptive NS_ITERS: terminate when ||X X^T - I||_F < eps.")
+    parser.add_argument("--adaptive_ns_eps", type=float, default=1e-3,
+                        help="Residual threshold for adaptive NS_ITERS. 1e-3=tight, 1e-2=loose.")
+    parser.add_argument("--adaptive_ns_max_iters", type=int, default=20,
+                        help="Hard cap on iterations for adaptive variant.")
+    parser.add_argument("--adaptive_ns_check_start", type=int, default=8,
+                        help="Iteration after which to start checking residual (amortize residual-compute cost).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -456,7 +464,16 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: float = NS_C, iters: int = NS_ITERS) -> Tensor:
+def zeropower_via_newtonschulz5(
+    G: Tensor,
+    a: float = NS_A,
+    b: float = NS_B,
+    c: float = NS_C,
+    iters: int = NS_ITERS,
+    adaptive_eps: float | None = None,
+    max_iters: int | None = None,
+    check_start: int | None = None,
+) -> tuple[Tensor, int, float | None]:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -464,15 +481,42 @@ def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: 
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    for _ in range(iters):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+
+    iter_count_used = 0
+    final_residual: float | None = None
+
+    if adaptive_eps is None:
+        # Static path — byte-identical to original baseline.
+        for _ in range(iters):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+        iter_count_used = iters
+    else:
+        # Residual-driven adaptive path.
+        cap = max_iters if max_iters is not None else 20
+        cs = check_start if check_start is not None else 8
+        for iter_idx in range(cap):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+            iter_count_used = iter_idx + 1
+            if iter_count_used >= cs:
+                m, n = X.shape[-2], X.shape[-1]
+                Xf = X.float()
+                if m <= n:
+                    gram = Xf @ Xf.mT
+                    eye = torch.eye(m, device=X.device, dtype=Xf.dtype)
+                else:
+                    gram = Xf.mT @ Xf
+                    eye = torch.eye(n, device=X.device, dtype=Xf.dtype)
+                final_residual = float(torch.linalg.norm(gram - eye).item())
+                if final_residual < adaptive_eps:
+                    break
 
     if G.size(-2) > G.size(-1):
         X = X.mT
-    return X
+    return X, iter_count_used, final_residual
 
 
 def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
@@ -497,6 +541,9 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    adaptive_ns_eps: float | None = None,
+    adaptive_ns_max_iters: int = 20,
+    adaptive_ns_check_start: int = 8,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -510,9 +557,16 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar, iter_count_used, adaptive_final_residual = zeropower_via_newtonschulz5(
+        m_pre.to(update.dtype),
+        a=ns_a, b=ns_b, c=ns_c,
+        adaptive_eps=adaptive_ns_eps,
+        max_iters=adaptive_ns_max_iters,
+        check_start=adaptive_ns_check_start,
+    )
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
-    # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
+    # Only the first eligible parameter per step writes the scalar residual sample —
+    # keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
         X = polar
         m, n = X.shape[-2], X.shape[-1]
@@ -526,17 +580,26 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+    # Accumulate per-tensor adaptive-NS diagnostics across every call this step.
+    if polar_diag is not None:
+        polar_diag.setdefault("iter_counts", []).append(iter_count_used)
+        if adaptive_final_residual is not None:
+            polar_diag.setdefault("adaptive_terminal_residuals", []).append(adaptive_final_residual)
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 adaptive_ns_eps=None, adaptive_ns_max_iters=20, adaptive_ns_check_start=8):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        adaptive_ns_eps=adaptive_ns_eps,
+                        adaptive_ns_max_iters=adaptive_ns_max_iters,
+                        adaptive_ns_check_start=adaptive_ns_check_start)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -571,6 +634,9 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        adaptive_ns_eps=group["adaptive_ns_eps"],
+                        adaptive_ns_max_iters=group["adaptive_ns_max_iters"],
+                        adaptive_ns_check_start=group["adaptive_ns_check_start"],
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -717,6 +783,10 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "adaptive_ns_iters": int(args.adaptive_ns_iters),
+            "adaptive_ns_eps": args.adaptive_ns_eps if args.adaptive_ns_iters else 0.0,
+            "adaptive_ns_max_iters": args.adaptive_ns_max_iters,
+            "adaptive_ns_check_start": args.adaptive_ns_check_start,
         },
     )
 
@@ -753,7 +823,10 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      adaptive_ns_eps=(args.adaptive_ns_eps if args.adaptive_ns_iters else None),
+                      adaptive_ns_max_iters=args.adaptive_ns_max_iters,
+                      adaptive_ns_check_start=args.adaptive_ns_check_start)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1026,6 +1099,35 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            if polar_diag and polar_diag.get("iter_counts"):
+                iter_counts = polar_diag["iter_counts"]
+                n_tensors = len(iter_counts)
+                ic_mean = sum(iter_counts) / n_tensors
+                ic_max = max(iter_counts)
+                ic_min = min(iter_counts)
+                ic_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "adaptive_ns/iter_count_first_tensor": iter_counts[0],
+                    "adaptive_ns/iter_count_mean": ic_mean,
+                    "adaptive_ns/iter_count_max": ic_max,
+                    "adaptive_ns/iter_count_min": ic_min,
+                    "adaptive_ns/n_tensors": n_tensors,
+                    "adaptive_ns/enabled": int(args.adaptive_ns_iters),
+                    "adaptive_ns/eps": (args.adaptive_ns_eps if args.adaptive_ns_iters else 0.0),
+                    "adaptive_ns/max_iters": args.adaptive_ns_max_iters,
+                    "adaptive_ns/check_start": args.adaptive_ns_check_start,
+                }
+                term_residuals = polar_diag.get("adaptive_terminal_residuals", [])
+                if term_residuals:
+                    tr_mean = sum(term_residuals) / len(term_residuals)
+                    ic_metrics["adaptive_ns/residual_first_tensor"] = term_residuals[0]
+                    ic_metrics["adaptive_ns/residual_mean"] = tr_mean
+                    ic_metrics["adaptive_ns/residual_max"] = max(term_residuals)
+                    ic_metrics["adaptive_ns/residual_min"] = min(term_residuals)
+                if args.adaptive_ns_iters:
+                    ic_metrics["adaptive_ns/iter_count_hist"] = wandb.Histogram(iter_counts)
+                wandb.log(ic_metrics, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
