@@ -1,5 +1,72 @@
 # SENPAI Research Results
 
+## 2026-05-23 18:35 UTC — PR #899 CLOSED: Aux Polyak EMA (lm_head only vs embed only) — both arms NULL, 92nd axis, 17th aux Adam-family closure (g1r1-fern)
+
+- Branch: `g1r1-fern/aux-polyak-ema`
+- Hypothesis: Aux parameter Polyak EMA on lm_head-only (Arm A) vs embed-only (Arm B); β-ramp matches body-Muon EMA (β_warmup=0.95 → β_target=0.99 ramping with lr_mult). Tests whether parameter-space averaging on aux benefits like it does for body-Muon.
+
+| Arm | W&B | sr | val/loss (EMA-swap) | val/loss_live | val/ema_minus_live | Δval (EMA) vs #864 | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #864 | `j8nsn77s`/`08ursg5n` | 2925 | 3.266826 | — | (body EMA: negative) | — | — |
+| A (lm_head EMA) | `byqi2lgf` | 2925 | 3.268543 | 3.267891 | **+0.000652** | +0.001717 | NULL |
+| B (embed EMA) | `cw1ub4f3` | 2925 | 3.267759 | 3.267210 | **+0.000549** | +0.000933 | NULL (sub-marginal but mechanism broken) |
+
+### Verdict: NULL/NULL — 92nd axis closed, 17th aux Adam-family closure.
+
+### Mechanism finding — WRONG-SIGN aux EMA (load-bearing diagnostic)
+
+For BOTH arms `val/ema_minus_live > 0`: EMA buffer is WORSE than live weights. **Opposite of body-Muon EMA** where `ema_minus_live < 0` reliably (the entire mechanism of #737 and #864).
+
+Structural reason: temporal averaging helps only when the underlying trajectory is locally directional.
+- Body-Muon: polar-mapped updates ARE directional (NS5 imposes orthogonality + β_cov whitening provides coherent geometry). Averaging reduces noise around a coherent direction.
+- Aux Adam-on-i.i.d.-gradients: NO locally coherent trajectory. Averaging samples the centroid of recent disagreement, which lies further from any plausible optimum than the latest update.
+
+### 4 independent measurement axes confirming i.i.d. aux gradient finding
+
+| PR | Measurement angle | Result |
+|---|---|---|
+| #854 Adan-aux | Direct gradient correlation `||Δg||/||g||` | ≈ 1.45 (cosine ≈ -0.05) |
+| #875 AdaBelief | `s/m²` ratio everywhere on aux | ≫ 1 (momentum doesn't predict gradient) |
+| #863 Adam-mini | per-coord variance compression | per_tensor catastrophic (variance LOAD-BEARING); per_row sub-marginal |
+| **#899 (this PR)** | `val/ema_minus_live` for parameter EMA | **+ for both lm_head and embed (wrong sign)** |
+
+These are 4 independent measurement axes ALL confirming the same structural truth: aux trajectories are not locally directional → averaging hurts, doesn't help.
+
+### Cross-arm diagnostic comparison
+
+| Quantity | Arm A (lm_head) | Arm B (embed) | Interpretation |
+|---|---|---|---|
+| `ema_minus_live` sign | + | + | Wrong direction for both |
+| Buffer Frob-dist | 2.57 | **39.93** | embed drifts 15× more (sparse-update accumulation) |
+| Val penalty (EMA-swap) | 1.6 mnat | 0.83 mnat | embed penalty SMALLER despite LARGER drift |
+| Val penalty (live) | +0.001 | +0.0004 | Live training trajectory unaffected |
+
+**Embed's smaller val penalty despite larger Frob distance is informative:** a lot of embed Frob drift is in rows that don't appear in the held-out val set (per-token sparse updates accumulate without affecting eval). For lm_head, the entire output projection participates in every val token, so EMA penalty is more directly observed.
+
+### Why Arm B's sub-marginal Δval doesn't justify n=2
+
+Arm B's Δval=+0.000933 is below the 0.001 marginal threshold technically. But the mechanism analysis disqualifies it:
+- `val/loss_live = 3.267210` → Δval_live = +0.000384 (within seed noise of baseline range [3.265811, 3.268040])
+- The EMA-swap STRUCTURALLY adds +0.000549 worse on top of essentially-TIE live trajectory
+- val=3.267759 is best decomposed as `live_seed_noise (+0.000384) + EMA_penalty (+0.000549)`
+- The mechanism IS broken regardless of seed luck; n=2 would not change the wrong-sign `ema_minus_live` diagnosis
+
+### Aux Adam-family closure status (17 total)
+
+NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814), AdEMAMix (#585 + #846), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545 + #875), Lion (#604), Cautious-AdamW (#853), Adan (#854), Adam-mini (#863), **aux parameter EMA (#899 — this PR)**.
+
+**Open aux levers remaining (2):**
+1. SOAP for lm_head (#937 tanjiro IN FLIGHT) — last open aux Adam-family lever
+2. Direct aux base-LR retune (#913 frieren IN FLIGHT)
+
+### Reward to student
+
+Excellent telemetry discipline. The `val/ema_minus_live` design (logging EMA-swap AND live val terminal) is what made the structural diagnosis possible. The arm split (lm_head vs embed) was diagnostic — confirms the wrong-sign signal is universal across aux tensors, not specific to lm_head's dense structure.
+
+**92nd axis closed.** Fern re-assigned to #943 (SWA partial blend at cooldown_start) — deferred sub-axis from #730 closure.
+
+---
+
 ## 2026-05-23 18:10 UTC — PR #898 CLOSED: PMuon residual-driven adaptive NS_ITERS — both arms NULL, 91st axis (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/adaptive-ns-iters`
