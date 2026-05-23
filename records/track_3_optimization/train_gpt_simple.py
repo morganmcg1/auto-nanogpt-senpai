@@ -574,6 +574,28 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+# AdamW aux-group β₁ cooldown annealing (#919). When FINAL >= 0, β₁ on the
+# selected aux groups anneals linearly from each group's initial β₁ to FINAL
+# across the NS cooldown window
+# (steps in [NS_COOLDOWN_START_FRAC * train_steps, train_steps)).
+# FINAL = -1.0 (default) disables the schedule → no env-driven branch mutates
+# anything (bit-clean fallback).
+NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL = float(os.environ.get("NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL", "-1.0"))
+NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE = os.environ.get("NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE", "all")
+_VALID_AUX_BETA1_SCOPES = ("all", "embed", "lm_head", "scalar")
+if NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE not in _VALID_AUX_BETA1_SCOPES:
+    raise ValueError(
+        f"NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE={NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE!r}, "
+        f"must be one of {_VALID_AUX_BETA1_SCOPES}"
+    )
+_AUX_BETA1_SCOPE_GROUPS = {
+    "all": ("adam_embed", "adam_lm_head", "adam_scalars"),
+    "embed": ("adam_embed",),
+    "lm_head": ("adam_lm_head",),
+    "scalar": ("adam_scalars",),
+}
+_AUX_BETA1_TARGET_GROUPS = _AUX_BETA1_SCOPE_GROUPS[NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE]
+_AUX_BETA1_COOLDOWN_ACTIVE = NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL >= 0
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
@@ -819,6 +841,14 @@ print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
+if _AUX_BETA1_COOLDOWN_ACTIVE:
+    print0(f"ADAMW_AUX_BETA1_COOLDOWN: anneal -> {NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL} "
+           f"(scope={NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE}, targets={list(_AUX_BETA1_TARGET_GROUPS)}, "
+           f"window=[{NS_COOLDOWN_START_FRAC*100:.0f}%, 100%]) — base β₁ read dynamically from optimizer",
+           console=True)
+else:
+    print0(f"ADAMW_AUX_BETA1_COOLDOWN: disabled (FINAL={NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL}) — bit-clean fallback",
+           console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
@@ -894,6 +924,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
+            "nanogpt_adamw_aux_beta1_cooldown_final": NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL,
+            "nanogpt_adamw_aux_beta1_cooldown_scope": NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_SCOPE,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
         },
@@ -979,6 +1011,8 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
+            if "betas" in group:
+                group["initial_betas"] = tuple(group["betas"])
 
     # learning rate schedule: stable then decay.
     # All groups follow the default linear-to-zero cooldown except the
@@ -1134,6 +1168,27 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # AdamW aux-group β₁ cooldown anneal (#919): when active, linearly anneal
+        # β₁ on the selected aux groups from each group's initial β₁ to FINAL
+        # across the NS cooldown window [NS_COOLDOWN_START_FRAC, 1.0). Bit-clean
+        # when disabled (FINAL < 0).
+        aux_beta1_current: dict[str, float] = {}
+        if _AUX_BETA1_COOLDOWN_ACTIVE:
+            t_frac = step / train_steps
+            if t_frac >= NS_COOLDOWN_START_FRAC:
+                cd_window = max(1.0 - NS_COOLDOWN_START_FRAC, 1e-9)
+                cooldown_progress = (t_frac - NS_COOLDOWN_START_FRAC) / cd_window
+                cooldown_progress = max(0.0, min(1.0, cooldown_progress))
+            else:
+                cooldown_progress = 0.0
+            for group in optimizer1.param_groups:
+                gname = group.get("name", "")
+                if gname not in _AUX_BETA1_TARGET_GROUPS:
+                    continue
+                init_b1, init_b2 = group["initial_betas"]
+                beta1_now = init_b1 - cooldown_progress * (init_b1 - NANOGPT_ADAMW_AUX_BETA1_COOLDOWN_FINAL)
+                group["betas"] = (beta1_now, init_b2)
+                aux_beta1_current[gname] = beta1_now
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1274,6 +1329,17 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and adamw_step_dir_due and _AUX_BETA1_COOLDOWN_ACTIVE:
+            beta1_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/optimizer/aux_beta1_cooldown_in_window": int(
+                    (step / train_steps) >= NS_COOLDOWN_START_FRAC
+                ),
+            }
+            for gname, b1 in aux_beta1_current.items():
+                beta1_metrics[f"train/optimizer/aux_beta1_current/{gname}"] = b1
+            wandb.log(beta1_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
