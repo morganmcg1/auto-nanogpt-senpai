@@ -577,6 +577,10 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
+# Optional non-zero Gaussian init for the top-level lm_head (model.proj.weight) only.
+# In-block proj weights (attn.proj, mlp.proj) always remain zero-init for the residual-init trick.
+# Default 0.0 reproduces the merged-stack zero-init (bit-identical).
+NANOGPT_LM_HEAD_INIT_STD = float(os.environ.get("NANOGPT_LM_HEAD_INIT_STD", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -813,6 +817,9 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"LM_HEAD_INIT_STD: {NANOGPT_LM_HEAD_INIT_STD} "
+       f"({'NON-ZERO Gaussian init for proj.weight' if NANOGPT_LM_HEAD_INIT_STD > 0 else 'zero-init (default)'})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -873,6 +880,7 @@ if dist.get_rank() == 0:
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
+            "nanogpt_lm_head_init_std": NANOGPT_LM_HEAD_INIT_STD,
         },
     )
 
@@ -891,7 +899,14 @@ for trial_idx in range(args.num_trials):
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                # Special case: top-level lm_head (model.proj.weight) can be non-zero
+                # Gaussian init when NANOGPT_LM_HEAD_INIT_STD > 0. In-block proj weights
+                # (blocks.{i}.attn.proj.weight, blocks.{i}.mlp.proj.weight) always
+                # zero-init for the residual-block identity trick.
+                if name == "proj.weight" and NANOGPT_LM_HEAD_INIT_STD > 0.0:
+                    w.normal_(0.0, NANOGPT_LM_HEAD_INIT_STD)
+                else:
+                    w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
@@ -902,6 +917,13 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+    # Sanity check: verify lm_head init magnitude (post-init).
+    # For ctrl (std=0.0), expect actual_norm=0.0. For non-zero arms, expect
+    # actual_norm ≈ NANOGPT_LM_HEAD_INIT_STD * sqrt(vocab_size * model_dim).
+    print0(f"LM_HEAD_INIT: name=proj.weight std={NANOGPT_LM_HEAD_INIT_STD} "
+           f"actual_norm={model.proj.weight.norm().item():.6f} "
+           f"actual_max={model.proj.weight.abs().max().item():.6f} "
+           f"actual_mean={model.proj.weight.abs().mean().item():.6f}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
