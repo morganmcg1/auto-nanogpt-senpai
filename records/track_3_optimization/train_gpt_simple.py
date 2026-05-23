@@ -61,6 +61,12 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--embed_lr", type=float, default=0.3,
+                        help="Aux AdamW lr for model.embed.weight (default 0.3 = current).")
+    parser.add_argument("--lm_head_lr", type=float, default=1/160,
+                        help="Aux AdamW lr for model.proj.weight (default 1/160 ≈ 0.00625 = current).")
+    parser.add_argument("--scalar_lr", type=float, default=0.025,
+                        help="Aux AdamW lr for ndim<2 params (default 0.025 = current).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -717,8 +723,12 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "aux_lr_embed": args.embed_lr,
+            "aux_lr_lm_head": args.lm_head_lr,
+            "aux_lr_scalar": args.scalar_lr,
         },
     )
+    print(f"[aux-lr] embed_lr={args.embed_lr} lm_head_lr={args.lm_head_lr} scalar_lr={args.scalar_lr}")
 
 for trial_idx in range(args.num_trials):
 
@@ -748,9 +758,9 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.embed_lr, name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=args.lm_head_lr, name="adam_lm_head"),
+                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.scalar_lr, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
