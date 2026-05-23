@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 10:50 UTC
+- **Date:** 2026-05-23 11:43 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -298,6 +298,23 @@ Implementation: snapshot body Muon init weights at step 0; modify WD step from `
 Seed 3 ETA ~11:42 UTC. **Cross-PR-merge protocol** at terminal: chain on OLD pre-#787 stack → merge preflight will refuse DIRTY → standard rebase + re-run on new stack per #789 precedent.
 
 **10:50 UTC — seed 3 mid-run**: `eo4849yp` at step 2000/3350 (60%), val 3.435 (mid-trajectory, descending normally). ETA terminal ~12:10 UTC.
+
+**11:40 UTC — seed 3 terminal (W&B-verified, SENPAI-RESULT marker not yet posted by student)**:
+
+| Seed | run ID | val/loss | Δ_vs_new_base 3.26944 |
+|:---:|---|:---:|:---:|
+| 1 | `hf0mq6sz` | 3.26853 | **−0.00091** ✅ |
+| 2 | `mj471oxb` | 3.26843 | **−0.00101** ✅ |
+| 3 | `eo4849yp` | 3.27094 | +0.00150 ⚠️ |
+| **mean** | — | **3.26930** | **−0.00014** (marginal, smaller than #845) |
+
+**Profile mirrors #845** (askeladd embed-grad-freq-rescale paired-pod) — both AUX-side mechanisms produce direction-correct sub-threshold paired-pod means barely below new baseline:
+- #845 mean = 3.26920, Δ_vs_new = −0.00024
+- #847 mean = 3.26930, Δ_vs_new = −0.00014
+
+Both are 2/3 direction-correct vs new baseline; #847 seed 3 lands further above new base (+0.00150) than #845 seed 3 (+0.00038), so #847's mean drift is smaller. **Both are marginal-pass-only at new baseline despite robust signals on OLD pre-#787 stack** (#845 mean Δ_vs_old=−0.00116; #847 likely similar). Already has `merge_conflict_comment` label — actual file-level conflicts present so rebase mandatory regardless of marginal-pass status.
+
+**Decision plan when SENPAI-RESULT lands**: send back for rebase + re-run on post-#787 stack, mirror of #845 send-back protocol. Pre-staged outcomes identical (MERGE if rebased mean ≤ 3.26944 AND ≥2/3 dir-correct, else productive-NULL/NEG).
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -612,6 +629,33 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 **If paired-pod confirms**: merge B, then consider cap sweep (wmax=8, 12, 15) and cross-axis combination with #847 init-anchored WD if that also confirms. **If collapses**: 12th paired-pod collapse precedent → closes axis as "N=1 Δ ≈ −0.001 to −0.0015 below paired-pod noise floor on this baseline".
 
 **~07:43 UTC seed 1 finished** (W&B-verified, askeladd silent-progression pattern — visibility comment posted 09:05 UTC): seed 1 (`riny958o`) val=**3.26864**, Δ_vs_new_base 3.26944 = **−0.00080** ✅ direction-correct. Drift vs N=1 Arm B (3.26903): |Δ|=0.00039 (clean PASS ±0.0010). Seed 2 (`lgn6hwxh`) running ~67% (step ~2250/3350), ETA terminal ~09:55 UTC. Seed 3 ETA ~11:50 UTC. **Cross-PR parallel pattern with alphonse #847**: both n=3 chains show direction-correct seed 1 (askeladd Δ=−0.00080, alphonse Δ=−0.00091) — two independent AUX-side mechanisms (gradient pre-conditioner ↔ weight-anchor WD) both trending favorable. Watch for paired-pod collapse vs sustained signal at terminal.
+
+**11:37 UTC SENPAI-RESULT terminal — paired-pod n=3 complete, sent back for rebase + re-run on post-#787 stack**:
+
+| Seed | run ID | val/loss | Δ_vs_new_base 3.26944 | Δ_vs_old_base 3.27036 |
+|:---:|---|:---:|:---:|:---:|
+| 1 | `riny958o` | 3.26864 | **−0.00080** ✅ | −0.00172 |
+| 2 | `lgn6hwxh` | 3.26913 | **−0.00031** ✅ | −0.00123 |
+| 3 | `31f549pg` | 3.26982 | +0.00038 ⚠️ | −0.00054 |
+| **mean** | — | **3.26920** | **−0.00024** (marginal) | **−0.00116** (clean OLD-stack win) |
+
+**All 5 pre-staged gates PASS marginally vs new baseline 3.26944**:
+- Gate 1 mean ≤ 3.26944: PASS (Δ=−0.00024 sub-SEM)
+- Gate 2 stat-rule (3.28−mean)×√3 = 0.01871 ≥ 0.004: PASS
+- Gate 3 ≥2/3 direction-correct vs new: PASS (2/3; vs old: 3/3)
+- Gate 4 no seed > 3.275: PASS (max 3.26982)
+- Gate 5 ≥1 seed within ±0.0010 of N=1: PASS (3/3)
+
+**SEM = 0.000342, t-stat ≈ −0.71** — margin against new baseline is well below statistical significance. **N=1 (3.26903) → paired-pod (3.26920) retention** sits on the same N=1→n=3 collapse trajectory as 12 prior precedents this cycle but stops short of full collapse.
+
+**11:42 UTC decision — sent back for rebase + re-run** (per #789 tanjiro precedent despite preflight passing): although senpai_merge_winner_preflight returned PASS (file-level diff is clean against post-#787 advisor branch), the chain validated mechanism on OLD pre-#787 stack and the margin vs new baseline is marginal. Student themselves recommended rebase + re-run. Re-run protocol:
+- Rebase onto current advisor branch (now post-#787)
+- Re-run paired-pod n=3 on Arm B (sqrt_inv, wmax=10) with `NANOGPT_NS_STOCHASTIC_COOLDOWN=2` added
+- Pre-staged gates frozen as-set against new baseline 3.26944
+- ETA ~5.4h chain
+- Pre-staged outcomes: MERGE if mean(rebased,n=3) ≤ 3.26944 AND ≥2/3 dir-correct vs new; productive-NULL if ∈ (3.26944, 3.27036]; productive-NEG if > 3.27036
+
+**Durable mechanism characterization preserved either way**: N=1 4-arm Goldilocks (B=−0.00127, D=−0.00085, C=+0.00051) + OLD-stack paired-pod mean Δ_vs_old=−0.00116 clean — gradient-side per-row Zipf rescaling at sqrt-inverse-frequency with wmax=10 cap is the productive corner of the axis on the pre-#787 stack.
 
 **09:39 UTC seed 2 finished, seed 3 launched**: seed 2 (`lgn6hwxh`) val=**3.26913**, Δ_vs_new_base = **−0.00031** ✅ direction-correct. Drift vs N=1: |Δ|=0.00010 (clean PASS). Mean(n=2) = **3.268885**, Δ_vs_new_base = −0.000555. Gates 3 (direction-correct ≥2/3): already PASS 2/2. Gates 4 (no seed >3.275) + 5 (≥1 seed within ±0.0010 of N=1): PASS. For final mean(n=3) ≤ 3.26944, seed 3 needs val ≤ 3.26995. Seed 3 (`31f549pg`) launched 09:38 UTC, ETA terminal ~11:26 UTC. **Direction-correct gate would be 3/3 dir-correct, drift PASS, mean below baseline — but cross-PR protocol applies (chain on OLD pre-#787 stack)**. Askeladd has explicitly acknowledged rebase + re-run protocol at terminal.
 
