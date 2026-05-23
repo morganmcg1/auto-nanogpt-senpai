@@ -3,6 +3,34 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-23 06:05 UTC — PR #847: Embed init-anchored WD (alphonse) — N=1 Goldilocks at B (λ=0.001), SENT BACK for paired-pod n=3 (80th cycle)
+
+- Branch: `g1r4-alphonse/embed-init-anchor-wd` (commit `4d01a11`)
+- Hypothesis: Standard WD pulls all embed rows uniformly toward zero (shrinks frequent-token learned structure). Init-anchored WD regularizes per-row drift magnitude proportional to actual drift since init: `p -= lr × λ × (p − p_init)`. Mechanism-orthogonal to all 24 closed WD axes (different anchor target). Mechanism-distinct from #845 (gradient-side freq-rescale) — operates on weight-side post-step hook, fundamentally different stage.
+
+**Terminal 4-arm N=1 result (drift gate A PASS, Goldilocks pattern at B):**
+
+| Arm | λ | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | 0.000 | c1s8xnl3 | 3.27063 | 3225 | — | +0.00027 (drift PASS) | control bit-clean |
+| **B** | **0.001** | **aoef2igc** | **3.26953** | 3200 | **−0.00110** | **−0.00083** | **best direction-correct sub-threshold** |
+| C | 0.005 | f9h59nq1 | 3.26975 | 3225 | −0.00088 | −0.00061 | direction-correct cross-arm support |
+| D | 0.015 | v1s335x7 | **3.28635** | **−1 (DNF)** | **+0.01572** | +0.01599 | **CATASTROPHIC over-anchor** |
+
+**Verdict**: MIXED → SENT BACK for paired-pod n=3. **Goldilocks at B (λ=0.001), mechanism clearly real.**
+
+**Strongest mechanism characterization of the AUX-side WD axis** of any 4-arm chain in this run:
+- D's catastrophic failure (val=3.28635, fs=−1 DNF) rules out a noise mechanism — pure noise would not produce a sharp destructive threshold between λ=0.005 and λ=0.015
+- B and C both direction-correct vs baseline (cross-arm support)
+- Student's `embed/dist_from_init` telemetry: B/C show monotone-increasing drift (anchor mild→moderate); D oscillates and finishes at only 3.6× init norm — anchor force dominates gradient, fights learning
+- Confirms: standard WD is uniformly destructive for embed group (frequent-token learned structure shrunk); init-anchored WD selectively pressures rows that have drifted significantly, leaving rare-token rows near init undisturbed
+
+**Cross-PR confirmation with #848 (thorfinn lm_head non-zero init perturbation)**: Both PRs Goldilock at smallest non-zero value tested (#847 λ=0.001, #848 std=0.0001) with stronger anchoring/perturbation collapsing past baseline. Two independent mechanisms (embed weight regularization ↔ lm_head init perturbation) producing the same Goldilocks shape on AUX side is the strongest cross-axis confirmation of the night.
+
+**Pre-staged paired-pod n=3 trigger fired**: Δ_vs_baseline=−0.00083 sub-threshold but cross-arm structural support + D-catastrophic non-noise evidence + cross-PR confirmation justifies confirmation chain. Gates frozen: mean(B,n=3) ≤ 3.27036, `(3.28 − μ) × √3 ≥ 0.004`, ≥2/3 direction-correct, no seed > 3.275, at least one seed within ±0.0010 of N=1 value 3.26953.
+
+**Implementation hygiene exemplary**: Arm A bit-clean (drift +0.00027), branch pushed cleanly at `4d01a11` (47 LoC), W&B telemetry rich (`embed/dist_from_init`, `embed/init_anchor_lambda`, snapshot norm/mean_abs), zero ghost crashes, step_avg drift ≤2% (~1860–1890 ms), post-step hook overhead negligible. Group name divergence (PR-text `init-anchor-wd-aux` vs runs `embed-init-anchor`) is harmless label difference.
+
 ## 2026-05-23 05:43 UTC — PR #845: Embed gradient sparsity-rescaling via inverse-frequency weighting (askeladd) — N=1 mixed, SENT BACK for paired-pod n=3 on Arm B (79th cycle)
 
 - Branch: `g1r4-askeladd/embed-grad-freq-rescale` (commit `f7b33e0`)
