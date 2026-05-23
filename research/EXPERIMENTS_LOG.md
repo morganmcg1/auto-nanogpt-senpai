@@ -6469,3 +6469,24 @@ Kill-gate ladder: both arms razor-edge at step 1000 (+0.00038 Arm B, +0.00291 Ar
 3. **Floor sensitivity below AdaMuon's claim** — the 0.003-0.006 nat gain would need to manifest fully with no friction. Our stack has redundancy that absorbs the marginal AdaMuon benefit.
 
 **Closure outcome**: 70th refuted axis. Student's diagnostic on disabled-check ghost (`353b0di4`) confirmed accidental relaunch — both disabled-checks reproduce val@200=4.085 (double-verified plumbing). **Excellent student work** on the mechanistic analysis. Next assignment for nezuko: **PR #949 CONTRA_NORMUON_RESCALE_ABLATION** — directly tests the student's own #939 hypothesis by env-gating the two Frobenius rescales (lines 514 + 525) in `contra_normuon_update`. First ablation of either rescale in 232+ PRs.
+
+
+## 2026-05-23 21:25 UTC — PR #946: ROPE_FRACTION — half-truncate RoPE fraction sweep CLOSED (71st refuted axis)
+
+- `g1r2-alphonse/rope-fraction`
+- Hypothesis: ROPE_FRACTION default 0.5 (half-truncate, dim//4 rotating channel pairs + dim//4 zero) might not be structural optimum. Arm A=0.25 (sparser rotation), Arm B=1.0 (full RoPE, all channels rotate).
+- W&B runs: `r9q1hwgs` (Arm A=0.25), `fcao0ugi` (Arm B=1.0), `tchpxoqf` (disabled-check ROPE_FRACTION=0.5, val@200=4.08105).
+
+| Arm | ROPE_FRACTION | step 500 val | gate | Verdict | Killed at |
+|---|---:|---:|---:|---|---:|
+| Baseline | 0.5 (half-truncate) | ~3.805 | 3.81 | PASS | — |
+| Arm A | 0.25 (sparser) | **3.81139** | 3.81 | FAIL +0.00139 | step ~725 |
+| Arm B | 1.0 (full RoPE) | **3.81477** | 3.81 | FAIL +0.00477 | step ~609 |
+
+**Results commentary**: Both arms tripped step-500 kill gate cleanly. Trajectories near-identical between arms (max divergence ~0.005 nats at step 500) — confirms the structural change shifts the mean of early-training but not the shape. Bidirectional symmetric degradation: halving rotating channels (0.25) and doubling them (1.0) both cause ~0.005 nat damage at step 500.
+
+**Mechanistic conclusion**: RoPE half-truncate default (dim//4 rotating + dim//4 zero, concatenated to dim//2) is at a true structural local optimum on this stack. The number of rotating channel pairs has very little effect on convergence SHAPE in early training — only the mean is shifted. The half-truncate is NOT a regrettable speed hack — it IS the quality choice. Consistent with #930 ROPE_BASE closure (default 1024 Goldilocks). RoPE positional encoding is fully tuned within mandatory stack.
+
+**Student observation acknowledged**: Arm A tripped gate by only +0.00139 (at noise floor), kill-gate ladder is tight. However, the strict gate caught real degradation (both arms ~0.005 above baseline at step 500) — late-trajectory recovery would have cost ~2h GPU time for no-headroom axis. Closure correct under either gate interpretation. Excellent student work.
+
+**Closure outcome**: 71st refuted axis. Next assignment for alphonse: **PR #950 LOGIT_SOFTCAP_SCHEDULE** — first temporal axis on LOGIT_SOFTCAP in 232+ PRs. Loss-side temporal mechanism, diversifies the in-flight temporal cluster (#947 CONTRA optimizer-side, #948 NS5_ITERS optimizer-side). Arms A=ramp 20→15 (tighter cooldown softcap), B=ramp 20→30 (looser cooldown softcap).

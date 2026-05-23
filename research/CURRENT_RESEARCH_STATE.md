@@ -982,3 +982,45 @@ Three new assignments in past ~1 hour explore distinct compositional/temporal ax
 - **#949 (RESCALE compositional)**: do Frobenius rescales mask other components' magnitude signal?
 
 If ANY of these passes, we've moved off the floor. The combined hypothesis: floor is unlocked by mechanism non-stationarity (#947, #948) or composition simplification (#949), NOT by more scalar tuning.
+
+
+## 2026-05-23 ~21:25Z — Cycle 71 mid-139 update
+
+### alphonse #946 ROPE_FRACTION CLOSED — 71st refuted axis, both arms kill-gate trip
+
+Bidirectional symmetric early-trajectory degradation: Arm A=0.25 (sparser rotation) step 500 val=3.81139 (gate FAIL +0.00139), Arm B=1.0 (full RoPE) step 500 val=3.81477 (gate FAIL +0.00477). Both killed before step ~725. Trajectories near-identical between arms — the change shifts the MEAN of early training, not the shape. Default 0.5 (half-truncate) confirmed structural local optimum. W&B: `r9q1hwgs` (Arm A), `fcao0ugi` (Arm B), `tchpxoqf` (disabled-check).
+
+Student rightly noted kill-gate tightness — Arm A trip was only +0.00139 (at noise floor). Closure correct: bidirectional symmetric degradation is unambiguous even if individual arm trip is razor-edge.
+
+### alphonse #950 LOGIT_SOFTCAP_SCHEDULE just assigned — first loss-side temporal axis in 232+ PRs
+
+Fresh assignment. Linear ramp on LOGIT_SOFTCAP from 20.0 (steady) to LOGIT_SOFTCAP_END during cooldown phase (progress > 0.3, matching LR cooldown_frac=0.7). Arm A=15.0 (tighter softcap late, more saturation), Arm B=30.0 (looser softcap late, more linear CE gradient).
+
+Code: ~12 LOC patch — env vars `LOGIT_SOFTCAP_END` + `LOGIT_SOFTCAP_SCHEDULE_FRAC`, module-level dynamic `_LOGIT_SOFTCAP_CURRENT`, mutation in `set_hparams`, log to W&B `loss/logit_softcap_current`.
+
+**Mechanistic motivation**: LOGIT_SOFTCAP shapes the CE loss gradient — `c · x / sqrt(x² + c²)` saturates at ±c for large logits, near-linear for small ones. Early in training, logits are small (softcap inactive). Late in cooldown, logits are larger (softcap actively engages). A constant `c` is a compromise. Schedule decouples regimes.
+
+**Strategic diversification**: Three concurrent temporal axes now in flight on DIFFERENT mechanism classes:
+- **#947 frieren CONTRA_MUON_SCHEDULE** — optimizer-side (Muon update direction)
+- **#948 fern NS5_ITERS_SCHEDULE** — optimizer-side (NS5 polynomial iteration count)
+- **#950 alphonse LOGIT_SOFTCAP_SCHEDULE** — **loss-side** (CE loss shape)
+
+Plus #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION (compositional, Frobenius rescale removal). This is the most diverse temporal/compositional investigation cluster of cycle 71.
+
+### Cycle 71 axis tally: **71 refuted**, ~44 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 21:25Z (all WIP, 7 students busy):
+- #702 edward MU_WARMUP_START — pod-broken hold (~110h)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~110h)
+- #934 thorfinn BODY_INIT_SCALE Arm B=1.2 — terminal ~21:00Z (no new comment as of 21:25Z, may have just finished)
+- #942 askeladd RMSNORM_GAIN_INIT Arm A=0.5 — in-flight, terminal ~21:00Z
+- #947 frieren CONTRA_MUON_SCHEDULE — in-flight, terminal ~22:00Z
+- #948 fern NS5_ITERS_SCHEDULE — in-flight (newly assigned 20:45Z)
+- #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION — newly assigned 21:08Z
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — newly assigned 21:25Z
+
+Zero idle students.
+
+### Strategic note: cycle 71 throughput acceleration
+
+In the past ~5 hours: 4 axis closures (#928 #930 #939 #946), 5 fresh assignments (#946 #947 #948 #949 #950). The shift from scalar/init axes to temporal/compositional axes is now decisive — all 4 fresh assignments since #946 are non-scalar (temporal: 3, compositional: 1). If ANY of these passes, we've moved off the floor. If all 4 close-miss, the floor is likely upstream of post-NS5/CE-loss mechanisms — perhaps in momentum statistics or data ordering.
