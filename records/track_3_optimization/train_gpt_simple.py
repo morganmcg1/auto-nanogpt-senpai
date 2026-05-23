@@ -577,6 +577,11 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Body-Muon Muon^2 v_t time constant. Default 0.999 reproduces baseline bit-clean
+# (the guard inside `muon_update` is False-not-taken at this value). Set <= 0.0 to
+# disable the v_t pre-NS denominator entirely (pure momentum-then-NS), a structural
+# pruning ablation of the Adam-style preconditioning step.
+NANOGPT_MUON_BODY_BETA2 = float(os.environ.get("NANOGPT_MUON_BODY_BETA2", "0.999"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # Stochastic NS iter count: per-step uniform sampling around the deterministic mean.
 # spread=0 -> deterministic (default, bit-identical to merged stack).
@@ -692,8 +697,10 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     # Muon^2: Adam-style second-moment preconditioning before NS (arXiv:2504.09967).
-    v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
-    update = update / (v.sqrt() + eps)
+    # When beta2 <= 0.0, skip v_t entirely (pure momentum-then-NS, ablation arm).
+    if beta2 > 0.0:
+        v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
+        update = update / (v.sqrt() + eps)
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -817,6 +824,8 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"MUON_BODY_BETA2: {NANOGPT_MUON_BODY_BETA2:.4f} "
+       f"(disable_v={NANOGPT_MUON_BODY_BETA2 <= 0.0})", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -884,6 +893,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_muon_body_beta2": NANOGPT_MUON_BODY_BETA2,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
@@ -934,6 +944,7 @@ for trial_idx in range(args.num_trials):
         [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
          dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
         weight_decay=0.025,
+        beta2=NANOGPT_MUON_BODY_BETA2,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
            f"(expected 48 attn / 24 mlp for 12-layer block stack)", console=True)
