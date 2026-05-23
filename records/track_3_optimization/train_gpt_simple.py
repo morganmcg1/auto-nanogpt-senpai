@@ -46,6 +46,15 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_ns5_k", type=int, default=int(os.environ.get("MUONH_NS5_K", "12")),
+                        help="Constant NS5 iteration count (default 12 matches public NS5 baseline).")
+    parser.add_argument("--muonh_ns5_k_schedule", type=str,
+                        default=os.environ.get("MUONH_NS5_K_SCHEDULE", "const"),
+                        choices=["const", "warm_cool", "cool_warm"],
+                        help="NS5 iteration count schedule across training steps. "
+                             "const: k=muonh_ns5_k throughout (default). "
+                             "warm_cool: k=8 for steps 0-1000/3325, 12 for 1000-2300, 16 for 2300-end. "
+                             "cool_warm: inverse (16 → 12 → 8) — null falsifier.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -466,7 +475,35 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def _ns5_k_for_step(step: int, total_steps: int = 3325, schedule: str = "const", k_const: int = 12) -> int:
+    """NS5 iteration count for the current training step.
+
+    H72: vary k across training to match polish budget to the evolving
+    gradient spectrum. Phase boundaries are scaled proportionally to total_steps
+    using the reference 1000/3325 and 2300/3325 cuts.
+    """
+    if schedule == "const":
+        return k_const
+    phase1_end = int(total_steps * 1000 / 3325)
+    phase2_end = int(total_steps * 2300 / 3325)
+    if schedule == "warm_cool":
+        if step < phase1_end:
+            return 8
+        elif step < phase2_end:
+            return 12
+        else:
+            return 16
+    if schedule == "cool_warm":
+        if step < phase1_end:
+            return 16
+        elif step < phase2_end:
+            return 12
+        else:
+            return 8
+    return k_const
+
+
+def zeropower_via_newtonschulz5(G: Tensor, k: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -476,7 +513,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(k):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -486,10 +523,10 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, k: int = 12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, k=k)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -591,16 +628,22 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 ns5_k_schedule="const", ns5_k_const=12, train_steps=3325):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert ns5_k_schedule in ("const", "warm_cool", "cool_warm")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns5_k_schedule=ns5_k_schedule, ns5_k_const=ns5_k_const,
+                        train_steps=train_steps)
         super().__init__(params, defaults)
+        self._step_counter = 0
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_ns5_k_active = ns5_k_const
 
     @torch.no_grad()
     def step(self):
@@ -610,12 +653,20 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        active_k = self._last_ns5_k_active
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            k = _ns5_k_for_step(
+                self._step_counter,
+                total_steps=group["train_steps"],
+                schedule=group["ns5_k_schedule"],
+                k_const=group["ns5_k_const"],
+            )
+            active_k = k
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +675,7 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], k=k)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -667,6 +718,8 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        self._last_ns5_k_active = active_k
+        self._step_counter += 1
 
 
 ########################################
@@ -705,6 +758,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH NS5 schedule={args.muonh_ns5_k_schedule} (k_const={args.muonh_ns5_k})", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -756,6 +810,8 @@ if dist.get_rank() == 0:
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
             "muonh_warmup_steps": args.muonh_warmup_steps,
+            "muonh_ns5_k": args.muonh_ns5_k,
+            "muonh_ns5_k_schedule": args.muonh_ns5_k_schedule,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
             "muloco_outer_lr": args.outer_lr,
@@ -819,7 +875,10 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns5_k_schedule=args.muonh_ns5_k_schedule,
+                       ns5_k_const=args.muonh_ns5_k,
+                       train_steps=args.train_steps)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1095,7 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        muonh_metrics["train/muonh/ns5_k_active"] = opt._last_ns5_k_active
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
