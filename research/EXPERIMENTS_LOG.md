@@ -1,5 +1,39 @@
 # SENPAI Research Results
 
+## 2026-05-23 15:55 UTC — PR #896 CLOSED: Cautious-Muon body post-NS sign-mask — both arms NULL, 89th axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/cautious-muon-body`
+- Hypothesis: Cautious-AdamW-style sign-mask applied to body-Muon polar output AFTER NS5 + bilateral whitening; gate update direction by sign-agreement with current gradient. Arm A=mask+renorm (Frobenius restored), Arm B=mask-only (no renorm).
+
+| Arm | Variant | W&B | sr | val/loss | Δsr | Δval | mask_frac | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #864 | — | `j8nsn77s`/`08ursg5n` | 2925 | 3.266826 | — | — | — | — |
+| A | mask+renorm | `qw18ifdw` | **-1** | 3.297386 | NULL | +0.030460 | 0.625 | HARD NULL (past stat-sig 3.276) |
+| B | mask-only | `a3hualvf` | **-1** | 3.521345¹ | NULL | +0.254519 | 0.637 | **CRASHED step ≈1598** (eigh failure on R_cov) |
+
+¹ Last val before crash at step 1500 (~46% through). Runtime 6736s vs 14046s Arm A.
+
+**Verdict: NULL/NULL → Post-NS body-Muon perturbation family FULLY CLOSED.** Joins #696 Contra-Muon (subtractive post-NS perturbation, also NULL).
+
+**Mechanism finding (significant cross-axis):**
+
+The polar map UV^T is the optimization geometry itself. Masking 37.5% of polar-output entries (mask_frac=0.625 sign-aligned, 37.5% sign-flipped → zeroed) deletes orthonormality column-by-column, leaving an update that is no longer the optimal nuclear-norm-bounded direction. Renorm restores Frobenius magnitude but not the directional structure — Arm A val regressed +30 mnat despite mask_frac matching the expected C-AdamW band [0.45, 0.77].
+
+**Arm B crash interpretation (numerical confirmation):** mask-only (no renorm) drops 37.5% of polar-element magnitude AND does not rescale → effective grad-equivalent fed back through bilateral whitening EMA gradually degrades R_cov conditioning → matrix_neg_power's `torch.linalg.eigh` diverges at step ≈1598. The crash is a strictly worse failure mode than the predicted "directional disruption + magnitude reduction" combo. Joins #774 (β_cov=0.0 fast-mix crash) and #898's eps adaptive convergence floor as numerical-stability signals on the bilateral whitening pipeline.
+
+**Cross-axis closure pattern:** Post-NS body-Muon perturbations close uniformly regardless of perturbation type:
+- #696 Contra-Muon (subtractive: polar - slow_EMA) — NULL (compression: only 3% effective dose vs 15-25% design)
+- #896 Cautious-Muon (multiplicative gating + renorm) — NULL +30 mnat
+- #896 Cautious-Muon (multiplicative gating no renorm) — CRASHED
+
+**Why mask-on-aux works (#853) but mask-on-body (#896) fails:** On aux (C-AdamW), mask fires on Adam updates (per-element optimizer); geometry is preserved by being per-element. On body-Muon, the mask is on the POLAR map output — the mask IS the geometry violation, not a per-element heuristic on top.
+
+**Cross-axis to #893 m_pre BC finding:** #893 just established that NS5 absorbs magnitude bias but NOT directional bias on m_pre (Arm A marginal WIN). Combined with #896 closure: **the structurally untested axis is pre-NS sign-mask on m_pre** (mask BEFORE polar projection so NS5 re-orthogonalizes from masked input). This is the cleanest follow-up — assigned to g1r1-askeladd as PR #931 (cross-axis with #896 + #893).
+
+**Closure entry — 89th NULL.** Adds "Cautious-Muon-body multiplicative gating" to closed-axes under "Post-NS body-Muon perturbations." Now 17 aux Adam-family closures pending #899/#913/#931 + 4 body-perturbation closures (#658/#660/#696/#896).
+
+---
+
 ## 2026-05-23 14:50 UTC — PR #884 CLOSED: NS_ITERS tune (8 vs 16) — both arms NULL, 88th axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/ns-iters-tune`
