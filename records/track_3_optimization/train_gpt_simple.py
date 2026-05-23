@@ -55,6 +55,15 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H69 Outer-Cautious: sign-agreement mask between fresh `delta` and running
+    # outer `velocity` applied at the MuLoCo outer step (no NS5 at this scale).
+    # Tests if the H62 inner-Cautious failure mode is NS5-specific or generalizes
+    # to any structured/momentum-aggregated update. Default 0 keeps the outer step
+    # bit-identical to the current MuLoCo baseline.
+    parser.add_argument("--cautious_outer", type=int, default=int(os.environ.get("CAUTIOUS_OUTER", "0")),
+                        help="Apply Cautious sign-agreement masking at the MuLoCo outer step")
+    parser.add_argument("--cautious_outer_rescale", type=int, default=int(os.environ.get("CAUTIOUS_OUTER_RESCALE", "1")),
+                        help="When --cautious_outer=1, rescale kept coords to preserve update magnitude")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -702,6 +711,10 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.cautious_outer:
+        print0(f"Outer-Cautious ENABLED: cautious_outer_rescale={args.cautious_outer_rescale}", console=True)
+    else:
+        print0("Outer-Cautious DISABLED", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -761,6 +774,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "cautious_outer": bool(args.cautious_outer),
+            "cautious_outer_rescale": bool(args.cautious_outer_rescale),
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -1090,9 +1105,38 @@ for trial_idx in range(args.num_trials):
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+                mask_kept_sum = 0
+                mask_total = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
+                    if args.cautious_outer:
+                        # H69 Outer-Cautious: sign-agreement mask between fresh
+                        # `delta` and the running outer `velocity`, applied
+                        # BEFORE the velocity update so velocity sees the masked
+                        # delta (matches H62 inner-Cautious semantics where the
+                        # mask gates the post-NS5 update into the param). No NS5
+                        # at this outer scale — this is a clean test of whether
+                        # the H62 failure mode is NS5-specific.
+                        # Cold-start: outer_velocity is initialized to zero, so a
+                        # strict sign-equality mask would zero every coord on
+                        # outer step 0 (sign(±)≠sign(0)) and freeze velocity at
+                        # zero forever. Pass-through on the first outer step so
+                        # velocity bootstraps from the raw delta; the mask
+                        # operates as specified from outer step 1 onward.
+                        if outer_applied_steps == 0:
+                            binary_mask = torch.ones_like(delta)
+                        else:
+                            binary_mask = (torch.sign(delta) == torch.sign(outer_velocity[n])).to(delta.dtype)
+                        if log_outer:
+                            mask_kept_sum += float(binary_mask.sum().item())
+                            mask_total += binary_mask.numel()
+                        if args.cautious_outer_rescale:
+                            mask_mean = binary_mask.mean().clamp(min=1.0 / max(1, binary_mask.numel()))
+                            mask = binary_mask / mask_mean
+                        else:
+                            mask = binary_mask
+                        delta = delta * mask
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
                     p.data.copy_(outer_anchor[n] - args.outer_lr *
                                  (args.outer_momentum * outer_velocity[n] + delta))
@@ -1105,13 +1149,16 @@ for trial_idx in range(args.num_trials):
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                outer_log = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                }
+                if args.cautious_outer:
+                    outer_log["train/muloco/cautious_mask_mean"] = mask_kept_sum / max(1, mask_total)
+                wandb.log(outer_log, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
