@@ -17,6 +17,49 @@ So a single non-cherry-picked run needs `mu < 3.276`; `n=4` runs need
 
 ## Current baseline (this branch)
 
+**Merged 2026-05-23 ~14:20 UTC — PR #888 frieren H87 Aux AdamW β2=0.99 constant.** Increases aux AdamW β2 from 0.95 to 0.99 (constant throughout training) via new `--aux_beta2_schedule constant --aux_beta2_start 0.99` CLI flags. Longer second-moment EMA window stabilizes aux grad estimates globally — terminal global_norm 6% lower than β2=0.95 (23,009 vs 24,500). A cooldown-ramp variant (arm_b, β2 0.95→0.99 during cooldown) landed NULL: the level matters, not the timing. Stacks on top of MuLoCo × MuonH-SI + dual AGC + cosine cooldown + LR warmup + aux eps=1e-6.
+
+| Field | Value |
+| --- | --- |
+| `train_steps` | 3325 |
+| Architecture | GPT-768/12L, vocab 50304, ctx 1024 — fixed |
+| Batch size | `8 * 64 * 1024 = 524288` tokens/step — fixed |
+| Main optimizer | `MuonH(lr=0.018, mu=0.95, weight_decay=0, mode='scale_invariant')` on blocks ndim≥2 |
+| **Aux AdamW β2** | **`--aux_beta2_schedule constant --aux_beta2_start 0.99`** (was 0.95) |
+| Aux AdamW eps | `--aux_adamw_eps 1e-6` |
+| MuonH inner AGC | `--muonh_agc_clip_ratio 0.05` |
+| MuonH LR warmup | `--muonh_warmup_steps 100` |
+| Outer wrapper | `MuLoCo(outer_lr=0.7, outer_momentum=0.5, sync_interval=30)` |
+| Aux AdamW | `betas=(0.8, 0.99), eps=1e-6, weight_decay=0` + AGC `clip_ratio=0.05` |
+| LR schedule | Cosine cooldown for MuonH (`cooldown_frac=1.0`); linear cooldown for aux (`cooldown_frac=0.4`) |
+| `val/loss` | **3.26977** (n=1 trial; passes n=1 bar < 3.27206) |
+| `speedrun/final_first_step_to_target` | **3075** (n=1; improves over previous baseline 3100 by 25 steps) |
+| stat margin | `(3.28 - 3.26977) * sqrt(1) = 0.01023` ≥ 0.004 ✓ |
+| Baseline W&B run | `0z3c44wp` |
+| Baseline PR | [#888](https://github.com/morganmcg1/modded-nanogpt-senpai/pull/888) |
+
+### Reproduce Aux β2=0.99 + eps=1e-6 + AGC inner + MuonH warmup + cosine cooldown + AGC aux + MuLoCo × MuonH-SI baseline
+
+```bash
+cd target/
+torchrun --standalone --nproc_per_node=1 \
+  records/track_3_optimization/train_gpt_simple.py \
+  --num_trials 1 --train_steps 3325 \
+  --muonh_mode scale_invariant \
+  --muonh_cooldown_shape cosine \
+  --muonh_warmup_steps 100 \
+  --use_outer_optimizer 1 \
+  --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 \
+  --aux_agc_clip_ratio 0.05 \
+  --muonh_agc_clip_ratio 0.05 \
+  --aux_adamw_eps 1e-6 \
+  --aux_beta2_schedule constant --aux_beta2_start 0.99
+```
+
+---
+
+## Previous baseline — PR #443 edward Aux AdamW eps=1e-6 (2026-05-19 ~13:25 UTC)
+
 **Merged 2026-05-19 ~13:25 UTC — PR #443 edward Aux AdamW eps=1e-6.** Increases aux AdamW epsilon from 1e-10 to 1e-6 via new `--aux_adamw_eps` CLI flag. Heavier denominator smoothing on aux params (embed, lm_head, scalars) — reduces noise in Adam's adaptive LR on low-gradient parameters, which slightly speeds early convergence. Single trial; passes n=1 promotion bar (val=3.27119 < 3.27206) and stat rule. Stacks on top of MuLoCo × MuonH-SI + dual AGC + cosine cooldown + LR warmup.
 
 | Field | Value |
