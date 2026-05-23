@@ -1,3 +1,55 @@
+## 2026-05-23 14:30 UTC — PR #916 ASSIGNED (nezuko): H95 MuonH Nesterov µ re-tuning under current stack (µ∈{0.85,0.90,0.95,0.98})
+
+- Branch: `g1r3-nezuko/muonh-momentum-sweep`
+- Hypothesis: Re-tune MuonH Nesterov momentum coefficient µ (currently 0.95, never re-tested since PR #52 first MuonH-SI baseline) under the fully-built current stack (MuLoCo outer wrapper, dual AGC, cosine cooldown, warmup, eps=1e-6, aux β2=0.99). The MuLoCo outer layer already provides trajectory smoothing at a 30-step macro scale — it's plausible the optimal inner µ has decreased (less inner extrapolation needed) or increased (NS5 signal reliability allows more aggressive Nesterov).
+- Stack invariant: all arms include `--aux_beta2_schedule constant --aux_beta2_start 0.99` (new H87 baseline).
+- Arms (n=1, 3325 steps): arm_a CTRL µ=0.95 / arm_b µ=0.90 / arm_c µ=0.98 / arm_d µ=0.85.
+- Smoke gate: `optimizer/muonh_mu` in W&B config matches arm target; train/loss at step 300 in-pop for all arms; arm_c (µ=0.98) abort if train/loss > 5.5 at step 300.
+- Decision: WIN<3.26897; NULL ∈ [3.26880, 3.27070]; NEG>3.27150. If monotone in µ → tighter sweep below 0.85 or above 0.98.
+- Diagnostic: `optimizer/muonh_mu`, `train/grad/muonh_grad_norm`, 7-point train/loss trajectory table. Leverage H86 LR-trajectory template.
+
+---
+
+## 2026-05-23 14:30 UTC — PR #915 ASSIGNED (frieren): H94 Aux β2 push (β2=0.999) + weight decay (wd=0.01) sweep under β2=0.99 baseline (2×2 factorial)
+
+- Branch: `g1r3-frieren/aux-beta2-push-and-wd`
+- Hypothesis: Follow-up to H87 WIN. H87 mechanism: constant β2=0.99 → longer second-moment EMA window → 6% terminal global_norm reduction. H94 tests: (a) β2=0.999 extends EMA window from ~100 to ~1000 effective steps; (b) aux weight decay wd=0.01 (currently wd=0) under β2=0.99; (c) compound test β2=0.999+wd=0.01.
+- 2×2 factorial: arm_a CTRL (β2=0.99, wd=0) / arm_b (β2=0.999, wd=0) / arm_c (β2=0.99, wd=0.01) / arm_d (β2=0.999, wd=0.01). Interaction term: arm_d − arm_c − arm_b + arm_a.
+- Risk on arm_b/d: β2=0.999 → bias correction factor (1-0.999^200)=0.181 vs (1-0.99^200)=0.865 → v̂_t much smaller early → effective per-coord LR higher early → risk divergence at step ~200. Smoke gate: abort arm_b/d if train/loss > 5.0 at step 200.
+- Decision: WIN<3.26897; NULL ∈ [3.26880, 3.27070]; NEG>3.27150.
+- Diagnostic: `aux/beta2`, `train/grad/global_norm`, `aux/v_t_mean`, `aux/weight_decay`.
+
+---
+
+## 2026-05-23 14:20 UTC — PR #888 MERGED as WINNER (frieren): H87 Aux AdamW β2=0.99 constant — new baseline!
+
+- Branch: `g1r3-frieren/beta2-schedule-aux`
+- Result: arm_c (constant β2=0.99) val/loss=**3.26977** (-0.00142 vs prior baseline 3.27119), ffs=**3075** (25 steps faster). Stat margin: (3.28-3.26977)×√1=0.01023 ≥ 0.004 ✓.
+- arm_a CTRL β2=0.95: val/loss=3.27145 ffs=3125 (in-pop, fused=True path swap clean). arm_b RAMP β2=0.95→0.99 cooldown: val/loss=3.27227 ffs=3125 (NULL — timing doesn't matter, level does).
+- **Mechanism finding**: hypothesis (cooldown-specific ramp) FALSIFIED by arm_b NULL. Actual mechanism: constant β2=0.99 throughout training → longer second-moment EMA window → smoother per-coord adaptive LR → terminal global_grad_norm 6% lower (23,009 vs 24,500/24,555 for arm_a/b). The EMA window needs time to accumulate the long-horizon estimate; ramping β2 late (arm_b, β2 > 0.97 only reached at step ~2700) doesn't retroactively widen the history.
+- BASELINE.md updated: new baseline val/loss=3.26977, ffs=3075, W&B `0z3c44wp`, reproduce: all prior flags + `--aux_beta2_schedule constant --aux_beta2_start 0.99`.
+
+---
+
+## 2026-05-23 14:20 UTC — PR #886 CLOSED NEG (nezuko): H86 MuonH cooldown_frac WSD-style sweep — programme-level MuonH schedule-structure axis closure (shape × timing 2D)
+
+- Branch: `g1r3-nezuko/muonh-cooldown-frac-sweep`
+- Result table:
+
+| arm | cooldown_frac | val/loss | Δ vs CTRL | ffs | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | 1.0 (full cosine from step 100) | 3.27255 | — | 3125 | in-pop |
+| arm_b PRIMARY | 0.5 (WSD-50%) | 3.31385 | +0.04130 (~25σ) | -1 | NEG (never reached 3.28) |
+| arm_c | 0.3 (WSD-30%) | 3.35236 | +0.07981 (~50σ) | -1 | NEG, monotone |
+
+- Monotone NEG in frac — longer stable phase = more harm. Magnitude-axis ruled out.
+- Mechanism: divergence begins from step 500 (not a final-phase artifact). arm_a's progressive LR decay from step 100 drives it 0.131 ahead of arm_b/c by step 1500. The WSD "stable plateau first" paradigm fails for MuonH-SI at lr=0.018 — continuous progressive LR decay from warmup completion is required.
+- **Programme-level closure of MuonH schedule-structure 2D axis (shape × timing)**: H79 (shape at frac=1.0 NULL: all shapes within σ) + H86 (timing at cosine shape NEG monotone: earlier onset is better). Full cosine from step 100 is a sharp local minimum in this 2D space.
+- Pre-closed: OneCycle LR, super-convergence variants, triangular LR, SGDR warm restarts (all stable-plateau then sharp cooldown — same structural failure).
+- Excellent implementation: LR trajectory table cross-validated against W&B, per-arm smoke gates, bit-identical guard, monotonicity verified.
+
+---
+
 ## 2026-05-23 14:00 UTC — PR #912 ASSIGNED (fern): H93 PSGD-Kron Kronecker preconditioner replacing NS5 — fundamentally different inner-optimizer mechanism (second-order, non-polynomial)
 
 - Branch: `g1r3-fern/H93-psgd-kron-body`
