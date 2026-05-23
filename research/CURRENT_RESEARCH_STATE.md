@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 14:21 UTC
+- **Date:** 2026-05-23 14:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -43,6 +43,67 @@ NANOGPT_NS_STOCHASTIC_COOLDOWN=2   ← NEW: uniform NS ∈ {14,15,16,17,18} in c
 | #579 | Body-Muon attn=0.80× mlp=1.20× LR asymmetry | 3.27070 (3) | 3.27070 |
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | **#787** | **Stochastic NS cooldown spread=2** | **3.26944 (3)** | **3.26944** ← CURRENT |
+
+---
+
+## Cycle 131-132 snapshot (14:55 UTC)
+
+### Closures & assignments this cycle
+- **#883 fern CLOSED 14:46 UTC productive-NULL** — Goldilocks spread sweep on stochastic NS cooldown. Arm B (spread=1) Δ_vs_A=−0.00184 best; full bracket terminal A=3.26965, B=3.26781, C=3.26864, D=3.26958. Sharp peak at spread=1, monotone falloff on broad side (C→D), flat plateau on tight side (B≈merged spread=2). Goldilocks band [1,2] characterized. Student-recommended no paired-pod given OLD-stack chain + best-arm spread already adjacent to merged spread=2. Durable finding: stochastic NS cooldown Goldilocks band is [1,2] with both spreads producing sub-noise gains; spread=2 confirmed as merged default optimal corner.
+- **#919 fern ASSIGNED 14:46 UTC AdamW aux-group β₁ cooldown annealing (4-arm)** — fresh schedule axis. Linearly anneals β₁ from 0.95 base → {0.70 all, 0.50 all, 0.70 embed-only} during last 30% of training. Mechanism-distinct from closed #514 β₁ warmup (NEG, opposite-window) and #599 per-group fixed β₁ (NEG). Opposite-direction schedule axis. ETA ~7.2h chain.
+
+### #900 frieren — CATASTROPHIC NEG diagnosis 14:51 UTC, abort recommendation posted
+Arm A (`wr4gljm4`) terminal val=3.26811 drift PASS −0.00133. **Arm B `j141b0z2` TERMINAL val=3.41640 Δ_vs_A=+0.14829 — catastrophic NEG (~100× productive-NEG threshold)**. Trajectory descended steadily but never converged near 3.28 by step 3350. Pre-staged early-kill gate (val>3.30 at step 1675) fired retrospectively — student's `noise_scale_t > 0.0` guard bypassed the kill.
+
+Arm C `odlsljxy` (scope=all noise=0.005) launched 14:45 UTC step 275/3350 — already tracking Arm B trajectory at val=4.67 (matches B step 250 val=4.66). Will be catastrophic with body Muon noise added on top. Arm D (n=0.010, anneal=0.30) would be worse.
+
+**Mechanism reading**: anisotropic noise `noise_std ∝ sqrt(v_t/mean(v_t))` is **direction-inverted at this maturity** — high v_t coordinates (well-trained, common-token directions) get MORE noise than rare (small v_t) coordinates, inverting the intended Zipf-tail effect. Mechanism fundamentally direction-wrong, not tunable.
+
+**Action**: posted advisor abort recommendation 14:51 UTC. Awaiting student confirmation + terminal SENPAI-RESULT. PR converted to draft, label swapped review→wip (preflight ack: already in draft).
+
+**Save value**: aborting C+D saves ~3.4 GPU-hours.
+
+**Pre-staged outcome #4 fires**: anisotropic noise harmful at this baseline → close axis. Curvature-matched noise injection family CLOSED via #411 (isotropic null) + #900 (anisotropic NEG catastrophic).
+
+### #789 tanjiro v2 paired-pod 5/6 terminal (cubic NS @ FLOP-eq, post-#787 stack)
+
+| Pod | seed | A (quintic) | B (cubic) | Δ_within | direction |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 0 | 0 | 3.26929 | 3.26961 | +0.00032 | INcorrect (mild) |
+| 1 | 1 | 3.27016 | 3.26984 | −0.00032 | correct (mild) |
+| 2 | 2 | A live `m9u912jc` step 1 | not started | TBD | TBD |
+| mean(n=2) | — | 3.26973 | 3.26973 | **0.00000** | — |
+
+Partial means within-Δ exactly zero at noise floor. Pod 2 A launched 14:56 UTC, terminal ~16:44 UTC; Pod 2 B ~18:30 UTC. Final n=3 ETA ~18:30 UTC. **Pattern**: post-#787 stack absorbs cubic-NS mechanism gain. Original OLD-stack mean Δ_vs_A=−0.00056 retained even more weakly (~0% retention) under new stochastic NS noise.
+
+### Rebased chain progress (cycle 132)
+
+| PR | Student | Branch | Status |
+|:---:|:---:|---|---|
+| #847 | alphonse | rebased post-#787 | s1=3.26642 STRONG TERMINAL Δ_vs_new=−0.00302; s2 `1zjpifpb` step 1750/3350 (52%) val=3.47; s3 ETA ~17:30 UTC |
+| #845 | askeladd | rebased post-#787 | s1=3.26950 marginal +0.00006; s2 `z85uh78i` step 1950/3350 (58%) val=3.45; s3 ETA ~17:00 UTC |
+| #880 | thorfinn | rebased paired-pod n=3 | LAUNCHED 14:39 UTC. Pod 0 A `5y792dxt` step 500/3350 (15%). Full chain ETA ~01:30 UTC (next day) |
+| #874 | edward | (no rebase needed) | Arm D `t6kzt6lx` step 2525/3350 (75%) val=3.37 — ETA terminal ~15:25 UTC |
+
+**#847 alphonse n=3 merge math** (frozen vs 3.26944): s1=3.26642 STRONG → seeds 2+3 mean must ≤ 3.27095. Even worst-case (3.27094 each from OLD-stack baseline) → final mean=3.26943, just under threshold. **MERGE outcome substantially elevated.** Mechanism: weight-side init-anchor at λ=0.001 composes favorably with stochastic NS cooldown.
+
+**#845 askeladd n=3 merge math** (frozen vs 3.26944): s1=3.26950 above ceiling by +0.00006 → seeds 2+3 must average ≤ 3.26941 (tighter than original chain's 3.26920). **Gradient-side mechanism attenuates under new stack.** Two-mechanism cross-axis disambiguation: weight-side AUX composes (#847), gradient-side AUX attenuates (#845).
+
+### #825 nezuko Pod 2 progress
+- Pod 2 A (`gq3yhvvj`) finished 3.26910 (Δ vs baseline −0.00126, drift PASS)
+- Pod 2 B (`u8nbz3og`-ish) finished 3.27196 (Δ_vs_A=+0.00286 regression)
+- Pod 2 C (`x4oop63a`) finished 14:54 UTC val=3.27844 (Δ_vs_A=+0.00934 strong regression — matches Pod 1 C=3.27859, replicating)
+- Pod 2 D pending launch
+
+Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses across all 6 paired-pod measurements (2 pods × 3 arms B/C/D each). lm_head Cautious adds most damage (+0.009-0.010 across both Pod 1 C, Pod 2 C). Awaiting Pod 2 D for full chain terminal.
+
+### Other in-flight (no SENPAI-RESULT pending)
+- #880 thorfinn rebased paired-pod chain LIVE
+- #874 edward Arm D in cooldown (no rebase needed — chain on post-#787)
+- #919 fern β₁ cooldown anneal chain — student picking up assignment on next poll
+- #847 + #845 alphonse + askeladd rebased seeds 2/3
+
+### Zero idle students. Eight active WIP PRs (#847 #845 #880 #874 #825 #789 #900 #919).
 
 ---
 
