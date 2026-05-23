@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~09:25Z (poll #497) — **#872 CLOSED clean-NEG (orthogonal init harmful); #840 n=4 confirm in flight; askeladd reassigned**
+- **Last updated:** 2026-05-23 ~09:55Z (poll #498) — **#840 trial 1/4 ~45% (step 1453); 5 cells terminal across other PRs; #873 Cell B γ=0.10 sub-baseline at 3.2599 (n=1)**
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,19 +13,20 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #497)
+## Active WIP Portfolio (poll #498)
 
-7 PRs in flight (#872 closed clean-NEG); 6 near-terminal in next 30-90 min; #840 nezuko n=4 confirm is single-most-important experiment. askeladd to be reassigned this cycle (AGC-Muon).
+8 PRs in flight; #840 trial 1 in progress; 4 cells terminal since poll #496; **#873 Cell B sub-baseline at 3.2599 (second-strongest n=1 post-#699)**.
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | Cell A ctrl=3.26094 (−0.48σ_single), Cell B no-rescale=3.26187 (parity-miss). **Cell C with-rescale step 2733/3250 val=3.33369 (heading to ~3.27 NEG, as predicted by #844 rescale-destroys-spectral-budget mechanism).** |
-| **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | Cell A ctrl=3.26013 (sub-baseline), Cell B λ=1.0=3.26456 (harmful), Cell C λ=0.5=3.26147 (parity-miss). **Cell D λ=2.0 step 1507/3250 val=3.52604 (~46% done, expected NEG larger than B).** Cell E (α=0.99) gated. |
-| **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | Cell A=3.26226, Cell B β=0.99=3.26923 (clean-NEG). **Cell C β=0.97 step 3197/3250 val=3.26591 (terminal imminent, will land ~3.268-3.27 NEG).** |
-| **#850** | **edward** | Bias-Corrected Muon — Adam-style 1/(1-β^t) debiasing of Nesterov buffer before NS ortho | C1=3.26260, C2=3.26127, C3=3.26180, C4=3.26225 (all parity within ±0.0015). **C5 bc-beta090 step 2045/3250 val=3.43639 (~63% done).** BC mechanism is null inside SOAP+NS pipeline; all variants land at parity. |
-| **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **★ N=4 CONFIRM IN FLIGHT — trial 1/4 step 390/3250 val=3.91337 (~14 min in, ETA ~7h).** P1 5-cell terminal: A=3.26123, B=3.26029, C=3.28512, D=3.26358, **E (MLP-only)=3.25960 (−2.74σ_single — strongest signal in entire post-#699 programme; n=1 already below n=4 merge gate 3.259221 by Δ=−0.000379).** Decision tree: μ_n=4 ≤ 3.259221 → MERGE; ≤ 3.261221 but > gate → P3 stacked confirm or close with analysis; > 3.261221 → close clean-NEG. |
-| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | Cell A n=4 mean=3.261745 (parity); **Cell B MLP-only step 12816/13003 (trial 4, ~98% done).** Long-runner ~25h. |
-| **#873** | **alphonse** | MARS gradient variance reduction for Muon — g_vr = g + γ×(g − g_prev) | **Cell A ctrl=3.26072 (−0.85σ_single sub-baseline single-seed).** Cell B γ=0.10 step 2889/3250 val=3.29760 (~89% done, expected NEG). |
+| **#887** | **askeladd** | **★ NEW poll #497.** AGC-Muon — adaptive gradient clipping pre-NS (NFNet-style ‖g‖_F/‖W‖_F ≤ λ). Cell B (λ=0.01, MLP-only) PRIMARY per #840 pattern. | Cell A ctrl step 124 val=10.83 (early warmup, normal). 5-cell sweep starts. |
+| **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | Cell A=3.26094, Cell B no-rescale=3.26187, **Cell C with-rescale=3.26310 (NEG, +0.000879 vs baseline; confirms #844 rescale-breaks-NS-budget).** **Cell D mlp-only step 325 (early).** Pre-NS mask not winning at any setting. |
+| **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | Cell A=3.26013, Cell B λ=1.0=3.26456, Cell C λ=0.5=3.26147. **Cell D λ=2.0 step 2591/3250 val=3.3609 (~80% done, large NEG expected per dose-response).** Cell E gated. |
+| **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | Cell A=3.26226, Cell B β=0.99=3.26923, **Cell C β=0.97=3.26313 (NEG, +0.000913 vs baseline).** **Cell D β=0.95 step 796 (early).** SF mechanism harmful at multiple β. |
+| **#850** | **edward** | Bias-Corrected Muon — Adam-style 1/(1-β^t) debiasing of Nesterov buffer before NS ortho | C1=3.26260, C2=3.26127, C3=3.26180, C4=3.26225 (all parity ±0.0015). **C5 bc-beta090 step 3091/3250 val=3.2763 (~95% done, near terminal).** BC null on this stack. |
+| **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **★ N=4 CONFIRM trial 1/4 step 1453 (~45% through trial 1, ~5-6h to full terminal).** P1: A=3.26123, B=3.26029, C=3.28512, D=3.26358, **E (MLP-only)=3.25960 (−2.74σ_single, strongest n=1 in programme).** E already below n=4 merge gate (3.259221) by Δ=−0.000379. Decision tree: μ_n=4 ≤ 3.259221 → MERGE. |
+| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | Cell A n=4 mean=3.261745 (parity); **Cell B (sign mlp) n=4 TERMINAL — final-step val=3.2615; awaiting PR comment with full n=4 mean.** **Cell C (sign all) step 847 (early).** |
+| **#873** | **alphonse** | MARS gradient variance reduction for Muon — g_vr = g + γ×(g − g_prev) | **★ Cell A ctrl=3.26072, Cell B γ=0.10 TERMINAL at 3.2599 (−2.16σ_single vs baseline, second-strongest n=1 in programme).** Above n=4 gate by +0.000679 though — n=4 confirm uncertain. **Cell C γ=0.30 step 634 (early).** |
 
 ## Recent Closures
 
@@ -81,14 +82,16 @@
 - **Surprising α<1 signal:** #785 alphonse P1 found α=0.50 best at −2.43σ_single — musoft may over-initialize by ~2×. P2 n=4 in flight.
 - **Subsumption confirmed:** #706 nezuko P3 (μ=3.261093, parity) shows embed-init and musoft target same mechanism; axes exhaust each other.
 
-**Next direction priorities (poll #496 — #840 n=4 confirm trial 1/4 step 390):**
-1. **★ #840 nezuko Muon-AdEMAMix Cell E n=4 confirm is the SINGLE MOST IMPORTANT EXPERIMENT IN FLIGHT.** Cell E (MLP-only scope) at n=1 = 3.25960 — already below n=4 merge gate (3.259221) by Δ=−0.000379. If n=4 mean replicates, this is the first post-#699 mechanism merge in 35+ closed experiments. If it misses gate but stays sub-baseline, consider P3 (n=8) stacked confirm. Distinctive mechanism: dual slow/fast EMA on MLP-Muon ONLY (attn skipped due to SOAP precondition overlap). Currently trial 1/4 step 390 at ~14 min in; ETA ~7h for terminal.
-2. **#859 frieren GrokFast axis closing** — Cell A=3.26013 (sub-baseline ctrl), Cell B λ=1.0=3.26456 (harmful), Cell C λ=0.5=3.26147 (parity-miss). Cell D λ=2.0 step 1507/3250 mid-run (expected NEG by extrapolation of dose-response). Mechanism null on this stack.
-3. **#850 edward BC-Muon NULL on stack confirmed** — C1–C4 all parity within ±0.0015. C5 bc-beta090 step 2045/3250 final cell of sweep. BC pre-NS debiasing of Nesterov buffer is null inside SOAP+NS+Nesterov pipeline.
-4. **#867 thorfinn Pre-NS Cautious near-null** — Cell A=3.26094, Cell B no-rescale=3.26187 (parity-miss). Cell C with-rescale step 2733/3250 val=3.33 (terminal imminent, expected NEG per #844). Pre-NS mask not winning.
-5. **#855 tanjiro Schedule-Free clean-NEG** — Cell B sf_beta=0.99=3.26923 (+0.008 vs baseline). Cell C β=0.97 step 3197/3250 terminal imminent val=3.26591 (will land NEG).
-6. **#872 askeladd Orthogonal Init** — Cell A=3.26259 in-band; Cell B step 3224/3250 val=3.26957 terminal imminent (likely NEG).
-7. **#873 alphonse MARS** — Cell A ctrl=3.26072 (sub-baseline single-seed); Cell B γ=0.10 step 2889/3250 val=3.29760 (heading NEG).
+**Next direction priorities (poll #498):**
+1. **★ #840 nezuko Muon-AdEMAMix Cell E n=4 confirm — trial 1/4 ~45% done (step 1453/3250).** Cell E n=1=3.25960 below n=4 merge gate by Δ=−0.000379. ETA ~5-6h for full terminal. If μ_n=4 ≤ 3.259221 → first post-#699 mechanism merge in 35+ closed experiments.
+2. **★ #873 alphonse MARS Cell B γ=0.10 = 3.2599 sub-baseline (−2.16σ_single).** Second-strongest n=1 signal post-#699 — but n=1 above gate by +0.000679 so n=4 confirm uncertain. Cell C γ=0.30 in progress. If C also sub-baseline AND B replicates at n=4, this is a second mechanism candidate stackable with #840.
+3. **#867 thorfinn Pre-NS Cautious axis tightening** — Cells A/B/C terminal: 3.26094/3.26187/3.26310. Cell D mlp-only (per #840 pattern) in flight. If D also misses, pre-NS sign-mask axis closes.
+4. **#855 tanjiro SF-Muon Cell C β=0.97 NEG** — confirms SF mechanism harmful on this stack at multiple β values. Cell D β=0.95 in early run.
+5. **#859 frieren GrokFast Cell D λ=2.0** mid-run (step 2591 val=3.36), expected NEG larger than B per dose-response. Axis closing.
+6. **#850 edward BC-Muon C5 ~95% done** — full sweep BC=null on this stack confirmed.
+7. **#887 askeladd AGC-Muon Cell A ctrl step 124** — fresh assignment.
+
+**Strategic note:** Two mechanism candidates simultaneously sub-baseline at n=1 (#840 E, #873 B). #840 stronger (already below gate) and in n=4 confirm. #873 needs Cell C result + decision on n=4 confirm vs close.
 
 **Strategic position:** The Muon-AdEMAMix scope=mlp variant is the strongest candidate for the first compound improvement on top of #699 (musoft init). If it confirms at n=4, it opens an entirely new mechanism family ("auxiliary slow-EMA injection into specific Muon parameter groups"), orthogonal to all 14+ closed Muon mechanism axes.
 
