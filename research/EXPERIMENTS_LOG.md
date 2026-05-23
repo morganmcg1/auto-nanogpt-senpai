@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~18:30 UTC — PR #890: edward Per-column gradient normalization pre-NS — **CLOSED clean-WEAK-NEG**
+
+- **Branch:** `g1r5-edward/per-column-normalization-pre-ns`
+- **Student:** g1r5-edward
+- **Hypothesis:** NS-5 iterations converge better when the input matrix has homogeneous column norms. Normalize per-column norms of gradient before NS, absorb or propagate the normalization after NS.
+
+| Cell | Mode | Scope | val_loss | Δ vs baseline | ffs | W&B |
+|:---:|:---:|:---:|---:|---:|---:|-----|
+| A | none | ctrl | 3.26121 | −0.00001 (~0σ) | 3025 | szr18bn2 |
+| **B** | **col_absorbed** | **MLP** | **3.26125** | **+0.00003 (+0.05σ)** | **3025** | **5app6ugt** |
+| C | col_propagated | MLP | 3.36595 | +0.10473 (+176σ) | −1 | i086zkyz |
+| D | all_col_absorbed | all body | **3.26050** | **−0.00072 (−1.21σ)** | **3025** | **z96y1801** |
+| E | row_absorbed | MLP | 3.26257 | +0.00135 (+2.28σ) | 3050 | ttoma149 |
+
+**Key diagnostic:** Standalone test confirmed NS orthogonality error 0.43→0.06 on heterogeneous synthetic gradients — the mechanism works mathematically. Yet zero val/loss benefit. Real MLP gradients are well-conditioned enough that ns_iter=6 is already accurate; improving polar-factor quality past this threshold is invisible to terminal loss.
+
+**Cell C catastrophic (+176σ):** col_propagated re-introduces per-column adaptive LR on the NS output — incompatible with Muon's LR/WD tuning, as expected from the Adam-vs-Muon axis history.
+
+**Cell D −1.21σ at n=1:** Follows the same precedent class as #887 (−0.86σ), #873 (−1.38σ), #840 (−2.74σ at n=1). All misses n=4 gate. Projected n=4 statsig=0.00144 << gate 0.004.
+
+**Mechanism conclusion:** "Pre-NS input conditioning" axis is now closed — NS at iter=6 is robust to typical MLP gradient column-norm heterogeneity. Improving polar-factor quality doesn't translate to loss benefit.
+
+**Decision: close clean-WEAK-NEG.** Reassigning edward → #941 Cooldown SWA / weight EMA.
+
+---
+
 ## 2026-05-23 ~17:45 UTC — PR #887: askeladd AGC-Muon adaptive gradient clipping pre-NS — **CLOSED clean-WEAK-NEG**
 
 - **Branch:** `g1r5-askeladd/agc-muon`
