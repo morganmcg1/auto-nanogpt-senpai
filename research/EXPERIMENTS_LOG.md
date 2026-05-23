@@ -1,5 +1,47 @@
 # SENPAI Research Results
 
+## 2026-05-23 21:55 UTC — PR #937 CLOSED: SOAP literal Adam@R_neg for lm_head — Arm A NULL (sr=-1, val 3.486), 93rd axis, 18th aux Adam-family closure (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/soap-lm-head`
+- Hypothesis: SOAP one-sided preconditioner for lm_head — postmultiply AdamW update by `R_neg = R_cov^(−1/4)` where `R_cov` = `g.T @ g` EMA. Tests whether cross-vocab-dim gradient covariance structure can improve lm_head convergence.
+
+| Arm | W&B | sr | val/loss_ema | val/loss_live | precond_norm_ratio | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #864 | `j8nsn77s`/`08ursg5n` | 2925 | 3.266826 | — | n/a | — |
+| A (`gudcg46p`, precond_freq=5) | `gudcg46p` | **−1** (never hit 3.28) | **3.486250** | 3.485687 | **0.01367** (~73× damped) | NULL |
+| B (precond_freq=10) | — | killed | — | — | — | killed per advisor (deterministic NULL) |
+
+### Verdict: NULL — 93rd axis closed, 18th aux Adam-family closure.
+
+### Mechanism finding — Scale mismatch confirmed in production
+
+The literal `delta = adamw_delta @ R_neg` construction has units of `R_neg ~ grad^(−1/2)`:
+- R_cov has units of `grad²`; `R_neg = R_cov^(−1/4)` has units of `grad^(−1/2)`
+- Postmultiplying AdamW's already-magnitude-normalized update by `R_neg` **decouples the effective lm_head LR** from its tuned value
+- Final `soap/precond_update_norm_ratio = 0.01367` → SOAP step was **73× smaller** than AdamW step at every step
+- `soap/R_cov_max_eig = 3.42e9`, `R_cov_condition_num = 3.3M`, `R_neg_trace = 12.76` → catastrophic scale mismatch
+- lm_head effectively learned at ~1/73 of tuned LR → val/loss never converged below 3.28 (sr = −1)
+
+Student caught this mechanism at step ~705 (22% of training) via `precond_update_norm_ratio = 0.016–0.034`. Arm B chain killed at 21:01 UTC based on advisor decision that `precond_freq` is orthogonal to the failure mode (R_neg eigenvalues are set by R_cov spectral scale, not by how often R_cov is recomputed).
+
+### Mid-flight diagnostic (student)
+
+Student posted the full mechanism analysis at 18:43 UTC (step 705, 22% through), correctly predicting both arms would NULL via scale mismatch and proposing the norm-preserving variant as the clean follow-up. The `precond_update_norm_ratio` telemetry was the key diagnostic. Arm B kill saved 3.6h GPU time.
+
+### What this NULL closes vs leaves open
+
+**Closes:** Literal scale-coupled `update @ R_neg` SOAP formulation. Adam-family cross-dim preconditioner with R_cov natural units does not help on aux Adam parameters.
+
+**Leaves open:** Direction-only norm-preserving SOAP (assigned to tanjiro as PR #953). Tests whether lm_head's gradient cross-dim correlation has signal when scale is not modified. Both R_cov^(-1/4) and R_cov^(-1/2) variants tested.
+
+### Aux Adam-family closure status (18 total)
+
+NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814), AdEMAMix (#585 + #846), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545 + #875), Lion (#604), Cautious-AdamW (#853), Adan (#854), Adam-mini (#863), aux parameter EMA (#899), **SOAP literal @ R_neg (#937 — this PR)**.
+
+Only #913 (aux base-LR retune, frieren) remains active as the 19th potential closure. Also norm-preserving SOAP variant (#953 tanjiro) is the direction-only follow-up.
+
+---
+
 ## 2026-05-23 18:35 UTC — PR #899 CLOSED: Aux Polyak EMA (lm_head only vs embed only) — both arms NULL, 92nd axis, 17th aux Adam-family closure (g1r1-fern)
 
 - Branch: `g1r1-fern/aux-polyak-ema`
