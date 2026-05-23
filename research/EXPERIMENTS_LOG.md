@@ -6413,3 +6413,22 @@ Kill gates: all passed cleanly (Arm B: step1000 val=3.65 vs gate 3.66 — health
 
 **Closure outcome**: 67th refuted floor axis. Floor cluster landings #35 (Arm A) and #38 (Arm B). RoPE base frequency confirmed locally optimal at 1024 for 1024-token FineWeb next-token prediction. Reassign alphonse → PR #946 ROPE_FRACTION (student's own suggestion #2: half-truncate fraction, currently 50% of channel pairs rotate — 0.25 vs 1.0 sweep, first structural RoPE axis in 230+ PRs).
 
+
+## 2026-05-23 20:05 UTC — PR #928: CONTRA_POWER_ITER — spectral-norm power-iter count sweep CLOSED (68th refuted axis)
+
+- `g1r2-frieren/contra-power-iter`
+- Hypothesis: power-iteration count for σ₁ estimate in `scale_to_unit_operator_norm` (default 5). Arm A=3 (looser σ₁, hypothesized implicit regularization via subtrahend variance), Arm B=8 (tighter σ₁, hypothesized sharper contra correction).
+- W&B runs: `exhdyma0` (Arm A=3), `foidr4qa` (Arm B=8). Disabled-check `huiaj96u` PASS (val@200=4.0795).
+
+| Arm | contra_power_iter | val/loss @3175 | ffs | Δval vs baseline | Δffs vs baseline | Hold gate |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline | 5 | 3.26776 (n=2) | 3000 | — | — | — |
+| Arm A | 3 | **3.27044** | 3025 | +0.00268 | +25 | FAIL by 0.00044 val + 25 ffs |
+| Arm B | 8 | **3.27100** | 3025 | +0.00324 | +25 | FAIL by 0.00100 val + 25 ffs |
+
+Kill-gate ladder: both arms razor-edge at step 1000 (+0.00038 Arm B, +0.00291 Arm A) and step 2000 (-0.00062 Arm B, +0.00032 Arm A), all gates PASS with advisor blessing on step 1000.
+
+**Results commentary**: Power-iteration count is in the "no signal at floor" bucket. Spread across A=3 / default=5 / B=8 is 0.00056 nats at terminal — within n=1 noise (~0.003 nats typical). The "5 steps underestimates σ₁ on wide 768×3072 / 50304×768 matrices" hypothesis is not supported in either direction — at this regime the contra correction's sensitivity to σ₁ precision is below what sub-percent magnitude shifts can move. Floor cluster #39 (Arm A) + #40 (Arm B).
+
+**Closure outcome**: 68th refuted axis (alphonse #930 was 67th). Confirms the broader pattern that precision/magnitude knobs on the contra path don't crack the floor. Student's own follow-up #3 ("test the *trigger* for contra correction — magnitude-modulated triggers rather than precision tweaks") directly motivates the next assignment: **PR #947 CONTRA_MUON_SCHEDULE** (temporal ramp on contra strength during cooldown), exploiting the #729 empirical finding that contra helps early-phase noise but hurts late-cooldown convergence. First temporal CONTRA axis in 232+ PRs.
+

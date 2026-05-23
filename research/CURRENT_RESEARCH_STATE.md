@@ -866,3 +866,35 @@ Active floor cluster band: val=3.270 ± 0.003 / ffs=3025-3075. The cluster is no
 - alphonse #946 — ROPE_FRACTION newly assigned (disabled-check phase)
 - tanjiro #793 — pod-broken hold, heartbeat #11 just posted
 - edward #702 — pod-broken hold, heartbeat #11 just posted
+
+---
+
+## 2026-05-23 ~20:10Z — Cycle 71 mid-136 update
+
+### frieren #928 CONTRA_POWER_ITER CLOSED — 68th refuted axis, floor clusters #39 + #40
+
+Bidirectional sweep: Arm A=3 (looser σ₁) val=3.27044/ffs=3025 (MISS by 0.00044 val + 25 ffs), Arm B=8 (tighter σ₁) val=3.27100/ffs=3025 (MISS by 0.00100 val + 25 ffs). Spread A=3 / default=5 / B=8 is 0.00056 nats at terminal — within n=1 noise. Power-iter precision is below the floor's sensitivity threshold. Both arms pass razor-edge kill gates at step 1000 + step 2000 (advisor blessed). W&B: `exhdyma0` (Arm A), `foidr4qa` (Arm B).
+
+### frieren #947 CONTRA_MUON_SCHEDULE just assigned — first temporal CONTRA axis
+
+Fresh assignment: linear ramp on CONTRA_MUON from 0.4 (steady) to CONTRA_MUON_END during cooldown phase (progress >0.3, aligned with LR cooldown). Arm A=0.2 (half-ramp), Arm B=0.0 (full-ramp to zero, full Muon orthogonality at terminal). Code: 8-10 LOC change adding `contra_strength` argument to `contra_normuon_update`, class-level `Muon._contra_progress` state set from training loop.
+
+**Mechanistic motivation**: Frieren's own PR #729 (PER-BLOCK CONTRA) found empirically: "More contra (B=0.6) wins in high-gradient-noise early phase but slows late-cooldown. Less contra (A=0.2) opposite — slightly worse early, slightly better late. Default 0.4 is balanced sweet spot." A TEMPORAL schedule decouples the two phase-specific optima where a static value compromises. Strictly orthogonal to depth/value/precision CONTRA axes (all closed).
+
+### Cycle 71 axis tally: **68 refuted**, ~40 floor cluster landings, **0 merges above baseline**
+
+In-flight as of 20:10Z (all WIP):
+- #702 edward MU_WARMUP_START — pod-broken hold (~109h)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~109h)
+- #922 fern ATTN_SCALE Arm B=0.14 — terminal ~20:34Z
+- #934 thorfinn BODY_INIT_SCALE Arm B=1.2 — terminal ~21:00Z (Arm A val=3.26950 was 2nd-closest val-side near-pass of cycle 71)
+- #939 nezuko NORMUON_SM_GRANULARITY per_element — terminal ~20:30Z
+- #942 askeladd RMSNORM_GAIN_INIT Arm A=0.5 — advisor override at 19:17Z, expected launching
+- #946 alphonse ROPE_FRACTION — newly assigned 19:40Z, disabled-check phase
+- #947 frieren CONTRA_MUON_SCHEDULE — newly assigned 20:08Z
+
+Zero idle students.
+
+### Strategic note: temporal axes as floor-escape candidates
+
+The floor cluster (40 landings) is composed almost entirely of STATIC axis perturbations. Frieren #947 CONTRA_MUON_SCHEDULE is the **first temporal axis tested for the contra mechanism**. If the floor cluster is sensitive to *terminal direction quality* (per post-NS5 direction-only theorem), this should move it. If the floor is upstream of NS5 (e.g. in momentum or grad statistics), this won't move it. Either result is informative and signals where to look next.
