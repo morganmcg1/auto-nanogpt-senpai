@@ -826,3 +826,43 @@ The smoothed-val-loss-vs-raw-baseline confusion is a recurring trap whenever a r
 - alphonse #877 Arm B (NS5_ITERS=16): `fai35had` step 125 val=4.42 (early warmup, healthy)
 - nezuko #878 Arm A (β1=0.75): `6emmoksf` step 1250 val=3.598 (healthy mid-training)
 - Pod-broken: tanjiro #793, edward #702 (infra issue #768 unresolved, ~15h idle)
+
+---
+
+## 2026-05-23 ~19:50Z — Cycle 71 mid-135 update
+
+### alphonse #930 ROPE_BASE CLOSED — 67th refuted axis, floor clusters #35 + #38
+
+Bidirectional 2× sweep: Arm A=512 val=3.27036/ffs=3025 (floor cluster #35, MISS hold gate by 0.00036/25), Arm B=2048 val=3.27070/ffs=3025 (floor cluster #38, MISS by 0.00070/25). Near-symmetric degradation from both arms confirms default ROPE_BASE=1024 is in a Goldilocks valley. W&B: `s26xch9h` (Arm A), `tpz5kcat` (Arm B). Sibling axis ROPE_FRACTION assigned immediately.
+
+### alphonse #946 ROPE_FRACTION just assigned
+
+Fresh assignment: half-truncate fraction sweep — Arm A=0.25 (16 of 64 channel pairs rotate, less rotation), Arm B=1.0 (64 of 64 pairs rotate, full RoPE, standard design). Default 0.5 = 32 rotating pairs. First RoPE structural axis in 230+ PRs (ROPE_BASE tested as scalar; truncation fraction not previously touched). Code patch: env-gate n_rot calculation in Rotary.__init__(). 5-line change. Alphonse has full ROPE context from #930. Student's own suggestion #2 from that PR.
+
+### Heartbeats #11 posted — tanjiro #793 + edward #702 (pod-broken ~108h+)
+
+Both pods still broken (torch corrupt since 2026-05-21 11:49Z, ~109h at this point). Infrastructure issue #768 unresolved. Cumulative GPU-hours lost: ~220+ total. Hold pattern continues.
+
+### In-flight terminals (expected 20:00-21:15Z window)
+
+| PR | Student | Axis | Arm | ETA | Status |
+|---|---|---|---|---|---|
+| #928 | frieren | CONTRA_POWER_ITER | B=8 (default 5) | ~20:10Z | step ~2750 at 19:36Z, kill gates all PASS incl razor-edge @step1000 |
+| #922 | fern | ATTN_SCALE | B=0.14 (softer) | ~20:34Z | launched 18:34Z |
+| #939 | nezuko | NORMUON_SM_GRANULARITY | per_element | ~20:30Z | in-flight, expected floor cluster |
+| #934 | thorfinn | BODY_INIT_SCALE | B=1.2 (larger) | ~21:00Z | should have launched ~19:20Z post advisor directive |
+| #942 | askeladd | RMSNORM_GAIN_INIT | A=0.5 (smaller) | ~21:00Z | advisor override at 19:17Z, expected launch after override |
+
+### Cycle 71 axis tally: **67 refuted**, ~38 floor cluster landings, **0 merges above baseline**
+
+Active floor cluster band: val=3.270 ± 0.003 / ffs=3025-3075. The cluster is now 38 confirmed landings from many distinct mechanism families — preconditioner geometry, schedule shape, init, positional encoding. Floor appears structurally quantization-locked at ffs=3025 (eval cadence quantization prevents sub-3025 ffs). The only known path through the floor is a combination change: thorfinn #934 BODY_INIT_SCALE Arm A=0.8 val=3.26950 is the closest n=1 val-side landing yet (2nd-closest PASS, 0.00050 above baseline) — Arm B=1.2 is the most important in-flight arm this window.
+
+### Active assignments status (8 students)
+- frieren #928 — CONTRA_POWER_ITER Arm B=8 in-flight (terminal ~20:10Z)
+- fern #922 — ATTN_SCALE Arm B=0.14 in-flight (terminal ~20:34Z)
+- nezuko #939 — NORMUON_SM_GRANULARITY per_element in-flight (terminal ~20:30Z)
+- thorfinn #934 — BODY_INIT_SCALE Arm B=1.2 should be in-flight (terminal ~21:00Z)
+- askeladd #942 — RMSNORM_GAIN_INIT Arm A=0.5 launching (advisor override 19:17Z)
+- alphonse #946 — ROPE_FRACTION newly assigned (disabled-check phase)
+- tanjiro #793 — pod-broken hold, heartbeat #11 just posted
+- edward #702 — pod-broken hold, heartbeat #11 just posted

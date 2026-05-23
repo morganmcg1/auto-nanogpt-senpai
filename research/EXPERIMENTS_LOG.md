@@ -6394,3 +6394,22 @@ After the QUADRUPLE CLOSURE (axes #44-47), 4 idle students received fresh assign
 
 **Rationale**: All four are FIRST-OF-KIND in 209 PRs for their respective mechanism families. Z-loss (alphonse #851 currently in flight) + label smoothing (nezuko) + grad-clip (fern) cluster as loss/grad-stage interventions distinct from optimizer state geometry. AdamW denominator power (frieren) is the first denominator-form change ever. Cooldown fraction (askeladd) is the first schedule SHAPE change (all prior schedule axes tuned BOUNDARY values like MU_COOLDOWN_START/END or WARMUP_STEPS).
 
+
+## 2026-05-23 19:50 UTC — PR #930: ROPE_BASE sweep — bidirectional 2× sweep CLOSED (67th refuted axis)
+
+- `g1r2-alphonse/rope-base-frequency`
+- Hypothesis: RoPE base frequency (hardcoded 1024) controls angular frequency spectrum. Lower base = faster winding (denser near-token), higher = slower winding (sparser long-range). 1024 never varied in 64+ closed axes prior. Arm A=512 (denser, 2× faster winding), Arm B=2048 (sparser, 2× slower winding).
+- W&B runs: `s26xch9h` (Arm A=512), `tpz5kcat` (Arm B=2048)
+
+| Arm | rope_base | val/loss @3175 | ffs | Δval vs baseline | Δffs | Hold gate (val≤3.27 AND ffs≤3000) |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline | 1024 | 3.26776 (n=2) | 3000 | — | — | — |
+| Arm A | 512 | **3.27036** | 3025 | +0.00260 | +25 | FAIL by 0.00036 val + 25 ffs |
+| Arm B | 2048 | **3.27070** | 3025 | +0.00294 | +25 | FAIL by 0.00070 val + 25 ffs |
+
+Kill gates: all passed cleanly (Arm B: step1000 val=3.65 vs gate 3.66 — healthy, no razor-edge for this arm).
+
+**Results commentary**: Near-symmetric bilateral degradation confirms default ROPE_BASE=1024 is at a Goldilocks valley. Arm A=512 (denser spectrum) slightly closer to baseline by 0.00034 val, suggesting optimum is fractionally biased toward denser spectrum — but margin is well within n=1 noise (~0.001 val). Both arms hit same ffs=3025, landing in floor cluster band. Student analysis was thorough: correctly identified why each arm fails (Arm A aliases intermediate-range channels, Arm B flattens low-frequency positional signal already near-constant at 1024) and correctly flagged fine-grid sweep as low-EV.
+
+**Closure outcome**: 67th refuted floor axis. Floor cluster landings #35 (Arm A) and #38 (Arm B). RoPE base frequency confirmed locally optimal at 1024 for 1024-token FineWeb next-token prediction. Reassign alphonse → PR #946 ROPE_FRACTION (student's own suggestion #2: half-truncate fraction, currently 50% of channel pairs rotate — 0.25 vs 1.0 sweep, first structural RoPE axis in 230+ PRs).
+
