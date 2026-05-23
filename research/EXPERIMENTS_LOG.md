@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 16:58 UTC — PR #909: WD_AUX cooldown ramp (CLOSED, 64th refuted axis)
+
+- Branch: `g1r2-thorfinn/wd-aux-cooldown-ramp` (student g1r2-thorfinn)
+- Hypothesis: Bidirectional test of WD_AUX temporal schedule during cooldown phase. Arm A=UP (Loshchilov "compensate" — ramp 0.001→0.003 to maintain invariant effective WD), Arm B=DOWN (SWA "preserve" — ramp 0.001→0.0 to reduce regularization near convergence).
+- Results:
+
+| Arm | WD schedule | W&B run | val/loss | ffs | reached | Hold gate (val≤3.27) | Floor cluster |
+|---|---|---|---:|---:|---:|---|---|
+| A (UP) | 0.001→0.003 cooldown | `2029bf0g` | 3.27361 | 3050 | 1 | FAIL +0.00361 | #27 (prior) |
+| B (DOWN) | 0.001→0.0 cooldown | `y2fz2p8y` | **3.27214** | 3050 | 1 | FAIL +0.00214 | **#32 (new)** |
+| Baseline (n=2 mean) | 0.001 constant | — | 3.26776 | 3000 | 1 | PASS | — |
+
+- val_mean = 3.27288, ffs_mean = 3050. Merge bar FAIL by val +0.00512, ffs +50.
+- Per-step kill-gate waypoints: step 500 both ~3.80 (pass), step 1000 both 3.66 marginal (advisor confirmed continue), step 2000 Arm B passes / Arm A 0.001 over, step 3000 Arm B 3.28350 / Arm A 3.28499, step 3175 both 3.27 with Δ=0.00147.
+- **Conclusion**: WD_AUX temporal schedule axis is CLOSED bidirectionally. Compensate (UP) and preserve (DOWN) both miss baseline and hold gate; constant WD_AUX=0.001 is Goldilocks. Arm B (DOWN/preserve) is consistently 0.0015 better than Arm A (UP/compensate) across the cooldown tail but neither breaks the floor.
+- Floor cluster landings: thorfinn Arm A = #27 (mid-125), thorfinn Arm B = #32 (this closure).
+- 64th refuted axis. Bracket-best run: `y2fz2p8y` Arm B DOWN.
+
 ## 2026-05-23 02:45 UTC — Cycle 71 mid-107: DIAGNOSTIC RETRACTION — quadruple no-impl claim was WRONG for 3 of 4
 
 **Retraction**: my 02:00 UTC mid-106 finding that "4 of 5 fresh students ran baseline noise" was based on remote-branch HEAD greps that missed un-pushed local code. **Re-verification via W&B SUMMARY keys (per-step telemetry) + CONFIG keys**:
