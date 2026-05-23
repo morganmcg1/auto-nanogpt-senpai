@@ -1,3 +1,48 @@
+## 2026-05-23 09:55 UTC — PR #895 ASSIGNED (alphonse): H90 NSCubic orthogonalization (degree-3, 1.5σ−0.5σ³) — lower-degree end of degree sweep
+
+- Branch: `g1r3-alphonse/ns-cubic-orthogonalization`
+- Hypothesis: Replace Muon NS5 quintic (degree 5, coefs (2, -1.5, 0.5)) with canonical cubic polar iteration (degree 3, coefs (1.5, -0.5)). Polynomial p(σ) = 1.5σ - 0.5σ³ with p(1)=1, p'(1)=0. **One matmul per iter vs two for quintic — 50% FLOPs per iter.**
+- Team-level degree sweep:
+  - alphonse H90: degree **3** (cubic, this PR)
+  - baseline: degree 5 default (Muon NS5)
+  - askeladd H88 (in flight): degree 5 with Polar Express Chebyshev coefs
+  - fern H84 (in flight): degree **7** (septic perturbative)
+- Convergence math: at σ_min ~0.001 input, cubic at k=12 reaches σ_min ≈ 0.5-0.7 (UNDER-orthogonalized); cubic at k=30 reaches σ_min ≈ 0.95-1.0 (matched fidelity to NS5 k=12).
+- Implementation: ~10 LoC. Add `--ns_degree {3,5}` and `--ns_iters` CLI flags. Refactor `zeropower_via_newtonschulz5` → generic with degree branch.
+- Arms (n=1, 3325 steps):
+  - arm_a CTRL `--ns_degree 5 --ns_iters 12` (bit-identical baseline)
+  - arm_b PRIMARY `--ns_degree 3 --ns_iters 12` (UNDER-orthogonalized cubic, 50% FLOPs)
+  - arm_c ISO-FIDELITY `--ns_degree 3 --ns_iters 30` (matched fidelity, 125% FLOPs)
+- Smoke prereq: SVD of arm_a output → sv_min ≈ 1.0; arm_b → sv_min in [0.4, 0.85] (expected under-orth); arm_c → sv_min ≈ 0.95-1.0 (matched fidelity). STOP if arm_b sv_min > 0.99 (cubic somehow fully orthogonalizes at k=12 — invalidates premise).
+- Decision: WIN<3.27039; NULL ±0.0008; arm_c NULL + arm_b NEG → "degree fungible with iterations at iso-fidelity"; BOTH NEG → "quintic is necessary"; arm_b WIN → "over-orthogonalization at (2,-1.5,0.5) was suppressing useful signal" (surprising). W&B group `H90_ns_degree_sweep`.
+- Plateau-protocol context: 9th NEG/NULL closure (after H82). Bold swing — substantial fidelity step backward at k=12, then iso-fidelity test at k=30.
+
+---
+
+## 2026-05-23 09:50 UTC — PR #870 CLOSED NEG (alphonse): H82 Gradient Centralization — joint H76+H82 input-gradient-modification programme-level closure
+
+- Branch: `g1r3-alphonse/gradient-centralization-body`
+- Hypothesis: Rank-1 mean removal (Gradient Centralization, Yong et al. 2020) applied to (arm_b) aux gradients only or (arm_c) aux+body gradients pre-NS5. Mechanism-distinct from H76 NEG (noise injection) which tested stochastic perturbation axis.
+- Result table:
+
+| arm | config | wandb run id | val/loss | ffs | Δ vs CTRL | NEG-σ |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | GC off | `6pmvrerw` | 3.27222 | 3125 | — | — |
+| arm_b PRIMARY | GC aux | `5g7iy2ay` | 3.27411 | 3150 | +0.00189 | ~2.4σ |
+| arm_c COMBINED | GC all | `6t6oehx4` | 3.27415 | 3150 | +0.00193 | ~2.4σ |
+
+- arm_b ≈ arm_c equality (Δ_c−Δ_b = +0.00004, sub-σ): Story B saturation confirmed.
+- Telemetry verification: arm_b removed 12-23% of aux gradient norm as rank-1 mean (post_norm_ratio 0.79-0.88). arm_c removed 10-15% of body gradient norm pre-NS5 (post_norm_ratio 0.85-0.90). GC mechanically engaged at substantial magnitude — implementation verified, result is the mechanism finding.
+- **Programme-level joint H76 + H82 closure**: the optimizer stack rejects BOTH stochastic gradient perturbations (H76) AND deterministic rank-1 projection (H82) by roughly equal magnitude ~2σ. The five-mechanism absorption story (NS5 + MuonH-SI + AdamW v_t + MuLoCo Nesterov + AGC) leaves anti-headroom for ANY input-gradient modification.
+- Pre-closed by this joint result:
+  1. PCGrad / gradient surgery (projection-axis)
+  2. DropGrad (random gradient component masking, projection-axis)
+  3. Gradient-noise-scale-driven LR adjustment (noise-axis, already pre-closed by H76)
+  4. Other input-gradient regularizers (gradient temperature scaling, gradient norm conditioning beyond AGC)
+- Plateau context: 9th consecutive NEG/NULL closure. Reassigned alphonse to H90 NSCubic (orthogonalization-degree sweep — completes degree 3/5/5+coefs/7 team-wide coverage).
+
+---
+
 ## 2026-05-23 09:35 UTC — PR #891 ASSIGNED (thorfinn): H89 ADOPT optimizer on aux (Taniguchi 2024) — fresh optimizer family vs AdamW
 
 - Branch: `g1r3-thorfinn/adopt-optimizer-aux`
