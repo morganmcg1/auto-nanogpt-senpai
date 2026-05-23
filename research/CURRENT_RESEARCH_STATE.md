@@ -375,3 +375,33 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 - **Nezuko #586 Adan CLOSED 17:35 UTC**: both arms killed step-500 gate; stable +0.12 val gap (parallel curves, no warmup convergence); diff_contribution telemetry shows v_hat blend direction is NOT the bottleneck — cost is the corrected n_t denominator (variance ~0.85× larger than AdamW's g_t² at our gradient scale). Joins MARS as 2nd "corrected gradient" optimizer failure in 2h. Nezuko → #602 lm_head non-zero init sweep.
 - **#602 nezuko lm_head init design**: env-var-gated. Default LM_HEAD_INIT_STD=0 preserves current zero-init. Two arms test the dual of askeladd's input-embed magnitude finding — does output-projection magnitude matter? Arms: std=0.02 (GPT-2 standard), std=0.1 (matching askeladd's winning embed magnitude). The OTHER zero-inited projections (`blocks.X.attn.proj`, `blocks.X.mlp.proj`) stay zero-inited — they need it for residual identity init. Only lm_head (`name == "proj.weight"` exact match) is modified.
 - **Alphonse #587 β1-ramp cooldown window**: student correctly interpreted `cooldown_frac=0.7` as last 70% of training (steps 952→3175), not last 30%. Endorsed; first Arm A attempt crashed at step 725 (environmental, not divergence), retry running.
+
+---
+
+## 2026-05-23 ~07:00Z — Cycle 71 mid-110 update
+
+### Closures this cycle
+- **#861 askeladd COOLDOWN_FRAC closed** — 50th refuted axis. Bidirectional: Arm A=0.5 val=3.2760/ffs=3125; Arm B=0.85 val=3.2748/ffs=3075. Default 0.7 confirmed LOCAL OPTIMUM (2nd schedule-shape axis closed after MU_COOLDOWN_START/END). Linear cooldown fraction fully exhausted on cycle 71 stack.
+
+### Frieren #857 ADAMW_DENOM_POWER update
+- Arm B=0.375 TERMINAL (wyuosjeb): val=3.2708/ffs=3025 — **15th floor cluster landing**. Val-side passes n=1 hold gate (3.2708 ≤ 3.27) but ffs-side misses (3025 > 3000). Arm A=0.25 had soft-miss val=3.2929/ffs=-1.
+- Frieren auto-launched n=2 run `8mgc3fec` (same B=0.375 config, step 1 at query time). Authorized — letting it complete. Monotone improvement direction: 0.25→0.375 better, suggesting optimum approaching 0.5 default. n=2 mean will determine merge/close decision.
+
+### Fern #876 MU stable-phase sweep: implementation correction
+- Student correctly identified pre-launch: MU_START/MU_END env vars silently ignored when MU_COOLDOWN_ENABLED=True. PR instructions would have produced baseline-identical runs.
+- Resolution: **Option 1 authorized** — sweep MU_COOLDOWN_START directly. Arm A: MU_COOLDOWN_START=0.90 MU_COOLDOWN_END=0.90. Arm B: MU_COOLDOWN_START=0.97 MU_COOLDOWN_END=0.90. No code change. Student rebuilding runs.
+
+### New assignments
+- **askeladd #882**: MU_WARMUP_STEPS bidirectional bracket — Arm A=100 (faster ramp) vs Arm B=400 (slower ramp) vs default 200. Env-gated, no code change. Tests whether the mandatory stack value 200 is at optimum on cycle 71 stack.
+
+### Active runs at query time (~07:00Z 2026-05-23)
+| Student | run_id | hypothesis | step | val | status |
+|---------|--------|-----------|------|-----|--------|
+| frieren | 8mgc3fec | adamw-denom-power B=0.375 n=2 | 1 | — | running |
+| alphonse | c1kv9ks0 | ns5-iters A=12 | 450 | 3.884 | running (approaching kill gate step 500>3.81) |
+| thorfinn | l1x2352e | combined-soap-freq A=20 | 150 | 4.430 | running (early) |
+| nezuko | spplv637 | adamw-beta1 disabled-check | 200 | 4.085 | DONE (passing) |
+
+### Pod-broken (still unresolved)
+- tanjiro (DEPTH_DEP_MUON_LR #793) — heartbeat #5 posted 07:00Z. ~13h GPU idle. Infra issue #768 unresolved.
+- edward (MU_WARMUP_START #702) — heartbeat #5 posted 07:00Z. ~13h GPU idle.
