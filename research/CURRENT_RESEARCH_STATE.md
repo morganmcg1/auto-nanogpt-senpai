@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~12:45Z (poll #520) — **#890 cell B (col-absorbed MLP PRIMARY) terminal at 3.2613 — PARITY with ctrl A=3.2612 (Δ=+0.0001, below σ_single).** Per-col-norm primary hypothesis fails. Cell C col-propagated launched. #873 cell B γ=0.10=3.2599 still the strongest n=1 signal post-#699, cell E (mlp-only γ=0.30) at ~63%. #840 n=4 trial 3 at ~70% (n=2 mean 3.261158 — full n=4 unlikely to clear gate). #907 tanjiro momentum reset — not yet launched.
+- **Last updated:** 2026-05-23 ~14:05Z (poll #526) — **#873 alphonse MARS CLOSED clean-WEAK-NEG.** Full sweep done: cell B γ=0.10=3.25990 (Δ_vs_ctrl=−1.38σ_single, too weak to justify n=4 confirm given #840 precedent). Pre-NS gradient-transformation axis appears saturated (sign-Muon #823, AdEMAMix #840, MARS #873, per-col-norm #890, AGC #887 all yielding null/weak signals). alphonse IDLE; researcher-agent generating fresh ideas in background. #823 fern cell C n=2/4 partial 3.260765 still best (Δ=−0.000456 sub-baseline, σ=0.000276 tight). #890 cell C still running.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -26,7 +26,7 @@
 | **#887** | **askeladd** | AGC-Muon — adaptive gradient clipping pre-NS (NFNet ‖g‖_F/‖W‖_F ≤ λ). Cell B (λ=0.01 MLP-only) PRIMARY. | Cell A=3.26163 done, Cell B=3.26298 done (NEG), **Cell C λ=0.001 step 1022/3250 (31.5%).** Cells D/E queued. |
 | **#873** | **alphonse** | MARS gradient variance reduction for Muon — g_vr = g + γ×(g − g_prev). | ★ **Cell A=3.26072, Cell B γ=0.10=3.25990 (−2.23σ_single, second-strongest n=1 post-#699!), Cell C γ=0.30=3.26193, Cell D γ=0.50=3.26606. Cell E (γ=0.30 MLP-only) step 1513/3250 (46.6%).** n=4 gate decision pending full sweep. |
 | **#840** | **nezuko** | Muon-AdEMAMix n=4 confirm (β₃=0.99, α=0.3, MLP-only). | **Trial 1=3.261360, Trial 2=3.260956. n=2 mean=3.261158. Trial 3 step 8593/13003 (~66%). n=4 gate (μ≤3.259221) very unlikely based on n=2.** |
-| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS. | Cell A n=4 mean=3.26226 (parity), Cell B n=4 mean=3.26153 (NEG). **Cell C (sign all) multi-trial step 8272 (~63.6%).** |
+| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS. | Cell A n=4=3.26226 (parity), Cell B n=4=3.26153 (NEG). **Cell C (sign all) n=2/4 partial: T0=3.26057, T1=3.26096, μ=3.260765 (Δ=−0.000456 vs baseline, σ=0.000276 tight). Trial 3 in flight.** Falls short of n=4 gate but BEST n=2 signal in programme — sign-of-momentum on ALL body matrices pre-NS may help. |
 
 ## Key Signals (as of poll #519)
 

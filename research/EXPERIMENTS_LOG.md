@@ -3,6 +3,26 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~14:05 UTC — PR #873: alphonse MARS gradient VR for Muon — **CLOSED clean-WEAK-NEG**
+
+- Branch: `g1r5-alphonse/mars-grad-vr-muon`
+- Student: g1r5-alphonse
+- Hypothesis: Apply MARS-style variance reduction to gradient before Nesterov+NS pipeline: `g_vr = g + γ·(g − g_{prev})`. Test if VR correction sharpens the gradient estimate enough to improve val/loss.
+
+| Cell | γ | scope | val/loss @ 3250 | ffs | Δ vs ctrl | W&B |
+|:---:|:---:|:---:|---:|---:|---:|-----|
+| A (ctrl) | 0.0 | — | 3.26072 | 3025 | — | r8qpucdv |
+| **B** | **0.10** | all | **3.25990** ★ | **3025** | **−0.00082** | **e8rav692** |
+| C | 0.30 | all | 3.26193 | 3050 | +0.00121 | hc9gjr3s |
+| D | 0.50 | all | 3.26606 | 3075 | +0.00534 | fjg0vu56 |
+| E | 0.30 | mlp | 3.26230 | 3050 | +0.00158 | upo3sjbu |
+
+**Mechanism finding:** Concave-up γ curve, optimum at γ≈0.10. Beyond 0.10 the VR correction over-amplifies gradient-direction signals (catastrophic at γ=0.50). MLP-only scope at γ=0.30 (Cell E=3.26230) is parity with all-scope at γ=0.30 (Cell C=3.26193) — no clean layer-type asymmetry. NS's spectral filter already provides much of the variance reduction MARS is meant to deliver; paper-scale γ over-corrects.
+
+**Decision: no n=4 confirm.** Cell B Δ_vs_ctrl=−1.38σ_single is too weak. Precedent: #840 cell E (Δ_vs_ctrl=−2.74σ_single, much stronger) has n=2 mean=3.261158 NOT clearing gate. P(n=4 clears | Cell B n=1 true mean) ≈ 1-8%. Save GPU time for fresh axes.
+
+**Broader pattern:** Pre-NS gradient-transformation axis appears saturated (sign-Muon #823, AdEMAMix #840, MARS #873, per-col-norm #890, AGC #887 all yielding null/weak signals). Pivoting to new mechanism axes (curvature-aware, spectral constraint, stochastic regularization).
+
 ## 2026-05-23 ~12:27 UTC — PR #855: tanjiro Schedule-Free Muon — **CLOSED clean-NEG**
 
 - Branch: `g1r5-tanjiro/schedule-free-muon`
