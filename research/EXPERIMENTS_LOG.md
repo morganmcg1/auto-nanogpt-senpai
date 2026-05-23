@@ -1,3 +1,47 @@
+## 2026-05-23 02:10 UTC — PR #865 ASSIGNED (nezuko): H79 MuonH LR cooldown shape sweep (fresh schedule-side axis, LoC ~0)
+
+- Branch: `g1r3-nezuko/muonh-cooldown-shape-sweep`
+- Hypothesis: After five-PR joint NS5 polynomial axis closure (PR #190 + #762 + #790 + #832 + #834), move sideways to schedule-side axis. Test MuonH LR cooldown shape — 3 already-wired choices in `train_gpt_simple.py:867-875`: `linear`, `cosine`, `sqrt`. Baseline uses `cosine`.
+- LoC ~0: all three shapes already implemented via `--muonh_cooldown_shape` CLI flag, no code changes required.
+- 3 arms (n=1, 3325 steps): ctrl cosine (baseline) / arm_b linear PRIMARY (integral-matched: ∫=0.5) / arm_c sqrt HIGHER-INTEGRAL (∫=2/3, ~33% more cumulative LR budget, front-loaded).
+- Two mechanism questions per arm: (1) arm_b vs arm_a tests whether cosine's "gentle early, sharp late" character matters vs uniform decay at fixed total budget; (2) arm_c tests whether higher LR integral helps when concentrated at start of cooldown.
+- Mandatory smoke gate (300 steps, arm_a config): val/loss in [4.20, 4.30] AND `cooldown_shape=cosine` in step-0 log AND LR at step 300 ≠ 1.0 (cooldown engaging).
+- Decision tree:
+  - WIN: val < 3.27039 (formal n=1 merge bar) → mergeable
+  - HOLD: 0.5-1σ improvement → n=4 paired-seed confirmation
+  - NULL: all 3 within ±1σ → schedule-shape axis CLOSED (consistent with NS5 wide-basin pattern)
+  - NEG: arm_b regresses >2σ → cosine's gentle-early-sharp-late character is load-bearing; uniform decay loses key shape feature
+- Mechanism follow-ups gated on result: (a) WIN → explore polynomial-2/3/WSD shapes; (b) sqrt-WIN → probe LR-magnitude axis (current may be under-utilized); (c) NULL → close schedule-shape axis, redirect to outer-loop wrapper or init scheme.
+- W&B group `h79_muonh_cooldown_shape`. Reassignment after #834 closure. Why nezuko: closed temporal NS5 axis (#834) with rigorous k_active wiring verification + clean decision-tree application; schedule-shape is the natural sideways move from temporal NS5 to temporal LR-shape in their wheelhouse.
+
+---
+
+## 2026-05-23 02:05 UTC — PR #834 CLOSED NULL (nezuko): H72 NS5 iteration count TIME-SCHEDULE — five-PR joint NS5 polynomial axis structural closure
+
+- Branch: `g1r3-nezuko/ns5-k-time-schedule`
+- Hypothesis: Vary NS5 `k` ACROSS TRAINING TIME — temporal complement to joint NS5 closure across static/per-layer/within-call sub-dimensions. Predicted warm-cool ramp (k=8→12→16) would match polish budget to evolving gradient spectrum (early isotropic → late anisotropic with small-σ tail).
+- Terminal SENPAI-RESULT, all 3 arms wired correctly (k_active transitions verified at boundaries 1000/2300 in W&B for both arm_b and arm_c):
+
+| arm | k schedule | val/loss | Δ vs arm_a | ffs | train_time | W&B |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | const k=12 | **3.27311** | — | 3150 | 5989s | `cx4su1hd` |
+| arm_b warm-cool | 8→12→16 | **3.27377** | +0.00066 (+0.83σ) | 3150 | 5998s | `2eapg01r` |
+| arm_c cool-warm INVERSE | 16→12→8 | **3.27316** | +0.00005 (+0.06σ) | 3150 | 5995s | `4s5veks4` |
+
+- All 3 arms within ±1σ of arm_a; both arm_b and arm_c on same side of ctrl (asymmetric, both above) → not a signed temporal signal, just sampling noise.
+- step_avg essentially identical (1813.3 / 1811.9 / 1802.9 ms) → k=8↔k=16 swing does not measurably move wall-clock at single-GPU scale; cost-benefit of any NS5 temporal variation is structurally zero.
+- **FIVE-PR JOINT NS5 POLYNOMIAL AXIS STRUCTURAL CLOSURE**:
+  - PR #190 static k iter count {8,10,12,14,16} flat ~±1σ
+  - PR #762 static coefs (3.4445,-4.775,2.0315) vs (2,-1.5,0.5) flat
+  - PR #790 within-call coef hybrid (KJ early then std late) flat ~1σ
+  - PR #832 per-LAYER static k [8..14] flat ±1σ (monotone trend deep-precise > uniform > shallow-precise but all in noise; iso-budget H78 in-flight to disambiguate)
+  - **PR #834 time-schedule k flat ±1σ asymmetric** ← THIS CLOSURE
+- **Integrated programme-level rule (load-bearing)**: At k=12 standard coefs, NS5 sits in a wide flat basin that absorbs ALL polynomial-shape perturbations — static, per-position (per-LAYER), per-call (within-iteration hybrid), per-step (time-schedule). Marginal val/loss sensitivity to NS5 polish quality is BELOW the run-to-run noise floor σ≈0.0008. NS5 polynomial-mechanism axis is structurally CLOSED.
+- **Pre-closure rule**: Future NS5 polynomial-mechanism proposals pre-closed by joint structural analogy across these five PRs — any variant of static-k / coefs / per-position / per-call / temporal-schedule perturbation will hit the same flat basin. To unlock further inner-orthogonalization signal would require a fundamentally different orthogonalization algorithm family (Polar Express, Schulz-modified higher-degree polynomials, GS-orthogonalization) rather than NS5 polynomial-shape variants.
+- Side bug noted by student: `wandb.config.get('wandb_group')` returns None while `run.group` is correct (training script sets group=... on init but doesn't duplicate into config). Minor metadata polish, not worth a separate PR. Routing → PR #865 H79 cooldown shape sweep (fresh schedule-side axis).
+
+---
+
 ## 2026-05-23 02:00 UTC — PR #862 ASSIGNED (askeladd): H78 Per-LAYER NS5 budget at iso-budget extreme [6, 18] — direct H71 monotone-trend follow-up
 
 - Branch: `g1r3-askeladd/per-layer-ns5-iso-budget-extreme`
