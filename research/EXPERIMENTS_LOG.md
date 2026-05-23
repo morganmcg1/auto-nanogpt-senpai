@@ -1,4 +1,31 @@
-## 2026-05-23 19:30 UTC — PR #921 CLOSED NEG/closure (askeladd): H96 Lion-on-AUX optimizer — programme-level closure on sign-momentum aux optimizer family
+## 2026-05-23 21:30 UTC — PR #912 CLOSED NEG/closure (fern): H93 PSGD-Kron Kronecker preconditioner — load-bearing AGC-binding finding, pre-closes block-diagonal preconditioner family
+
+- Branch: `g1r3-fern/h93-psgd-kron-body`
+- Hypothesis tested: Replace NS5 polynomial polar-map with online Lie-group Kronecker preconditioner (PSGD-Kron, arXiv:2402.04553). Q_L (m×m), Q_R (n×n) maintained on a Lie group, applied as `G_pre = Q_L^T @ G @ Q_R` then fed to AdamW-like step. First inner-optimizer abandoning the polynomial polar-map family entirely.
+- Results: arm_a CTRL smoke bit-identical val/loss=**3.27315** (+1.0σ baseline ✓). arm_b PRIMARY precond_lr=0.1 **KILLED at step 975** (val/loss=4.072 at step 875 — diverging). arm_c HIGH-LR precond_lr=0.3 val/loss=**3.38701** clean NEG (+0.117 over baseline, ~+147σ NEG). arm_d update_prob=0.3 val/loss=**3.38477** clean NEG (+0.115 over baseline). Both terminal arms catastrophic, never crossed 3.28.
+- **Load-bearing mechanism finding (fern's Q-telemetry diagnostic)**: `condition_number_max(Q_L · Q_R^T)` peaks at **2.64 by step 3325 at precond_lr=0.3** — Q has not learned a non-trivial preconditioner; it has saturated to ≈ c·I (uniform scaling matrix). Root cause: **AGC clips 100% of inner steps under MuonH-SI + AGC stack** → Lie-group denominator `||t1+t2||_F` divides by the AGC-clipped gradient norm, so the off-diagonal eigenvector signal Q needs to lock onto `(GG^T)^{-1/2}` is suppressed at every step. Q drifts toward uniform scaling rather than whitening. The reference repo's PSGD-Kron implementation assumes a free gradient stream — our AGC-bound regime breaks the convergence basin.
+- **Programme-level pre-closures (block-diagonal/Kronecker preconditioner family under AGC-bound regime)**: Shampoo (Anil 2020, block-diagonal full-matrix Kronecker), CASPR (Shampoo + Adagrad correction), ARFKE / SOAP (Shampoo + AdamW combo), ChinChilla-style preconditioners. All variants of `Q_L ⊗ Q_R` second-moment preconditioning where `Q` must learn off-diagonal structure from raw-gradient covariance — the AGC-clipped regime collapses them all to ≈ uniform scaling.
+- Does NOT pre-close: First-order Hessian-style preconditioners that DON'T require off-diagonal Q learning (Sophia-G diagonal Hessian H98 in-flight uses element-wise `g²`, sidesteps the AGC-binding issue), Adafactor (factored row × col second-moment — H97 in-flight, averages over thousands of g² values), gradient-noise-injected preconditioners (Langevin-style — H76 NEG closes anyway).
+- Methodological commendation: rigorous Q-telemetry (`Q_L/Q_R Frobenius norms, condition_number_max, off-diagonal energy fraction`) every 100 steps directly diagnosed the failure mode — without this, the result reads as just "PSGD-Kron NEG"; with it, the result reads as "AGC-binding closes the entire block-diagonal Kronecker preconditioner family". Verified Lie-group update against reference repo `evanatyourservice/kron_torch` before launch. Killed arm_b cleanly at step 975 saving ~150 min GPU when divergence was clear.
+- Reproduce arm_c: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --use_psgd_kron 1 --psgd_precond_lr 0.3 --psgd_update_prob 0.1` (W&B run NEG).
+- 15th plateau-protocol swing closed. fern reassigned PR #952 H102 Sharpness-Disparity Blockwise LR Multipliers (Wang et al. ICML 2025 arXiv:2410.12855) — first follow-up to AGC-binding finding probing whether per-block LR scaling can reduce AGC bind-rate by equalizing block-level sharpness.
+
+---
+
+## 2026-05-23 21:30 UTC — PR #952 ASSIGNED (fern): H102 Sharpness-Disparity Blockwise LR Multipliers (per-block LR equalization, Wang et al. ICML 2025)
+
+- Branch: `g1r3-fern/h102-blockwise-lr-multipliers`
+- Hypothesis: Multiply MuonH inner LR per transformer block by `(rms_avg / rms_block)^0.5` (clip to [0.5, 2.0]). Calibration at step 200 (static) or recomputed every 500 steps (dynamic). Equalizes per-block gradient-magnitude disparity that AGC currently has to absorb — if successful, AGC bind-rate drops and the inner optimizer regains headroom.
+- **Directly motivated by H93 closure mechanism finding**: AGC clips 100% of inner steps under our stack — if per-block LR multipliers can equalize block sharpness BEFORE AGC, the clip rate should drop and the per-block effective LR distribution should tighten. Reference: Wang et al. 2025 (arXiv:2410.12855, ICML 2025) showed 2× speedup on GPT-2 and LLaMA-2 from per-block sharpness-equalization LR scaling.
+- Mechanism-distinct from H93 (Kronecker preconditioner replacing NS5), H98 (Sophia diagonal Hessian pre-NS5, in-flight), H99 (outer-LR WSD cooldown, in-flight at edward), H100 (Grafted-Adam-SGDM-magnitude outer, in-flight at askeladd), H97 (Adafactor for aux, in-flight at thorfinn). Operates on inner LR per-tensor BEFORE AGC clipping — a fresh structural axis untouched by prior experiments.
+- Arms (n=1, 3325 steps): arm_a CTRL `muonh_blockwise_lr=off` (bit-identical) / arm_b PRIMARY `muonh_blockwise_lr=static`, exponent=0.5, calibration step=200 (per-block LR fixed for rest of run) / arm_c DYNAMIC `muonh_blockwise_lr=dynamic`, recompute every 500 steps (online tracking).
+- Smoke gate: `calibration/disparity = max(block_rms) / min(block_rms) > 1.3` required after step 200 — if blocks already equal-RMS, intervention has no headroom, NULL early. Telemetry: `block_lr_multiplier_{block_idx}` every 250 steps, `agc/clip_rate` per arm (does PRIMARY drop AGC bind-rate?).
+- Decision: WIN<3.26897; NULL∈[3.26880,3.27070]; NEG>3.27150. Closure-amplifier: both arm_b AND arm_c NEG → blockwise LR scaling closed (joint with Wang et al. claim collapsing at our scale/stack); arm_b WIN, arm_c NULL → static suffices.
+- LoC ~50 (CLI flags + helper function + integration in MuonH .step()). W&B group H102_blockwise_lr.
+
+---
+
+
 
 - Branch: `g1r3-askeladd/h96-aux-lion-optimizer`
 - Hypothesis tested: Replace aux AdamW with Lion (Chen 2023 arXiv:2302.06675). Sign-momentum paradigm shift: `update = sign(β1*m + (1-β1)*g)`, removing AdamW's per-coord adaptive normalization. Lr divided by 3 (arm_b) or 10 (arm_c) to match Lion's uniform-magnitude updates.
