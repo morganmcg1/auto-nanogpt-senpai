@@ -1,3 +1,29 @@
+## 2026-05-23 19:30 UTC — PR #921 CLOSED NEG/closure (askeladd): H96 Lion-on-AUX optimizer — programme-level closure on sign-momentum aux optimizer family
+
+- Branch: `g1r3-askeladd/h96-aux-lion-optimizer`
+- Hypothesis tested: Replace aux AdamW with Lion (Chen 2023 arXiv:2302.06675). Sign-momentum paradigm shift: `update = sign(β1*m + (1-β1)*g)`, removing AdamW's per-coord adaptive normalization. Lr divided by 3 (arm_b) or 10 (arm_c) to match Lion's uniform-magnitude updates.
+- Results: arm_a CTRL AdamW β2=0.99 val/loss=**3.2707** (reproduces baseline 3.26977 +1.1σ noise ✓). arm_b PRIMARY Lion lr/3 val/loss=**3.3128** clean NEG (+0.0430 over baseline, ~+54σ). arm_c not launched full per closure-amplifier protocol — arm_c smoke val/loss=5.118 vs arm_b smoke 4.917 at step 200 → arm_c projected NEG (smoke evidence supports closure).
+- **Mechanism finding**: Lion's uniform sign-momentum has *no* per-coord magnitude scaling — for heterogeneous aux gradient magnitudes (embed, lm_head, scalars), low-|g| coords get the same uniform step as high-|g| coords. embed RMS grows 9.74× at step 200 (vs AdamW 5.26×). Trajectory was monotonic descent with no instability, gap to CTRL narrowed during cooldown (Lion catches up partially) but never closed. **Mirrors H91 closure mechanism (per-coord sign-update over-perturbs small-|magnitude| coords)** but at the aux-optimizer level rather than outer-MuLoCo level. **Sign-momentum family now closed at TWO optimizer levels: outer (H91) and aux (H96)**.
+- **Programme-level pre-closures for AUX**: NAdam basic / AdaBelief basic / AMSGrad / Yogi / Tiger / Sophia-A on aux (all variants of sign-direction normalization at this scale).
+- Does NOT pre-close: Adafactor (factored row × col second-moment, mechanistically distinct — H97 in flight), Shampoo on aux (block-diagonal full-matrix), Adam-with-adaptive-eps (preserves per-coord magnitude info).
+- Methodological commendation: rigorous smoke-gate calibration (measured AdamW baseline's own 5.26× embed RMS growth — flagged that PR's >5× STOP threshold was uncalibrated); duplicate-run forensics (ps -ef PID inspection identified chain-script double-firing root cause); closure-amplifier via smoke evidence (saved ~100 min GPU by not launching arm_c full after arm_b clearly NEG).
+- Reproduce arm_b: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_optimizer lion --aux_lion_beta1 0.9 --aux_lion_beta2 0.99 --aux_lion_lr_embed 0.1 --aux_lion_lr_head 0.00104 --aux_lion_lr_scalars 0.00333` (W&B run `uhbsqzhu`).
+- 14th plateau-protocol swing closed. askeladd gets fresh swing in PR #945 H100 (Grafted-Adam-with-SGDM-magnitude OUTER MuLoCo optimizer — explicit direction/magnitude decoupling, directly addresses H91 distributional finding from a fresh mechanism angle).
+
+---
+
+## 2026-05-23 19:30 UTC — PR #945 ASSIGNED (askeladd): H100 Grafted-Adam-with-SGDM-magnitude OUTER MuLoCo optimizer (explicit direction/magnitude decoupling)
+
+- Branch: `g1r3-askeladd/h100-outer-grafted-adam-sgdm`
+- Hypothesis: Compose Adam's direction with SGDM's per-tensor magnitude on the OUTER MuLoCo step. Per-tensor: `grafted_step_t = adam_direction_t * (||sgdm_step_t|| / ||adam_direction_t||)`. Adam direction provides per-coord normalization (good for heterogeneous slow-weights gradient distribution), SGDM magnitude per-tensor avoids H91's "sign-update hammers small-|delta| coords" failure (which was global, not per-tensor scaled).
+- **Directly motivated by H91 closure not-pre-closed list**: H91 closure said "Grafted-Adam-with-SGDM-magnitude" is mechanistically distinct from outer-Adam (which was closed) and explicitly NOT pre-closed by H91. Tests whether explicit direction/magnitude decoupling resolves the distributional issue.
+- Mechanism distinct from H91 outer-Adam (full Adam, NEG closed), H99 outer-LR WSD (just-LR-schedule, no direction change), H97 aux Adafactor (different optimizer level), and from all aux experiments.
+- Arms (n=1, 3325 steps): arm_a CTRL outer-SGDM constant (bit-identical) / arm_b PRIMARY Grafted-Adam β1=0.8 β2=0.95 outer_lr=0.7 (per-tensor magnitude grafting) / arm_c HIGH-BETA Grafted-Adam β1=0.9 β2=0.999 outer_lr=0.7 (longer EMA windows).
+- Decision: WIN<3.26897; NULL∈[3.26880,3.27070]; NEG>3.27150. Closure-amplifier: both arm_b AND arm_c NEG → direction/magnitude grafting families closed on outer.
+- LoC ~50. W&B group H100_outer_grafted_adam.
+
+---
+
 ## 2026-05-23 17:35 UTC — PR #904 CLOSED NEG/closure (edward): H91 Outer-Adam MuLoCo wrapper — programme-level closure on per-coord-sign-update outer optimizers
 
 - Branch: `g1r3-edward/outer-adam-muloco`
