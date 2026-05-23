@@ -1,9 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-22 22:05 UTC
+- **Last update:** 2026-05-23 00:55 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL NEW RECORD PENDING:** #822 alphonse Arm A sr=2875 (Δsr=−50) — FINISHED, awaiting student terminal SENPAI-RESULT.
-- **75 closed axes** (#796 edward aux β1 cooldown ramp closed as 75th — both arms NULL, β1 does not mirror β2; proves smoothing-UP schedule is parameter-specific not class-wide).
+- **76 closed axes** (#814 askeladd Aux RAdam closed as 76th — both arms NULL, AdamW β2=0.95 already handles variance warmup implicitly at high aux LRs; aux Adam-family variance-warmup mechanism FULLY CLOSED).
 - **🚨 HIGH PRIORITY:** PR #822 alphonse Arm A `8b0m4nzt` FINISHED sr=2875 (Δsr=−50 BIG WIN). Arm B `5gy0esey` (β_cov=0.98) running. Awaiting student terminal SENPAI-RESULT. Once posted, n=2 confirmation run will likely be needed (Δsr=-50 is far past marginal but all sr changes require n=2 for baseline changes).
 - **Active n=2 confirmation:** #802 thorfinn seed-2 just launched at β_target=0.98 (n=1 win Δval=-0.000346, marginal). ETA ~01:15-01:30 UTC.
 
@@ -17,23 +17,24 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 22:05 UTC)
+## Active experiments (8 in-flight, 00:55 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (β_cov=0.95 vs 0.98, BC ON) | Arm A `8b0m4nzt` **FINISHED sr=2875/val=3.2646 — BIG WIN**. Arm B `5gy0esey` (β_cov=0.98+BC) running step 300. Awaiting terminal SENPAI-RESULT (~01:30 UTC). |
-| **#821** | fern | Kahan BF16 compensated weight update for body-Muon | Arm A `1segjgvo` FINISHED sr=2925/val=3.2665 (TIE, FP32→Kahan no-op as predicted). Arm B `ji1hed72` (Kahan+EMA lerp) running step 300. Awaiting terminal SENPAI-RESULT (~01:25 UTC). |
-| **#827** | nezuko | Post-NS Frobenius normalization (post vs pre, polar RMS=1) | Arm A `q72w28l9` (post) running step 2400/3250. ETA terminal ~22:50 UTC. Arm B (pre) chains. |
-| **#814** | askeladd | Aux RAdam — rectified-Adam variance warmup | Arm A `o9et1cs6` TERMINAL sr=2925/val=3.26659 (TIE, RAdam≈baseline, axis closing). Arm B `t80hfeqy` running step 1325/3250. ETA ~23:30 UTC. |
-| **#802** | thorfinn | EMA β_target n=2 seed-2 (β_target=0.98, n=1 marginal win Δval=−0.000346) | Seed-2 just launched at 21:36. ETA ~01:15-01:30 UTC. |
-| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.45, γ_mlp=0.4) — clean seed-1 re-run | `b958vx2r` running step 625/3250 (launched 20:51). ETA ~00:25 UTC. |
-| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` running step 150/3250 (picked up 21:29). ETA ~01:30 UTC. |
-| **#846** | edward | AdEMAMix-Aux α sweep: dual first-moment EMA for aux groups (α=2 vs α=8) | ASSIGNED 22:05 UTC. Replaces AdamW aux with dual-EMA optimizer (slow β₃=0.9999 + fast β₁=0.8, α warmup over 512 steps). |
+| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (β_cov=0.95 vs 0.98, BC ON) | Arm A `8b0m4nzt` **FINISHED sr=2875/val=3.2646 — BIG WIN**. Arm B `5gy0esey` (β_cov=0.98+BC) step 2675/3250. Awaiting terminal SENPAI-RESULT (~01:30 UTC). |
+| **#821** | fern | Kahan BF16 compensated weight update for body-Muon | Arm A `1segjgvo` FINISHED sr=2925/val=3.2665 (TIE, FP32→Kahan no-op as predicted). Arm B `ji1hed72` (Kahan+EMA lerp) step 1525. Awaiting terminal SENPAI-RESULT (~01:15 UTC). |
+| **#827** | nezuko | Post-NS Frobenius normalization (post vs pre, polar RMS=1) | Arm A NULL (closed). Arm B `oey1pogu` (pre) running step 225/3250. ETA terminal ~02:30 UTC. |
+| **#778** | tanjiro | PMuon per-type γ narrow (γ_attn=0.45, γ_mlp=0.4) — clean seed-1 re-run | `b958vx2r` step 1725/3250. ETA ~00:25 UTC. |
+| **#802** | thorfinn | EMA β_target n=2 seed-2 (β_target=0.98, n=1 marginal win Δval=−0.000346) | Seed-2 launched 21:36. ETA ~01:15-01:30 UTC. |
+| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` step 1650/3250. Ramp activates ~step 2113. ETA terminal ~01:30 UTC. |
+| **#846** | edward | AdEMAMix-Aux α sweep: dual first-moment EMA for aux groups (α=2 vs α=8) | Arm A `o924qfq4` running step 475/3250 (alpha=2 active). Duplicate crashed run `zy7cfwp4` at step 75 — likely contention; survivor healthy. ETA terminal ~02:00 UTC. |
+| **#853** | askeladd | Cautious-AdamW for aux: sign-aligned update masking (Liang et al. 2024) | ASSIGNED 00:55 UTC. Arm A `--cautious_aux momentum` (paper variant), Arm B `--cautious_aux update` (alt mask criterion). Mask `c_t = 1[sign(m_t)==sign(g_t)]` with renormalization. Orthogonal axis to aux Adam-family variance-warmup (FULLY CLOSED). |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#814** askeladd | 76th | Aux RAdam NULL/NULL (A LR=0.30 sr=2925 TIE, B LR=0.22 sr=2950 regression) | Mechanism intact (rho_t 1→38.15, r_t 0→0.987, in_sgd_fallback flip). AdamW β2=0.95 already handles variance warmup implicitly at high aux LRs. Aux Adam-family variance-warmup mechanism FULLY CLOSED across NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814). |
 | **#796** edward | 75th | Aux β1 ramp NULL/NULL (A sr=2950 DOWN 0.8→0.7, B sr=2925 TIE UP 0.8→0.9) | β1 does NOT mirror β2 (#741). UP-ramp on β1 yields +0.057 μnat (TIE) vs −306 μnat for β2. Proves smoothing-UP schedule is parameter-specific not class-wide. Aux β1=0.8 static is local optimum. |
 | **#803** frieren | 74th | γ_power WARMUP ramp NULL/NULL (A sr=2975 0.2→0.4, B sr=2950 0.3→0.4) | Both arms regress on sr. Monotone less-whitening→worse. γ_power=0.4 static is fully pinned across both warmup (#803) and cooldown (#760) ramp axes. Student insight: EMA β is the clean manipulation target. |
 | **#780** nezuko | 73rd | u/w CEILING NULL/NULL (A sr=3125 ceiling=0.5, B sr=3225 ceiling=0.4) | Monotone tighter→worse. Ceiling fires 43-71% events. High u/w updates are productive (confident PMuon directions); clamping removes per-tensor adaptivity. Floor at 0.35 is load-bearing (49% fire rate, asymmetric). |

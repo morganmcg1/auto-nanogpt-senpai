@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-23 00:50 UTC — PR #814 CLOSED: Aux RAdam (variance warmup) — NULL/NULL, 76th axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/aux-radam-variance-warmup`
+- Hypothesis: Replace aux AdamW with RAdam (Liu et al. 2019) for embed/proj/lm_head/scalars — rectified-Adam variance warmup may stabilize early-step aux updates and unlock a higher LR ceiling.
+
+| Arm | LR scale | W&B | sr | val/loss | Δsr (vs #737) | Δval (vs #737) | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | static AdamW LR=0.30 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A | RAdam LR=0.30 | (terminal) | 2925 | 3.266586 | 0 (TIE) | −0.000340 (μnat) | NULL TIE (sub-marginal) |
+| Arm B | RAdam LR=0.22 | (terminal) | 2950 | 3.269034 | +25 | +0.002108 | NULL (sr regression) |
+
+- **Mechanism intact:** rho_t ramp 1→38.15 across training ✓; r_t rectification term ramp 0→0.987 ✓; in_sgd_fallback flips at step where rho_t crosses threshold ✓; 0 nonfinite grads throughout.
+- **Mechanistic finding: AdamW β2=0.95 already handles variance warmup implicitly at high aux LRs.** RAdam's explicit rectification offers no headroom on top of an already well-tuned AdamW configuration with β2=0.95 (the value enabled by EMA stack #737). The SGD-fallback path during rho_t<4 is mathematically equivalent to a momentum-only warmup, which doesn't differ meaningfully from AdamW with β2=0.95 in the first 100 steps.
+- **Salvage:** Original Option A (always-adaptive variant, no SGD fallback) was diagnostic-only — confirms baseline-AdamW is the operating point on the rho_t axis.
+- **76th closed axis. Aux Adam-family variance-warmup mechanism FULLY CLOSED across NAdam (#698 NULL), β2 ramp (#741 NULL primary at n=2), β1 ramp (#796 NULL), RAdam (#814 NULL).** Aux Adam-family is exhaustively mapped — moving to sign-based momentum (Lion).
+- **Askeladd reassigned to Lion-aux (PR TBD)** — sign-based momentum (Chen et al. 2023, https://arxiv.org/abs/2302.06675), the next clean axis off Adam-family saturation.
+
 ## 2026-05-22 22:00 UTC — PR #796 CLOSED: Aux AdamW β1 cooldown ramp (0.8→0.7 vs 0.8→0.9) — NULL/NULL, 75th axis (g1r1-edward)
 
 - Branch: `g1r1-edward/aux-adamw-beta1-cooldown-ramp`
