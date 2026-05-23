@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 10:11 UTC
+- **Date:** 2026-05-23 10:28 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -780,7 +780,7 @@ W&B Phase 2: trdfa7c6/si0n5039, hjs2ww65/4eoi63uk, enxvvgga/f16ktn1n.
 
 **Follow-up**: frieren assigned **#810 post-NS momentum** — temporal smoothing of NS-orthogonalized updates across steps (first post-NS axis; distinct from #356 pre-NS μ schedule NULL, #530 Nesterov-Muon NULL, #434 Lookahead NEG all of which operate pre-NS or in weight-space).
 
-### 🔄 frieren #810 — Post-NS momentum [22:10 UTC: WINNER CANDIDATE α=0.3, sent back for paired-pod n=3 on full post-#708 stack]
+### ✅ frieren #810 — Post-NS momentum — CLOSED productive-NULL 10:20 UTC (11th paired-pod outcome since #708)
 
 **Branch:** `g1r4-frieren/post-ns-momentum`
 **Hypothesis**: After NS-orthogonalization, maintain post-NS buffer w_t = α×w_{t-1} + (1-α)×u_t. Apply w_t as update instead of u_t. Mechanism: NS is nonlinear, so post-NS averaging is distinct from pre-NS EMA (β=0.95). **First POST-NS axis explored — mechanism-distinct from #356 pre-NS μ schedule NULL, #530 Nesterov-Muon NULL, #434 Lookahead weight-space NEG.**
@@ -829,7 +829,9 @@ Mechanism is structural-novel — if it holds, opens up post-NS-side as a fresh 
 
 **Mechanism reading**: Post-NS momentum at α=0.3 reproduces baseline within rounding error. The post-NS axis (structurally novel mechanism level) does not extract additional gain over baseline's existing pre-NS μ=0.95 EMA. Composes with pre-NS μ axis (#356 NULL, #530 NULL) and weight-space-EMA (#436 NEG, #434 Lookahead NEG) — **post-NS adds another fenced corner; full Muon temporal-smoothing family substantially exhausted across pre-NS/in-NS/post-NS/weight-space**.
 
-Awaiting frieren SENPAI-RESULT terminal marker before close. ETA student post within ~30 min of Pod 2 B terminal (10:10 UTC).
+**Terminal SENPAI-RESULT posted 10:17 UTC**: mean(A,n=3)=3.26947 (drift +0.00003 vs new baseline — 5th independent cross-validation), mean(B,n=3)=3.26945 (Δ_vs_new_base=+0.00001, tied). Signal collapsed from N=1 −0.00394 to n=3 −0.00002. Root cause: N=1 screening used non-per-group clip stack (A_ctrl drifted +0.00189 above baseline), providing false headroom that Arm B consumed. Under full post-#708 BODY=10/AUX=5 stack, no headroom → signal disappears. **Muon temporal-smoothing family now fully fenced across pre-NS (#356 NULL, #530 NULL) / in-NS (#470 NULL, #506 NEG) / post-NS (#810 NULL, #434 Lookahead NEG) / weight-space (#436 NEG) mechanism levels.** CLOSED 10:20 UTC with detailed close comment.
+
+**Follow-up**: frieren assigned **#900 Anisotropic Gradient Noise** (curvature-matched injection, WAVE5-5). New assignment ETA ~17:40 UTC.
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
@@ -946,6 +948,20 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 **Ghost-crash post-mortem**: 4 spurious concurrent `torchrun` launches by prior CC iterations not detecting still-live PID 1246502; mitigated via `wait_then_run_BCD.sh` PID-checking shim. All duplicates had `mode=none` (Arm A config) → not implicated by FloorAdamW.
 
 **Follow-up**: edward reassigned to **#874 Embed weight init magnitude sweep** — fresh AUX-side init axis parallel to thorfinn #848 (lm_head init perturbation). Bilateral test of "init magnitude on AUX side is load-bearing".
+
+### 🔄 frieren #900 — Anisotropic Gradient Noise: curvature-matched exploration injection [assigned 10:25 UTC]
+
+**Branch:** `g1r4-frieren/anisotropic-grad-noise`
+**Hypothesis**: Inject gradient noise with per-coordinate variance proportional to curvature (v_t for AdamW aux; NS-update RMS for body Muon). Isotropic noise (#411, CLOSED NULL) adds equal noise in all directions, disrupting sharp directions. Anisotropic variant injects MORE noise in flat (small-v_t) coordinates and LESS in sharp ones — curvature-aware exploration that anneals to zero over first 50% of training. Mechanistically distinct from #411 (isotropic), #530 (Nesterov, pre-NS), #810 (post-NS averaging, just closed), all loss-side regularization axes. The v_t-proportional noise incidentally amplifies rare-token embed coordinates (small v_t → larger noise) — orthogonal to #845 askeladd gradient pre-conditioning.
+
+| Arm | NANOGPT_GRAD_NOISE_MAX | NANOGPT_GRAD_NOISE_ANNEAL_FRAC | NANOGPT_GRAD_NOISE_SCOPE |
+|:---:|:---:|:---:|:---:|
+| A | 0.0 | n/a | none (bit-clean ctrl) |
+| B | 0.005 | 0.50 | aux (AdamW groups only) |
+| C | 0.005 | 0.50 | all (aux + body Muon) |
+| D | 0.010 | 0.30 | all (more aggressive + faster anneal) |
+
+Signal threshold: Δ_within_vs_A ≤ −0.002 → paired-pod n=3 on best arm. ETA ~7.2h chain (A→D sequential). W&B group: `g1r4-frieren/anisotropic-grad-noise`.
 
 ### 🔄 fern #883 — Stochastic NS cooldown spread Goldilocks sweep (4-arm) [assigned 07:10 UTC]
 

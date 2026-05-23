@@ -4162,3 +4162,50 @@ All arms mean-neutral: c_mean=0.49 throughout.
 Productive-null with confirmed apex at depth=0.42. The depth axis is closed — going steeper (0.55, 0.70) doesn't help and going shallower (0.30) hurts. Current post-#290 default (depth=0.42, c_mean=0.49) is confirmed optimal.
 
 **Follow-up assigned (PR #380)**: fern lm_head proj init std sweep — zero-init lm_head (current default w.zero_()) has never been challenged on r4 branch. Fresh init axis, mechanistically distinct from edward #374 (lm_head proj feeds logits directly, no RMSNorm).
+
+## 2026-05-23 10:20 UTC — PR #810: Post-NS momentum (frieren)
+
+- **Branch:** `g1r4-frieren/post-ns-momentum`
+- **Hypothesis:** After NS-orthogonalization, maintain a post-NS buffer `w_t = α×w_{t-1} + (1-α)×u_t` and apply `w_t` as the update instead of `u_t`. First POST-NS axis explored — structurally distinct from pre-NS μ EMA (#356 NULL, #530 NULL), in-NS iteration scheduling (#470 NULL, #506 NEG), and weight-space EMA (#436 NEG, #434 Lookahead NEG).
+
+### N=1 Screening results (post-#708 stack, α sweep)
+
+| Arm | α | run_id | val/loss | Δ_vs_A | Verdict |
+|:---:|:---:|---|:---:|:---:|:---|
+| A (ctrl) | 0.0 | `et21o2vx` | 3.27225 | — | drift +0.00189 (NOTE: screening stack missing BODY/AUX per-group clip) |
+| B | 0.3 | `j7yipric` | **3.26831** | **−0.00394** | WINNER CANDIDATE |
+| C | 0.5 | `uarp5kkm` | 3.27465 | +0.00240 | regression |
+| D | 0.7 | `1kpbp0ss` | 3.28980 | +0.01755 | catastrophic (target never hit) |
+
+Non-monotone concave-down surface with α=0.3 apex. N=1 signal triggered paired-pod n=3 confirmation on Arm B on full post-#708 stack.
+
+### Paired-pod n=3 results (full post-#708 stack including BODY=10/AUX=5)
+
+| Pod | Arm | α | run_id | val/loss | Δ_within |
+|:---:|:---:|:---:|---|:---:|:---:|
+| 0 | A (ctrl) | 0.0 | `k787xn6h` | 3.26922 | — |
+| 0 | B | 0.3 | `0ial88yh` | 3.26890 | **−0.00032** |
+| 1 | A (ctrl) | 0.0 | `lntre2rk` | 3.27030 | — |
+| 1 | B | 0.3 | `cknbzxxu` | 3.27132 | **+0.00102** |
+| 2 | A (ctrl) | 0.0 | `03432nbb` | 3.26888 | — |
+| 2 | B | 0.3 | `kyi2ei6z` | **3.26812** | **−0.00076** |
+
+**Aggregate n=3:**
+- mean(A) = 3.26947 (+0.00003 vs new baseline 3.26944 — near-perfect drift)
+- mean(B) = 3.26945 (Δ_vs_new_base = +0.00001, functionally **tied**)
+- mean Δ_within = **−0.00002** (signal magnitude collapsed from N=1 −0.00394)
+- Direction-correct: **2/3 pods** (Pod 0 −0.00032, Pod 2 −0.00076; Pod 1 reverses +0.00102)
+
+### Verdict: CLOSED productive-NULL (11th paired-pod outcome since #708)
+
+**Gate 1** (mean Δ_within ≤ −0.002): FAIL at −0.00002 (~100× short).
+**Gate 2** (mean val_B ≤ 3.26944): FAIL by 0.00001 (tied).
+**Direction-correct 2/3**: PASS (but insufficient given Gate 1/2 failures).
+
+### Analysis
+
+The N=1 signal was a **drift-headroom artifact**: the screening stack used only global `GRAD_CLIP=10.0` (per-group BODY/AUX inactive), leaving A_ctrl drifting +0.00189 above post-#708 baseline. Arm B consumed that headroom. Under the fully-active post-#708 stack, A_ctrl drifts −0.00089 BELOW baseline (mean 3.26947) — no headroom remains, and the post-NS smoothing signal disappears into seed noise. Pod 1 (the only pod where A landed near old baseline) is also the only pod where Δ_within flipped positive — diagnostic.
+
+**Structural implication**: BODY=10/AUX=5 per-group clipping (#708) already serves a related NS-output stabilization role that subsumes marginal post-NS temporal smoothing. The Muon **temporal-smoothing family is now fully fenced across four mechanism levels** (pre-NS, in-NS, post-NS, weight-space). Mean(A,n=3)=3.26947 provides a **5th independent cross-validation of new baseline 3.26944** (drift +0.00003).
+
+**Follow-up:** frieren assigned **#900 Anisotropic Gradient Noise** — curvature-matched noise injection (WAVE5-5), mechanism-distinct from #411 isotropic noise NULL, pivoting from temporal-smoothing family to stochastic exploration family.
