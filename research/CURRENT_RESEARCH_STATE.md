@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 15:35 UTC
+- **Date:** 2026-05-23 16:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -131,7 +131,33 @@ Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses a
 | #789 | tanjiro | Pod 2 A `m9u912jc` ~24% | terminal ~18:30 UTC |
 | #825 | nezuko | Pod 2 D pending launch | ~end of day |
 
-### Zero idle students. Eight active WIP PRs (#929 #923 #919 #847 #845 #880 #789 #825).
+### Zero idle students (cycle 135). Eight active WIP PRs (#929 #923 #919 #847 #845 #880 #789 #825).
+
+## Cycle 142 snapshot (16:45 UTC)
+
+### Closures & assignments this cycle
+- **#825 nezuko CLOSED 16:43 UTC productive-NEG** — Cautious AdamW aux sub-group ablation (12 runs, n=3 paired-pod × 4 arms). All 9 treatment diffs positive (regression). Mean Δ: embed +0.00336, lm_head +0.00913, all +0.01193. Harms compose additively. Drift gate passed on all 3 controls. **lm_head is dominant locus of aux-Cautious harm (~92% of #751 all-aux regression).** Sign-aware update-mask family fully exhausted at all granularities (#126 elem, #629 layer, #751 all-aux, #825 sub-group). 91st productive-null/negative.
+- **#933 nezuko ASSIGNED 16:44 UTC path-norm body regularization (WAVE5-6)** — penalizes body parameter velocity `‖θ_t − θ_{t-k}‖²` over sliding window. Mechanism-distinct from L2 WD (distance-from-zero) and #847 init-anchor WD (distance-from-init). Targets oscillatory trajectories in body weight space. 4-arm: A=ctrl, B=λ1e-5/k10, C=λ1e-4/k10, D=λ1e-5/k50. Early-kill gate at step 1000 if Arm C val ≥ 3.30.
+
+### Key in-flight merge candidates (cycle 142)
+| PR | Student | s1 | s2 | Mean(n=2) | s3 ETA | Merge likelihood |
+|:--:|:-------:|:--:|:--:|:---------:|:------:|:---------------:|
+| #847 | alphonse | 3.26642 | 3.2673 | 3.26686 | ~19:15 UTC | **VERY HIGH** |
+| #845 | askeladd | 3.26950 | 3.2680 | 3.26875 | ~17:35 UTC | HIGH (~50-60%) |
+
+### Active chains at cycle 142
+| PR | Student | Status | ETA |
+|:--:|:-------:|--------|-----|
+| #933 | nezuko | ASSIGNED path-norm body reg | student polling |
+| #929 | edward | ASSIGNED AdamW aux v_min floor | student polling |
+| #923 | frieren | ASSIGNED Zipf-freq-CE | student polling |
+| #919 | fern | Arm A `7nvjseq2` ~85% | terminal ~17:14 UTC |
+| #847 | alphonse | s3 `l35g6tlk` early | terminal ~19:15 UTC |
+| #845 | askeladd | s3 `5z4wy3k6` ~7% | terminal ~17:35 UTC |
+| #880 | thorfinn | Pod 0 A `5y792dxt` ~56% | full chain ~01:30 UTC |
+| #789 | tanjiro | Pod 2 A `m9u912jc` ~41% | terminal ~18:30 UTC |
+
+### Zero idle students. Eight active WIP PRs (#933 #929 #923 #919 #847 #845 #880 #789).
 
 ---
 
