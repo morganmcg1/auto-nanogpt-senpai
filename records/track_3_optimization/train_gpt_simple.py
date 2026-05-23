@@ -67,6 +67,11 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_warmup_steps", type=int, default=0,
+                        help="Linearly ramp ns_iter from --ns_warmup_start up to --ns_iter over this many training steps. "
+                             "0 = disabled (baseline behavior).")
+    parser.add_argument("--ns_warmup_start", type=int, default=2,
+                        help="Starting ns_iter count for NS warmup ramp; must be < --ns_iter for warmup to engage.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +98,20 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+# Mutable container so the training loop can update the NS iteration count at
+# runtime (used by --ns_warmup_steps). Each unique value triggers one
+# torch.compile retrace of NS-using functions; total retraces bounded by
+# (NS_ITER - args.ns_warmup_start).
+_NS_ITER = [NS_ITER]
+
+
+def _get_ns_iter_for_step(step: int) -> int:
+    if args.ns_warmup_steps <= 0 or args.ns_warmup_start >= NS_ITER:
+        return NS_ITER
+    if step >= args.ns_warmup_steps:
+        return NS_ITER
+    frac = step / args.ns_warmup_steps
+    return args.ns_warmup_start + round((NS_ITER - args.ns_warmup_start) * frac)
 
 
 def clean_metric_name(name: str) -> str:
@@ -490,7 +509,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
+    for _ in range(_NS_ITER[0]):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -756,6 +775,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_warmup_steps": args.ns_warmup_steps,
+            "ns_warmup_start": args.ns_warmup_start,
+            "ns_warmup_enabled": bool(args.ns_warmup_steps > 0 and args.ns_warmup_start < NS_ITER),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -981,6 +1003,11 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # NS warmup: update Newton-Schulz iteration count for this step. Each
+        # new value retraces the compiled NS-using functions exactly once.
+        new_ns_iter = _get_ns_iter_for_step(step)
+        if new_ns_iter != _NS_ITER[0]:
+            _NS_ITER[0] = new_ns_iter
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1026,6 +1053,12 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["train/ns_iter_now"] = _NS_ITER[0]
+                per_group_metrics["train/ns_iter_target"] = NS_ITER
+                per_group_metrics["train/ns_warmup_active"] = int(
+                    args.ns_warmup_steps > 0 and step < args.ns_warmup_steps
+                    and args.ns_warmup_start < NS_ITER
+                )
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
