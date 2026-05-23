@@ -1,12 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 05:40 UTC
+- **Last update:** 2026-05-23 06:00 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL IMPROVEMENT PENDING:** #822 alphonse n=2 mean sr=2900 (seed-1 2875, seed-2 2925) — borderline MERGE/seed-3. Sent back for seed-3 tiebreaker.
-- **80 closed axes** (#841 frieren EMA β ramp shape closed as 80th — both delay_frac=0.5/0.7 arms informative-NULL, Δval 4.6%/0.1% of stat-sig margin).
-- **🚨 HIGH PRIORITY:** PR #822 alphonse PMuon BC n=2 borderline (seed-1 sr=2875, seed-2 sr=2925 → n=2 mean=2900 at marginal boundary). Sent back for **seed-3 tiebreaker** — if seed-3 ≤ 2900, MERGE as new baseline.
-- **🚨 SECONDARY MARGINAL WIN:** PR #827 nezuko Arm B (pre-NS Frobenius) n=1 sr=2925/val=3.265945 (Δval=−0.000981). Seed-2 running, ETA ~06:35 UTC. Orthogonal to PMuon BC — could stack.
-- **#841 frieren CLOSED 80th NULL:** Both delay_frac arms sub-noise (Δval=−0.000182 / −0.0000042). EMA β ramp shape axis exhausted in (0.5, 0.7) interior. Frieren assigned AdaBelief-aux (#875).
+- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **TWO POTENTIAL IMPROVEMENTS PENDING:** #822 alphonse PMuon BC seed-3 tiebreaker; #864 thorfinn EMA warmup=1750 marginal val win.
+- **80 closed axes** (#841 frieren EMA β ramp shape 80th).
+- **🚨 HIGH PRIORITY #1:** PR #822 alphonse PMuon BC seed-3 in flight (n=2 mean sr=2900 at marginal boundary). If seed-3 sr≤2900, MERGE as new baseline. ETA ~09:10 UTC.
+- **🚨 HIGH PRIORITY #2:** PR #864 thorfinn EMA warmup=1750 Arm A `j8nsn77s` **TERMINAL: sr=2925/val=3.266355 — marginal val WIN** (Δval=−0.000571 sub-marginal). Strict win rule passes; n=2 confirmation required. Arm B (warmup=2500) running, ETA ~09:25 UTC.
+- **🚨 HIGH PRIORITY #3:** PR #827 nezuko Arm B (pre-NS Frobenius) seed-2 running, ETA ~06:35 UTC. n=1 marginal val win (Δval=−0.000981) waiting confirmation.
+- **Today's terminals so far (all NULL/TIE):**
+  - #846 edward Arm A (α=2): sr=3075, Δsr=+150, Δval=+0.0088 — NULL
+  - #854 tanjiro Arm A (b1=0.98): sr=-1 (did NOT cross target), val=3.2833 — hard NULL
+  - #863 fern Arm A (per_row): sr=2925/val=3.267874 (Δval=+0.000948 sub-marginal regression) — NULL/TIE
 
 ## Current local baseline
 
@@ -24,11 +28,11 @@ Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primar
 |---|---|---|---|
 | **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. ETA seed-3 terminal ~09:10 UTC. |
 | **#827** | nezuko | Pre-NS Frobenius normalization | Arm A NULL. Arm B n=1 sr=2925/val=3.265945 (Δval=−0.000981 marginal). Seed-2 `6jjfoefp` running, ETA ~06:35 UTC. polar_rms constant 0.018 (mechanism differs from hypothesis). |
-| **#846** | edward | AdEMAMix-Aux α sweep (α=2 vs α=8) | Arm A NULL (sr=3075, Δsr=+150). Arm B (α=8) `np82nnjr` running step ~125, ETA ~08:00 UTC. SIGTERM-from-session-boundary issue resolved; current Arm B healthy. |
+| **#846** | edward | AdEMAMix-Aux α sweep (α=2 vs α=8) | Arm A NULL (sr=3075, Δsr=+150, Δval=+0.0088). Arm B (α=8) `np82nnjr` running, ETA ~08:00 UTC. |
 | **#853** | askeladd | Cautious-AdamW aux: renormalization ablation | Arm A `6tye7e33` (cautious-aux-momentum) near-terminal (step 3025/3250, ~05:05 UTC). Revised Arm B = `--cautious_aux_no_renorm` (mask only). Coordination check posted 04:50 UTC. |
-| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98 corrected formula) running step ~2850, ETA ~05:10 UTC. Pre-launch β-convention catch (tanjiro, 3rd this session). |
-| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) running step ~2325, ETA ~05:48 UTC. v_size telemetry requested in terminal SENPAI-RESULT. |
-| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | Arm A `j8nsn77s` (1750) running step ~2475, ETA ~05:45 UTC. Duplicate-launch orphan killed on setup; survivor healthy. |
+| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98) TERMINAL — hard NULL (sr=−1, val=3.2833 did NOT cross 3.28 target). Arm B `aae3y07x` (b1=0.80 tuned) running, ETA ~09:25 UTC. |
+| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 1, ETA ~09:35 UTC. |
+| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 325. ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
 | **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | **NEWLY ASSIGNED 05:38 UTC.** Arm A paper defaults (β=(0.9,0.999), eps=1e-16), Arm B drop-in (β=(0.8,0.95), eps=1e-10). Tests variance-estimator axis — orthogonal to all in-flight aux Adam-family. |
 
 ## Recently closed (since session start)
