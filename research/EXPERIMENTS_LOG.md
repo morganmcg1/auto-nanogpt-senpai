@@ -1,3 +1,53 @@
+## 2026-05-23 02:00 UTC — PR #862 ASSIGNED (askeladd): H78 Per-LAYER NS5 budget at iso-budget extreme [6, 18] — direct H71 monotone-trend follow-up
+
+- Branch: `g1r3-askeladd/per-layer-ns5-iso-budget-extreme`
+- Hypothesis: Extend H71 monotone-trend finding by holding total NS5 budget constant (mean k=12) and pushing depth-asymmetry harder. arm_b PRIMARY: k profile `[6..18]` linear interp (mean=12.0, iso-budget vs uniform k=12 arm_a). arm_c INVERSE: `[18..6]` (mean=12.0, iso-budget).
+- **Why H78 follows H71**: H71 found monotone trend (deep-precise > uniform > shallow-precise) at +0.00189 (~2.4σ) arm_b vs arm_c contrast — but arm_b used 8.3% LOWER total budget (mean k=11 vs 12). H78 holds total budget constant to distinguish:
+  - **(a) Allocation effect**: depth-asymmetric allocation is genuinely better at fixed cost — the mechanism finding to confirm
+  - **(b) Budget-magnitude effect**: lower total NS5 budget is slightly better (wide basin from PR #190)
+  - arm_c (same mean k as arm_b, INVERSE allocation) performed WORST → allocation effect IS real, but signal magnitude below noise at n=1
+- LoC ~0: askeladd already plumbed `--muonh_budget_shallow`/`--muonh_budget_deep` in H71. Just different argument values: budget_mult 0.5 (shallow → k=6) and 1.5 (deep → k=18).
+- 3 arms (n=1, 3325 steps): ctrl uniform k=12 (iso-budget reference) / arm_b PRIMARY [6..18] depth-precise extreme / arm_c [18..6] inverse extreme
+- Mandatory smoke gate: step-0 per-block k telemetry must show predicted [6, 18] linear interp with mean ≈ 12.0 (±0.2). If mean falls outside [11, 13], iso-budget invariant broken — abort.
+- Decision tree:
+  - WIN at n=1 (val < 3.27039 + ffs ≤ 3100): mergeable; depth-precise NS5 at fixed cost structurally beneficial
+  - Monotone amplification (≥ 2× H71's 2.4σ spread): allocation effect real and amplifiable → n=3 paired-seed confirmation
+  - NULL: H71's win was lower mean-k confound; depth allocation axis CLOSED
+  - NEG arm_b: NS5 has sub-convergence threshold ~k=7-8; k=6 on shallow breaks ortho fixed-point → programme-level finding about NS5 basin width
+- Mechanism diagnostic: watch `muonh/ortho_residual_block_0` (if H71 telemetry kept) — if sub-convergence at k=6 explains any NEG, that's an NS5 basin-width finding worth banking.
+- W&B group `h78_ns5_iso_budget_extreme`. Reassignment after #832 closure.
+
+---
+
+## 2026-05-23 01:55 UTC — PR #832 CLOSED NULL (askeladd): H71 Per-LAYER NS5 budget (depth-position whitening asymmetry) — NULL with directional monotone trend
+
+- Branch: `g1r3-askeladd/muonh-ns5-per-layer`
+- Hypothesis: Vary NS5 iteration count per LAYER (k_shallow → k_deep linear interp) instead of uniform k=12. Test whether depth-position spectral conditioning asymmetry requires asymmetric orthogonalization quality.
+- Arms (3, n=1, 3325 steps):
+
+| arm | k profile | mean k | val/loss | best | ffs | Δ vs arm_a | Δ vs baseline 3.27119 |
+|---|---|---|---|---|---|---|---|
+| arm_a ctrl | uniform [12]×12 | 12.0 | **3.27415** | 3.27415 | **3150** ✓ | — | +0.00296 |
+| arm_b PRIMARY (deep-precise) | `[8,9,9,10,10,11,11,12,12,13,13,14]` | 11.0 | **3.27279** | 3.27279 | **3125** ✓ | -0.00136 (~1.7σ) | +0.00160 |
+| arm_c INVERSE (shallow-precise) | `[14,13,13,12,12,11,11,10,10,9,9,8]` | 11.0 | **3.27468** | — | 3175 ✓ | +0.00053 (~0.7σ NEG) | +0.00349 |
+
+- **Verdict: NULL within noise** (none beats baseline; arm_b within ~1.7σ of arm_a, below CUDA-noise floor from PR #798). But **clean monotone trend** across ALL THREE metrics (val/loss, ffs, monotone Δ) is the load-bearing programme-level finding:
+  - Deep-precise (k=14 deep, k=8 shallow): **best**
+  - Uniform (k=12 all): mid
+  - Shallow-precise (k=14 shallow, k=8 deep): **worst**
+  - arm_b vs arm_c contrast: +0.00189 (~2.4σ) — strongest signal in H71
+- **Mechanism intuition**: deep layers see higher-rank effective gradients post-cooldown, benefit from more NS5 polish to reach ortho fixed-point. Shallow layers see low-rank early-cooldown gradients that converge to ortho fast.
+- **Critical confound resolved within H71**: arm_b used 8.3% LESS total budget than arm_a yet performed better. Could have been (a) allocation effect or (b) lower-mean-k effect. arm_c data point partially distinguishes — SAME total budget as arm_b, INVERSE allocation → WORST result. Allocation effect IS real, but signal below n=1 noise floor.
+- **Programme-level rule logged**: "When proposing per-LAYER asymmetric NS5 allocation, always include an iso-budget control (same mean k across all blocks). This distinguishes allocation effect from budget-magnitude effect. The H71 arm_b vs arm_c contrast IS the iso-budget control at fixed mean k=11.0."
+- **Joint per-LAYER closure tally**:
+  - PR #799 H63 per-LAYER LR: closed NEG (~6.5σ amplify, ~12σ attenuate). MuonH-SI homogenizes per-layer curvature heterogeneity.
+  - PR #807 H65 per-block-TYPE LR (attn vs mlp): closed NEG (~5σ + ~3.7σ).
+  - **PR #832 H71 per-LAYER NS5 budget (this PR): closed NULL with monotone trend**. FIRST per-LAYER asymmetry to show direction — distinct from H63/H65 (LR magnitude homogenized by SI) because NS5 ITER COUNT determines orthogonalization QUALITY, not step magnitude.
+- **Forensic discipline highlights**: per-block k step-0 telemetry verified [8..14] linear interp pre-launch; chain auto-progression through 3 arms no GPU contention; bit-identity smoke (per_layer=0 = uniform k=12).
+- Routing → PR #862 H78 iso-budget extreme [6, 18] — direct mechanism test of the monotone trend at fixed total cost.
+
+---
+
 ## 2026-05-23 01:15 UTC — PR #856 ASSIGNED (tanjiro): H77 SWA eval-time uniform weight averaging — fresh eval-time mechanism
 
 - Branch: `g1r3-tanjiro/swa-eval-uniform-window`
