@@ -83,6 +83,11 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--sf_beta", type=float, default=0.0,
+                        help="Schedule-Free Polyak-averaged eval beta. 0.0 disables (default). "
+                             "When > 0, maintain a CPU-side EMA z_{t+1} = sf_beta * z_t + (1 - sf_beta) * x_{t+1} "
+                             "of all model parameters and run validation on the averaged iterate (weight-swap). "
+                             "Training continues from the training iterate x_t.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +770,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "sf_beta": args.sf_beta,
         },
     )
 
@@ -901,6 +907,14 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Schedule-Free Polyak-averaged eval iterate (CPU-resident EMA of model params).
+    # When sf_beta > 0, validation runs at z, training continues at x.
+    if args.sf_beta > 0.0:
+        _sf_z = {name: p.detach().to("cpu", copy=True) for name, p in model.named_parameters()}
+        print0(f"[sf-muon] enabled with sf_beta={args.sf_beta}; CPU EMA buffer initialized for "
+               f"{len(_sf_z)} param tensors", console=True)
+    else:
+        _sf_z = None
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -924,6 +938,24 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # Swap training iterate x -> averaged iterate z for evaluation (SF-Muon).
+            # _x_backup holds the GPU training iterate; restored verbatim after val.
+            _x_backup = None
+            sf_x_z_l2 = None
+            sf_x_z_rel = None
+            if _sf_z is not None:
+                _x_backup = {name: p.data.clone() for name, p in model.named_parameters()}
+                # Diagnostic: norm of (x - z) and norm of x, computed during the swap.
+                _sq_diff_terms = []
+                _sq_x_terms = []
+                for name, p in model.named_parameters():
+                    z_gpu = _sf_z[name].to(p.device, non_blocking=False)
+                    _sq_diff_terms.append((p.data - z_gpu).square().sum())
+                    _sq_x_terms.append(p.data.square().sum())
+                    p.data.copy_(z_gpu)
+                sf_x_z_l2 = float(torch.stack(_sq_diff_terms).sum().sqrt().item())
+                sf_x_l2 = float(torch.stack(_sq_x_terms).sum().sqrt().item())
+                sf_x_z_rel = sf_x_z_l2 / sf_x_l2 if sf_x_l2 > 0 else float("nan")
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -953,10 +985,18 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if sf_x_z_l2 is not None:
+                    metrics["sf/x_z_l2"] = sf_x_z_l2
+                    metrics["sf/x_z_rel"] = sf_x_z_rel
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            # Restore training iterate x after validation.
+            if _x_backup is not None:
+                for name, p in model.named_parameters():
+                    p.data.copy_(_x_backup[name])
+                _x_backup = None
             model.train()
             # start the clock again
             dist.barrier()
@@ -1078,6 +1118,14 @@ for trial_idx in range(args.num_trials):
                 param_histogram_limit=args.param_histogram_limit,
             )
         model.zero_grad(set_to_none=True)
+        # Schedule-Free EMA update on CPU: z_{t+1} = beta * z_t + (1 - beta) * x_{t+1}.
+        # Runs after every optimizer step regardless of telemetry/histogram cadence.
+        if _sf_z is not None:
+            with torch.no_grad():
+                _sf_alpha = 1.0 - args.sf_beta
+                for name, p in model.named_parameters():
+                    _sf_z[name].mul_(args.sf_beta).add_(p.detach().to("cpu", copy=False),
+                                                        alpha=_sf_alpha)
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
                + f" step_avg:{1000*approx_training_time/(step + 1):.2f}ms", console=True, log=False)
