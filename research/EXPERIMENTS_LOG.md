@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-23 14:05 UTC — PR #875 CLOSED: AdaBelief-aux gradient-surprise variance — both arms NULL, 87th axis, 16th aux Adam-family closure (g1r1-frieren)
+
+- Branch: `frieren/adabelief-aux`
+- Hypothesis: AdaBelief's surprise-variance denominator `s_t = β2·s + (1-β2)·(g-m)² + eps` (replacing Adam's raw `v_t = β2·v + (1-β2)·g²`) takes larger confident updates when m_t predicts g_t well. Two arms: paper defaults β=(0.9, 0.999), eps=1e-16 vs drop-in codebase defaults β=(0.8, 0.95), eps=1e-10.
+
+| Arm | β | eps | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (#737 n=2) | (0.8, 0.95) | 1e-10 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A (paper) | (0.9, 0.999) | 1e-16 | `5mha8dpz` | 3025 | 3.27288 | +100 | +0.0060 | **NULL** (clean regression) |
+| Arm B (drop-in) | (0.8, 0.95) | 1e-10 | `p5h5vf5e` | 2950 | 3.26852 | +25 | +0.0016 | **NULL** (Δsr marginal-boundary, Δval > 0.001) |
+
+- **Mechanism is verifiably active but produces no value:** Arm B `v_vs_s_ratio = 1.426` globally — surprise denominator is ~30% tighter than equivalent vanilla-Adam, mechanism flipped correctly. `eps_floor_fraction = 0` in both arms — denominator is always the active term.
+- **Key structural finding (frieren's contribution): `s/m² ≫ 1` everywhere on aux.** Per-group `s_over_m2` ratios at terminal:
+  - Arm A (β2=0.999): embed=32.56, lm_head=60.80, scalars=156.83
+  - Arm B (β2=0.95): embed=5.92, lm_head=5.88, scalars=23.21
+  - **Reads: (g−m)² is 5–150× larger than m² on aux at this scale.** AdaBelief's "confident-update" path only engages when (g−m)² ≪ m² (m predicts g well). Here m_t is NOT a useful predictor of g_t — confidence path never fires.
+- **Cross-axis confirmation of #854 i.i.d. aux gradient finding from a totally different measurement angle.** #854 measured `||Δg||/||g|| ≈ 1.45` directly; #875 measures `s/m² ≫ 1` indirectly via the AdaBelief denominator. Both confirm: aux gradients lack temporal predictability → momentum-magnitude-based adaptive optimizers cannot extract signal from temporal structure that doesn't exist.
+- **Slow-EMA lag pattern reproduced (3rd instance):** Arm A (paper β2=0.999) shows s/m² 5× larger than Arm B (drop-in β2=0.95) — slower m_t lags more, breaks the confidence-update premise even harder. Matches #846 AdEMAMix β3=0.9999 obsolete-direction finding and #854 Adan β1=0.98 m_norm 2.5× smaller finding.
+- **87th closed axis. 16th aux Adam-family closure** (after NAdam #698, β2 ramp #741, β1 ramp #796, RAdam #814, AdEMAMix #585+#846, AMSGrad #578, Adamax #583, LAMB #609, Lookahead #617, Schedule-Free #623, AdaBelief #545, Lion #604, Cautious-AdamW #853, Adan #854, Adam-mini #863, AdaBelief #875). **The variance-estimator and per-coord-adaptivity axes on aux are saturated.**
+- **Telemetry win (reusable across future hypotheses):** `s_over_m2` and `v_vs_s_ratio` diagnostics now serve as screening filters for any future Adam-family aux candidate. If `s/m² > 5` on a candidate's first 500-step run, the mechanism is invalidated before the full 4-GPU-hour benchmark commits.
+- **Frieren reassigned PR #913**: Aux embed/lm_head LR retune at PR #737 baseline. Arm A=embed_lr=0.4/lm_head_lr=0.008 (UP); Arm B=embed_lr=0.225/lm_head_lr=0.005 (DOWN). **Base-case probe never run at current baseline** — embed/lm_head LRs unchanged since PR #413, but body-Muon (γ_pre=0.4, β_cov=0.95) and EMA wrapper (β_target=0.99 cooldown ramp) have shifted the effective body update magnitude. If both arms NULL → confirm current LRs optimal, sharpen the "aux saturation" structural conclusion. If one wins → free val/sr improvement and reset aux baseline.
+
 ## 2026-05-23 10:05 UTC — PR #863 CLOSED: Adam-mini-aux per_row/per_tensor v_t reduction — both arms NULL, 86th axis, 15th aux Adam-family closure (g1r1-fern)
 
 - Branch: `g1r1-fern/adam-mini-aux-per-row-per-tensor`
