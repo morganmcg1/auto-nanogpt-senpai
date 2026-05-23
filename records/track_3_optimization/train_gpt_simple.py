@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--grokfast_lambda", type=float, default=0.0,
+                        help="GrokFast amplification weight (0=disabled). "
+                             "After backward(), modifies p.grad in-place: "
+                             "g = g + lambda * EMA_slow(g). EMA decays with --grokfast_alpha. "
+                             "Applied to all params (Muon and AdamW groups). "
+                             "Reference: Lee et al. 2024 (arXiv:2405.20233).")
+    parser.add_argument("--grokfast_alpha", type=float, default=0.98,
+                        help="GrokFast EMA decay rate for slow-gradient buffer "
+                             "(EMA = alpha*EMA + (1-alpha)*g). Default 0.98 — "
+                             "paper recommends 0.8-0.99. Ignored when grokfast_lambda=0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +775,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "grokfast_lambda": args.grokfast_lambda,
+            "grokfast_alpha": args.grokfast_alpha,
+            "grokfast_enabled": bool(args.grokfast_lambda > 0.0),
         },
     )
 
@@ -901,6 +914,14 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # GrokFast slow-gradient EMA buffers — reset at start of each trial.
+    # EMA shape/dtype tracks each parameter's gradient.
+    _grokfast_ema: dict[str, Tensor] = {}
+    if args.grokfast_lambda > 0.0:
+        _grokfast_ema = {name: torch.zeros_like(p.data)
+                         for name, p in model.named_parameters() if p.requires_grad}
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -986,6 +1007,32 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+
+        # GrokFast: update slow-gradient EMA and amplify p.grad in-place
+        # BEFORE optimizer.step(). Modifies the gradient that both Muon's Nesterov
+        # accumulation and AdamW will read. Diagnostic cos(raw_grad, EMA) is collected
+        # only on telemetry steps to keep overhead negligible.
+        grokfast_cos_sims: dict[str, float] = {}
+        if args.grokfast_lambda > 0.0:
+            with torch.no_grad():
+                for name, p in model.named_parameters():
+                    if p.grad is None:
+                        continue
+                    # EMA <- alpha*EMA + (1-alpha)*grad
+                    _grokfast_ema[name].mul_(args.grokfast_alpha).add_(
+                        p.grad.detach(), alpha=(1.0 - args.grokfast_alpha)
+                    )
+                    if telemetry_due and dist.get_rank() == 0:
+                        g32 = p.grad.float()
+                        e32 = _grokfast_ema[name].float()
+                        gn = float(g32.norm().item())
+                        en = float(e32.norm().item())
+                        if gn > 0 and en > 0:
+                            grokfast_cos_sims[name] = float(
+                                (g32 * e32).sum().item() / (gn * en)
+                            )
+                    # grad <- grad + lambda * EMA
+                    p.grad.add_(_grokfast_ema[name], alpha=args.grokfast_lambda)
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -1007,6 +1054,22 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        if dist.get_rank() == 0 and telemetry_due and args.grokfast_lambda > 0.0:
+            grokfast_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/grokfast/lambda": args.grokfast_lambda,
+                "train/grokfast/alpha": args.grokfast_alpha,
+            }
+            ema_tensors = [(name, _grokfast_ema[name])
+                           for name, p in model.named_parameters() if p.requires_grad]
+            grokfast_metrics.update(prefixed("train/grokfast/ema", aggregate_stats(ema_tensors)))
+            if grokfast_cos_sims:
+                cs_vals = list(grokfast_cos_sims.values())
+                grokfast_metrics["train/grokfast/grad_ema_cos_min"] = min(cs_vals)
+                grokfast_metrics["train/grokfast/grad_ema_cos_max"] = max(cs_vals)
+                grokfast_metrics["train/grokfast/grad_ema_cos_mean"] = sum(cs_vals) / len(cs_vals)
+            wandb.log(grokfast_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
