@@ -1,3 +1,48 @@
+## 2026-05-23 16:05 UTC — PR #927 ASSIGNED (alphonse): H98 Sophia-G diagonal Hessian preconditioning on MuonH momentum pre-NS5 (composes with polar projection)
+
+- Branch: `g1r3-alphonse/h98-sophia-g-pre-ns5`
+- Hypothesis: Apply Sophia-G (Liu 2023 arXiv:2305.14342) diagonal Hessian preconditioning to MuonH momentum buffer BEFORE NS5 polar projection. `m_precond = clip(m_t / (sqrt(h_t) + ε), -ρ, ρ)` then `u_t = NS5(m_precond)`. Sophia-G uses gradient-only Hutchinson proxy: `h_t = β2 * h_{t-1} + (1-β2) * g_t²` (EMA of g²). Composes with polar projection — Sophia operates element-wise, NS5 operates on matrix structure (orthogonal degrees of freedom).
+- Mechanism-distinct from in-flight body experiments: vs H92 MARS-M (variance reduction, not Hessian); vs H93 PSGD-Kron (Kronecker preconditioner replacing NS5; H98 keeps NS5); vs H95 µ-sweep (just MuonH β hyperparameter).
+- **Directly probes alphonse's H90 finding**: NS5 partial-orth on square shapes (sv_min~0.18) is load-bearing. If Sophia-G captures the per-coord variance structure that NS5 partial-orth was emergently providing, dividing by sqrt(h_t) BEFORE NS5 may help NS5 work cleaner on residual matrix structure. Telemetry priority: pre/post-NS5 sv_min/sv_max on square (768,768) blocks — does Sophia change the partial-orth regime?
+- Arms (n=1, 3325 steps): arm_a CTRL sophia_enabled=0 (bit-identical) / arm_b PRIMARY ρ=0.04 β2=0.99 (paper default) / arm_c TIGHTER_CLIP ρ=0.01.
+- Telemetry: muonh/sophia_h_{min,max,mean}, muonh/sophia_precond_ratio, muonh/sophia_clip_rate, muonh/sophia_pre_ns5_sv_min/max (every 100 steps), muonh/sophia_post_ns5_sv_min — direct probe of H90 partial-orth question.
+- 200-step smoke gate: arm_a bit-identical; h_t > 0 by step 50; clip_rate < 0.5; train/loss within 1.5× CTRL.
+- Decision: WIN<3.26877; NULL∈[3.26897, 3.27057]; NEG>3.27057. Closure-amplifier: both arm_b AND arm_c NEG → Sophia-G-pre-NS5 axis closed. Combined with potential H92/H93 outcomes could close "second-order body preconditioning" broadly.
+- LoC ~60 (extend MuonH with sophia_enabled branch + CLI). Memory: +1 buffer same size as p body weights (~150MB bf16). Reassignment after #895 H90 closure (deliberately deferred last cycle for fresh-context design — H98 directly motivated by H90 partial-orth-load-bearing finding).
+
+---
+
+## 2026-05-23 16:00 UTC — PR #926 ASSIGNED (thorfinn): H97 Adafactor for AUX groups (factored row × col second-moment, precision-axis follow-up to H89)
+
+- Branch: `g1r3-thorfinn/h97-aux-adafactor`
+- Hypothesis: Replace aux AdamW with Adafactor (Shazeer 2018 arXiv:1804.04235). Factored row × column second-moment estimates `v_hat[i,j] = v_row[i] * v_col[j] / mean(v_row)` instead of full per-coord v_t. O(m+n) state instead of O(m·n).
+- **Directly motivated by thorfinn's H89 ADOPT closure finding**: bf16 state at β2=0.999 → (1-β2)·g² underflows representable precision → ADOPT degenerates to sign-step early. Adafactor SIDESTEPS this: row/col second-moments are averages over thousands of g² values which don't underflow even at β2=0.999.
+- Mechanism-distinct from in-flight + closed aux experiments: vs H96 Lion (sign-momentum, no adaptive normalization vs Adafactor's factored adaptive normalization — orthogonal axis); vs H87 WIN AdamW β2=0.99 (full per-coord v_t vs factored low-rank approximation); vs H80 fp32-state NEG (different point on regularization spectrum — factored is coarser than per-coord, smoother than bf16 per-coord).
+- Arms (n=1, 3325 steps): arm_a CTRL aux AdamW β2=0.99 (byte-identical) / arm_b PRIMARY Adafactor β2=0.99 (match aux AdamW betas to isolate factoring effect) / arm_c HIGH_BETA2 Adafactor β2=0.999 (probe Adafactor's claimed "any β2 is safe" robustness in regime where ADOPT failed).
+- arm_c is the key diagnostic: if Adafactor works at β2=0.999 where ADOPT failed → confirms factored approximation enables higher β2 by avoiding per-coord underflow.
+- Telemetry: aux/af_v_row_mean, aux/af_v_col_mean, aux/af_v_hat_{min,max}, aux/af_update_norm, aux/af_rank1_residual (||v_factored − v_full|| / ||v_full|| — measures low-rank approximation quality).
+- 200-step smoke: arm_a step-0 val_loss=10.82583 bit-identical baseline; v_row/v_col growing monotonically; train/loss within 1.5× CTRL; rank1_residual < 0.5.
+- Decision: WIN<3.26877; NULL∈[3.26897, 3.27057]; NEG>3.27057. Closure-amplifier: both arm_b AND arm_c NEG → factored-second-moment paradigm closed on aux (combined with H89 ADOPT + H80 fp32-state + H73 z-loss + H96 Lion in flight = aux-side optimizer landscape robustly constrained by bf16-state-as-regularization).
+- LoC ~50 (Adafactor class + CLI extension on H96's aux_optimizer switch). Builds on thorfinn's diagnostic strength.
+
+---
+
+## 2026-05-23 15:50 UTC — PR #891 CLOSED NEG/closure (thorfinn): H89 ADOPT optimizer on aux — programme-level closure on precision-fragile aux optimizer family
+
+- Branch: `g1r3-thorfinn/adopt-optimizer-aux`
+- Result: All ADOPT arms NEG vs new baseline 3.26977.
+  - arm_a CTRL AdamW β2=0.95 (pre-merge baseline): val/loss=**3.27414** (W&B `gpfuos6d`, +0.00437 NEG vs new baseline, but this CTRL was on OLD aux baseline β2=0.95 not merged β2=0.99 — best read as off-baseline reference)
+  - arm_b PRIMARY ADOPT clip_exp=0.25, β2=0.999: val/loss=**3.27798** (W&B `iuhob56h`, **+0.00821 ~+10.3σ NEG**)
+  - arm_c DIAGNOSTIC ADOPT clip_exp=0.5, β2=0.999: val/loss=**3.28128** (W&B `j9cg3ggz`, **+0.01151 ~+14.4σ catastrophic NEG, never crossed 3.28**)
+- PR was CONFLICTING (rebase needed) but closed without rebase — mechanism failure (bf16 underflow on lagged-v at β2=0.999) is orthogonal to PR #888's β2 change in baseline; rebasing would only shift CTRL but ADOPT arms would still NEG by ~+0.008.
+- **Load-bearing mechanism finding (central diagnostic from thorfinn)**: with β2=0.999 + bf16 optimizer state, v-buffer increment `(1−β2)·g² = 0.001·g²` underflows bf16 representable precision (embed grad-norm ~344 / 38.6M elements → per-element increment ~3e-6). For first dozens of steps, `sqrt(v_{t-1})+eps ≈ eps=1e-6`, so `g/sqrt(v)` is enormous and **the clip is the only thing keeping the update finite**. ADOPT degenerates to element-wise `sign(g) · t^clip_exp · (1−β1)` for early steps. By the time `v` accumulates enough to lift `sqrt(v)` above eps, both ADOPT arms are already 0.02–0.05 off the AdamW trajectory and never close the gap.
+- **Programme-level closure on precision-fragile aux optimizers**: joins H80 (fp32-state AdamW NEG: bf16 state IS load-bearing implicit regularization) + H73 (z-loss saturation) + this PR. **The aux-side optimizer landscape is constrained by bf16-state-as-regularization**: any optimizer that requires precise v-buffer accumulation (ADOPT, AdamW β2≥0.999, fp32-state variants) is structurally disadvantaged on this stack.
+- **Pre-closes**: AdaBelief on aux (similar `(g−m)²` underflow pathology), Yogi on aux, NAdam β2=0.999 on aux, Lookahead-wrap of ADOPT (doesn't fix the precision issue), AMSGrad on aux (max-v projection requires precise v).
+- **What stays open**: optimizers that don't depend on precise per-coord v_t — Lion (H96 askeladd #921 in flight), Adafactor (H97 thorfinn #926 just assigned: factored row/col v sidesteps underflow), Tiger, GrokFast wrapper.
+- thorfinn's diagnostic discipline (clip-threshold verification, lagged-v invariant check, first-step-sign branch, post-clip vs pre-clip norms) was textbook — directly enabled the bf16-underflow finding.
+
+---
+
 ## 2026-05-23 15:25 UTC — PR #895 CLOSED NEG/closure (alphonse): H90 NSCubic — joint with H88 → programme-level closure on polynomial-Schulz polar-map family across degree × coef axes
 
 - Branch: `g1r3-alphonse/ns-cubic-orthogonalization`
