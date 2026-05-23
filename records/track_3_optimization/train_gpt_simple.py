@@ -82,6 +82,23 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Aux optimizer selection. 'adamw' = baseline AdamW (PR #888 merged). 'adafactor' =
+    # Adafactor (Shazeer 2018, arXiv:1804.04235) with factored row × col second moment
+    # for 2D aux params (embed, lm_head) and full second-moment fallback for 1D scalars.
+    # Adafactor flags (--aux_adafactor_*) are ignored when --aux_optimizer adamw.
+    # Aux β2 schedule (--aux_beta2_schedule) only takes effect for adamw.
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "adafactor"],
+                        help="Aux optimizer for embed/lm_head/scalars: 'adamw' (baseline) or 'adafactor'.")
+    parser.add_argument("--aux_adafactor_beta1", type=float,
+                        default=float(os.environ.get("AUX_ADAFACTOR_BETA1", "0.8")),
+                        help="Adafactor β1 (first-moment EMA). β1=0 disables momentum.")
+    parser.add_argument("--aux_adafactor_beta2", type=float,
+                        default=float(os.environ.get("AUX_ADAFACTOR_BETA2", "0.99")),
+                        help="Adafactor β2 (second-moment EMA on row/col averages).")
+    parser.add_argument("--aux_adafactor_eps_sq", type=float,
+                        default=float(os.environ.get("AUX_ADAFACTOR_EPS_SQ", "1e-6")),
+                        help="Stabilizer added to g² before the row/col EMA (Shazeer ε2-style).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -680,6 +697,129 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class Adafactor(torch.optim.Optimizer):
+    """Adafactor with factored row x column second moment (Shazeer 2018, arXiv:1804.04235).
+
+    For 2D parameters with numel >= 1024: maintain v_row (shape p.shape[:-1]) and
+    v_col (shape p.shape[:-2] + p.shape[-1:]) — both fp32. Reconstruct
+    v_hat[i, j] = v_row[i] * v_col[j] / mean(v_row). O(m + n) state instead of
+    O(m * n). For 1D / small tensors: fall back to full per-coord second moment.
+
+    First-moment m is kept (β1 > 0 by default); canonical Adafactor (β1=0) is
+    available by passing betas=(0, β2). State stored in fp32 — sidesteps the
+    bf16 g² underflow at high β2 that closed H89 ADOPT NEG. Bias correction is
+    applied to both moments. Adds eps_sq to g² before the EMA update.
+    """
+
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.99), eps=1e-30,
+                 eps_squared=1e-6, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, eps_squared=eps_squared,
+                        weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._last_telemetry: dict[str, float] = {}
+        self._compute_rank1 = False
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        if closure is not None:
+            with torch.enable_grad():
+                closure()
+        telemetry: dict[str, float] = {}
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            eps_sq = group["eps_squared"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "adafactor")
+            short = None
+            if "embed" in group_name:
+                short = "embed"
+            elif "head" in group_name:
+                short = "head"
+            elif "scalar" in group_name:
+                short = "scalars"
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad.float()
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    factored = (p.ndim >= 2 and p.numel() >= 1024)
+                    if factored:
+                        state["v_row"] = torch.zeros(p.shape[:-1], dtype=torch.float32, device=p.device)
+                        state["v_col"] = torch.zeros(p.shape[:-2] + p.shape[-1:], dtype=torch.float32, device=p.device)
+                    else:
+                        state["v"] = torch.zeros_like(p, dtype=torch.float32)
+                    if beta1 > 0:
+                        state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                bias_corr2 = 1.0 - beta2 ** t
+
+                if "v_row" in state:
+                    g_sq = g.pow(2).add_(eps_sq)
+                    v_row = state["v_row"]
+                    v_col = state["v_col"]
+                    v_row.mul_(beta2).add_(g_sq.mean(dim=-1), alpha=(1.0 - beta2))
+                    v_col.mul_(beta2).add_(g_sq.mean(dim=-2), alpha=(1.0 - beta2))
+                    # v_hat[i,j] = v_row[i] * v_col[j] / mean(v_row) — Shazeer Eq. 6.
+                    r_hat = v_row / v_row.mean(dim=-1, keepdim=True).clamp_min(eps)
+                    v_hat = r_hat.unsqueeze(-1) * v_col.unsqueeze(-2)
+                    v_hat_bc = v_hat / bias_corr2
+                else:
+                    v = state["v"]
+                    v.mul_(beta2).addcmul_(g, g, value=(1.0 - beta2))
+                    v_hat_bc = v / bias_corr2
+
+                if beta1 > 0:
+                    m = state["m"]
+                    m.mul_(beta1).add_(g, alpha=(1.0 - beta1))
+                    bias_corr1 = 1.0 - beta1 ** t
+                    m_hat = m / bias_corr1
+                else:
+                    m_hat = g
+
+                update = m_hat / (v_hat_bc.sqrt() + eps)
+
+                if short is not None:
+                    # Track aggregate update + per-param tensor stats (scalars param group
+                    # accumulates across all 1D params; the last param's stats win, which
+                    # is acceptable since the diagnostic question is just "are v values
+                    # >> 1e-6?" — all scalars share comparable scale.)
+                    telemetry[f"af_update_norm_{short}"] = float(update.norm().item())
+                    if "v_row" in state:
+                        telemetry[f"af_v_row_mean_{short}"] = float(v_row.mean().item())
+                        telemetry[f"af_v_col_mean_{short}"] = float(v_col.mean().item())
+                        telemetry[f"af_v_hat_min_{short}"] = float(v_hat_bc.min().item())
+                        telemetry[f"af_v_hat_max_{short}"] = float(v_hat_bc.max().item())
+                        if self._compute_rank1:
+                            # Rank-1 fit of CURRENT g_sq: ||g_sq - rank1(g_sq)||_F / ||g_sq||_F
+                            # where rank1[i,j] = row_mean[i] * col_mean[j] / global_mean.
+                            # Local proxy for factored-approximation quality (no v_full state).
+                            row_mean = g_sq.mean(dim=-1)
+                            col_mean = g_sq.mean(dim=-2)
+                            global_mean = g_sq.mean().clamp_min(1e-30)
+                            rank1 = row_mean.unsqueeze(-1) * col_mean.unsqueeze(-2) / global_mean
+                            residual = (g_sq - rank1).norm() / g_sq.norm().clamp_min(1e-30)
+                            telemetry[f"af_rank1_residual_{short}"] = float(residual.item())
+                    else:
+                        # 1D fallback path: full per-coord v_t in fp32. Logging v_full_mean
+                        # answers the H89 follow-up question — does fp32 storage of the
+                        # per-coord v_t (over scalar params) avoid the bf16 underflow that
+                        # closed ADOPT at β2=0.999?
+                        telemetry[f"af_v_full_mean_{short}"] = float(v.mean().item())
+                        telemetry[f"af_v_full_min_{short}"] = float(v.min().item())
+                        telemetry[f"af_v_full_max_{short}"] = float(v.max().item())
+
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update.to(p.dtype), alpha=-lr)
+        self._last_telemetry = telemetry
+        return None
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -724,6 +864,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "adafactor":
+    print0(f"AUX OPTIMIZER = Adafactor: β1={args.aux_adafactor_beta1} β2={args.aux_adafactor_beta2} "
+           f"eps_sq={args.aux_adafactor_eps_sq} (aux β2 schedule disabled)", console=True)
+else:
+    print0(f"AUX OPTIMIZER = AdamW: β2_schedule={args.aux_beta2_schedule} β2_start={args.aux_beta2_start} "
+           f"β2_end={args.aux_beta2_end} eps={args.aux_adamw_eps}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +926,10 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_adafactor_beta1": args.aux_adafactor_beta1,
+            "aux_adafactor_beta2": args.aux_adafactor_beta2,
+            "aux_adafactor_eps_sq": args.aux_adafactor_eps_sq,
         },
     )
 
@@ -829,11 +979,24 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    aux_scalar_params = [p for p in model.parameters() if p.ndim < 2]
+    if args.aux_optimizer == "adamw":
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=aux_scalar_params, lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    elif args.aux_optimizer == "adafactor":
+        optimizer1 = Adafactor(
+            [dict(params=[model.embed.weight], lr=0.3, name="adafactor_embed"),
+             dict(params=[model.proj.weight], lr=1/320, name="adafactor_head"),
+             dict(params=aux_scalar_params, lr=0.01, name="adafactor_scalars")],
+            betas=(args.aux_adafactor_beta1, args.aux_adafactor_beta2),
+            eps_squared=args.aux_adafactor_eps_sq,
+            weight_decay=0,
+        )
+    else:
+        raise ValueError(f"unknown aux_optimizer: {args.aux_optimizer}")
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -897,17 +1060,21 @@ for trial_idx in range(args.num_trials):
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
         # is a no-op since b2 stays equal to aux_beta2_start = baseline 0.95.
-        if args.aux_beta2_schedule == "cooldown_ramp":
-            cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
-            if step < cooldown_start:
-                b2 = args.aux_beta2_start
+        # Only applies to AdamW; Adafactor manages its own β2 via --aux_adafactor_beta2.
+        if args.aux_optimizer == "adamw":
+            if args.aux_beta2_schedule == "cooldown_ramp":
+                cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
+                if step < cooldown_start:
+                    b2 = args.aux_beta2_start
+                else:
+                    prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+                    b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
             else:
-                prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
-                b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+                b2 = args.aux_beta2_start
+            for g in optimizer1.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         else:
-            b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+            b2 = args.aux_adafactor_beta2
         return muonh_warmup, b2
 
 
@@ -1051,6 +1218,8 @@ for trial_idx in range(args.num_trials):
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
         for opt in optimizers:
+            if isinstance(opt, Adafactor):
+                opt._compute_rank1 = telemetry_due
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
@@ -1071,6 +1240,9 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                elif isinstance(opt, Adafactor) and telemetry_due:
+                    for k, v in opt._last_telemetry.items():
+                        muonh_metrics[f"aux/{k}"] = v
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
