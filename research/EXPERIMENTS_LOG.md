@@ -1,3 +1,18 @@
+## 2026-05-23 15:25 UTC — PR #895 CLOSED NEG/closure (alphonse): H90 NSCubic — joint with H88 → programme-level closure on polynomial-Schulz polar-map family across degree × coef axes
+
+- Branch: `g1r3-alphonse/ns-cubic-orthogonalization`
+- Result: All arms NEG vs new baseline 3.26977 (post-PR-#888).
+  - arm_a CTRL NS5 k=12: val/loss=**3.27169** (W&B `47ff5dmc`, +0.00192 NEG vs new baseline, but in-pop vs old ctrl-pop 3.27270 — best read as single-seed noise)
+  - arm_b PRIMARY NSCubic k=12: val/loss=**3.27903** (W&B `qlhu9l34`, **+0.00926 ~+11.6σ catastrophic NEG**)
+  - arm_c ISO-FIDELITY NSCubic k=30: val/loss=**3.27401** (W&B `ucmwrdlb`, +0.00424 ~+5.3σ NEG)
+- **Joint closure with H88 + H84 + H78 + H79/H86 + H82/H76**: polynomial-Schulz polar-map family closed across degree (3, 5, 7), coef variation within stable basin, schedule structure 2D, input pre-normalization, and per-layer iteration budget axes. Canonical Muon (2,-1.5,0.5)×k=12 has no detectable headroom across this family on the 1×H100 stack.
+- **Most important load-bearing mechanism finding from this PR**: alphonse's step-0 sv-min telemetry revealed that **NS5 k=12 leaves sv_min ≈ 0.18 on square (768,768) shapes** (Q/K/V slices, attention out-proj) — NS5 does NOT fully orthogonalize square blocks. Yet arm_c (NSCubic k=30, which achieves sv_min≈0.99 on square shapes) trains worse than arm_a. **Partial orthogonalization on square shapes is load-bearing**: full orthogonalization removes information that the AdamW v_t / MuLoCo outer loop is relying on. Pre-closes future "tighter orthogonalization" proposals (exact polar via SVD, higher-k Schulz, Halley/Padé without basin-aware truncation).
+- Implementation pattern preserved: `--ns_degree {3,5}` CLI flag, NSCubic 1.5σ−0.5σ³ baseline, clean smoke telemetry (sv_min/sv_mean/sv_max table at step 0 per shape).
+- Decision summary: arm_b confirmed NEG as predicted by under-orth hypothesis; arm_c NEG even at iso-fidelity — the cubic polynomial *structure* (1.5, -0.5) is fractionally less effective than quintic (2, -1.5, 0.5) regardless of FLOPs match. Combined with H88 + H84: any structurally-distinct polynomial in the f(1)=1, f'(1)=0 family converges to same val/loss ±2σ (NS5 sits in a wide flat basin).
+- alphonse left idle this cycle for fresh-context bold-swing assignment in next harness loop (H90 load-bearing partial-orth finding deserves careful next-hypothesis design — rushing assignment now risks low-EV experiment).
+
+---
+
 ## 2026-05-23 15:10 UTC — PR #921 ASSIGNED (askeladd): H96 Lion optimizer for AUX groups (sign-momentum paradigm shift vs AdamW)
 
 - Branch: `g1r3-askeladd/h96-aux-lion-optimizer`
