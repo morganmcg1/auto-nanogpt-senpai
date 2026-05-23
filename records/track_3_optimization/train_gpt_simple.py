@@ -71,6 +71,26 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # NS5 polynomial coefficient choice for zeropower_via_newtonschulz5 inside
+    # muon_update. All valid quintic coefs satisfy p(1)=1 and p'(1)=0, giving a
+    # one-parameter family (a, 2.5-2a, a-1.5). muon_quintic=(2.0,-1.5,0.5) is
+    # the current baseline. high_amp_25=(2.5,-2.5,1.0) and
+    # high_amp_30=(3.0,-3.5,1.5) test +25%/+50% amplification of small sigma.
+    # polar_express=(3.4445,-4.7750,2.0315) is the original Muon-paper coef set
+    # but violates p(1)=1 (sums to 0.701), so it converges to a bounded quasi-
+    # orthogonal limit (sigma in [0.67, 1.15]) rather than the unit sphere —
+    # see PR #889 smoke test. Kept for historical reference / arm reproduction.
+    parser.add_argument("--ns_variant", type=str,
+                        default=os.environ.get("NS_VARIANT", "muon_quintic"),
+                        choices=["muon_quintic", "polar_express",
+                                 "high_amp_25", "high_amp_2p75", "high_amp_30"],
+                        help="NS5 coefficient set. muon_quintic=(2,-1.5,0.5) baseline. "
+                             "high_amp_25=(2.5,-2.5,1.0). high_amp_2p75=(2.75,-3.0,1.25). "
+                             "high_amp_30=(3.0,-3.5,1.5). "
+                             "polar_express=(3.4445,-4.7750,2.0315) [violates p(1)=1].")
+    parser.add_argument("--ns_iters", type=int,
+                        default=int(os.environ.get("NS_ITERS", "12")),
+                        help="Number of NS5 iterations inside muon_update (default 12).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -466,7 +486,8 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, a: float = 2.0, b: float = -1.5,
+                                 c: float = 0.5, k: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -475,8 +496,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(k):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -486,18 +506,36 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True,
+                ns_a: float = 2.0, ns_b: float = -1.5, ns_c: float = 0.5,
+                ns_k: int = 12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, a=ns_a, b=ns_b, c=ns_c, k=ns_k)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+# NS5 coefficient sets selectable from CLI. Kept as a module-level dict so the
+# Muon / MuonH classes can look up the (a, b, c) triple from a string name.
+NS_VARIANTS = {
+    "muon_quintic": (2.0, -1.5, 0.5),
+    "high_amp_25": (2.5, -2.5, 1.0),
+    "high_amp_2p75": (2.75, -3.0, 1.25),
+    "high_amp_30": (3.0, -3.5, 1.5),
+    "polar_express": (3.4445, -4.7750, 2.0315),
+}
+
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95,
+                 ns_variant="muon_quintic", ns_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+        assert ns_variant in NS_VARIANTS, f"unknown ns_variant: {ns_variant}"
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        ns_a, ns_b, ns_c = NS_VARIANTS[ns_variant]
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        ns_variant=ns_variant, ns_iters=ns_iters,
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -513,7 +551,9 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         ns_a=group["ns_a"], ns_b=group["ns_b"],
+                                         ns_c=group["ns_c"], ns_k=group["ns_iters"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -591,12 +631,17 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 ns_variant="muon_quintic", ns_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
+        assert ns_variant in NS_VARIANTS, f"unknown ns_variant: {ns_variant}"
         params = sorted(params, key=lambda x: x.size(), reverse=True)
+        ns_a, ns_b, ns_c = NS_VARIANTS[ns_variant]
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns_variant=ns_variant, ns_iters=ns_iters,
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -624,7 +669,9 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         ns_a=group["ns_a"], ns_b=group["ns_b"],
+                                         ns_c=group["ns_c"], ns_k=group["ns_iters"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -705,6 +752,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"NS5 variant={args.ns_variant} iters={args.ns_iters} coefs={NS_VARIANTS[args.ns_variant]}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,8 +814,29 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "ns_variant": args.ns_variant,
+            "ns_iters": args.ns_iters,
+            "ns_a": NS_VARIANTS[args.ns_variant][0],
+            "ns_b": NS_VARIANTS[args.ns_variant][1],
+            "ns_c": NS_VARIANTS[args.ns_variant][2],
         },
     )
+    # Step-0 metric log of NS5 variant choice so the run is identifiable on
+    # scalar W&B charts (config is plot-axis-only otherwise).
+    _ns_variant_id = {
+        "muon_quintic": 0,
+        "polar_express": 1,
+        "high_amp_25": 2,
+        "high_amp_30": 3,
+        "high_amp_2p75": 4,
+    }[args.ns_variant]
+    wandb.log({
+        "ns/variant_id": _ns_variant_id,
+        "ns/iters": args.ns_iters,
+        "ns/a": NS_VARIANTS[args.ns_variant][0],
+        "ns/b": NS_VARIANTS[args.ns_variant][1],
+        "ns/c": NS_VARIANTS[args.ns_variant][2],
+    }, step=0)
 
 for trial_idx in range(args.num_trials):
 
@@ -819,7 +888,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns_variant=args.ns_variant, ns_iters=args.ns_iters)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
