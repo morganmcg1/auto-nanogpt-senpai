@@ -7,7 +7,30 @@ Statistical rule: `(3.28 - mu) * sqrt(n) >= 0.004`.
 
 ## Local baseline (auto-nanogpt-1gpu-r1)
 
-### 2026-05-22 13:21 UTC — PR #737: Polyak EMA cooldown-aware β=0.99 ramp (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+### 2026-05-23 14:10 UTC — PR #864: EMA warmup_steps re-tune 1750 (thorfinn n=2 WIN) (g1r1-thorfinn) ← CURRENT BEST
+
+- **speedrun/final_first_step_to_target:** 2925 (n=2 mean — seed-1 2925, seed-2 2925; both seeds independently hit sr=2925)
+- **val/loss:** 3.266826 (n=2 mean — seed-1 `j8nsn77s` 3.266355, seed-2 `08ursg5n` 3.267298)
+- **stat-sig margin:** (3.28 − 3.266826)·√2 = 0.01863 ≥ 0.004 ✓ (4.66×)
+- **Δ vs PR #737 baseline:** 0 sr-steps (tied), −0.0001 val (−0.1 mnat improvement — razor-thin but strictly passes predeclared merge rule)
+- **W&B runs:** seed-1 `j8nsn77s`, seed-2 `08ursg5n` (group `g1r1-thorfinn/ema-warmup-retune`); Arm B (warmup=2500) also sub-marginal but not merged.
+- **Key config:** all PR #737 config + `--ema_warmup_steps 1750` (changed from 2250). `--ema_beta 0.95 --ema_beta_target 0.99` unchanged.
+- **Mechanism:** Shorter EMA warmup (1750 vs 2250 steps) = 1500 vs 1000 cooldown-phase averaging steps at β_t ramping 0.95→0.99. Longer averaging window accumulates slightly more EMA buffer drift (`buffer_frob_dist` 10.13 vs ~10.0 at baseline warmup), marginal val improvement. EMA `n_eff ≈ 100` in both cases (dominated by terminal β_t=0.99). Effect is real but tiny; seed-2 val (3.26730) was above baseline individually — the n=2 mean passes by ~0.1 mnat.
+- **Statistical thresholds (updated with new baseline):** n=1 win: sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266826). New **n=1 stat-sig threshold: val ≤ 3.276** (unchanged formula). **Marginal band: Δsr ≤ 25 OR Δval ≤ 0.001** (unchanged structure).
+- **Reproduce:**
+  ```bash
+  cd target
+  torchrun --standalone --nproc_per_node=1 \
+    records/track_3_optimization/train_gpt_simple.py --num_trials 1 \
+    --ema_beta 0.95 --ema_warmup_steps 1750 --ema_beta_target 0.99 \
+    --wandb_name "baseline-reproduction-pr864" \
+    --wandb_group "baseline-reproduction"
+  ```
+- **Notes:** EMA (warmup_steps, β_target) 2D surface now pinned at 7 points; the local landscape around warmup=2250, β_target=0.99 is flat within ~0.6 mnat. Further warmup_steps refinement unlikely to pay rent. The warmup=2500 arm (Arm B) showed val=3.266655, also sub-marginal — suggests EMA is slightly bandwidth-limited at warmup_steps>2000 and slightly over-accumulated below warmup_steps=1500.
+
+---
+
+### 2026-05-22 13:21 UTC — PR #737: Polyak EMA cooldown-aware β=0.99 ramp (thorfinn n=2 WIN) (g1r1-thorfinn)
 
 - **speedrun/final_first_step_to_target:** 2925 (n=2 mean — seed-1 2925, seed-2 2925; both seeds independently hit sr=2925)
 - **val/loss:** 3.266926 (n=2 mean — seed-1 3.265811, seed-2 3.268040)
