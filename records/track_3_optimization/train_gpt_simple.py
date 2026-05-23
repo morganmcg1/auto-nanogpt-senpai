@@ -589,6 +589,10 @@ NANOGPT_NS_STOCHASTIC_COOLDOWN = int(os.environ.get("NANOGPT_NS_STOCHASTIC_COOLD
 # stochastic-NS runs (Arm B/C/D N=1 in PR #787).
 _SENPAI_SEED_RAW = os.environ.get("SENPAI_SEED", "")
 NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
+# Init-anchored WD on embed (#847). When > 0, after each optimizer step we apply
+# `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
+# At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
+NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -817,6 +821,9 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
+       f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -888,6 +895,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
+            "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
         },
     )
 
@@ -917,6 +925,17 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Init-anchor snapshot for embed-only init-anchored WD (#847, env-var-gated).
+    # When NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0 (default) the snapshot stays None and
+    # the post-step hook short-circuits to a bit-identical no-op.
+    embed_init_snapshot = None
+    if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0.0:
+        embed_init_snapshot = model.embed.weight.detach().clone()
+        print0(f"EMBED_INIT_ANCHOR: lambda={NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
+               f"snapshot_norm={embed_init_snapshot.norm().item():.4f} "
+               f"snapshot_mean_abs={embed_init_snapshot.abs().mean().item():.4f} "
+               f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
@@ -1188,6 +1207,20 @@ for trial_idx in range(args.num_trials):
             ns_cumulative_iters += ns_iters_this_step
         for opt in optimizers:
             opt.step()
+        # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
+        # have stepped, apply `p -= lr_embed * lambda * (p - p_init)`. Order vs
+        # optimizer2.step() does not matter because the hook only touches
+        # model.embed.weight (an AdamW-managed AUX param, untouched by Muon).
+        if embed_init_snapshot is not None:
+            with torch.no_grad():
+                for group in optimizer1.param_groups:
+                    if group.get("name") == "adam_embed":
+                        lr_embed = group["lr"]
+                        model.embed.weight.data.sub_(
+                            model.embed.weight.data - embed_init_snapshot,
+                            alpha=lr_embed * NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+                        )
+                        break
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1219,6 +1252,20 @@ for trial_idx in range(args.num_trials):
                             "train/embed_schedule/lr_embed": embed_group["lr"],
                             "train/embed_schedule/adam_steps_taken": step_count,
                         }, step=wandb_step)
+            # Init-anchor verification telemetry (#847). Logged only when the
+            # snapshot is alive so λ=0 runs add no extra W&B keys.
+            if embed_init_snapshot is not None:
+                with torch.no_grad():
+                    delta = model.embed.weight.detach() - embed_init_snapshot
+                    embed_dist_from_init = float(delta.norm().item())
+                    embed_dist_from_init_mean_abs = float(delta.abs().mean().item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "embed/dist_from_init": embed_dist_from_init,
+                    "embed/dist_from_init_mean_abs": embed_dist_from_init_mean_abs,
+                    "embed/init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+                }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
             log_adamw_step_direction(
