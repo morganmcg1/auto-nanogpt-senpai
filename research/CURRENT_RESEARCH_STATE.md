@@ -23,7 +23,7 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (7 in-flight, 06:55 UTC)
+## Active experiments (8 in-flight, 07:10 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
@@ -34,9 +34,9 @@ Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primar
 | **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 725, ETA ~09:35 UTC. |
 | **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 850. ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
 | **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | Arm A `(paper)` running step 825, ETA terminal ~08:50 UTC. Arm A paper defaults (β=(0.9,0.999), eps=1e-16). Arm B drop-in pending chain. Tests variance-estimator axis — orthogonal to all in-flight aux Adam-family. |
+| **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | **NEWLY ASSIGNED 07:10 UTC.** Arm A: NS_ITERS=8 (33% reduction — tests over-convergence). Arm B: NS_ITERS=16 (33% increase — tests whether more iterations help ill-conditioned gradients). Mechanism: cubic cubic Halley iteration, 12→8 may preserve scale signal for u/w-floor stack. |
 
 **Recently closed (this session):** #827 nezuko (NS-output Frobenius normalization 81st, n=2 informative-NULL).
-**Idle:** g1r1-nezuko (needs new assignment after #827 closure).
 
 ## Recently closed (since session start)
 
