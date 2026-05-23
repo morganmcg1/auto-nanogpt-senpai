@@ -942,3 +942,43 @@ Combined, these test whether the floor cluster is sensitive to non-stationary me
 ### Strategic note: cycle 71 throughput
 
 68 axis closures (#928 + #930) and 3 fresh assignments (#946 + #947 + #948) in the past ~3.5 hours. Throughput is healthy; no idle GPUs. Plateau Protocol ongoing — focus shifting from scalar/precision axes (now exhausted) to temporal/structural axes.
+
+
+## 2026-05-23 ~21:08Z — Cycle 71 mid-138 update
+
+### nezuko #939 NORMUON_SM_GRANULARITY CLOSED — 70th refuted axis, floor cluster #43
+
+Arm A=per_element val=3.27656/ffs=3100 — clear high-end floor cluster landing, missing hold gate by +0.00656 val + 100 ffs. Kill gates all PASS cleanly (no divergence). AdaMuon (Li et al. 2507.11005) does not transfer onto this heavily-tuned stack — per-row already captures dominant signal, Frobenius rescale composition duplicates magnitude work, floor sensitivity below paper's 0.003-0.006 nat claim. W&B: `n63z75s5` (Arm A), `7rbwvw5p`+`353b0di4` (disabled-checks, plumbing double-verified at val@200=4.085).
+
+### nezuko #949 CONTRA_NORMUON_RESCALE_ABLATION just assigned — first Frobenius rescale ablation in 232+ PRs
+
+Fresh assignment, **directly motivated by nezuko's own #939 mechanistic insight**: "The Frobenius rescale already supplies one global magnitude factor." Two arms env-gate the two Frobenius rescale steps in `contra_normuon_update`:
+- Arm A: `NORMUON_RESCALE=0` (disable line 525 only) → per-row variance can shift global magnitude
+- Arm B: `CONTRA_RESCALE=0 NORMUON_RESCALE=0` (disable both) → CONTRA blend AND per-row variance both shift magnitude
+
+Code: ~8 LOC env-gate around two lines (`update = update * opower_fro / update.norm()` + `update = update * (vnorm / vnorm_new)`). Explicit early-divergence guard at step 200 (val ≤ 4.10) added to detect any magnitude blowup.
+
+**Mechanistic motivation**: The floor is COMPOSITIONAL (#813 closure: "The floor is in the COMPOSITION of the optimizer stack, not in any individual component"). 70+ axes have been tested at constant rescale behavior. Removing one or both rescales is a compositional change — first such ablation in 232+ PRs. Distinct from all prior axes (NORMUON_BETA2, NORMUON_SM_GRANULARITY, NS5_COEFFICIENTS, CONTRA sweeps — all kept rescale ON). Risk: large step sizes early may destabilize; standard kill gates + step-200 guard apply.
+
+### Cycle 71 axis tally: **70 refuted**, ~43 floor cluster landings, **0 merges above baseline**
+
+In-flight as of 21:08Z (all WIP, 7 students busy):
+- #702 edward MU_WARMUP_START — pod-broken hold (~110h)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~110h)
+- #934 thorfinn BODY_INIT_SCALE Arm B=1.2 — terminal ~21:00Z (still WIP, may have just finished)
+- #942 askeladd RMSNORM_GAIN_INIT Arm A=0.5 — in-flight, terminal ~21:00Z
+- #946 alphonse ROPE_FRACTION — in-flight, terminal ~22:30Z
+- #947 frieren CONTRA_MUON_SCHEDULE — in-flight
+- #948 fern NS5_ITERS_SCHEDULE — newly assigned 20:45Z
+- #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION — newly assigned 21:08Z
+
+Zero idle students.
+
+### Fresh assignment cluster: compositional mechanism axes
+
+Three new assignments in past ~1 hour explore distinct compositional/temporal axes untouched in 70 refuted scalar/init experiments:
+- **#947 (CONTRA temporal)**: when is CONTRA most valuable?
+- **#948 (NS5_ITERS temporal)**: when is NS5 direction quality most valuable?
+- **#949 (RESCALE compositional)**: do Frobenius rescales mask other components' magnitude signal?
+
+If ANY of these passes, we've moved off the floor. The combined hypothesis: floor is unlocked by mechanism non-stationarity (#947, #948) or composition simplification (#949), NOT by more scalar tuning.

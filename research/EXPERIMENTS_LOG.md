@@ -6449,3 +6449,23 @@ Kill-gate ladder: both arms razor-edge at step 1000 (+0.00038 Arm B, +0.00291 Ar
 **Results commentary**: Bidirectional symmetric degradation. ±0.02 perturbations both ~0.004-0.005 nats worse than default 0.12. Geometric standard `1/√64 ≈ 0.125` is essentially what QK-norm wants; 0.12 already mildly sharpens it. Both arms land in floor cluster band (#41 Arm B, #42 Arm A — softer slightly better than sharper). Default 0.12 confirmed Goldilocks under the mandatory stack; QK-norm-induced decoupling does not leave scalar-temperature headroom.
 
 **Closure outcome**: 69th refuted axis. Student suggestions correctly flag (1) axis is now closed under current stack, (2) further intermediate values (0.11, 0.13) unlikely to break the baseline without a coupled structural change, (3) muP-aware width sweep would re-open this at different width. Next assignment for fern: **PR #948 NS5_ITERS_SCHEDULE** — first temporal NS5 axis in 232+ PRs, sibling to frieren #947 CONTRA_MUON_SCHEDULE in temporal-axis investigation cluster. Arms A=ramp 14→8 (fewer late), B=ramp 14→20 (more late) during cooldown phase. Tests whether direction-quality (NS5 polynomial saturation) is non-stationary across training phases.
+
+
+## 2026-05-23 21:08 UTC — PR #939: NORMUON_SM_GRANULARITY — per-element vs per-row second moment (AdaMuon) CLOSED (70th refuted axis)
+
+- `g1r2-nezuko/normuon-sm-granularity`
+- Hypothesis: AdaMuon (Li et al. arxiv 2507.11005) per-element second moments on post-NS5 update give 0.003-0.006 nat improvement over per-row scalars (NorMuon-lite) on language model pre-training. If applicable on our stack, could push through the floor.
+- W&B runs: `n63z75s5` (Arm A=per_element), `7rbwvw5p` + `353b0di4` (disabled-check, per_row default, both val@200=4.085 — plumbing double-verified).
+
+| Arm | Granularity | val/loss @3175 | ffs | Δval vs baseline | Δffs vs baseline | Hold gate |
+|---|---|---:|---:|---:|---:|---|
+| Baseline | per_row | 3.26776 (n=2) | 3000 | — | — | — |
+| Arm A | **per_element** | **3.27656** | 3100 | +0.00880 | +100 | FAIL by 0.00656 val + 100 ffs |
+
+**Results commentary**: Floor cluster landing at HIGH end of band — val=3.27656 is 0.00656 nats above the hold gate (3.27), ffs=3100 is 100 steps over. Kill gates all PASSED cleanly (no divergence/NaN). The AdaMuon mechanism does NOT transfer from the paper's GPT-2 baseline (where per-row was untuned) to our heavily-tuned stack:
+
+1. **Per-row already captures dominant signal** on this model's mostly square hidden matrices — within-row heterogeneity is small after NS5 saturates.
+2. **Frobenius rescale composition** (lines 514 + 525 in contra_normuon_update) **duplicates magnitude work** that per-element would otherwise provide. Student's own analysis: "The Frobenius rescale already supplies one global magnitude factor."
+3. **Floor sensitivity below AdaMuon's claim** — the 0.003-0.006 nat gain would need to manifest fully with no friction. Our stack has redundancy that absorbs the marginal AdaMuon benefit.
+
+**Closure outcome**: 70th refuted axis. Student's diagnostic on disabled-check ghost (`353b0di4`) confirmed accidental relaunch — both disabled-checks reproduce val@200=4.085 (double-verified plumbing). **Excellent student work** on the mechanistic analysis. Next assignment for nezuko: **PR #949 CONTRA_NORMUON_RESCALE_ABLATION** — directly tests the student's own #939 hypothesis by env-gating the two Frobenius rescales (lines 514 + 525) in `contra_normuon_update`. First ablation of either rescale in 232+ PRs.
