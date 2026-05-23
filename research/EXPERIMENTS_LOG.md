@@ -3,6 +3,32 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~17:45 UTC — PR #887: askeladd AGC-Muon adaptive gradient clipping pre-NS — **CLOSED clean-WEAK-NEG**
+
+- **Branch:** `g1r5-askeladd/agc-muon`
+- **Student:** g1r5-askeladd
+- **Hypothesis:** Apply NFNet-style Adaptive Gradient Clipping (AGC) before NS orthogonalization — clip per-layer gradient magnitude to λ × ‖W‖_F/‖g‖_F, targeting the pre-NS signal rather than post-NS output.
+
+| Cell | λ | scope | val/loss | Δ vs baseline | ffs | W&B |
+|:---:|:---:|:---:|---:|---:|---:|-----|
+| A | 0.0 | ctrl | 3.26163 | +0.000409 | 3025 | s5u6e898 |
+| B | 0.01 | mlp | 3.26298 | +0.001759 | 3050 | ga44i7af |
+| **C** | **0.001** | **mlp** | **3.26071** | **−0.000511 (−0.86σ)** | **3025** | **0kphe0qa** |
+| D | 0.01 | attn | 3.26304 | +0.001819 | 3050 | 7yirq939 |
+| E | 0.01 | all | 3.26225 | +0.001029 | 3050 | ze7wnpxt |
+
+**Key diagnostic:** clipped_frac=1.000 for every in-scope layer in every cell throughout training (g/W means: mlp≈1.6, attn≈5.2). AGC fires 100% of steps — never a conditional gate, always an aggressive magnitude shrink.
+
+**Trajectory:** Cell C consistently sub-A from step 1000 onward (not a terminal noise artifact). Cell B/D/E regress.
+
+**Mechanism analysis:** Since AGC always fires, the mechanism reduces to "multiply MLP gradient magnitudes by constant factor 0.001/g_to_w ≈ 0.001/1.63 ≈ 6×10⁻⁴ per step" — effectively a large implicit LR reduction on MLP fc layers. This confounds with the already-tuned `lr_mlp=0.055` hyperparameter. The sub-baseline signal from Cell C is indistinguishable from a minor MLP LR miscalibration artifact.
+
+**n=1 projection to n=4:** Cell C at 3.26071 (−0.86σ) follows the same pattern as #840 (AdEMAMix, −1.58σ at n=1 → n=4 missed gate by 4×) and #873 (MARS, −1.38σ at n=1 → n=4 WEAK-NEG). Projected n=4 statsig = (3.261221 − 3.26071) × √4 ≈ 0.001 << gate 0.004.
+
+**Decision: close clean-WEAK-NEG.** Pre-NS gradient transformation axis fully saturated. Reassigning askeladd → #936 Asymmetric SOAP eigenbasis ablation.
+
+---
+
 ## 2026-05-23 ~16:30 UTC — PR #905: thorfinn Q/K/V Gradient Consensus pre-NS — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-thorfinn/qkv-consensus-pre-ns`
