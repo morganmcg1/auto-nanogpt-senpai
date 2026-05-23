@@ -3,6 +3,26 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~02:30 UTC — PR #844: thorfinn Cautious Muon (post-NS sign-agreement mask) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-thorfinn/cautious-muon`
+- Student: g1r5-thorfinn
+- Hypothesis: Apply Cautious (Liang et al. arXiv 2411.16085) post-NS — zero out elements whose post-NS update disagrees in sign with raw gradient, rescale survivors by 1/keep_rate to preserve Frobenius RMS. Expected: ~30-40% mask binding initially, ~70-85% by mid-training (per AdamW Cautious literature); should denoise the update direction.
+- **Results (Cells A/B only; C/D/E gated by Post-B kill switch):**
+
+| Cell | Config | run_id | val/loss @3250 | Δ vs baseline μ |
+|:----:|--------|:------:|:--------------:|:---------------:|
+| **A (ctrl)** | refactor neutral | `jg83m49x` | **3.26058** | −0.00064 (−1.08σ_single, parity) |
+| B (primary) | full cautious all | `5exfsy5n` | **3.28395** | **+0.02273 (+38.3σ_single)** ❌ |
+
+- **Mechanism (student's analysis):** Post-NS Cautious masking is destructive on Muon for 3 reasons:
+  1. NS produces sign-disagreement with raw gradient as a *structural* feature (35-40% disagreement is normal post-orthogonalization, NOT noise). Cautious-kept rates: 0.635 (MLP), 0.610 (attn), rising 0.53→0.67 over training.
+  2. The rescale-to-preserve-Frobenius (×1.6 on survivors) destroys NS's spectral bound — preserves Frobenius RMS but breaks orthogonality.
+  3. Net effect: regression toward signed-SGD on a Frobenius budget, undoing NS's contribution.
+- **Mechanistic distinction:** Distinct from #823 SignMuon which applies sign BEFORE NS (NS re-orthogonalizes; spectral property preserved). Post-NS is the WRONG stage for sign-based masking.
+- **Refactor verification:** Cell A within seed noise of baseline (−1.08σ_single). 3 prior SIGTERM crashes during A attempts were infrastructure (step times 4.2s vs normal 1.9s), not code.
+- **Decision:** CLOSED clean-NEG. Post-NS sign/mask operations on Muon are destructive — axis closed. Pre-NS Cautious (student's #1 follow-up) assigned next as a clean test of the mechanism at the correct pipeline stage.
+
 ## 2026-05-23 ~01:30 UTC — PR #824: frieren Polar Express (per-iter minimax NS coefficients) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-frieren/polar-express`

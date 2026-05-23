@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~01:35Z (poll #477)
+- **Last updated:** 2026-05-23 ~02:20Z (poll #479)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,16 +13,16 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #477)
+## Active WIP Portfolio (poll #479)
 
-7 PRs in flight; frieren re-assigned GrokFast-Muon (#859):
+8 PRs in flight; thorfinn re-assigned Pre-NS Cautious Muon (#867):
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
+| **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | **Assigned poll #479** (student's #1 follow-up from #844). 5 cells: A=ctrl, B=pre-NS no-rescale ★ PRIMARY, C=pre-NS+rescale, D=pre-NS MLP-only, E=pre-NS + lr_mlp 0.060. Mechanism: NS re-orthogonalizes masked buffer → spectral budget preserved (unlike #844 post-NS). Kill: B val >3.265 step 1000. ETA ~9h. |
 | **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | **Assigned poll #477.** 5 cells: A=ctrl, B=λ=1.0/α=0.98 ★ PRIMARY, C=λ=0.5/α=0.98, D=λ=2.0/α=0.98, E=λ=1.0/α=0.99. Prediction: B > C > D > A; E within B noise. Kill: B val >3.265 step 1000. ETA ~9h. |
 | **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | **Assigned poll #476.** 5 cells: A=ctrl, B=β=0.99 ★ PRIMARY, C=β=0.97, D=β=0.95, E=β=0.995. Kill: step-time overhead >30% or B val >3.265. ETA ~9h. |
 | **#850** | **edward** | Bias-Corrected Muon — Adam-style 1/(1-β^t) debiasing of Nesterov buffer before NS ortho | **Assigned poll #472.** 5 cells: C1=ctrl, C2=full BC all steps (primary ★), C3=BC 200 steps, C4=BC 500 steps, C5=full BC β=0.90. Prediction: C2≈C3≈C4>C1. Kill: C2 val >3.265. ETA ~9h. |
-| **#844** | **thorfinn** | Cautious Muon — post-NS sign-agreement mask (Liang et al. arXiv 2411.16085) | **Assigned poll #467.** 5 cells: A=ctrl, B=full cautious all (primary), C=MLP-only, D=attn-only, E=cautious+lr_mlp=0.06. Prediction: B ≥ C > D > A. Kill: B > 3.261 at terminal. ETA ~9h. |
 | **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **Assigned poll #465.** 5 cells: A=ctrl, B=β₃=0.99/α=0.3 all (primary), C=β₃=0.999/α=0.3, D=β₃=0.99/α=1.0, E=β₃=0.99/α=0.3 MLP-only. Prediction: B > C > D > E > A. Kill: B val/loss > 3.265 at step 1000. ETA ~9h. |
 | **#826** | **askeladd** | Lookahead outer slow-weights wrapper (Zhang et al. NeurIPS 2019) | **Assigned poll #439.** 5 cells: A=ctrl, B=k=5 α=0.5 all (primary), C=k=10 α=0.5, D=k=5 α=0.8, E=k=5 α=0.5 Muon-only. Prediction: B > C > D > A ≈ E. Kill: B val/loss >3.265 step 1000. ETA ~9h. |
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | **Assigned poll #434.** 5 cells: A=ctrl, B=sign MLP-only, C=sign all, D=sign all + lr_mlp 0.06, E=sign all + ns_iter 4. Prediction: D > C > B > E > A. Kill: Cell B <0.001 improvement vs A → close. ETA ~9h from assignment. |
@@ -32,6 +32,7 @@
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#844 thorfinn** (poll #479) | clean-NEG | Cautious Muon post-NS sign-agreement mask. **A=3.26058 (ctrl parity), B=3.28395 (+38.3σ_single catastrophic). C/D/E gated.** Mechanism (student's analysis): (1) NS produces 35-40% sign-disagreement with raw gradient as a *structural* feature, not noise; (2) Rescale-to-preserve-Frobenius (×1.6) destroys NS's spectral bound; (3) Net regression toward signed-SGD on Frobenius budget, undoing NS's gain. cautious_kept rates 0.635 (MLP) / 0.610 (attn) mean, rising 0.53→0.67 over training. Distinct from #823 SignMuon (sign BEFORE NS preserves spectral). **Key insight:** post-NS modifications that break spectral budget are destructive — pre-NS is the correct intervention point for sign/mask operations. Pre-NS Cautious assigned as #867. |
 | **#824 frieren** (poll #477) | clean-NEG | Polar Express per-iter minimax NS coefficients. **A=3.26105/3025, B=3.26172/3050, C=3.26302/3050. Monotonic A<B<C at all 26 checkpoints. D/E gated correctly.** Mechanism: SOAP preconditioning of attention gradient already compresses the SV spectrum before NS. Fixed (2,−1.5,0.5) is well-matched to a pre-shaped spectrum; PolarExpress's minimax polynomial is tuned for raw gradient spectrum (wrong problem). `pure` variant worse than `default` → safety knobs not the bottleneck. NS polynomial-coefficient axis closed. |
 | **#815 tanjiro** (poll #476) | clean-NEG | NS-WarmUp ns_iter ramp-up. **Hypothesis falsified — A(ctrl) wins both val/loss AND ffs.** Observed A > C > B ≈ D > E (predicted B > C > A > D > E). E (start=1 most aggressive) worst at +0.00735 val. Mechanism: at init, low ns_iter concentrates noise in random top SVs of essentially-random gradient. Cell A replicates baseline (3.26137 vs 3.26122, +0.00015 within σ_single). NS-iter-count temporal-schedule axis closed at fixed LR. Combined with #824 Polar Express, NS-side temporal-schedule family is closed. |
 | **#800 edward** (poll #472) | clean-NEG | Per-layer depth-tapered Muon momentum (mu_depth_scale). Best A(ctrl)=3.26149 ffs=3025 (clean wrapper). B/C/D monotonic harm in α: ffs +50/+100/+150, Δval +7.9σ/+16.1σ/+23.4σ. E (inverse) lands at D's value: **+23.8σ**. **Direction-symmetric harm** — heterogeneous μ across body layers is rejected regardless of which layers are low. musoft mechanism transfer FAILS: depth-aware init helped because it perturbs forward-pass scale; depth-aware momentum hurts because NS already normalizes gradient magnitudes globally. Axis closed; block-type-specific μ unlikely to recover given heterogeneity-itself-harms signature. |
@@ -64,7 +65,7 @@
 - embed (**#706 CLOSED clean-NEG poll #465, subsumed by musoft**; std=0.1 mechanism real but redundant with musoft residual-stream calming)
 - transformations (#748 CLOSED clean-NEG: ×2.0 does not stack with musoft; smaller-magnitude catastrophically worse, larger-within-noise)
 
-**Novel Muon mechanisms**: GC (#756 CLOSED), adaptive-mu (#773 CLOSED), update-RMS-norm (#776 CLOSED), per-block mu-depth-scale (#800 CLOSED), **NS-WarmUp (#815 CLOSED clean-NEG poll #476 — control wins; low ns_iter at init amplifies noise)**, SignMuon (#823 P1 in-flight), **Polar Express polynomial (#824 CLOSED clean-NEG poll #477 — SOAP pre-shapes gradient spectrum so minimax coefficients solve wrong problem)**, Muon-AdEMAMix dual slow EMA (#840 P1 in-flight), Cautious Muon post-NS mask (#844 P1 in-flight), Bias-Corrected Muon pre-NS buffer debiasing (#850 P1 in-flight), Schedule-Free Muon Polyak iterate eval (#855 P1 in-flight), **GrokFast-Muon slow-frequency gradient amplification (#859 P1 in-flight)**.
+**Novel Muon mechanisms**: GC (#756 CLOSED), adaptive-mu (#773 CLOSED), update-RMS-norm (#776 CLOSED), per-block mu-depth-scale (#800 CLOSED), **NS-WarmUp (#815 CLOSED — low ns_iter at init amplifies noise)**, SignMuon (#823 P1 in-flight — sign BEFORE NS), **Polar Express polynomial (#824 CLOSED — SOAP pre-shapes gradient spectrum, minimax coefficients solve wrong problem)**, Muon-AdEMAMix dual slow EMA (#840 P1 in-flight), **post-NS Cautious mask (#844 CLOSED poll #479 — rescale destroys NS spectral budget; +38σ harm)**, Bias-Corrected Muon pre-NS buffer debiasing (#850 P1 in-flight; C1 ctrl done at 3.26260), Schedule-Free Muon Polyak iterate eval (#855 P1 in-flight), GrokFast-Muon slow-frequency gradient amplification (#859 P1 in-flight), **Pre-NS Cautious Muon grad-agreement mask (#867 P1 in-flight — tests #844 follow-up at correct pipeline stage)**.
 
 **Outer-loop mechanisms**: Lookahead (#826 P1 in-flight — operates outside NS/SOAP/Nesterov pipeline entirely).
 
@@ -86,4 +87,4 @@
 4. **thorfinn #781 terminal:** All 5 cells done. Best B (1e-8)=3.26046 at ~7.5% P2 gate-clearance odds. Decision on post pending; likely close clean-NEG (per-group AdamW ε axis fully explored).
 5. **Muon-AdEMAMix (#840):** First gradient-memory-horizon test inside Muon's momentum step. Dual-EMA (β₃=0.99) mixed before NS orthogonalization; distinct from all in-flight Muon mods.
 
-**Dead ends:** 8 AdamW-kernel replacements, all schedule modifications, per-group β1/β2, global ε, lm_head init, RMSNorm gain init (#714), transform init magnitude (#748), post-NS update RMS-clamp (#776), embed init magnitude (#706, subsumed by musoft), **per-group AdamW ε (#781)**, **per-layer Muon momentum heterogeneity (#800)**.
+**Dead ends:** 8 AdamW-kernel replacements, all schedule modifications, per-group β1/β2, global ε, lm_head init, RMSNorm gain init (#714), transform init magnitude (#748), post-NS update RMS-clamp (#776), embed init magnitude (#706, subsumed by musoft), per-group AdamW ε (#781), per-layer Muon momentum heterogeneity (#800), NS-iter temporal-schedule (#815), NS polynomial coefficients (#824), **post-NS sign/mask modifications on Muon (#844 — rescale breaks spectral budget)**.
