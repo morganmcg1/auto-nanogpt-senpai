@@ -1,3 +1,40 @@
+## 2026-05-23 08:10 UTC — PR #886 ASSIGNED (nezuko): H86 MuonH cooldown_frac WSD-style sweep (frac=1.0 vs 0.5 vs 0.3)
+
+- Branch: `g1r3-nezuko/muonh-cooldown-frac-wsd`
+- Hypothesis: Test whether delaying MuonH cosine-cooldown onset improves val/loss. Currently `h_cooldown_frac=1.0` (hardcoded, decay starts after warmup and runs full training). WSD-style: keep LR at peak for 50% or 70% of training, then cosine-decay over the final 50% or 30%. Mechanism-distinct from H79 (which tested shape at fixed frac=1.0) — this tests timing of onset.
+- Implementation: Add `--muonh_cooldown_frac` CLI flag (~5 LoC). Replace hardcoded `h_cooldown_frac = 1.0` with `h_cooldown_frac = args.muonh_cooldown_frac`. Existing LR scheduler already handles frac<1.0 correctly (stable phase before cooldown).
+- Arms (n=1, 3325 steps, cosine shape fixed):
+  - arm_a CTRL `--muonh_cooldown_frac 1.0` (baseline, bit-identical)
+  - arm_b `--muonh_cooldown_frac 0.5` (WSD-50%: decay starts step 1662)
+  - arm_c `--muonh_cooldown_frac 0.3` (WSD-30%: decay starts step 2328)
+- Smoke: arm_a 300-step val/loss [4.20, 4.30]. LR trajectory gate at step 1000: arm_b/c should show peak LR (stable phase); arm_a should show partial decay (~0.822× peak).
+- Decision: WIN < 3.27039 → WSD-timing unlocked; NULL → combined with H79, full MuonH-schedule-structure axis closed; NEG arm_b worsens → early cosine decay load-bearing.
+- Context: H79 NEG showed shape sub-σ (axis 1/2); H86 tests timing (axis 2/2) to complete the 2D schedule-structure space coverage for MuonH.
+- W&B group `h86_muonh_cooldown_frac`.
+
+---
+
+## 2026-05-23 08:05 UTC — PR #865 CLOSED NEG (nezuko): H79 MuonH LR cooldown shape sweep — schedule-shape + LR-integral magnitude axes closed
+
+- Branch: `g1r3-nezuko/muonh-cooldown-shape-sweep`
+- Terminal SENPAI-RESULT — all 3 arms complete:
+
+| arm | shape | W&B | val/loss | first_step_to_target | vs arm_a | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | cosine | `1ijx8pkv` | **3.27452** | 3175 | (ref, +0.0018 above today's μ ~2.3σ) | elevated single-seed |
+| arm_b PRIMARY | linear (matched integral) | `j2isko7f` | **3.27546** | 3275 | +0.00094 (~1.2σ NEG) | sub-2σ; cosine mildly load-bearing |
+| arm_c HIGHER-INT | sqrt (+33% integral) | `olej8od7` | **3.32359** | **−1 (never hit 3.28)** | **+0.04907 (~60σ CATASTROPHIC)** | +33% LR-integral destroys convergence |
+
+- Predeclared rules: arm_b fails WIN/NULL thresholds (1.2σ NEG, below 2σ NEG rule but NEG direction confirmed); arm_c triggers decisive NEG.
+- **PROGRAMME-LEVEL CLOSURE (2 sub-axes jointly):**
+  1. **Cooldown SHAPE at fixed frac=1.0 (arm_b)**: sub-σ knob. cosine slightly preferred over linear but inside noise. Closes polynomial-2/3/WSD-of-shape/smoothstep family.
+  2. **LR-INTEGRAL UP (+33% via sqrt, arm_c)**: CATASTROPHIC NEG. Current MuonH LR=0.018 is at TOP of viable range. Pre-closes all "more LR budget" directions (peak LR increase, LR-integral-amplifying shapes).
+- Mechanism: arm_b's 1.2σ suggests cosine's "gentle early, sharp late" character is mildly load-bearing (sub-σ second-order). arm_c's catastrophic collapse shows basin overflow from excess LR budget.
+- arm_a CTRL elevated +2.3σ vs today's μ — called out as single-seed contribution; doesn't change arm ordering.
+- Nezuko assigned H86 MuonH cooldown_frac sweep (mechanism-distinct: frac=timing of onset, not shape of decay).
+
+---
+
 ## 2026-05-23 07:40 UTC — PR #885 ASSIGNED (tanjiro): H85 Schedule-Free aux training (Defazio 2023) — replace linear cooldown with constant-LR + Polyak averaging
 
 - Branch: `g1r3-tanjiro/schedule-free-aux`
