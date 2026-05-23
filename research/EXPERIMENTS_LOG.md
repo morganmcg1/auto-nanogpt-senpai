@@ -1,3 +1,46 @@
+## 2026-05-23 22:30 UTC — PR #927 CLOSED NEG/closure (alphonse): H98 Sophia-G diagonal Hessian preconditioning pre-NS5 — programme-level 3-leg closure on second-order body preconditioning pre-NS5
+
+- Branch: `g1r3-alphonse/h98-sophia-g-pre-ns5`
+- Hypothesis tested: Apply Sophia-G diagonal Hessian preconditioning `m_precond = clip(m / sqrt(h), -ρ, ρ)` to MuonH momentum BEFORE NS5 polar projection. Tests whether diagonal Hessian preconditioning composes with NS5's matrix orthogonalization (paper: Liu 2023 arXiv:2305.14342).
+- Results: arm_a CTRL val/loss=**3.27139** (NULL +0.00162 vs baseline 3.26977; ffs=3100). arm_b PRIMARY ρ=0.04 val/loss=**3.28003** catastrophic NEG (ffs=-1, missed 3.28 target — fails (3.28-µ)·√n ≥ 0.004). arm_c TIGHTER ρ=0.01 val/loss=**3.28924** catastrophic NEG (ffs=-1). Closure-amplifier fires: both Sophia arms NEG.
+- **Load-bearing mechanism finding (alphonse's textbook diagnostic)**: **Sophia-G operates on magnitudes; NS5 polar projection's job is to DISCARD magnitudes — the composition is mechanically counter-productive.** Mechanism telemetry table:
+  - Clip rate climbs to 82% (arm_b) / 95% (arm_c) by end of training. Body grad RMS ~ 1e-3, h_max plateaus at ~1.5e-3 → sqrt(h) ≈ 0.04 ≈ ρ. Most elements saturate at ±ρ → matrix entering NS5 is mostly a sign matrix.
+  - NS5 robustly cleans the spectrum (post-NS5 sv_max ≈ 1.008 in all arms vs CTRL 1.0069) but cannot recover per-element direction lost when clip collapses magnitude to sign. Pre-launch numerical smoke `sophia_ns5_smoke.py` confirmed cos sim 0.66 between polar(sign-saturated) and polar(true Nesterov) on (768,768) blocks (~50° misalignment).
+  - arm_b shifts post-NS5 sv_min UPWARD vs CTRL (median 0.075 vs 0.054). Sophia preconditioning → more conditioned input → NS5 produces more orthogonalization → training is worse. **Directly reinforces H90's partial-orth load-bearing finding**: sv_min ≈ 0.05-0.18 is structurally what this stack needs; shifting upward hurts.
+  - Monotonic NEG in clip-rate: arm_c at 95% > arm_b at 82% → gap monotonic in clip_rate.
+- **BONUS DIAGNOSTIC FINDING (worth dedicated follow-up)**: alphonse measured CTRL post-NS5 sv_min median **0.054 on the first 768×768 attn projection** — H90 reported sv_min ≈ 0.18 as average. **The partial-orth regime is BLOCK-SPECIFIC, not uniform.** Prior plateau-protocol PRs assumed sv_min ≈ 0.18 universally; early attn projections are at sv_min ≈ 0.05 — much MORE partial than thought. Programme-level invitation to recalibrate the partial-orth ladder.
+- **PROGRAMME-LEVEL 3-LEG CLOSURE on second-order body preconditioning pre-NS5** (joint with #911 H92 MARS-M + #912 H93 PSGD-Kron):
+  - **Diagonal Hessian (H98)**: Sophia-G `m/sqrt(h)` → clip saturates → sign matrix → NS5 misaligns
+  - **Variance reduction (H92)**: MARS-M finite-difference correction → NS5 polar absorbs the variance reduction → no signal
+  - **Kronecker preconditioner (H93)**: PSGD-Kron Q_L^T G Q_R → AGC binds 100% → Q saturates to uniform scaling
+  - **Integrated mechanism finding**: NS5 polar projection is structurally downstream of any pre-NS5 preconditioning operation that manipulates gradient magnitudes or directions. The polar projection's job is to whiten the spectrum — this destroys what preconditioners precondition for.
+- **Pre-closes broadly**: Adam-pre-NS5 magnitude scaling, Yogi-pre-NS5, AdaBelief-pre-NS5, any element-wise denominator on body gradients before NS5, Shampoo/CASPR/ARFKE/SOAP family under AGC-bound regime (via H93 leg), SAGA/SCSG/SVRG-style variance reduction pre-NS5 (via H92 leg).
+- Does NOT pre-close: **Post-NS5 preconditioning** (apply preconditioning AFTER polar projection, before lr step — alphonse's suggested follow-up; mechanism-distinct because NS5 already orthogonalized the direction); **Aux-side Sophia-G** (no NS5 downstream; H97 Adafactor at thorfinn tests adjacent aux axis); **Direct replacement of NS5** (GMN H106 in-flight at tanjiro probes this exact axis — replacing NS5 with multi-norm normalizer, not preconditioning before it).
+- Methodological commendation (exceptional): pre-launch numerical smoke quantified misalignment BEFORE the full run launched; h_init=1e-4 fp32 fix landed cleanly mid-cycle (textbook recovery); mechanism telemetry table (clip_rate, precond_ratio, post-NS5 sv_min/max, condition_number) sets diagnostic gold standard for future preconditioner experiments; 0.4% step-time overhead documented; pre-NS5 vs post-NS5 distinction made explicit in follow-ups; bonus block-specific sv_min discovery opens new diagnostic axis.
+- Reproduce arm_b: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_adamw_eps 1e-6 --aux_beta2_schedule constant --aux_beta2_start 0.99 --muonh_sophia_enabled 1 --muonh_sophia_beta2 0.99 --muonh_sophia_rho 0.04` (W&B run `m1pmnjvx`, NEG).
+- 17th plateau-protocol swing closed. alphonse reassigned PR #957 H101 Schedule-Free Outer Averaging (Defazio NeurIPS 2025 arXiv:2405.15682) — primal averaging replacing MuLoCo's outer Nesterov-SGDM; mechanism-distinct from all in-flight outer experiments (H99 LR-shape, H100 direction-grafting, H103 formula-change — all keep momentum buffer; H101 removes it entirely).
+
+---
+
+## 2026-05-23 22:30 UTC — PR #957 ASSIGNED (alphonse): H101 Schedule-Free Outer Averaging replacing MuLoCo SGDM (primal averaging on slow weights)
+
+- Branch: `g1r3-alphonse/h101-outer-schedule-free`
+- Hypothesis: Replace MuLoCo's outer Nesterov-SGDM aggregation with Schedule-Free primal averaging (Defazio NeurIPS 2025 arXiv:2405.15682) on slow weights. Outer step becomes `slow = (1-α_t)·slow + α_t·fast` where `α_t = β_sf / (1 + β_sf·t_outer)` — exponential interpolation with NO momentum buffer. Asymptotically equivalent to Polyak-Ruppert primal averaging.
+- **Fresh aggregation-RULE axis** — first experiment in this programme to REMOVE the outer momentum buffer entirely. Mechanism-distinct from all 4 prior/in-flight outer experiments:
+  - H91 outer-Adam (closed NEG, per-coord sign-update); H101 vector-level not per-coord
+  - H99 outer-LR WSD (in-flight, schedule shape only)
+  - H100 grafted-Adam-SGDM-magnitude (in-flight, direction/magnitude grafting within SGDM)
+  - H103 outer Nesterov (in-flight, heavy-ball → Nesterov formula but keeps momentum buffer)
+  - H101 removes momentum buffer entirely; replaces aggregation rule
+- Not pre-closed by H85 (SF on AUX, closed NEG cycle 132): H85 failed because constant aux LR destabilized y_t — aux-specific failure. H101 is OUTER LOOP SF on slow weights that have already been smoothed by 30 inner steps; fundamentally different dynamics.
+- Arms (n=1, 3325 steps): arm_a CTRL heavy-ball SGDM (bit-identical baseline) / arm_b PRIMARY SF β_sf=0.9 (paper default) / arm_c TUNED SF β_sf=0.7 (more aggressive primal averaging).
+- Critical telemetry: `outer/sf_alpha_t` logged in BOTH arms regardless of which is active (so we can plot the SF coefficient trajectory the CTRL arm WOULD use), `outer/slow_fast_norm_ratio`, `outer/slow_fast_cos`, `outer/delta_norm`, `outer/sf_effective_lr`. Key question: does SF tracking slow_fast_norm_ratio differ from SGDM heavy-ball? Programme-level finding regardless of val/loss outcome.
+- Mutual exclusion with `--outer_nesterov` (H103) at CLI level required to prevent double-aggregation.
+- Decision: WIN<3.26897; NULL∈[3.26880,3.27070]; NEG>3.27150. Closure-amplifier: both NEG → outer SF averaging axis closed jointly with H91/H99/H100/H103 → outer-loop alternative axis broadly constrained.
+- LoC ~40. W&B group H101_outer_schedule_free. Reassignment after #927 closure.
+
+---
+
 ## 2026-05-23 22:00 UTC — PR #916 CLOSED NULL/NEG (nezuko): H95 MuonH Nesterov µ-sweep — programme-level closure on inner µ static axis with load-bearing cooldown-momentum asymmetry finding
 
 - Branch: `g1r3-nezuko/muonh-momentum-sweep`
