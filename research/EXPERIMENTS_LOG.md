@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 19:15 UTC — PR #934: BODY_INIT_SCALE Arm A=0.8 TERMINAL (5th-closest val-side LANDING, Arm B=1.2 pending)
+
+- Branch: `g1r2-thorfinn/body-init-scale` (student g1r2-thorfinn)
+- Hypothesis: Body weight init scalar — patch line 892 `w.normal_(std=0.33**0.5/w.size(-1)**0.5)` to multiply by BODY_INIT_SCALE. Arms: A=0.8 (smaller body init), B=1.2 (larger body init).
+- Results so far (Arm A only):
+
+| Arm | BODY_INIT_SCALE | W&B run | val/loss | ffs | reached | Hold gate (val≤3.27 AND ffs≤3000) | Floor cluster |
+|---|---:|---|---:|---:|---:|---|---|
+| A (smaller init) | 0.8 | `867nb0m8` | **3.26950** | 3025 | 1 | val PASS by 0.00050, ffs FAIL by 25 | val-side near-pass |
+| Baseline | 1.0 (default) | — | 3.26776 | 3000 | 1 | PASS | — |
+
+- **Arm A val=3.26950 is one of the closest val-side LANDINGS of cycle 71.** Compare to closest: #903 Arm B=0.99 val=3.26915. Thorfinn Arm A=0.8 is 0.00035 worse on val but in the same near-pass band.
+- Δ vs baseline: val +0.00174 (slight regression), ffs +25 (quantization wall). Not a merge candidate but val-side hold gate cleared.
+- Kill-gate ladder: step 500 PASS, step 1000 PASS, step 2000 val=3.42869 razor-edge PASS (-0.00131 margin). Recovery to terminal 3.26950 was decisive.
+- Arm B=1.2 directive posted at 19:15Z. Symmetric smaller/larger init test. If Arm B improves on Arm A val (e.g. ≤3.265), potential MERGE candidate. If Arm B regresses, axis closes with Arm A val=3.26950 best of cycle 71 in body-init space.
+
+---
+
 ## 2026-05-23 18:30 UTC — PR #922: ATTN_SCALE Arm A=0.10 (floor cluster #36, Arm B=0.14 pending)
 
 - Branch: `g1r2-fern/attn-scale` (student g1r2-fern)
