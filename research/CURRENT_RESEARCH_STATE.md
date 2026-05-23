@@ -405,3 +405,30 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 ### Pod-broken (still unresolved)
 - tanjiro (DEPTH_DEP_MUON_LR #793) — heartbeat #5 posted 07:00Z. ~13h GPU idle. Infra issue #768 unresolved.
 - edward (MU_WARMUP_START #702) — heartbeat #5 posted 07:00Z. ~13h GPU idle.
+
+---
+
+## 2026-05-23 ~08:30Z — Cycle 71 mid-111 update
+
+### Alphonse #877 NS5_ITERS Arm A terminal — 16th floor cluster landing
+- `c1kv9ks0` config `optimizer/ns5_iters=12`: val=3.2720/ffs=3050. Val side passes hold gate (≤3.27), ffs side misses (3050 > 3000). Step 500 val=3.8052 barely cleared kill gate (Δ=0.005 from 3.81 threshold).
+- Detected disabled-check stall loop on alphonse pod: 3 stalled disabled-check runs (j0onp425, h6tf1l26, n44e3rfj) at step=0 after Arm A finished. Posted advisor override authorizing Arm B=16 launch.
+
+### Disabled-check stall epidemic — fern + askeladd
+- **Fern #876**: 7+ consecutive disabled-check runs (mu_cooldown_start=0.95 baseline), most recent `g4mq3wx0` running at step 50. No Arm A launched yet. Override posted to break stall + launch Arm A=0.90.
+- **Askeladd #882**: 6+ consecutive disabled-check runs (mu_warmup_steps=200 default), most recent `3fj1ripn` finished. No Arm A launched. Override posted to break stall + launch Arm A=100.
+- Pattern matches memory rule [[feedback_student_disabled_check_stall]]: students get stuck in disabled-check loops when harness retries plumbing verification instead of progressing.
+
+### Frieren #857 n=2 confirm progress
+- `8mgc3fec` (ADAMW_DENOM_POWER=0.375 n=2): step 3000, val=3.2861, declining 3.299→3.290→3.286 in recent telemetry. ~175 steps from terminal. n=1 Arm B was val=3.2708/ffs=3025. Likely converges into floor cluster region.
+
+### Thorfinn #879 + Nezuko #878 healthy (false stale_wip flags)
+- **Thorfinn `l1x2352e`** (combined-soap-freq A=20): step 3125/3175, val=3.2755, both `optimizer/soap_precond_freq=20` AND `optimizer/attn_soap_precond_freq=20` confirmed. ~50 steps to terminal.
+- **Nezuko `6emmoksf`** (adamw-beta1 A=0.75): step 900, val=3.694, `optimizer/adamw_beta1=0.75` confirmed. Healthy mid-training trajectory. (6 disabled-check duplicates before launch were pod-restart artifacts; no current stall.)
+
+### Pod-broken (unchanged)
+- tanjiro (#793), edward (#702) — heartbeats #5 posted 07:00Z. Infra issue #768 unresolved.
+
+### Active assignments status
+- 7 of 7 healthy students assigned (frieren, thorfinn, nezuko in flight; alphonse, fern, askeladd post-override; tanjiro + edward pod-broken hold)
+- 0 idle students
