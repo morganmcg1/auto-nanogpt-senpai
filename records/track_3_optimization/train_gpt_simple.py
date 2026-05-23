@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H90 NSCubic: polynomial degree and iteration count for the Muon Newton-Schulz
+    # orthogonalization step. degree=5 is baseline Muon NS5 quintic (coefs 2,-1.5,0.5);
+    # degree=3 is the canonical cubic polar iteration (coefs 1.5,-0.5).
+    parser.add_argument("--ns_degree", type=int, default=int(os.environ.get("NS_DEGREE", "5")), choices=[3, 5],
+                        help="Newton-Schulz polynomial degree. 5 = baseline Muon quintic (2,-1.5,0.5). "
+                             "3 = simple cubic polar iteration (1.5,-0.5).")
+    parser.add_argument("--ns_iters", type=int, default=int(os.environ.get("NS_ITERS", "12")),
+                        help="Number of NS iterations. Baseline = 12.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -466,8 +474,12 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz(G: Tensor, degree: int = 5, k: int = 12) -> Tensor:
+    """Newton-Schulz polar projection. degree=5 = baseline Muon quintic
+    (coefs 2,-1.5,0.5). degree=3 = canonical cubic polar iteration
+    (coefs 1.5,-0.5), one matmul per iter instead of two."""
     assert G.ndim >= 2
+    assert degree in (3, 5)
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -475,29 +487,36 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if degree == 5:
+        a, b, c = 2, -1.5, 0.5
+        for _ in range(k):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+    else:
+        # Canonical cubic polar iteration: X = 1.5 X - 0.5 (X X^T) X.
+        for _ in range(k):
+            A = X @ X.mT
+            X = 1.5 * X - 0.5 * (A @ X)
 
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, ns_degree: int = 5, ns_iters: int = 12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz(update, degree=ns_degree, k=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
+    def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, ns_degree=5, ns_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
-        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
+        defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
+                        ns_degree=ns_degree, ns_iters=ns_iters)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -513,7 +532,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         ns_degree=group["ns_degree"], ns_iters=group["ns_iters"])
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -591,12 +611,14 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 ns_degree=5, ns_iters=12):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns_degree=ns_degree, ns_iters=ns_iters)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -624,7 +646,8 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"],
+                                         ns_degree=group["ns_degree"], ns_iters=group["ns_iters"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -705,6 +728,7 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"NS orthogonalization: degree={args.ns_degree} iters={args.ns_iters}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,8 +790,40 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "ns_degree": args.ns_degree,
+            "ns_iters": args.ns_iters,
         },
     )
+
+# H90 step-0 orthogonality smoke test. For each representative shape, run a
+# fresh random matrix through the configured NS settings and report singular
+# values. Predeclared invariants:
+#  - NS5 k=12 should give sv_min ≈ 1 (fully orthogonalized).
+#  - NSCubic k=12 should give sv_min in [0.4, 0.85] (under-orthogonalized).
+#  - NSCubic k=30 should give sv_min ≈ 1 (matched-fidelity reference).
+if dist.get_rank() == 0:
+    print0("="*100, console=True)
+    print0(f"NS step-0 orthogonality smoke test (degree={args.ns_degree}, iters={args.ns_iters})", console=True)
+    smoke_shapes = [(768, 768), (768, 3072), (3072, 768)]
+    smoke_log = {}
+    smoke_gen = torch.Generator(device="cuda").manual_seed(0)
+    with torch.no_grad():
+        for shape in smoke_shapes:
+            G = torch.randn(*shape, device="cuda", dtype=torch.bfloat16, generator=smoke_gen)
+            G_orth = zeropower_via_newtonschulz(G, degree=args.ns_degree, k=args.ns_iters)
+            S = torch.linalg.svdvals(G_orth.float())
+            sv_min = float(S.min().item())
+            sv_max = float(S.max().item())
+            sv_mean = float(S.mean().item())
+            tag = f"{shape[0]}x{shape[1]}"
+            print0(f"  shape={tag}: sv_min={sv_min:.4f} sv_max={sv_max:.4f} sv_mean={sv_mean:.4f}", console=True)
+            smoke_log[f"ns_smoke/{tag}/sv_min"] = sv_min
+            smoke_log[f"ns_smoke/{tag}/sv_max"] = sv_max
+            smoke_log[f"ns_smoke/{tag}/sv_mean"] = sv_mean
+    smoke_log["ns/degree"] = args.ns_degree
+    smoke_log["ns/iters"] = args.ns_iters
+    wandb.log(smoke_log, step=0)
+    print0("="*100, console=True)
 
 for trial_idx in range(args.num_trials):
 
@@ -819,7 +875,8 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       ns_degree=args.ns_degree, ns_iters=args.ns_iters)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -886,6 +943,17 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # H90 mid-training NS-fidelity probe: track a single representative 2D body
+    # param (block 0's first 2D weight) so we can log post_ns_sv_min over time
+    # and see whether under-orthogonalization persists or self-corrects.
+    ns_probe_name = None
+    ns_probe_param = None
+    for n, p in model.named_parameters():
+        if n.startswith("blocks.0.") and p.ndim >= 2:
+            ns_probe_name = n
+            ns_probe_param = p
+            break
 
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
@@ -1018,6 +1086,24 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H90 mid-training NS-fidelity probe: every 250 steps, run NS on a
+        # representative reduced gradient and log sv_min/sv_max to wandb.
+        if (dist.get_rank() == 0 and ns_probe_param is not None
+                and ns_probe_param.grad is not None
+                and (train_step == 1 or train_step % 250 == 0)):
+            with torch.no_grad():
+                probe_grad = ns_probe_param.grad.detach().clone()
+                probe_orth = zeropower_via_newtonschulz(
+                    probe_grad, degree=args.ns_degree, k=args.ns_iters,
+                )
+                probe_S = torch.linalg.svdvals(probe_orth.float())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/post_ns_sv_min_block_0": float(probe_S.min().item()),
+                    "train/post_ns_sv_max_block_0": float(probe_S.max().item()),
+                    "train/post_ns_sv_mean_block_0": float(probe_S.mean().item()),
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
