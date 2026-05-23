@@ -1,3 +1,56 @@
+## 2026-05-23 03:15 UTC — PR #871 ASSIGNED (edward): H83 Focal Loss on training CE — fresh loss-side axis after Cautious three-axis closure
+
+- Branch: `g1r3-edward/focal-loss-train-only`
+- Hypothesis: Apply Lin et al. 2017 focal loss `L_train = -(1-p_y)^γ × log(p_y)` to TRAIN cross-entropy only; VAL loss stays standard CE for benchmark comparability. Reweights per-token loss contributions to concentrate gradient signal on rare/hard tokens — natural inverse intervention to edward's own H74 sparse-grad finding (55% embed mask zero rate from 50k-vocab × 524k-batch ratio).
+- LoC ~10: gated focal computation in `GPT.forward`, CLI `--focal_loss_gamma` (default 0.0 bit-identical), val path explicit unconditional `F.cross_entropy`.
+- 3 arms (n=1, 3325 steps):
+  - arm_a CTRL `--focal_loss_gamma 0.0` (bit-identical baseline, no log_softmax/gather/pow)
+  - arm_b PRIMARY `--focal_loss_gamma 1.0` (mild focal, gentle downweighting of confident tokens)
+  - arm_c STRONGER `--focal_loss_gamma 2.0` (Lin 2017 vision-task default, aggressive downweighting)
+- Mechanism-distinct from in-flight/closed loss work: H73 z-loss NEG (partition-function magnitude regularizer — output-distribution side; pre-closed label smoothing/entropy reg by same finding) vs H83 (per-sample LOSS WEIGHTING — sample-side, not distribution side, NOT pre-closed). Focal does not shape logit distribution; weights which samples contribute.
+- Mandatory smoke gates: arm_a bit-identical to H74 arm_a smoke trace (catches focal code path leaking at γ=0); arm_b in [4.20, 4.40] @ step 300; arm_c in [4.25, 4.60]; step-0 val/loss IDENTICAL across all 3 arms (val MUST stay plain CE; if differs, val contaminated by focal weighting — abort).
+- Telemetry every 100 steps: `loss/focal_weight_mean` (should start ~1.0, decrease as p_y rises), `loss/focal_weight_min` (→0 as confident tokens emerge), `loss/effective_token_count` (=Σ focal_weight ≤ batch_size; drop below 30% late training would indicate over-concentration), `loss/p_y_mean` vs `loss/p_y_median` (heavy-tail diagnostic).
+- Decision tree:
+  - WIN: val < 3.27039 (formal merge bar) — first loss-side WIN in programme
+  - HOLD: arm_b 0.5σ better and arm_c flat → n=4 confirmation
+  - NULL: all 3 within ±1σ → per-sample reweighting axis CLOSED; programme-level finding "uniform per-token CE weighting is load-bearing at our scale/horizon"
+  - NEG: arm_b regresses >2σ → uniform CE weighting load-bearing; arm_c-only NEG → γ-scale threshold ~1.0 informative
+- Fresh axis: grep of EXPERIMENTS_LOG.md for "focal", "Focal", "focal_loss", "(1-p)^γ", "loss reweight" returns 0 matches (matches in log are from H73 z-loss close pre-closing label-smoothing/entropy-reg — NOT focal).
+- Why edward: H74 sparse-gradient mechanism analysis directly motivates focal as the inverse intervention (reweight signal toward rare tokens instead of filtering it via sign-mask). H58 v_t-magnitude-distribution analysis pattern maps onto focal-weight distribution telemetry (4 metrics: mean/min/max/effective-count). Pivot from Cautious-axis NEG to loss-axis fresh.
+- W&B group `h83_focal_loss_train_only`. Reassignment after #839 closure.
+
+---
+
+## 2026-05-23 03:10 UTC — PR #839 CLOSED NEG (edward): H74 Cautious-AdamW on aux groups — THREE-AXIS Cautious closure (H62 + H69 + H74)
+
+- Branch: `g1r3-edward/cautious-aux-adamw`
+- Hypothesis: Apply Liang et al. 2024 Cautious sign-agreement masking to aux AdamW update (`mask = sign(m̂)==sign(grad)`, zero-out anti-aligned coords + optional rescale).
+- Terminal SENPAI-RESULT — replication-clean monotone NEG:
+
+| arm | config | W&B | val/loss | Δ vs arm_a | σ-equivalent |
+|---|---|---|---|---|---|
+| arm_a CTRL | mask=0 | gj1zagpf | 3.27189 | — | matches baseline ✓ |
+| arm_b PRIMARY | mask=1, rescale=1 | n986s67e | 3.28969 | +0.01780 | ~22-30σ NEG |
+| arm_c | mask=1, rescale=0 | 2mfc2vla | 3.29264 | +0.02075 | ~26-35σ NEG |
+
+- Bit-identity verified for arm_a (--aux_cautious_mask 0 matches baseline t1coza71 within 1σ). Predeclared NEG rule (>+0.0015 NEG) satisfied by both Cautious arms by orders of magnitude. Both arms miss the 3.28 speedrun target (ffs=-1).
+- **Mechanism diagnostic via mask telemetry — DEEP finding**: `adam_embed` mask_mean stays at ~0.448 throughout (~55% zero rate), `adam_lm_head` ~0.639, `adam_scalars` ~0.707 — ALL dramatically OUTSIDE Liang's [0.85, 0.95] dense-layer reference range. **Sparse-gradient regime is the failure mode**: at 50k vocab × 524k-token batch, ~55% of embed rows have grad=0 per step → `sign(grad)=0 ≠ sign(m̂)` → mask=False → momentum updates zeroed for those rows each step. The mask is DESTROYING the load-bearing function of momentum on sparse-gradient parameters.
+- **CRITICAL REFRAMING**: This is NOT "filtering EMA staleness noise" (Liang's dense-regime mechanism). It IS "discarding rare-token momentum buildup across batches" — which is precisely what momentum on a token-frequency-skewed layer is FOR.
+- **Rescale ablation**: arm_c > arm_b in NEG (+0.003 worse without rescale) → rescale was partially HELPING (preserves update magnitude on ~2.2× amplified survivor rows) but cannot recover INFORMATION lost from zeroing 55% of rows. Confirms Liang's spec is necessary but not sufficient on this stack.
+- **PROGRAMME-LEVEL THREE-AXIS CAUTIOUS CLOSURE**:
+
+| PR | layer | mechanism | outcome |
+|---|---|---|---|
+| #795 H62 (tanjiro) | MuonH post-NS5 | NS5-coupling: anti-grad coords structurally inseparable in Muon orthogonalization | NEG ~14.6σ |
+| #829 H69 (tanjiro) | MuLoCo outer | Outer velocity encodes 30-step direction history fresh-delta contradicts | NEG catastrophic + ~9σ |
+| #839 H74 (edward) | aux AdamW pre-update | Sparse-gradient regime on 50k-vocab embed → 55% mask zero rate | NEG ~22-30σ |
+
+- **Integrated programme-level rule** (replaces prior two-axis closure): "Cautious sign-agreement masking is incompatible with this MuonH + MuLoCo + aux-AdamW stack at any layer. Three structurally distinct failure mechanisms across three orthogonal layers all yield strong NEG. The masking technique is fundamentally a DENSE-GRADIENT-REGIME intervention validated only on layers without (a) NS5-style spectral redistribution, (b) momentum aggregation across sync intervals, or (c) sparse-gradient regimes from large vocab × token-frequency skew."
+- **Pre-closes future Cautious-style proposals**: any sign-agreement masking variant, signSGD-style masking, sparse-update gating based on sign criteria, momentum-grad agreement filters — all share "discard information based on sign-disagreement" structural axis. Implicit bar for future Cautious-derivative proposals: >25σ AND identify mechanism defeating all three failure modes.
+- Reframes Liang et al. 2024: their [0.85, 0.95] mask_mean range is a dense-layer-only artifact. At our scale, sparse-gradient regimes structurally drive mask_mean to ~0.45, inverting the technique's intended function. Publishable-grade mechanism analysis. Routing → PR #871 H83 Focal Loss (fresh loss-side axis after triple Cautious closure).
+
+---
+
 ## 2026-05-23 03:00 UTC — PR #870 ASSIGNED (alphonse): H82 Gradient Centralization on 2D weight gradients — projection axis pivot from H76 NEG
 
 - Branch: `g1r3-alphonse/gradient-centralization`
