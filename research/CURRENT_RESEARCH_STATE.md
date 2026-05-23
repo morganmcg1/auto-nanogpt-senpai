@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 01:48 UTC
+- **Date:** 2026-05-23 02:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -252,7 +252,7 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 
 **Follow-up**: alphonse reassigned to **#847 Embed init-anchored WD — net-new regularization on AUX (4-arm)** — student-suggested cross-axis pivot. AUX groups currently have wd=0; init-anchor on embed is *net-new regularization* mechanism (not just modified WD). model.embed.weight initialized via w.normal_() (N(0,1) magnitude), so anchor=init is genuinely distinct from anchor=zero.
 
-### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; status-check 00:30 UTC]
+### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; chain past 50% at 02:38 UTC]
 
 **Branch:** `g1r4-alphonse/embed-init-anchor-wd`
 **Hypothesis**: AUX groups have wd=0 in merged stack. Add init-anchor WD on embed: `p -= lr * λ * (p - p_init)`. Zipf-rationale: rare tokens drift little from init (few visits), frequent tokens drift a lot. Standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). Init-anchor regularizes ROW-DRIFT MAGNITUDE proportional to actual drift from θ_0. Mechanism-distinct from #808 (body Muon side, NS-absorbed) and from #845 askeladd (gradient-side rescale, not weight target).
@@ -270,12 +270,18 @@ Implementation: ~15 LOC. Snapshot `model.embed.weight.detach().clone()` at init 
 
 Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices.
 
-**00:30 UTC status-check** (stale_wip false-positive, same regex bug):
-- **Arm A FINISHED** (`embed-init-anchor-arm-A`): step 3350, val=**3.2706**, Δ_vs_baseline=**+0.00024 DRIFT PASS ±0.003** — bit-clean fallback at λ=0.
-- **Arm B running** (`embed-init-anchor-arm-B`): step 625/3350 (~19%), val=3.74 in-prog. λ=0.001 active perturbation.
-- C, D pending.
-- Branch still has only assignment commit; local edits unpushed. Group name discrepancy: PR specified `init-anchor-wd-aux`, student used `embed-init-anchor` — same mechanism, just different label. Posted #847 advisor comment requesting push + noting label discrepancy.
-- Operational: pod hit GH API rate-limit 00:19-00:25 UTC (third such window, also affected frieren); training never paused.
+**02:38 UTC progress refresh #2** (W&B-verified, clean chain — no ghost crashes):
+
+| Arm | λ | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | `c1s8xnl3` | finished | 3350 | 3.2706 | — | +0.00024 (drift PASS ±0.003) |
+| **B** | **0.001** | `aoef2igc` | **finished** | **3350** | **3.2695** | **−0.0011 (direction-correct, sub-signal)** | −0.00083 |
+| C | 0.005 | `f9h59nq1` | running | 1150/3350 (~34%) | 3.60 (in-prog) | TBD | TBD |
+| D | 0.015 | — | not yet | — | — | — | — |
+
+**Mechanism alive**: Arm B at λ=0.001 shows direction-correct Δ_within=−0.0011 but sub-signal (threshold −0.002). Embedding init-anchored WD nudges θ_embed toward θ_0 — mildly preserves random-orthogonal init information without removing AdamW adaptation. C at λ=0.005 (5× stronger anchor) decides between three patterns: monotone increase → D extends gain; Goldilocks at C → D regresses; saturation → C≈B then D regresses. ETA terminal ~05:53 UTC. Posted #847 progress refresh #2 comment.
+
+Branch still has only assignment commit; group-name discrepancy noted (label difference, same mechanism). Clean chain hygiene vs edward #838 / thorfinn #848 ghost-crash patterns this evening.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
