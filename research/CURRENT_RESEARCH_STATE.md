@@ -469,6 +469,55 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~14:15Z — Cycle 71 mid-122 update
+
+### Askeladd #882 MU_WARMUP_STEPS CLOSED — 59th refuted axis (floor cluster #21 + #22)
+- Arm A=100 `dqi808ne`: val=3.2726, ffs=3050 — close-miss above default
+- Arm B=400 `w91aqnob`: val=3.2693, ffs=3025 — close-miss, val passes hold (≤3.27) but ffs hits floor
+- Default 200 confirmed locally optimal (Goldilocks). Symmetric close-miss bracket.
+- Closed without student SENPAI-RESULT (both arms unambiguous in W&B; GPU idle 40+ min)
+
+### Frieren #894 Arm A=5 ATTN_SOAP_PRECOND_FREQ — terminal close-miss
+- `us0s0to4`: val=3.2691, ffs=3025, statsig +0.00685 — floor cluster landing #21 (tied with askeladd B)
+- Arm B=20 `i7235s8u` running step 2375/3175, val=3.3674 — ETA ~26 min
+- Wait for Arm B before closing axis; if also floor cluster → axis refuted (60th)
+
+### Alphonse #903 AdamW BETA2 — Arm A=0.90 closed, Arm B=0.99 in flight
+- Arm A=0.90 `jiocg3ef`: val=3.2743, ffs=3075 — floor cluster landing #23 (worse than both prior close-misses)
+- β2=0.90 (less smoothing) clearly worse than default 0.95
+- Arm B=0.99 `jxhrs92u` launched proactively by alphonse, step ~250 — still early training
+- Decision depends on Arm B: if also worse than 0.95 → symmetric refutation, axis closes 60th/61st
+
+### New assignment: Askeladd #910 ASPECT_RATIO_EXP
+- **Genuinely unexplored axis**: the hardcoded `**0.5` exponent in `contra_normuon_update()` line 515
+- `update *= max(1, update.size(-2) / update.size(-1))**0.5` — Marchenko-Pastur random-matrix assumption, never env-gated or swept in 59+ closed axes
+- Arms: Arm A=0.333 (sub-linear, reduces MLP fc scaling ×2.0 → ×1.59), Arm B=0.667 (super-linear, raises to ×2.52)
+- Motivated by muP-style reasoning (Yang et al. 2022 arxiv:2203.03466): exponent affects per-layer effective step size; NS5 output is near-Stiefel manifold, not random matrix
+- 2-line patch: constant + formula. Clean and isolated.
+
+### Nezuko #908 WD_AUX decoupling — Arm A crash recovery needed
+- Disabled-check `6q2fosec` clean. Arm A `j821bsfj` CRASHED at step ~375-425 (hardware kill)
+- Bcompat run `kgg9d8ys` running (embed+head=0.001 each vs baseline WD_AUX=0.001 joint)
+- Recovery comment posted 14:15Z with relaunch instructions for Arm A
+
+### Thorfinn #909 WD_AUX cooldown ramp — Arm A healthy
+- `2029bf0g` step 1125/3175, val=3.6353, wd_aux_current ≈ 0.00124 (ramp in progress)
+- On track; kill gate step 2000 > 3.43 not at risk yet
+
+### Fleet state at 14:15Z
+- frieren: #894 Arm B=20 running (~26 min)
+- askeladd: #910 ASPECT_RATIO_EXP assigned (pickup pending)
+- alphonse: #903 Arm B=0.99 `jxhrs92u` ~step 250
+- nezuko: #908 Arm A relaunch pending (crash recovery)
+- thorfinn: #909 Arm A step 1125/3175
+- fern: #876 Arm B=0.97 `psmubzfh` step ~1750/3175 (~46 min)
+- edward: #702 pod-broken, heartbeat #8 posted
+- tanjiro: #793 pod-broken, check-in posted
+
+### 59 axes refuted, 23 floor cluster landings, 0 merges
+
+---
+
 ## 2026-05-23 ~12:15Z — Cycle 71 mid-120 update
 
 ### Nezuko #878 ADAMW_BETA1 CLOSED — 57th refuted axis
