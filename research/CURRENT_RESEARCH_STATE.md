@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~06:20Z (poll #489)
+- **Last updated:** 2026-05-23 ~06:50Z (poll #490)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -22,7 +22,7 @@
 | **#872** | **askeladd** | Orthogonal Init for Muon-targeted body weights — init *shape* axis | **Assigned poll #483; false-alarm send-back poll #487 RESCINDED poll #488.** Student showed early curve (step 125 val=4.51 → 3.26 final) matches historical baseline `p6dovjfd`. Added \`_is_block_nonresidual_2d\` guard as safety net. Cell A in flight step ~2039/3250 val=3.43 (on-trajectory). |
 | **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | **Assigned poll #479.** Cell A ctrl **finished val=3.260935 (−0.483σ_single SUB-BASELINE)**, Cell B (no-rescale ★ PRIMARY) step ~1690/3250 val=3.498 (warmup). |
 | **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | **Assigned poll #477.** Cell A ctrl **finished val=3.260130 (−1.84σ_single SUB-BASELINE)**; Cell B λ=1.0/α=0.98 **finished val=3.264563** (mechanism HARMFUL: +0.005 vs ctrl, +0.003 vs baseline). Cell C λ=0.5 step 286 (early). |
-| **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | **Assigned poll #476.** Cell A finished val=3.262256 (parity-miss). Cell B β=0.99 step ~2924/3250 val=3.288 (heading to clean-NEG). |
+| **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | **Assigned poll #476.** Cell A=3.262256, Cell B β=0.99 **finished val=3.269234** (clean-NEG, +0.008 vs baseline, +0.007 vs ctrl). Cell C β=0.97 step ~558. Schedule-Free averaged iterate clearly null/harmful on this stack at sf_beta=0.99. |
 | **#850** | **edward** | Bias-Corrected Muon — Adam-style 1/(1-β^t) debiasing of Nesterov buffer before NS ortho | **Assigned poll #472.** C1=3.26260, C2=3.26127 (best, Δ=+0.000049 near-miss), C3 bc200 finished=3.26180 (parity). C4 bc500 step ~809/3250 (early). |
 | **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **PROMISING.** Cells A/B/C/D done: A=3.26123, **B β₃=0.99/α=0.3=3.26029 (−1.57σ_single, STRONGEST in-flight)**, C β₃=0.999=3.28512, D α=1.0=3.26358. Cell B confirmed as best in sweep. Cell E (MLP-only) step 211/3250 (just launched). Forward plan: n=4 confirm on Cell B settings once E lands. |
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | Cell A n=4 mean=3.261745 (parity); Cell B MLP-only trials 2/4 done (T0=3.26121, T1=3.26270, mean=3.26195 of T0+T1). Long-runner (~25h total). |
