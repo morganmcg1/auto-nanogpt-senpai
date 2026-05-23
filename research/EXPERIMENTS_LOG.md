@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 18:30 UTC — PR #922: ATTN_SCALE Arm A=0.10 (floor cluster #36, Arm B=0.14 pending)
+
+- Branch: `g1r2-fern/attn-scale` (student g1r2-fern)
+- Hypothesis: Attention softmax temperature scaling — test sharper attention (ATTN_SCALE=0.10 vs default 0.12) and softer (ATTN_SCALE=0.14). Arm A=0.10 (sharper), Arm B=0.14 (softer, pending).
+- Results so far (Arm A only):
+
+| Arm | ATTN_SCALE | W&B run | val/loss | ffs | reached | Hold gate | Floor cluster |
+|---|---:|---|---:|---:|---:|---|---|
+| A (sharper) | 0.10 | `2tdxbosa` | 3.2731 | 3050 | 1 | both FAIL | #36 (new) |
+| Baseline | 0.12 (default) | — | 3.26776 | 3000 | 1 | PASS | — |
+
+- Arm A val=3.2731 misses hold gate by 0.0031 val and 50 ffs. Floor cluster #36 landing (band: val=3.270±0.003, ffs=3025-3075). Sharper attention (scaled-dot-product lower temperature) does not break the floor. Note: 2 crashed restart runs observed in group (`cyhkud7x` step 0, `dfilm6m7` step 200) — pod hiccup, production Arm A `2tdxbosa` unaffected.
+- Arm B=0.14 launched per advisor directive at 18:30Z. Terminal ~2h later (~20:30Z). Axis closes as 67th refuted if both arms close-miss.
+
+---
+
+## 2026-05-23 18:26 UTC — PR #910: ASPECT_RATIO_EXP sweep (CLOSED, 66th refuted axis)
+
+- Branch: `g1r2-askeladd/aspect-ratio-exp` (student g1r2-askeladd)
+- Hypothesis: NorMuon update aspect-ratio scaling exponent — the line `update *= max(1, update.size(-2) / update.size(-1))**0.5` at line 515 uses a hardcoded √(m/n) Marchenko-Pastur exponent. The hypothesis is that post-NS5 near-Stiefel matrices differ from the MP random-matrix regime, so the exponent may be miscalibrated. Arms: A=0.333 (sub-linear), B=0.667 (super-linear) around default 0.5.
+- Results:
+
+| Arm | ASPECT_RATIO_EXP | W&B run | val/loss | ffs | reached | Hold gate | Floor cluster |
+|---|---:|---|---:|---:|---:|---|---|
+| A (sub-linear) | 0.333 | `s5ebgtj5` | 3.27211 | 3050 | 1 | both FAIL | #36 (Arm A) |
+| B (super-linear) | 0.667 | `n8f02wps` | 3.27196 | 3050 | 1 | both FAIL | #37 (Arm B) |
+| Baseline | 0.5 (default) | — | 3.26776 | 3000 | 1 | PASS | — |
+
+- val_mean = 3.27204, ffs_mean = 3050. Merge bar FAIL by val +0.00428, ffs +50. Arms differ by only Δval=0.00015 — near-identical close-miss. Default 0.5 strictly better than both perturbations by ~0.004 nats.
+- Analysis: Both arms land in floor cluster band with near-identical results despite substantially different effective boosts (MLP-fc: 1.59× at 0.333 vs 2.00× at default vs 2.52× at 0.667). The optimizer trajectory at step 3175 is largely insensitive in this ±0.167 window. Default MP-derived exponent is empirically near-optimal for this geometry despite post-NS5 Stiefel-manifold mismatch. Local minimum confirmed — symmetric perturbations both regress.
+- Student suggested per-layer-class exponent (Option 1), tighter 0.45/0.55 sweep (Option 2), joint NS5_ITERS sweep (Option 3), pruning ablation at 0.0 (Option 4). None pursued; askeladd reassigned to RMSNORM_GAIN_INIT (#942).
+
+---
+
 ## 2026-05-23 18:01 UTC — PR #908: WD_AUX decoupling (CLOSED, 65th refuted axis)
 
 - Branch: `g1r2-nezuko/wd-aux-decouple` (student g1r2-nezuko)
