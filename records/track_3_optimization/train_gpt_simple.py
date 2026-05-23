@@ -347,12 +347,19 @@ class Linear(nn.Linear):
     def forward(self, x):
         return F.linear(x, self.weight.type_as(x), self.bias.type_as(x))
 
+ROPE_FRACTION = float(os.environ.get("ROPE_FRACTION", "0.5"))
+
 class Rotary(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
-        # half-truncate RoPE (w/ base freq tuning)
-        angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=dim//4, dtype=torch.float32)
-        self.register_buffer("angular_freq", torch.cat([angular_freq, angular_freq.new_zeros(dim//4)]))
+        # half-truncate RoPE (w/ base freq tuning); ROPE_FRACTION controls
+        # what fraction of the dim//2 channel pairs receive non-zero angular
+        # frequencies (the remainder stay at zero, i.e. identity rotation).
+        n_total = dim // 2
+        n_rot = max(1, min(n_total, int(round(n_total * ROPE_FRACTION))))
+        n_zero = n_total - n_rot
+        angular_freq = (1 / 1024) ** torch.linspace(0, 1, steps=n_rot, dtype=torch.float32)
+        self.register_buffer("angular_freq", torch.cat([angular_freq, angular_freq.new_zeros(n_zero)]))
 
     def forward(self, x_BTHD: Tensor):
         pos = torch.arange(x_BTHD.size(1), dtype=torch.float32, device=x_BTHD.device)
@@ -845,6 +852,7 @@ if dist.get_rank() == 0:
             "histogram_samples": args.histogram_samples,
             "param_histogram_limit": args.param_histogram_limit,
             "slope_fraction": SLOPE_FRACTION,
+            "architecture/rope_fraction": ROPE_FRACTION,
             "train_steps_cli": args.train_steps,
             "optimizer/contra_muon": CONTRA_MUON,
             "optimizer/mu": MU,
