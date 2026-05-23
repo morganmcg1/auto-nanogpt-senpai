@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~23:00 UTC — PR #902: frieren Top-k% gradient magnitude sparsification pre-NS — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-frieren/top-k-gradient-sparsification-pre-ns`
+- **Student:** g1r5-frieren
+- **Hypothesis:** Zero the small-magnitude tail of Nesterov momentum before NS to let polynomial focus on dominant spectral mass.
+
+| Cell | Treatment | val/loss | Δ vs baseline | σ_single |
+|:---:|:---:|---:|---:|---:|
+| A | ctrl | 3.261079 | −0.000142 | −0.24σ |
+| **B ★** | **top50-mlp** | **3.262588** | **+0.001367** | **+2.30σ NEG** |
+| C | top75-mlp | 3.262520 | +0.001299 | +2.19σ NEG |
+| D | top50-all | 3.262606 | +0.001385 | +2.34σ NEG |
+| E | top90-mlp | 3.262703 | +0.001482 | +2.50σ NEG |
+
+**Diagnostic finding:** Cell E (k=90%, "near no-op") is the WORST of all 4 treatments. This falsifies the "tail is noise" framing — the harm is the act of hard-zeroing itself, not the fraction zeroed. NS5 was tuned for dense, smooth matrices; introducing exact-zero entries perturbs singular-value convergence regardless of count.
+
+**Closes pre-NS gradient transformation axis (9 PRs all NEG):** per-col-norm #890, AGC #887, MARS #873, AdEMAMix #840, sign #823, GrokFast #859, sign-Cautious #844/#867, Q/K/V consensus #905, this PR. Strong evidence NS is sensitive to input distribution **shape**, not just magnitude.
+
+**Reassigning frieren → #962 Newton-Schulz polynomial coefficient ablation (fresh axis: NS internal mechanics).**
+
+---
+
 ## 2026-05-23 ~22:30 UTC — PR #907: tanjiro Muon momentum buffer reset at cooldown onset — **CHANGES REQUESTED (Cell E n=4 confirmation needed)**
 
 - **Branch:** `g1r5-tanjiro/momentum-reset-at-cooldown-onset`
