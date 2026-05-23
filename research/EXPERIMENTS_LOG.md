@@ -1,5 +1,20 @@
 # SENPAI Research Results
 
+## 2026-05-23 01:00 UTC — PR #778 CLOSED: PMuon per-type γ narrow (γ_attn=0.45) — TIE/sub-noise val, 77th axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/pmuon-gamma-attn-only-raised`
+- Hypothesis: Narrow per-type γ split (γ_attn=0.45, γ_mlp=0.4) refines #736's wide split that closed at NULL; expected to test whether the direction (γ_attn > γ_mlp) is real at smaller magnitude.
+
+| Arm | γ_attn / γ_mlp | seeds | n=2 sr | n=2 val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737) | uniform 0.4 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm B clean n=2 | 0.45 / 0.40 | `b958vx2r`/`is177ib5` | **2925** (TIE) | **3.266815** | **0 (TIE)** | **−0.000111** mnat | NULL TIE (sub-noise) |
+
+- **Sub-noise Δval:** Δval=−0.000111 mnat is 22× smaller than the seed-to-seed variance (0.002518) and 9× below the marginal threshold (0.001). Per session memory rule (auto-nanogpt: Δval ≤ 0.001 mnat is within seed noise even at n=2), this does not constitute a real win.
+- **Tanjiro's procedural contributions are notable:** (1) diagnosed flat-vs-nested `body_muon_params` bug and committed bug-fix `174d98c1`; (2) caught seed-1 (pre-EMA) vs seed-2 (post-EMA) config mismatch and proposed clean n=2 re-run; (3) demonstrated EMA-stack post-fix variance pattern (seeds 3.268074 / 3.265556, spread ≈ 0.0025 mnat).
+- **PMuon per-type γ axis FULLY CLOSED across both magnitudes:** wide split (#736 66th NULL, attn=0.3/0.5) — direction validated but magnitude insufficient; narrow split (#778 77th NULL, attn=0.45) — TIE on sr, sub-noise val. γ_power is type-isotropic in body-Muon regime — Kronecker L_cov/R_cov already capture per-tensor curvature differences; an additional per-type γ scalar offers no orthogonal gain.
+- **77th closed axis. Tanjiro reassigned to Adan-aux (fresh axis, Xie et al. 2022 — Nesterov-momentum-of-gradient-differences).**
+
 ## 2026-05-23 00:50 UTC — PR #814 CLOSED: Aux RAdam (variance warmup) — NULL/NULL, 76th axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/aux-radam-variance-warmup`
