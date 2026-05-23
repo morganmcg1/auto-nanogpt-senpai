@@ -61,6 +61,9 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--adam_mini_aux", type=str, default="off",
+                        choices=["off", "per_tensor", "per_row"],
+                        help="Adam-mini variant for aux groups. 'off' = standard AdamW.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -586,6 +589,73 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class AdamMiniAux(torch.optim.Optimizer):
+    """Adam-mini (Zhang et al. 2024, arXiv:2406.16793) for aux groups.
+
+    Replaces per-element v_t with a single scalar per parameter "block".
+    Block granularity controlled by `block_mode`:
+        - "per_tensor": one v_t scalar per parameter tensor (most aggressive)
+        - "per_row": one v_t scalar per row (dim 0) — useful for embed/lm_head
+                     where rows index over vocabulary; preserves per-token adaptivity
+
+    The first-moment m_t remains per-element (same as Adam).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, block_mode="per_row"):
+        if block_mode not in ("per_tensor", "per_row"):
+            raise ValueError(f"block_mode must be 'per_tensor' or 'per_row', got {block_mode}")
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        block_mode=block_mode)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            block_mode = group["block_mode"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    if block_mode == "per_tensor" or p.ndim < 2:
+                        v_shape = (1,)
+                    else:
+                        v_shape = (p.shape[0],) + (1,) * (p.ndim - 1)
+                    state["v"] = torch.zeros(v_shape, dtype=torch.float32, device=p.device)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["m"], state["v"]
+                g32 = g.float()
+                m.mul_(b1).add_(g32, alpha=1 - b1)
+                g_sq = g32 * g32
+                if block_mode == "per_tensor" or p.ndim < 2:
+                    g_sq_pooled = g_sq.mean().view(1)
+                else:
+                    g_sq_pooled = g_sq.mean(dim=tuple(range(1, p.ndim)), keepdim=True)
+                v.mul_(b2).add_(g_sq_pooled, alpha=1 - b2)
+                bc1 = 1 - b1 ** t
+                bc2 = 1 - b2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                denom = v_hat.sqrt() + eps
+                update = m_hat / denom
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+        return loss
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -717,6 +787,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "adam_mini_aux": args.adam_mini_aux,
         },
     )
 
@@ -748,10 +819,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.adam_mini_aux != "off":
+        optimizer1 = AdamMiniAux([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                                  dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                                  dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                                 betas=(0.8, 0.95), eps=1e-10, weight_decay=0.0,
+                                 block_mode=args.adam_mini_aux)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1003,6 +1081,28 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+            if isinstance(optimizer1, AdamMiniAux):
+                am_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/adam_mini_aux/block_mode": (1 if args.adam_mini_aux == "per_row" else 0),
+                }
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "unknown")
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, None)
+                        if not st or "v" not in st:
+                            continue
+                        v = st["v"]
+                        am_metrics[f"train/adam_mini_aux/v_size/{gname}"] = int(v.numel())
+                        am_metrics[f"train/adam_mini_aux/v_mean/{gname}"] = float(v.mean().item())
+                        am_metrics[f"train/adam_mini_aux/v_std/{gname}"] = (
+                            float(v.std(unbiased=False).item()) if v.numel() > 1 else 0.0
+                        )
+                        am_metrics[f"train/adam_mini_aux/v_min/{gname}"] = float(v.min().item())
+                        am_metrics[f"train/adam_mini_aux/v_max/{gname}"] = float(v.max().item())
+                        break
+                wandb.log(am_metrics, step=wandb_step)
             floor_diag = getattr(optimizer2, "_floor_diag", None)
             if floor_diag is not None:
                 eligible = floor_diag.get("eligible", 0)
