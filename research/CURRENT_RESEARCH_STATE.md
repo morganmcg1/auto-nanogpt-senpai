@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 18:45 UTC
+- **Date:** 2026-05-23 20:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -134,6 +134,33 @@ Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses a
 | #825 | nezuko | Pod 2 D pending launch | ~end of day |
 
 ### Zero idle students (cycle 135). Eight active WIP PRs (#929 #923 #919 #847 #845 #880 #789 #825).
+
+## Cycle 159 snapshot (20:15 UTC) — three in-flight terminals, all chains continuing
+
+### Advisor actions this cycle
+- **#845 askeladd** (Pod 1 v2 favorable, stale_wip false-positive): Pod 1 v2 `s5mjy5vw` terminal val=**3.26617** (Δ_vs_new_base=−0.00139 favorable). Pod 2 v2 `y9g5c6v5` launched 19:55 UTC step ~400. Posted advisor interim ack confirming favorable + chain continues; mean(n=3) target ≤ 3.26756 for merge.
+- **#938 alphonse** (Arm A drift marginal, stale_wip false-positive): Arm A control `f2aixnq9` finished val=**3.27080** (Δ_vs_new_base=+0.00324 — just outside ±0.003 drift gate). Arm B `xsikeso6` launched 20:00 UTC step ~250. Posted advisor visibility ack noting drift is borderline (~2σ above n=3 mean) and absolute mean(B/C/D) ≤ 3.26756 still required for merge.
+- **#880 thorfinn** (needs_rebase): Pod 0 paired done (A=3.26951, D=3.26786, Δ_within=−0.00165 sub-threshold). Pod 1 Arm A `it83u13l` at step 3300/3350 val=**3.27145** (Δ_vs_new_base=+0.00389, outside drift gate). Pod 1 Arm A drifting +0.00194 higher than Pod 0 Arm A — chain integrity at risk. Posted advisor decision-branch comment: continue if drift holds, pre-stage rebase if drift deepens, early-stop + rebase+rerun on post-#847 stack with Arm D only if Pod 1 Arm A > 3.275.
+
+### Active chains at cycle 159
+| PR | Student | Status | ETA |
+|:--:|:-------:|--------|-----|
+| #845 | askeladd | Pod 1 v2 favorable 3.26617; Pod 2 v2 running step 400 | full chain ~22:50 UTC for n=3 |
+| #938 | alphonse | Arm A done 3.27080 drift marginal; Arm B running step 250 | Arm B terminal ~21:50 UTC |
+| #880 | thorfinn | Pod 0 done; Pod 1 Arm A running step 3300 drift unfavorable; rebase pre-stage advised | Pod 1 A terminal imminent (~5 min) |
+| #919 | fern | Arm 1 done 3.26815 (+0.00059), Arm 2 `fivhmphf` step 2350 running | Arm 2 terminal ~20:30 UTC |
+| #923 | frieren | Arm 1 done 3.26875 (+0.00119), Arm 2 crashed at step 1375; current arm not visible in expected group | check next cycle |
+| #929 | edward | Arm 1 crashed at step 1075; pod GPU 100% — recovering/retrying | check next cycle |
+| #933 | nezuko | Arm 1 done 3.26939 (+0.00183), Arm 2 `puhd26f3` just started (step 0) | Arm 2 terminal ~22:00 UTC |
+| #944 | tanjiro | grad-centralization Arm A `6ht4oj5l` step 1375 val 3.538 normal | Arm A terminal ~21:15 UTC |
+
+### Zero idle students (cycle 159). Eight active WIP PRs (#845 #938 #880 #919 #923 #929 #933 #944).
+
+### Operational notes
+- **stale_wip false-positives** on #845 and #938 are silent-progression artifacts: W&B runs are progressing normally but no fresh PR comment between SENPAI-RESULT posts.
+- **#880 Pod 1 Arm A drift +0.00194** beyond Pod 0 Arm A is the cycle's most concerning operational signal. If pattern continues into Pods 1/2, the chain on OLD stack is no longer representative and merge-gate evaluation moves to rebased-only.
+- **Three arm-1 results landed within ±0.0007** of merged baseline (#845 v2=3.26617, #919=3.26815, #923=3.26875, #938=3.27080, #933=3.26939) — most n=1 single-seed variance is within normal range.
+- **#929 edward crashed at step 1075 + #923 frieren arm 2 crashed**: 2 of 8 active chains had a crashed early-step run. Within tolerance for n=1 screening (transient pod failures) but worth monitoring next cycle.
 
 ## Cycle 158 snapshot (18:45 UTC) — #789 closed, tanjiro idle
 
