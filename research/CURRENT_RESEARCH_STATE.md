@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 00:32 UTC
+- **Date:** 2026-05-23 00:42 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -431,7 +431,7 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 
 **Follow-up**: thorfinn reassigned to **#848 lm_head non-zero init magnitude sweep** — fresh init axis on AUX side. lm_head currently `w.zero_()` per line 894; bit-identical fallback at std=0. 4-arm sweep std ∈ {0, 1e-4, 1e-3, 5e-3}. Mechanism-novel for lm_head; tests whether zero-init is empirically optimal or just a residual-block-style default.
 
-### 🔄 thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) [assigned 22:25 UTC]
+### 🔄 thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) [assigned 22:25 UTC; status-check 00:40 UTC]
 
 **Branch:** `g1r4-thorfinn/lm-head-init-std`
 **Hypothesis**: `model.proj.weight` (lm_head) currently `w.zero_()` initialized (line 894). At step 0, lm_head=0 → uniform logits over 50257 tokens → uniform softmax. Tests whether the "build-out from zero" exploration phase that lm_head spends in early training is structurally load-bearing OR an empirical default that small non-zero init could improve on. Distinct from all closed lm_head experiments (which modified optimizer not init). Distinct from #812 (body Muon init). Implementation: ~5 LOC, condition `name == "proj.weight"` to special-case top-level lm_head while preserving residual-init zero for in-block attn.proj/mlp.proj. Bit-identical fallback at std=0.
@@ -441,6 +441,14 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 | B | 1e-4 (very mild) | ~0.62 | ~1e-3 |
 | C | 1e-3 (mild, common transformer init) | ~6.2 | ~1e-2 |
 | D | 5e-3 (moderate) | ~31 | ~5e-2 |
+
+**00:40 UTC status-check** (stale_wip false-positive, same regex bug):
+- **Arm A `pt2bcodv` alive**: step 2925/3350 val=3.32 — normal late-cooldown band. Started 22:43 UTC. Heartbeat fresh (00:38 UTC).
+- 3 additional Arm A duplicates (`xgnzpchd` step 350 stale, `xlc48udw` crashed ~15s, `7ah6ml9s` crashed step 75) — all logged std=0 config. Possible chain-script bug re-launching std=0 instead of progressing.
+- Bonus smoke run `5byj5csa` had `std=0.001` BUT `grad_clip_body=0, grad_clip_aux=0` (NOT post-#708 stack) — step=1 val=10.83 ≈ log(50257), so just step-0 sanity. Flagged in advisor comment.
+- B/C/D not launched yet (no runs with std ∈ {1e-4, 1e-3, 5e-3} under group). Branch only has assignment commit; local edits unpushed.
+- Posted #848 advisor comment requesting: (1) push implementation, (2) explain 3 duplicate Arm A crashes/concurrent runs, (3) post Arm A terminal val/fs + drift gate, confirm `LM_HEAD_INIT` startup print shows actual_norm=0.0 (name-match validation for `proj.weight` top-level vs in-block).
+- Same GH API rate-limit window 00:19-00:25 UTC hit thorfinn's pod (iteration 1364, resumed 1365); GPU stayed 100% throughout. Non-disruptive (no label swap).
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
