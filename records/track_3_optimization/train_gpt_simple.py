@@ -71,15 +71,39 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H84: septic (degree-7) Schulz iteration in MuonH inner orthogonalization.
+    # --use_septic_ns 0 (default) preserves the bit-identical NS5 quintic path.
+    # When >0, replaces NS5 with a degree-7 polynomial X * (a*I + b*Y + c*Y^2 + d*Y^3)
+    # where Y = X X^T. The advisor pivot uses the perturbative family (a,b,c,d) =
+    # (2, d-1.5, 0.5-2d, d) parametrized by d. d=0 reproduces the production quintic.
+    parser.add_argument("--use_septic_ns", type=int, default=int(os.environ.get("USE_SEPTIC_NS", "0")),
+                        help="0=NS5 quintic (default, ctrl bit-identical), 1=septic degree-7 iteration.")
+    parser.add_argument("--septic_coefs", type=str, default=os.environ.get("SEPTIC_COEFS", "2,-1.45,0.4,0.05"),
+                        help="Comma-separated (a,b,c,d) polynomial coefs for septic iteration.")
+    parser.add_argument("--septic_iters", type=int, default=int(os.environ.get("SEPTIC_ITERS", "12")),
+                        help="Number of septic iterations (k). Default 12 (FLOP-comparable to NS5 quintic k=12 plus one extra matmul per iter).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    # Parse septic coefs once and stash as a tuple of floats.
+    septic_parts = [p.strip() for p in args.septic_coefs.split(",") if p.strip()]
+    if len(septic_parts) != 4:
+        raise ValueError(f"--septic_coefs must have exactly 4 comma-separated floats (a,b,c,d), got: {args.septic_coefs!r}")
+    args.septic_coefs_tuple = tuple(float(p) for p in septic_parts)
+    if args.septic_iters < 1:
+        raise ValueError("--septic_iters must be >= 1")
     return args
 
 
 args = parse_args()
+
+# Bake septic coefs and iter count into module globals BEFORE any torch.compile
+# trace is captured. The septic path is only invoked when args.use_septic_ns is
+# nonzero, but the constants must already match by the time we trace.
+SEPTIC_A, SEPTIC_B, SEPTIC_C, SEPTIC_D = args.septic_coefs_tuple
+SEPTIC_ITERS = args.septic_iters
 
 
 def clean_metric_name(name: str) -> str:
@@ -485,11 +509,41 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+# H84: degree-7 (septic) Schulz iteration. Only used when --use_septic_ns > 0;
+# the quintic path above remains the bit-identical default. SEPTIC_{A,B,C,D}
+# and SEPTIC_ITERS are set as module globals immediately after argparse runs at
+# the top of the file, so they are already in place when this function is first
+# traced by torch.compile inside MuonH.step.
+
+def zeropower_via_septic_schulz(G: Tensor) -> Tensor:
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    a, b, c, d = SEPTIC_A, SEPTIC_B, SEPTIC_C, SEPTIC_D
+    for _ in range(SEPTIC_ITERS):
+        A = X @ X.mT
+        A2 = A @ A
+        B = b * A + c * A2 + d * (A @ A2)
+        X = a * X + B @ X
+    if G.size(-2) > G.size(-1):
+        X = X.mT
+    return X
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+@torch.compile
+def muon_update_septic(grad, momentum, mu=0.95, nesterov=True):
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = zeropower_via_septic_schulz(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -601,6 +655,16 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # H84: optional septic Schulz dispatch. When True, MuonH.step uses the
+        # septic update function instead of the bit-identical quintic one. The
+        # caller sets this from args.use_septic_ns before training starts so the
+        # torch.compile trace stays stable for the whole run.
+        self._use_septic_ns: bool = False
+        # H84 telemetry tap: when True, snapshot the first body matrix's
+        # post-orthogonalization update once per step on rank 0. The training
+        # loop sets/clears this around telemetry-due steps.
+        self._tap_update_telemetry: bool = False
+        self._last_update_sample: Tensor | None = None
 
     @torch.no_grad()
     def step(self):
@@ -610,6 +674,9 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        tap_remaining = self._tap_update_telemetry and rank == 0
+        if tap_remaining:
+            self._last_update_sample = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -624,7 +691,18 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if self._use_septic_ns:
+                        update = muon_update_septic(p.grad, state["momentum"], mu=group["mu"])
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if tap_remaining:
+                        # Snapshot the orthogonalized update (before any LR/scale).
+                        # muon_update returns the post-Schulz tensor multiplied by
+                        # the shape factor max(1, m/n)**0.5; we divide that out so
+                        # the sample reflects pure orthogonalization quality.
+                        shape_factor = max(1.0, p.grad.size(-2) / p.grad.size(-1)) ** 0.5
+                        self._last_update_sample = (update / shape_factor).detach().clone()
+                        tap_remaining = False
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -713,6 +791,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.use_septic_ns:
+    print0(f"SEPTIC NS ENABLED: coefs=(a={SEPTIC_A},b={SEPTIC_B},c={SEPTIC_C},d={SEPTIC_D}) iters={SEPTIC_ITERS}", console=True)
+else:
+    print0("SEPTIC NS DISABLED (NS5 quintic baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -821,6 +903,10 @@ for trial_idx in range(args.num_trials):
                        hyperball=True, budget_mult=args.muonh_budget_mult,
                        mode=args.muonh_mode)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    # H84: dispatch to septic Schulz iteration when requested. The torch.compile
+    # trace for muon_update_septic captures SEPTIC_{A,B,C,D} and SEPTIC_ITERS
+    # which were set from args at module load.
+    optimizer2._use_septic_ns = bool(args.use_septic_ns)
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -1018,8 +1104,15 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H84: arm the post-Schulz orthogonality telemetry tap on rank 0 only,
+        # for telemetry-due steps. The tap captures the first body matrix's
+        # post-Schulz update inside MuonH.step.
+        if dist.get_rank() == 0 and telemetry_due:
+            optimizer2._tap_update_telemetry = True
         for opt in optimizers:
             opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            optimizer2._tap_update_telemetry = False
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1038,6 +1131,30 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # H84: post-Schulz orthogonality telemetry from the tap.
+                    sample = opt._last_update_sample
+                    if telemetry_due and sample is not None:
+                        with torch.no_grad():
+                            Xf = sample.float()
+                            s = torch.linalg.svdvals(Xf)
+                            devs = (s - 1.0).abs()
+                            s2 = s.square()
+                            denom = s2.square().sum().clamp_min(1e-30)
+                            eff_rank = float((s2.sum().square() / denom).item())
+                            muonh_metrics["ns/post_orth_sv_max_dev"] = float(devs.max().item())
+                            muonh_metrics["ns/post_orth_sv_min_dev"] = float(devs.min().item())
+                            muonh_metrics["ns/post_orth_sv_mean_dev"] = float(devs.mean().item())
+                            muonh_metrics["ns/post_orth_sv_min"] = float(s.min().item())
+                            muonh_metrics["ns/post_orth_sv_max"] = float(s.max().item())
+                            muonh_metrics["ns/post_orth_fro_err"] = float(
+                                (Xf @ Xf.T - torch.eye(Xf.size(0), device=Xf.device)).norm().item()
+                                if Xf.size(0) <= Xf.size(1)
+                                else (Xf.T @ Xf - torch.eye(Xf.size(1), device=Xf.device)).norm().item()
+                            )
+                            muonh_metrics["ns/effective_rank"] = eff_rank
+                            muonh_metrics["ns/sample_shape_0"] = Xf.size(0)
+                            muonh_metrics["ns/sample_shape_1"] = Xf.size(1)
+                        opt._last_update_sample = None
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
