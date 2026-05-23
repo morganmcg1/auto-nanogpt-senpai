@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+NORMUON_SM_GRANULARITY = os.environ.get("NORMUON_SM_GRANULARITY", "per_row")  # "per_row" or "per_element"
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -514,7 +515,9 @@ def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
-    if update.size(-2) >= update.size(-1):
+    if NORMUON_SM_GRANULARITY == "per_element":
+        per_row_var = update * update  # per-element squared activation (no mean)
+    elif update.size(-2) >= update.size(-1):
         per_row_var = (update * update).mean(dim=-1, keepdim=True)
     else:
         per_row_var = (update * update).mean(dim=-2, keepdim=True)
@@ -670,7 +673,11 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         # NorMuon-lite per-row (or per-col) variance buffer.
-                        if p.size(-2) >= p.size(-1):
+                        if NORMUON_SM_GRANULARITY == "per_element":
+                            state["second_moment"] = torch.zeros(
+                                p.shape, dtype=torch.float32, device=p.device
+                            )
+                        elif p.size(-2) >= p.size(-1):
                             state["second_moment"] = torch.zeros(
                                 (*p.shape[:-1], 1), dtype=torch.float32, device=p.device
                             )
@@ -859,6 +866,7 @@ if dist.get_rank() == 0:
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
+            "optimizer/normuon_sm_granularity": NORMUON_SM_GRANULARITY,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_beta2": ATTN_SOAP_BETA2,
