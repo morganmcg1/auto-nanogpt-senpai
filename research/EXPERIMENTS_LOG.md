@@ -1,3 +1,58 @@
+## 2026-05-23 22:00 UTC — PR #916 CLOSED NULL/NEG (nezuko): H95 MuonH Nesterov µ-sweep — programme-level closure on inner µ static axis with load-bearing cooldown-momentum asymmetry finding
+
+- Branch: `g1r3-nezuko/muonh-momentum-sweep`
+- Hypothesis tested: 4-arm sweep of MuonH Nesterov µ ∈ {0.85, 0.90, 0.95, 0.98} under the current stack (MuLoCo outer-SGDM, dual AGC, cosine cooldown, β2=0.99 aux baseline) — µ=0.95 had been hardcoded since PR #52 and never re-tested.
+- Results: arm_a CTRL µ=0.95 val/loss=**3.27007** (NULL +0.0003, within ±0.0008 vs baseline 3.26977). arm_b µ=0.90 val/loss=**3.27524** clean NEG (+0.0055 ~+7σ). arm_c µ=0.98 val/loss=**3.29670** catastrophic NEG (missed 3.28 target, ffs=-1). arm_d µ=0.85 val/loss=**3.29125** catastrophic NEG (missed 3.28, ffs=-1). µ=0.95 wins; surrounded by NEG band on both sides.
+- **Load-bearing mechanism finding (nezuko's textbook trajectory-table diagnosis)**: **Lower µ wins early, higher µ wins late — cooldown-phase momentum asymmetry**. Through step 2500, arm_b (µ=0.90) and arm_d (µ=0.85) lead arm_a (µ=0.95) by 0.01-0.02. During cosine cooldown (final 25% of training), ranking inverts: arm_a overtakes by step 3000 and finishes best. Mechanism: shorter momentum memory (lower µ) accelerates bulk-phase progress because gradient signal is fresher through MuLoCo sync_interval=30 boundary. But during cosine cooldown when inner_lr → 0, the optimizer needs more inertia to maintain effective step size — µ=0.95 supplies it, µ=0.90 doesn't. Classic Sutskever 2013 'effective step size ~ lr·µ/(1-µ)' rule: at lr→0 you want µ→1 to compensate.
+- **Programme-level pre-closures (inner MuonH static µ axis)**: future µ-only re-tuning proposals in [0.85, 0.98] static range pre-closed; joint static µ × outer_momentum sweeps pre-closed (cooldown crossover would dominate the joint signal).
+- Does NOT pre-close: **µ schedule axis** — hold µ=0.85-0.90 during bulk, ramp to 0.95 at cooldown break. Nezuko's load-bearing finding explicitly identifies this as the next intervention worth trying; the ~0.015 of "headroom" arm_b/arm_d have at step 2500 that's lost in cooldown is what a µ-schedule would aim to capture. Mechanism-distinct from inner-LR schedule (which is already cosine).
+- Methodological commendation: rigorous per-arm smoke gates with explicit val/loss table at steps {0, 125, 250, 375, 500}; chain-runner discipline (single-GPU serial BCD chain ~6h54m); explicit cooldown-crossover step identification at step ~3000.
+- Reproduce arm_a (CTRL baseline reproduce): `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_adamw_eps 1e-6 --aux_beta2_schedule constant --aux_beta2_start 0.99 --muonh_mu 0.95` (W&B run `32h26zuc`).
+- 16th plateau-protocol swing closed. nezuko reassigned PR #954 H103 Outer Nesterov SGDM (heavy-ball → true Nesterov on MuLoCo outer step, fresh formula-axis untouched by all prior outer experiments).
+
+---
+
+## 2026-05-23 22:00 UTC — PR #954 ASSIGNED (nezuko): H103 Outer Nesterov SGDM on MuLoCo (heavy-ball → true Nesterov apply formula)
+
+- Branch: `g1r3-nezuko/h103-outer-nesterov`
+- Hypothesis: Change MuLoCo outer optimizer from heavy-ball SGDM (`slow += outer_lr * delta_buffer`) to **true Nesterov SGDM** (`slow += outer_lr * (outer_momentum * delta_buffer + delta_t)`). Momentum-buffer accumulation unchanged; only the apply step changes from heavy-ball to Nesterov lookahead form.
+- **Fresh axis untouched by any prior outer experiment**: H91 (outer-Adam NEG) closed per-coord-sign outer optimizers (Adam/Lion family) — distributional sign-hammer failure. H100 (Grafted-Adam-SGDM-magnitude, in-flight at askeladd) tests direction/magnitude grafting. H99 (Outer-LR WSD cooldown, in-flight at edward) tests outer-LR schedule shape. **None changed the SGDM momentum FORMULA**. Outer Nesterov is mechanism-distinct from all three: scalar momentum accumulation within SGDM class, not per-coord adaptive normalization.
+- Mechanism question: in convex settings Nesterov achieves O(1/T²) vs heavy-ball O(1/T). For MuLoCo outer aggregating 30-step inner trajectories (sync_interval=30), the difference could meaningfully shape slow-weight aggregation; or sync_interval=30 itself may act as natural look-ahead smoothing rendering Nesterov a no-op.
+- Arms (n=1, 3325 steps): arm_a CTRL `outer_nesterov=0` outer_momentum=0.5 (bit-identical heavy-ball baseline) / arm_b PRIMARY `outer_nesterov=1` outer_momentum=0.5 (Nesterov apply at current momentum) / arm_c TUNED `outer_nesterov=1` outer_momentum=0.7 (Nesterov often benefits from higher momentum since lookahead prevents overshoot).
+- Telemetry: `outer/heavy_ball_apply_norm`, `outer/nesterov_apply_norm` (logged in BOTH arms regardless of which is active, so we see the predicted Nesterov vs heavy-ball difference cleanly), `outer/nesterov_heavy_ratio`. If ratio ≈ 1.0 throughout training, Nesterov lookahead is effectively a no-op for our outer dynamics — programme-level finding regardless of val/loss.
+- Decision: WIN<3.26897; NULL∈[3.26880,3.27070]; NEG>3.27150. Closure-amplifier: arm_b NEG AND arm_c NEG → outer heavy-ball vs Nesterov axis closed; joint with H91 + H100 + H99 → outer optimizer formula axis broadly constrained.
+- LoC ~15. W&B group H103_outer_nesterov. Reassignment after #916 closure.
+
+---
+
+## 2026-05-23 22:00 UTC — PR #911 CLOSED NULL/NEG (tanjiro): H92 MARS-M variance reduction pre-NS5 — programme-level closure on variance-reduction-pre-NS5 axis
+
+- Branch: `g1r3-tanjiro/H92-mars-m-body`
+- Hypothesis tested: Apply MARS-M stochastic recursive momentum correction `c_t = g_t + γ·β/(1-β)·(g_t - g_{t-1})` to MuonH body gradient BEFORE NS5 polar projection (arXiv:2510.21800, Chen et al. 2024). γ-sweep ∈ {0, 0.005, 0.01, 0.02}, β=0.95.
+- Results (vs new baseline 3.26977 post-PR #888): γ=0 CTRL val/loss=**3.27423** (unlucky CTRL +1.9σ on old pop; bit-identical else-branch verified by code audit). γ=0.005 BEST val/loss=**3.27288** (Δ=-0.00135 vs CTRL, but +0.00311 vs new baseline = NEG). γ=0.01 val/loss=**3.27452** (+0.00029 vs CTRL = NULL). γ=0.02 val/loss=**3.27703** clean NEG (+0.00280 vs CTRL, catastrophic over-correction). Monotonic NEG in γ after γ=0.005.
+- **Load-bearing mechanism finding (tanjiro's textbook diagnostic)**: Implementation verified mechanically correct — `correction_norm_ratio` scales EXACTLY linearly with γ (0.18/0.35/0.73 at γ=0.005/0.01/0.02), `grad_diff_norm` γ-independent (intrinsic to optimizer state). Decay from 0.18→0.13 matches paper's prediction. But the **variance-reduction effect saturates against the NS5 + MuLoCo + AGC stack**.
+- **Why MARS-M doesn't help**: NS5 spectral normalization already absorbs the variance-reduction benefit MARS-M is designed to deliver. Newton-Schulz polar map enforces orthogonality target on the post-momentum direction — this normalization IS itself a strong variance-reducing operation in spectral space. Adding finite-difference correction BEFORE NS5 modifies input, but NS5 polar projection then re-normalizes it, neutralizing most of the correction. The gain is essentially absorbed by NS5. Over-correction at γ=0.02 (ratio ≈ 0.7, correction nearly half raw grad) hurts most.
+- **Programme-level pre-closures for variance-reduction-pre-NS5 axis**: SAGA, SCSG, SVRG-style stochastic recursive variance-reduction methods applied to MuonH body gradients pre-NS5 at our scale/budget.
+- Does NOT pre-close: MARS-M on AUX groups (no NS5 layer there — Adafactor H97 in-flight tests adjacent axis); bias-corrected MARS-M Algorithm 2 (paper's running-EMA variant, not single-step finite difference; more stable but extra memory).
+- Methodological commendation: bit-identical γ=0 audit (line 678 `corrected_grad = p.grad` in else branch) preempted smoke-gate false-negative interpretation; linear-scaling diagnostic of correction_norm_ratio verified implementation; heartbeat discipline (4 comments across chain) prevented stale_wip flag spam.
+- Reproduce best arm γ=0.005: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --use_outer_optimizer 1 --outer_lr 0.7 --outer_momentum 0.5 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_adamw_eps 1e-6 --mars_m_gamma 0.005 --mars_m_beta 0.95` (W&B run `rsx78j55`, on OLD-baseline branch).
+- 15th-equivalent plateau-protocol swing closed (joint with #912 H93 PSGD-Kron and #916 H95 µ-sweep this cycle wave). tanjiro reassigned PR #955 H106 GMN Gradient Multi-Normalization (NeurIPS 2025 multi-norm normalizer replacing NS5 polar map — mechanism-distinct family from polynomial-Schulz polar maps).
+
+---
+
+## 2026-05-23 22:00 UTC — PR #955 ASSIGNED (tanjiro): H106 Gradient Multi-Normalization replacing NS5 polar map (GMN body)
+
+- Branch: `g1r3-tanjiro/h106-gmn-multi-norm`
+- Hypothesis: Replace NS5 polar map in MuonH with **Gradient Multi-Normalization (GMN)** (Scetbon et al. NeurIPS 2025, arXiv:2502.05573) — stateless multi-norm normalizer combining Frobenius + spectral normalizations: `u = w_F·m/||m||_F + w_S·m/||m||_2`. NS5 approximates only spectral (polar factor = matrix sign function); GMN adds Frobenius normalization on top, balancing ALL singular values (Frobenius) vs ONLY top σ (spectral).
+- **Directly motivated by H90 closure mechanism finding**: alphonse's H90 NS5 partial-orth (sv_min ≈ 0.18) on square shapes is load-bearing; full orth (NSCubic iso-fidelity) was WORSE. GMN gives a dial to control multi-norm tradeoff — w_F → 1 averages singular values; w_S → 1 normalizes top σ only. We want some interior point per H90.
+- Mechanism-distinct family: not a polynomial polar iteration (closed across H88, H90, H78, H84, H79, H86 joint axis closures). Stateless — mechanistically distinct from PSGD-Kron (H93 NEG, Kronecker factors), Sophia-G (H98 NEG, Hessian diagonal), MARS-M (H92 NULL/NEG, prev_grad). Paper reports 40% token-reduction-to-Adam-perplexity on FineWeb-Edu (our dataset family). SWAN (Zhao et al. arXiv:2412.13148) is GMN special case with w_F=0, w_S=1.
+- Arms (n=1, 3325 steps): arm_a CTRL `gmn_enabled=0` (bit-identical NS5 baseline) / arm_b PRIMARY w_F=0.5 w_S=0.5 per-row spectral approx (paper default) / arm_c FROB-HEAVY w_F=0.8 w_S=0.2 (tests whether equal-sv normalization is load-bearing part).
+- Telemetry: `gmn/sv_min`, `gmn/sv_max` on square (768,768) blocks every 100 steps — directly comparable to alphonse's H90 telemetry. Critical question: does GMN preserve partial-orth (sv_min ≈ 0.18) basin or push toward 0/1? Magnitude calibration via `update_norm_pre_outer` to ensure GMN matches NS5 magnitude.
+- Decision: WIN<3.26897; NULL∈[3.26880,3.27070]; NEG>3.27150. Closure-amplifier: both arms NEG → GMN multi-norm axis closed; NS5 partial-orth basin is structurally what this stack needs (joint with H90 closure). Pre-closes SWAN spectral-only at full-replacement scale, GMN-with-nuclear-norm variants.
+- LoC ~50. W&B group H106_gmn_multi_norm. Reassignment after #911 closure.
+
+---
+
 ## 2026-05-23 21:30 UTC — PR #912 CLOSED NEG/closure (fern): H93 PSGD-Kron Kronecker preconditioner — load-bearing AGC-binding finding, pre-closes block-diagonal preconditioner family
 
 - Branch: `g1r3-fern/h93-psgd-kron-body`
