@@ -71,6 +71,16 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H82 Gradient Centralization (Yong et al. 2020): subtract per-row mean from
+    # 2D weight gradients BEFORE AGC + optimizer.step. Projection onto the
+    # centered hyperplane (rank-1 mean component stripped). Skips 1D / scalar
+    # params. Default 'off' is a bit-identical no-op vs current baseline.
+    parser.add_argument("--gradient_centralization", type=str,
+                        default=os.environ.get("GRADIENT_CENTRALIZATION", "off"),
+                        choices=["off", "aux", "all"],
+                        help="off: no GC (bit-identical baseline). "
+                             "aux: centralize embed.weight + lm_head 2D grads (no NS5 interaction). "
+                             "all: also centralize MuonH body 2D grads (centered gradient feeds NS5).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -567,6 +577,43 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+def centralize_grads(parameters, label: str, log_now: bool = False):
+    """Gradient Centralization (Yong et al. 2020, https://arxiv.org/abs/2004.01461).
+
+    For each 2D weight gradient g of shape (out, in), subtract the per-row mean
+    along the input dim in place. Projects g onto the centered hyperplane —
+    rank-1 mean component is stripped. 1D / scalar params are skipped.
+
+    When log_now is True, also returns telemetry: sum of (mean_per_row)² across
+    layers (rank-1 magnitude), avg sqrt(1 - mean_norm²/g_norm²) across layers
+    (post-GC norm ratio; equals 1 when grad already zero-mean), and the count
+    of centralized 2D tensors. Empty dict otherwise.
+    """
+    sum_mean_mag = 0.0
+    sum_norm_ratio = 0.0
+    sum_n = 0
+    for p in parameters:
+        g = p.grad
+        if g is None or g.dim() != 2:
+            continue
+        mean_per_row = g.mean(dim=1, keepdim=True)
+        if log_now:
+            m_sq = float(mean_per_row.pow(2).sum().item())
+            sum_mean_mag += m_sq
+            g_norm_sq = float(g.pow(2).sum().item())
+            mean_norm_sq_full = m_sq * g.size(1)
+            sum_norm_ratio += math.sqrt(max(0.0, 1.0 - mean_norm_sq_full / max(g_norm_sq, 1e-12)))
+            sum_n += 1
+        g.sub_(mean_per_row)
+    if log_now and sum_n > 0:
+        return {
+            f"gc/mean_mag_sum_{label}": sum_mean_mag,
+            f"gc/post_norm_ratio_avg_{label}": sum_norm_ratio / sum_n,
+            f"gc/n_layers_centralized_{label}": sum_n,
+        }
+    return {}
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -713,6 +760,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.gradient_centralization != "off":
+    print0(f"H82 Gradient Centralization ENABLED: target={args.gradient_centralization} "
+           f"(strips per-row mean from 2D grads BEFORE AGC + optimizer.step)", console=True)
+else:
+    print0("H82 Gradient Centralization DISABLED (off — bit-identical baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +818,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "gradient_centralization": args.gradient_centralization,
         },
     )
 
@@ -1008,6 +1061,15 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # H82 Gradient Centralization (Yong et al. 2020): strip per-row mean from
+        # 2D weight gradients BEFORE AGC + optimizer.step. Training telemetry
+        # logged above sees pre-GC grads; AGC and optimizer see post-GC grads.
+        gc_log_now = telemetry_due and dist.get_rank() == 0
+        gc_stats: dict[str, float] = {}
+        if args.gradient_centralization != "off":
+            gc_stats.update(centralize_grads(aux_params_for_agc, "aux", log_now=gc_log_now))
+            if args.gradient_centralization == "all":
+                gc_stats.update(centralize_grads(muonh_params_for_agc, "body", log_now=gc_log_now))
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
@@ -1054,6 +1116,8 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if gc_stats:
+                muonh_metrics.update(gc_stats)
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
