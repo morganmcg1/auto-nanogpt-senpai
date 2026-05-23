@@ -1,0 +1,15 @@
+==== Running cellA (baseline-ctrl):  ====
+2026-05-23T11:45:29Z
+==== cellA done (rc=0): 2026-05-23T13:35:23Z ====
+==== Running cellB (top50-mlp): --topk_ratio 0.5 --topk_scope mlp ====
+2026-05-23T13:35:23Z
+==== cellB done (rc=0): 2026-05-23T15:45:56Z ====
+==== Running cellC (top75-mlp): --topk_ratio 0.75 --topk_scope mlp ====
+2026-05-23T15:45:56Z
+==== cellC done (rc=0): 2026-05-23T17:56:01Z ====
+==== Running cellD (top50-all): --topk_ratio 0.5 --topk_scope all ====
+2026-05-23T17:56:01Z
+==== cellD done (rc=0): 2026-05-23T20:16:14Z ====
+==== Running cellE (top90-mlp): --topk_ratio 0.9 --topk_scope mlp ====
+2026-05-23T20:16:14Z
+==== cellE done (rc=0): 2026-05-23T22:25:41Z ====

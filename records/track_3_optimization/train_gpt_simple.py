@@ -83,11 +83,20 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--topk_ratio", type=float, default=None,
+                        help="Fraction of gradient entries to keep by |g| before NS (e.g. 0.5 = top 50%). "
+                             "Default: off (no sparsification).")
+    parser.add_argument("--topk_scope", type=str, default="mlp",
+                        choices=["mlp", "all", "off"],
+                        help="Apply top-k entry-magnitude sparsification to: "
+                             "mlp-only body matrices / all body matrices / off. Default: mlp.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if args.topk_ratio is not None and not (0.0 < args.topk_ratio <= 1.0):
+        raise ValueError("--topk_ratio must satisfy 0 < ratio <= 1.0")
     return args
 
 
@@ -499,10 +508,28 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+
+def topk_sparsify(g: Tensor, ratio: float) -> Tensor:
+    """Zero the bottom (1-ratio) fraction of entries by |g| magnitude.
+
+    Operates per-tensor: each call computes a single scalar threshold equal to
+    the (numel - k + 1)-th smallest |g|, where k = max(1, int(numel * ratio)).
+    Entries with |g| >= threshold are kept; the rest are zeroed.
+    """
+    if ratio >= 1.0:
+        return g
+    flat_abs = g.abs().flatten()
+    k = max(1, int(flat_abs.numel() * ratio))
+    threshold = flat_abs.kthvalue(flat_abs.numel() - k + 1).values
+    return g * (g.abs() >= threshold).to(g.dtype)
+
+
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, topk_ratio: float = 1.0):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if topk_ratio < 1.0:
+        update = topk_sparsify(update, topk_ratio)
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
@@ -571,7 +598,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 topk_ratio=None, topk_scope="mlp"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +622,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.topk_ratio = topk_ratio
+        self.topk_scope = topk_scope
 
         param_groups = []
         for g in groups_raw:
@@ -619,6 +649,15 @@ class Muon(torch.optim.Optimizer):
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            group_name = group.get("name", "")
+            is_mlp_group = group_name == "muon_mlp"
+            apply_topk = (
+                self.topk_ratio is not None
+                and self.topk_ratio < 1.0
+                and self.topk_scope != "off"
+                and (self.topk_scope == "all" or is_mlp_group)
+            )
+            topk_ratio_eff = float(self.topk_ratio) if apply_topk else 1.0
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -637,9 +676,12 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        if apply_topk:
+                            precond_nesterov = topk_sparsify(precond_nesterov, topk_ratio_eff)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            raw_for_ns = topk_sparsify(raw_nesterov, topk_ratio_eff) if apply_topk else raw_nesterov
+                            u_muon = soap_ns_step(raw_for_ns)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +691,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], topk_ratio=topk_ratio_eff)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +807,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "topk_ratio": args.topk_ratio,
+            "topk_scope": args.topk_scope,
+            "topk_enabled": bool(args.topk_ratio is not None and args.topk_scope != "off"),
         },
     )
 
@@ -853,6 +898,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        topk_ratio=args.topk_ratio, topk_scope=args.topk_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
