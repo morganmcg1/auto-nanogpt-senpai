@@ -3,6 +3,27 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~11:21 UTC — PR #859: frieren GrokFast-Muon — **CLOSED clean-NEG**
+
+- Branch: `g1r5-frieren/grokfast-muon`
+- Student: g1r5-frieren
+- Hypothesis: GrokFast amplifies the slow-EMA of the gradient (g_slow = α·prev + (1-α)·g, then g_amp = g + λ·g_slow) before Nesterov+NS to accelerate grokking-style slow-feature convergence (Lee et al. 2024). Tests whether spectral pre-emphasis of the slow-frequency gradient component helps Muon's NS step.
+- **Results (5-cell sweep, n=1 each):**
+
+| Cell | λ | α | val/loss | ffs | Δ vs baseline | Δ vs ctrl | wandb_run |
+|:----:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **A** ctrl | 0.0 | — | **3.260130** | 3025 | -1.84σ (below μ, within noise) | 0 | 5euj6kem |
+| B | 1.0 | 0.98 | 3.264563 | 3050 | +5.63σ | +0.004433 | yc6r67ko |
+| C | 0.5 | 0.98 | 3.261473 | 3025 | +0.42σ | +0.001343 | rkbjscvd |
+| D | 2.0 | 0.98 | 3.272732 | 3125 | +19.4σ | +0.012602 | 6o8ux1ti |
+| E | 1.0 | 0.99 | 3.266133 | 3050 | +8.28σ | +0.006003 | imwdyxt1 |
+
+- **Decision: CLOSED clean-NEG.** Monotonic worsening with λ at fixed α=0.98 (A < C < B < D = 0.0 < 0.5 < 1.0 < 2.0). Cell A (ctrl, λ=0.0) just a single-trial seed sample below μ but above n=4 gate — not statsig.
+- **Mechanism analysis:** GrokFast's slow-EMA amplification skews the gradient toward a single low-frequency component, conflicting with NS orthogonalization's role of distributing gradient mass across the principal SV directions. At α=0.98, slow-EMA τ ≈ 50 steps — far too short to capture grokking-style slow features that emerge over thousands of steps. Higher α (Cell E, α=0.99, τ ≈ 100 steps) doesn't help. NS already extracts directionally-relevant signal via orthogonalization; pre-amplification of any spectral component is redundant or harmful.
+- **Axis closed: Frequency-domain pre-NS amplification.** The slow-EMA component is not the bottleneck.
+- **Pattern with other pre-NS mechanisms:** AGC (#887, magnitude), per-col-norm (#890, scale), MARS (#873, variance reduction), SignMuon (#823, sign), AdEMAMix (#840, dual EMA), Cautious (#867, agreement mask). GrokFast operates on frequency-structure → falsified. Of those terminal so far, MARS Cell B = 3.259897 is the strongest n=1.
+- Next assignment to frieren: Top-k gradient sparsification pre-NS — distinct structural transformation (entry-level magnitude masking) not yet tested in the portfolio.
+
 ## 2026-05-23 ~10:25 UTC — PR #850: edward Bias-Corrected Muon — **CLOSED clean-NEG**
 
 - Branch: `g1r5-edward/muon-bias-correction`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~11:42Z (poll #503) — **#840 n=4-confirm TRIAL 1 TERMINAL=3.261360 (regression from n=1=3.25960 by +0.001760; above n=4 gate by +0.002139, parity with baseline)**; #873 cell B confirmed terminal 3.259897, cell C ~75% trending NEG; #855 cell D crashed step 390 (student to handle)
+- **Last updated:** 2026-05-23 ~11:21Z (poll #512) — **#859 frieren GrokFast-Muon CLOSED clean-NEG** (monotonic worsening with λ at fixed α; mechanism: NS already optimally extracts spectral signal, pre-amplification of slow-EMA harmful). frieren assigned top-k gradient sparsification next. **#840 trial 1 terminal=3.261360** (regression from n=1=3.25960 by +0.001760); trial 2 ~78%, full n=4 ~3h ETA. #873 cell B 3.259897 still strongest n=1 post-#699. #890 cell A terminal 3.261209 (NEG), cell B PRIMARY just launched.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
