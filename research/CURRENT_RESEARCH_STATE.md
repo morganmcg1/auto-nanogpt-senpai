@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 09:55 UTC
+- **Date:** 2026-05-23 10:08 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -995,6 +995,8 @@ ETA terminal ~12-14h sequential.
 **07:58 UTC re-launch CORRECTION (edward self-discovery + recovery)**: Edward's 07:39 UTC cherry-pick happened on detached HEAD; named branch was never moved. The chain re-launch at 07:39 UTC was therefore on OLD code (W&B `s8nf2rg9` reached step ~440/3350 before discovery, killed 07:53 UTC). Edward correctly hard-reset `g1r4-edward/embed-init-magnitude` to `62e156f5`, cherry-picked single embed-init commit → `b48725b6`, force-pushed, and re-launched 4-arm chain at 07:55 UTC. Verified via `grep STOCHASTIC|EMBED_INIT_SCALE train_gpt_simple.py` returning all expected lines on the new checkout. Arm A live: W&B `wxfyjif6`, step 12/3350. **New ETA ~15:00 UTC.** GPU cost ~26 min on invalid runs (<1% of chain budget). Detached-HEAD cherry-pick trap noted as a future-launch hazard.
 
 **09:55 UTC W&B-verified — Arm A terminal, direction-WRONG but within drift**: Arm A (`wxfyjif6`) finished val=**3.27117**, Δ_vs_new_base 3.26944 = **+0.00173** (drift PASS ±0.003). Arm A is the ctrl (init_scale=1.0 = N(0,1) default) — direction-wrong is unfavorable seed, NOT mechanism (Arm A by construction is bit-clean to merged stack at the pre-`mul_` gate). Mid-trajectory chain on Arms B/C/D will produce within-pod Δ_vs_A comparisons; absolute baseline comparison less reliable given +0.00173 drift. Chain continues; Arm B in flight.
+
+**10:08 UTC — Arm B (`kjqev5sg`, scale=0.5) launched 09:49 UTC, running step 475/3350 (14%)**. Stale_wip auto-flag posted, addressed as false-positive — chain progressing per normal silent modus operandi. Posted #874 visibility-check comment. ETA Arm B terminal ~12:35 UTC, full chain (A→D sequential) ETA ~15:00 UTC. Chain on NEW post-#787 stack already — no cross-PR rebase needed at terminal if gates pass.
 
 ### 🗃️ edward #838 — assignment text (archived)
 
