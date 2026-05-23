@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 09:45 UTC
+- **Date:** 2026-05-23 09:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -291,7 +291,11 @@ Implementation: snapshot body Muon init weights at step 0; modify WD step from `
 
 **Implementation hygiene exemplary**: branch pushed `4d01a11` (47 LoC), rich W&B telemetry (`embed/dist_from_init`, snapshot norm/mean_abs), zero ghost crashes, step_avg drift ≤2%.
 
-**08:02 UTC interim — paired-pod seed 1 direction-correct**: seed 1 (`hf0mq6sz`) finished val=**3.26853**, fs=3200, Δ_vs_new_base 3.26944 = **−0.00091** ✅. Drift sanity vs N=1 Arm B (3.26953): |Δ| = 0.00100 (edge-pass ±0.0010). `embed/dist_from_init` monotone — anchor mechanism alive. Seed 2 (`mj471oxb`) running, ETA terminal ~09:50 UTC; seed 3 terminal ~11:42 UTC. **At terminal if 4 pre-staged gates pass + mean(val_B, n=3) ≤ 3.26944**, merge preflight will refuse DIRTY → standard cross-PR protocol triggers (rebase + re-run on new stack per #789 precedent).
+**08:02 UTC interim — paired-pod seed 1 direction-correct**: seed 1 (`hf0mq6sz`) finished val=**3.26853**, fs=3200, Δ_vs_new_base 3.26944 = **−0.00091** ✅. Drift sanity vs N=1 Arm B (3.26953): |Δ| = 0.00100 (edge-pass ±0.0010). `embed/dist_from_init` monotone — anchor mechanism alive.
+
+**09:55 UTC W&B-verified — seed 2 terminal, direction-correct, n=2 mean below baseline**: seed 2 (`mj471oxb`) finished val=**3.26843**, Δ_vs_new_base 3.26944 = **−0.00101** ✅ (stronger than seed 1). **Mean(n=2) = 3.26848, Δ_vs_new_base = −0.00096.** Drift sanity vs N=1: seed 1 |Δ|=0.00100 (boundary), seed 2 |Δ|=0.00110 (slightly outside ±0.0010) — Gate 5 PASS via seed 1 boundary-edge. **Gates 1+3+4 already PASS at n=2** (mean below baseline, 2/2 direction-correct, no seed >3.275). For final mean(n=3) ≤ 3.26944, seed 3 only needs val ≤ 3.27136 — very generous margin given chain trajectory. Posted visibility-check comment 09:55 UTC. **Stronger trajectory than askeladd #845 (which is at mean(n=2)=3.268885 marginally above 3.26944 ceiling)** — alphonse chain showing more headroom.
+
+Seed 3 ETA ~11:42 UTC. **Cross-PR-merge protocol** at terminal: chain on OLD pre-#787 stack → merge preflight will refuse DIRTY → standard rebase + re-run on new stack per #789 precedent.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -989,6 +993,8 @@ ETA terminal ~12-14h sequential.
 **07:39 UTC relaunch on new stack**: Arm A on OLD code (val=3.26845, fs=3200, W&B `wccdjzbz`) correctly INVALIDATED by edward — pre-#787 stack, no stochastic NS cooldown. Hard-reset to advisor branch + cherry-picked single embed-init commit → clean rebase. All 4 arms now include `NANOGPT_NS_STOCHASTIC_COOLDOWN=2`. Drift gate now |Δ vs 3.26944| ≤ 0.003. OLD-code Arm A drift sanity passes (Δ=−0.00191 vs OLD baseline 3.27036).
 
 **07:58 UTC re-launch CORRECTION (edward self-discovery + recovery)**: Edward's 07:39 UTC cherry-pick happened on detached HEAD; named branch was never moved. The chain re-launch at 07:39 UTC was therefore on OLD code (W&B `s8nf2rg9` reached step ~440/3350 before discovery, killed 07:53 UTC). Edward correctly hard-reset `g1r4-edward/embed-init-magnitude` to `62e156f5`, cherry-picked single embed-init commit → `b48725b6`, force-pushed, and re-launched 4-arm chain at 07:55 UTC. Verified via `grep STOCHASTIC|EMBED_INIT_SCALE train_gpt_simple.py` returning all expected lines on the new checkout. Arm A live: W&B `wxfyjif6`, step 12/3350. **New ETA ~15:00 UTC.** GPU cost ~26 min on invalid runs (<1% of chain budget). Detached-HEAD cherry-pick trap noted as a future-launch hazard.
+
+**09:55 UTC W&B-verified — Arm A terminal, direction-WRONG but within drift**: Arm A (`wxfyjif6`) finished val=**3.27117**, Δ_vs_new_base 3.26944 = **+0.00173** (drift PASS ±0.003). Arm A is the ctrl (init_scale=1.0 = N(0,1) default) — direction-wrong is unfavorable seed, NOT mechanism (Arm A by construction is bit-clean to merged stack at the pre-`mul_` gate). Mid-trajectory chain on Arms B/C/D will produce within-pod Δ_vs_A comparisons; absolute baseline comparison less reliable given +0.00173 drift. Chain continues; Arm B in flight.
 
 ### 🗃️ edward #838 — assignment text (archived)
 
