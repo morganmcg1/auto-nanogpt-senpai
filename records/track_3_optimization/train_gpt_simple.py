@@ -22,6 +22,13 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+# H71 per-LAYER NS5 budget: muon_update is torch.compile'd and dynamo specializes
+# on the Python int num_iters (one cache key per distinct num_iters x input_shape).
+# Default recompile_limit=8 trips with our 7 unique k values across ~3 shape buckets
+# (~21 keys). Bump to keep all variants compiled instead of falling back to eager.
+# No-op for runs that don't vary num_iters (only one ns_iters value -> few keys).
+torch._dynamo.config.recompile_limit = 64
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
@@ -71,6 +78,17 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H71 per-LAYER NS5 budget: vary NS5 iteration count per transformer block.
+    # When --muonh_budget_per_layer=1, MuonH builds 12 per-block param groups with
+    # ns_iters linearly interpolated from --muonh_budget_shallow at block 0 to
+    # --muonh_budget_deep at block 11. ns_iters_i = max(1, round(budget_i * 12)).
+    # Default (0) is bit-identical to baseline (single group, ns_iters=12).
+    parser.add_argument("--muonh_budget_per_layer", type=int, default=int(os.environ.get("MUONH_BUDGET_PER_LAYER", "0")),
+                        help="If 1, apply per-LAYER (per-block) NS5 iteration budget to MuonH body 2D params")
+    parser.add_argument("--muonh_budget_shallow", type=float, default=float(os.environ.get("MUONH_BUDGET_SHALLOW", "1.0")),
+                        help="NS5 iter budget for block 0 (shallow). k_eff = round(budget * 12)")
+    parser.add_argument("--muonh_budget_deep", type=float, default=float(os.environ.get("MUONH_BUDGET_DEEP", "1.0")),
+                        help="NS5 iter budget for block 11 (deep). k_eff = round(budget * 12)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -466,7 +484,7 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
-def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+def zeropower_via_newtonschulz5(G: Tensor, num_iters: int = 12) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -476,7 +494,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
+    for _ in range(num_iters):
         A = X @ X.mT
         B = b * A + c * A @ A
         X = a * X + B @ X
@@ -486,10 +504,10 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, num_iters: int = 12):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = zeropower_via_newtonschulz5(update, num_iters=num_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
@@ -589,14 +607,24 @@ class MuonH(torch.optim.Optimizer):
     rescale the update to the param's current norm scale, then renormalise the
     new param back onto the sphere of radius ||initial param||. Holds Frobenius
     norm exactly constant; weight_decay must be 0.
+
+    Per-group "ns_iters" overrides the Newton-Schulz iteration count for the
+    inner spectral-whitening step (default 12). Used by H71 per-LAYER NS5 budget.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
+                 hyperball=True, budget_mult=1.0, mode="clip", ns_iters: int = 12):
+        assert isinstance(params, list) and len(params) >= 1
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        if isinstance(params[0], dict):
+            # Per-group form: sort within each group; keep group dicts intact.
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
+        else:
+            assert isinstance(params[0], torch.nn.Parameter)
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        ns_iters=ns_iters)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
@@ -616,6 +644,7 @@ class MuonH(torch.optim.Optimizer):
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            ns_iters = int(group.get("ns_iters", 12))
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -624,7 +653,7 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    update = muon_update(p.grad, state["momentum"], mu=group["mu"], num_iters=ns_iters)
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -705,6 +734,12 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.muonh_budget_per_layer:
+    k_shallow = max(1, round(args.muonh_budget_shallow * 12))
+    k_deep = max(1, round(args.muonh_budget_deep * 12))
+    print0(f"MuonH per-LAYER NS5 budget ENABLED: shallow={args.muonh_budget_shallow} (k≈{k_shallow}), deep={args.muonh_budget_deep} (k≈{k_deep})", console=True)
+else:
+    print0("MuonH per-LAYER NS5 budget DISABLED (uniform k=12)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,6 +801,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_budget_per_layer": int(args.muonh_budget_per_layer),
+            "muonh_budget_shallow": args.muonh_budget_shallow,
+            "muonh_budget_deep": args.muonh_budget_deep,
         },
     )
 
@@ -816,11 +854,37 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if args.muonh_budget_per_layer:
+        num_blocks = len(model.blocks)
+        block_groups = []
+        for i in range(num_blocks):
+            prefix = f"blocks.{i}."
+            params_i = [p for name, p in model.named_parameters()
+                        if p.requires_grad and p.ndim >= 2 and name.startswith(prefix)]
+            if not params_i:
+                continue
+            frac = i / (num_blocks - 1) if num_blocks > 1 else 0.0
+            budget_i = args.muonh_budget_shallow + frac * (args.muonh_budget_deep - args.muonh_budget_shallow)
+            ns_iters_i = max(1, round(budget_i * 12))
+            block_groups.append(dict(params=params_i, ns_iters=ns_iters_i,
+                                     budget_mult=args.muonh_budget_mult,
+                                     name=f"muonh_block_{i}"))
+        # Sanity: every body 2D param must land in exactly one bucket.
+        all_body_2d_ids = set(id(p) for p in model.blocks.parameters() if p.ndim >= 2)
+        grouped_ids = set(id(p) for grp in block_groups for p in grp["params"])
+        assert grouped_ids == all_body_2d_ids, (
+            f"per-LAYER NS5 split missed params: missing={len(all_body_2d_ids - grouped_ids)}, "
+            f"extra={len(grouped_ids - all_body_2d_ids)}")
+        optimizer2 = MuonH(block_groups,
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode, ns_iters=12)
+    else:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -901,6 +965,22 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+
+    # H71 step-0 telemetry: per-block effective NS5 iter count, logged once per trial.
+    # Verifies that the per-LAYER budget is correctly threaded to each MuonH group.
+    # `group_k_*` is the NS5 iter count actually used; `group_ns_budget_*` is k/12.
+    if args.muonh_budget_per_layer and dist.get_rank() == 0:
+        grp_log = {"trial": trial_idx}
+        for pg in optimizer2.param_groups:
+            grp_name = pg.get("name", "muonh_unnamed")
+            k = int(pg.get("ns_iters", 12))
+            grp_log[f"muonh/group_k_{grp_name}"] = k
+            grp_log[f"muonh/group_ns_budget_{grp_name}"] = k / 12.0
+            grp_log[f"muonh/group_n_params_{grp_name}"] = len(pg["params"])
+        # Echo to console for easy verification in logs.
+        per_block_ks = [int(pg.get("ns_iters", 12)) for pg in optimizer2.param_groups]
+        print0(f"H71 per-LAYER NS5 k by group: {per_block_ks}", console=True)
+        wandb.log(grp_log, step=trial_idx * (args.train_steps + 1))
 
     # start the clock
     training_time = 0
