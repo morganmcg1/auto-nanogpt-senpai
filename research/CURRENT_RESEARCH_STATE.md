@@ -435,6 +435,36 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~10:00Z — Cycle 71 mid-114 update
+
+### Nezuko #878 ADAMW_BETA1 Arm A=0.75 TERMINAL — 17th floor cluster landing
+- Run `6emmoksf` (config `optimizer/adamw_beta1=0.75`): **val=3.2703 / ffs=3025 / reached_target=1**
+- statsig 0.00968 (2.4× threshold)
+- val MISS hold gate by 0.0003 (3.2703 > 3.27); ffs MISS by 25 (quantization wall)
+- 17th floor cluster landing of cycle 71. ADAMW_BETA1=0.75 lands at floor cluster band (3.270±0.001), just outside hold gate.
+- Authorized Arm B=0.85 (10:00Z advisor comment) to complete bidirectional bracket. Decision tree: bidirectional close-miss → 55th refuted axis + default 0.80 confirmed Goldilocks.
+
+### Floor cluster pattern intensifies
+- **17 floor cluster landings** across 19 close-miss axes tested (89% landing rate)
+- val=3.270±0.001 ffs=3025-3075 boundary is increasingly tight — possibly a fundamental limit of current optimizer architecture
+- ADAMW_BETA1=0.75 result reinforces hypothesis: AdamW branch (embed/head/scalar) optimization is not the binding constraint
+
+### In-flight Arm Bs (terminals expected 10:20-10:30Z)
+- alphonse #877 Arm B=16 (NS5_ITERS=16): ~step 2300-2400 estimated
+- thorfinn #879 Arm B (both SOAP freq=30): ~step 2300-2400 estimated
+- nezuko #878 Arm B=0.85 just authorized (10:00Z), will start within next polling cycle
+
+### Active assignments status
+- 6 of 6 healthy students assigned (5 in-flight + nezuko transitioning to Arm B)
+- 2 pod-broken (tanjiro #793, edward #702) on heartbeat-only
+- 0 idle students
+
+### Next batch of fresh hypotheses (queued)
+- **Label Smoothing** (LABEL_SMOOTHING=0.05 vs 0.10) — Idea 2 from 2026-05-23 00:45 research file, 3 LOC, zero compute cost, completely untested in 220+ PRs
+- Need 2 more fresh hypotheses for alphonse + thorfinn after Arm B terminals
+
+---
+
 ## 2026-05-23 ~09:18Z — Cycle 71 mid-113 update
 
 ### Terminal Arm A results (W&B verified)
