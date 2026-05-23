@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 05:25 UTC
+- **Date:** 2026-05-23 05:43 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -569,7 +569,7 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 
 **Follow-up**: askeladd assigned **#845 Embed gradient sparsity-rescaling via inverse-frequency weighting** — fresh gradient-side mechanism axis. Multiplies embedding gradient rows by `sqrt(freq_max/freq(v))` to freshen v_t for rare-row sparse activation. Mechanism-orthogonal to closed CE-shape family (loss-side) — operates on gradient AFTER backward, BEFORE optimizer step. Parallel Zipf-asymmetry disambiguation with edward's in-flight #838 (lm_head v_t floor): two AUX groups attacked simultaneously from two orthogonal angles.
 
-### 🔄 askeladd #845 — Embed gradient sparsity-rescaling via inverse-frequency weighting [assigned 21:40 UTC; progress refresh #2 03:51 UTC]
+### 🔄 askeladd #845 — Embed gradient sparsity-rescaling via inverse-frequency weighting [assigned 21:40 UTC; N=1 chain terminal 05:39 UTC, SENT BACK for paired-pod n=3 on Arm B 05:43 UTC]
 
 **Branch:** `g1r4-askeladd/embed-grad-freq-rescale` (commit `f7b33e0` pushed — chain hygiene clean)
 **Hypothesis**: Apply per-row multiplicative weight w(v) = f(freq_max/freq(v)) to embedding gradient AFTER backward + aux-clip, BEFORE optimizer1.step(). Rare-row gradients are scaled UP so each visit refreshes v_t adequately even at β₂=0.99 (v_t decays to ~0 between visits for rare tokens). Mechanism-orthogonal to all closed loss-side reweighting (different stage of pipeline: gradient pre-conditioner, not loss-aggregation). Pairs cleanly with #838 (lm_head v_t floor) for parallel Zipf-asymmetry disambiguation.
@@ -580,20 +580,24 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 | C | sqrt_inv | 5.0 | conservative cap |
 | D | frac_inv_0p33 | 10.0 | very mild rare-row boost |
 
-**03:51 UTC progress refresh #2** (W&B-verified; 3/4 arms finished, Arm D running):
+**05:39 UTC SENPAI-RESULT terminal — 4-arm N=1 finished (drift gate A PASS, mixed outcome)**:
 
-| Arm | freq_mode | wmax | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
-|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
-| A (ctrl) | off | 10 | `nlu9fwav` | finished | 3350 | 3.270295 | — | −0.00006 (drift PASS marginal) |
-| **B** | **sqrt_inv** | **10** | `oe1a300s` | **finished** | 3350 | **3.269027** | **−0.00127** | **−0.00133 (direction-correct sub-signal)** |
-| C | sqrt_inv | 5 | `tk2sgiid` | finished | 3350 | 3.270809 | +0.00051 | +0.00045 (mild regression — wmax=5 too tight) |
-| D | frac_inv_0p33 | 10 | `iqzyvm51` | running | 350/3350 (~10%) | 4.085 in-prog | TBD | TBD |
+| Arm | freq_mode | wmax | run ID | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | off | 10 | `nlu9fwav` | 3.27030 | 3225 | — | −0.00006 (drift PASS bit-clean) |
+| **B** | **sqrt_inv** | **10** | `oe1a300s` | **3.26903** | 3200 | **−0.00127** | **−0.00133 (best direction-correct sub-threshold)** |
+| C | sqrt_inv | 5 | `tk2sgiid` | 3.27081 | 3225 | +0.00051 | +0.00045 (mild regression — wmax=5 binding) |
+| D | frac_inv_0p33 | 10 | `iqzyvm51` | 3.26945 | 3200 | −0.00085 | −0.00091 (direction-correct, gentler exponent) |
 
-**Arm B Δ_vs_baseline=−0.00133 is the cleanest single-arm direction-correct sub-signal of the evening** (cf alphonse #847 Arm B Δ=−0.00083, thorfinn #848 Arm B Δ=−0.00059, fern #787 N=1 Arm C Δ=−0.00130 which subsequently collapsed at Pod 1 +0.00127). Mechanism alive: `sqrt_inv` with wmax=10 amplifies rare-token rows by ~√(N_max/N_token) capped at 10×. Arm C (wmax=5) regression confirms the cap is binding on the very rare tail — wmax=10 lets the tail breathe.
+**Verdict (signal threshold −0.002 NOT MET; regression threshold +0.0015 NOT MET; MIXED)**: Arm B sub-signal but cleanest of evening across all in-flight PRs (#787 collapsed, #847 in-flight, #848 in-flight, #838 NEG). Cross-arm internal support: D direction-correct at gentler exponent (mechanism prediction), C mild regression confirms cap mechanism (wmax=5 clips very rare tail where v_t staleness effect would be largest).
 
-**Pre-staged paired-pod follow-up**: whichever arm wins at N=1 terminal must be re-tested at n=3 before merge consideration (10+ paired-pod collapse precedents at this Δ magnitude, most recently fern #787 Pod 1 reversed to +0.00127 at 03:40 UTC). If best arm shows Δ_vs_baseline ≤ −0.001 terminal, send back for paired-pod n=3 layered on full post-#708 stack.
+**05:43 UTC decision — SENT BACK for paired-pod n=3 on Arm B per pre-staged trigger (Δ ≤ −0.001 → paired-pod)**:
+- Three sequential runs on Arm B config (sqrt_inv, wmax=10), seeds 1/2/3, single-GPU, full post-#708 stack
+- Pre-staged merge gates frozen: (1) mean(3 seeds) ≤ 3.27036, (2) `(3.28 − μ) × √3 ≥ 0.004` stat rule, (3) ≥2/3 direction-correct, (4) no seed > 3.275, (5) at least one seed within ±0.0010 of N=1 value 3.26903
+- ETA per pod ~108 min × 3 = ~5.4h chain
+- Collapse probability ~75% per 10+ paired-pod precedents (most recent: fern #787 Pod 1 reversal +0.00127 at 03:40 UTC); cross-arm internal confirmation modestly elevates above noise
 
-ETA terminal ~06:30 UTC. Posted #845 progress refresh #2 comment.
+**If paired-pod confirms**: merge B, then consider cap sweep (wmax=8, 12, 15) and cross-axis combination with #847 init-anchored WD if that also confirms. **If collapses**: 12th paired-pod collapse precedent → closes axis as "N=1 Δ ≈ −0.001 to −0.0015 below paired-pod noise floor on this baseline".
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 
