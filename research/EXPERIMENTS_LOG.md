@@ -1,5 +1,63 @@
 # SENPAI Research Results
 
+## 2026-05-23 22:50 UTC — PR #920 CLOSED: Quintic NS at low iter count (NS_ITERS=5 vs 6) — both NULL, 95th axis, joint cell quintic × low-iters CLOSED (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/quintic-low-iters`
+- Hypothesis: Quintic NS polynomial (Jordan, 3.4445/-4.7750/2.0315) at NS_ITERS={5, 6} — joint cell never tested. Tests whether quintic's faster per-iter small-σ amplification can match cubic-at-12 in fewer iters.
+
+| Arm | W&B | NS_ITERS | sr | val/loss_ema | residual | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #864 (cubic, n=2) | — | 12 | 2925 | 3.266826 | ~0.10 | — | — |
+| A quintic NS=5 | `ysw9gyj9` | 5 | **2925** (TIE) | **3.268290** | **8.138** | +0.001464 | NULL (just above marginal) |
+| B quintic NS=6 | `s40ht1xj` | 6 | **3000** | **3.271249** | **10.277** | +0.004423 | NULL (clear regression +75 sr) |
+
+### Verdict: BOTH NULL — 95th axis closed, quintic × low-iters joint cell CLOSED.
+
+### Mechanism finding — Within-quintic NS=5→NS=6 NON-MONOTONE residual
+
+Student's strongest finding: NS=6 residual (10.277) is *worse* than NS=5 residual (8.138). One additional NS iter INCREASES residual instead of decreasing it.
+
+Mechanism: Jordan-quintic (3.4445, -4.7750, 2.0315) has `f'(1) ≈ 0.72` (linear convergence, not quadratic) AND `f(0.5) ≈ 1.19` (overshoots mid-band). In the partially-converged regime where many σ are mid-band, one more NS iter pushes σ values past the fixed point at 1, INCREASING `‖XX^T − I‖_F` instead of decreasing it. Quintic is monotonically convergent only at high iter counts where σ has been amplified into the contraction basin. **Cubic, with `f'(1) = 0` (quadratic convergence), doesn't have this overshoot issue.**
+
+Within-run residual trajectories (n=134 samples each):
+- Arm A NS=5: Early 9.91, Mid 8.30, Late 8.16 — settles to floor near step 200
+- Arm B NS=6: Early 11.30, Mid 10.10, Late 10.26 — settles to floor (higher than NS=5)
+
+### Updated NS landscape
+
+| Cell | residual | Δval | Regime |
+|---|---|---|---|
+| Cubic NS=8 (#884 A) | ~13.9 | NULL | catastrophic under-conv |
+| **Quintic NS=5 (this A)** | **8.138** | +0.001464 NULL | catastrophic under-conv (slightly better than cubic NS=8) |
+| **Quintic NS=6 (this B)** | **10.277** | +0.004423 NULL | catastrophic under-conv — WORSE than NS=5 |
+| Cubic NS=12 (baseline) | ~0.10 | 0 | saturated, optimal |
+| Cubic NS=16 (#884 B) | ~0.067 | NULL | mild over-saturation |
+| Cubic NS=20 (#898 effective) | ~0.05 | NULL | marginal over-saturation |
+
+### Structural conclusion — NS subsystem fully pinned
+
+**NS convergence is dominated by iter count, not polynomial choice.** Quintic's per-iter advantage is ~1.7× (not 2.3× as theoretically estimated), insufficient to compensate for halving the iter budget. Exponential convergence in iter count dominates.
+
+The 2D (polynomial × iter count) space is now thoroughly explored:
+- Polynomial: cubic (1.5, -0.5, 0) PINNED. Quintic tested {5, 6, 12} → all worse than cubic-12.
+- NS_ITERS: static=12 PINNED across cubic {8, 12, 16, 20} and quintic {5, 6}.
+- Adaptive NS_ITERS: #898 closed (residual floor ≈ √rank_deficit blocks adaptation).
+- Frobenius normalization: #940 alphonse IN FLIGHT.
+
+### What this NULL closes vs leaves open
+
+**Closes:** Quintic × low-iters joint cell. The non-monotone within-quintic residual is the strongest structural takeaway — quintic has a "valid band" only at NS_ITERS ≥ 12.
+
+**Leaves open (low priority):** Septic polynomial (same overshoot pattern, more extreme), adaptive polynomial-switching (engineering-heavy), polynomial blending (speculative).
+
+### Reward
+
+Three-axis outstanding work: (1) duplicate-launch incident detection + clean resolution twice (15:54 UTC for run `c0ud3ah7`, 17:05 UTC for stale chain script PID 308383), (2) within-run residual trajectory decomposition + NS=5→NS=6 non-monotone discovery — strongest mechanism finding of the round, (3) calibrated honest disconfirmation table (predicted "Outcome 4: quintic dominated by cubic" was correct).
+
+Student → #964 (Aux Muon-as-aux for lm_head — bigger swing per Plateau Protocol, off-Adam scaffolding per #913 frieren's closure recommendation).
+
+---
+
 ## 2026-05-23 22:15 UTC — PR #913 CLOSED: Aux embed/lm_head LR retune at PR #737 baseline (UP+30% vs DOWN−25%) — both NULL, 94th axis, 18th aux Adam-family closure (g1r1-frieren)
 
 - Branch: `g1r1-frieren/embed-lmhead-lr-retune`
