@@ -1,13 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 16:45 UTC
+- **Date:** 2026-05-23 18:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Current merged baseline — post-#787
+## Current merged baseline — post-#847
 
-**val=3.26944 / fs=3208.33 (n=3 paired-pod mean)**
+**val=3.26756 / fs=3183.33 (n=3 paired-pod mean)**
 
 Merged recipe:
 ```
@@ -24,7 +24,8 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 NANOGPT_MUON_ATTN_LR_MULT=0.80
 NANOGPT_MUON_MLP_LR_MULT=1.20
-NANOGPT_NS_STOCHASTIC_COOLDOWN=2   ← NEW: uniform NS ∈ {14,15,16,17,18} in cooldown
+NANOGPT_NS_STOCHASTIC_COOLDOWN=2
+NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, embed init-snapshot anchor
 ```
 
 ### Merged stack history
@@ -42,7 +43,8 @@ NANOGPT_NS_STOCHASTIC_COOLDOWN=2   ← NEW: uniform NS ∈ {14,15,16,17,18} in c
 | #393 | AdamW embed LR mult=1.5× | 3.27174 (3) | 3.27174 |
 | #579 | Body-Muon attn=0.80× mlp=1.20× LR asymmetry | 3.27070 (3) | 3.27070 |
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
-| **#787** | **Stochastic NS cooldown spread=2** | **3.26944 (3)** | **3.26944** ← CURRENT |
+| #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
+| **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
 
 ---
 
@@ -132,6 +134,33 @@ Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses a
 | #825 | nezuko | Pod 2 D pending launch | ~end of day |
 
 ### Zero idle students (cycle 135). Eight active WIP PRs (#929 #923 #919 #847 #845 #880 #789 #825).
+
+## Cycle 158 snapshot (18:45 UTC) — #789 closed, tanjiro idle
+
+### Closures this cycle
+- **#789 tanjiro CLOSED 18:42 UTC productive-NULL** — Cubic NS @ FLOP-equivalence (NS_DEGREE=3, iters=18 hot, 24 cooldown) paired-pod v2 on post-#787 stack. mean(B,n=3)=3.26930, mean(A,n=3)=3.26936, Δ_within=−0.00006 (89% collapse from v1's −0.00056), paired t=−0.324, 2/3 dir-correct. vs OLD baseline 3.26944 all gates pass (slim), but Gate 1 FAIL vs NEW baseline 3.26756 by +0.00174. Wall-clock sign-flipped (−0.28% faster on v1 → +0.58% slower on v2) confirming timing-variance interaction. **Mechanism interpretation accepted**: cubic-NS@FLOP-eq targets the same cooldown-phase NS dynamics as merged stochastic-NS-cooldown (iter-count variance vs polynomial-shape change) — orthogonality conjecture REJECTED, same-substrate competition. 12th paired-pod outcome since #708. Axis-fencing result: NS-polynomial-degree axis at FLOP-eq absorbed by stochastic-NS-cooldown variance. `NANOGPT_NS_DEGREE` env flag stays as opt-in cubic path; default remains quintic.
+
+### Active chains at cycle 158
+| PR | Student | Status | ETA |
+|:--:|:-------:|--------|-----|
+| **#919** | fern | Arm A=3.26916, Arm B `5mkteulp`=3.26815 (Δ_within=−0.00101, sub-threshold favorable productive-NULL); Arm C `1416294` LIVE | C terminal ~20:43 UTC, D ~22:35 UTC |
+| #845 | askeladd | rebased onto post-#847 (`a741e3eb`), chain v3 running | full chain ~01:30 UTC |
+| #847 | alphonse | MERGED — student now WIP on #938 lm_head init-anchor | — |
+| #938 | alphonse | lm_head init-anchor 4-arm (A=ctrl/B=embed+lm_head 0.001/C=lm_head only/D=embed 0.001+lm_head 0.003) | implementing |
+| #880 | thorfinn | Pod 0 paired terminal ArmA=3.26951 ArmD=3.26786 Δ_within=−0.00165 sub-threshold; continuing on OLD stack | full chain ~01:30 UTC |
+| #929 | edward | rebased onto post-#787 (`f819bab5`) → still CONFLICTING after #847 merge; needs second rebase | NEEDS REBASE post-#847 |
+| #923 | frieren | rebased onto post-#787 (`315c332`); CLEAN post-#847 | full ETA ~01:00 UTC |
+| #933 | nezuko | rebased onto post-#787; CLEAN post-#847 — EMBED_INIT_ANCHOR + PATH_NORM both active | full ETA ~01:00 UTC |
+| **tanjiro** | — | **IDLE** — needs new assignment | — |
+
+### Tanjiro's next axis — lm_head LR multiplier
+- Embed-LR-mult is merged at 1.5× (#393); lm_head has been left at 1.0×.
+- 4-arm sweep over `NANOGPT_ADAMW_LM_HEAD_LR_MULT`: A=1.0× (ctrl, no env), B=0.7×, C=1.5× (mirror embed), D=2.0× (aggressive).
+- Mechanistically distinct from #938 alphonse lm_head init-anchor (WD-space) — this is LR-space.
+
+### Outstanding rebase needs
+- **#929 edward** — was on `f819bab5` (post-#787), now CONFLICTING vs `85050ef`. Need to send back for rebase onto current advisor tip.
+- **#880 thorfinn** — intentionally on OLD pre-#787 stack (Pod 0 paired showing sub-threshold signal). The CONFLICTING flag is expected; stack-version routing plan in place.
 
 ## Cycle 152 snapshot (17:52 UTC) — DOUBLE MERGE WINDOW
 

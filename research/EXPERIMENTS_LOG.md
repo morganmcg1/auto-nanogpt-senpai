@@ -4243,3 +4243,54 @@ The N=1 signal was a **drift-headroom artifact**: the screening stack used only 
 
 - **Decision:** Sent back (second rebase). #847 alphonse merged first (mean=3.26756), establishing new baseline 3.26756. #845 mean=3.26850 is now +0.00094 ABOVE the new baseline. Both mechanisms target embed group via different axes — composition unknown. Must rebase onto post-#847 stack and re-run to test composition.
 - **Commentary:** Two seeds (2,3) showed strong signal Δ≈−0.0014 — mechanism is real on post-#787 stack. The high variability (seed 1=+0.00006 vs seeds 2,3≈−0.00145) suggests interaction with stochastic NS cooldown draws. On post-#847 stack, the question is whether freq-rescale (gradient space) and init-anchor (weight space) compose additively or saturate the same embed-row degree of freedom.
+
+## 2026-05-23 18:42 UTC — PR #789: NS polynomial degree cubic vs quintic FLOP-eq (4-arm) — CLOSED productive-NULL
+
+- **Branch:** g1r4-tanjiro/ns-polynomial-degree (paired-pod v2)
+- **Hypothesis:** Cubic NS polynomial (NS_DEGREE=3) at FLOP-equivalence (iters=18 hot, 24 cooldown) might trade polynomial quality for stochastic-rescue capacity, complementing #787 stochastic-NS-cooldown.
+
+### Paired-pod v2 results (post-#787 stack with NANOGPT_NS_STOCHASTIC_COOLDOWN=2)
+
+| Pod | seed | Arm | run_id | NS_DEGREE/iters/cd | val/loss | fs | step_avg(ms) |
+|:---:|:---:|:---:|---|:---:|---:|---:|---:|
+| 0 | 0 | A (quintic ctrl) | ld71ogc1 | 5/12/16 | 3.26929 | 3200 | 1890.13 |
+| 0 | 0 | B (cubic FLOP-eq) | j0ahlh5r | 3/18/24 | 3.26961 | 3200 | 1899.37 |
+| 1 | 1 | A | m76dz1sg | 5/12/16 | 3.27016 | 3225 | 1887.60 |
+| 1 | 1 | B | s9g1r1uh | 3/18/24 | 3.26984 | 3225 | 1900.20 |
+| 2 | 2 | A | m9u912jc | 5/12/16 | 3.26863 | 3200 | 1888.80 |
+| 2 | 2 | B | e55k3ngb | 3/18/24 | 3.26844 | 3200 | 1899.89 |
+| **mean(A)** | — | — | — | — | **3.26936** | 3208.33 | 1888.84 |
+| **mean(B)** | — | — | — | — | **3.26930** | 3208.33 | 1899.82 |
+
+### Within-pod Δ_B_vs_A
+
+- Pod 0: +0.00032 (✗ direction)
+- Pod 1: −0.00032 (✓)
+- Pod 2: −0.00019 (✓)
+- **mean(Δ_within, n=3) = −0.00006**, std=0.00034, paired t=−0.324 (noise floor)
+
+### Gates vs NEW baseline 3.26756 (post-#847)
+
+- Gate 1 mean(B,n=3) ≤ 3.26756: **FAIL** (3.26930, +0.00174 above)
+- Gate 2 stat-rule: PASS (0.01854 ≫ 0.004)
+- Gate 3 ≥2/3 dir-correct: PASS (2/3)
+- Gate 4 drift: PASS (A_drifts inside ±0.003)
+
+### v1 vs v2 cross-stack comparison
+
+| Quantity | v1 (pre-#787) | v2 (post-#787) | Δ |
+|:---|---:|---:|---:|
+| mean(A,n=3) | 3.26960 | 3.26936 | −0.00024 |
+| mean(B,n=3) | 3.26904 | 3.26930 | +0.00026 |
+| Δ_mean(B−A) | −0.00056 | **−0.00006** | +0.00050 (~89% gap collapse) |
+| Cubic wall-clock advantage | −0.28% (faster) | +0.58% (slower) | **sign-flip** |
+
+### Verdict: CLOSED productive-NULL (12th paired-pod outcome since #708)
+
+**Mechanism interpretation (accepted):** Cubic NS@FLOP-eq on v1 was rescuing unfavorable seeds by trading polynomial quality for iteration count. Stochastic-NS-cooldown (#787) rescues the same seeds by varying NS iter count in cooldown — the two mechanisms target the **same effective NS dynamics in cooldown** (iter-count variance vs polynomial-shape change). Stochastic-NS wins on signal magnitude (Δ=−0.00188, 3/3 dir-correct), and the cubic-NS mechanism is now absorbed by the merged stack. Wall-clock sign-flip confirms timing-variance interaction.
+
+**Orthogonality conjecture REJECTED** — same-substrate competition rather than disjoint-substrate composition.
+
+**Structural implication:** The **NS-polynomial-degree axis at FLOP-equivalence is absorbed by stochastic-NS-cooldown variance**. This is a useful axis-fencing result — any future experiment that removes or replaces stochastic-NS-cooldown should retest cubic NS as a candidate replacement mechanism. `NANOGPT_NS_DEGREE` env flag stays in `train_gpt_simple.py` as opt-in cubic path; default remains quintic — non-disruptive.
+
+**Follow-up:** tanjiro newly idle, next assignment on lm_head LR multiplier axis (LR-space, distinct from #938 alphonse lm_head init-anchor in WD-space).
