@@ -83,6 +83,18 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cautious_muon", action="store_true",
+                        help="Enable Cautious mask on Muon updates (Liang et al. 2024, arXiv:2411.16085)")
+    parser.add_argument("--cautious_muon_stage", type=str, default="pre_ns",
+                        choices=["pre_ns", "post_ns"],
+                        help="Apply Cautious mask before or after Newton-Schulz orthogonalization. "
+                             "pre_ns: mask the Nesterov buffer before NS, then NS re-orthogonalizes. "
+                             "post_ns: mask the final post-NS update.")
+    parser.add_argument("--cautious_muon_rescale", action="store_true",
+                        help="Rescale survivors by 1/keep_rate to preserve Frobenius RMS (matches Liang et al.)")
+    parser.add_argument("--cautious_muon_scope", type=str, default="all",
+                        choices=["all", "mlp", "attn"],
+                        help="Which Muon param groups to apply Cautious to")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -566,12 +578,30 @@ def soap_update_preconditioner(grad, state, shampoo_beta=SOAP_BETA2, preconditio
     state["soap_step"] += 1
 
 
+def _apply_cautious_mask(buffer: Tensor, grad: Tensor, rescale: bool):
+    """Cautious mask (Liang et al. 2024, arXiv:2411.16085).
+
+    Zero out elements of ``buffer`` whose sign disagrees with ``grad``. Returns
+    the masked buffer and a 0-dim ``kept_rate`` tensor (fraction of elements
+    retained). When ``rescale`` is true, surviving entries are divided by
+    ``kept_rate`` so the Frobenius RMS is preserved (matches the paper).
+    """
+    mask = (buffer.sign() == grad.sign())
+    kept_rate = mask.to(buffer.dtype).mean()
+    out = buffer * mask
+    if rescale:
+        out = out / (kept_rate + 1e-8)
+    return out, kept_rate.detach().float()
+
+
 class Muon(torch.optim.Optimizer):
     SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 cautious_muon=False, cautious_muon_stage="pre_ns",
+                 cautious_muon_rescale=False, cautious_muon_scope="all"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +624,12 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.cautious_muon = bool(cautious_muon)
+        self.cautious_muon_stage = cautious_muon_stage
+        self.cautious_muon_rescale = bool(cautious_muon_rescale)
+        self.cautious_muon_scope = cautious_muon_scope
+        # Per-step buffer of kept-rate scalars keyed by group name (e.g. "muon_mlp").
+        self.cautious_kept_buffer: dict[str, list[Tensor]] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -610,13 +646,26 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _scope_matches(self, group_name: str) -> bool:
+        scope = self.cautious_muon_scope
+        if scope == "all":
+            return True
+        if scope == "mlp":
+            return group_name == "muon_mlp"
+        if scope == "attn":
+            return group_name == "muon_attn"
+        return False
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.cautious_kept_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
             params = group["params"]
+            group_name = group.get("name", "")
+            apply_cautious = self.cautious_muon and self._scope_matches(group_name)
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
@@ -633,9 +682,16 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    raw_grad = p.grad
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        state["momentum"].lerp_(raw_grad, 1 - group["mu"])
+                        raw_nesterov = raw_grad.lerp(state["momentum"], group["mu"])
+                        # Pre-NS Cautious: mask raw_nesterov (gradient-space) before SOAP precond + NS.
+                        if apply_cautious and self.cautious_muon_stage == "pre_ns":
+                            raw_nesterov, kept_rate = _apply_cautious_mask(
+                                raw_nesterov, raw_grad, self.cautious_muon_rescale
+                            )
+                            self.cautious_kept_buffer.setdefault(group_name, []).append(kept_rate)
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -647,15 +703,75 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(raw_grad, state)
+                    elif apply_cautious:
+                        # Non-SOAP cautious path (no torch.compile, explicit).
+                        state["momentum"].lerp_(raw_grad, 1 - group["mu"])
+                        nesterov_buf = raw_grad.lerp(state["momentum"], group["mu"])
+                        if self.cautious_muon_stage == "pre_ns":
+                            nesterov_buf, kept_rate = _apply_cautious_mask(
+                                nesterov_buf, raw_grad, self.cautious_muon_rescale
+                            )
+                            self.cautious_kept_buffer.setdefault(group_name, []).append(kept_rate)
+                        update = zeropower_via_newtonschulz5(nesterov_buf)
+                        update = update * (max(1, raw_grad.size(-2) / raw_grad.size(-1)) ** 0.5)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(raw_grad, state["momentum"], mu=group["mu"])
+                    # Post-NS Cautious mask on the final update.
+                    if apply_cautious and self.cautious_muon_stage == "post_ns":
+                        update, kept_rate = _apply_cautious_mask(
+                            update, raw_grad, self.cautious_muon_rescale
+                        )
+                        self.cautious_kept_buffer.setdefault(group_name, []).append(kept_rate)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    def get_cautious_kept_rates(self) -> dict[str, float]:
+        """Per-group mean cautious-mask kept-rate across all ranks.
+
+        Returns a dict {group_name: mean_kept_rate} plus an "__all__" entry
+        averaging across every recorded param. Empty when cautious is disabled
+        or when no params were processed this step.
+        """
+        if not self.cautious_muon:
+            return {}
+        world_size = dist.get_world_size()
+        out: dict[str, float] = {}
+        sum_total = 0.0
+        count_total = 0
+        for group in self.param_groups:
+            gname = group.get("name", "")
+            if not group["params"]:
+                continue
+            device = group["params"][0].device
+            kept_list = self.cautious_kept_buffer.get(gname, [])
+            if kept_list:
+                sum_t = torch.stack(kept_list).sum().to(device=device, dtype=torch.float32)
+                count_local = len(kept_list)
+            else:
+                sum_t = torch.zeros((), device=device, dtype=torch.float32)
+                count_local = 0
+            if world_size > 1:
+                sum_reduced = sum_t.clone()
+                dist.all_reduce(sum_reduced, op=dist.ReduceOp.SUM)
+                count_tensor = torch.tensor(count_local, device=device, dtype=torch.float32)
+                dist.all_reduce(count_tensor, op=dist.ReduceOp.SUM)
+                count_global = float(count_tensor.item())
+            else:
+                sum_reduced = sum_t
+                count_global = float(count_local)
+            if count_global > 0:
+                mean = float(sum_reduced.item()) / count_global
+                out[gname] = mean
+                sum_total += float(sum_reduced.item())
+                count_total += int(count_global)
+        if count_total > 0:
+            out["__all__"] = sum_total / count_total
+        return out
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -765,6 +881,10 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cautious_muon": bool(args.cautious_muon),
+            "cautious_muon_stage": args.cautious_muon_stage,
+            "cautious_muon_rescale": bool(args.cautious_muon_rescale),
+            "cautious_muon_scope": args.cautious_muon_scope,
         },
     )
 
@@ -853,6 +973,10 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        cautious_muon=args.cautious_muon,
+        cautious_muon_stage=args.cautious_muon_stage,
+        cautious_muon_rescale=args.cautious_muon_rescale,
+        cautious_muon_scope=args.cautious_muon_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1060,6 +1184,18 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if telemetry_due and optimizer2.cautious_muon:
+            kept_rates = optimizer2.get_cautious_kept_rates()
+            if dist.get_rank() == 0 and kept_rates:
+                stage = optimizer2.cautious_muon_stage
+                kept_metrics = {"trial": trial_idx, "train/step": train_step}
+                for gname, rate in kept_rates.items():
+                    if gname == "__all__":
+                        kept_metrics[f"train/cautious_kept/{stage}/all"] = rate
+                    else:
+                        short = "mlp" if gname == "muon_mlp" else "attn" if gname == "muon_attn" else gname
+                        kept_metrics[f"train/cautious_kept/{stage}/{short}"] = rate
+                wandb.log(kept_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
