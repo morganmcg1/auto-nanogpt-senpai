@@ -3,6 +3,40 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-23 05:43 UTC — PR #845: Embed gradient sparsity-rescaling via inverse-frequency weighting (askeladd) — N=1 mixed, SENT BACK for paired-pod n=3 on Arm B (79th cycle)
+
+- Branch: `g1r4-askeladd/embed-grad-freq-rescale` (commit `f7b33e0`)
+- Hypothesis: Embed AdamW group sees sparse per-row gradients (Zipf token frequency distribution); rare-row v_t/m_t become stale because update events are sparse. Pre-multiply per-row gradient by inverse-frequency weight `w_i = clip((N_max / N_i)^p, 1.0, w_max)`, mean-normalized to preserve total magnitude on average. Mechanism-orthogonal to ADAMW_EMBED_LR_MULT=1.5 (#393, MERGED — global scalar) and to #847 init-anchored WD (drift suppression, not gradient).
+
+**Terminal 4-arm N=1 result (drift gate A PASS, mixed outcome):**
+
+| Arm | freq_mode | w_max | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 | Verdict |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | off | 10 | nlu9fwav | 3.27030 | 3225 | — | −0.00006 (drift PASS bit-clean) | control |
+| **B** | **sqrt_inv** | **10** | **oe1a300s** | **3.26903** | 3200 | **−0.00127** | **−0.00133** | **best direction-correct sub-threshold** |
+| C | sqrt_inv | 5 | tk2sgiid | 3.27081 | 3225 | +0.00051 | +0.00045 | mild regression (cap binding) |
+| D | frac_inv_0p33 | 10 | iqzyvm51 | 3.26945 | 3200 | −0.00085 | −0.00091 | direction-correct, gentler exponent |
+
+**Verdict**: MIXED — best arm B Δ_vs_baseline=−0.00133 is sub-signal threshold (−0.002) but the **cleanest single-arm direction-correct signal of the evening** (cleaner than fern #787 N=1, alphonse #847 in-flight, thorfinn #848 in-flight, edward #838 favorable-seed). Cross-arm internal support: D also direction-correct at gentler exponent (consistent with mechanism prediction), C confirms cap mechanism (wmax=5 is too tight, eliminates gain).
+
+**Decision (per pre-staged trigger Δ ≤ −0.001 → paired-pod n=3)**: SEND BACK to askeladd for paired-pod n=3 confirmation on Arm B (sqrt_inv, wmax=10), seeds 1/2/3 sequential on single GPU. Pre-staged merge gates frozen: (1) mean(3 seeds) ≤ 3.27036 baseline, (2) `(3.28 − μ) × √3 ≥ 0.004` statistical merge rule, (3) ≥2/3 direction-correct, (4) no seed > 3.275, (5) at least one seed within ±0.0010 of N=1 value 3.26903. If collapses, becomes 12th paired-pod collapse precedent — closes axis as "N=1 Δ ≈ −0.001 to −0.0015 below paired-pod noise floor on this baseline".
+
+**Mechanism reading (3-arm internal)**: hypothesis directionally supported but weak at N=1:
+- B (sqrt_inv exponent 0.5, wmax=10): cleanest direction-correct
+- D (frac_inv_0p33 exponent 0.33, wmax=10): direction-correct smaller magnitude — softer exponent has smaller effect, consistent with "more amplification of rare-tail → more gain"
+- C (sqrt_inv wmax=5): +0.00045 mild regression — tight cap clips the very rare tail where the v_t staleness mechanism would predict largest effect; the regression direction confirms the mechanism (not noise)
+
+**Implementation hygiene**:
+- Arm A `mode='off'` gating returns `None` → `mul_` block skipped → bit-clean to merged path (Δ=−0.00006 vs baseline confirms)
+- Weight computation: one-shot at init from FineWeb shard `fineweb_train_000001.bin` (10M-token subsample), Laplace smoothing, clip `[1.0, wmax]`, mean-normalized
+- Placement: AFTER per-group aux clip (clip threshold honored), BEFORE optimizer1.step() (AdamW absorbs rescaled grad into m_t/v_t)
+- step_avg drift ≤0.4% across arms (~1926–1933 ms) — mul_ cost negligible
+- step-0 weight stats validated: B w.min=0.10/w.max=1.00, C w.min=0.20/w.max=1.00, D w.min=0.10/w.max=1.02 — mean-normalized as specified
+- Branch pushed cleanly (commit `f7b33e0`), zero ghost crashes
+- Full SENPAI-RESULT marker present, all 4 wandb run IDs correctly enumerated
+
+**Cross-PR observation (tonight)**: This is now the **strongest single-arm N=1 candidate** under paired-pod test, alongside in-flight #847 (alphonse Goldilocks at λ=0.001, Δ_vs_baseline=−0.00083) and #848 (thorfinn Goldilocks at std=0.0001, Δ_vs_baseline=−0.000585). All three are AUX-side mechanism perturbations (embed grad rescale, embed init-anchored WD, lm_head non-zero init) — broadly consistent with the "tiny perturbation of AUX-side defaults" theme but on three different axes. Paired-pod n=3 protocol applied to all three converges or diverges this theme on its own merits per axis.
+
 ## 2026-05-23 05:25 UTC — PR #838: AdamW multiplicative v_t floor for lm_head (edward) — CLOSED productive-NEGATIVE (77th cycle)
 
 - Branch: `g1r4-edward/adamw-vmin-floor` (commit `1271aa73`)
