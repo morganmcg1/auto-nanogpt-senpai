@@ -69,6 +69,25 @@ def parse_args():
                              "Same formula as aux AGC: clip_scale = min(1, ratio * param_norm / grad_norm). "
                              "0.0 = disabled (default).")
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
+    # Sophia-G diagonal Hessian preconditioning on MuonH momentum buffer pre-NS5
+    # (Liu et al. 2023, arXiv:2305.14342). When enabled, applies element-wise
+    # h_t = β2·h_{t-1} + (1-β2)·g_t² then m_precond = clip(m_t / (sqrt(h_t)+eps), -ρ, ρ)
+    # before the NS5 polar projection. Composes with MuonH polar projection by
+    # acting on the orthogonal degree of freedom (element-wise vs matrix-wise).
+    # Default 0 disables (bit-identical to baseline).
+    parser.add_argument("--muonh_sophia_enabled", type=int, default=int(os.environ.get("MUONH_SOPHIA_ENABLED", "0")),
+                        help="Enable Sophia-G preconditioning on MuonH momentum buffer pre-NS5 (0=off, 1=on).")
+    parser.add_argument("--muonh_sophia_beta2", type=float, default=float(os.environ.get("MUONH_SOPHIA_BETA2", "0.99")),
+                        help="Sophia-G diagonal Hessian EMA decay (β2 in h_t = β2·h + (1-β2)·g²).")
+    parser.add_argument("--muonh_sophia_rho", type=float, default=float(os.environ.get("MUONH_SOPHIA_RHO", "0.04")),
+                        help="Sophia-G per-element clip threshold (paper default 0.04).")
+    parser.add_argument("--muonh_sophia_eps", type=float, default=float(os.environ.get("MUONH_SOPHIA_EPS", "1e-6")),
+                        help="Sophia-G eps added to sqrt(h_t) denominator.")
+    parser.add_argument("--muonh_sophia_h_init", type=float, default=float(os.environ.get("MUONH_SOPHIA_H_INIT", "1e-4")),
+                        help="Sophia-G initial value for h_t buffer (default 1e-4). "
+                             "Init at 0 causes m_precond to saturate at ±ρ for many steps "
+                             "(sign-saturated matrix into NS5 → ~0.66 cosine misalignment with "
+                             "true polar(Nesterov) direction). 1e-4 gives sqrt(h)~1e-2 from step 1.")
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
     # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
@@ -504,6 +523,56 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def muon_update_sophia(grad, momentum, h, mu=0.95, nesterov=True,
+                       sophia_beta2=0.99, sophia_rho=0.04, sophia_eps=1e-6):
+    """MuonH update with Sophia-G diagonal Hessian preconditioning before NS5.
+
+    Order of operations (matters because muon_update is destructive on grad):
+      1. Update h_t = β2·h + (1-β2)·g² using original grad (in fp32).
+      2. Update momentum buffer (same as muon_update, bf16).
+      3. Compute Nesterov direction (overwrites grad in place, bf16).
+      4. Sophia-G precondition + clip in fp32: m_precond = clip(nesterov / (sqrt(h)+eps), -ρ, ρ).
+      5. NS5 polar projection on m_precond (cast to bf16 inside NS5).
+      6. Aspect-ratio scale factor (same as muon_update).
+
+    Numerical notes:
+      - h is fp32 (caller's responsibility — initialized via state["h"] in MuonH.step).
+        bf16 h underflows when (1-β2)·g² ~ 1e-8 at typical body grad scales.
+      - h is initialized at a small positive constant (e.g. 1e-4) so sqrt(h)~1e-2
+        from step 1. Init at zero causes m_precond to saturate at ±ρ on every element
+        (sign matrix into NS5 → ~0.66 cosine alignment with true polar(Nesterov);
+        seen empirically in scripts/sophia_ns5_smoke.py).
+      - Momentum stays bf16 (matches baseline muon_update).
+      - m_precond is computed in fp32 to avoid bf16 division/clamp underflow, then
+        cast to bf16 for NS5. NS5 itself only consumes the bf16 input.
+
+    Returns (update_tensor, m_precond_tensor): update_tensor is bf16 (NS5 output);
+    m_precond_tensor is fp32 (NS5 input, kept around for SVD telemetry).
+
+    NOTE: Not @torch.compile'd. On the first call, the compiled variant fails
+    to propagate the in-place updates on `h` back to the caller (state["h"]
+    stays zeros after step 1). Eager mode is correct and only marginally slower
+    here — the NS5 call already dominates the per-step cost.
+    """
+    # h_t update FIRST (grad is overwritten in step 3). Cast grad to fp32 since
+    # h is fp32; this also avoids bf16-vs-fp32 dtype-mismatch errors on addcmul_.
+    grad_fp32 = grad.float()
+    h.mul_(sophia_beta2).addcmul_(grad_fp32, grad_fp32, value=(1.0 - sophia_beta2))
+
+    # Momentum buffer update (matches muon_update, bf16).
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+
+    # Sophia-G preconditioning + element-wise clip in fp32 to avoid bf16
+    # division/clamp underflow at small h values.
+    m_precond = update.float() / (h.sqrt() + sophia_eps)
+    m_precond.clamp_(-sophia_rho, sophia_rho)
+
+    out = zeropower_via_newtonschulz5(m_precond)
+    out *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return out, m_precond
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -602,16 +671,40 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 sophia_enabled=False, sophia_beta2=0.99, sophia_rho=0.04,
+                 sophia_eps=1e-6, sophia_h_init=1e-4,
+                 sophia_telemetry_index=24,
+                 sophia_svd_interval=100):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
-                        hyperball=hyperball, budget_mult=budget_mult, mode=mode)
+                        hyperball=hyperball, budget_mult=budget_mult, mode=mode,
+                        sophia_enabled=sophia_enabled, sophia_beta2=sophia_beta2,
+                        sophia_rho=sophia_rho, sophia_eps=sophia_eps,
+                        sophia_h_init=sophia_h_init)
         super().__init__(params, defaults)
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # Sophia-G telemetry attrs (None until first step with sophia_enabled).
+        # sophia_telemetry_index picks the parameter to track for per-block stats —
+        # default 24 = first 768x768 attention block under the current sort
+        # (12 mlp.fc + 12 mlp.proj come first, then 48 attn 768x768 blocks).
+        # sophia_svd_interval gates the expensive SVD calls.
+        self._sophia_telemetry_index = sophia_telemetry_index
+        self._sophia_svd_interval = sophia_svd_interval
+        self._sophia_step_counter = 0
+        self._last_sophia_h_min = None
+        self._last_sophia_h_max = None
+        self._last_sophia_h_mean = None
+        self._last_sophia_clip_rate = None
+        self._last_sophia_precond_ratio = None
+        self._last_sophia_pre_ns5_sv_min = None
+        self._last_sophia_pre_ns5_sv_max = None
+        self._last_sophia_post_ns5_sv_min = None
+        self._last_sophia_post_ns5_sv_max = None
 
     @torch.no_grad()
     def step(self):
@@ -621,12 +714,28 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        # Per-step Sophia telemetry capture (only the block at sophia_telemetry_index).
+        # Reset every step so we never log stale data when telemetry index isn't reached.
+        sophia_telem = {
+            "h_min": None, "h_max": None, "h_mean": None,
+            "clip_rate": None, "precond_ratio": None,
+            "pre_ns5_sv_min": None, "pre_ns5_sv_max": None,
+            "post_ns5_sv_min": None, "post_ns5_sv_max": None,
+        }
+        self._sophia_step_counter += 1
+        sophia_svd_due = (self._sophia_step_counter == 1
+                          or self._sophia_step_counter % self._sophia_svd_interval == 0)
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             hb = group["hyperball"]
             budget_mult = group["budget_mult"]
             mode = group["mode"]
+            sophia_enabled = bool(group.get("sophia_enabled", False))
+            sophia_beta2 = float(group.get("sophia_beta2", 0.99))
+            sophia_rho = float(group.get("sophia_rho", 0.04))
+            sophia_eps = float(group.get("sophia_eps", 1e-6))
+            sophia_h_init = float(group.get("sophia_h_init", 1e-4))
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -635,7 +744,68 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    param_index = base_i + rank
+                    is_telem_block = (sophia_enabled
+                                      and param_index == self._sophia_telemetry_index)
+                    # Pre-Sophia: stash the post-momentum-update direction (Nesterov)
+                    # magnitude reference for precond_ratio. Cheap inside torch.no_grad.
+                    if sophia_enabled:
+                        if "h" not in state:
+                            # fp32 buffer initialized at small positive constant.
+                            # Init at 0 → m_precond saturates at ±ρ (sign matrix to
+                            # NS5). See scripts/sophia_smoke.py and sophia_ns5_smoke.py.
+                            state["h"] = torch.full_like(p, sophia_h_init,
+                                                          dtype=torch.float32)
+                        # Cheap stats: capture m_t mean_abs before momentum update would
+                        # destroy it — but we want the Nesterov-blended direction's
+                        # mean_abs (matches the input to NS5 in non-sophia path). The
+                        # fairest comparison is m_input = Nesterov direction (after
+                        # momentum lerp + grad lerp) — we compute that inside the
+                        # sophia function. For telemetry we capture mean_abs of grad
+                        # here as a proxy for "raw Nesterov-input magnitude scale".
+                        if is_telem_block:
+                            raw_grad_mean_abs = float(p.grad.detach().float().abs().mean().item())
+                        update, m_precond = muon_update_sophia(
+                            p.grad, state["momentum"], state["h"],
+                            mu=group["mu"], sophia_beta2=sophia_beta2,
+                            sophia_rho=sophia_rho, sophia_eps=sophia_eps,
+                        )
+                        if is_telem_block:
+                            h_tensor = state["h"].detach().float()
+                            sophia_telem["h_min"] = float(h_tensor.min().item())
+                            sophia_telem["h_max"] = float(h_tensor.max().item())
+                            sophia_telem["h_mean"] = float(h_tensor.mean().item())
+                            # clip_rate: fraction where |precond| was at the clip boundary
+                            # (within 1e-7 of ±ρ). Captured AFTER clamp — exact saturation.
+                            precond_abs = m_precond.detach().float().abs()
+                            saturated = (precond_abs >= sophia_rho - 1e-7).float().mean()
+                            sophia_telem["clip_rate"] = float(saturated.item())
+                            # precond_ratio: mean(|m_precond|) / mean(|raw grad|) — a
+                            # sanity check that preconditioning is at expected scale.
+                            sophia_telem["precond_ratio"] = (
+                                float(m_precond.detach().float().abs().mean().item())
+                                / max(raw_grad_mean_abs, 1e-30)
+                            )
+                            if sophia_svd_due and m_precond.ndim == 2:
+                                # SVD on m_precond (NS5 input) and update (NS5 output).
+                                # Cast to fp32 to satisfy linalg.svdvals.
+                                pre_sv = torch.linalg.svdvals(m_precond.detach().float())
+                                sophia_telem["pre_ns5_sv_min"] = float(pre_sv.min().item())
+                                sophia_telem["pre_ns5_sv_max"] = float(pre_sv.max().item())
+                                post_sv = torch.linalg.svdvals(update.detach().float())
+                                sophia_telem["post_ns5_sv_min"] = float(post_sv.min().item())
+                                sophia_telem["post_ns5_sv_max"] = float(post_sv.max().item())
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        # Even with Sophia disabled, log post-NS5 SVD on the same
+                        # telemetry block for an apples-to-apples comparison against
+                        # arm_b/arm_c. This is the H90 mechanism question: does
+                        # Sophia preconditioning shift the partial-orth regime?
+                        if (param_index == self._sophia_telemetry_index
+                                and sophia_svd_due and update.ndim == 2):
+                            post_sv = torch.linalg.svdvals(update.detach().float())
+                            sophia_telem["post_ns5_sv_min"] = float(post_sv.min().item())
+                            sophia_telem["post_ns5_sv_max"] = float(post_sv.max().item())
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -678,6 +848,17 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        # Promote the per-step Sophia telemetry dict to instance attrs so the
+        # training-loop logger can read them. None means "not measured this step".
+        self._last_sophia_h_min = sophia_telem["h_min"]
+        self._last_sophia_h_max = sophia_telem["h_max"]
+        self._last_sophia_h_mean = sophia_telem["h_mean"]
+        self._last_sophia_clip_rate = sophia_telem["clip_rate"]
+        self._last_sophia_precond_ratio = sophia_telem["precond_ratio"]
+        self._last_sophia_pre_ns5_sv_min = sophia_telem["pre_ns5_sv_min"]
+        self._last_sophia_pre_ns5_sv_max = sophia_telem["pre_ns5_sv_max"]
+        self._last_sophia_post_ns5_sv_min = sophia_telem["post_ns5_sv_min"]
+        self._last_sophia_post_ns5_sv_max = sophia_telem["post_ns5_sv_max"]
 
 
 ########################################
@@ -724,6 +905,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.muonh_sophia_enabled:
+    print0(f"Sophia-G ENABLED on MuonH momentum pre-NS5: beta2={args.muonh_sophia_beta2} "
+           f"rho={args.muonh_sophia_rho} eps={args.muonh_sophia_eps} "
+           f"h_init={args.muonh_sophia_h_init}", console=True)
+else:
+    print0("Sophia-G DISABLED on MuonH (muonh_sophia_enabled=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -776,6 +963,11 @@ if dist.get_rank() == 0:
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
+            "muonh_sophia_enabled": bool(args.muonh_sophia_enabled),
+            "muonh_sophia_beta2": args.muonh_sophia_beta2,
+            "muonh_sophia_rho": args.muonh_sophia_rho,
+            "muonh_sophia_eps": args.muonh_sophia_eps,
+            "muonh_sophia_h_init": args.muonh_sophia_h_init,
             "aux_adamw_eps": args.aux_adamw_eps,
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
@@ -837,7 +1029,12 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       sophia_enabled=bool(args.muonh_sophia_enabled),
+                       sophia_beta2=args.muonh_sophia_beta2,
+                       sophia_rho=args.muonh_sophia_rho,
+                       sophia_eps=args.muonh_sophia_eps,
+                       sophia_h_init=args.muonh_sophia_h_init)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1071,6 +1268,23 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
+                    # Sophia-G per-block telemetry (only logged when not None — None
+                    # means the value wasn't measured this step, e.g. pre-NS5 SVD is
+                    # gated by sophia_svd_interval=100).
+                    sophia_metrics = {
+                        "train/muonh/sophia_h_min_block_0": opt._last_sophia_h_min,
+                        "train/muonh/sophia_h_max_block_0": opt._last_sophia_h_max,
+                        "train/muonh/sophia_h_mean_block_0": opt._last_sophia_h_mean,
+                        "train/muonh/sophia_clip_rate_block_0": opt._last_sophia_clip_rate,
+                        "train/muonh/sophia_precond_ratio_block_0": opt._last_sophia_precond_ratio,
+                        "train/muonh/sophia_pre_ns5_sv_min_block_0": opt._last_sophia_pre_ns5_sv_min,
+                        "train/muonh/sophia_pre_ns5_sv_max_block_0": opt._last_sophia_pre_ns5_sv_max,
+                        "train/muonh/sophia_post_ns5_sv_min_block_0": opt._last_sophia_post_ns5_sv_min,
+                        "train/muonh/sophia_post_ns5_sv_max_block_0": opt._last_sophia_post_ns5_sv_max,
+                    }
+                    for k, v in sophia_metrics.items():
+                        if v is not None:
+                            muonh_metrics[k] = v
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
                 muonh_metrics["train/agc/active_fraction"] = agc_stats["agc_clipped"] / agc_stats["agc_total"]
                 muonh_metrics["train/agc/clipped_count"] = agc_stats["agc_clipped"]
