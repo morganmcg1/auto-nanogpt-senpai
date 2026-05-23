@@ -61,6 +61,12 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_beta_delay_frac", type=float, default=0.0,
+                        help="Fraction of cooldown to hold β=ema_beta before starting the ramp. "
+                             "0.0 = ramp from cooldown_start (baseline (1-lr_mult) coupling), "
+                             ">0 switches to a piecewise-linear-in-cooldown_progress ramp: "
+                             "β held at ema_beta for the first `delay_frac` of cooldown, then "
+                             "linear ramp to ema_beta_target over the remaining (1-delay_frac).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -716,6 +722,7 @@ if dist.get_rank() == 0:
             "ema_beta": args.ema_beta,
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
+            "ema_beta_delay_frac": args.ema_beta_delay_frac,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
         },
     )
@@ -784,15 +791,41 @@ for trial_idx in range(args.num_trials):
         w = 1.0 - cooldown_progress
         return w ** COOLDOWN_POWER
 
+    def compute_cooldown_progress(step, cooldown_frac=0.7):
+        """0 at cooldown_start (and during stable phase), →1 at terminal."""
+        progress = step / train_steps
+        if progress < 1 - cooldown_frac:
+            return 0.0
+        return (progress - (1 - cooldown_frac)) / cooldown_frac
+
     def compute_ema_beta_t(step):
-        """Dynamic β_t = β_base + (β_target - β_base) × (1 - lr_mult_t).
+        """Dynamic β_t schedule.
+        delay_frac=0 (default): β_t = β_base + (β_target - β_base) × (1 - lr_mult_t),
+            matching the existing (1-lr_mult)-coupled baseline ramp exactly.
+        delay_frac>0: piecewise-linear-in-cooldown_progress schedule (per PR #841):
+            for cooldown_progress < delay_frac → β_t = β_base
+            for cooldown_progress ≥ delay_frac → β_t = β_base + (β_target - β_base)
+                × (cooldown_progress - delay_frac) / (1 - delay_frac)
         Returns β_base when β_target unset; clamped to [β_base, β_target]."""
         if args.ema_beta <= 0:
             return 1.0  # EMA disabled; sentinel
         if args.ema_beta_target is None:
             return args.ema_beta
-        lr_mult = compute_lr_mult(step)
-        beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+        delay = args.ema_beta_delay_frac
+        if delay <= 0.0:
+            # Preserve the original (1-lr_mult)-coupled baseline ramp exactly.
+            lr_mult = compute_lr_mult(step)
+            beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * (1.0 - lr_mult)
+        else:
+            # Piecewise-linear in cooldown_progress, with hold at base for the first
+            # `delay_frac` of cooldown. Note: this changes the post-delay ramp shape
+            # from concave (baseline) to linear, in addition to introducing the hold.
+            cooldown_progress = compute_cooldown_progress(step)
+            if cooldown_progress < delay:
+                beta_t = args.ema_beta
+            else:
+                ramp_progress = (cooldown_progress - delay) / (1.0 - delay) if delay < 1.0 else 1.0
+                beta_t = args.ema_beta + (args.ema_beta_target - args.ema_beta) * ramp_progress
         lo = min(args.ema_beta, args.ema_beta_target)
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
@@ -905,6 +938,7 @@ for trial_idx in range(args.num_trials):
                 if ema_params is not None:
                     lr_mult_now = compute_lr_mult(step)
                     beta_t_now = compute_ema_beta_t(step)
+                    cooldown_progress_now = compute_cooldown_progress(step)
                     metrics["val/loss_live"] = val_loss_live_float
                     metrics["val/ema_minus_live"] = val_loss_float - val_loss_live_float
                     metrics["ema/val_loss_ema"] = val_loss_float
@@ -920,6 +954,9 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                    metrics["ema/delay_frac"] = args.ema_beta_delay_frac
+                    metrics["ema/cooldown_progress"] = cooldown_progress_now
+                    metrics["ema/ramp_active"] = int(cooldown_progress_now >= args.ema_beta_delay_frac)
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1048,6 +1085,8 @@ for trial_idx in range(args.num_trials):
                     "ema/warmup_steps": args.ema_warmup_steps,
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
+                    "ema/delay_frac": args.ema_beta_delay_frac,
+                    "ema/cooldown_progress_train": compute_cooldown_progress(step),
                 }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
