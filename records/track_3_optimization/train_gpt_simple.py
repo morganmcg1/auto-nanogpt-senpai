@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+MUON_LR_EARLY_BOOST = float(os.environ.get("MUON_LR_EARLY_BOOST", "1.0"))  # default = 1.0 (no boost); multiplies muon_blocks LR during stable phase only
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -856,6 +857,7 @@ if dist.get_rank() == 0:
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
             "optimizer/muon_lr": MUON_LR,
+            "optimizer/muon_lr_early_boost": MUON_LR_EARLY_BOOST,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
             "optimizer/normuon_beta2": NORMUON_BETA2,
@@ -931,11 +933,15 @@ for trial_idx in range(args.num_trials):
                 cur_mu = MU_COOLDOWN_START + (MU_COOLDOWN_END - MU_COOLDOWN_START) * t
         else:
             cur_mu = MU + (MU_END - MU) * progress
+        # Muon-side early-stable boost: apply only during stable phase (eta=1.0)
+        muon_boost = MUON_LR_EARLY_BOOST if progress < (1 - cooldown_frac) else 1.0
         for opt in optimizers:
             for group in opt.param_groups:
-                group["lr"] = group["initial_lr"] * eta
                 if group.get("name") == "muon_blocks":
+                    group["lr"] = group["initial_lr"] * eta * muon_boost
                     group["mu"] = cur_mu
+                else:
+                    group["lr"] = group["initial_lr"] * eta
 
 
     ########################################
