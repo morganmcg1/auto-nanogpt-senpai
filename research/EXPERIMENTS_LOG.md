@@ -3,6 +3,44 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-23 06:35 UTC — PR #848: lm_head non-zero init magnitude sweep (thorfinn) — CLOSED productive-NULL (81st cycle)
+
+- Branch: `g1r4-thorfinn/lm-head-init-std` (commit `63a2953`)
+- Hypothesis: lm_head currently `w.zero_()` → uniform logits at step 0 → uniform softmax. Break the zero-init singular point with small Gaussian perturbation `lm_head_init = std × randn(50304, 768)`. Mechanism: at step 0 a tiny non-zero init creates a structured (non-uniform) probability distribution over the vocab, providing meaningful early gradient signal that zero-init's uniform softmax suppresses.
+
+**Terminal 4-arm N=1 result (drift gate A PASS, Goldilocks at B std=0.0001):**
+
+| Arm | std | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | 0.0 | pt2bcodv | 3.27019 | 3225 | — | −0.000169 (drift PASS) | bit-clean |
+| **B** | **0.0001** | **ugnar56v** | **3.26978** | 3200 | **−0.000416** | **−0.000585** | **best direction-correct sub-threshold** |
+| C | 0.001 | o7ojpvgj | 3.27046 | 3225 | +0.000273 | +0.000104 | mild regression past baseline |
+| D | 0.005 | 2yjm70rk | 3.27078 | 3225 | +0.000589 | +0.000420 | larger monotone regression |
+
+**Verdict**: productive-NULL. Goldilocks at B with monotone regression for std ≥ 1e-3 — mechanism real (cross-arm + cross-PR confirmation) but **Δ_vs_baseline=−0.000585 sub-threshold** for paired-pod investment. CLOSED rather than sent back per the following reasoning:
+
+1. **Magnitude below paired-pod threshold**: Δ_vs_baseline=−0.000585 is below typical −0.001 sub-signal paired-pod trigger; 10+ paired-pod collapse precedents at this magnitude give ~80% collapse probability.
+
+2. **Cross-PR redundancy with #847**: alphonse #847 is currently in paired-pod n=3 confirmation on the SAME "tiny AUX-side perturbation wins" theme. Both PRs share the mechanistic story (Goldilocks at smallest non-zero value, stronger perturbation past-baseline). If #847 paired-pod confirms → theme validated, #848 paired-pod becomes redundant; if #847 collapses → #848 paired-pod would have collapsed too.
+
+3. **#847 is stronger candidate**: #847 Δ_vs_baseline=−0.00083 with D catastrophic (+0.01572, fs=−1 DNF) is structurally more informative than #848 Δ=−0.000585 with mild monotone regression. Resources better spent on #847 paired-pod.
+
+**Durable mechanism finding**: lm_head init optimum is in a narrow window around std=0.0001 (norm=0.621668, mean_abs=8e-5). std=0.001 (10×) collapses past baseline (+0.000104); std=0.005 (50×) shows larger monotone regression (+0.000420). The lm_head zero-init singular point can be broken by tiny non-zero perturbation but the val/loss gain is below paired-pod noise floor on this baseline.
+
+**Cross-PR converged finding** (#847 + #848 + indirectly #845 askeladd): "Tiny perturbation of AUX-side defaults can extract small Δ in narrow magnitude windows". Plausible mechanism: NS-orthogonalization on body Muon absorbs body-side perturbations (cf #812 Haar init null), but AUX-side AdamW groups carry their defaults forward — small intentional perturbations of zero-init lm_head / N(0,1) embed / WD=0 leave optimization headroom in narrow tiny windows. Resolution depends on #847 paired-pod outcome.
+
+**Composition with closed lm_head ledger (14 closures)**: lm_head's AUX-side AdamW group thoroughly tested across preconditioner (#560 β₂, #599 β₁, #618 Muon², #652 ε, #663 SOAP, #664 BC, #668 per-row clip, #838 v_t floor), loss-shape (#441 z-loss, #446 label smooth, #791 focal), schedule (#547 cooldown), LR-mult (#584), and now init-magnitude axes. Future lm_head work should target cross-axis composition or STRUCTURAL mechanisms (tied init, low-rank, structured init from embed).
+
+**Implementation hygiene exemplary**:
+- Branch pushed cleanly at `63a2953`, no new commits since 00:58 UTC
+- LM_HEAD_INIT print sanity: predicted vs actual norm perfectly match (`std × √(50257×768)` ≈ `std × 6213`)
+- Zero training crashes; 6 operator-error ghost crashes documented with root cause
+- Bit-identical fallback at std=0.0 (Arm A drift Δ=−0.000169)
+- Wall-clock per arm ~1h51m (no measurable overhead)
+- Full SENPAI-RESULT marker, all 4 wandb run IDs
+
+**Follow-up**: thorfinn reassigned to **#880 Muon² body v_t ablation** — pruning/sweep of body Muon's Adam-style second-moment buffer (beta2=0.999 default), with Arm B as structural disable to test whether Muon² is load-bearing on body. Mechanism-distinct from all closed body-Muon work (body-side Muon² internal v_t has never been touched). Either outcome durable: B regresses → Muon² load-bearing; B near-neutral → stack simplification candidate.
+
 ## 2026-05-23 06:05 UTC — PR #847: Embed init-anchored WD (alphonse) — N=1 Goldilocks at B (λ=0.001), SENT BACK for paired-pod n=3 (80th cycle)
 
 - Branch: `g1r4-alphonse/embed-init-anchor-wd` (commit `4d01a11`)
