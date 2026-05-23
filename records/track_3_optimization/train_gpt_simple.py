@@ -71,6 +71,16 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Lookahead (Zhang et al. 2019): "k steps forward, 1 step back" wrapper around aux AdamW.
+    # Maintains a slow weights copy that is updated every k inner steps via
+    # slow <- alpha*fast + (1-alpha)*slow; then fast is reset to slow. Inner
+    # optimizer state (m, v) is intentionally preserved across the reset.
+    parser.add_argument("--aux_lookahead", type=int, default=int(os.environ.get("AUX_LOOKAHEAD", "0")),
+                        help="If 1, wrap aux AdamW with Lookahead optimizer (k-step snapshot averaging).")
+    parser.add_argument("--aux_lookahead_k", type=int, default=int(os.environ.get("AUX_LOOKAHEAD_K", "5")),
+                        help="Lookahead k (inner steps between slow-weight updates).")
+    parser.add_argument("--aux_lookahead_alpha", type=float, default=float(os.environ.get("AUX_LOOKAHEAD_ALPHA", "0.5")),
+                        help="Lookahead alpha (slow-weight update rate).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -669,6 +679,70 @@ class MuonH(torch.optim.Optimizer):
         self._last_norm_to_radius_max = max_n_over_r
 
 
+class LookaheadAux:
+    """Lookahead wrapper (Zhang et al. 2019) for aux AdamW.
+
+    Maintains a slow-weights copy alongside the inner optimizer's fast weights.
+    Every k inner steps:  slow <- alpha*fast + (1-alpha)*slow; fast <- slow.
+    Inner optimizer state (m, v) is intentionally preserved across the reset.
+
+    Telemetry: ``last_drift_per_group`` records the most recent
+    mean ``||fast - slow|| / ||slow||`` across params in each named group
+    (computed before each snap).
+    """
+
+    def __init__(self, inner, k=5, alpha=0.5):
+        self.inner = inner
+        self.k = int(k)
+        self.alpha = float(alpha)
+        self.step_count = 0
+        self.snap_count = 0
+        self.slow_weights = {}
+        for group in self.inner.param_groups:
+            for p in group["params"]:
+                self.slow_weights[id(p)] = p.detach().clone()
+        self.last_drift_per_group: dict[str, float] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = self.inner.step(closure)
+        self.step_count += 1
+        if self.step_count % self.k == 0:
+            self.snap_count += 1
+            for group in self.inner.param_groups:
+                drift_sum = 0.0
+                drift_count = 0
+                group_params = group["params"]
+                for p in group_params:
+                    slow = self.slow_weights[id(p)]
+                    slow_norm = slow.norm().clamp_min(1e-8).item()
+                    drift_sum += (p - slow).norm().item() / slow_norm
+                    drift_count += 1
+                    slow.mul_(1.0 - self.alpha).add_(p, alpha=self.alpha)
+                    p.copy_(slow)
+                if drift_count > 0:
+                    group_name = group.get("name", "unnamed")
+                    self.last_drift_per_group[group_name] = drift_sum / drift_count
+        return loss
+
+    def zero_grad(self, set_to_none=True):
+        self.inner.zero_grad(set_to_none=set_to_none)
+
+    @property
+    def param_groups(self):
+        return self.inner.param_groups
+
+    @property
+    def state(self):
+        return self.inner.state
+
+    def state_dict(self):
+        return self.inner.state_dict()
+
+    def load_state_dict(self, state_dict):
+        self.inner.load_state_dict(state_dict)
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -766,6 +840,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_lookahead": bool(args.aux_lookahead),
+            "aux_lookahead_k": args.aux_lookahead_k,
+            "aux_lookahead_alpha": args.aux_lookahead_alpha,
         },
     )
 
@@ -812,10 +889,14 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
+    # fused=True keeps the bit-identical baseline path when Lookahead is OFF; the
+    # wrapped path uses non-fused inner AdamW to keep the snap/copy semantics
+    # safely composable with the post-step slow-weight reset.
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0,
+                       fused=not bool(args.aux_lookahead))
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -886,6 +967,24 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # Wrap aux AdamW with Lookahead after broadcast so slow weights snapshot from
+    # the post-broadcast (rank-0) parameter state. Bit-identical path when OFF.
+    if args.aux_lookahead:
+        optimizer1 = LookaheadAux(
+            optimizer1,
+            k=args.aux_lookahead_k,
+            alpha=args.aux_lookahead_alpha,
+        )
+        optimizers[0] = optimizer1
+        if dist.get_rank() == 0:
+            print0(
+                f"LookaheadAux ENABLED on aux AdamW: k={args.aux_lookahead_k} "
+                f"alpha={args.aux_lookahead_alpha}",
+                console=True,
+            )
+    elif dist.get_rank() == 0:
+        print0("LookaheadAux DISABLED on aux AdamW (aux_lookahead=0)", console=True)
 
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
@@ -1054,6 +1153,11 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            if telemetry_due and args.aux_lookahead and isinstance(optimizer1, LookaheadAux):
+                muonh_metrics["aux/lookahead_step_count"] = optimizer1.step_count
+                muonh_metrics["aux/lookahead_snap_count"] = optimizer1.snap_count
+                for group_name, drift in optimizer1.last_drift_per_group.items():
+                    muonh_metrics[f"aux/lookahead_drift_{group_name}"] = drift
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
