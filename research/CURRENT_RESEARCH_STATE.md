@@ -1,11 +1,10 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 09:30 UTC
+- **Last update:** 2026-05-23 09:55 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **TWO POTENTIAL IMPROVEMENTS PENDING:** #822 alphonse PMuon BC seed-3 tiebreaker; #864 thorfinn EMA warmup=1750 marginal val win.
-- **84 closed axes** (#854 tanjiro Adan-aux 84th — both arms NULL; m_t lag killed paper β1=0.98, β1=0.80 near-baseline. Key insight: aux gradients i.i.d. step-to-step `||Δg||/||g|| ≈ 1.45` → consecutive-grad cosine ≈ -0.05. Rules out Δg-autocorrelation aux methods).
-- **🚨 HIGH PRIORITY #1:** PR #822 alphonse PMuon BC seed-3 in flight (n=2 mean sr=2900 at marginal boundary). If seed-3 sr≤2900, MERGE as new baseline. ETA ~09:25 UTC.
-- **🚨 HIGH PRIORITY #2:** PR #864 thorfinn EMA warmup=1750 Arm A `j8nsn77s` **TERMINAL: sr=2925/val=3.266355 — marginal val WIN** (Δval=−0.000571 sub-marginal). Strict win rule passes; n=2 confirmation required. Arm B (warmup=2500) running, ETA ~09:25 UTC.
+- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **ONE POTENTIAL IMPROVEMENT PENDING:** #864 thorfinn EMA warmup=1750 marginal val win (Arm B in flight for n=2).
+- **85 closed axes** (#822 alphonse PMuon L_cov/R_cov Adam-style BC 85th — n=3 mean sr=2916.67 boundary informative-NULL. Seed sequence 2875/2925/2950 shows BC mechanism effect at seed-noise boundary; telemetry confirms mechanism engages correctly per spec).
+- **🚨 HIGH PRIORITY #1:** PR #864 thorfinn EMA warmup=1750 Arm A `j8nsn77s` **TERMINAL: sr=2925/val=3.266355 — marginal val WIN** (Δval=−0.000571 sub-marginal). Strict win rule passes; n=2 confirmation required. Arm B (warmup=2500) running, ETA ~09:25 UTC.
 - **Today's terminals so far (all NULL/TIE):**
   - #846 edward Arm A (α=2): sr=3075, Δsr=+150, Δval=+0.0088 — NULL; Arm B (α=8): sr=−1/val=3.332 — hard NULL (CLOSED 82nd)
   - #854 tanjiro Arm A (b1=0.98): sr=-1 (did NOT cross target), val=3.2833 — hard NULL
@@ -23,24 +22,25 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 09:30 UTC)
+## Active experiments (8 in-flight, 09:55 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. Seed-3 `7bgqna61` running step 2725 (~84%), val=3.305. ETA terminal ~09:25 UTC. |
 | **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 2500, val=3.354. ETA ~09:35 UTC. |
 | **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 2650, val=3.303. ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
-| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | Arm A `5mha8dpz` (paper β=(0.9,0.999), eps=1e-16) running step 2600 (~80%), val=3.324. ETA terminal ~09:35 UTC. Arm B drop-in pending chain. Tests variance-estimator axis. |
+| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | **Arm A `5mha8dpz` TERMINAL 09:41 UTC: sr=3025/val=3.2729 — NULL/regression** (Δsr=+100, Δval=+0.006). Arm B `p5h5vf5e` (drop-in β=(0.8,0.95), eps=1e-10) launched 09:42 UTC, running. ETA terminal ~13:35 UTC. |
 | **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | Arm A `fjp71ucq` (NS_ITERS=8) running step 1750 (~54%), val=3.479. ETA terminal ~10:42 UTC. Arm B (NS_ITERS=16) pending chain. |
-| **#893** | edward | PMuon momentum first-moment Adam-style BC (1/(1-mu^t)) | Newly assigned 09:00 UTC. Arm A=BC ON always; Arm B=BC ON warmup-only (until 200). Tests first-moment BC analog of #822 (which does second-moment BC on L_cov/R_cov). Orthogonal mechanism, fresh axis. |
+| **#893** | edward | PMuon momentum first-moment Adam-style BC (1/(1-mu^t)) | Newly assigned 09:00 UTC. Arm A=BC ON always; Arm B=BC ON warmup-only (until 200). Tests first-moment BC analog of #822 (which did second-moment BC on L_cov/R_cov, just closed 85th NULL). Orthogonal mechanism, fresh axis. |
 | **#896** | askeladd | Cautious-Muon body: post-NS multiplicative sign-mask (his own followup) | Newly assigned 09:20 UTC. Arm A=mask+renorm; Arm B=mask-only. Tests sign(polar) vs sign(grad) gating analog of C-AdamW on body-Muon polar output. Mechanistically distinct from #696 Contra-Muon (subtractive). |
 | **#897** | tanjiro | Body-Muon adaptive WD coupled to ||p||/target_norm | Newly assigned 09:30 UTC. Arm A=α=1.0 linear coupling; Arm B=α=0.5 sqrt. Per-tensor WD scaling by current/init norm ratio. Fresh axis on body-Muon regularization (distinct from #482 partition, #503 schedule, #727 cooldown ramp). |
+| **#898** | alphonse | PMuon residual-driven adaptive NS_ITERS (per-tensor early termination) | Newly assigned 09:55 UTC. Arm A=ε=1e-3 tight; Arm B=ε=1e-2 loose. Tests uniform polar QUALITY (residual threshold) vs uniform iteration COUNT. Fresh mechanism on NS sub-axis. |
 
 **Recently closed (this session):**
 - #846 edward (AdEMAMix-Aux 82nd, both arms NULL)
 - #827 nezuko (NS-output Frobenius 81st, n=2 informative-NULL)
 - #853 askeladd (Cautious-AdamW aux 83rd, both arms NULL; mask fired correctly, renorm load-bearing, mask alone no benefit)
 - #854 tanjiro (Adan-aux 84th, both arms NULL; m_t lag killed paper β1=0.98 like #846 AdEMAMix; β1=0.80 near-baseline. **Key insight: aux gradients i.i.d. step-to-step** `||Δg||/||g|| ≈ 1.45` constant → cosine ≈ -0.05 → rules out Adan/NAdam-lookahead/Polyak heavy-ball/MARS family on aux).
+- #822 alphonse (PMuon L_cov/R_cov Adam-style BC 85th, n=3 boundary informative-NULL. Seed sequence 2875/2925/2950 → n=3 mean sr=2916.67 > 2900 MERGE threshold. Mechanism telemetry-confirmed correct across all 3 seeds; effect at seed-noise boundary. Closes PMuon warmup-phase second-moment-BC sub-axis).
 - #892 edward Lookahead-Muon (closed pre-launch as duplicate of #505 — same arms k=5/k=10 α=0.5 already NULL/NULL on body-Muon at PR #505 2026-05-20; pre-launch duplicate-check failure caught before student touched it).
 
 ## Recently closed (since session start)
@@ -112,9 +112,11 @@ Mid-run optimizer-mechanism advantages compress to zero during WSD cooldown:
 
 `(3.28 − μ) × √n ≥ 0.004`. n=1 win: sr ≤ 2925 OR (sr = 2925 AND val < 3.264278). Stat-sig threshold: val ≤ 3.276 (n=1). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001): request n=2 before merge.
 
-## Closed axes reference (84 total)
+## Closed axes reference (85 total)
 
-*Aux Adam-family update rules NEAR-SATURATION (14 closed):* NAdam (#698 61st), β2 ramp (#741 72nd), β1 ramp (#796 75th), RAdam (#814 76th), AdEMAMix (#585 + #846 82nd α-sweep), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545), Lion (#604), Cautious-AdamW (#853 83rd — mask fires in expected 0.45-0.77 band, renorm load-bearing, mask itself no aux benefit), **Adan (#854 84th — m_t lag + Δg correction strictly worse on aux)**. Mechanistic insight from #854 telemetry: aux gradients i.i.d. step-to-step (`||Δg||/||g|| ≈ 1.45` constant → cosine ≈ -0.05). Rules out Δg-autocorrelation methods (Adan, NAdam-lookahead, MARS, Polyak heavy-ball γ>0) as predicted-NULL on aux. Open aux levers: AdaBelief (#875 in flight), Adam-mini (#863 in flight), EMA timing (#864 in flight), direct base-LR retune, SOAP/Shampoo for lm_head.
+*Aux Adam-family update rules NEAR-SATURATION (14 closed):* NAdam (#698 61st), β2 ramp (#741 72nd), β1 ramp (#796 75th), RAdam (#814 76th), AdEMAMix (#585 + #846 82nd α-sweep), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545), Lion (#604), Cautious-AdamW (#853 83rd — mask fires in expected 0.45-0.77 band, renorm load-bearing, mask itself no aux benefit), **Adan (#854 84th — m_t lag + Δg correction strictly worse on aux)**. Mechanistic insight from #854 telemetry: aux gradients i.i.d. step-to-step (`||Δg||/||g|| ≈ 1.45` constant → cosine ≈ -0.05). Rules out Δg-autocorrelation methods (Adan, NAdam-lookahead, MARS, Polyak heavy-ball γ>0) as predicted-NULL on aux. Open aux levers: AdaBelief (#875 Arm A NULL/regression; Arm B in flight), Adam-mini (#863 in flight), EMA timing (#864 in flight), direct base-LR retune, SOAP/Shampoo for lm_head.
+
+*PMuon warmup-phase interventions:* β_cov warmup fast-mix (#774 — K=20 mild NULL, K=50 crash from β_cov=0 rank-deficiency), **L_cov/R_cov Adam-style BC (#822 85th — n=3 boundary informative-NULL; mechanism telemetry-verified, effect at seed-noise boundary)**. PMuon momentum first-moment BC (#893 in flight). Cross-cutting insight: PMuon warmup is mechanically denoised (NS5 polar map absorbs small preconditioner errors); warmup-phase fixes have <seed-noise impact unless they alter polar DIRECTION (not just magnitude).
 
 
 

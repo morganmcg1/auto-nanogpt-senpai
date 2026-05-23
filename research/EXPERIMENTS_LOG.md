@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-23 09:45 UTC — PR #822 CLOSED: PMuon L_cov/R_cov Adam-style bias correction — n=3 boundary informative-NULL, 85th axis (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/pmuon-cov-bias-correction`
+- Hypothesis: PMuon bilateral covariance EMA (L_cov, R_cov) suffers Adam-style early-step bias from `m·β^t / (β^t)`. Dividing by `1 − β_cov^t` corrects the bias, allowing the polar map to use unbiased preconditioner from step 1 onwards.
+
+| Seed | W&B | sr | val/loss | stat_sig | Notes |
+|---|---|---|---|---|---|
+| 1 | `8b0m4nzt` | 2875 | 3.264587 | 0.01141 | strong win |
+| 2 | `ufg7f4mw` | **2925** | 3.267590 | 0.00841 | baseline-tie |
+| 3 | `7bgqna61` | **2950** | 3.269395 | 0.00660 | regression direction |
+| **n=3 mean (Arm A)** | — | **2916.67** | **3.267191** | — | — |
+| baseline (#737, n=2) | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | ref |
+| **Δ (n=3 mean vs baseline)** | — | **−8.33** | **+0.000265** | — | borderline |
+
+- **Predeclared decision rule:** sr > 2900 → close informative-NULL. n=3 mean sr=2916.67 fails MERGE threshold; Δval slightly positive. Close.
+- **Mechanism is real and correctly implemented across all 3 seeds:** BC denominator `1 − β_cov^t` converges to 1.0 by step ~100 in all seeds; `L_eps_clamp_frac` drops from 1.0 (rank-1 init) to ~0 by step 50 in all seeds; `L_eigval_min_mean` ramps from 0 to ~46k by step 50. Identical telemetry across seeds proves implementation is correct.
+- **Why BC effect doesn't beat noise:** (1) BC fires for ~50-100 steps then becomes a no-op (3% of training), (2) polar output from NS5 is robust to small L/R_cov errors (NS5 projects to nearest unit-spectral-norm matrix), (3) seed-1 was a lucky outlier — seeds 2 and 3 sit at the noise floor.
+- **Cross-cutting insight: PMuon warmup-phase fixes are mechanically denoised.** Polar map absorbs small preconditioner errors. Future warmup-phase fix hypotheses should expect this absorption pattern. Edward's #893 PMuon momentum first-moment BC (analog on m_pre, not L_cov/R_cov) tests whether the m_pre direction is similarly absorbed.
+- **Decision-rule discipline credit (alphonse pre-launch):** Pre-launch β_cov audit verifying the codebase β_cov=0.95 convention matched Adam-style smoothing weight. Same diagnostic discipline as askeladd #853 and tanjiro #854.
+- **85th closed axis. PMuon warmup-phase intervention family now contains 2 closures (#774 β_cov fast-mix, #822 BC).** Open in family: #893 edward (first-moment BC on m_pre, in flight).
+- **Alphonse reassigned PR #898**: PMuon residual-driven adaptive NS_ITERS. Arm A=ε=1e-3 tight, Arm B=ε=1e-2 loose. Tests uniform polar QUALITY vs uniform iteration COUNT. Fresh mechanism on NS-iteration sub-axis (distinct from #884 static NS_ITERS tuning and #803 cooldown-iter ramp).
+
 ## 2026-05-23 09:25 UTC — PR #854 CLOSED: Adan-aux Nesterov gradient-difference momentum — both arms NULL, 84th axis (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/adan-aux-nesterov-grad-diff`
