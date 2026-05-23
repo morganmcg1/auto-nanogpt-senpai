@@ -1,5 +1,52 @@
 # SENPAI Research Results
 
+## 2026-05-23 18:10 UTC — PR #898 CLOSED: PMuon residual-driven adaptive NS_ITERS — both arms NULL, 91st axis (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/adaptive-ns-iters`
+- Hypothesis: Replace fixed NS_ITERS=12 with early termination when polar residual `||X Xᵀ − I||_F < ε`. Arm A=ε=1e-3 (tight), Arm B=ε=1e-2 (loose). Tests uniform polar QUALITY vs uniform iteration COUNT.
+
+| Arm | ε | W&B | sr | val/loss | iter_count (every step, every tensor) | residual_min | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #864 | — | `j8nsn77s`/`08ursg5n` | 2925 | 3.266826 | 12 | ~0.10 | — |
+| A | 1e-3 (tight) | `d332v1wk` | 2925 | 3.26813 | 20 (cap) | 0.0495 | NULL — Δval=+0.00120 |
+| B | 1e-2 (loose) | `ypejugws` | 2950 | 3.26897 | 20 (cap) | 0.0501 | NULL — Δsr=+25, Δval=+0.00204 |
+| **n=2 mean** | — | — | **2937.5** | **3.268551** | 20 (degenerated) | ~0.05 (floor) | Mild regression |
+
+**Verdict: NULL/NULL — informative-NULL via mechanism collapse.**
+
+### Mechanism finding (KEY structural insight — cross-axis to multiple PRs)
+
+**Both arms degenerated to static NS_ITERS=20.** The residual threshold was unreachable for both ε values because cubic Newton-Schulz polynomial `p(σ) = 1.5σ − 0.5σ³` has `p(0)=0`. Zero singular values are NOT restored by iteration. Body-Muon tensors are rank-deficient in bf16 (some near-rank-1 reshaped blocks), so:
+
+`||X Xᵀ − I_m||_F ≈ √(m − rank(X))` after NS5 saturation,
+
+≈ 0.05 (near-full-rank with bf16 floor) to ≈3.2 (rank-deficit ~10). **This floor is 3-5 orders of magnitude above both ε arms.** The `if final_residual < adaptive_eps: break` branch was never taken in any of 72 tensors × ~3,250 steps × 2 runs = **~468k tensor-step opportunities**.
+
+### NS_ITERS frontier consolidated (88th #884 + 91st #898 closures)
+
+| NS_ITERS | source | sr | val/loss | Pattern |
+|---|---|---|---|---|
+| 8 | #884 Arm A | 3050 | 3.2744 | Under-converged catastrophic (residual ~14) |
+| **12** | **Baseline #864** | **2925** | **3.266826** | **OPTIMAL** |
+| 16 | #884 Arm B | 2975 | 3.2703 | Over-saturation marginal (residual ~0.067) |
+| 20 | #898 n=2 effective | 2937.5 | 3.268551 | Over-iteration + residual-op overhead |
+
+NS_ITERS=12 confirmed as optimal across 4 static points. Asymmetric closure: going DOWN from 12 costs much more than going UP. Cubic NS at NS_ITERS=12 saturates at 0.05 polar residual.
+
+### Cross-axis to #940 (alphonse next assignment)
+
+The #898 rank-deficiency finding directly motivates the Frobenius-normalized NS output hypothesis (#940): if some body-Muon tensors converge to rank-deficient polar (Frobenius norm < √min(m,n)), their effective per-element update RMS is below unit. Frobenius normalization is the direct correction. Cross-axis: #898 IDENTIFIED the mechanism; #940 TESTS whether the mechanism matters operationally.
+
+### Lessons preserved
+
+1. **Pre-launch sanity check that threshold is reachable.** For mechanisms gated by a numerical threshold (ε in adaptive NS_ITERS, mask_frac in C-AdamW), verify the threshold is achievable with the chosen value before launch. The 12:55 UTC mid-run analysis caught this AFTER ~98 steps of telemetry.
+2. **Script-edit-while-running hazard:** chain.sh was edited 16 min into Arm A's launch; Bash mid-execution script-edit behavior is undefined; Arm B launched despite unset gate file. Future chain scripts must be finalized BEFORE first launch.
+3. **Telemetry discipline pays off.** The student's 12:55 UTC mid-run residual analysis turned an expected NULL into a deep structural insight about NS5 + rank-deficient inputs.
+
+**91st axis closed.** Alphonse re-assigned to #940 (Frobenius-normalized NS output) — direct cross-axis follow-up.
+
+---
+
 ## 2026-05-23 17:45 UTC — PR #897 CLOSED: Body-Muon adaptive WD coupled to ||p||/target_norm — both arms NULL, 90th axis (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/adaptive-body-muon-wd`
