@@ -61,6 +61,10 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--cautious_muon", action="store_true", default=False,
+                        help="Body-Muon post-NS sign-mask: mask polar where sign(polar)!=sign(grad).")
+    parser.add_argument("--cautious_muon_no_renorm", action="store_true", default=False,
+                        help="Disable mask renormalization (ablation arm). Active only when --cautious_muon is set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -497,7 +501,13 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    cautious_muon: bool = False,
+    cautious_muon_renorm: bool = True,
 ) -> Tensor:
+    # Snapshot the immediate grad before any in-place mutation. Needed for the
+    # Cautious-Muon sign-mask which compares the polar output to the *original*
+    # gradient (mirrors C-AdamW's sign(m) vs sign(g) semantics).
+    grad_sign_ref = grad.detach().clone() if cautious_muon else None
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
@@ -526,17 +536,34 @@ def pmuon_update(
         polar_diag["residual"] = float(torch.linalg.norm(gram - eye).item())
         polar_diag["sample_rows"] = m
         polar_diag["sample_cols"] = n
+    # Cautious-Muon: multiplicative sign-mask on polar output.
+    # Mask elements where sign(polar) != sign(grad). Optional renormalization
+    # preserves the effective update magnitude (paper variant).
+    mask_frac_logged = None
+    if cautious_muon:
+        cmask = (torch.sign(polar) == torch.sign(grad_sign_ref.to(polar.dtype))).to(polar.dtype)
+        mask_frac_logged = float(cmask.mean().item())
+        if cautious_muon_renorm:
+            denom = cmask.mean().clamp_min(1e-3)
+            polar = polar * cmask / denom
+        else:
+            polar = polar * cmask
+    if polar_diag is not None and cautious_muon and mask_frac_logged is not None \
+            and "cautious_mask_frac" not in polar_diag:
+        polar_diag["cautious_mask_frac"] = mask_frac_logged
     update = polar * (max(1, grad.size(-2) / grad.size(-1)) ** 0.5)
     return update
 
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 cautious_muon=False, cautious_muon_renorm=True):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        cautious_muon=cautious_muon, cautious_muon_renorm=cautious_muon_renorm)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -571,6 +598,8 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        cautious_muon=group["cautious_muon"],
+                        cautious_muon_renorm=group["cautious_muon_renorm"],
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -717,6 +746,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "cautious_muon": int(args.cautious_muon),
+            "cautious_muon_renorm": int(args.cautious_muon and not args.cautious_muon_no_renorm),
         },
     )
 
@@ -753,7 +784,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      cautious_muon=args.cautious_muon,
+                      cautious_muon_renorm=not args.cautious_muon_no_renorm)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1025,6 +1058,12 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            if polar_diag and "cautious_mask_frac" in polar_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "cautious_muon/mask_frac": polar_diag["cautious_mask_frac"],
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
