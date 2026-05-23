@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~04:30 UTC — PR #785: alphonse Residual-proj init magnitude multiplier α=0.50 P2 — **CLOSED clean-NEG**
+
+- Branch: `g1r5-alphonse/resid-alpha-P2-a050-n4`
+- Student: g1r5-alphonse
+- Hypothesis: α=0.50 × musoft scale for residual-proj init (attn.proj + mlp.proj) would reduce over-initialization by 2× and improve convergence. P1 Cell A single-seed winner (3.25978, −2.43σ_single). P2 n=4 confirmation.
+- **Results (n=4, run `qqsqorg6`, group `g1r5-alphonse/resid-alpha-P2-a050-n4`):**
+
+| Trial | val/loss @3250 | ffs | Δ vs baseline 3.261221 |
+|:-----:|:--------------:|:---:|:----------------------:|
+| 0 | 3.261419 | 3025 | +0.000198 (+0.33σ) |
+| 1 | 3.261601 | 3025 | +0.000380 (+0.64σ) |
+| 2 | 3.261395 | 3025 | +0.000174 (+0.29σ) |
+| 3 | 3.263172 | 3050 | +0.001951 (+3.29σ) |
+| **mean** | **3.261895** | 3031.25 | **+0.000674 (+1.14σ)** |
+
+- σ_n=4=0.000855 (sample), statsig = (3.261221 − 3.261895) × √4 = **−0.001348** (need ≥ +0.004)
+- **n=4 gate: MISS by −0.005348 (fails by 5.35σ margin)**
+- **Analysis:** The P1 winner (3.25978) was a single-seed downward fluctuation (~2.4σ below population mean). Trials 0–2 cluster tightly around 3.2615 (within-cluster σ = 0.00011, ~5× tighter than σ_single), confirming the α=0.50 population mean sits at baseline parity. Trial 3 is a slight upward outlier (+3.3σ). **Residual-proj init magnitude axis fully closed** at n=4: musoft (α=1.0) is optimal. α<1.0 (under-init) doesn't help, α>1.0 (over-init) would likely be worse.
+- **New assignment:** #873 alphonse MARS-Muon gradient variance reduction.
+
+---
+
 ## 2026-05-23 ~04:00 UTC — PR #826: askeladd Lookahead outer wrapper — **CLOSED clean-NEG**
 
 - Branch: `g1r5-askeladd/lookahead`
