@@ -432,3 +432,34 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 ### Active assignments status
 - 7 of 7 healthy students assigned (frieren, thorfinn, nezuko in flight; alphonse, fern, askeladd post-override; tanjiro + edward pod-broken hold)
 - 0 idle students
+
+---
+
+## 2026-05-23 ~09:00Z — Cycle 71 mid-112 update
+
+### Frieren #857 ADAMW_DENOM_POWER — CLOSED as 54th refuted axis
+- n=2 mean: val=3.2729/ffs=3050 (misses both merge bar legs)
+- Arm A (alpha=0.25): val=3.2929/ffs=-1 (soft-miss), Arm B (alpha=0.375, n=2): val=(3.2708+3.2750)/2=3.2729/ffs=3050
+- Monotone improvement toward default: 0.25→0.375→0.5 all better. AdamW sqrt denominator is confirmed optimal.
+- **8th confirmed closure of "modify AdamW numerator/denominator semantics" family** — joins Lion, Cautious, NAdamW, SF-AdamW, Sophia-G, Adan, MARS.
+- Frieren → #894 ATTN_SOAP_PRECOND_FREQ isolated sweep
+
+### Thorfinn #879 SOAP freq combined — Arm A close-miss, Arm B in flight
+- Arm A (both at freq=20): val=3.2740/ffs=3075 — slight regression (outside floor cluster, val>3.27+0.004)
+- Both `optimizer/soap_precond_freq=20` AND `optimizer/attn_soap_precond_freq=20` confirmed in W&B
+- Arm B (both at freq=30) launched: `4v4qmqx2` step 125 val=4.44 (early warmup)
+
+### Frieren #894 ATTN_SOAP_PRECOND_FREQ isolated assigned
+- Isolates attention SOAP preconditioner from MLP-SOAP. Arms: Arm A=freq=5 (more frequent), Arm B=freq=20 (less frequent), MLP-SOAP held at 10.
+- Requires 1-line code change to env-gate ATTN_SOAP_PRECOND_FREQ (instructions in PR body)
+- Key question: thorfinn #879 combined both at 20 regressed; if attention-only at 20 also regresses, attention SOAP is the load-bearing component.
+
+### DISABLED-CHECK STALL epidemic persisting — fern + askeladd
+- Override #2 posted at ~09:00Z to both fern (#876) and askeladd (#882) with exact launch commands
+- Root cause identified for askeladd: PR body used wrong wandb key (`schedule/mu_warmup_steps`) — actual key is `optimizer/mu_warmup_steps`. Corrected in Override #2.
+- Both students still running disabled-checks at ~08:43Z, likely resolving in next polling cycle.
+
+### Healthy in-flight
+- alphonse #877 Arm B (NS5_ITERS=16): `fai35had` step 125 val=4.42 (early warmup, healthy)
+- nezuko #878 Arm A (β1=0.75): `6emmoksf` step 1250 val=3.598 (healthy mid-training)
+- Pod-broken: tanjiro #793, edward #702 (infra issue #768 unresolved, ~15h idle)
