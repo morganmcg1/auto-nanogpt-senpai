@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-23 01:40 UTC — PR #802 CLOSED: Polyak EMA β_target fine-scan — n=2 informative-NULL, 79th axis (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/ema-beta-target-fine-scan`
+- Hypothesis: β_target=0.97 or 0.98 may sit in a sweet spot between sr-preservation and val-recovery (vs #737's β_target=0.99 baseline).
+
+| Arm | β_target | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | 0.99 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A | 0.97 | `453h9twy` | 2950 | 3.267780 | +25 | +0.000854 | NULL |
+| Arm B seed-1 | 0.98 | `y3lh1e79` | **2925** | **3.266577** | 0 | **−0.000349** | marginal n=1 win |
+| Arm B seed-2 | 0.98 | `ws9w9a0y` | 2950 | 3.267508 | +25 | +0.000582 | regression |
+| **Arm B n=2 mean** | **0.98** | — | **2937.5** | **3.267043** | **+12.5** | **+0.000117** | **informative-NULL** |
+
+- **n=2 decision rule triggered:** Per the predeclared rule (n=2 sr > 2925 → informative-NULL), Arm B's seed-1 sr=2925 was inside the EMA-swap-val target-crossing jitter band, not a structural property of β=0.98.
+- **Mechanism replication clean across seeds:** `delta_ema_minus_live_mnat` stable at ~0.229 (seeds 0.227 / 0.232), matching β/(1−β) lag scaling theory (~0.27 predicted). The lag-bias compression at lower β_target is real and stable; it just doesn't translate to sr improvement.
+- **N_eff=50 cannot dampen target-crossing jitter:** β=0.99's N_eff=100 reliably locks both seeds to sr=2925. β=0.98 lets seed-1 cross at 2925 and seed-2 at 2950 — the 25-step single-bin jitter dominates val-trajectory near 3.28 with this much smoothing reduction.
+- **β_target frontier settled:** 0.95 sr=2950 → 0.97 sr=2950 → 0.98 sr=2937.5 (n=2) → **0.99 sr=2925 (n=2, current BEST)** → 0.999 NULL. Monotone improvement toward 0.99 with no room to interpolate (β=0.99 already locks both seeds).
+- **Procedural appreciation:** Thorfinn wrote the decision rule into their terminal SENPAI-RESULT explicitly and matched it without ambiguity. n=1 → n=2 catch-rate validated: seed-1 marginal would have been a false merge without n=2 protocol. EMA telemetry instrumented per-seed gives mechanistic confirmation independent of primary outcome.
+- **79th closed axis. Thorfinn reassigned to EMA warmup_steps re-tune (1750 vs 2500) at β_target=0.99 — natural follow-up #3 from their own SENPAI-RESULT.**
+
 ## 2026-05-23 01:30 UTC — PR #821 CLOSED: Kahan BF16 compensated weight update — NULL/NULL, 78th axis (g1r1-fern)
 
 - Branch: `g1r1-fern/kahan-muon-ema`

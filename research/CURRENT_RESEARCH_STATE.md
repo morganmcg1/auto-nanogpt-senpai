@@ -1,11 +1,11 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 01:35 UTC
+- **Last update:** 2026-05-23 01:45 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL NEW RECORD PENDING:** #822 alphonse Arm A sr=2875 (Δsr=−50) — sent back for n=2 seed-2 confirmation.
-- **78 closed axes** (#821 fern Kahan BF16 compensated weight update closed as 78th — pre-launch dtype audit revealed body-Muon params + EMA buffer already FP32, so Kahan is structural no-op; both arms TIE on sr=2925 with sub-noise val drift).
+- **79 closed axes** (#802 thorfinn Polyak EMA β_target=0.98 closed as 79th — n=2 mean sr=2937.5, +12.5 regression from baseline. seed-1 sr=2925 was inside EMA-swap-val target-crossing jitter; mechanism replicated but jitter dominates at N_eff=50).
 - **🚨 HIGH PRIORITY:** PR #822 alphonse Arm A `8b0m4nzt` FINISHED sr=2875 (Δsr=−50 BIG WIN). Sent back for n=2 seed-2 confirmation; ETA ~05:00 UTC. If both seeds sr ≤ 2900, merge as new baseline.
-- **Active n=2 confirmation:** #802 thorfinn seed-2 launched at β_target=0.98 (n=1 win Δval=-0.000346, marginal). At last check step 3125 sr_first=2950, likely n=2 mean sr=2937.5 regression.
+- **Marginal positive arm:** #841 frieren Arm A `quhyt7s4` finished sr=2925/val=3.26674 (Δval=−0.000182 sub-noise). Arm B `gg5ltqc8` (delay_frac=0.7) running step 130, ETA ~04:55 UTC.
 
 ## Current local baseline
 
@@ -17,23 +17,24 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 01:35 UTC)
+## Active experiments (8 in-flight, 01:45 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
 | **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (β_cov=0.95+BC vs 0.98+BC) | Arm A `8b0m4nzt` **n=1 sr=2875/val=3.2646 — BIG WIN** (Δsr=−50, Δval=−0.00234, past both marginal thresholds). Arm B NULL sr=2975. SENT BACK for n=2 seed-2 confirmation. ETA ~05:00 UTC. |
-| **#802** | thorfinn | EMA β_target n=2 seed-2 (β_target=0.98, n=1 marginal win Δval=−0.000346) | Seed-2 launched 21:36, last check step 3125 sr_first=2950. Likely n=2 mean sr=2937.5 regression. ETA terminal ~01:35 UTC. |
 | **#827** | nezuko | Post-NS Frobenius normalization (post vs pre, polar RMS=1) | Arm A NULL (closed). Arm B `oey1pogu` (pre) running. ETA terminal ~02:30 UTC. |
-| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` was step 3200 val/best=3.2673 (above baseline). ETA terminal ~01:30-01:40 UTC. |
+| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` **FINISHED sr=2925/val=3.26674 — marginal positive Δval=−0.000182 (sub-noise)**. Arm B `gg5ltqc8` (delay_frac=0.7) running step 130/3250. ETA terminal ~04:55 UTC. |
 | **#846** | edward | AdEMAMix-Aux α sweep: dual first-moment EMA for aux groups (α=2 vs α=8) | Arm A `r9mby3uo` running (alpha=2). Crash investigation pending — 6 of 7 runs crashed. Survivor healthy. ETA terminal ~02:00 UTC. |
 | **#853** | askeladd | Cautious-AdamW for aux: sign-aligned update masking (Liang et al. 2024) | ASSIGNED 00:55 UTC. Arm A `--cautious_aux momentum` (paper variant), Arm B `--cautious_aux update` (alt mask criterion). Mask `c_t = 1[sign(m_t)==sign(g_t)]` with renormalization. Orthogonal axis to aux Adam-family variance-warmup (FULLY CLOSED). |
 | **#854** | tanjiro | Adan-aux: Nesterov-momentum-of-gradient-differences (Xie et al. 2022) | ASSIGNED 01:05 UTC. Arm A paper defaults β=(0.98, 0.92, 0.99), Arm B tuned β1=0.80 + (0.92, 0.99). Adds Δg gradient-acceleration term orthogonal to all variance/smoothing/sign axes explored in aux Adam-family. |
 | **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction for aux groups (Zhang et al. 2024) | ASSIGNED 01:35 UTC. Arm A `--adam_mini_aux per_row` (vocab-row adaptivity preserved, v_t reduced ~768×), Arm B `--adam_mini_aux per_tensor` (single v_t scalar per param). Tests whether pooled v_t reduces sparse-gradient variance noise on embed/lm_head. Orthogonal to all aux Adam-family axes. |
+| **#864** | thorfinn | EMA warmup_steps re-tune at β_target=0.99 (1750 vs 2500) | ASSIGNED 01:45 UTC. Arm A `--ema_warmup_steps 1750` (more averaging window, lower initial β_t≈0.964), Arm B `--ema_warmup_steps 2500` (less averaging, higher β_t≈0.977). Tests whether the warmup_steps=2250 in #737 baseline is locally optimal. Student's own follow-up #3 from #802. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#802** thorfinn | 79th | Polyak EMA β_target=0.98 n=2 informative-NULL (n=2 mean sr=2937.5, val=3.267043) | seed-1 sr=2925 (lucky) + seed-2 sr=2950 → +12.5 sr regression. β/(1−β) lag scaling replicated stable across seeds (~0.229 mnat at β=0.98 vs ~0.54 at β=0.99); mechanism real but N_eff=50 cannot dampen 25-step EMA-swap-val target-crossing jitter. β_target frontier settled: 0.99 BEST, 0.98 marginal-NULL, 0.97/0.999 NULL. |
 | **#821** fern | 78th | Kahan BF16 compensated weight update NULL/NULL (A sr=2925/val=3.266462 TIE, B sr=2925/val=3.267573 TIE) | Pre-launch dtype audit caught the structural issue: body-Muon params AND EMA buffer already FP32. `p.add_(update.to(p.dtype))` is exact when p is FP32 → Kahan compensation comp_rms_mean ≈ 0 (5.4e-9 Arm A, 0 Arm B). Only `self.embed` is BF16. Pure mechanistic no-op confirmed by both arms tying baseline within sub-noise. |
 | **#778** tanjiro | 77th | PMuon per-type γ narrow TIE (clean n=2 sr=2925/val=3.266815, Δval=−0.000111 sub-noise) | Δval is 22× smaller than seed-variance (0.0025); 9× below 0.001 marginal threshold. PMuon per-type γ axis FULLY CLOSED (wide #736 + narrow #778). Kronecker L_cov/R_cov capture per-tensor curvature; per-type γ scalar offers no orthogonal gain. |
 | **#814** askeladd | 76th | Aux RAdam NULL/NULL (A LR=0.30 sr=2925 TIE, B LR=0.22 sr=2950 regression) | Mechanism intact (rho_t 1→38.15, r_t 0→0.987, in_sgd_fallback flip). AdamW β2=0.95 already handles variance warmup implicitly at high aux LRs. Aux Adam-family variance-warmup mechanism FULLY CLOSED across NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814). |
