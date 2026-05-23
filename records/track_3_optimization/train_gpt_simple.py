@@ -83,6 +83,10 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--soap_stable_freq", type=int, default=16,
+                        help="SOAP eigenbasis refresh freq during stable phase (default=PRECOND_FREQ=16)")
+    parser.add_argument("--soap_cooldown_freq", type=int, default=16,
+                        help="SOAP eigenbasis refresh freq during cooldown phase (default=16, use 99999 to freeze)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -647,7 +651,10 @@ class Muon(torch.optim.Optimizer):
                             self.cos_sims_buffer[self.param_names[id(p)]] = cos_sim_t
                         else:
                             update = u_soap
-                        soap_update_preconditioner(p.grad, state)
+                        soap_update_preconditioner(
+                            p.grad, state,
+                            precondition_frequency=group.get("precond_freq_dynamic", PRECOND_FREQ),
+                        )
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
@@ -755,6 +762,8 @@ if dist.get_rank() == 0:
             ),
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
+            "soap_stable_freq": args.soap_stable_freq,
+            "soap_cooldown_freq": args.soap_cooldown_freq,
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
@@ -777,6 +786,9 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+
+    # SOAP eigenbasis refresh phase boundary (matches set_hparams cooldown_frac=0.7)
+    COOLDOWN_ONSET = round(train_steps * (1.0 - 0.7))  # = 975 for train_steps=3250
 
     NUM_LAYERS = len(model.blocks)  # = 12 for the fixed baseline architecture
 
@@ -981,6 +993,10 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        # Phase-dependent SOAP eigenbasis refresh frequency
+        _precond_freq = args.soap_cooldown_freq if step >= COOLDOWN_ONSET else args.soap_stable_freq
+        for group in optimizer2.param_groups:
+            group["precond_freq_dynamic"] = _precond_freq
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1026,6 +1042,8 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["train/soap_precond_freq_now"] = _precond_freq
+                per_group_metrics["train/soap_in_cooldown"] = int(step >= COOLDOWN_ONSET)
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
