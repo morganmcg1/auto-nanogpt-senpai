@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 03:51 UTC
+- **Date:** 2026-05-23 04:01 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -893,18 +893,29 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 **Decision gate:** Arm A drift ≤ 0.003 vs baseline (verifies fused/non-fused equivalence) → proceed. Best arm Δ_vs_A ≤ −0.002 AND vs baseline → positive signal, paired-pod n=3 follow-up.
 **23:06 UTC status-check** (PR was flagged stale_wip at 2h7m post-assignment): Pod alive, GPU 100%, run `67w8k970` Arm A at step 2900/3350 val=3.318, **3 ghost crashes** (`sd072zai`/`nbk1nc3l`/`qpb3n12z`) all logged Arm A config. Branch had only assignment commit; local edits unpushed. Posted advisor comment requesting push + ghost-crash explanation + drift-gate check.
 
-**01:45 UTC progress refresh #2** (W&B-verified):
+**04:01 UTC progress refresh #3** (W&B-verified; 3/4 arms finished, Arm D running):
 
-| Arm | run ID | state | step | val/loss | fs | Δ_vs_baseline 3.27036 | Δ_within_vs_A |
-|:---:|---|---|:---:|:---:|:---:|:---:|:---:|
-| A (mode=none) | `67w8k970` | **finished** | 3350 | **3.2682** | 3200 | **−0.00216 (favorable seed, drift PASS edge)** | — |
-| B (median 1e-4) | `zxxxagn7` | **finished** | 3350 | **3.2698** | 3200 | −0.00056 | **+0.0016 (mild regression)** |
-| C (median 1e-3) | `xayaoxhz` | running | 475/3350 (~14%) | 3.91 (in-prog) | — | TBD | TBD |
-| D (max 1e-6) | — | not yet | — | — | — | — | — |
+| Arm | mode | frac | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | none | 0 | `67w8k970` | finished | 3350 | 3.26820 | — | **−0.00216 favorable seed** (drift PASS edge) |
+| B | median_frac | 1e-4 | `zxxxagn7` | finished | 3350 | 3.26980 | +0.00160 | −0.00056 (mild regression vs A; beats baseline) |
+| C | median_frac | 1e-3 | `xayaoxhz` | **finished** | 3350 | **3.26942** | **+0.00122** | **−0.00094** |
+| D | max_frac | 1e-6 | `ku2ihasf` | running | 1340/3350 (~40%) | 3.568 in-prog | TBD | TBD |
 
-**Reading**: Arm A drift gate PASSES at edge (|Δ|=0.00216 < 0.003) — `FloorAdamW` non-fused path reproduces baseline; implementation sound for bit-clean fallback. Arm A came in fortuitously favorable. Arm B (mild floor `v_floor=1e-4 × v_t.median()`) shows +0.0016 within-pod regression — barely-active floor mildly hurts vs control. For signal, C or D would need val ≤ 3.2662. Branch still has only assignment commit; ghost crashes still unexplained. Posted #838 progress refresh comment 01:45 UTC. ETA terminal ~05:10 UTC.
+**Within-pod direction-incorrect pattern (3-arm)**: Both floored arms regress vs Arm A by Δ_within > 0 (B=+0.00160, C=+0.00122). C is mildly non-monotone (10× stronger median floor is *less* destructive than 10× weaker median floor). The apparent Δ_vs_baseline=−0.00216 on Arm A is favorable-seed luck, not mechanism: B/C running at the "true" A-equivalent level, A drifted ~0.0012 below it within ±0.003 envelope.
 
-**Pre-staged verdict (current trajectory)**: A favorable seed + B mild regression → leans productive-NEG closure unless C or D shows signal. Will assess at terminal with all 4 arms.
+**Mechanism reading (3-arm, leans productive-NEG)**: v_t floors on lm_head interfere with normal AdamW preconditioning rather than helping. Arms B/C both direction-incorrect vs Arm A. The Zipf step-size variance compression hypothesis is currently disconfirmed for median-anchored floors — the variance is load-bearing, not noise to suppress.
+
+**Arm D pre-staged interpretations** (max_frac=1e-6 — distinct geometry: caps max instead of clamping median):
+1. **D ≈ A or D < A within-pod (Δ_within ≤ 0)**: max-frac at 1e-6 genuinely beneficial → paired-pod n=3 candidate
+2. **D > A but < B**: max-frac geometry better than median-frac → null/marginal with mechanism comment
+3. **D ≈ B/C** (most likely given pattern): productive-NEG closure of "Zipf-direction v_t floor" mechanism family
+
+**Implementation hygiene — branch STILL NOT PUSHED** (verified via 300 remote branches scanned): only PR tonight where this is happening — askeladd #845 pushed `f7b33e0`, thorfinn #848 pushed `63a2953`, but edward #838 branch only has assignment commit `0e92d05`. Requested student to push implementation in advisor comment.
+
+**Ghost crashes**: 4 confirmed Arm A retries (`sd072zai`/`nbk1nc3l`/`qpb3n12z`/`pdi1ao34`). All config frac=0/mode=none = identical to Arm A. Infrastructure retries, not new experimental arms.
+
+ETA terminal ~06:00-06:30 UTC. Posted #838 progress refresh #3 comment.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
