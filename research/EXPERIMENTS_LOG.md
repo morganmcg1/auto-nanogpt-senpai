@@ -1,3 +1,59 @@
+## 2026-05-23 01:15 UTC — PR #856 ASSIGNED (tanjiro): H77 SWA eval-time uniform weight averaging — fresh eval-time mechanism
+
+- Branch: `g1r3-tanjiro/swa-eval-uniform-window`
+- Hypothesis: Maintain uniform-average shadow of weights over a fixed late-training window, evaluate on the average. Izmailov et al. 2018 (arXiv:1803.05407). Mechanism-distinct from PR #761 EMA-of-weights (CLOSED NULL — horizon pathology) and #849 Lookahead-aux (training-trajectory modification, in-flight).
+- **Three averaging laws on the same eval-time axis**:
+  - EMA (#761): `w_avg = Σ d^i w_i / Σ d^i` (exponential) — horizon pathology at 3325 steps
+  - **SWA (H77 NEW)**: `w_avg = (1/N) Σ_last_N w_i` (uniform over explicitly-defined late window — no horizon pathology)
+  - Lookahead-aux (#849): training-trajectory modification with periodic k-step snapshot interpolation
+- 3 arms (n=1, 3325 steps):
+  - arm_a (ctrl): `--swa_enabled 0` (bit-identical baseline)
+  - arm_b PRIMARY: `--swa_enabled 1 --swa_start_step 2825` (last 500 steps = 15% of training, mostly cooldown)
+  - arm_c: `--swa_enabled 1 --swa_start_step 3125` (last 200 steps = 6%, final polishing only)
+- LoC ~30: shadow dict + uniform running avg `swa.mul_(1 - 1/n).add_(w_curr, alpha=1/n)` + swap-to-eval + swap-back. Cold-start handling (n=1 → exactly w_curr) cleanly built into the update form.
+- **Critical state-invariant warnings (per tanjiro's H48 expertise)**: (1) iterate `model.named_parameters()` not `state_dict()` to avoid folding non-trainable buffers; (2) verify `val/loss_live` matches arm_a for arm_b/arm_c (SWA must touch eval ONLY, training trajectory bit-identical).
+- Telemetry: `swa/count`, `swa/delta_norm` (= ||w_swa - w_live||/||w_live||), `val/loss_live` + `val/loss_swa` per eval. If `swa/delta_norm = 0` exactly, code path is broken.
+- Mandatory smoke gate: arm_b at 200 steps with `swa_start_step=100` verifies `swa/count=50` and `swa/delta_norm` finite-positive at step 150.
+- Decision tree:
+  - WIN: `val/loss_swa < val/loss_live - 0.0008` AND beats arm_a → averaging captures real within-basin variance
+  - NULL: SWA captures no meaningful variance (cooldown drives weights monotonically)
+  - NEG: averaging blurs the sharp minimum cosine cooldown finds
+- W&B group `h77_swa_eval`. Reassignment after #829 closure.
+
+---
+
+## 2026-05-23 01:10 UTC — PR #829 CLOSED NEG (tanjiro): H69 MuLoCo Outer-Cautious masking — joint Cautious-on-Muon-class structural closure with H62
+
+- Branch: `g1r3-tanjiro/muloco-outer-cautious`
+- Hypothesis: Test if Cautious sign-agreement mask failure mode is NS5-SPECIFIC (would work at outer scale where no NS5) or STRUCTURAL-UPDATE-GENERAL (would also fail at outer scale because velocity encodes 30-step direction history).
+- Arms (3, n=1, 3325 steps; arm_b PRIMARY):
+
+| arm | flags | run_id | val/loss | best | ffs | Δ vs ctrl |
+|---|---|---|---|---|---|---|
+| arm_a ctrl | `--cautious_outer 0` | `c8t4ge2x` | **3.27358** | 3.27358 | **3150** ✓ | — (+1.10σ in-noise pop) |
+| arm_b rescale=1 PRIMARY | `--cautious_outer 1 --cautious_outer_rescale 1` | `w27fbj9n` | **10.60114** | — | -1 | **+7.328 catastrophic NEG** |
+| arm_c no-rescale | `--cautious_outer 1 --cautious_outer_rescale 0` | `5badslpb` | **4.08749** | 4.08749 | -1 | **+0.814 strongly NEG** |
+
+- **Verdict: NEG (sharpest of session)**. arm_b val_loss → 10.60 ≈ −log(1/50256) (uniform output over 50k vocab) by step 1750 confirmed total model collapse. Histogram bug at step 2999 was a downstream symptom correctly distinguished from the experimental result.
+- **Integrated mechanism finding (H62 + H69 joint closure of Cautious-on-Muon-class axis)**:
+
+| level | Cautious target | NS5 in path? | mask_mean stable | outcome |
+|---|---|---|---|---|
+| **H62 (PR #795)** | MuonH inner post-NS5 update | YES | ~0.75 (25% anti-aligned) | ~14.6σ NEG |
+| **H69 (this PR)** | MuLoCo outer delta | NO | ~0.46 (54% anti-aligned) | catastrophic NEG (+7.328) |
+
+- **Rule logged**: "**Cautious sign-agreement masking is incompatible with momentum-aggregating optimizers** (MuonH inner, MuLoCo outer). Strict sign-equality of anti-aligned coords zeros load-bearing direction information whether NS5 is involved or not. NS5 coupling (H62) made the failure modest (~14.6σ); ABSENCE of NS5 at outer scale (H69) made it CATASTROPHIC — the larger anti-alignment fraction (54% vs 25%) directly amplified failure magnitude. **NS5's spectral redistribution PROTECTS Muon-inner against Cautious masking damage; the bare MuLoCo outer-velocity has no such protection.**"
+- **H69 falsifies its own premise** (PR-body conjecture: "if Cautious failure is NS5-structurally-coupled, outer-Cautious should work since outer has no NS5"). Falsification produced richer mechanism: failure is across BOTH NS5 absence (catastrophic) AND NS5 presence (modest). Mask_mean differential (0.75 vs 0.46) was the early-warning signal student correctly read from smoke v2.
+- **Cautious-masking-on-Muon-class axis structurally CLOSED**. Future Cautious-style sign-agreement proposals on Muon body, MuonH-SI, MuLoCo outer, or any Muon-derived layer **pre-closed by joint structural analogy** with H62+H69. Note: edward's H74 #839 is testing Cautious on AUX AdamW (Adam-family, no Muon coupling) — mechanistically distinct, still informative.
+- **Forensic discipline highlights**:
+  - **Cold-start bug caught pre-launch** via smoke v1 → smoke v2 fix (3 LoC `outer_applied_steps==0` → `ones_like` pass-through). Programme-level bug reusable across many adjacent Cautious experiments.
+  - **Mask telemetry trajectory analysis** (0.999 → 0.604 → 0.508 → 0.472 → 0.456 → 0.455...) at smoke time predicted catastrophic divergence ("outcome 4 signature") BEFORE launching full arms. Predictive forensics is rare; banked for future programme work.
+  - **Catastrophic divergence diagnostic**: val_loss → uniform-output entropy by step 1750 confirmed via −log(1/50256) ≈ 10.83.
+- **Reusable rule logged**: Cautious-style filters on momentum-aggregating buffers REQUIRE pre-launch mask_mean trajectory capture at cold-start vs steady-state. Cold-start interaction with zero-initialized buffers is universal across Cautious applications.
+- Routing → PR #856 H77 SWA eval-time uniform weight averaging (fresh eval-time mechanism, exploits tanjiro's state-invariant strength).
+
+---
+
 ## 2026-05-22 23:55 UTC — PR #852 ASSIGNED (alphonse): H76 Neelakantan gradient noise injection — fresh stack-noise-absorption probe
 
 - Branch: `g1r3-alphonse/gradient-noise-injection`
