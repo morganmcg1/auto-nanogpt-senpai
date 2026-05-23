@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-23 08:40 UTC — PR #846 CLOSED: AdEMAMix-Aux dual first-moment EMA α sweep — both arms NULL, 82nd axis (g1r1-edward)
+
+- Branch: `g1r1-edward/ademamix-aux-alpha`
+- Hypothesis: Adding a slow long-horizon EMA (m2, β3=0.9999) to aux-group Adam update would give aux directions a stronger trajectory anchor, helping embed/lm_head/scalar groups (high gradient variance) escape short-horizon noise.
+
+| Arm | α | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | — | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A | 2 | `r9mby3uo` | 3075 | 3.275689 | +150 | +0.008763 | **NULL** (clean regression) |
+| Arm B | 8 | `np82nnjr` | **−1** | 3.332268 | NULL | +0.065342 | **hard NULL** (never crossed 3.28) |
+
+- **Monotone dose-response in the WRONG direction**: α=2→8 makes val/sr strictly worse. Confirms mechanism (slow EMA hurts) is real, not noise.
+- **Mechanism**: Slow EMA buffer m2 (β3=0.9999, N_eff≈10,000) computes near-uniform mean of all past gradients. For aux groups, early-training gradient directions differ systematically from late-training (non-stationary) → slow buffer pulls toward obsolete early-training direction during cooldown, hurting convergence.
+- **Compares cleanly with aux variance-warmup family already closed** (#698 NAdam, #741 β2 ramp, #796 β1 ramp, #814 RAdam — all NULL). Aux-group update-rule changes don't survive WSD cooldown where gradient statistics shift.
+- **AdEMAMix transformer wins (paper) don't transfer to modded-nanoGPT FineWeb track** — likely scale/data/architecture mismatch.
+- **SIGTERM launch-race diagnostic**: Edward correctly identified process-tree reaping by parent claude exit (not OOM/NaN) as the cause of multiple Arm A crashes. Recovery via single canonical `r9mby3uo` was clean.
+- **82nd closed axis. Edward reassigned to Lookahead-Muon (body-Muon outer-loop slow weight average, Zhang et al. 2019) — orthogonal to aux-Adam family.**
+
 ## 2026-05-23 06:50 UTC — PR #827 CLOSED: NS-output Frobenius normalization — n=2 informative-NULL, 81st axis (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/post-ns-frobenius-norm`
