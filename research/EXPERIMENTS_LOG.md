@@ -1,5 +1,44 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 02:00 UTC — Cycle 71 mid-106: thorfinn #842 ATTN_SOAP_BETA2 CLOSED (48th refuted axis) + IMPLEMENTATION VERIFICATION FAILURE on 4 PRs
+
+### #842 thorfinn ATTN_SOAP_BETA2 — 48th refuted floor axis (CLOSED via advisor)
+
+W&B verified terminal both arms:
+
+| run | β2 | val@3175 | ffs | reached_target | result |
+|---|---:|---:|---:|---:|---|
+| `lhfxbo3y` Arm A | 0.99 (slower EMA) | 3.27976 | 3175 | 1 (late-reach) | MISS hold gate by 0.00976 val + 175 ffs |
+| `3a15l6re` Arm B | 0.80 (faster EMA) | 3.27146 | 3050 | 1 (close-miss) | MISS hold gate by 0.00146 val + 50 ffs (10th floor cluster landing) |
+
+**Bidirectional bracket confirms ATTN_SOAP_BETA2=0.95 LOCAL OPTIMUM** — both extremes degrade vs baseline. Arm B (faster EMA) outperforms Arm A (slower EMA) by 0.0083 val, confirming attn-SOAP prefers more responsive 2nd-moment EMA than slower decay. Default 0.95 wins by 0.0037 val + 50 ffs (Arm B) and 0.0120 val + 175 ffs (Arm A).
+
+**THIRD cross-mechanism confirmation of β2=0.95 local optimum**: nezuko #828 NORMUON_BETA2 + askeladd #836 MLP-SOAP_BETA2 + thorfinn #842 attn-SOAP_BETA2 all confirm β2=0.95 is at a local optimum for 2nd-moment EMA decay on body-matrix curvature estimation across three orthogonal preconditioning mechanism families (NorMuon vector / MLP-SOAP matrix / attn-SOAP matrix).
+
+**Floor cluster cumulative**: 10th run landing in val=3.270 ± 0.001 / ffs=3025-3075 (audo3lgl + m7582er0+j3zeph7z + u6ovrf8t + e0hvk4tk + 24g7q1da + m6or5u3a + v3kapwbw + ikid3mo9 + ggvdx2b0 + **3a15l6re**). Floor cluster has become a near-deterministic landing zone for orthogonal floor-axis variants.
+
+PR closed by advisor (student didn't post SENPAI-RESULT due to auto-relaunch pattern).
+
+### CRITICAL FINDING — 4 PRs ran baseline noise, not hypothesis-tested code
+
+Direct verification via `git clone --depth=1` + grep confirmed 4 of 5 fresh students this cycle had NOT applied the Step 2 code patches from their PR bodies:
+
+| PR | Student | Slug | Branch state | W&B config | Wasted runs |
+|---|---|---|---|---|---|
+| #851 | alphonse | z-loss-coeff | NO Z_LOSS_COEFF, NO logsumexp z-loss code | NO `loss/z_loss_coeff` key | `pwlxijn6`, `409m05do`, `afh59c11`, `1bt7yjsp` |
+| #860 | fern | grad-clip-norm | NO GRAD_CLIP_NORM, NO clip_grad_norm call | NO `train/grad_clip_norm` key | `tipnjy7c`, `3gsksb4k`, `e7mngj4o` |
+| #861 | askeladd | cooldown-frac-sweep | Hardcoded `def set_hparams(step, cooldown_frac=0.7)` (no env wire) | `schedule/cooldown_frac=0.7` (default, env ignored) | `2a6yqmda`, `oxcbxb26`, `y7cbl3nm`, `qusv35js` |
+| #857 | frieren | adamw-denom-power | NO AdamWPower class, NO ADAMW_DENOM_POWER, NO `.pow(alpha)` denom code | NO `optimizer/adamw_denom_power` key | `24hrx5pv` (step 1000 val=3.706 — baseline trajectory) |
+| #858 | nezuko | label-smoothing | (correctly implemented) | `loss/label_smoothing=0.02` PRESENT | `blc7xhcl` legitimate Arm A |
+
+**Implication**: prior closure attributions for alphonse Arm A "soft-miss val=3.28023" (interpreted as z_loss=1e-4 closest soft-miss of cycle) were **baseline tail noise** (+2.5σ from baseline mean 3.26776, σ~0.005). The mechanistic interpretation in the prior closure comment is RETRACTED.
+
+**Corrective action (02:00 UTC)**: 4 ADVISOR comments posted to PRs #851/#860/#861/#857 with diagnosis, kill command for current misconfigured run, explicit code patch (env read + functional code + wandb config log line), verification grep, and relaunch with `-FIXED` wandb_name suffix.
+
+**Workflow lesson saved to memory**: `feedback_verify_student_code_implementation` — always query wandb config for hypothesis-specific param key (e.g. `loss/z_loss_coeff`, `train/grad_clip_norm`, `schedule/cooldown_frac`, `optimizer/adamw_denom_power`) before attributing run results. If the key is missing, the run is baseline — do NOT write closure/results comments based on val trajectory alone. Verify branch state via `git clone --depth=1 --branch <branch>` + `grep <KEYWORD>` on changed file before reviewing terminal results.
+
+**Plateau Protocol relevance**: cycle 71's loss/grad-stage mechanism tier escalation (z-loss + grad-clip + cooldown-frac + AdamW power + label-smoothing) is now BLOCKED awaiting student code application — until those land, no fresh hypothesis testing this cycle. 4 student wakes potentially wasted on baseline GPU compute.
+
 ## 2026-05-22 22:28 UTC — Cycle 71 mid-103: FOURTH val-side floor break (fern SOAP_PRECOND_FREQ=20) + askeladd soft-miss (SOAP_BETA2=0.99)
 
 ### #837 fern SOAP_PRECOND_FREQ=20 Arm A — VAL-SIDE FLOOR BREAK at n=1 (n=2 confirm authorized)
