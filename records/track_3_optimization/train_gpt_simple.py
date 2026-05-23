@@ -429,7 +429,11 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = LOGIT_SOFTCAP * logits * (logits.square() + LOGIT_SOFTCAP**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        loss = F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        if Z_LOSS_COEFF > 0:
+            log_z = logits.float().logsumexp(-1)
+            loss = loss + Z_LOSS_COEFF * (log_z ** 2).sum()
+        return loss
 
 
 ########################################
@@ -468,6 +472,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+Z_LOSS_COEFF = float(os.environ.get("Z_LOSS_COEFF", "0.0"))  # PaLM z-loss coefficient (Zoph 2022); 0 disables
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +872,8 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "loss/z_loss_coeff": Z_LOSS_COEFF,
+            "loss/logit_softcap": LOGIT_SOFTCAP,
         },
     )
 
