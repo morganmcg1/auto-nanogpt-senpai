@@ -1,3 +1,17 @@
+## 2026-05-23 17:35 UTC — PR #904 CLOSED NEG/closure (edward): H91 Outer-Adam MuLoCo wrapper — programme-level closure on per-coord-sign-update outer optimizers
+
+- Branch: `g1r3-edward/outer-adam-muloco`
+- Hypothesis tested: Replace MuLoCo's outer Nesterov-SGDM with AdamW on slow weights (sync_interval=30 → outer-Adam aggregates inner deltas). Per-coord adaptive normalization should better handle the heterogeneous slow-weights gradient distribution.
+- Results: outer-Adam at outer_lr=0.7 (matching SGDM) DIVERGED catastrophically on both β=(0.9, 0.999) and β=(0.8, 0.95) configs (val/loss ~9.1-9.8 at step 200 vs CTRL 4.66). Re-smoke at outer_lr=0.1 still missed gate by ~0.3 (val/loss 5.48-5.50). Only outer_lr=0.03 with β=(0.8, 0.95) passed smoke (5.145 at step 200), then ran full chain to **val/loss=3.40089** at step 3325 — clean NEG +0.131 over baseline 3.26977 and +0.13 over NEG threshold 3.27430.
+- **Load-bearing mechanism finding (edward's per-coord distributional diagnosis)**: outer-Adam's `m_hat/sqrt(v_hat)` sign-like update hammers small-|delta| coords disproportionately. Per-coord step on coord with |delta|=0.001 at outer_lr=0.7 is ~470× the SGDM step. RMS step magnitudes are similar (SGDM 0.38 vs Adam 0.30) — failure is **distributional, not magnitude**. Bias correction works correctly. Squeezed between two failure modes: high outer_lr → sign-hammer destroys small-coord coherence; low outer_lr → under-step on well-conditioned big-|delta| coords, asymptotes toward "MuLoCo OFF".
+- **Programme-level pre-closures (per-coord-sign-update outer optimizers, MuLoCo slow-weights step at this scale)**: Outer-Lion (same sign mechanism, same hammer), Outer-NAdam/AdaBelief basic variants (variants of Adam, same per-coord sign structure), Outer-Adam with bias-correction tweaks (bias correction was fine, sign normalization itself is the problem).
+- What this does NOT close (per-coord normalization preserving per-tensor magnitude info): Outer-Adafactor (factored row × col aggregates per-tensor — milder hammer), Grafted-Adam-with-SGDM-magnitude (explicit direction/magnitude decoupling), Trust-region clipped SGDM (outlier-clipped per-coord delta accumulation).
+- Methodological commendation: mean-step-magnitude check ruling out bias-correction issues; honest smoke-failure prediction ("prior on beating NEG = 20-25%, here's why") + commitment to full chain anyway for clean closure datum. Textbook NEG.
+- Reproduce arm_c full: `torchrun --standalone --nproc_per_node=1 records/track_3_optimization/train_gpt_simple.py --num_trials 1 --train_steps 3325 --muonh_mode scale_invariant --muonh_cooldown_shape cosine --muonh_warmup_steps 100 --use_outer_optimizer 1 --outer_lr 0.03 --sync_interval 30 --aux_agc_clip_ratio 0.05 --muonh_agc_clip_ratio 0.05 --aux_adamw_eps 1e-6 --outer_optimizer adam --outer_adam_beta1 0.8 --outer_adam_beta2 0.95 --outer_adam_eps 1e-8` (W&B run `0g7deihl`).
+- 13th plateau-protocol swing closed. edward gets fresh swing in PR #935 H99 (outer-LR cooldown schedule — untouched axis, builds on H91 finding that outer-step needs careful magnitude control).
+
+---
+
 ## 2026-05-23 16:05 UTC — PR #927 ASSIGNED (alphonse): H98 Sophia-G diagonal Hessian preconditioning on MuonH momentum pre-NS5 (composes with polar projection)
 
 - Branch: `g1r3-alphonse/h98-sophia-g-pre-ns5`
