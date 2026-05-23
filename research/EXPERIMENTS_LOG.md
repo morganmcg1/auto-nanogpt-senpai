@@ -1,3 +1,66 @@
+## 2026-05-23 07:40 UTC — PR #885 ASSIGNED (tanjiro): H85 Schedule-Free aux training (Defazio 2023) — replace linear cooldown with constant-LR + Polyak averaging
+
+- Branch: `g1r3-tanjiro/schedule-free-aux`
+- Hypothesis: Replace the aux AdamW linear-cooldown LR schedule with constant LR throughout + online Polyak weight averaging (Schedule-Free training, Defazio et al. 2023, arXiv:2310.04415). Test whether SF converges as well as explicit LR decay for aux groups (embed, lm_head, scalars). Body keeps MuonH-SI + cosine cooldown unchanged.
+- Motivation: Plateau protocol — 5+ mechanism-distinct interventions this cycle (GC projection H82, orthogonal init H81, fp32 aux state H80, cooldown shape H79, NS5 per-layer H78) all landing arm_b +0.001 to +0.002 NEG. Local neighbourhood exhausted; paradigm-shift direction needed.
+- Mechanism-distinct from weight-averaging closures (SWA #856, EMA #761, Lookahead #849): those KEEP the LR schedule and average over a decaying-LR trajectory (which is structurally incompatible with cosine/linear cooldown). SF REMOVES the aux cooldown and replaces it with Polyak averaging under CONSTANT LR — under constant LR, within-basin oscillation exists, so averaging is theoretically beneficial.
+- Implementation: `--sf_aux 1` disables linear cooldown for aux (set aux_cooldown_frac=0), runs constant peak LR (embed=0.3, lm_head=0.003125), maintains z_t = cumulative Polyak average of y_t (constant inv_n = 1/step multiply-add). Eval swaps to z_t, then restores y_t (same swap-and-restore idiom as H77 SWA, tanjiro already verified).
+- 3 arms (n=1, 3325 steps):
+  - arm_a CTRL `--sf_aux 0` (aux linear cooldown on — bit-identical baseline)
+  - arm_b PRIMARY `--sf_aux 1 --sf_aux_avg_start_step 0` (constant aux LR + Polyak from step 1)
+  - arm_c WARM-START `--sf_aux 1 --sf_aux_avg_start_step 1500` (constant aux LR + Polyak from step 1500 — avoids early unstable contaminating average)
+- Smoke gates: arm_a ctrl in [4.50, 4.90] step 200; arm_b `sf/delta_norm_embed > 0` at step 100 (mechanism operative); `sf/aux_lr_embed = 0.3` flat at step 100 (cooldown disabled confirmed).
+- Telemetry: `sf/avg_count`, `sf/delta_norm_embed`, `sf/delta_norm_lm_head`, `sf/aux_lr_embed`, `val/loss` (live y_t), `val/loss_sf` (Polyak z_t).
+- Decision tree:
+  - WIN: val/loss_sf < 3.27039 → SF paradigm unlocked for aux; try full SF-body as follow-up
+  - NULL: within ±0.0008 of arm_a → constant-LR + averaging equivalent to linear-cooldown at our scale
+  - NEG arm_b, arm_c NULL/WIN: early-phase contamination; warm-start averaging is the fix
+  - NEG both: aux groups NEED LR decay; SF-axis CLOSED; constant-LR harmful for aux
+- Assigned post-#856 closure (tanjiro idle after SWA NEG closure). Plateau-protocol-aligned bold direction.
+- W&B group `h85_schedule_free_aux`.
+
+---
+
+## 2026-05-23 07:35 UTC — PR #881 REDIRECT (fern): H84 Septic Schulz — smoke gate triggered, pivot to perturbative-septic family
+
+- Branch: `g1r3-fern/septic-schulz-body` (status:wip, continuing)
+- Smoke gate TRIGGERED before full 5.5h launch — correct abort per predeclared kill rules.
+- Root cause: PR's primary coefs (2,-3,3,-1) imposed f(1)=1, f'(1)=0, f''(1)=0 in Y=σ² space. Correct analysis requires σ-space: g(σ)=σ*(a+b*σ²+c*σ⁴+d*σ⁶). The over-constraint g''(1)=0 (third-order) sacrifices the linear-slope amplification that drives σ from near-0 to 1. The d=-1 family plateaus at sv_max ≈ 0.87-0.96 (never converges). Fallback coefs also failed (f(1)=1.05, wrong fixed point).
+- New direction: perturbative-septic family (2, d-1.5, 0.5-2d, d) derived by keeping a=2 + imposing ONLY g(1)=1 and g'(1)=0 (no higher-order over-constraint). At d=0: exactly the modded-nanogpt quintic (sanity check ✓). New arms:
+  - arm_b PRIMARY: (2, -1.45, 0.4, 0.05) septic k=12 — small Y³ perturbation, "does Y³ add signal at all?"
+  - arm_c: (2, -1.4, 0.3, 0.10) septic k=12 — larger perturbation, "monotone d sensitivity?"
+- Smoke prerequisite: verify d=0.05 converges to sv_max in [0.995, 1.015] at k=12 (close to quintic's [0.994, 1.006]).
+- Decision: WIN < 3.27039 → Y³ degree-axis open; NULL → degree-axis closed (flat basin extends to septic, closes higher-degree unlock direction from #834); NEG → septic family structurally harmful.
+- GPU time saved by predeclared smoke gate: 5.5h avoided on unconvergent family.
+
+---
+
+## 2026-05-23 07:35 UTC — PR #856 CLOSED NEG (tanjiro): H77 SWA eval-time uniform weight averaging — programme-level closure: weight-trajectory averaging under cosine/linear cooldown
+
+- Branch: `g1r3-tanjiro/swa-eval-uniform-window`
+- Terminal SENPAI-RESULT — all 3 arms complete:
+
+| arm | config | W&B | val/loss live | val/loss SWA | Δ_SWA−live | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | `--swa_enabled 0` | `i5kety7o` | **3.27152** | n/a | — | ref |
+| arm_b PRIMARY | last-500-steps SWA | `ppizlj5r` | 3.27232 | **3.27602** | **+0.00370** | NEG (4× threshold) |
+| arm_c | last-200-steps SWA | `9u30w8ki` | 3.27253 | **3.27360** | **+0.00107** | NEG (1.07× threshold) |
+
+- Both SWA arms trigger predeclared NEG rule (Δ_SWA−live > +0.001). Plain val/loss best across all 3 arms; live training trajectory bit-identical-equivalent (SWA shadow doesn't corrupt training weights; H48 state-invariant guard held).
+- Mechanism: cosine cooldown's last ~500 steps drive weights MONOTONICALLY toward the loss basin floor. No within-basin oscillation exists → SWA uniform average pulls eval point BACKWARD along the cooldown trajectory. Window-width effect monotone (arm_b 500-step: +0.00370; arm_c 200-step: +0.00107 — tighter window = less contamination = less harm).
+- **PROGRAMME-LEVEL CLOSURE: across-step weight aggregation under cosine/linear cooldown is structurally NEG/NULL**:
+
+| PR | mechanism | scope | outcome |
+|---|---|---|---|
+| #761 H53 | EMA-of-weights (exponential) | full model | NULL via horizon pathology (decay^3325 ≈ 73% init contamination) |
+| #849 H75 | Lookahead-aux (interpolation every k steps) | aux only | NEG ~9-12σ (information loss from averaging) |
+| **#856 H77** | **SWA-eval (uniform window last N steps)** | **full model + eval-time** | **NEG +0.0011 to +0.0037 (window-width monotone)** |
+
+- Pre-closures: Polyak averaging, exponential-decay weight ensemble, linear-decay weight ensemble, per-layer SWA, per-class weight averaging, mid-cooldown weight checkpoint. ONLY valid if combined with constant-LR tail (creates within-basin oscillation).
+- Tanjiro → assigned H85 Schedule-Free aux training (mechanism-distinct: replaces cooldown rather than layering averaging on top of it).
+
+---
+
 ## 2026-05-23 06:45 UTC — PR #881 ASSIGNED (fern): H84 Septic Schulz iteration on MuonH body — higher-degree orthogonalization algorithm family (unlock follow-up to five-PR NS5 polynomial closure)
 
 - Branch: `g1r3-fern/septic-schulz-body`
