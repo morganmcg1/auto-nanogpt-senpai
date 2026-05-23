@@ -45,6 +45,8 @@ def parse_args():
     parser.add_argument("--muonh_lr", type=float, default=float(os.environ.get("MUONH_LR", "0.018")))
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
+    parser.add_argument("--muonh_cooldown_frac", type=float, default=float(os.environ.get("MUONH_COOLDOWN_FRAC", "1.0")),
+                        help="Fraction of training steps used for MuonH LR cooldown. 1.0 = cooldown over full run (baseline). <1.0 = WSD-style: stable peak LR for the first (1 - frac) of training, cosine decay over the final frac. Aux AdamW groups are unaffected (hardcoded at 0.4).")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
@@ -704,7 +706,7 @@ if args.use_outer_optimizer:
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
-print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape} cooldown_frac={args.muonh_cooldown_frac}", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -755,6 +757,7 @@ if dist.get_rank() == 0:
             "muonh_lr": args.muonh_lr,
             "muonh_mode": args.muonh_mode,
             "muonh_cooldown_shape": args.muonh_cooldown_shape,
+            "muonh_cooldown_frac": args.muonh_cooldown_frac,
             "muonh_warmup_steps": args.muonh_warmup_steps,
             "train_steps": args.train_steps,
             "muloco_use_outer_optimizer": bool(args.use_outer_optimizer),
@@ -833,10 +836,11 @@ for trial_idx in range(args.num_trials):
     for opt in optimizers:
         for group in opt.param_groups:
             group["initial_lr"] = group["lr"]
-    # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
-    # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
-    # embed / head keep learning for the first ~60% of training.
-    h_cooldown_frac = 1.0
+    # Per-group cooldown_frac: MuonH groups now configurable via CLI
+    # (h_cooldown_frac default 1.0 = full-run cooldown, baseline; <1.0 = WSD-style
+    # stable-then-decay). AdamW aux groups use a shorter cooldown so the embed /
+    # head keep learning for the first ~60% of training.
+    h_cooldown_frac = args.muonh_cooldown_frac
     aux_cooldown_frac = 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
