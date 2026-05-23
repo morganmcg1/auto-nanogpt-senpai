@@ -1,3 +1,45 @@
+## 2026-05-23 02:20 UTC — PR #866 ASSIGNED (frieren): H80 FP32 storage for aux AdamW state (m_t, v_t) — upstream complement to H64 fp32-eval
+
+- Branch: `g1r3-frieren/aux-fp32-state-adamw`
+- Hypothesis: Aux AdamW state buffers (`exp_avg`, `exp_avg_sq`) inherit param dtype = bf16 for embed/lm_head (fp32 only for scalars). bf16's ~3-decimal-digit precision may quantize small `(1-β2)*g²` contributions to zero in late training when v_t denominators shrink. Force fp32 state for ALL aux groups regardless of param dtype.
+- LoC ~20-30: pre-allocate `optimizer1.state[p]` dict with fp32 tensors before first `.step()`. Fused AdamW kernel honors existing state dtype.
+- 3 arms (n=1, 3325 steps):
+  - arm_a CTRL `--aux_fp32_state 0` (bit-identical baseline)
+  - arm_b PRIMARY `--aux_fp32_state 1` (fp32 for all aux moments)
+  - arm_c DIAGNOSTIC `--aux_fp32_state 1 --aux_adamw_eps 1e-8` (tests whether fp32 state expands H67's "v_t consumption robust" headroom by preserving v_t at finer precision)
+- Mandatory smoke gates: (a) at 300 steps verify state dtype is fp32 across embed/lm_head/scalars for arm_b; (b) bit-identical invariant for arm_a (no state-dtype modification when flag=0); (c) +300-450MB GPU memory confirms fp32 state allocated.
+- Decision tree:
+  - WIN: val < 3.27039 → mergeable
+  - HOLD: ≥0.5σ improvement → n=4 confirmation
+  - NULL: all 3 within ±1σ → numerical-precision axis structurally CLOSED across upstream (H80) + downstream (H64)
+  - NEG: arm_b regresses >2σ → fused kernel fp32-state-path bug or unexpected overhead
+- Mechanism telemetry strength match to frieren's H73 `logsumexp_max_abs` pattern: log `aux/exp_avg_min_abs_*` and `aux/exp_avg_sq_min_abs_*` every 100 steps. If arm_b's m_t/v_t floor is 1-2 orders of magnitude lower than arm_a's, that directly confirms bf16 quantization was hitting denormals on rare tokens — programme-level finding regardless of val/loss outcome.
+- Three-axis numerical-mechanism series for frieren: H64 fp32 EVAL (downstream, NULL) + H73 soft-cap saturation finding + H80 fp32 STATE (upstream). A NULL outcome closes the numerical-precision axis structurally across both ends of the pipeline.
+- W&B group `h80_aux_fp32_state`. Reassignment after #835 closure.
+
+---
+
+## 2026-05-23 02:15 UTC — PR #835 CLOSED NEG (frieren): H73 Z-loss regularizer — soft-cap saturation programme-level finding
+
+- Branch: `g1r3-frieren/z-loss-regularizer`
+- Hypothesis: Add PaLM/T5-style `α*(logsumexp(logits))^2` penalty to training loss to suppress partition function drift.
+- Terminal SENPAI-RESULT, monotone NEG signal:
+
+| arm | α | val/loss | Δ vs arm_a | FFS | step_avg | W&B |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 | **3.27298** | — | 3150 | 1800 ms | `naux5f4n` |
+| arm_b PRIMARY | 1e-4 | **3.27443** | +0.00145 (+1.81σ) | 3175 | 1922 ms (+6.7%) | `0brj8w7k` |
+| arm_c STRONGER | 1e-3 | **3.29473** | +0.02175 (+27σ) | -1 (failed!) | 1922 ms (+6.7%) | `2tddoihb` |
+
+- arm_c at +27σ unambiguously overrides arm_b's narrowly-under-bar +1.81σ technicality. **CLOSE NEG**. arm_c missed the 3.28 benchmark target entirely (FFS=-1, val_margin=-0.0147 sign-flipped).
+- Mechanism telemetry: `train/lse_mean` peak→final: arm_b -20%, arm_c -64% (monotone scaling with α). Z-loss IS binding (mechanism real), but binding harm-monotonically with α — α=1e-3 drives partition function toward 0 (logits compress toward uniform), directly fighting CE.
+- **CRITICAL load-bearing finding**: `train/logsumexp_max_abs` stays at 15.6 / 15.3 / 10.5 across arms a/b/c — within 5% of `softcap=15` ceiling in two of three arms. **soft-cap=15 IS the binding numerical cap, not a slack rail.** Z-loss as a second-order numerical regularizer has zero headroom on top of soft-cap.
+- **Integrated programme-level rule**: "Under fp32-upcast CE + soft-cap(15), there is no headroom for additional logit-head regularization at our scale/horizon. Soft-cap absorbs the numerical-conditioning role that z-loss is designed for. Adding z-loss on top monotonically degrades val/loss with effective-α-magnitude (binding scales linearly, harm scales monotonically). Future logit-head proposals (DropToken, label-smoothing-with-decay, entropy regularization, partition-function-shaping) pre-evaluated under this rule: any proposal that adds gradient to all logits via an aux penalty needs to argue why it doesn't trigger the same overload signature."
+- +6.7% wall-clock cost from extra `logsumexp` reduction (constant across α) — even if it helped, it would need to beat the cost of running more steps at α=0.
+- Frieren's forensic discipline: bit-identical CTRL via `if z_loss_alpha > 0` gate (verified +0.35σ pop sanity); clean monotone signal; decisive recommendation against further z-loss work; predeclared decision-tree application. Routing → PR #866 H80 fp32 aux AdamW state (upstream complement).
+
+---
+
 ## 2026-05-23 02:10 UTC — PR #865 ASSIGNED (nezuko): H79 MuonH LR cooldown shape sweep (fresh schedule-side axis, LoC ~0)
 
 - Branch: `g1r3-nezuko/muonh-cooldown-shape-sweep`
