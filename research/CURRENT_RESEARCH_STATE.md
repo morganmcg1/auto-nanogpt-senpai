@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 21:58 UTC
+- **Date:** 2026-05-23 22:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -65,19 +65,21 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 - Pod 3 v2 (`4d5fuxdk`): RUNNING step 150, started 21:50 UTC, ETA ~23:45 UTC
 - **Action**: posted favorable ack on Pod 2 v2 + Pod 3 v2 visibility. Holding merge decision for n=3 terminal. If Pod 3 v2 lands in 3.265-3.270 range, this becomes a clean marginal-favorable merge candidate.
 
-### #938 — lm_head init-anchor compound REGRESSION (Arm B catastrophic)
+### #938 — lm_head init-anchor compound REGRESSION — CLOSED (aborted_early_kill)
 
 - Arm A (control, embed-only λ=0.001): 3.27080 (drift +0.00324, ~2σ borderline)
-- Arm B (compound, embed+lm_head both λ=0.001): **3.29771 — Δ_B_vs_A = +0.02691 within-pod**
-- **Triggers student's own early-kill gate** (val ≥ 3.275 at final step → mandatory abort C/D)
-- **Action**: sent back with abort directive. Student should post terminal SENPAI-RESULT with `status:aborted_early_kill`, then GPU freed for new assignment.
-- **Mechanism interpretation**: lm_head init-anchor is destructive because every output projection row receives strong gradient from softmax denominator. Unlike embed (sparse rare-token gradients → anchoring helps), lm_head rows MUST diverge from init to learn token-discrimination geometry. Asymmetric: embed YES, lm_head NO. Closes the symmetric-anchoring extension axis.
+- Arm B (compound, embed+lm_head both λ=0.001): **3.29771 — Δ_B_vs_A = +0.02691 within-pod** (CATASTROPHIC)
+- Arms C/D: aborted per student's own early-kill gate (val ≥ 3.275 → mandatory abort)
+- **Root cause**: `model.proj.weight` is zero-initialized; init-anchor degenerates to `W←W·(1−λ)` (pure decay toward zero). Not a mechanism failure — a degenerate initialization architecture.
+- **Axis status**: lm_head init-anchor axis CLOSED. lm_head is NOT untouchable — future constraints (max-norm cap #956, spectral norm, LR scaling) avoid the zero-init degeneracy.
+- **alphonse REASSIGNED to #956 (lm_head per-row max-norm soft-clamp)**
 
 ### Active chains (still running)
 
 | PR | Student | Hypothesis | Run | step | val/loss | ETA |
 |:---:|:---:|---|---|:---:|:---:|:---:|
 | #845 | askeladd | embed-grad freq rescale v2 Pod 3 | `4d5fuxdk` | 150 | early | ~23:45 |
+| #956 | alphonse | lm_head per-row max-norm soft-clamp (NEW) | — | — (not started) | — | ~29:00 |
 | #933 | nezuko | path-norm body-weight velocity penalty | `puhd26f3` (Arm 2) | 3150 | 3.2855 | ~22:15 |
 | #929 | edward | AdamW aux v_t floor (rebased) | `gea1rxoq` (Arm B) | 3100 | 3.2913 | ~22:15 |
 | #923 | frieren | Zipf-freq-weighted CE (rebased) | `fi8angie` (Arm 3) | 3100 | 3.3546 | ~22:20 |
@@ -93,7 +95,7 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 ### Operational notes
 
 - Zero idle GPUs — all 8 students productively training.
-- #938 will idle once student posts the abort SENPAI-RESULT. Next-cycle action: close #938 with mechanism-readout commentary, assign alphonse a fresh hypothesis.
+- #938 CLOSED (cycle 172). alphonse reassigned to #956 (lm_head per-row max-norm soft-clamp).
 - Next imminent terminal cluster (22:15-22:30 UTC): #933 Arm 2, #929 Arm B, #923 Arm 3, #880 Pod 1 D.
 
 ---

@@ -4294,3 +4294,44 @@ The N=1 signal was a **drift-headroom artifact**: the screening stack used only 
 **Structural implication:** The **NS-polynomial-degree axis at FLOP-equivalence is absorbed by stochastic-NS-cooldown variance**. This is a useful axis-fencing result — any future experiment that removes or replaces stochastic-NS-cooldown should retest cubic NS as a candidate replacement mechanism. `NANOGPT_NS_DEGREE` env flag stays in `train_gpt_simple.py` as opt-in cubic path; default remains quintic — non-disruptive.
 
 **Follow-up:** tanjiro newly idle, next assignment on lm_head LR multiplier axis (LR-space, distinct from #938 alphonse lm_head init-anchor in WD-space).
+
+## 2026-05-23 22:05 UTC — PR #938: lm_head init-anchor WD 4-arm scope extension (alphonse) — CLOSED productive-NULL (aborted_early_kill)
+
+- Branch: `g1r4-alphonse/lm-head-init-anchor`
+- Hypothesis: `lm_head` (output projection, shape V×d, zero-initialized) has a symmetric structure to `embed` — rare-token rows receive sparse gradient signal and may drift from a well-conditioned init, analogous to embed rows. Applying init-anchor WD (λ=0.001) to `lm_head` post-AdamW should yield additive improvement compounding with the merged #847 embed anchor.
+
+### Results
+
+| Arm | EMBED_λ | LM_HEAD_λ | W&B run | step:3350 val/loss | first_step_to_target | Δ_vs_Arm_A |
+|:---:|:---:|:---:|:---|:---:|:---:|:---:|
+| A (control) | 0.001 | 0.0 | `f2aixnq9` | 3.27080 | 3225 | — |
+| B (compound) | 0.001 | 0.001 | `xsikeso6` | **3.29771** | −1 (NO TARGET) | **+0.02691 (CATASTROPHIC)** |
+| C (lm_head-only) | 0.0 | 0.001 | — | aborted | — | — |
+| D (compound 3×) | 0.001 | 0.003 | — | aborted | — | — |
+
+Early-kill gate fired: Arm B val/loss = 3.29771 ≥ 3.275 → mandatory abort of C/D per PR contract.
+
+### Smoking gun: lm_head is zero-initialized
+
+Student's first-step log:
+```
+EMBED_INIT_ANCHOR:   snapshot_norm=6208.0000 snapshot_mean_abs=0.7969 snapshot_shape=(50304, 768)
+LM_HEAD_INIT_ANCHOR: snapshot_norm=0.0000   snapshot_mean_abs=0.0000 snapshot_shape=(50304, 768)
+```
+
+`model.proj.weight` is zero-initialized. The init-anchor update `W ← W + λ·(W_init − W)` reduces to `W ← W·(1−λ)` — pure multiplicative decay toward zero on the output projection. The mechanism is structurally incapable of anchoring toward a well-conditioned init (there is no well-conditioned init to anchor to). Result: +0.02691 within-pod regression (Arm A drift +0.00324 above baseline, consistent with ~2σ single-seed variance).
+
+### Mechanism interpretation
+
+The embed↔lm_head symmetry argument breaks at two levels:
+1. **Initialization**: embed rows are randomly initialized (non-zero reference); lm_head is zero-initialized (no non-trivial reference). Init-anchor requires a meaningful snapshot; zero-init degeneracy kills the mechanism before it starts.
+2. **Gradient density**: embed rows receive token-frequency-weighted sparse gradients (rare tokens → few updates → drift from init → anchoring helps). lm_head rows receive dense softmax-denominator gradient at EVERY step for EVERY training example — all rows are heavily trained. Dense gradient ≠ sparse gradient, so the analogy doesn't transfer even if init were non-zero.
+
+### Axis status
+
+- **lm_head init-anchor axis: CLOSED.** The degenerate-zero-init pathology and the dense-gradient structural argument together rule out this class of mechanism for `model.proj.weight`.
+- **lm_head constraints are not ruled out.** The learning is specifically that *init-anchor* is wrong, not that lm_head is untouchable. Future directions (per-row max-norm cap, spectral norm, LR scaling) avoid the zero-init degeneracy and remain open. (#956 assigned to alphonse next.)
+
+### Commentary
+
+This is a high-quality negative result: the student's first-step snapshot log caught the zero-init degeneracy immediately, the early-kill gate fired as designed, and C/D were aborted cleanly — ~3.4 GPU-hours saved. The mechanism interpretation is durable and sharpens the embed init-anchor (#847) story: the asymmetric success of embed init-anchor is specifically about input-embedding row sparsity (Zipf-frequency-weighted gradient signal), not a generic "anchor to init" recipe.
