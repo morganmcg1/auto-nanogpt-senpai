@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 02:40 UTC
+- **Date:** 2026-05-23 03:08 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -437,9 +437,9 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 
 **Follow-up**: thorfinn reassigned to **#848 lm_head non-zero init magnitude sweep** — fresh init axis on AUX side. lm_head currently `w.zero_()` per line 894; bit-identical fallback at std=0. 4-arm sweep std ∈ {0, 1e-4, 1e-3, 5e-3}. Mechanism-novel for lm_head; tests whether zero-init is empirically optimal or just a residual-block-style default.
 
-### 🔄 thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) [assigned 22:25 UTC; status-check 00:40 UTC]
+### 🔄 thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) [assigned 22:25 UTC; progress refresh #2 03:08 UTC]
 
-**Branch:** `g1r4-thorfinn/lm-head-init-std`
+**Branch:** `g1r4-thorfinn/lm-head-init-std` (commit `63a2953` pushed 00:58 UTC — FIRST student to push implementation this evening)
 **Hypothesis**: `model.proj.weight` (lm_head) currently `w.zero_()` initialized (line 894). At step 0, lm_head=0 → uniform logits over 50257 tokens → uniform softmax. Tests whether the "build-out from zero" exploration phase that lm_head spends in early training is structurally load-bearing OR an empirical default that small non-zero init could improve on. Distinct from all closed lm_head experiments (which modified optimizer not init). Distinct from #812 (body Muon init). Implementation: ~5 LOC, condition `name == "proj.weight"` to special-case top-level lm_head while preserving residual-init zero for in-block attn.proj/mlp.proj. Bit-identical fallback at std=0.
 | Arm | NANOGPT_LM_HEAD_INIT_STD | expected ‖θ_lm_head‖_F | step-0 logit std |
 |:---:|:---:|:---:|:---:|
@@ -448,13 +448,24 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 | C | 1e-3 (mild, common transformer init) | ~6.2 | ~1e-2 |
 | D | 5e-3 (moderate) | ~31 | ~5e-2 |
 
-**00:40 UTC status-check** (stale_wip false-positive, same regex bug):
-- **Arm A `pt2bcodv` alive**: step 2925/3350 val=3.32 — normal late-cooldown band. Started 22:43 UTC. Heartbeat fresh (00:38 UTC).
-- 3 additional Arm A duplicates (`xgnzpchd` step 350 stale, `xlc48udw` crashed ~15s, `7ah6ml9s` crashed step 75) — all logged std=0 config. Possible chain-script bug re-launching std=0 instead of progressing.
-- Bonus smoke run `5byj5csa` had `std=0.001` BUT `grad_clip_body=0, grad_clip_aux=0` (NOT post-#708 stack) — step=1 val=10.83 ≈ log(50257), so just step-0 sanity. Flagged in advisor comment.
-- B/C/D not launched yet (no runs with std ∈ {1e-4, 1e-3, 5e-3} under group). Branch only has assignment commit; local edits unpushed.
-- Posted #848 advisor comment requesting: (1) push implementation, (2) explain 3 duplicate Arm A crashes/concurrent runs, (3) post Arm A terminal val/fs + drift gate, confirm `LM_HEAD_INIT` startup print shows actual_norm=0.0 (name-match validation for `proj.weight` top-level vs in-block).
-- Same GH API rate-limit window 00:19-00:25 UTC hit thorfinn's pod (iteration 1364, resumed 1365); GPU stayed 100% throughout. Non-disruptive (no label swap).
+**03:08 UTC progress refresh #2** (W&B-verified; chain past 50%, 2/4 arms finished):
+
+| Arm | std | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | `pt2bcodv` | finished | 3350 | **3.270191** | — | −0.000169 (drift PASS ±0.003) |
+| **B** | **0.0001** | `ugnar56v` | **finished** | **3350** | **3.269775** | **−0.000416** | **−0.000585 (direction-correct sub-signal)** |
+| C | 0.001 | `o7ojpvgj` | running | ~375/3350 (~11%) | 4.087 (in-prog) | TBD | TBD |
+| D | 0.005 | — | not yet | — | — | — | — |
+
+**Implementation hygiene — FIRST PUSH this evening**: Branch `g1r4-thorfinn/lm-head-init-std` has commit `63a2953` "lm_head non-zero Gaussian init (env-gated, std=0 bit-identical)" pushed at 00:58 UTC. **Thorfinn is the first student to push implementation tonight** — distinguishes from edward #838 and alphonse #847 (still on assignment-commit only).
+
+**LM_HEAD_INIT sanity print verified firing correctly (name-match validation):**
+- `pt2bcodv` (std=0.0): `LM_HEAD_INIT: name=proj.weight std=0.0 actual_norm=0.000000` — bit-clean fallback confirmed
+- `ugnar56v` (std=0.0001): `LM_HEAD_INIT: name=proj.weight std=0.0001 actual_norm=0.621668` — matches expected ~6213×0.0001≈0.62
+
+**Mechanism leaning productive**: Arm B Δ_vs_baseline=−0.000585 at std=0.0001 is the cleanest single-arm direction-correct sub-signal tonight (cf alphonse Arm B Δ=−0.00083, edward Arm A favorable-seed Δ=−0.00216). At std=0.0001 the lm_head is initialized to ~1% of typical embedding scale — mild non-zero anchor breaks symmetry without disturbing input embedding manifold. If Arm C at std=0.001 extends gain monotone-up, Arm D at std=0.005 could push Δ ≤ −0.002 territory; if C regresses, Goldilocks at std=0.0001 → productive-NULL closure with mechanism characterized. ETA terminal ~05:30 UTC.
+
+**Ghost-crash status**: Group still shows 3 Arm A duplicate crashes — likely predated commit `63a2953` push at 00:58 UTC. Posted #848 progress refresh #2 requesting student to include "duplicates explanation + bit-clean fallback path confirmation" in terminal summary. Other 7 students working WIP chains. Zero idle students.
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
