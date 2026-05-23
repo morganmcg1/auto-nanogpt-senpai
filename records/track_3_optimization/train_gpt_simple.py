@@ -71,6 +71,20 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H89 ADOPT: alternative optimizer family for aux groups (embed, lm_head, scalars).
+    # Taniguchi et al. 2024 (arXiv 2411.02853, NeurIPS 2024 spotlight). Uses one-step
+    # lagged v_{t-1} in the denominator + early-step clip on the normalized direction.
+    # Provably convergent for any β2 ∈ (0,1), removing AdamW's β2 stability constraint.
+    parser.add_argument("--aux_optimizer", type=str,
+                        default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "adopt"],
+                        help="Aux optimizer family. 'adamw'=baseline. 'adopt'=ADOPT (Taniguchi 2024).")
+    parser.add_argument("--adopt_clip_exponent", type=float,
+                        default=float(os.environ.get("ADOPT_CLIP_EXPONENT", "0.25")),
+                        help="ADOPT step-clip exponent (paper default 0.25 gives c_t = t^0.25).")
+    parser.add_argument("--adopt_beta2", type=float,
+                        default=float(os.environ.get("ADOPT_BETA2", "0.999")),
+                        help="ADOPT β2 (paper default 0.999). ADOPT is provably stable for any β2.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -578,6 +592,108 @@ def scale_invariant_update_(param, update, lr, eps=1e-10):
     param.copy_(new_param / new_norm * p_norm)
 
 
+class ADOPT(torch.optim.Optimizer):
+    """ADOPT optimizer — Taniguchi et al. 2024 (arXiv 2411.02853, NeurIPS 2024).
+
+    "Modified Adam Can Converge with Any β2 with the Optimal Rate."
+
+    Differs from AdamW in two ways:
+      1. The denominator uses LAGGED v_{t-1} (not v_t), giving provable convergence
+         for any β2 ∈ (0, 1) — fixes a known AdamW pathology where low β2 can cause
+         non-convergence or convergence to suboptimal points.
+      2. At t=1, v_0=0 so denom is undefined; the paper recommends sign(g_1) for
+         the first step (effectively a normalized SGD step). From t=2 onward, the
+         normalized direction g/sqrt(v_{t-1}) is clipped element-wise to
+         ±c_t where c_t = t^clip_exponent. This prevents huge updates while v
+         is still warming up.
+
+    Update rule per param p with grad g_t (decoupled weight decay):
+        if t == 1:
+            update = sign(g_t)                    # v_0 = 0; SGD-sign warm start
+        else:
+            update = g_t / (sqrt(v_{t-1}) + eps)
+            update = clamp(update, -t^c_exp, t^c_exp)
+        m_t = β1 * m_{t-1} + (1 - β1) * update
+        v_t = β2 * v_{t-1} + (1 - β2) * g_t^2
+        p   = p * (1 - lr * wd) - lr * m_t
+
+    Matches the official reference impl semantics from github.com/iShohei220/adopt:
+    eps added OUTSIDE the sqrt; clip applied to the normalized direction (not m_t).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-6,
+                 weight_decay=0.0, clip_exponent=0.25):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        clip_exponent=clip_exponent)
+        super().__init__(params, defaults)
+        # Diagnostic snapshot populated each step() when _capture_diag is True.
+        # Gated by an external flag so per-step .item() syncs only fire on the
+        # diagnostic-logging cadence — keeps the steady-state path overhead-free.
+        # Keyed on the embed.weight param (largest aux tensor, names "adopt_embed").
+        self._last_diag: dict[str, float] = {}
+        self._capture_diag: bool = False
+
+    @torch.no_grad()
+    def step(self):
+        diag: dict[str, float] = {}
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            clip_exp = group["clip_exponent"]
+            track_diag = self._capture_diag and group.get("name") == "adopt_embed"
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["m"], state["v"]
+                # Lagged denominator: v still holds v_{t-1} until we update it below.
+                if t == 1:
+                    update = g.sign()
+                else:
+                    update = g / (v.sqrt() + eps)
+                if track_diag:
+                    diag["embed_step"] = float(t)
+                    diag["embed_lagged_v_norm"] = float(v.norm().item())
+                    diag["embed_grad_norm"] = float(g.norm().item())
+                    diag["embed_update_norm_preclip"] = float(update.norm().item())
+                    diag["embed_step_1_was_sgd_sign"] = 1.0 if t == 1 else 0.0
+                # Early-step clip on normalized direction (paper reference impl
+                # clips this quantity, not m_t directly).
+                if t > 1:
+                    c_t = float(t) ** clip_exp
+                    update = update.clamp(min=-c_t, max=c_t)
+                    if track_diag:
+                        diag["embed_clip_threshold"] = c_t
+                        diag["embed_update_norm_postclip"] = float(update.norm().item())
+                # First-moment accumulator over (possibly clipped) normalized dir.
+                m.mul_(beta1).add_(update, alpha=(1 - beta1))
+                if track_diag:
+                    diag["embed_m_norm"] = float(m.norm().item())
+                    v_pre_norm = float(v.norm().item())
+                # Update v_t — used as v_{t-1} on the next step (this is the lag).
+                v.mul_(beta2).addcmul_(g, g, value=(1 - beta2))
+                if track_diag:
+                    v_post_norm = float(v.norm().item())
+                    diag["embed_v_t_norm"] = v_post_norm
+                    diag["embed_v_ratio_post_over_pre"] = (
+                        v_post_norm / v_pre_norm if v_pre_norm > 0 else float("nan")
+                    )
+                    diag["embed_lr"] = lr
+                # Decoupled weight decay (AdamW-style), then param step.
+                if wd != 0:
+                    p.mul_(1 - lr * wd)
+                p.add_(m, alpha=-lr)
+        self._last_diag = diag
+
+
 class MuonH(torch.optim.Optimizer):
     """Muon with a hyperball (Frobenius-ball) projection on hidden 2D weight matrices.
 
@@ -713,6 +829,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "adopt":
+    print0(f"AUX OPTIMIZER: ADOPT (Taniguchi 2024) — betas=(0.8, {args.adopt_beta2}) eps={args.aux_adamw_eps} "
+           f"clip_exponent={args.adopt_clip_exponent}", console=True)
+else:
+    print0(f"AUX OPTIMIZER: AdamW (baseline) — betas=(0.8, 0.95) eps={args.aux_adamw_eps}", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +887,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_optimizer": args.aux_optimizer,
+            "adopt_clip_exponent": args.adopt_clip_exponent,
+            "adopt_beta2": args.adopt_beta2,
         },
     )
 
@@ -812,10 +936,25 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    if args.aux_optimizer == "adamw":
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    elif args.aux_optimizer == "adopt":
+        # ADOPT on aux groups. β2=0.999 (paper default) — ADOPT's lagged denom makes
+        # this safe regardless of gradient variance. Group names use "adopt_*" so the
+        # train loop can introspect and so AGC's identical-param machinery is
+        # untouched (still keyed on optimizer1.param_groups[i]["params"]).
+        optimizer1 = ADOPT(
+            [dict(params=[model.embed.weight], lr=0.3, name="adopt_embed"),
+             dict(params=[model.proj.weight], lr=1/320, name="adopt_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adopt_scalars")],
+            betas=(0.8, args.adopt_beta2), eps=args.aux_adamw_eps, weight_decay=0,
+            clip_exponent=args.adopt_clip_exponent,
+        )
+    else:
+        raise ValueError(f"Unknown --aux_optimizer: {args.aux_optimizer}")
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1018,6 +1157,15 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # ADOPT-only: tell the optimizer to populate diagnostics this step. Cheap
+        # flag set; the optimizer skips per-step .item() syncs when False. Decision
+        # mirrors the adopt_diag_due block below so we capture the same cadence.
+        adopt_diag_due = (
+            args.aux_optimizer == "adopt"
+            and (train_step <= 100 or telemetry_due)
+        )
+        if isinstance(optimizer1, ADOPT):
+            optimizer1._capture_diag = adopt_diag_due
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1056,6 +1204,28 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # ADOPT diagnostic logging — verifies the lagged-v_{t-1} update rule, the
+        # clip threshold ramp c_t = t^clip_exponent, and the sign(g_1) first step.
+        # Fires every step for the first 100 (to capture the clip ramp at high
+        # resolution) and at every telemetry_due event thereafter. Bit-identical
+        # (no-op) when aux_optimizer=adamw. adopt_diag_due was set just before
+        # opt.step() above and matches the optimizer's capture flag.
+        if dist.get_rank() == 0 and adopt_diag_due and isinstance(optimizer1, ADOPT):
+            diag = optimizer1._last_diag
+            adopt_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "aux/optimizer_family": 1,  # 1=adopt, 0=adamw
+            }
+            for k, v in diag.items():
+                adopt_metrics[f"aux/{k}"] = v
+            wandb.log(adopt_metrics, step=wandb_step)
+        elif dist.get_rank() == 0 and telemetry_due and args.aux_optimizer == "adamw":
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "aux/optimizer_family": 0,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
