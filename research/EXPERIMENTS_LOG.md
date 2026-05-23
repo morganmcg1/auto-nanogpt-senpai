@@ -1,6 +1,31 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
-## 2026-05-23 02:00 UTC — Cycle 71 mid-106: thorfinn #842 ATTN_SOAP_BETA2 CLOSED (48th refuted axis) + IMPLEMENTATION VERIFICATION FAILURE on 4 PRs
+## 2026-05-23 02:45 UTC — Cycle 71 mid-107: DIAGNOSTIC RETRACTION — quadruple no-impl claim was WRONG for 3 of 4
+
+**Retraction**: my 02:00 UTC mid-106 finding that "4 of 5 fresh students ran baseline noise" was based on remote-branch HEAD greps that missed un-pushed local code. **Re-verification via W&B SUMMARY keys (per-step telemetry) + CONFIG keys**:
+
+| PR | Student | Run | Re-verified status | True diagnosis |
+|---|---|---|---|---|
+| #851 | alphonse | `afh59c11` (claimed Arm A) | NO `loss/z_loss_coeff` in config OR summary | **TRUE baseline noise** — retraction stands for THIS run only |
+| #851 | alphonse | `v9r5lh2r` (Arm B z_loss=3e-5) | `loss/z_loss_coeff = 3e-05` in config | Patch active, legitimate Arm B running |
+| #860 | fern | `e7mngj4o` (Arm A=1.0) | `train/grad/clip_active=1`, `clip_norm_threshold=1`, `total_norm_pre_clip≈75-315k` in SUMMARY | **Patch active locally** — my no-impl claim was WRONG, run is legitimate Arm A |
+| #861 | askeladd | `qusv35js` (Arm A=0.5) | `schedule/cooldown_frac = 0.5` in CONFIG | **Patch active** — legitimate Arm A; my KILL caused crash at step 475 (right before clearing step-500 kill gate val=3.890 vs 3.90) |
+| #857 | frieren | `24hrx5pv` (Arm A=0.25) | `optimizer/adamw_denom_power = 0.25` in CONFIG | **Patch active** — legitimate Arm A; my KILL caused crash at step 1425 (val=3.606 already past step-1000 kill gate val<3.80) |
+| #858 | nezuko | `blc7xhcl` (Arm A=0.02) | `loss/label_smoothing = 0.02` in CONFIG | Patch active, crashed naturally at step 925 (val=3.708, not my fault) |
+
+**Workflow lesson**: my no-impl diagnosis used remote-branch grep as the FIRST check, missing un-pushed local code. The CORRECT order is: (1) check W&B config for hypothesis-specific key, (2) check W&B summary for hypothesis-specific telemetry, (3) only if both missing, ASK student before ordering kill. Memory rule `feedback_verify_student_code_implementation` REFINED.
+
+**Apologies posted to all 4 PRs (#857, #858, #860, #861)** with relaunch/continuation instructions. Fern's diagnostic catch was excellent: clip=1.0 attenuates gradients by ~100,000× (natural norms ~75-315k), so original sweep {1.0, 2.0} effectively tests two near-identical extreme-crush regimes. ADVISOR replacement: skip Arm B=2.0, replace with Arm B=10000 (near natural scale).
+
+**In-flight portfolio recovered at 02:45 UTC**:
+- fern `e7mngj4o` step 1225 val=3.6309 (Arm A=1.0 continuing) — passes step-1000 kill gate by 0.17
+- askeladd `pwe8uaih` step 700 val=3.7538 (Arm A=0.5 relaunch) — AHEAD of baseline mid-training
+- alphonse `v9r5lh2r` step 750 val=3.7286 (Arm B z_loss=3e-5) — config verified, running
+- nezuko `dey80aqc` step 575 val=3.8145 (Arm A=0.02 relaunch after blc7xhcl natural crash)
+- thorfinn `11w9xx9c` step 75 (ATTN_SOAP_PRECOND_FREQ Arm A=20, just launched, disabled-check mhmckhb4 passed)
+- frieren idle (burned 2× disabled-checks xd0fu1js + eoukjpmq, advisor comment instructs Arm A=0.25 launch NOW)
+
+## 2026-05-23 02:00 UTC — Cycle 71 mid-106: thorfinn #842 ATTN_SOAP_BETA2 CLOSED (48th refuted axis) + IMPLEMENTATION VERIFICATION FAILURE on 4 PRs (PARTIALLY RETRACTED — see mid-107 above)
 
 ### #842 thorfinn ATTN_SOAP_BETA2 — 48th refuted floor axis (CLOSED via advisor)
 
