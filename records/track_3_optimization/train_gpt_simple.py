@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--mu_reset_step", type=int, default=0,
+                        help="Step at which to reset Muon momentum buffers (PR #907). "
+                             "0=disabled. For cooldown onset at cooldown_frac=0.7, "
+                             "train_steps=3250: int(train_steps * (1 - cooldown_frac)) = 975.")
+    parser.add_argument("--mu_reset_gamma", type=float, default=0.0,
+                        help="Momentum reset scale factor applied via mul_(gamma). "
+                             "0.0=full zero-reset, 0.1=strong partial, 0.5=mild partial.")
+    parser.add_argument("--mu_reset_soap", action="store_true", default=False,
+                        help="If set with --mu_reset_step, also zero SOAP exp_avg_sq "
+                             "buffers at the same step (Cell E of PR #907).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -1007,6 +1017,36 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Momentum reset at cooldown onset (PR #907, if configured).
+        # Fires once at the first cooldown step so the reset is applied BEFORE
+        # the optimizer step at that iteration produces its update.
+        if args.mu_reset_step > 0 and step == args.mu_reset_step:
+            momentum_count = 0
+            soap_count = 0
+            for group in optimizer2.param_groups:
+                for p in group['params']:
+                    state = optimizer2.state[p]
+                    if 'momentum' in state:
+                        state['momentum'].mul_(args.mu_reset_gamma)
+                        momentum_count += 1
+                    if args.mu_reset_soap and 'exp_avg_sq' in state:
+                        state['exp_avg_sq'].zero_()
+                        soap_count += 1
+            print0(
+                f"step {step}: Muon momentum reset (gamma={args.mu_reset_gamma}, "
+                f"momentum_buffers={momentum_count}, mu_reset_soap={args.mu_reset_soap}, "
+                f"soap_buffers={soap_count})",
+                console=True,
+            )
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "muon/mu_reset/fired": 1,
+                    "muon/mu_reset/gamma": args.mu_reset_gamma,
+                    "muon/mu_reset/momentum_buffers": momentum_count,
+                    "muon/mu_reset/soap_buffers": soap_count,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
