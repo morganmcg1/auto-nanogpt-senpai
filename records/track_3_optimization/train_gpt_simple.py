@@ -61,6 +61,14 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--adabelief_aux", choices=["off", "on"], default="off",
+                        help="Use AdaBelief-aux for embed/lm_head/scalars instead of AdamW.")
+    parser.add_argument("--adabelief_beta1", type=float, default=0.9,
+                        help="AdaBelief β1 (Adam first moment smoothing weight).")
+    parser.add_argument("--adabelief_beta2", type=float, default=0.999,
+                        help="AdaBelief β2 (gradient-surprise variance smoothing weight).")
+    parser.add_argument("--adabelief_eps", type=float, default=1e-16,
+                        help="AdaBelief eps (inside s_t accumulation AND denominator).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -630,6 +638,64 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
     return {}
 
 
+class AdaBeliefAux(torch.optim.Optimizer):
+    """Aux-only AdaBelief (Zhuang et al. 2020). Code convention: β acts on smoothing weight.
+
+    s_t = β2 * s_{t-1} + (1 - β2) * (g_t - m_t)^2 + eps   <- gradient-surprise variance
+    m_t = β1 * m_{t-1} + (1 - β1) * g_t
+    update = lr * (m_t / (1-β1^t)) / (sqrt(s_t / (1-β2^t)) + eps)
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-16, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = closure() if closure is not None else None
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            eps = group["eps"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if not state:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["s"] = torch.zeros_like(p, dtype=torch.float32)
+                    # Phantom v_t (raw g^2 EMA) — telemetry only, not used in update.
+                    # Lets us log v_t / s_t to see whether AdaBelief's gradient-surprise
+                    # signal differs from vanilla Adam's raw second moment.
+                    state["v_phantom"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                g32 = g.to(torch.float32)
+                m, s, v = state["m"], state["s"], state["v_phantom"]
+                # m_t = b1 * m + (1-b1) * g
+                m.mul_(b1).add_(g32, alpha=1 - b1)
+                # s_t = b2 * s + (1-b2) * (g - m)^2 + eps   <-- key AdaBelief change
+                diff = g32 - m
+                s.mul_(b2).addcmul_(diff, diff, value=1 - b2).add_(eps)
+                # Phantom v_t = b2 * v + (1-b2) * g^2 (telemetry only)
+                v.mul_(b2).addcmul_(g32, g32, value=1 - b2)
+                # bias correction
+                bc1 = 1.0 - b1 ** t
+                bc2 = 1.0 - b2 ** t
+                m_hat = m / bc1
+                s_hat = s / bc2
+                update = m_hat / (s_hat.sqrt() + eps)
+                if wd > 0:
+                    p.add_(p, alpha=-lr * wd)
+                p.add_(update.to(p.dtype), alpha=-lr)
+                # Telemetry: log s_mean and m_rms per param (sparingly)
+                state["last_s_mean"] = s.mean().item()
+                state["last_m_rms"] = (m * m).mean().sqrt().item()
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -717,6 +783,10 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "adabelief_aux": args.adabelief_aux,
+            "adabelief_beta1": args.adabelief_beta1,
+            "adabelief_beta2": args.adabelief_beta2,
+            "adabelief_eps": args.adabelief_eps,
         },
     )
 
@@ -748,10 +818,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.adabelief_aux == "on":
+        optimizer1 = AdaBeliefAux(
+            [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+             dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+             dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+            betas=(args.adabelief_beta1, args.adabelief_beta2),
+            eps=args.adabelief_eps, weight_decay=0,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1034,6 +1113,58 @@ for trial_idx in range(args.num_trials):
                 "train/cooldown/lr_multiplier": sched_eta,
                 "train/cooldown/power_gamma": COOLDOWN_POWER,
             }, step=wandb_step)
+            if args.adabelief_aux == "on":
+                adabelief_log = {"trial": trial_idx, "train/step": train_step}
+                # Per-group aggregates across params, plus advisor-requested
+                # v_vs_s_ratio and eps_floor_fraction computed at log time
+                # from the optimizer's tensor state.
+                ab_eps = args.adabelief_eps
+                global_v_means = []
+                global_s_means = []
+                global_floor_fracs = []
+                for group in optimizer1.param_groups:
+                    gname = group.get("name", "unknown")
+                    s_means, m_rmses, v_means, floor_fracs = [], [], [], []
+                    for p in group["params"]:
+                        st = optimizer1.state.get(p, {})
+                        if "last_s_mean" in st:
+                            s_means.append(st["last_s_mean"])
+                            m_rmses.append(st["last_m_rms"])
+                        if "s" in st and "v_phantom" in st:
+                            v_means.append(st["v_phantom"].mean().item())
+                            floor_fracs.append((st["s"] < ab_eps).float().mean().item())
+                    if s_means:
+                        s_mean = sum(s_means) / len(s_means)
+                        m_rms = sum(m_rmses) / len(m_rmses)
+                        adabelief_log[f"adabelief/{gname}/s_mean"] = s_mean
+                        adabelief_log[f"adabelief/{gname}/m_rms"] = m_rms
+                        adabelief_log[f"adabelief/{gname}/s_over_m2"] = s_mean / max(m_rms ** 2, 1e-30)
+                    if v_means:
+                        v_mean = sum(v_means) / len(v_means)
+                        floor_frac = sum(floor_fracs) / len(floor_fracs)
+                        s_mean_for_ratio = sum(s_means) / len(s_means) if s_means else 0.0
+                        adabelief_log[f"adabelief/{gname}/v_mean"] = v_mean
+                        # Ratio v_t/s_t: if ~1, AdaBelief reduces to vanilla Adam;
+                        # if <<1, gradient-surprise is much smaller than raw g^2.
+                        adabelief_log[f"adabelief/{gname}/v_vs_s_ratio"] = (
+                            v_mean / max(s_mean_for_ratio, 1e-30)
+                        )
+                        # Fraction of elements where s_t < eps (eps floor dominates denom).
+                        adabelief_log[f"adabelief/{gname}/eps_floor_fraction"] = floor_frac
+                        global_v_means.append(v_mean)
+                        global_s_means.append(s_mean_for_ratio)
+                        global_floor_fracs.append(floor_frac)
+                if global_v_means:
+                    g_v = sum(global_v_means) / len(global_v_means)
+                    g_s = sum(global_s_means) / len(global_s_means)
+                    adabelief_log["adabelief/global/v_vs_s_ratio"] = g_v / max(g_s, 1e-30)
+                    adabelief_log["adabelief/global/eps_floor_fraction"] = (
+                        sum(global_floor_fracs) / len(global_floor_fracs)
+                    )
+                adabelief_log["adabelief/beta1"] = args.adabelief_beta1
+                adabelief_log["adabelief/beta2"] = args.adabelief_beta2
+                adabelief_log["adabelief/eps"] = args.adabelief_eps
+                wandb.log(adabelief_log, step=wandb_step)
             if ema_params is not None:
                 wandb.log({
                     "trial": trial_idx,
