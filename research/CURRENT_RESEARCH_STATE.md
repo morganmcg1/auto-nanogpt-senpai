@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 23:00 UTC
+- **Date:** 2026-05-23 23:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,52 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 177 snapshot (23:25 UTC)
+
+### Terminals landed since cycle 175
+
+**#944 tanjiro grad-centralization chain — 2/4 arms terminal, col mechanism-NEG**
+
+| arm | run_id | gc_mode | val/loss | Δ_vs_A | drift_vs_baseline 3.26756 |
+|:---:|---|---|:---:|:---:|:---:|
+| A (ctrl) | `6ht4oj5l` | none | **3.26656** | — | −0.00100 (drift PASS, control bit-clean) |
+| B | `fd5nszpw` | col | **3.27594** | **+0.00938** | **+0.00838 (catastrophic NEG)** |
+
+Arm B's pre-NS column-mean DC removal regresses the body Muon by ~0.009 vs control. Within-arm direction-WRONG (steady gap +0.011→+0.009 across steps 1000→3275). No NaN/divergence — clean mechanism-negative signal on this stack. Arm C (row) started 23:07 UTC ETA terminal ~01:00 UTC May 24; Arm D (both) ETA ~02:53 UTC. Awaiting full 4-arm SENPAI-RESULT before close decision (col-NEG already known; row + both decide whether axis closes as productive-NEG or asymmetric-NEG).
+
+### Active chains (as of 23:25 UTC)
+
+| PR | Student | Hypothesis | Run | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|
+| #944 | tanjiro | gc Arm C (row) | (new run, name pending) | ~50 | early | C ~01:00 UTC, D ~02:53 UTC |
+| #845 | askeladd | embed-grad freq rescale v2 Pod 3 | `4d5fuxdk` | 2300 | 3.4347→3.28 | ~01:00 UTC (slower than original ETA) |
+| #880 | thorfinn | Muon² body v_t Pod 2 A | `m0jdlx6u` | 1850 | 3.5121→3.28 | Pod 2 A ~00:50 UTC; Pod 2 D ~02:50 UTC |
+| #956 | alphonse | lm_head per-row max-norm Arm A | `kjrd1usm` | 1225 | early | full chain ~05:30 UTC |
+| #963 | frieren | post-NS v_post Arm A | `5vzq0lob` | 475 | early | full chain ~08:00 UTC |
+| #919 | fern | β₁ cooldown anneal paired-pod n=3 Arm D seed 1 | `64ye4aib` | 325 | early | full chain ~04:30 UTC |
+| #929 | edward | AdamW aux v_t floor (Arms C, D pending) | — | — | Arm B done 3.26990 | ~03:00 UTC |
+| #933 | nezuko | path-norm body-weight velocity (Arms C, D pending) | — | — | Arm B done 3.27009 | ~03:50 UTC |
+
+### Imminent terminal cluster (next ~3h)
+
+- **#880 Pod 2 A** `m0jdlx6u` ~00:50 UTC — paired-pod control terminal. Pod 2 D follows ~02:50 UTC closing the n=3 chain.
+- **#944 Arm C (row)** ~01:00 UTC — decides whether gc axis is productive-NEG (both axes wrong) or asymmetric.
+- **#845 Pod 3 v2** `4d5fuxdk` ~01:00 UTC — final pod of n=3 v2 chain. Current partial n=2 mean=3.26747 (marginal vs 3.26756 baseline). Pod 3 v2 value will be binding for the merge gate.
+
+### Sticky advisor-action flags (still no-op)
+
+- **#880** `needs_rebase` — from prior conditional-rebase comment, student already addressed in Pod 1 D launch. No action.
+- **#845** `merge_conflict_comment` — stale 17:54 UTC comment, student already responded. No action.
+
+### Operational notes
+
+- Zero idle GPUs, all 8 students productively training.
+- #944 col-gc mechanism-NEG result is the first cycle-177 terminal-flavor data. Aligns with general pattern that "pre-NS DC removal" disturbs Muon stack updates more than it helps.
+- No human GH issues this cycle.
+- Quiet polling cycle expected for ~85 min until first cluster terminals (Pod 2 A, #944 Arm C, #845 Pod 3 v2 all ~00:50-01:00 UTC).
 
 ---
 
