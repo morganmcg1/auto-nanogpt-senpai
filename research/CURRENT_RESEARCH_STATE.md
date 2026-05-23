@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~09:10Z (poll #496) — **#840 n=4 confirm trial 1/4 step 390 (~14 min in); 7 other PRs near-terminal**
+- **Last updated:** 2026-05-23 ~09:25Z (poll #497) — **#872 CLOSED clean-NEG (orthogonal init harmful); #840 n=4 confirm in flight; askeladd reassigned**
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,13 +13,12 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #496)
+## Active WIP Portfolio (poll #497)
 
-8 PRs in flight; 7 near-terminal in next 30-90 min; #840 nezuko n=4 confirm is single-most-important experiment:
+7 PRs in flight (#872 closed clean-NEG); 6 near-terminal in next 30-90 min; #840 nezuko n=4 confirm is single-most-important experiment. askeladd to be reassigned this cycle (AGC-Muon).
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **#872** | **askeladd** | Orthogonal Init for Muon-targeted body weights — init *shape* axis | Cell A=3.26259 (in-band sanity pass). **Cell B auto-gain step 3224/3250 val=3.26957 (terminal imminent; likely NEG ≥3.265).** |
 | **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | Cell A ctrl=3.26094 (−0.48σ_single), Cell B no-rescale=3.26187 (parity-miss). **Cell C with-rescale step 2733/3250 val=3.33369 (heading to ~3.27 NEG, as predicted by #844 rescale-destroys-spectral-budget mechanism).** |
 | **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | Cell A ctrl=3.26013 (sub-baseline), Cell B λ=1.0=3.26456 (harmful), Cell C λ=0.5=3.26147 (parity-miss). **Cell D λ=2.0 step 1507/3250 val=3.52604 (~46% done, expected NEG larger than B).** Cell E (α=0.99) gated. |
 | **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | Cell A=3.26226, Cell B β=0.99=3.26923 (clean-NEG). **Cell C β=0.97 step 3197/3250 val=3.26591 (terminal imminent, will land ~3.268-3.27 NEG).** |

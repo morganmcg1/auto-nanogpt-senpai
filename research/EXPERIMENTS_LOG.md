@@ -3,6 +3,30 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~09:15 UTC — PR #872: askeladd Orthogonal init for Muon-targeted body weights — **CLOSED clean-NEG**
+
+- Branch: `g1r5-askeladd/orthogonal-init-muon`
+- Student: g1r5-askeladd
+- Hypothesis: Replace Gaussian N(0, σ²) with structurally orthogonal init for non-residual Muon-targeted body weights (Q/K/V projections + MLP fc1) at matched magnitude. Tests **shape** axis (vs already-closed magnitude axis). Mechanism prediction: NS-5 step 1 sees identity-like correction (no M-P rotation needed); orthogonal weights at condition-number=1 stabilize early gradient flow.
+- **Results (P1 2-cell terminal, C–E skipped per kill gate):**
+
+| Cell | wandb_run | init | orth_gain | scope | val/loss | first_step_to_target | Δ vs baseline | Δ vs ctrl |
+|:----:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| baseline #699 | zp6gvwv5 | musoft N(0,std_base) | — | — | 3.26122 (μ, n=4) | 3025 | — | — |
+| A ctrl | ajxkp73h | gaussian (musoft) | — | — | 3.26259 | 3050 | +0.0014 (inside ±0.002 band) ✓ | — |
+| **B** PRIMARY | e2mfne7m | orthogonal | 0.0 (auto≈0.02073) | nonresid | **3.26784** | 3100 | **+0.00662** ✗ | **+0.00525** ✗ |
+
+- **Decision: CLOSED clean-NEG.** Cell B above final gate (>3.265) → Cells C/D/E correctly skipped by sweep runner's kill gate.
+- **Trajectory:** B−A gap rises monotonically from step 1000 (+0.002) → step 3250 (+0.005). Not an early-curve transient — orthogonal init at matched magnitude permanently lowers final val/loss by ~5 mNat.
+- **Mechanism (student's analysis, accepted):** NS-5 with `--ns_iter 6` converges from Gaussian momentum to near-orthogonal update in 1–2 inner iterations. So the *update* path is on the orthogonal manifold from step ~2 onwards regardless of *weight* init. Meanwhile, orthogonal init forces all 768 singular values exactly to std_base ≈ 0.021 (condition number = 1) — flattening the Marchenko-Pastur spread of Gaussian that early-training SOAP+Muon apparently exploits. The orthogonal hypothesis predicted helping when the *optimizer* is the bottleneck (true for SGD per Hu et al. 2020); under Muon-NS6 it's actively counter-productive.
+- **Init-branch counts confirmed in print logs:** Cell A `nonresid_2d/normal(std=0.020729)` × 48 + 24 resid-proj musoft; Cell B `nonresid_2d/orth(gain=0.020729)` × 48 + 24 resid-proj musoft. No stray re-init.
+- **2 prior crashed runs** (1br84nw8, 01kg3ow9): both step_avg 2790/4256 ms vs Cell A's 1885 — GPU contention from inadvertent parallel processes with leftover Lookahead-P1 sweep; student killed and re-launched cleanly. No code crash, no NaN, no OOM. Infra fine.
+- **Axis closure: init-shape at matched magnitude.** Three coherent closures from this student now confirm "interventions outside the spectral budget of NS / SOAP do not stack productively": #826 Lookahead (outer averager), #872 Orthogonal init (no spectral spread), #776 Update RMS-clamp (post-NS).
+- **Suggested follow-ups considered:**
+  1. (Student) Truncated-SVD init → increases spread vs orthogonal. Mechanistically interesting but pushes further from musoft optimum — likely won't beat baseline. Setting aside.
+  2. (Student) Orthogonal at low magnitude + NS disabled first ~10 steps → mechanism isolation but no path to improvement. Setting aside.
+- Next assignment to askeladd: AGC-Muon (Adaptive Gradient Clipping pre-NS) — distinct from #776 (post-update clamp).
+
 ## 2026-05-23 ~08:30 UTC — PR #840: nezuko Muon-AdEMAMix P1 sweep TERMINAL — **★ SENT BACK FOR n=4 CONFIRM ON CELL E**
 
 - Branch: `g1r5-nezuko/muon-ademamix`
