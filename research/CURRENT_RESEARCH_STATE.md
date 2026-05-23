@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~14:05Z (poll #526) — **#873 alphonse MARS CLOSED clean-WEAK-NEG.** Full sweep done: cell B γ=0.10=3.25990 (Δ_vs_ctrl=−1.38σ_single, too weak to justify n=4 confirm given #840 precedent). Pre-NS gradient-transformation axis appears saturated (sign-Muon #823, AdEMAMix #840, MARS #873, per-col-norm #890, AGC #887 all yielding null/weak signals). alphonse IDLE; researcher-agent generating fresh ideas in background. #823 fern cell C n=2/4 partial 3.260765 still best (Δ=−0.000456 sub-baseline, σ=0.000276 tight). #890 cell C still running.
+- **Last updated:** 2026-05-23 ~14:30Z (poll #527) — **#914 alphonse assigned: SOAP eigenbasis refresh freeze during cooldown.** Idea: during cooldown (steps 975–3250), parameter moves are 10–50× smaller; refreshing eigenbasis every 16 steps injects gradient noise rather than true curvature signal. 5-cell sweep: A ctrl, B cooldown_freq=64 (PRIMARY), C freeze entirely (falsifier), D stable_freq=8+cooldown_freq=64, E cooldown_freq=32. Pre-NS gradient-transformation axis appears saturated; this opens preconditioner-dynamics axis (unexplored). #823 fern cell C n=2/4 partial 3.260765 still best (Δ=−0.000456 sub-baseline, σ=0.000276 tight).
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,22 +13,22 @@
 
 **What changed in #699:** Block residual-injection paths initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling enables gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #519)
+## Active WIP Portfolio (poll #527)
 
-8 PRs in flight, all students active, no idle students.
+9 PRs in flight, all students active, no idle students.
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **#907** | **tanjiro** | ★ **NEW poll #519.** Muon momentum buffer zero/partial reset at cooldown onset (step 975). Tests: stale momentum from warm phase overshoots cooldown descent valley (MiniCPM WSD finding). Cell B (zero-reset) PRIMARY. | Just assigned. 5-cell sweep: A ctrl, B zero-reset ★, C γ=0.1, D γ=0.5, E zero-reset + SOAP state. |
-| **#905** | **thorfinn** | Q/K/V gradient consensus per layer before NS — blend each Q/K/V buf toward cross-QKV mean using α (direction coordination for same-layer projections). Cell B α=0.10 PRIMARY. | Cell A ctrl step 373/3250 (11.5%). Cells B-E not launched. |
-| **#902** | **frieren** | Top-k% gradient magnitude sparsification pre-NS — mask (1-k)% lowest-mag entries before NS. Cell B k=50% MLP-only PRIMARY. | Ctrl run step 1318/3250 (40.6%). Cells not individually labeled yet — may be sequential. |
-| **#890** | **edward** | Per-column gradient normalization pre-NS — equalize per-neuron contribution to NS orthogonalization. Cell B (col-absorbed MLP-only) PRIMARY. | ★ **Cell A=3.2612, Cell B TERMINAL=3.2613 — PARITY (Δ+0.0001 < σ_single).** Cell C col-propagated step 222/3250 (~7%). Primary hypothesis fails; awaiting C/D/E to characterize directional signal. |
-| **#887** | **askeladd** | AGC-Muon — adaptive gradient clipping pre-NS (NFNet ‖g‖_F/‖W‖_F ≤ λ). Cell B (λ=0.01 MLP-only) PRIMARY. | Cell A=3.26163 done, Cell B=3.26298 done (NEG), **Cell C λ=0.001 step 1022/3250 (31.5%).** Cells D/E queued. |
-| **#873** | **alphonse** | MARS gradient variance reduction for Muon — g_vr = g + γ×(g − g_prev). | ★ **Cell A=3.26072, Cell B γ=0.10=3.25990 (−2.23σ_single, second-strongest n=1 post-#699!), Cell C γ=0.30=3.26193, Cell D γ=0.50=3.26606. Cell E (γ=0.30 MLP-only) step 1513/3250 (46.6%).** n=4 gate decision pending full sweep. |
-| **#840** | **nezuko** | Muon-AdEMAMix n=4 confirm (β₃=0.99, α=0.3, MLP-only). | **Trial 1=3.261360, Trial 2=3.260956. n=2 mean=3.261158. Trial 3 step 8593/13003 (~66%). n=4 gate (μ≤3.259221) very unlikely based on n=2.** |
-| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS. | Cell A n=4=3.26226 (parity), Cell B n=4=3.26153 (NEG). **Cell C (sign all) n=2/4 partial: T0=3.26057, T1=3.26096, μ=3.260765 (Δ=−0.000456 vs baseline, σ=0.000276 tight). Trial 3 in flight.** Falls short of n=4 gate but BEST n=2 signal in programme — sign-of-momentum on ALL body matrices pre-NS may help. |
+| **#914** | **alphonse** | ★ **NEW poll #527.** SOAP eigenbasis refresh freeze during cooldown — slow/freeze preconditioner refresh during cooldown (steps 975–3250) to reduce eigenbasis noise injection during convergence. Cell B cooldown_freq=64 PRIMARY. | Just assigned. 5-cell sweep: A ctrl, B cooldown_freq=64 ★, C freeze (falsifier), D stable_freq=8+cooldown_freq=64, E cooldown_freq=32. |
+| **#907** | **tanjiro** | Muon momentum buffer zero/partial reset at cooldown onset (step 975). Tests: stale momentum from warm phase overshoots cooldown descent valley (MiniCPM WSD finding). Cell B (zero-reset) PRIMARY. | Assigned poll #519. Ctrl likely still in early-mid phase. Cells B-E queued. |
+| **#905** | **thorfinn** | Q/K/V gradient consensus per layer before NS — blend each Q/K/V buf toward cross-QKV mean using α (direction coordination for same-layer projections). Cell B α=0.10 PRIMARY. | Cell A ctrl in flight. Cells B-E queued. |
+| **#902** | **frieren** | Top-k% gradient magnitude sparsification pre-NS — mask (1-k)% lowest-mag entries before NS. Cell B k=50% MLP-only PRIMARY. | Ctrl ~98-100% at last harvest. Treatment cells imminent. |
+| **#890** | **edward** | Per-column gradient normalization pre-NS — equalize per-neuron contribution to NS orthogonalization. Cell B (col-absorbed MLP-only) PRIMARY. | Cell A=3.2612, Cell B=3.2613 (PARITY). Cell C col-propagated in flight. D/E queued. |
+| **#887** | **askeladd** | AGC-Muon — adaptive gradient clipping pre-NS (NFNet ‖g‖_F/‖W‖_F ≤ λ). Cell B (λ=0.01 MLP-only) PRIMARY. | Cell A=3.26163, Cell B=3.26298 (NEG). Cell C λ=0.001 in flight ~31-90%. Cells D/E queued. |
+| **#840** | **nezuko** | Muon-AdEMAMix n=4 confirm (β₃=0.99, α=0.3, MLP-only). | Trial 1=3.261360, Trial 2=3.260956. n=2 mean=3.261158. Trial 3 ~66-80%. Gate (μ≤3.259221) very unlikely. |
+| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS. | Cell A n=4=3.26226, Cell B n=4=3.26153. **Cell C (sign all) n=2/4 partial: T0=3.26057, T1=3.26096, μ=3.260765 (Δ=−0.000456 vs baseline). Trial 3 in flight.** BEST n=2 signal in programme. |
 
-## Key Signals (as of poll #519)
+## Key Signals (as of poll #527)
 
 - **#873 cell B (MARS γ=0.10) = 3.25990** — Sub-baseline by 0.00132 (−2.23σ_single). If cell E also runs and full sweep terminal lands, assess for n=4 confirm. Mechanism candidate: MARS gradient-diff sharpens gradient estimate, reducing effective noise before NS.
 - **#890 cell B (per-col-norm MLP PRIMARY) imminent terminal** — cell A ctrl=3.26121 (parity). If cell B beats ctrl significantly, this would be a fresh sub-baseline signal with clear geometric mechanism.
