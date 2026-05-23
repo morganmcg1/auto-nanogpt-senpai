@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 07:10 UTC
+- **Date:** 2026-05-23 07:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -350,26 +350,37 @@ W&B: A=066vqhon, B=eju4vxds, C=ivoigede, D=bh4ruhj8.
 
 **Follow-up**: tanjiro assigned **#789 NS polynomial degree swap (cubic vs quintic)** — first test of NS polynomial DEGREE on this stack. 4-arm: cubic FLOP-equivalent (NS=18/24), same-iter-count (NS=12/16), 2× iters (NS=24/32) vs quintic control. Mechanism-distinct from all in-flight NS experiments (#787 stochastic, #710/#724 per-depth/type).
 
-### 📋 tanjiro #789 — NS polynomial degree: cubic vs quintic — SENT BACK 19:35 UTC for paired-pod n=3 on Arm B
+### 📋 tanjiro #789 — Cubic NS @ FLOP-eq — SENT BACK 07:25 UTC for rebase + re-run on new (post-#787) stack
 
 **Branch:** `g1r4-tanjiro/ns-polynomial-degree`
 
-**Phase 1 N=1 4-arm results** (pre-#708 stack — student's reproduce missed AUX clip split):
+**Original n=3 paired-pod terminal (07:10 UTC, on OLD pre-#787 stack):**
 
-| Arm | degree | NS_ITERS (mid/cd) | val/loss | Δ vs A | Δ vs new baseline 3.27036 | fs | W&B |
-|:---:|:---:|:---:|---:|---:|---:|:---:|---|
-| A (quintic ctrl) | 5 | 12/16 | 3.27133 | — | +0.00097 (drift PASS) | 3225 | g3qo5v7i |
-| **B (cubic FLOP-eq)** | **3** | **18/24** | **3.26948** | **−0.00185** | **−0.00088 ABS WIN n=1** | **3200** | **hux48fw4** |
-| C (cubic same-iter) | 3 | 12/16 | 3.27497 | +0.00364 | +0.00461 (regression) | 3275 | aedoua1u |
-| D (cubic 2×) | 3 | 24/32 | 3.27056 | −0.00077 | +0.00020 | 3225 | otiventd |
+| Pod | seed | A val | B val | Δ_within | direction |
+|:---:|:---:|:---:|:---:|:---:|:---|
+| 0 | 0 | 3.26874 | 3.26929 | +0.00055 | INcorrect |
+| 1 | 1 | 3.27111 | 3.26971 | −0.00140 | correct |
+| 2 | 2 | 3.26894 | **3.26812** | −0.00082 | correct |
+| **mean** | — | **3.26960** | **3.26904** | −0.00056 | — |
 
-**Mechanism finding (durable)**: At this scale, NS quality is bottlenecked by **total compute, not polynomial order**. Cubic at FLOP-eq matches quintic; cubic at same-iter under-orthogonalizes; cubic at 2× iters saturates near quintic. The c·A² higher-order term carries no quality advantage when total matmuls are matched.
+All 4 hard gates PASS against new baseline 3.26944: mean(B,n=3)=3.26904 (Δ=−0.00040, gate 1 ✅), stat-rule 0.01898≥0.004 (gate 2 ✅), 2/3 direction-correct (gate 3 ✅), drift max +0.00167 < 0.003 (gate 4 ✅). Pattern: cubic rescues unfavorable seeds (Pod 1 Δ=−0.00140) but loses to favorable seeds (Pod 0 Δ=+0.00055).
 
-**Wall-clock surprise**: Cubic-FLOP-eq Arm B is **0.49% FASTER per step than quintic Arm A** despite identical matmul counts — likely from reduced kernel-launch overhead with more, smaller iterations.
+**Why SENT BACK rather than merge**: `senpai_merge_winner_preflight` refused due to `mergeStateStatus: DIRTY` (train_gpt_simple.py conflict with #787's stochastic-NS env-var additions). Per CLAUDE.md cross-PR-merge protocol: rebase onto $ADVISOR_BRANCH + re-run on new stack + resubmit. Mechanism orthogonality (polynomial-shape vs spread-variance) is PLAUSIBLE but unverified empirically — re-run on new stack disambiguates.
 
-**Sent-back protocol**: Paired-pod n=3 on Arm B vs Arm A, layered onto full post-#708 stack (adds NANOGPT_GRAD_CLIP_BODY=10.0/AUX=5.0). 6 runs total. Pre-staged gates: mean(B,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift ±0.003. ETA ~10.8h.
+**Re-run protocol** (sent in 07:25 UTC send-back comment):
+- Rebase: keep both #787's `NANOGPT_NS_STOCHASTIC_COOLDOWN` and tanjiro's `NANOGPT_NS_DEGREE` env vars
+- Re-run n=3 paired-pod: both arms include `NANOGPT_NS_STOCHASTIC_COOLDOWN=2` (new baseline default)
+- Pre-staged gates frozen against NEW baseline 3.26944 (stricter than original 3.27036)
+- ETA ~11 GPU-hours
 
-**Three outcomes durably informative**: (1) confirms → cubic+1.5× merge as code simplification (drops c·A² matmul, NS_COEF_SCHEDULE becomes inert), (2) lands at baseline → degree interchangeable mechanism finding solidified, (3) collapses → degree axis closes with quintic preferred. Risk: Δ_vs_new_baseline=−0.00088 at n=1 is slimmer than #787 fern Arm C (−0.00130); paired-pod confirmation probability ~25-35%.
+**Expected outcomes** (~60% MERGE, ~30% NULL, ~10% NEG):
+- mean(B,n=3) ≤ 3.26944: MERGE candidate (orthogonal composition validated)
+- mean(B,n=3) ∈ (3.26944, 3.27036]: productive-NULL (doesn't compose)
+- mean(B,n=3) > 3.27036: NEG (interference)
+
+**Wall-clock observation (original run): Cubic FLOP-eq B is 0.24% faster than quintic A** per step at matched matmul count (1876.48 vs 1881.06 ms). Consistent across both N=1 and paired-pod runs.
+
+**Code simplification opportunity (deferred to separate PR)**: NS_COEF_SCHEDULE=linear_ramp_down is INERT under cubic (c=0). Stack-pruning hygiene PR potential if merged.
 
 ### 🗃️ tanjiro #789 — N=1 sweep (archived hypothesis text)
 

@@ -3,6 +3,54 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-23 07:25 UTC — PR #789: Cubic NS @ FLOP-equivalence (tanjiro) — SENT BACK for rebase + re-run on new stack (84th cycle)
+
+- Branch: `g1r4-tanjiro/ns-polynomial-degree`
+- Hypothesis: NS_DEGREE=3 (cubic) at 1.5× iter count is FLOP-equivalent to NS_DEGREE=5 (quintic, current default). If polynomial degree is a noise-bound dimension, cubic@FLOP-eq should land in the same neighborhood; if quintic has fundamental advantages from the extra `c·A²` matmul term, cubic should regress.
+
+**Terminal n=3 paired-pod result (against OLD post-#708 stack, BEFORE #787 merged):**
+
+| Pod | seed | A val (quintic 12/16) | B val (cubic 18/24) | Δ_within (B−A) | direction |
+|:---:|:---:|:---:|:---:|:---:|:---|
+| 0 | 0 | 3.26874 | 3.26929 | +0.00055 | INcorrect |
+| 1 | 1 | 3.27111 | 3.26971 | −0.00140 | correct |
+| 2 | 2 | 3.26894 | **3.26812** | −0.00082 | correct |
+| **mean** | — | **3.26960** | **3.26904** | −0.00056 | — |
+| std | — | 0.00130 | 0.00080 | 0.00100 | — |
+
+**4 hard gates against new (post-#787) baseline 3.26944:**
+| Gate | Required | Achieved | Verdict |
+|---|---|---|---|
+| Baseline beat | mean(B,n=3) ≤ 3.26944 | 3.26904 | ✅ PASS by 0.00040 |
+| Stat-rule | (3.28 − mean) × √3 ≥ 0.004 | 0.01898 | ✅ PASS |
+| Direction-correct | ≥ 2/3 pods | 2/3 | ✅ PASS |
+| Drift gate (vs 3.26944) | all 3 A within ±0.003 | max +0.00167 (Pod 1 A) | ✅ PASS |
+
+**4/4 hard gates PASS even against the stricter new baseline.** Soft signal threshold (mean Δ ≤ −0.002) is sub-signal, but the hard gates clear unambiguously.
+
+**Verdict: SENT BACK for rebase + re-run** per CLAUDE.md cross-PR-merge protocol. Reasons:
+1. **Merge conflict with #787**: train_gpt_simple.py lines 584-585, 888-889, 1166-1175 conflict with stochastic-NS env-var additions. `senpai_merge_winner_preflight` refused merge due to `mergeStateStatus: DIRTY`.
+2. **Chain ran on OLD code** (before #787 merged): Used deterministic NS_ITERS_COOLDOWN=16, not the new stochastic-cooldown spread=2. Compounding behavior unverified.
+3. **Mechanism orthogonality plausible but unmeasured**: Cubic is polynomial-shape change; stochastic spread is iter-count variance. Likely orthogonal, but composition needs empirical verification.
+4. **Protocol discipline**: CLAUDE.md says "rebase onto $ADVISOR_BRANCH, re-run the experiment to verify the improvement still holds." This is the correct protocol when a baseline updates mid-chain.
+
+**Re-run protocol** (sent in send-back comment):
+- Rebase onto auto-nanogpt-1gpu-r4 (resolves stochastic NS additions)
+- Re-run paired-pod n=3 on Arm B (cubic NS_DEGREE=3, NS_ITERS=18/24) vs Arm A (quintic NS_DEGREE=5, NS_ITERS=12/16) — both arms now include NANOGPT_NS_STOCHASTIC_COOLDOWN=2 (new merged stack)
+- Pre-staged gates frozen against NEW baseline 3.26944 (stricter than original 3.27036)
+- ETA ~11 GPU-hours
+
+**Expected outcomes:**
+- mean(B,n=3) ≤ 3.26944: MERGE candidate (orthogonal composition validated, ~60% est)
+- mean(B,n=3) ∈ (3.26944, 3.27036]: productive-NULL (doesn't compose)
+- mean(B,n=3) > 3.27036: NEG (interference)
+
+**Durable mechanism finding**: Even before the rebase + re-run, the cubic@FLOP-eq paired-pod n=3 on OLD stack delivered the 2nd paired-pod gate-pass on this advisor branch (after #787 fern). Pattern: cubic rescues unfavorable seeds (Pod 1 Δ=−0.00140) but loses to favorable seeds (Pod 0 Δ=+0.00055). Wall-clock benefit ~0.24%/step at matched matmul.
+
+Code simplification opportunity (deferred to separate PR): NS_COEF_SCHEDULE=linear_ramp_down ramp is INERT under cubic (c=0). Stack pruning hygiene PR potential.
+
+---
+
 ## 2026-05-23 07:10 UTC — PR #787: Stochastic NS cooldown spread=2 (fern) — MERGED NEW BASELINE (82nd cycle)
 
 - Branch: `g1r4-fern/stochastic-ns-iter` (commit `4445794`)
