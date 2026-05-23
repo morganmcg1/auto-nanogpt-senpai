@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 08:45 UTC
+- **Last update:** 2026-05-23 09:00 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **TWO POTENTIAL IMPROVEMENTS PENDING:** #822 alphonse PMuon BC seed-3 tiebreaker; #864 thorfinn EMA warmup=1750 marginal val win.
 - **82 closed axes** (#846 edward AdEMAMix-Aux α sweep 82nd — both arms hard NULL).
@@ -23,7 +23,7 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (7 in-flight, 08:45 UTC)
+## Active experiments (8 in-flight, 09:00 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
@@ -34,9 +34,12 @@ Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primar
 | **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 2100 (~65%). ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
 | **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | Arm A `5mha8dpz` (paper β=(0.9,0.999), eps=1e-16) running step 2075 (~64%), ETA terminal ~09:00 UTC. Arm B drop-in pending chain. Tests variance-estimator axis. |
 | **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | Arm A `fjp71ucq` (NS_ITERS=8) running step 1050 (~32%), val=3.658. ETA ~11:00 UTC. Arm B (NS_ITERS=16) pending chain. |
+| **#893** | edward | PMuon momentum first-moment Adam-style BC (1/(1-mu^t)) | Newly assigned 09:00 UTC. Arm A=BC ON always; Arm B=BC ON warmup-only (until 200). Tests first-moment BC analog of #822 (which does second-moment BC on L_cov/R_cov). Orthogonal mechanism, fresh axis. |
 
-**Newly assigned next:** Edward → Lookahead-Muon (body-Muon outer-loop slow weights, Zhang et al. 2019).
-**Recently closed (this session):** #846 edward (AdEMAMix-Aux 82nd, both arms NULL), #827 nezuko (NS-output Frobenius 81st, n=2 informative-NULL).
+**Recently closed (this session):**
+- #846 edward (AdEMAMix-Aux 82nd, both arms NULL)
+- #827 nezuko (NS-output Frobenius 81st, n=2 informative-NULL)
+- #892 edward Lookahead-Muon (closed pre-launch as duplicate of #505 — same arms k=5/k=10 α=0.5 already NULL/NULL on body-Muon at PR #505 2026-05-20; my pre-launch duplicate-check failure caught before student touched it).
 
 ## Recently closed (since session start)
 
