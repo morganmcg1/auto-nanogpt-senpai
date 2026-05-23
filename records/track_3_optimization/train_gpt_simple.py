@@ -71,6 +71,17 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # β2 schedule on aux AdamW (embed/lm_head/scalars). Mutates param_groups[*]['betas']
+    # each step. constant = baseline (fused=True kept); cooldown_ramp = fused=False so
+    # PyTorch reads the updated betas from the param_group on every .step() call.
+    parser.add_argument("--aux_beta2_schedule", type=str, default=os.environ.get("AUX_BETA2_SCHEDULE", "constant"),
+                        choices=["constant", "cooldown_ramp"],
+                        help="If 'cooldown_ramp', ramp aux AdamW β2 from --aux_beta2_start to --aux_beta2_end "
+                             "linearly across the aux cooldown phase. Default 'constant' = baseline.")
+    parser.add_argument("--aux_beta2_start", type=float, default=float(os.environ.get("AUX_BETA2_START", "0.95")),
+                        help="β2 at start of training (and constant β2 if schedule=constant).")
+    parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
+                        help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,6 +777,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_beta2_schedule": args.aux_beta2_schedule,
+            "aux_beta2_start": args.aux_beta2_start,
+            "aux_beta2_end": args.aux_beta2_end,
         },
     )
 
@@ -812,10 +826,14 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
+    # fused AdamW reads betas from param_groups on every .step(), but to avoid any
+    # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
+    # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
+    _aux_fused = (args.aux_beta2_schedule == "constant")
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -876,7 +894,21 @@ for trial_idx in range(args.num_trials):
                 if opt is optimizer2:
                     eta = eta * muonh_warmup
                 group["lr"] = group["initial_lr"] * eta
-        return muonh_warmup
+        # Aux β2 schedule: ramp β2 from start to end linearly across the aux
+        # cooldown phase (last aux_cooldown_frac of training). constant schedule
+        # is a no-op since b2 stays equal to aux_beta2_start = baseline 0.95.
+        if args.aux_beta2_schedule == "cooldown_ramp":
+            cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
+            if step < cooldown_start:
+                b2 = args.aux_beta2_start
+            else:
+                prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+                b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+        else:
+            b2 = args.aux_beta2_start
+        for g in optimizer1.param_groups:
+            g["betas"] = (g["betas"][0], b2)
+        return muonh_warmup, b2
 
 
     ########################################
@@ -981,7 +1013,7 @@ for trial_idx in range(args.num_trials):
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
-        muonh_warmup_factor = set_hparams(step)
+        muonh_warmup_factor, aux_beta2 = set_hparams(step)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1030,6 +1062,7 @@ for trial_idx in range(args.num_trials):
         )
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
+            muonh_metrics["aux/beta2"] = aux_beta2
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
