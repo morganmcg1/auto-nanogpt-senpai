@@ -8,6 +8,48 @@ Mandatory stack flags: `--ns_iter 6 --soap_attn --lr_mlp 0.055 --wd_schedule ram
 
 ---
 
+## ★ ADVISOR ADDENDUM (post-researcher review, 2026-05-23 ~09:35Z)
+
+**Ideas 1 and 10 are MOOT — based on a researcher error.**
+
+Verification from `records/track_3_optimization/train_gpt_simple.py` line 570:
+```python
+SOAP_MLP_SUFFIXES = (".mlp.fc.weight", ".mlp.proj.weight")
+SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
+```
+
+Line 587: `soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())`
+
+**SOAP is unconditionally enabled on MLP weights.** The `--soap_attn` flag only adds attn to the SOAP scope. With `--soap_attn` (mandatory baseline flag), SOAP is preconditioning ALL body 2D weights — MLP AND attn.
+
+Therefore:
+- **Idea 1 (SOAP on MLP path)**: already in baseline. Skip.
+- **Idea 10 (AdaFactor on MLP)**: would replace SOAP on MLP rather than augment, but this is testing a *lighter* preconditioner against SOAP's own incumbency — likely strictly worse. Skip.
+
+**Implication for #840 Cell E (MLP-only scope) winning over Cell B (all-scope):** The original "MLP lacks SOAP, so adding mechanism there is more productive" mechanism (advisor accepted from student in #840 review) is INCOMPLETE. Both paths have SOAP. The MLP-only advantage of dual-EMA injection must come from a different mechanism — possibly:
+- (a) attn projections feed into softmax, making the attention pattern more sensitive to slow-EMA injection magnitudes (early training instability)
+- (b) SOAP-on-attn has trust-gate (`--soap_trust_threshold`) that interacts with dual-EMA differently than SOAP-on-MLP's untrusted SOAP
+- (c) Random variance in n=1 — Cell E might be a lucky seed; n=4 confirm in flight will resolve
+
+Should not affect the n=4 confirm decision (E n=1 is below merge gate; if it replicates, mechanism interpretation is secondary to the empirical signal).
+
+**Refined priority order (post-addendum):**
+
+| Rank | Idea | Status |
+|------|------|--------|
+| 1 | Idea 4 — Muon WD sweep on body matrices | ★ Top — body matrices currently WD=0, fresh axis |
+| 2 | Idea 2 — AdEMAMix β₃/α grid | Defer until #840 n=4 lands |
+| 3 | Idea 3 — Nesterov pre-NS | High — formula change, no extra cost |
+| 4 | Idea 5 — Per-column normalization pre-NS | High — clean mechanism |
+| 5 | Idea 7 — Momentum reset at cooldown onset | Medium — schedule interaction (novel) |
+| 6 | Idea 8 — Top-k sparsification pre-NS | Medium — gradient filtering |
+| 7 | Idea 6 — Path-heterogeneous β₁ (mlp vs attn) | Medium — distinct from #800 depth-het |
+| 8 | Idea 9 — Q/K/V consensus update | Lower — risky structural bet |
+| — | Idea 1 — SOAP on MLP path | ✗ MOOT (already in baseline) |
+| — | Idea 10 — AdaFactor factored preconditioner | ✗ MOOT (would replace SOAP, likely worse) |
+
+---
+
 ## Idea 1 — SOAP Preconditioning on MLP Path
 
 **Hypothesis:** Extending the Kronecker (SOAP) preconditioner from attention weights to MLP fc1/fc2 matrices will reduce the gradient-space distortion that Muon's NS step must correct, yielding a lower effective curvature landscape on the MLP path — the same path where AdEMAMix (PR #840 Cell E) already shows the programme's strongest post-#699 signal.
