@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 05:07 UTC
+- **Date:** 2026-05-23 05:25 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -894,7 +894,42 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 **Follow-up:** edward assigned **#838 AdamW multiplicative v_t floor for lm_head** — same Zipf-distributional intuition but at the preconditioner level. Mechanism-distinct from #652 (additive ε NEG): multiplicative floor caps the ratio between rare-row and frequent-row step sizes via `v_eff = max(v_t, α × v_t.median())`.
 
-### 🔄 edward #838 — AdamW multiplicative v_t floor for lm_head [assigned 20:55 UTC; 4-arm chain past 50% at 01:45 UTC]
+### ✅ edward #838 — AdamW multiplicative v_t floor for lm_head — CLOSED 05:25 UTC productive-NEGATIVE (77th cycle)
+
+**Branch:** `g1r4-edward/adamw-vmin-floor` (commit `1271aa73` pushed 23:30 UTC — my earlier "branch not pushed" claim was stale view)
+
+**Terminal 4-arm N=1 result (drift gate A PASS edge, favorable seed Δ=−0.00212):**
+
+| Arm | mode | frac | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 | Verdict |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | none | 0 | 67w8k970 | 3.26824 | 3200 | — | −0.00212 (favorable seed) | drift PASS edge |
+| B | median_frac | 1e-4 | zxxxagn7 | 3.26983 | 3200 | **+0.00159** | −0.00053 | marginal regression |
+| C | median_frac | 1e-3 | xayaoxhz | 3.26942 | 3200 | **+0.00118** | −0.00094 | sub-threshold regression |
+| D | max_frac | 1e-6 | ku2ihasf | 3.27483 | 3275 | **+0.00659** | +0.00447 | **strong regression** |
+
+**Durable mechanism finding (Edward's terminal observation)**: For Zipf-distributed v_t on lm_head, `max(v)/median(v) > 1000` → **`max_frac=1e-6` is stronger in absolute floor magnitude than `median_frac=1e-3`**. PR's "very mild reference" label for Arm D was wrong; Arm D was actually most aggressive floor. Reading B→C→D in absolute floor magnitude (not nominal labels) gives monotone direction-incorrect: weak (A 0) → mild (C 32× median) → mildly-stronger (B 100× median) → strongest (D > 1e-3 median in absolute units). The Zipf-distributed v_t carries legitimate per-token signal; compressing strips signal.
+
+**Composition with lm_head closed-axes ledger (13 closures)**: #441 z-loss NEG + #446 label smoothing NEG + #547 cooldown NULL + #560 β₂ NULL + #584 LR-mult NULL + #599 β₁ NEG + #618 Muon² NEG + #652 ε NEG + #663 SOAP NULL + #664 BC NULL + #668 per-row clip NEG + #791 focal NEG + **#838 multiplicative floor NEG**. **Pattern**: lm_head's optimizer-side preconditioner is structurally distinct from inner-block Hessians; AdamW with merged defaults extracts available signal. Future lm_head work should NOT target preconditioner replacements/magnitude interventions — pivot to representational mechanisms (architecture changes out of scope per launch isolation).
+
+**Ghost-crash post-mortem**: 4 spurious concurrent `torchrun` launches by prior CC iterations not detecting still-live PID 1246502; mitigated via `wait_then_run_BCD.sh` PID-checking shim. All duplicates had `mode=none` (Arm A config) → not implicated by FloorAdamW.
+
+**Follow-up**: edward reassigned to **#874 Embed weight init magnitude sweep** — fresh AUX-side init axis parallel to thorfinn #848 (lm_head init perturbation). Bilateral test of "init magnitude on AUX side is load-bearing".
+
+### 🔄 edward #874 — Embed weight init magnitude sweep (4-arm) [assigned 05:25 UTC]
+
+**Branch:** `g1r4-edward/embed-init-magnitude`
+**Hypothesis**: `model.embed.weight` initialized via `w.normal_()` = N(0,1) (line 896). Tonight's emerging "tiny perturbation of AUX defaults wins" theme (#847 Goldilocks at λ=0.001 + #848 Goldilocks at std=0.0001) suggests N(0,1) embed default may not be empirically optimal. Mechanism: embed init magnitude affects first-layer activation scale → body Muon gradient backflow → step-0 trajectory. NS-orthogonalization (body Muon) absorbs body init magnitude effect within ~100 steps (#812 NULL), but embed is AdamW-managed (NOT NS-absorbed) — different mechanism class.
+| Arm | NANOGPT_EMBED_INIT_SCALE | expected ‖embed‖_F |
+|:---:|:---:|:---:|
+| A | 1.0 (ctrl) | 6213 |
+| B | 0.5 | 3107 |
+| C | 0.7 | 4349 |
+| D | 1.5 | 9320 |
+Implementation: ~3 LOC, `w.normal_()` followed by `if scale != 1.0: w.mul_(scale)`. Bit-identical fallback at scale=1.0. Mechanism-orthogonal to #812 (body), #847 (drift-suppression-from-init), #848 (lm_head zero-perturbation). Symmetric to #393 ADAMW_EMBED_LR_MULT=1.5 MERGED but on init axis.
+
+ETA terminal ~12-14h sequential.
+
+### 🗃️ edward #838 — assignment text (archived)
 
 **Branch:** `g1r4-edward/adamw-vmin-floor`
 **Hypothesis**: lm_head AdamW `v_t` is Zipf-distributed across vocab rows. ε=1e-10 doesn't practically floor rare rows → extreme per-coord step magnitude variance. Multiplicative floor `v_eff = max(v_t, α × v_t.median())` compresses this variance at sqrt-time (without mutating state buffer). Mechanism-distinct from #652 (additive ε in denom — irrelevant to frequent rows; doesn't cap rare-vs-frequent step-size ratio).
