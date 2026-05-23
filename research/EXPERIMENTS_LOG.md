@@ -3,6 +3,24 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~12:27 UTC — PR #855: tanjiro Schedule-Free Muon — **CLOSED clean-NEG**
+
+- Branch: `g1r5-tanjiro/schedule-free-muon`
+- Student: g1r5-tanjiro
+- Hypothesis: Maintain a Polyak-averaged evaluation iterate `z_t` (CPU EMA of training weights `x_t`). Evaluate val/loss at `z_t` each step. The averaged iterate approximates the Polyak-Ruppert trajectory mean, historically the lowest-bias estimator of the optimum. Expected Δval/loss: −0.001 to −0.003 nats.
+
+| Cell | sf_beta | val/loss (3250) | ffs | Δval vs ctrl | W&B |
+|------|---------|----------------:|----:|-------------|-----|
+| A (ctrl) | 0.0 | **3.26226** | 3050 | — | bhd5lqkq |
+| B | 0.99 ★ | 3.26923 | 3025 | +0.00697 | l4dmb01j |
+| C | 0.97 | 3.26313 | **3000** | +0.00087 | jjf5j8mu |
+| D | 0.95 | 3.26314 | **3000** | +0.00088 | hdsg76ho |
+| E | 0.995 | 3.27411 | 3100 | +0.01185 | x6oeisny |
+
+**Analysis:** U-shaped pattern in sf_beta (E>B>C≈D>A). Mechanism: ramp_down LR makes terminal x_T the bottom of the trajectory — the averaged iterate z_T includes high-loss early iterates, so z_T > x_T by construction. This is largest for high-β (long memory window reaching back to high-loss early phase). C/D (short memory) approach parity with ctrl but never beat it. +25-29% step-time overhead additionally harms ffs_t metric. Schedule-Free iterate-averaging under monotonic-LR-decay schedules closed. Distinct from #659 (SF AdamW, 46-59σ worse) — this SF-Muon failure is smaller in magnitude but for the same structural reason.
+
+Note: tanjiro reassigned → PR #907 momentum buffer reset at cooldown onset.
+
 ## 2026-05-23 ~12:15 UTC — PR #867: thorfinn Pre-NS Cautious Muon — **CLOSED clean-NEG**
 
 - Branch: `g1r5-thorfinn/pre-ns-cautious-muon`
