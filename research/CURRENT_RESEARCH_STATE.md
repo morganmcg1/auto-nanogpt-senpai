@@ -969,6 +969,8 @@ Signal threshold: Δ_within_vs_A ≤ −0.002 → paired-pod n=3 on best arm. ET
 
 **10:50 UTC — launch verified**: Arm A (`fm6v2myz`) running at step ~250/3350, val ~4.085 (early phase normal). Launch delay (assignment 10:25 UTC → first W&B logging ~10:42 UTC) resolved without intervention; frieren's silent-modus startup pattern confirmed. ETA terminal ~17:40 UTC.
 
+**11:11 UTC — Arm A crash + clean restart on same pod**: Original Arm A run `fm6v2myz` (created 10:42 UTC) crashed at step 475 (val 3.9077). Replacement `wr4gljm4` (created 10:52 UTC, same pod `...-g1r4-frieren-5cfc58bd5b-qd9f4`) launched cleanly and is now the sole active Arm A. Running at step 400, val 3.9115 — early-phase normal. **NOT a live ghost-crash duplicate** (no concurrent torchruns); benign sequential restart pattern (mirrors thorfinn cycle 86 shape). ETA terminal still ~17:40 UTC accounting for ~10-min restart drift.
+
 ### 🔄 fern #883 — Stochastic NS cooldown spread Goldilocks sweep (4-arm) [assigned 07:10 UTC]
 
 **Branch:** `g1r4-fern/stochastic-ns-cooldown-spread`
