@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 06:05 UTC
+- **Date:** 2026-05-23 06:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -459,7 +459,7 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 
 **Follow-up**: thorfinn reassigned to **#848 lm_head non-zero init magnitude sweep** — fresh init axis on AUX side. lm_head currently `w.zero_()` per line 894; bit-identical fallback at std=0. 4-arm sweep std ∈ {0, 1e-4, 1e-3, 5e-3}. Mechanism-novel for lm_head; tests whether zero-init is empirically optimal or just a residual-block-style default.
 
-### 🔄 thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) [assigned 22:25 UTC; progress refresh #2 03:08 UTC]
+### ✅ thorfinn #848 — lm_head non-zero init magnitude sweep (4-arm) — CLOSED 06:35 UTC productive-NULL (81st cycle)
 
 **Branch:** `g1r4-thorfinn/lm-head-init-std` (commit `63a2953` pushed 00:58 UTC — FIRST student to push implementation this evening)
 **Hypothesis**: `model.proj.weight` (lm_head) currently `w.zero_()` initialized (line 894). At step 0, lm_head=0 → uniform logits over 50257 tokens → uniform softmax. Tests whether the "build-out from zero" exploration phase that lm_head spends in early training is structurally load-bearing OR an empirical default that small non-zero init could improve on. Distinct from all closed lm_head experiments (which modified optimizer not init). Distinct from #812 (body Muon init). Implementation: ~5 LOC, condition `name == "proj.weight"` to special-case top-level lm_head while preserving residual-init zero for in-block attn.proj/mlp.proj. Bit-identical fallback at std=0.
@@ -470,30 +470,28 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 | C | 1e-3 (mild, common transformer init) | ~6.2 | ~1e-2 |
 | D | 5e-3 (moderate) | ~31 | ~5e-2 |
 
-**05:07 UTC progress refresh #3** (W&B-verified; 3/4 arms FINISHED, Arm D running, GOLDILOCKS pattern confirmed):
+**06:33 UTC SENPAI-RESULT terminal — 4-arm N=1 clean GOLDILOCKS at B with monotone regression for std ≥ 1e-3**:
 
-| Arm | std | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
-|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
-| A (ctrl) | 0.0 | `pt2bcodv` | finished | 3350 | 3.270191 | — | −0.000169 (drift PASS tight) |
-| **B** | **0.0001** | `ugnar56v` | **finished** | 3350 | **3.269775** | **−0.000416** | **−0.000585 (BEST direction-correct)** |
-| C | 0.001 | `o7ojpvgj` | **finished** | 3350 | **3.270464** | +0.000273 | +0.000104 (regression past baseline) |
-| D | 0.005 | `2yjm70rk` | running | early (launched 04:40 UTC) | ~3.655 in-prog | TBD | TBD (projected further regression) |
+| Arm | std | run ID | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | `pt2bcodv` | 3.27019 | 3225 | — | −0.000169 (drift PASS) |
+| **B** | **0.0001** | `ugnar56v` | **3.26978** | 3200 | **−0.000416** | **−0.000585 (BEST direction-correct sub-threshold)** |
+| C | 0.001 | `o7ojpvgj` | 3.27046 | 3225 | +0.000273 | +0.000104 (mild regression past baseline) |
+| D | 0.005 | `2yjm70rk` | 3.27078 | 3225 | +0.000589 | +0.000420 (larger monotone regression) |
 
-**GOLDILOCKS pattern at B (std=0.0001) — mechanism IS REAL**: clean non-monotone, B beats A by −0.000416 within-pod, C at 10× stronger std (0.001) collapses past A *and* past baseline (+0.000104). Optimum narrow — within an order of magnitude of 0.0001. Arm D projected further regression based on curve shape (50× stronger than B).
+**06:35 UTC decision — CLOSED productive-NULL (NOT sent back to paired-pod)**:
 
-**Cross-PR confirmation with alphonse #847**: Both PRs show optimum at the smallest non-zero value tested (B std=0.0001 here, B λ=0.001 in #847), both with C 5-10× stronger collapsing. Two different mechanisms (init perturbation vs init-anchored WD) converge on **"tiny perturbation of AUX-side defaults wins"**. NS-orthogonalization (body Muon) absorbs perturbations, but AUX-side defaults (zero-init lm_head; AdamW WD=0 on embed) leave optimization headroom in narrow tiny windows.
+- **Δ_vs_baseline=−0.000585 below paired-pod threshold** (typical −0.001 sub-signal trigger). 10+ paired-pod collapse precedents at this magnitude → ~80% collapse probability.
+- **Cross-PR redundancy with #847**: alphonse #847 is currently in paired-pod n=3 confirmation on the SAME "tiny AUX-side perturbation wins" theme. If #847 confirms → #848 paired-pod is redundant cross-PR check; if #847 collapses → #848 would have too. Either way, low marginal information from #848 paired-pod.
+- **#847 is stronger candidate**: #847 Δ=−0.00083 with D catastrophic (+0.01572 fs=−1 DNF) is more informative than #848 Δ=−0.000585 with mild monotone regression.
 
-**Implementation hygiene — branch pushed**: commit `63a2953` "lm_head non-zero Gaussian init (env-gated, std=0 bit-identical)" pushed at 00:58 UTC. **Thorfinn is the first student to push implementation tonight**.
+**Durable mechanism finding**: lm_head init optimum is in a narrow window around std=0.0001 (norm=0.621668, mean_abs=8e-5). std ≥ 1e-3 collapses past baseline. Zero-init singular point can be broken by tiny non-zero perturbation but val/loss gain is below paired-pod noise floor on this baseline.
 
-**LM_HEAD_INIT sanity print verified firing correctly (name-match validation, cycle 72):**
-- `pt2bcodv` (std=0.0): actual_norm=0.000000 — bit-clean fallback confirmed
-- `ugnar56v` (std=0.0001): actual_norm=0.621668 — matches expected ~6213×0.0001≈0.62
+**14th lm_head closure**: lm_head AUX-side AdamW group thoroughly tested across preconditioner (#560/#599/#618/#652/#663/#664/#668/#838), loss-shape (#441/#446/#791), schedule (#547), LR-mult (#584), and now init-magnitude. Future lm_head work should target cross-axis composition or STRUCTURAL mechanisms (tied init, low-rank, structured init from embed).
 
-**Ghost-crash status**: 6 total now (previously 3 at cycle 72): 4 Arm A (`v05322qp`/`xlc48udw`/`xgnzpchd`/`7ah6ml9s`) + 1 Arm B (`5pmd4i1b`) + 1 Arm C (`5byj5csa`). All match nominal arm config. Requested student include ghost-crash root cause in terminal SENPAI-RESULT.
+**Implementation hygiene exemplary**: branch `63a2953` pushed cleanly, LM_HEAD_INIT print sanity verified (predicted vs actual perfectly match `std × √(50257×768) ≈ std × 6213`), 6 operator-error ghost crashes documented with root cause, bit-identical fallback at std=0.0 verified, wall-clock identical to baseline, full SENPAI-RESULT marker.
 
-**Pre-staged paired-pod n=3 follow-up — RECOMMENDED at terminal**: send back for paired-pod n=3 on Arm B (std=0.0001) layered on post-#708 stack. Collapse probability ~75% per 10+ precedents, but cross-arm + cross-PR confirmation elevates above noise. Gates: mean(B,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift ±0.003. If collapse, axis closes cleanly with Goldilocks characterized at std=0.0001.
-
-ETA terminal ~06:00 UTC. Posted #848 progress refresh #3 comment.
+**Follow-up**: thorfinn reassigned to **#880 Muon² body v_t ablation** — pruning/sweep of body Muon's internal Adam-style second-moment buffer (beta2=0.999 default), Arm B as structural disable (beta2=0.0) to test whether Muon² is load-bearing on body. Mechanism-distinct from all closed body-Muon work — body-side Muon² internal v_t has never been touched. Either outcome durable: B regresses → Muon² load-bearing; B near-neutral → stack simplification candidate; B catastrophic → critical structure validated.
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
@@ -927,6 +925,30 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 **Ghost-crash post-mortem**: 4 spurious concurrent `torchrun` launches by prior CC iterations not detecting still-live PID 1246502; mitigated via `wait_then_run_BCD.sh` PID-checking shim. All duplicates had `mode=none` (Arm A config) → not implicated by FloorAdamW.
 
 **Follow-up**: edward reassigned to **#874 Embed weight init magnitude sweep** — fresh AUX-side init axis parallel to thorfinn #848 (lm_head init perturbation). Bilateral test of "init magnitude on AUX side is load-bearing".
+
+### 🔄 thorfinn #880 — Muon² body v_t ablation (4-arm beta2 sweep + structural disable) [assigned 06:35 UTC]
+
+**Branch:** `g1r4-thorfinn/muon-v2-body-ablation`
+**Hypothesis**: Body Muon already runs Muon² (Adam-style v_t pre-NS preconditioning) with `beta2=0.999`, `eps=1e-8` — never independently swept or ablated on this stack. Two sub-questions: (1) **Is the body Muon² v_t denominator load-bearing on the post-#708 stack?** (Arm B disable test), (2) **If load-bearing, is `beta2=0.999` the right time constant?** (Arms C, D bracket).
+| Arm | NANOGPT_MUON_BODY_BETA2 | mechanism interpretation |
+|:---:|:---:|:---|
+| A | 0.999 (ctrl) | bit-identical at default; current Muon² active |
+| B | 0.0 | **disable Muon² entirely** — pure momentum-then-NS, structural pruning ablation |
+| C | 0.99 | 10× faster v_t adaptation |
+| D | 0.9999 | 10× slower v_t adaptation |
+Implementation: ~10 LOC — env var + 3-line guard around v_t block (`if beta2 > 0.0:`) + Muon constructor kwarg + sanity print + W&B config. Bit-identical fallback at beta2=0.999.
+
+**Mechanism-distinctness**: #618 closed Muon² for **lm_head** (different parameter family); #560 closed AdamW β₂ for **AUX** (different optimizer); #810 frieren in-flight is **post-NS** momentum (different mechanism level); #789 tanjiro in-flight is NS polynomial **degree** (NS internals). This PR's mechanism (body v_t **pre-NS** denominator) is orthogonal to all of these.
+
+**Pre-staged outcomes (most informative)**:
+1. **B catastrophic (Δ ≥ +0.005)**: Muon² is structurally essential — close + tighter beta2 sweep
+2. **B near-neutral (|Δ| ≤ 0.0015)**: **STRUCTURAL SIMPLIFICATION CANDIDATE** — Muon² redundant on body, can be pruned. Productive-positive close with stack simplification finding.
+3. **B mild regression + C/D bracket A**: partial-redundancy finding (parallels #487 NS-cooldown joint-pruning)
+4. **C or D best with Δ ≤ −0.002**: positive signal on beta2 axis → paired-pod n=3 on winner
+
+**Risk class**: LOW. Pre-NS guard around existing v_t block; cannot affect NS dynamics, model architecture, eval. Worst case (B catastrophic) is itself a durable finding (validates Muon² body structure).
+
+ETA ~7h chain. Edward #874 (embed init magnitude) and #880 thorfinn are both stack-tuning/ablation 4-arms running in parallel — orthogonal axes (AUX init scale vs body Muon² internals).
 
 ### 🔄 edward #874 — Embed weight init magnitude sweep (4-arm) [assigned 05:25 UTC]
 
