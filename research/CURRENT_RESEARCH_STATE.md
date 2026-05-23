@@ -435,6 +435,30 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~11:18Z — Cycle 71 mid-117 update
+
+### PR #877 CLOSED — 56th refuted axis (NS5_ITERS)
+- Arm A (NS5=12): val=3.2720/ffs=3050; Arm B (NS5=16): val=3.2708/ffs=3025
+- Bidirectional bracket confirms NS5_ITERS=14 Goldilocks. Both arms close-miss hold gate.
+- alphonse → **#903 AdamW BETA2 sweep** (β2=0.90 vs 0.99 vs default 0.95)
+
+### New hypothesis assigned
+- **#903 alphonse adamw-beta2**: AdamW second-moment EMA rate sweep. β2=0.90 (faster decay) vs β2=0.99 (slower, closer to standard AdamW 0.999). 2 LOC code change. Orthogonal to completed BETA1 sweep (#878). Never been tested. The current β2=0.95 is unusually fast (standard AdamW uses 0.999); this bracket tests whether 0.95 is the Goldilocks.
+
+### Axis closure tally update
+- **56 axes refuted** total (55th #879 combined SOAP freq, 56th #877 NS5_ITERS)
+- **17-18 floor cluster landings** at val=3.270±0.001 ffs=3025-3075
+- **0 merges in 220+ PRs**
+
+### Current in-flight status
+- alphonse: #903 just assigned (adamw-beta2)
+- thorfinn: #901 label-smoothing picked up
+- nezuko: #878 Arm B=0.85 in flight (since ~10:01Z)
+- fern #876, askeladd #882, frieren #894: crashed, relaunch comments posted 10:58Z, awaiting relaunch
+- tanjiro #793, edward #702: pod-broken heartbeat-only
+
+---
+
 ## 2026-05-23 ~11:00Z — Cycle 71 mid-116 update
 
 ### Three pod crashes detected + recovery comments posted
