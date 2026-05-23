@@ -61,6 +61,10 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--kahan_muon", action="store_true", default=False,
+                        help="Kahan compensated weight update for body-Muon BF16 params")
+    parser.add_argument("--kahan_muon_ema", action="store_true", default=False,
+                        help="Also apply Kahan compensation to Polyak EMA lerp accumulation")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -530,6 +534,25 @@ def pmuon_update(
     return update
 
 
+def kahan_add_(p: Tensor, update: Tensor, comp: Tensor) -> None:
+    """Compensated in-place add for low-precision parameter tensors.
+
+    The PR-spec form `comp = y - (t - p_f32)` captures only the FP32 add error,
+    which is ~0 at body-Muon scales; the actual precision lost is in the BF16
+    downcast on `p.copy_(t.to(p.dtype))`. This version tracks the downcast
+    residual in `comp` so sub-ULP updates accumulate across steps and eventually
+    cross the BF16 representability threshold. Verified by per-step trace:
+    after 750 steps of +2.88e-4 on a p=0.5 BF16 weight, plain bf16 add stays at
+    0.5 (full precision loss), spec Kahan stays at 0.5 with comp=0 (no-op), and
+    this form reaches p+comp=0.716 matching the true sum. Same memory footprint
+    (one FP32 buffer per param)."""
+    p_f32 = p.detach().float()
+    t = p_f32 + update.float() + comp
+    p_new = t.to(p.dtype)
+    comp.copy_(t - p_new.float())
+    p.copy_(p_new)
+
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
                  ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
@@ -548,6 +571,9 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        # Per-step update magnitudes are stashed as GPU tensors; conversion to
+        # python floats is deferred to telemetry time to avoid per-step syncs.
+        kahan_update_abs_tensors: list[Tensor] = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -559,6 +585,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    if args.kahan_muon and "kahan_comp" not in state:
+                        state["kahan_comp"] = torch.zeros_like(p, dtype=torch.float32)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -579,11 +607,22 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-group["lr"])
+                    if args.kahan_muon:
+                        # Sub-ULP compensated update: WD + gradient step folded into a
+                        # single FP32 add via kahan_add_ for BF16 storage precision.
+                        p_f32 = p.detach().float()
+                        wd_update = group["lr"] * group["weight_decay"] * p_f32
+                        full_update = group["lr"] * update.float() + wd_update
+                        kahan_update_abs_tensors.append(full_update.abs().mean())
+                        kahan_add_(p, -full_update, state["kahan_comp"])
+                    else:
+                        p.mul_(1 - group["lr"] * group["weight_decay"])
+                        p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        # Defer .item() to telemetry-due steps to avoid per-step CPU sync overhead.
+        self._kahan_update_abs_tensors = kahan_update_abs_tensors
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -717,6 +756,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "kahan_muon": int(args.kahan_muon),
+            "kahan_muon_ema": int(args.kahan_muon_ema),
         },
     )
 
@@ -769,8 +810,11 @@ for trial_idx in range(args.num_trials):
     # --ema_beta_target is set, the EMA β is dynamically ramped from
     # ema_beta (base) to ema_beta_target as the LR multiplier decays to 0.
     ema_params = None
+    ema_kahan_comps = None
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+        if args.kahan_muon_ema:
+            ema_kahan_comps = [torch.zeros_like(ep, dtype=torch.float32) for ep in ema_params]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -993,8 +1037,15 @@ for trial_idx in range(args.num_trials):
                 ema_lr_mult_now = compute_lr_mult(step)
                 ema_beta_t_now = compute_ema_beta_t(step)
                 lerp_w = 1.0 - ema_beta_t_now
-                for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
-                    ema_p.lerp_(p.detach().float(), lerp_w)
+                if ema_kahan_comps is not None:
+                    for ema_p, p, ema_comp in zip(ema_params,
+                                                  optimizer2.param_groups[0]["params"],
+                                                  ema_kahan_comps):
+                        delta = (p.detach().float() - ema_p) * lerp_w
+                        kahan_add_(ema_p, delta, ema_comp)
+                else:
+                    for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
+                        ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
@@ -1049,6 +1100,29 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+            if args.kahan_muon:
+                update_abs_tensors = getattr(optimizer2, "_kahan_update_abs_tensors", None)
+                if update_abs_tensors:
+                    n = len(update_abs_tensors)
+                    update_mag = float(torch.stack(update_abs_tensors).mean().item())
+                    comp_tensors = [optimizer2.state[p]["kahan_comp"]
+                                    for grp in optimizer2.param_groups for p in grp["params"]
+                                    if "kahan_comp" in optimizer2.state[p]]
+                    comp_rms_mean = float(torch.stack([c.square().mean().sqrt()
+                                                       for c in comp_tensors]).mean().item()) \
+                                    if comp_tensors else 0.0
+                    kahan_metrics = {
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "kahan/body_muon_comp_rms_mean": comp_rms_mean,
+                        "kahan/update_magnitude": update_mag,
+                        "kahan/body_muon_param_count": n,
+                    }
+                    if ema_kahan_comps is not None:
+                        ema_rms = float(torch.stack([c.square().mean().sqrt()
+                                                     for c in ema_kahan_comps]).mean().item())
+                        kahan_metrics["kahan/ema_comp_rms_mean"] = ema_rms
+                    wandb.log(kahan_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
