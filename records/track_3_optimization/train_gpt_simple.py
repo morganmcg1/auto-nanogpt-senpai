@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # PaLM/T5-style z-loss: auxiliary penalty alpha * logsumexp(logits)^2 added to the
+    # training loss only (val/loss stays pure CE). Pulls the partition function toward
+    # zero to keep CE numerically conditioned alongside the existing soft-cap.
+    # Default 0.0 disables (bit-identical to baseline).
+    parser.add_argument("--z_loss_alpha", type=float, default=float(os.environ.get("Z_LOSS_ALPHA", "0.0")),
+                        help="PaLM/T5 z-loss coefficient on training logsumexp**2 penalty. "
+                             "0.0 = off (baseline). PaLM/T5 default 1e-4.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -452,14 +459,35 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Diagnostic buffers for z-loss telemetry. Updated in-place by forward()
+        # when z_loss_alpha > 0 (training only). Non-persistent so they are not
+        # checkpointed. No-op when z-loss is disabled.
+        self.register_buffer("_last_lse_mean", torch.zeros(()), persistent=False)
+        self.register_buffer("_last_lse_max", torch.zeros(()), persistent=False)
+        self.register_buffer("_last_z_loss_per_token", torch.zeros(()), persistent=False)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, z_loss_alpha: float = 0.0):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat = logits.view(targets.numel(), -1)
+        ce = F.cross_entropy(flat, targets.view(-1), reduction="sum")
+        if z_loss_alpha > 0:
+            # PaLM/T5 z-loss: alpha * sum_i (logsumexp(logits_i))^2.
+            # We keep the sum-form to match CE's reduction="sum" so the PaLM
+            # per-token alpha (1e-4) keeps its conventional magnitude.
+            lse = torch.logsumexp(flat, dim=-1)
+            lse_sq_sum = lse.square().sum()
+            z_loss = z_loss_alpha * lse_sq_sum
+            with torch.no_grad():
+                self._last_lse_mean.copy_(lse.mean())
+                self._last_lse_max.copy_(lse.abs().max())
+                # Report per-token z-loss for cross-config comparability.
+                self._last_z_loss_per_token.copy_(z_loss / lse.numel())
+            return ce + z_loss
+        return ce
 
 
 ########################################
@@ -713,6 +741,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.z_loss_alpha > 0:
+    print0(f"Z-LOSS ENABLED (PaLM/T5-style): alpha={args.z_loss_alpha} (training only; val/loss stays pure CE)", console=True)
+else:
+    print0("Z-LOSS DISABLED (alpha=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +798,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "z_loss_alpha": args.z_loss_alpha,
         },
     )
 
@@ -972,7 +1005,7 @@ for trial_idx in range(args.num_trials):
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs], args.z_loss_alpha)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -1008,6 +1041,18 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if args.z_loss_alpha > 0:
+                # Pull diagnostic stats from the most recent training microbatch.
+                # These reflect the last microbatch only (cheap probe), not the
+                # whole step average. Useful for monitoring whether z-loss is
+                # binding (lse_mean should decay toward 0 over training).
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/z_loss_value": float(model._last_z_loss_per_token.item()),
+                    "train/logsumexp_mean": float(model._last_lse_mean.item()),
+                    "train/logsumexp_max_abs": float(model._last_lse_max.item()),
+                }, step=wandb_step)
         # AGC on aux AdamW groups: clip per-param grad to clip_ratio * |param|.
         # No-op (bit-identical) when args.aux_agc_clip_ratio <= 0.
         agc_stats = adaptive_gradient_clip(
