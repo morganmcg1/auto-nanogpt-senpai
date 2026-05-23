@@ -71,6 +71,19 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # SWA eval-time uniform weight averaging (Izmailov 2018, arXiv:1803.05407).
+    # Maintain a uniform running average of named_parameters() in an fp32 shadow
+    # buffer that accumulates from train_step > swa_start_step onward. At each
+    # validation event swap to the SWA weights, compute val/loss_swa, swap back
+    # to live. Bit-identical to baseline when --swa_enabled=0 (no shadow alloc,
+    # no swap, all code paths skipped).
+    parser.add_argument("--swa_enabled", type=int, default=int(os.environ.get("SWA_ENABLED", "0")),
+                        help="If 1, maintain SWA shadow weights and report val/loss_swa. 0 = baseline.")
+    parser.add_argument("--swa_start_step", type=int, default=int(os.environ.get("SWA_START_STEP", "2825")),
+                        help="Begin SWA accumulation strictly after train_step > swa_start_step. "
+                             "Default 2825 with train_steps=3325 → last 500 steps averaged.")
+    parser.add_argument("--swa_eval_steps", type=int, default=int(os.environ.get("SWA_EVAL_STEPS", "0")),
+                        help="Reserved for future use (independent SWA eval cadence). 0 = use baseline val cadence.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +726,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.swa_enabled:
+    print0(f"SWA ENABLED: start_step={args.swa_start_step} (uniform avg of train_step > start_step)", console=True)
+else:
+    print0("SWA DISABLED (bit-identical baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +783,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "swa_enabled": bool(args.swa_enabled),
+            "swa_start_step": args.swa_start_step,
+            "swa_eval_steps": args.swa_eval_steps,
         },
     )
 
@@ -902,6 +922,22 @@ for trial_idx in range(args.num_trials):
         outer_velocity = None
     outer_applied_steps = 0
 
+    # SWA eval-time uniform weight averaging. Shadow buffer in fp32 (independent
+    # of param dtype, important for the bf16 embed) accumulates a uniform running
+    # average of named_parameters() once train_step > swa_start_step. Iterates
+    # named_parameters() (not state_dict()) so non-trainable buffers like
+    # Rotary.angular_freq are NOT included. No allocations when SWA is off.
+    swa_enabled = bool(args.swa_enabled)
+    if swa_enabled:
+        swa_weights = {n: torch.zeros_like(p.data, dtype=torch.float32)
+                       for n, p in model.named_parameters()}
+    else:
+        swa_weights = None
+    swa_count = 0
+    best_val_loss_swa = float("inf")
+    best_val_step_swa = -1
+    first_step_to_target_swa = -1
+
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -956,8 +992,71 @@ for trial_idx in range(args.num_trials):
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
+
+            # SWA eval-time swap. Compute delta_norm (||w_swa - w_live|| / ||w_live||)
+            # first while both states are still in place, then swap parameters to the
+            # SWA shadow, run a single val pass, swap back. Bit-identical to baseline
+            # when swa_enabled=0: the entire block is skipped (no eval cost, no swap).
+            val_loss_swa_float = None
+            swa_delta_norm = None
+            if swa_enabled and swa_count > 0:
+                diff_sq = torch.zeros((), device=device, dtype=torch.float64)
+                live_sq = torch.zeros((), device=device, dtype=torch.float64)
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        live_f = p.data.detach().to(dtype=torch.float64)
+                        swa_f = swa_weights[n].to(dtype=torch.float64)
+                        diff_sq = diff_sq + (swa_f - live_f).square().sum()
+                        live_sq = live_sq + live_f.square().sum()
+                diff_norm = float(diff_sq.sqrt().item())
+                live_norm = max(float(live_sq.sqrt().item()), 1e-30)
+                swa_delta_norm = diff_norm / live_norm
+                # Save live weights (dtype-preserving), swap to SWA, eval, swap back.
+                live_state = {n: p.data.detach().clone() for n, p in model.named_parameters()}
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(swa_weights[n].to(p.data.dtype))
+                val_loss_swa_t = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_swa_t += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_swa_t, op=dist.ReduceOp.SUM)
+                val_loss_swa_t /= val_tokens
+                val_loss_swa_float = float(val_loss_swa_t.item())
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(live_state[n])
+                del live_state
+            if dist.get_rank() == 0 and swa_enabled:
+                swa_metrics = {
+                    "trial": trial_idx,
+                    "val/step": step,
+                    "swa/count": swa_count,
+                    "swa/start_step": args.swa_start_step,
+                }
+                if val_loss_swa_float is not None:
+                    if val_loss_swa_float < best_val_loss_swa:
+                        best_val_loss_swa = val_loss_swa_float
+                        best_val_step_swa = step
+                    if first_step_to_target_swa < 0 and val_loss_swa_float <= TARGET_VAL_LOSS:
+                        first_step_to_target_swa = step
+                    swa_metrics["val/loss_swa"] = val_loss_swa_float
+                    swa_metrics["swa/best_val_loss"] = best_val_loss_swa
+                    swa_metrics["swa/best_val_step"] = best_val_step_swa
+                    swa_metrics["swa/target_margin"] = TARGET_VAL_LOSS - val_loss_swa_float
+                    swa_metrics["swa/single_run_stat_sig_margin"] = TARGET_VAL_LOSS - val_loss_swa_float - STAT_SIG_DELTA
+                    swa_metrics["swa/first_step_to_target"] = first_step_to_target_swa
+                    swa_metrics["swa/reached_target"] = int(first_step_to_target_swa >= 0)
+                if swa_delta_norm is not None:
+                    swa_metrics["swa/delta_norm"] = swa_delta_norm
+                wandb.log(swa_metrics, step=trial_idx * (train_steps + 1) + step)
+            swa_log_suffix = ""
+            if swa_enabled and val_loss_swa_float is not None:
+                swa_log_suffix = f" swa_count:{swa_count} swa_loss:{val_loss_swa_float:.5f} swa_delta:{swa_delta_norm:.5f}"
+            elif swa_enabled:
+                swa_log_suffix = f" swa_count:{swa_count}"
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+                   + f" step_avg:{1000*step_avg:.2f}ms" + swa_log_suffix, console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1020,6 +1119,23 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # SWA shadow update. Uniform running average:
+        #   swa_new = (1 - 1/n) * swa_old + (1/n) * w_curr
+        # At n=1 this is exactly w_curr (no zero-init contamination). Iterates
+        # named_parameters() so non-trainable buffers are excluded. Shadow lives
+        # in fp32 so 500+ uniform updates do not accumulate bf16 quantization
+        # error (the embed.weight is bf16 in this model). Strict inequality
+        # (train_step > swa_start_step) so swa_start_step=2825 with
+        # train_steps=3325 gives exactly 500 snapshots (train_step in [2826, 3325]).
+        if swa_enabled and train_step > args.swa_start_step:
+            with torch.no_grad():
+                swa_count += 1
+                inv_n = 1.0 / swa_count
+                one_minus_inv_n = 1.0 - inv_n
+                for n, p in model.named_parameters():
+                    swa_weights[n].mul_(one_minus_inv_n).add_(
+                        p.data.detach().float(), alpha=inv_n
+                    )
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
@@ -1123,13 +1239,29 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
-        wandb.log({
+        if swa_enabled:
+            print0(
+                f"trial:{trial_idx} swa_best_val_loss:{best_val_loss_swa:.5f} "
+                f"swa_best_val_step:{best_val_step_swa} "
+                f"swa_first_step_to_target:{first_step_to_target_swa} swa_count:{swa_count}",
+                console=True,
+            )
+        final_metrics = {
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        }
+        if swa_enabled:
+            final_metrics.update({
+                "swa/final_best_val_loss": best_val_loss_swa,
+                "swa/final_best_val_step": best_val_step_swa,
+                "swa/final_first_step_to_target": first_step_to_target_swa,
+                "swa/final_reached_target": int(first_step_to_target_swa >= 0),
+                "swa/final_count": swa_count,
+            })
+        wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
     wandb.finish()
