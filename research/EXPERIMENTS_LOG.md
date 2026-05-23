@@ -1,5 +1,22 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 18:01 UTC — PR #908: WD_AUX decoupling (CLOSED, 65th refuted axis)
+
+- Branch: `g1r2-nezuko/wd-aux-decouple` (student g1r2-nezuko)
+- Hypothesis: Asymmetric decoupling of weight decay between embedding and lm_head matrices. Arm A=embed-only WD (WD_AUX_EMBED=0.001, WD_AUX_HEAD=0.0), Arm B=head-only WD (WD_AUX_EMBED=0.0, WD_AUX_HEAD=0.001), tested against unified WD_AUX=0.001 baseline.
+- Results:
+
+| Arm | WD_AUX config | W&B run | val/loss | ffs | reached | Hold gate | Floor cluster |
+|---|---|---|---:|---:|---:|---|---|
+| A (embed-only) | WD_AUX_EMBED=0.001, WD_AUX_HEAD=0.0 | `1kcrdary` | 3.26945 | 3025 | 1 | val PASS, ffs FAIL | #30 (new) |
+| B (head-only) | WD_AUX_EMBED=0.0, WD_AUX_HEAD=0.001 | `gxgn8u01` | 3.27093 | 3025 | 1 | both FAIL | #33 (new) |
+| Baseline | unified WD_AUX=0.001 | — | 3.26776 | 3000 | 1 | PASS | — |
+
+- val_mean = 3.27019, ffs_mean = 3025. Merge bar FAIL by val +0.00243, ffs +25.
+- bcompat plumbing check `kgg9d8ys` confirmed `WD_AUX_EMBED`/`WD_AUX_HEAD` defaulting to `WD_AUX` preserves baseline (val@200=4.07979 ✓).
+- **Conclusion**: Bidirectional asymmetric decoupling fails. Head WD is marginally more load-bearing (Δval=0.00148 worse when removed vs embed-only) but the asymmetry is within floor-cluster noise. Joint WD at 0.001 unified is Goldilocks. Decoupling infrastructure preserved for future asymmetric experiments.
+- 65th refuted axis. Floor cluster total: 35 landings, 0 merges.
+
 ## 2026-05-23 16:58 UTC — PR #909: WD_AUX cooldown ramp (CLOSED, 64th refuted axis)
 
 - Branch: `g1r2-thorfinn/wd-aux-cooldown-ramp` (student g1r2-thorfinn)
