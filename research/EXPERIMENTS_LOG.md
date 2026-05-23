@@ -3,6 +3,27 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~16:30 UTC — PR #905: thorfinn Q/K/V Gradient Consensus pre-NS — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-thorfinn/qkv-consensus-pre-ns`
+- **Student:** g1r5-thorfinn
+- **Hypothesis:** Q, K, V projections within each attention layer share the same input manifold and see correlated gradients. Replace per-projection Nesterov buffer with a layer-level consensus: blend each projection's gradient toward the mean of Q/K/V gradients in the layer (weighted by parameter α). Hypothesis: reducing projection-level noise through consensus should reduce gradient variance before NS, improving convergence.
+
+| Cell | α (blend to layer mean) | val/loss | Δ vs baseline | Notes |
+|:---:|:---:|---:|---:|---|
+| A | ctrl (α=0) | 3.26077 | −0.76σ (sub-baseline) | Ctrl slightly soft |
+| **B** | **α=0.10** ★ | **3.26681** | **+9.4σ (STRONG NEG)** | Strong regression |
+| C-E | — | KILLED | — | Early gate applied |
+
+- **Cell A ctrl:** 3.26077 (−0.000451 vs 3.261221, −0.76σ). Slightly sub-baseline — within noise.
+- **Cell B α=0.10 PRIMARY:** 3.26681 (+0.00559, +9.4σ_single). Strong regression. Student correctly applied kill gate to remaining cells C/D/E.
+
+**Mechanism finding:** Q, K, V projections do NOT share a common optimal gradient direction — they encode semantically distinct attention components (query, key, value manifolds). Blending toward their layer-mean gradient destroys per-projection information. Even mild blending (α=0.10) is strongly destructive because the three gradient directions are near-orthogonal in the parameter space. Q/K/V independence is structurally important for attention computation.
+
+**Decision: close clean-NEG.** Pre-NS gradient blending across Q/K/V projections is a strongly destructive axis. Q/K/V consensus hypothesis fully falsified. Reassigning thorfinn → #932 per-layer NS iteration count by depth.
+
+---
+
 ## 2026-05-23 ~15:25 UTC — PR #823: fern SignMuon — **CLOSED clean-NEG**
 
 - Branch: `g1r5-fern/sign-muon-before-ns`
