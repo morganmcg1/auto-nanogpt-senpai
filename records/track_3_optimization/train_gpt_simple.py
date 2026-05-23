@@ -71,6 +71,17 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Schedule-Free aux (Defazio et al. 2023, arXiv:2310.04415): replace aux
+    # linear-cooldown LR schedule with constant peak LR + cumulative Polyak
+    # average z_t of live aux weights y_t. Evaluate on z_t. The averaging is
+    # what drives convergence within the basin; constant LR is required for
+    # the within-basin oscillations averaging extracts signal from.
+    parser.add_argument("--sf_aux", type=int, default=int(os.environ.get("SF_AUX", "0")),
+                        help="Enable Schedule-Free aux training: constant aux LR + Polyak average z_aux. "
+                             "0 = bit-identical baseline (default).")
+    parser.add_argument("--sf_aux_avg_start_step", type=int, default=int(os.environ.get("SF_AUX_AVG_START_STEP", "0")),
+                        help="Iteration index (0-based) from which to begin Polyak averaging. "
+                             "0 = start at the first opt.step (z_1 = y_1). Used for warm-start variants.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +724,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.sf_aux:
+    print0(f"Schedule-Free aux ENABLED: constant peak LR + Polyak average (start_step={args.sf_aux_avg_start_step})", console=True)
+else:
+    print0("Schedule-Free aux DISABLED (linear aux cooldown active)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +781,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "sf_aux": bool(args.sf_aux),
+            "sf_aux_avg_start_step": args.sf_aux_avg_start_step,
         },
     )
 
@@ -836,14 +853,30 @@ for trial_idx in range(args.num_trials):
     # Per-group cooldown_frac: MuonH groups use full linear cooldown from step 0
     # (h_cooldown_frac=1.0); AdamW aux groups use a shorter cooldown so the
     # embed / head keep learning for the first ~60% of training.
+    # When --sf_aux 1 is set, the aux cooldown is disabled entirely so aux
+    # groups run at peak LR throughout — Schedule-Free relies on convergence
+    # of the Polyak average z_t, not on explicit LR decay.
     h_cooldown_frac = 1.0
-    aux_cooldown_frac = 0.4
+    aux_cooldown_frac = 0.0 if args.sf_aux else 0.4
     for group in optimizer1.param_groups:
         group["cooldown_frac"] = aux_cooldown_frac
         group["cooldown_shape"] = "linear"
     for group in optimizer2.param_groups:
         group["cooldown_frac"] = h_cooldown_frac
         group["cooldown_shape"] = args.muonh_cooldown_shape
+
+    # Schedule-Free aux state: cumulative Polyak average of live aux params.
+    # Allocated only when --sf_aux 1; bit-identical to baseline when off.
+    # Order matches optimizer1.param_groups (embed, lm_head, scalars) so the
+    # diagnostic indices below are stable.
+    if args.sf_aux:
+        sf_aux_params = [p for group in optimizer1.param_groups for p in group["params"]]
+        sf_z = [p.detach().clone() for p in sf_aux_params]
+        sf_avg_count = 0
+    else:
+        sf_aux_params = None
+        sf_z = None
+        sf_avg_count = 0
 
     # learning rate schedule: stable then decay, with per-group cooldown_frac.
     # Within the cooldown phase, eta decays from 1 → 0 in one of three shapes.
@@ -934,6 +967,24 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # Schedule-Free aux eval: temporarily swap aux params to z_aux (the
+            # Polyak average), recompute val loss, then restore live aux. Only
+            # fires when SF is on and we've taken at least one Polyak update.
+            val_loss_sf_float = None
+            if args.sf_aux and sf_avg_count > 0:
+                with torch.no_grad():
+                    live_aux_snapshot = [p.detach().clone() for p in sf_aux_params]
+                    for p, z in zip(sf_aux_params, sf_z):
+                        p.data.copy_(z)
+                    val_loss_sf = torch.zeros((), device=device)
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_sf += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                    dist.all_reduce(val_loss_sf, op=dist.ReduceOp.SUM)
+                    val_loss_sf /= val_tokens
+                    val_loss_sf_float = float(val_loss_sf.item())
+                    for p, saved in zip(sf_aux_params, live_aux_snapshot):
+                        p.data.copy_(saved)
+                    del live_aux_snapshot
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -955,9 +1006,38 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if args.sf_aux:
+                    metrics["sf/avg_count"] = sf_avg_count
+                    # Confirm constant-LR aux (cooldown disabled): pulls the
+                    # current LR from the embed group so we can verify it stays
+                    # flat at the peak across the run.
+                    for group in optimizer1.param_groups:
+                        if group.get("name") == "adam_embed":
+                            metrics["sf/aux_lr_embed"] = group["lr"]
+                            break
+                    if val_loss_sf_float is not None:
+                        metrics["val/loss_sf"] = val_loss_sf_float
+                        metrics["val/loss_sf_minus_live"] = val_loss_sf_float - val_loss_float
+                    if sf_avg_count > 0:
+                        with torch.no_grad():
+                            embed_y = sf_aux_params[0].detach()
+                            embed_z = sf_z[0]
+                            embed_y_norm = float(embed_y.norm().item())
+                            if embed_y_norm > 0:
+                                metrics["sf/delta_norm_embed"] = (
+                                    float((embed_z - embed_y).norm().item()) / embed_y_norm
+                                )
+                            lm_y = sf_aux_params[1].detach()
+                            lm_z = sf_z[1]
+                            lm_y_norm = float(lm_y.norm().item())
+                            if lm_y_norm > 0:
+                                metrics["sf/delta_norm_lm_head"] = (
+                                    float((lm_z - lm_y).norm().item()) / lm_y_norm
+                                )
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+            sf_log_suffix = f" val_loss_sf:{val_loss_sf_float:.5f}" if val_loss_sf_float is not None else ""
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{sf_log_suffix}"
+                   + f" train_time:{training_time:.3f}s step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
             dist.barrier()
@@ -1112,6 +1192,17 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
                 }, step=wandb_step)
+
+        # Schedule-Free Polyak update: maintain z = cumulative running mean of
+        # the live aux params. Fires AFTER the inner opt.step() AND any outer
+        # MuLoCo step, so z averages the actual live training trajectory.
+        # Cold-start identity: at n=1, (1 - 1/n)*z + (1/n)*p = 1*p, so z_1 = y_1.
+        if args.sf_aux and step >= args.sf_aux_avg_start_step:
+            sf_avg_count += 1
+            inv_n = 1.0 / sf_avg_count
+            with torch.no_grad():
+                for p, z in zip(sf_aux_params, sf_z):
+                    z.mul_(1.0 - inv_n).add_(p.detach(), alpha=inv_n)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
