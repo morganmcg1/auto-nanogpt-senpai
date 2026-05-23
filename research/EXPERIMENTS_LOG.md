@@ -1,3 +1,41 @@
+## 2026-05-23 09:35 UTC — PR #891 ASSIGNED (thorfinn): H89 ADOPT optimizer on aux (Taniguchi 2024) — fresh optimizer family vs AdamW
+
+- Branch: `g1r3-thorfinn/adopt-optimizer-aux`
+- Hypothesis: Replace AdamW on aux groups (embed, lm_head, scalars) with ADOPT (Taniguchi et al. 2024, NeurIPS 2024 spotlight, arXiv 2411.02853). ADOPT uses one-step-lagged v_{t-1} in the denominator (instead of v_t) plus early-step clipping c_t = t^0.25, giving provable convergence guarantees for any β2 ∈ (0, 1). Our baseline uses LOW β2=0.95 — well below standard 0.999 — putting us in the regime where ADOPT's theoretical advantage should manifest if AdamW's β2-pathology is silently active.
+- Plateau-protocol justification: 8th consecutive NEG/NULL closure (H74/H75/H77/H78/H79/H80/H81 + likely H83). Mechanism-distinct optimizer family, not hyperparameter tweak. Schmidhuber-style old-idea revival under fresh theoretical guarantee.
+- Implementation: ~80 LoC. Custom `ADOPT(torch.optim.Optimizer)` class. CLI flag `--aux_optimizer {adamw,adopt}` and `--adopt_clip_exponent 0.25` (default).
+- Arms (n=1, 3325 steps):
+  - arm_a CTRL `--aux_optimizer adamw` (bit-identical baseline)
+  - arm_b PRIMARY `--aux_optimizer adopt` (β2=0.999 paper default, clip_exp=0.25)
+  - arm_c DIAGNOSTIC `--aux_optimizer adopt --adopt_clip_exponent 0.5` (steeper clip ramp)
+- Mechanism-distinct from frieren H87 in flight: H87 sweeps β2 *schedule* on AdamW; H89 tests β2-independent optimizer family.
+- Decision: WIN<3.27039; NULL ±0.0008; NEG arm_b+arm_c → close ADOPT axis; NEG arm_b/WIN arm_c → clip exponent load-bearing.
+- Smoke gate: arm_b step-1 update should be sign(g) magnitude (paper's t=1 SGD-sign branch). If matches AdamW step-1, ADOPT not engaging — abort.
+- Reference: paper repo github.com/iShohei220/adopt (ground truth — online versions vary).
+- W&B group `H89_adopt_aux`.
+
+---
+
+## 2026-05-23 09:30 UTC — PR #869 CLOSED NEG (thorfinn): H81 Orthogonal init for transformer body 2D params — init-STRUCTURE axis programme-level closure
+
+- Branch: `g1r3-thorfinn/orthogonal-init-body`
+- Hypothesis: Replace `w.normal_(std=σ)` per-module init with `torch.nn.init.orthogonal_(w, gain=g)` for body 2D params. Saxe-style structural-vs-magnitude decomposition: arm_b frob_matched (structure-only test) vs arm_c unit (structure+magnitude departure).
+- Result table:
+
+| arm | config | wandb run id | val/loss | ffs | Δ vs CTRL |
+|---|---|---|---|---|---|
+| arm_a CTRL | normal_(std=σ) | `bsjvzwc1` | 3.27168 | 3125 | — |
+| arm_b PRIMARY | orth gain=frob_matched | `ag09r5uz` | 3.27342 | 3150 | **+0.00174 (~2.2σ NEG)** |
+| arm_c DIAGNOSTIC | orth gain=unit | `h750uabc` | 3.28370 | -1 (missed) | **+0.01202 (~15σ NEG)** |
+
+- Step-0 structural verification (thorfinn-style rigor): arm_a sv_ratio O(10³-10⁴) — heterogeneous normal-init ✓. arm_b sv_ratio=1.0003 across all body 2D params + Frob matched within 0.1% of arm_a ✓. arm_c sv_ratio=1.0003 BUT uniform Frob=27.71 (departs from per-module tuned scales).
+- Analysis: arm_b clean structural test FAILS (~2.2σ NEG); orthogonal init at fixed Frobenius is mildly harmful. arm_c catastrophic NEG confirms per-module magnitude is load-bearing.
+- Mechanism finding: **Orthogonal init + NS5 orthogonalization = redundant inductive bias.** NS5 reaches orthogonal target structure within ~50-100 steps anyway — the orthogonal init's 'head start' is wasted. Worse, NORMAL init's spectral heterogeneity at step 0 provides useful diverse-rank gradient signal during early warmup that the model needs to find good non-trivial 2D structure. Starting orthogonal denies this exploration window.
+- Programme-level closure: Init-axis CLOSED across BOTH STRUCTURE (H81 NEG) and MAGNITUDE (prior #52, #57, #298, #507). Future init interventions pre-discounted unless mechanism-distinct angle (e.g., sparse-structured init or per-layer scale adaptation).
+- Plateau context: 8th consecutive NEG/NULL. Thorfinn reassigned to H89 ADOPT — substantially bolder swing per plateau protocol.
+
+---
+
 ## 2026-05-23 08:30 UTC — PR #889 ASSIGNED (askeladd): H88 Polar Express orthogonalization (Chebyshev-optimal quintic vs Muon's (2,-1.5,0.5))
 
 - Branch: `g1r3-askeladd/polar-express-orthogonalization`
