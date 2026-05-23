@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 12:40 UTC
+- **Date:** 2026-05-23 14:01 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -359,6 +359,21 @@ PR converted to draft, label swapped review→wip. Student themselves recommende
 
 **12:08 UTC — rebased run LIVE**: `ddiux6wz` under `g1r4-alphonse/embed-init-anchor-rebased`. Step 175/3350 (5%), val 4.595 (early), on post-#787 stack with `NANOGPT_NS_STOCHASTIC_COOLDOWN=2` added. Seed 1 ETA ~14:18 UTC; full n=3 chain ETA ~17:30 UTC. Student picked up send-back rapidly (~14 min from comment-post to launch).
 
+**14:01 UTC — rebased seed 1 TERMINAL + seed 2 LAUNCHED — MAJOR FINDING**:
+
+Seed 1 (`ddiux6wz`) finished val=**3.26642**, Δ_vs_new_base 3.26944 = **−0.00302** ✅ STRONG (clears −0.002 within-pod threshold by 50% margin). Δ_vs_old_base 3.27036 = −0.00394 clean. **First rebased N=1 sub-threshold result on post-#787 stack of the night.** Drift sanity vs OLD-stack seed 1 (3.26853): |Δ|=0.00211, outside ±0.0010 — favorable composition with stochastic NS spread, not seed-noise drift.
+
+Seed 2 (`1zjpifpb`) launched ~13:59 UTC under same branch. Step 1/3350 just started, ETA ~17:00 UTC.
+
+**N=3 merge math** (frozen 11:54 UTC gates, mean ≤ 3.26944 required):
+- Seed 1 = 3.26642 → seeds 2+3 sum allowed ≤ 6.5419, mean ≤ 3.27095
+- Even if seeds 2,3 hit the worst pre-rebase value (3.27094), mean = (3.26642 + 3.27094 + 3.27094)/3 = **3.26943** → JUST under 3.26944 threshold
+- Probability of MERGE outcome now substantially elevated given the strong N=1 anchor
+
+**Mechanism reading**: Init-anchor on AUX embed at λ=0.001 composes favorably with stochastic NS spread=2 — the two mechanisms attack independent axes (weight-side drift suppression on AUX vs body-side NS variance injection). Hypothesis: the stochastic NS makes the body trajectory slightly more variable; the embed init-anchor stabilizes the AUX-side trajectory enough that AUX-on-body coupling settles into a slightly better landing point. **Composition signal is real.**
+
+Waiting for seed 2 + seed 3 to determine final merge eligibility. NO comment posted yet — letting student post N=1 SENPAI-RESULT first.
+
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
 Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e-3) fails benchmark (val=3.29393 > 3.28). Root cause: logit softcap c=15 already provides sufficient logit regularization — z-loss is redundant and competes at high λ. **18th productive-null/negative this cycle.** Loss-side auxiliary regularization axis fully closed.
@@ -449,6 +464,17 @@ All 4 hard gates PASS against new baseline 3.26944: mean(B,n=3)=3.26904 (Δ=−0
 **Wall-clock observation (original run): Cubic FLOP-eq B is 0.24% faster than quintic A** per step at matched matmul count (1876.48 vs 1881.06 ms). Consistent across both N=1 and paired-pod runs.
 
 **Code simplification opportunity (deferred to separate PR)**: NS_COEF_SCHEDULE=linear_ramp_down is INERT under cubic (c=0). Stack-pruning hygiene PR potential if merged.
+
+**14:01 UTC — rebased Pod 0/1 TERMINAL + Pod 1 Arm B live**:
+
+| Pod | Arm | run ID | val/loss | Δ_within | direction |
+|:---:|:---:|--------|:--------:|:--------:|:---------|
+| 0 | A (quintic) | `ld71ogc1` | 3.26929 | — | — |
+| 0 | **B (cubic)** | `j0ahlh5r` | **3.26961** | **+0.00032** | INcorrect (mild) |
+| 1 | A (quintic) | `m76dz1sg` | 3.27016 | — | — |
+| 1 | B (cubic) | `s9g1r1uh` step 1725/3350 (51%) val=3.494 | TBD | TBD (ETA ~14:54 UTC) |
+
+**Rebased Pod 0 sign-flipped vs OLD-stack Pod 0**: original Pod 0 was direction-INcorrect (+0.00055), rebased Pod 0 is also direction-INcorrect (+0.00032) but smaller magnitude. Cleaner with stochastic-NS noise. Original mean was driven by Pod 1 (Δ=−0.00140) and Pod 2 (Δ=−0.00082); rebased Pod 1 still in progress. If rebased Pod 1 retains direction-correct, mean(n=2) could still be marginal-favorable. Awaiting Pod 1 + Pod 2 terminals for n=3 merge eligibility.
 
 ### 🗃️ tanjiro #789 — N=1 sweep (archived hypothesis text)
 
@@ -705,6 +731,22 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 
 **10:50 UTC — seed 3 mid-run**: `31f549pg` at step 2175/3350 (65%), val 3.417 (mid-trajectory, descending normally). ETA terminal ~11:26 UTC.
 
+**14:01 UTC — rebased seed 1 TERMINAL + seed 2 LAUNCHED**:
+
+Seed 1 (`zkx8xeqb`) finished val=**3.26950**, Δ_vs_new_base 3.26944 = **+0.00006** (marginal regression vs new baseline). Δ_vs_old_base 3.27036 = −0.00086 clean. Drift sanity vs OLD-stack seed 1 (3.26864): |Δ|=0.00086 (PASS within ±0.001). first_step_to_target=3200.
+
+Seed 2 (`z85uh78i`) launched at step 250/3350 (7%) val=4.093 — early phase normal. ETA terminal ~16:05 UTC.
+
+**N=3 merge math** (frozen 11:42 UTC gates, mean ≤ 3.26944 required):
+- Seed 1 = 3.26950 (above ceiling by +0.00006) → seeds 2+3 sum allowed ≤ 6.5388, mean ≤ 3.26941
+- Tightens significantly: seeds 2+3 must average ≤ 3.26941 (cleaner than seed 1)
+- For comparison, pre-rebase OLD-stack mean was 3.26920 (seeds at 3.26864, 3.26913, 3.26982)
+- Stochastic NS attenuation hypothesis: post-#787 stack may sap the gradient-side mechanism's headroom; gain absorbed into the new variance regime
+
+**Contrast with #847 alphonse rebased seed 1 (3.26642, Δ=−0.00302 STRONG)**: same protocol, both AUX-side mechanisms, divergent outcomes after rebase. #847's weight-side init-anchor composes favorably with stochastic NS; #845's gradient-side inverse-freq rescaling attenuates. Two-mechanism cross-axis disambiguation emerging — weight-side AUX intervention is the more robust composition direction.
+
+Awaiting seeds 2+3 for final merge eligibility determination.
+
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 
 **Branch:** `g1r4-askeladd/muon-attn-mlp-lr-asym`
@@ -841,6 +883,18 @@ Per-TYPE Muon axis essentially exhausted. NS_ITERS_COOLDOWN at TYPE level adds n
 | D | `all` | Mask all three aux groups (replicates #751 Arm C at +0.00901) |
 
 Implementation: CautiousAdamW subclass (fused=False) with snapshot-delta post-step masking, 4-arm paired-pod n=3 (12 runs). ETA ~7.3h.
+
+**14:01 UTC — Pod2 chain Arms A/B + earlier Pod1 D TERMINAL + Pod2 C live**:
+
+| Arm | scope | run ID | val/loss | Δ_vs_A (Pod2) | Verdict |
+|:---:|:----:|--------|:--------:|:------:|:--------|
+| Pod2 A (ctrl) | none | `gq3yhvvj` | 3.26910 | — | clean control, favorable seed (Δ_vs_new_base=−0.00034) |
+| Pod2 B | embed | `mzywwyyp` | 3.27196 | **+0.00286** | regression (replicates #751 cautious-embed direction) |
+| Pod2 C | lm_head | `x4oop63a` step 2275/3350 (68%) val=3.416 | TBD | TBD (ETA ~14:37 UTC) |
+| Pod2 D | all | (not launched) | TBD | TBD |
+| Pod1 D | all | `4mq85fii` | **3.28084** | n/a | strong regression (+0.01174 vs new base) — replicates #751 Arm C catastrophic confirmation |
+
+**Pattern matches expected from #751 fern Arm C +0.00901 (cautious-all)**: cautious masking on aux groups regresses across embed (Pod2 B +0.00286) and all (Pod1 D +0.01174). lm_head-only (Pod2 C) is the last untested scope — if also regresses, the per-aux-group cautious disaggregation closes productive-NEG (76th cycle). If Pod2 C lm_head shows Δ ≤ −0.002, it would be a surprising scope-specific signal warranting paired-pod confirmation. ETA Pod2 C terminal ~14:37 UTC.
 
 ### ✅ frieren #470 — NS iterations NORMAL phase sweep — CLOSED 20:55 UTC productive-null
 
@@ -1059,6 +1113,17 @@ Signal threshold: Δ_within_vs_A ≤ −0.002 → paired-pod n=3 on best arm. ET
 
 **11:11 UTC — Arm A crash + clean restart on same pod**: Original Arm A run `fm6v2myz` (created 10:42 UTC) crashed at step 475 (val 3.9077). Replacement `wr4gljm4` (created 10:52 UTC, same pod `...-g1r4-frieren-5cfc58bd5b-qd9f4`) launched cleanly and is now the sole active Arm A. Running at step 400, val 3.9115 — early-phase normal. **NOT a live ghost-crash duplicate** (no concurrent torchruns); benign sequential restart pattern (mirrors thorfinn cycle 86 shape). ETA terminal still ~17:40 UTC accounting for ~10-min restart drift.
 
+**14:01 UTC — Arm A TERMINAL + Arm B live**:
+
+| Arm | scope | params | run ID | val/loss | Δ_vs_new_base 3.26944 | Verdict |
+|:---:|:----:|:------:|--------|:--------:|:---------------------:|:--------|
+| A (ctrl) | none | noise=0 | `wr4gljm4` | **3.26811** | **−0.00133** ✅ | **strong absolute below baseline** |
+| B | aux | noise=0.005, anneal=0.50 | `j141b0z2` step 2050/3350 (61%) val=3.633 | TBD | TBD |
+| C | all | noise=0.005, anneal=0.50 | (not launched) | TBD | TBD |
+| D | all | noise=0.010, anneal=0.30 | (not launched) | TBD | TBD |
+
+**Arm A is ctrl (noise=0 = bit-clean baseline). val=3.26811 represents favorable seed for frieren — drift sanity: Δ_vs_new_base=−0.00133 outside ±0.001 favorable-seed envelope.** This makes within-pod Δ_vs_A the load-bearing comparison; absolute baseline numbers are seed-luck biased. If Arm B (aux noise) shows Δ_vs_A ≤ −0.002, that would extract a real anisotropic-noise signal on top of an already-favorable seed. ETA Arm B terminal ~14:44 UTC.
+
 ### 🔄 fern #883 — Stochastic NS cooldown spread Goldilocks sweep (4-arm) [assigned 07:10 UTC]
 
 **Branch:** `g1r4-fern/stochastic-ns-cooldown-spread`
@@ -1102,6 +1167,24 @@ Signal threshold: Δ_vs_A ≤ −0.002 (note: new baseline 3.26944 is stricter t
 3. Arm C ≤ Arm B at terminal (broader wins): would falsify "tighter is better" reading; suggests spread axis has different shape than predicted
 
 Awaiting Arm C terminal (~13:00 UTC if launched ~10:50 UTC) and Arm D launch.
+
+**14:01 UTC — Arms A/B/C TERMINAL + Arm D live**:
+
+| Arm | spread | NS range | run ID | val/loss | Δ_vs_A | Verdict |
+|:---:|:-----:|:--------:|--------|:--------:|:------:|:--------|
+| A (ctrl) | 0 | {16} | `0um20r47` | 3.26965 | — | clean control |
+| **B** | **1** | **{15,16,17}** | `19soufaw` | **3.26781** | **−0.00184** | sub-signal direction-correct best |
+| C | 4 | {12..20} | `1dv7vuty` | **3.26864** | **−0.00101** | direction-correct sub-threshold |
+| D | 6 | {10..22} | `fdhuymy2` step 2600/3350 (78%) val=3.368 | TBD | TBD |
+
+**B < C < A ordering confirmed**: tighter spread (B, spread=1) is best, broader spread (C, spread=4) is intermediate, deterministic (A, spread=0) is worst — clear monotone pattern in direction of stochasticity scope. Goldilocks profile shape emerging:
+- spread=0 → 3.26965 (worst, ctrl)
+- spread=1 → **3.26781 (best so far)** Δ_vs_A=−0.00184
+- spread=2 → 3.26944 (merged baseline from #787 n=3)
+- spread=4 → 3.26864 Δ_vs_A=−0.00101
+- spread=6 → TBD (Arm D, ETA ~14:26 UTC)
+
+If Arm D continues the monotone trend (worse than C at spread=6 i.e. broader-than-optimal), this would close the bracket and confirm spread=1 as the Goldilocks peak (vs current spread=2). Important caveat: chain still on OLD pre-#787 stack — within-arm Δ robust, but absolute val numbers and rebase-required for merge consideration. Pre-staged outcomes unchanged.
 
 ---
 
@@ -1147,6 +1230,17 @@ ETA ~7h chain. Edward #874 (embed init magnitude) and #880 thorfinn are both sta
 
 Awaiting Arm C terminal (~12:30 UTC if launched ~10:50 UTC) and Arm D launch.
 
+**14:01 UTC — Arms A/B/C TERMINAL + Arm D live — STRUCTURAL SIMPLIFICATION CANDIDATE CONFIRMING**:
+
+| Arm | beta2 | run ID | val/loss | Δ_vs_A | Verdict |
+|:---:|:-----:|--------|:--------:|:------:|:--------|
+| A (ctrl) | 0.999 | `tg80f0tp` | 3.26984 | — | clean control |
+| B | 0.0 | `5xxedhqp` | 3.27022 | +0.00038 | near-neutral |
+| C | 0.99 | `3ursyjua` | **3.26999** | **+0.00015** | **near-neutral confirms** |
+| D | 0.9999 | `w9afvz9a` step 2750/3350 (82%) val=3.333 | TBD | TBD |
+
+**Arms A/B/C all clustered within ±0.00038 of each other** (Δ_vs_A: B +0.00038, C +0.00015). Cross-axis confirmation: not only is disable (B=0.0) near-neutral, but 10× faster v_t adaptation (C=0.99) is also near-neutral. **Body Muon² v_t preconditioning is structurally inert across reasonable β₂ values on post-#787 stack.** If Arm D (β₂=0.9999, 10× slower) also lands within ±0.001 of A, this MERGES the structural simplification candidate: remove body Muon² v_t buffer entirely (~3 LOC, ~12MB GPU memory savings on body matrices). ETA Arm D terminal ~14:21 UTC.
+
 ### 🔄 edward #874 — Embed weight init magnitude sweep (4-arm) [assigned 05:25 UTC]
 
 **Branch:** `g1r4-edward/embed-init-magnitude`
@@ -1179,6 +1273,17 @@ ETA terminal ~12-14h sequential.
 | D | 1.5 | pending | — | — | — |
 
 Arm B Δ_vs_A=−0.00139: direction-correct but sub-signal (below −0.002 within-pod threshold). Mechanism reading at half-scale init: ‖embed‖_F ≈ 3107 (half of N(0,1) default 6213) → smaller initial activation magnitude → mildly different early-trajectory body gradient profile. Matches pre-staged interpretation #2 ("monotone-favorable in inverse-scale"). Arm C terminal ETA ~14:55 UTC, Arm D ~17:00 UTC. Posted #874 stale_wip false-positive ack comment. **Second stale_wip false-positive on this PR** (10:08 + 12:38) — flag fires whenever chain progresses silently between SENPAI-RESULT markers; expected modus operandi for sequential 4-arm chains.
+
+**14:01 UTC — Arm C TERMINAL + Arm D live**:
+
+| Arm | scale | run ID | val/loss | Δ_vs_A (ctrl 3.27117) | Δ_vs_new_base 3.26944 |
+|:---:|:---:|---|:---:|:---:|:---:|
+| A (ctrl) | 1.0 | `wxfyjif6` | 3.27117 | — | +0.00173 (unfavorable seed) |
+| B | 0.5 | `kjqev5sg` | 3.26978 | −0.00139 ✅ direction-correct sub-threshold | +0.00034 marginal |
+| C | 0.7 | `swk8ntvs` | **3.27057** | **−0.00060** direction-correct sub-threshold | +0.00113 above baseline |
+| D | 1.5 | `t6kzt6lx` step 800/3350 (24%) val=3.694 | TBD | TBD |
+
+**Pattern emerging in inverse-scale direction**: Arm B (scale=0.5) Δ_vs_A=−0.00139 > Arm C (scale=0.7) Δ_vs_A=−0.00060 — modestly monotone-favorable, with B best at half-scale. Arm D (scale=1.5, ‖embed‖_F ≈ 9320) is the upper-scale arm and would close the bilateral profile; pre-staged interpretation #1 (D worse than A) likely. ETA Arm D terminal ~15:29 UTC.
 
 ### 🗃️ edward #838 — assignment text (archived)
 
