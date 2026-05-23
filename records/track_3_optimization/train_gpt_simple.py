@@ -55,6 +55,15 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H103: outer-momentum apply-formula selector.
+    # 1 (default) = Nesterov apply: anchor - lr*(mu*v + delta)   -> current baseline.
+    # 0           = Heavy-ball apply: anchor - lr*v              -> H103 arm_b/c variant.
+    # The momentum-buffer accumulation (v <- mu*v + delta) is unchanged in both arms.
+    parser.add_argument("--outer_nesterov", type=int,
+                        default=int(os.environ.get("OUTER_NESTEROV", "1")),
+                        choices=[0, 1],
+                        help="MuLoCo outer apply formula: 1=Nesterov lookahead (default, baseline), "
+                             "0=heavy-ball (velocity-only apply).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -1108,7 +1117,7 @@ for trial_idx in range(args.num_trials):
             )
         model.zero_grad(set_to_none=True)
 
-        # MuLoCo outer Nesterov step (Algorithm 1, K=1). Fires every sync_interval
+        # MuLoCo outer step (Algorithm 1, K=1). Fires every sync_interval
         # inner steps, never on the final step (we want the last inner update to
         # remain the live state). All ranks hold identical p.data after MuonH's
         # all_gather and AdamW's identical-on-all-ranks update, so the outer step
@@ -1117,33 +1126,54 @@ for trial_idx in range(args.num_trials):
         # initial-Frobenius sphere; the next MuonH-SI inner step reads
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
+        # H103: apply formula gated by --outer_nesterov.
+        #   outer_nesterov=1 (default, baseline) -> Nesterov apply  : anchor - lr*(mu*v + delta)
+        #   outer_nesterov=0                     -> Heavy-ball apply: anchor - lr*v
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
+                nesterov_apply_sq = torch.zeros((), device=device)
+                heavy_apply_sq = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
+                    # apply terms (compute both so we can log the ratio in BOTH arms)
+                    heavy_apply = outer_velocity[n]
+                    nesterov_apply = args.outer_momentum * outer_velocity[n] + delta
+                    apply_term = nesterov_apply if args.outer_nesterov else heavy_apply
+                    p.data.copy_(outer_anchor[n] - args.outer_lr * apply_term)
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
                         delta_sq = delta_sq + delta.float().square().sum()
                         velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        nesterov_apply_sq = nesterov_apply_sq + nesterov_apply.float().square().sum()
+                        heavy_apply_sq = heavy_apply_sq + heavy_apply.float().square().sum()
                         total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
                 velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                nesterov_apply_norm = nesterov_apply_sq.item() ** 0.5
+                heavy_apply_norm = heavy_apply_sq.item() ** 0.5
+                applied_norm = nesterov_apply_norm if args.outer_nesterov else heavy_apply_norm
+                ratio = (nesterov_apply_norm / heavy_apply_norm) if heavy_apply_norm > 0 else float("nan")
+                outer_delta_norm = args.outer_lr * applied_norm
                 wandb.log({
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "outer/heavy_ball_apply_norm": heavy_apply_norm,
+                    "outer/nesterov_apply_norm": nesterov_apply_norm,
+                    "outer/nesterov_heavy_ratio": ratio,
+                    "outer/apply_term_norm": applied_norm,
+                    "outer/outer_delta_norm": outer_delta_norm,
+                    "outer/outer_nesterov": int(args.outer_nesterov),
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
