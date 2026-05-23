@@ -27,6 +27,79 @@ STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 
 
+class CautiousAdamW(torch.optim.AdamW):
+    """AdamW with Liang et al. 2024 (arXiv 2411.16085) sign-agreement masking.
+
+    Zeros coordinates where sign(m̂) != sign(grad) — i.e. where the
+    EMA-smoothed direction disagrees with the fresh gradient signal.
+    When rescale=True, surviving coordinates are scaled up by
+    numel / mask.sum() to preserve the overall update magnitude.
+
+    Weight decay is applied decoupled (AdamW-style) AFTER masking so it
+    is never gated by the sign test.
+    """
+
+    def __init__(self, *args, rescale: bool = True, **kwargs):
+        # fused=True is incompatible with custom step; caller must not pass it.
+        kwargs.pop("fused", None)
+        super().__init__(*args, **kwargs)
+        self.rescale = rescale
+        self._mask_mean_log: dict = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = torch.zeros((), dtype=torch.float32, device=p.device)
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                step_t = state["step"]
+                m = state["exp_avg"]
+                v = state["exp_avg_sq"]
+                m.lerp_(grad, 1 - beta1)
+                v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                bias1 = 1 - beta1 ** step_t
+                bias2 = 1 - beta2 ** step_t
+                m_hat = m / bias1
+                denom = (v / bias2).sqrt_().add_(eps)
+                # Adaptive update direction (no weight decay here)
+                update = m_hat / denom
+                # Cautious mask: sign(m̂) == sign(grad).
+                # Compares the EMA-smoothed direction to the fresh gradient;
+                # zeros coordinates where they disagree (staleness/noise artifacts).
+                mask = (torch.sign(m_hat) == torch.sign(grad)).to(update.dtype)
+                if self.rescale:
+                    # Scale survivors up to preserve overall update magnitude.
+                    scale = mask.numel() / mask.sum().clamp_min(1.0)
+                    mask = mask * scale
+                update = update * mask
+                # Decoupled weight decay (AdamW-style) — applied AFTER masking
+                # so the regularisation term is never gated by the sign test.
+                if wd != 0.0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+                # Telemetry: store per-param mask_mean for logging
+                self._mask_mean_log[id(p)] = (
+                    (mask > 0).float().mean().item() if self.rescale
+                    else mask.mean().item()
+                )
+        return loss
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Modded-NanoGPT optimizer speedrun trainer")
     parser.add_argument("legacy_num_trials", nargs="?", type=int, help="Backward-compatible positional trial count")
@@ -71,6 +144,12 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    parser.add_argument("--aux_cautious_mask", type=int, default=int(os.environ.get("AUX_CAUTIOUS_MASK", "0")),
+                        help="If 1, apply Cautious sign-agreement masking to aux AdamW update (Liang et al. 2024). "
+                             "Default 0 = disabled (bit-identical to baseline).")
+    parser.add_argument("--aux_cautious_rescale", type=int, default=int(os.environ.get("AUX_CAUTIOUS_RESCALE", "1")),
+                        help="If 1, rescale masked update by numel/mask.sum() to preserve overall update magnitude. "
+                             "Only used when --aux_cautious_mask=1.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -766,6 +845,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_cautious_mask": args.aux_cautious_mask,
+            "aux_cautious_rescale": args.aux_cautious_rescale,
         },
     )
 
@@ -812,10 +893,20 @@ for trial_idx in range(args.num_trials):
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
     # projection now controls norm growth. AdamW aux groups match the starter
     # (lr 0.3 / 1/320 / 0.01, betas=(0.8, 0.95), eps=1e-10, wd=0).
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    _aux_param_groups = [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")]
+    if args.aux_cautious_mask:
+        optimizer1 = CautiousAdamW(
+            _aux_param_groups,
+            betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0,
+            rescale=bool(args.aux_cautious_rescale),
+        )
+    else:
+        optimizer1 = AdamW(
+            _aux_param_groups,
+            betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True,
+        )
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1056,6 +1147,17 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        # Cautious mask telemetry: log mean mask fraction per aux group.
+        # Expected steady-state range [0.85, 0.95]; outside [0.5, 0.99] is unusual.
+        if dist.get_rank() == 0 and telemetry_due and args.aux_cautious_mask and isinstance(optimizer1, CautiousAdamW):
+            cautious_metrics = {"trial": trial_idx, "train/step": train_step}
+            for group in optimizer1.param_groups:
+                means = [optimizer1._mask_mean_log.get(id(p), 0.0)
+                         for p in group["params"] if id(p) in optimizer1._mask_mean_log]
+                if means:
+                    cautious_metrics[f"aux/cautious_mask_mean_{group['name']}"] = sum(means) / len(means)
+            if len(cautious_metrics) > 2:
+                wandb.log(cautious_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
