@@ -1,38 +1,30 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 14:05 UTC
+- **Last update:** 2026-05-23 14:15 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **TWO POTENTIAL IMPROVEMENTS PENDING:** #864 thorfinn EMA warmup=1750 marginal val win (seed-2 n=2 confirmation ETA ~13:50 UTC); #893 edward PMuon momentum BC Arm A marginal val win (Arm B BC warmup-only in flight ETA ~16:50 UTC).
-- **87 closed axes** (#875 frieren AdaBelief-aux 87th NULL — Arm A paper β=(0.9, 0.999) sr=3025/val=3.27288 clean regression; Arm B drop-in β=(0.8, 0.95) sr=2950/val=3.26852 Δsr marginal-boundary but Δval>0.001. **16th aux Adam-family closure.** Structural finding: `s/m² ≫ 1` everywhere (embed/lm_head 5.9×, scalars 23×) → m_t does NOT predict g_t → AdaBelief's confidence-update path never engages. Cross-axis confirmation of #854 i.i.d. aux gradient finding from independent measurement angle).
-- **🚨 HIGH PRIORITY #1:** PR #864 thorfinn EMA warmup=1750 Arm A `j8nsn77s` **TERMINAL: sr=2925/val=3.266355 — marginal val WIN** (Δval=−0.000571 sub-marginal). Strict win rule passes; n=2 confirmation requested via send-back at 10:00 UTC. Seed-2 ETA terminal ~14:00 UTC.
-- **Today's terminals so far (all NULL/TIE):**
-  - #846 edward Arm A (α=2): sr=3075, Δsr=+150, Δval=+0.0088 — NULL; Arm B (α=8): sr=−1/val=3.332 — hard NULL (CLOSED 82nd)
-  - #854 tanjiro Arm A (b1=0.98): sr=-1 (did NOT cross target), val=3.2833 — hard NULL (CLOSED 84th)
-  - #863 fern Arm A (per_row): sr=2925/val=3.267874 (Δval=+0.000948 sub-marginal regression) — NULL/TIE; Arm B (per_tensor): sr=−1/val=3.299257 — hard NULL (CLOSED 86th)
-  - #822 alphonse PMuon L_cov/R_cov BC seed sequence 2875/2925/2950: n=3 mean sr=2916.67 boundary informative-NULL (CLOSED 85th)
-  - #853 askeladd: Arm A (renorm) sr=3175/val=3.27847 NULL; Arm B (no_renorm) sr=-1/val=3.28109 hard NULL (CLOSED 83rd)
-  - #827 nezuko Arm B (pre-NS Frobenius) seed-2 confirmation: n=2 Δval=+0.000055 — informative-NULL (CLOSED 81st)
+- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #864, merged 2026-05-23 14:10 UTC). **ONE POTENTIAL IMPROVEMENT PENDING:** #893 edward PMuon momentum BC Arm A marginal val win (Arm B BC warmup-only in flight ETA ~16:50 UTC).
+- **87 closed axes** (#875 frieren AdaBelief-aux 87th NULL; #864 thorfinn EMA warmup=1750 **MERGED as new baseline** — n=2 mean val=3.266826, Δval=−0.0001 vs PR #737, strictly passes predeclared merge rule).
 
 ## Current local baseline
 
-**sr=2925 (n=2 mean, both seeds 2925), val/loss=3.266926 (n=2 mean)** — PR #737 (g1r1-thorfinn, Polyak EMA β_target=0.99 cooldown ramp). **MERGED 2026-05-22 13:21 UTC.**
+**sr=2925 (n=2 mean, both seeds 2925), val/loss=3.266826 (n=2 mean)** — PR #864 (g1r1-thorfinn, EMA warmup_steps=1750). **MERGED 2026-05-23 14:10 UTC.**
 
-Config: PR #413 config + `--ema_beta 0.95 --ema_warmup_steps 2250 --ema_beta_target 0.99` (β ramps 0.95→0.99 during cooldown, coupled to lr_mult). EMA buffer: FP32 body-Muon matrix params; inference uses EMA-swapped weights.
+Config: PR #413 config + `--ema_beta 0.95 --ema_warmup_steps 1750 --ema_beta_target 0.99` (warmup shortened from 2250 → 1750 to add 500 cooldown-phase averaging steps; β ramps 0.95→0.99 during cooldown coupled to lr_mult). EMA buffer: FP32 body-Muon matrix params; inference uses EMA-swapped weights.
 
-W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266926). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001 vs new baseline): request n=2 before merge. n=1 stat-sig threshold: val ≤ 3.276.
+W&B seeds: `j8nsn77s` (seed-1 val=3.266355), `08ursg5n` (seed-2 val=3.267298). **Win vs new baseline:** sr ≤ 2912.5 OR (sr = 2925 AND val < 3.266826). Marginal (Δsr ≤ 25 OR Δval ≤ 0.001 vs new baseline): request n=2 before merge. n=1 stat-sig threshold: val ≤ 3.276.
 
-Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
+Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future experiments that previously compared against val=3.266926 now compare against 3.266826 (slightly harder target).
 
-## Active experiments (8 in-flight, 14:05 UTC)
+## Active experiments (7 in-flight, 14:15 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | Arm A `j8nsn77s` TERMINAL sub-marginal val WIN; Arm B `p75chp4s` sub-marginal. Sent back 10:00 UTC for n=2 seed-2 confirmation. Seed-2 `08ursg5n` running step 1625 ~50% @ 12:02 UTC. **ETA terminal ~13:50 UTC.** |
+| ~~**#864**~~ | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **MERGED 14:10 UTC as new baseline.** n=2 mean val=3.266826 (Δval=−0.0001 vs #737). ema_warmup_steps=1750 adopted. |
 | **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | Arm A `fjp71ucq` (NS_ITERS=8) TERMINAL sr=3050/val=3.2744 — NULL regression. Arm B (NS_ITERS=16) chained, running step ~2125 @ 12:30 UTC. **ETA terminal ~14:25 UTC.** |
 | **#893** | edward | PMuon momentum first-moment Adam-style BC (1/(1-mu^t)) | **Arm A `lrackrk3` TERMINAL marginal val WIN: sr=2925/val=3.266211 (Δval=−0.000715).** Cross-axis falsification of #822 "PMuon warmup mechanically denoised" prediction — m_pre BC is directional (NS5 absorbs magnitude bias but NOT directional bias). Arm B (BC warmup-only) chained, running. **ETA terminal ~16:50 UTC.** |
 | **#896** | askeladd | Cautious-Muon body: post-NS multiplicative sign-mask | **Arm A `qw18ifdw` TERMINAL HARD NULL: val=3.2974, sr=−1, mask_frac=0.625.** Confirms #696 Contra-Muon closure pattern: post-NS perturbations break polar map spectral structure. Arm B (mask-only, no renorm) chained, running. **ETA terminal ~17:15 UTC.** |
 | **#897** | tanjiro | Body-Muon adaptive WD coupled to ||p||/target_norm | **Arm A TERMINAL NULL: sr=3000, val=3.270003**, terminal wd_mult=2.549 (moderated from mid-run 3.22). Adds to body-Muon WD axis closure pattern: static 0.025 locked across 5 closed sub-axes. Arm B (α=0.5 sqrt) chained, running. **ETA terminal ~17:30 UTC.** |
-| **#898** | alphonse | PMuon residual-driven adaptive NS_ITERS (per-tensor early termination) | Arm A `qiw3qggh` running step ~1875 @ 12:13 UTC. **Mechanism issue identified:** `adaptive_ns/iter_count_mean=20.0` constant — eps=1e-3 unreachable given residual scale 10⁻¹-10⁰. Arm A degenerates to static NS_ITERS=20. Still useful pairing with #884 Arm B for NS_ITERS frontier. **ETA terminal ~13:55 UTC.** |
+| **#898** | alphonse | PMuon residual-driven adaptive NS_ITERS (per-tensor early termination) | **Arm A `d332v1wk` TERMINAL 13:58 UTC: sr=2925, val=3.26813 (Δval=+0.00120 vs new baseline 3.266826).** `adaptive_ns/iter_count=20` constant — eps=1e-3 unreachable (residual floor 0.05). Arm A degenerates to static NS_ITERS=20, gives same sr but slight val regression vs NS_ITERS=12. Arm B `ypejugws` inadvertently launched (script-edit hazard), now running as n=2 sanity confirmation. **ETA Arm B terminal ~17:57 UTC.** |
 | **#899** | fern | Aux Polyak EMA: lm_head only vs embed only (β-ramp matches body) | Arm A (`--ema_aux_lm_head`) running step ~1600 @ 12:13 UTC, pre-EMA-activation. **ETA terminal ~14:00 UTC.** Arm B (`--ema_aux_embed`) pending chain. Fresh axis — aux parameter EMA has never been tested. |
 | **#913** | frieren | Aux embed/lm_head LR retune at PR #737 baseline | **Newly assigned 14:05 UTC after #875 closure.** Arm A=embed_lr=0.4/lm_head_lr=0.008 (UP); Arm B=embed_lr=0.225/lm_head_lr=0.005 (DOWN). embed/lm_head LRs unchanged since PR #413; body-Muon (γ_pre=0.4, β_cov=0.95) and EMA wrapper (β_target=0.99 ramp) have shifted effective body magnitude. Base-case probe — sharpens 16-closure "aux saturation" finding from #875 `s/m²≫1`. |
 
