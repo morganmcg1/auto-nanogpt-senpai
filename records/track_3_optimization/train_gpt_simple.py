@@ -577,6 +577,9 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Embed weight init magnitude (#874): multiplicative scale on default torch N(0,1) init.
+# 1.0 = bit-identical to baseline (guard skips mul_ op).
+NANOGPT_EMBED_INIT_SCALE = float(os.environ.get("NANOGPT_EMBED_INIT_SCALE", "1.0"))
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # Stochastic NS iter count: per-step uniform sampling around the deterministic mean.
 # spread=0 -> deterministic (default, bit-identical to merged stack).
@@ -817,6 +820,7 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"EMBED_INIT_SCALE: {NANOGPT_EMBED_INIT_SCALE} (1.0 = bit-identical baseline)", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -884,6 +888,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_embed_init_scale": NANOGPT_EMBED_INIT_SCALE,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
@@ -909,6 +914,8 @@ for trial_idx in range(args.num_trials):
                 w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
+                if NANOGPT_EMBED_INIT_SCALE != 1.0:
+                    w.mul_(NANOGPT_EMBED_INIT_SCALE)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
@@ -917,6 +924,10 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    if dist.get_rank() == 0:
+        _embed_w = model.embed.weight.detach().float()
+        print0(f"EMBED_INIT: scale={NANOGPT_EMBED_INIT_SCALE} actual_norm={_embed_w.norm().item():.4f} actual_std={_embed_w.std().item():.6f}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
