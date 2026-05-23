@@ -22,6 +22,13 @@ import torch.nn.functional as F
 import torch.distributed as dist
 import wandb
 
+# Bump torch._dynamo recompile cache so per-LAYER mu (12 distinct values) does
+# not blow the default limit of 8, which forces muon_update into eager mode for
+# half the blocks and makes the run ~40x slower. Default cases use 1 mu value
+# (cache hit count = 1), so this is a no-op for arm_a / pre-flag baselines.
+torch._dynamo.config.cache_size_limit = 64
+torch._dynamo.config.recompile_limit = 64
+
 TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
@@ -46,6 +53,12 @@ def parse_args():
     parser.add_argument("--muonh_mode", type=str, default=os.environ.get("MUONH_MODE", "clip"), choices=["clip", "scale_invariant"])
     parser.add_argument("--muonh_cooldown_shape", type=str, default=os.environ.get("MUONH_COOLDOWN_SHAPE", "linear"), choices=["linear", "cosine", "sqrt"], help="LR cooldown shape for MuonH groups (AdamW aux groups stay linear)")
     parser.add_argument("--muonh_warmup_steps", type=int, default=int(os.environ.get("MUONH_WARMUP_STEPS", "0")), help="Linear LR warmup steps for MuonH groups only (0 = disabled, no-op vs baseline). AdamW aux groups are not warmed.")
+    parser.add_argument("--muonh_mu_per_layer", type=int, default=int(os.environ.get("MUONH_MU_PER_LAYER", "0")),
+                        help="If 1, apply per-LAYER (per-block) mu scaling to MuonH body 2D params, linearly interpolating from shallow to deep.")
+    parser.add_argument("--muonh_mu_shallow", type=float, default=float(os.environ.get("MUONH_MU_SHALLOW", "0.95")),
+                        help="mu for block 0 (shallowest) when --muonh_mu_per_layer 1.")
+    parser.add_argument("--muonh_mu_deep", type=float, default=float(os.environ.get("MUONH_MU_DEEP", "0.95")),
+                        help="mu for block 11 (deepest) when --muonh_mu_per_layer 1.")
     parser.add_argument("--train_steps", type=int, default=int(os.environ.get("TRAIN_STEPS", "3350")))
     # MuLoCo outer Nesterov SGD (Algorithm 1, K=1). Wraps all trainable params;
     # snapshots an anchor at trial start, then every sync_interval inner steps
@@ -592,9 +605,17 @@ class MuonH(torch.optim.Optimizer):
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
                  hyperball=True, budget_mult=1.0, mode="clip"):
-        assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
-        params = sorted(params, key=lambda x: x.size(), reverse=True)
+        assert isinstance(params, list) and len(params) >= 1
+        if isinstance(params[0], torch.nn.Parameter):
+            # Flat list of params: single group with default mu.
+            params = sorted(params, key=lambda x: x.size(), reverse=True)
+        else:
+            # List of param-group dicts (e.g. per-LAYER mu split). Sort each
+            # group's params for consistent world_size padding in step().
+            assert all(isinstance(g, dict) and "params" in g for g in params)
+            for g in params:
+                g["params"] = sorted(g["params"], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
@@ -705,6 +726,10 @@ if args.use_outer_optimizer:
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
+if args.muonh_mu_per_layer:
+    print0(f"MuonH per-LAYER mu ENABLED: shallow={args.muonh_mu_shallow}, deep={args.muonh_mu_deep} (linear interpolation across 12 transformer blocks)", console=True)
+else:
+    print0("MuonH per-LAYER mu DISABLED (uniform mu=0.95)", console=True)
 if args.aux_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on aux AdamW groups: clip_ratio={args.aux_agc_clip_ratio} eps={args.aux_agc_eps}", console=True)
 else:
@@ -766,6 +791,9 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "muonh_mu_per_layer": bool(args.muonh_mu_per_layer),
+            "muonh_mu_shallow": args.muonh_mu_shallow,
+            "muonh_mu_deep": args.muonh_mu_deep,
         },
     )
 
@@ -816,11 +844,37 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
-    optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
-                       lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
-                       hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
-    optimizer2.param_groups[0]["name"] = "muonh_blocks"
+    if args.muonh_mu_per_layer:
+        # Per-LAYER (per-block) mu: split MuonH body 2D params into one group per
+        # transformer block, with mu linearly interpolated from shallow (block 0)
+        # to deep (block 11). MuonH.step() already reads group["mu"] per group.
+        num_blocks = len(model.blocks)
+        block_param_groups = []
+        for i in range(num_blocks):
+            prefix = f"blocks.{i}."
+            params_i = [p for name, p in model.named_parameters()
+                        if p.requires_grad and p.ndim >= 2 and name.startswith(prefix)]
+            if not params_i:
+                continue
+            frac = i / (num_blocks - 1) if num_blocks > 1 else 0.0
+            mu_i = args.muonh_mu_shallow + frac * (args.muonh_mu_deep - args.muonh_mu_shallow)
+            block_param_groups.append(dict(params=params_i, mu=mu_i,
+                                           name=f"muonh_block_{i}"))
+        # Sanity: every body 2D param must land in exactly one bucket.
+        all_body_2d = set(p for p in model.blocks.parameters() if p.ndim >= 2)
+        grouped_params = set(p for grp in block_param_groups for p in grp["params"])
+        assert grouped_params == all_body_2d, \
+            f"per-layer mu split missed params: extra={grouped_params - all_body_2d} missing={all_body_2d - grouped_params}"
+        optimizer2 = MuonH(block_param_groups,
+                           lr=args.muonh_lr, weight_decay=0.0,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+    else:
+        optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
+                           lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
+                           hyperball=True, budget_mult=args.muonh_budget_mult,
+                           mode=args.muonh_mode)
+        optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
     # param groups to track exactly the same params AdamW updates.
@@ -882,6 +936,24 @@ for trial_idx in range(args.num_trials):
     ########################################
     #        Training and Validation       #
     ########################################
+
+    # One-shot per-LAYER mu telemetry: log the per-block mu for MuonH groups
+    # at the start of trial 0 so we can verify the linear interpolation matches
+    # expected arm values (e.g. arm_b shallow=0.92, deep=0.97 -> block_0=0.920,
+    # block_11=0.970, linear in between). Static for the run.
+    if dist.get_rank() == 0 and args.muonh_mu_per_layer and trial_idx == 0:
+        mu_metrics = {}
+        for pg in optimizer2.param_groups:
+            grp_name = pg.get("name", "muonh_unknown")
+            mu_metrics[f"muonh/group_mu_{grp_name}"] = float(pg["mu"])
+            mu_metrics[f"muonh/group_params_{grp_name}"] = len(pg["params"])
+        mu_metrics["muonh/num_groups"] = len(optimizer2.param_groups)
+        wandb.log(mu_metrics, step=0)
+        print0(f"MuonH per-LAYER mu groups: {len(optimizer2.param_groups)} groups, "
+               f"mu range [{min(pg['mu'] for pg in optimizer2.param_groups):.4f}, "
+               f"{max(pg['mu'] for pg in optimizer2.param_groups):.4f}]", console=True)
+        for pg in optimizer2.param_groups:
+            print0(f"  {pg['name']}: mu={pg['mu']:.4f} ({len(pg['params'])} params)", console=True)
 
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
