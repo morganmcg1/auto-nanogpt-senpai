@@ -61,6 +61,11 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--cautious_aux", type=str, default="off",
+                        choices=["off", "momentum", "update"],
+                        help="Cautious-AdamW mask variant for aux groups. 'off' = standard AdamW.")
+    parser.add_argument("--cautious_aux_no_renorm", action="store_true",
+                        help="Disable C-AdamW renormalization step (mask only, no /c.mean() rescale).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -586,6 +591,90 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class CautiousAdamW(torch.optim.Optimizer):
+    """Cautious AdamW (Liang et al. 2024, arXiv:2411.16085).
+
+    Same as AdamW but masks update components where update and gradient signs disagree:
+        u_t = m_hat / (sqrt(v_hat) + eps)
+        c_t = (sign(ref) == sign(g_t)).float()
+        update = c_t * u_t / max(c_t.mean(), eps_mask)   (paper variant)
+        update = c_t * u_t                                (no_renorm: mask only)
+
+    Args:
+        mask_variant: "update" (sign(u_t) vs sign(g_t)) or "momentum" (sign(m_t) vs sign(g_t)).
+                      Paper uses "momentum". Setting "off" reverts to standard AdamW.
+                      Note: sign(u_t) == sign(m_hat) elementwise since sqrt(v_hat)+eps > 0,
+                      so "update" and "momentum" produce identical masks.
+        no_renorm: if True, skip the /c.mean() renormalization (Arm B ablation).
+        eps_mask: floor for renormalization denominator (default 1e-3).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.0, mask_variant="momentum", no_renorm=False,
+                 eps_mask=1e-3):
+        if mask_variant not in ("momentum", "update", "off"):
+            raise ValueError(f"mask_variant must be one of momentum/update/off, got {mask_variant}")
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay,
+                        mask_variant=mask_variant, no_renorm=no_renorm, eps_mask=eps_mask)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            mv = group["mask_variant"]
+            no_renorm = group["no_renorm"]
+            em = group["eps_mask"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["m"], state["v"]
+                g32 = g.float()
+                m.mul_(b1).add_(g32, alpha=1 - b1)
+                v.mul_(b2).addcmul_(g32, g32, value=1 - b2)
+                bc1 = 1 - b1 ** t
+                bc2 = 1 - b2 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                u = m_hat / (v_hat.sqrt() + eps)
+                if mv == "off":
+                    update = u
+                    c_mean = 1.0
+                else:
+                    ref = m_hat if mv == "momentum" else u
+                    c = (torch.sign(ref) == torch.sign(g32)).float()
+                    c_mean = c.mean()
+                    if no_renorm:
+                        update = c * u
+                    else:
+                        denom = c_mean.clamp_min(em)
+                        update = c * u / denom
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+                # Telemetry: log mask fraction (== c.mean() == effective LR ratio
+                # under paper variant). Only for first param of group to keep
+                # CPU sync cost light.
+                if p is group["params"][0] and t % 50 == 0:
+                    state["last_mask_frac"] = (float(c_mean.item()) if mv != "off"
+                                               else 1.0)
+        return loss
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -717,6 +806,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "cautious_aux": args.cautious_aux,
+            "cautious_aux_active": int(args.cautious_aux != "off"),
+            "cautious_aux_no_renorm": int(bool(args.cautious_aux_no_renorm)),
         },
     )
 
@@ -748,10 +840,19 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    param_groups_aux = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars"),
+    ]
+    if args.cautious_aux != "off":
+        optimizer1 = CautiousAdamW(param_groups_aux, lr=0.3, betas=(0.8, 0.95),
+                                   eps=1e-10, weight_decay=0.0,
+                                   mask_variant=args.cautious_aux,
+                                   no_renorm=args.cautious_aux_no_renorm)
+    else:
+        optimizer1 = AdamW(param_groups_aux, betas=(0.8, 0.95),
+                           eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1049,6 +1150,34 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+            if args.cautious_aux != "off" and isinstance(optimizer1, CautiousAdamW):
+                cautious_metrics = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/cautious_aux/variant": args.cautious_aux,
+                    "train/cautious_aux/no_renorm": int(bool(args.cautious_aux_no_renorm)),
+                }
+                group_short_name = {
+                    "adam_embed": "embed",
+                    "adam_lm_head": "proj",
+                    "adam_scalars": "scalars",
+                }
+                for group in optimizer1.param_groups:
+                    if not group["params"]:
+                        continue
+                    state = optimizer1.state.get(group["params"][0], {})
+                    if "last_mask_frac" in state:
+                        gname = group.get("name", "unknown")
+                        short = group_short_name.get(gname, gname)
+                        mf = state["last_mask_frac"]
+                        cautious_metrics[f"train/cautious_aux/mask_frac_{short}"] = mf
+                        # Alias: under paper renorm c.mean() == effective LR ratio.
+                        # Under no_renorm Arm B this number is what the LR ratio
+                        # WOULD have been preserved at if renorm were active — i.e.,
+                        # the fraction of unit-LR mass actually applied.
+                        cautious_metrics[f"train/cautious_aux/eff_lr_ratio_{short}"] = mf
+                if len(cautious_metrics) > 4:
+                    wandb.log(cautious_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
