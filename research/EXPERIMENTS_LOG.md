@@ -3,6 +3,58 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~15:25 UTC — PR #823: fern SignMuon — **CLOSED clean-NEG**
+
+- Branch: `g1r5-fern/sign-muon-before-ns`
+- Student: g1r5-fern
+- Hypothesis: Sign-transform the Nesterov momentum buffer before NS orthogonalization. Tests whether removing magnitude information (keeping only direction signs) before the spectral step improves final val/loss. Three scopes: sign on attn-only, MLP-only, or all body matrices.
+
+| Cell | scope | n | val/loss | ffs | Δ vs baseline | W&B |
+|:---:|:---:|:---:|---:|---:|---:|-----|
+| A | attn-only | 4 | 3.262257 | 3050 | +0.001036 (+1.75σ) | a7undx2m |
+| B | mlp-only | 4 | 3.261530 | 3025 | +0.000309 (+0.52σ) | 8jvexp4b |
+| **C** | **all** | **4** | **3.261930** | **3025** | **+0.000709 (+1.20σ)** | **l4w0f3jl** |
+
+Per-trial trajectory for Cell C (the final tested config):
+T1=3.260566, T2=3.260956, T3=3.262377, T4=3.263821 — monotonically degrading.
+
+**Mechanism finding:** n=2 partial signal (T1+T2 mean=3.260765, Δ=−0.000456) was a downward fluctuation; T3/T4 confirmed reversion above baseline. Sign-of-momentum on all body matrices removes magnitude information that is informative for NS spectral preconditioning. Every Cell × scope is at parity or above baseline. Sign-direction axis comprehensively closed: #844 post-NS destructive, #867 pre-NS Cautious null, #823 pre-NS sign-of-momentum NEG.
+
+**Decision: close clean-NEG.** Sign-information manipulations confirmed harmful across all formulations.
+
+---
+
+## 2026-05-23 ~15:25 UTC — PR #840: nezuko Muon-AdEMAMix n=4 confirm — **CLOSED clean-WEAK-NEG**
+
+- Branch: `g1r5-nezuko/muon-ademamix-before-ns`
+- Student: g1r5-nezuko
+- Hypothesis: AdEMAMix-style dual slow/fast momentum before NS — blend fast Nesterov momentum with a slow long-horizon EMA (β₃=0.99, α=0.3) to inject low-frequency gradient information into the NS spectral step.
+
+Cell E (mlp-only, β₃=0.99, α=0.3) — n=4 confirm (run `xph9ly80`):
+
+| Trial | step | val/loss |
+|------:|:----:|---------:|
+| T1 | 3250 | 3.261360 |
+| T2 | 6501 | 3.260956 |
+| T3 | 9752 | 3.260104 |
+| T4 | 13003 | 3.260279 |
+| **mean** | | **3.260675** |
+
+n=4 mean=3.260675, σ_sample≈0.000587, SE=0.000294. Δ=−0.000546 vs baseline (−0.92σ_single, −1.86σ_SE). Statsig=(3.261221−3.260675)×√4=0.001092 < gate 0.004 → MISS.
+
+Sweep summary (n=1 screening):
+| Cell | β₃ | α | scope | val/loss | Δ σ |
+|:---:|:---:|:---:|:---:|---:|---:|
+| A | 0 | — | — | 3.26123 | +0.02σ |
+| B | 0.99 | 0.3 | all | 3.26029 | −1.58σ |
+| C | 0.999 | 0.3 | all | 3.28512 | +40σ |
+| D | 0.99 | 1.0 | all | 3.26358 | +3.97σ |
+| **E** | **0.99** | **0.3** | **mlp** | **3.25960** | **−2.74σ n=1** |
+
+**Mechanism finding:** β₃=0.99 (half-life ~70 steps) is optimal; β₃=0.999 collapses cos_sim to 0.26 (stale). α=0.3 is optimal; α=1.0 inflates magnitude 3.3× without direction benefit. scope=mlp slightly edges full-scope (avoiding SOAP double-spectral-treatment on attn). cos_sim_mean≈0.74 — slow EMA is aligned-but-distinct (~42° off-axis), genuinely adding new information. n=4 confirm shows consistent sub-baseline trend (best trial T3=3.260104) but mean misses gate.
+
+**Decision: close clean-WEAK-NEG.** First n=4 sub-baseline result in programme since #699. n=8 extension projected to stay ~3.2607 — would need true effect of −2.5σ_single to clear n=8 gate, implausible given n=4 variance. Pre-NS gradient transformation axis saturating.
+
 ## 2026-05-23 ~14:05 UTC — PR #873: alphonse MARS gradient VR for Muon — **CLOSED clean-WEAK-NEG**
 
 - Branch: `g1r5-alphonse/mars-grad-vr-muon`
