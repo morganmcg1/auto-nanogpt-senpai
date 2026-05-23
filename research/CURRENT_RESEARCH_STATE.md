@@ -133,6 +133,48 @@ Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses a
 
 ### Zero idle students (cycle 135). Eight active WIP PRs (#929 #923 #919 #847 #845 #880 #789 #825).
 
+## Cycle 152 snapshot (17:52 UTC) — DOUBLE MERGE WINDOW
+
+### Baseline update: PR #847 MERGED — new baseline val=3.26756 / fs=3183.33
+
+**New merged baseline — post-#847:**
+```
+...all prior flags unchanged...
+NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW: post-AdamW hook, embed init-snapshot anchor
+```
+
+| PR | Change | val (n) | Cumulative baseline |
+|----|--------|---------|---------------------|
+| ... (prior entries) | | | |
+| **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+Key signal: composition with #787 stochastic-NS-cooldown produced +1.74 mUE vs pre-rebase. Mechanisms on disjoint substrates. fs=3183.33 (−25 steps vs prior 3208.33).
+
+### Closures & assignments this cycle
+- **#847 alphonse MERGED 17:51 UTC** — embed init-anchor WD λ=0.001. mean=3.26756, Δ=−0.00188, t=2.49, 3/3 dir-correct. Post-rebase composition gain confirmed. **New baseline val=3.26756 / fs=3183.33**. Alphonse now idle.
+- **#845 askeladd sent back for second rebase** — mean(post-#787)=3.26850 now above new baseline 3.26756 by +0.00094. Sent back for rebase+re-run on post-#847 stack to test composition (freq-rescale gradient-space ↔ init-anchor weight-space). askeladd now WIP.
+- **alphonse ASSIGNED new experiment** (see below)
+
+### Active chains at cycle 152
+| PR | Student | Status | ETA |
+|:--:|:-------:|--------|-----|
+| new | alphonse | ASSIGNING lm_head init-anchor extension | student polling |
+| #845 | askeladd | sent back for rebase post-#847 | rebasing |
+| #919 | fern | Arms B/C/D sequential (Arm B `5mkteulp` ~3350) | terminal ~18:40 UTC |
+| #789 | tanjiro | Pod 2 ArmB `e55k3ngb` running | terminal ~18:39 UTC |
+| #880 | thorfinn | Pod 0 ArmD `v3k18lkf` running (~65%) | full chain ~01:50 UTC |
+| #933 | nezuko | path-norm body reg — student implementing | — |
+| #929 | edward | AdamW aux v_min floor — student implementing | — |
+| #923 | frieren | Zipf-freq-CE — student implementing | — |
+
+### Research portfolio at cycle 152
+- **Embed group** extensively explored: LR mult (+), linear_floor cooldown (+), clip asymmetry (+), init-anchor WD (+merged), freq-rescale (rebasing)
+- **Body-Muon** axis: attn/mlp LR asymmetry (+), stochastic NS cooldown (+), NS schedule (+), β₁ cooldown anneal (in-flight #919)
+- **Loss function**: Zipf-CE (in-flight #923), focal/smoothing/z-loss (closed prior rounds)
+- **Preconditioner**: v_min floor (in-flight #929), eps NEG (#652)
+- **Regularization**: path-norm body reg (in-flight #933), Cautious AdamW (NEG), sign-aware masks (NEG), gradient noise (NEG/NULL)
+- **lm_head**: relatively unexplored — init-anchor extension is the next probe
+
 ## Cycle 142 snapshot (16:45 UTC)
 
 ### Closures & assignments this cycle

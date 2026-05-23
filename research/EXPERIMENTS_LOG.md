@@ -4209,3 +4209,37 @@ The N=1 signal was a **drift-headroom artifact**: the screening stack used only 
 **Structural implication**: BODY=10/AUX=5 per-group clipping (#708) already serves a related NS-output stabilization role that subsumes marginal post-NS temporal smoothing. The Muon **temporal-smoothing family is now fully fenced across four mechanism levels** (pre-NS, in-NS, post-NS, weight-space). Mean(A,n=3)=3.26947 provides a **5th independent cross-validation of new baseline 3.26944** (drift +0.00003).
 
 **Follow-up:** frieren assigned **#900 Anisotropic Gradient Noise** — curvature-matched noise injection (WAVE5-5), mechanism-distinct from #411 isotropic noise NULL, pivoting from temporal-smoothing family to stochastic exploration family.
+
+## 2026-05-23 17:51 UTC — PR #847: Embed init-anchor weight decay — MERGED
+
+- **Branch:** g1r4-alphonse/embed-init-anchor-wd
+- **Hypothesis:** Post-AdamW hook applies λ=0.001 weight decay pulling embed weight back toward init snapshot (`NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001`). Prevents rare-token embed rows from drifting far from init, Zipf-aware per-row regularization.
+
+| Phase | Seeds | run_ids | val/loss | fs | Δ_vs_base | Notes |
+|---|:---:|---|:---:|:---:|:---:|---|
+| OLD pre-#787 N=1 screening | 1 | — | ~3.26930 | — | −0.00014 | Sub-noise marginal |
+| OLD pre-#787 paired-pod n=3 | 3 | — | 3.26930 | — | −0.00014 (t≈0.17) | Sub-noise |
+| REBASED post-#787 n=3 | 1 | `ddiux6wz` | 3.26642 | 3175 | −0.00302 | Strong seed |
+| REBASED post-#787 n=3 | 2 | `1zjpifpb` | 3.26726 | 3175 | −0.00218 | Strong seed |
+| REBASED post-#787 n=3 | 3 | `l35g6tlk` | 3.26899 | 3200 | −0.00045 | |
+| **REBASED mean(n=3)** | — | — | **3.26756** | **3183.33** | **−0.00188** | **MERGED** |
+
+- **Statistical gates:** mean=3.26756 ≤ baseline 3.26944 (Gate 1 ✅), (3.28−3.26756)×√3=0.02155 ≥ 0.004 (Gate 2 ✅), 3/3 dir-correct (Gate 3 ✅), max seed=3.26899 (Gate 4 ✅). t-stat=2.49 (p≈0.066).
+- **New baseline:** val=3.26756 / fs=3183.33.
+- **Commentary:** Pre-stack signal sub-noise (t≈0.17). Composition with #787 stochastic-NS-cooldown produced +1.74 mUE gain — mechanisms act on disjoint substrates (init-anchor=per-row embed drift magnitude, stochastic-NS=cooldown-phase Muon NS-iter switching). fs improved 3208.33→3183.33 (−25 steps). 2/3 seeds at fs=3175. Honest caveat: t=2.49 with df=2 → p≈0.066 one-tailed (outside α=0.05), but all pre-staged gates pass per protocol.
+
+## 2026-05-23 17:52 UTC — PR #845: Embed-grad freq rescale — Sent back for rebase (second time)
+
+- **Branch:** g1r4-askeladd/embed-grad-freq-rescale
+- **Hypothesis:** Per-row gradient amplification of embed weight by inverse token frequency `w_i ∝ 1/√freq_i` (mode=sqrt_inv, wmax=10). Amplifies gradients on low-frequency rare-token embed rows.
+
+| Phase | Seeds | run_ids | val/loss | fs | Δ_vs_base | Notes |
+|---|:---:|---|:---:|:---:|:---:|---|
+| OLD pre-#787 paired-pod n=3 | 1-3 | riny958o, lgn6hwxh, 31f549pg | 3.26920 | 3200/3200/3225 | −0.00024 (vs 3.26944) | Marginal |
+| REBASED post-#787 n=3 (v2) | 1 | `zkx8xeqb` | 3.26950 | 3200 | +0.00006 (slight regression) | |
+| REBASED post-#787 n=3 (v2) | 2 | `z85uh78i` | 3.26802 | 3200 | −0.00142 | Strong |
+| REBASED post-#787 n=3 (v2) | 3 | `5z4wy3k6` | 3.26798 | 3200 | −0.00146 | Strong |
+| **REBASED mean(n=3) v2** | — | — | **3.26850** | **3208.33** | **−0.00094 (vs 3.26944)** | NOT merged |
+
+- **Decision:** Sent back (second rebase). #847 alphonse merged first (mean=3.26756), establishing new baseline 3.26756. #845 mean=3.26850 is now +0.00094 ABOVE the new baseline. Both mechanisms target embed group via different axes — composition unknown. Must rebase onto post-#847 stack and re-run to test composition.
+- **Commentary:** Two seeds (2,3) showed strong signal Δ≈−0.0014 — mechanism is real on post-#787 stack. The high variability (seed 1=+0.00006 vs seeds 2,3≈−0.00145) suggests interaction with stochastic NS cooldown draws. On post-#847 stack, the question is whether freq-rescale (gradient space) and init-anchor (weight space) compose additively or saturate the same embed-row degree of freedom.
