@@ -436,6 +436,47 @@ def distributed_data_generator(filename_pattern: str, batch_size: int, seq_len=1
         yield inputs.view(-1, seq_len), targets.view(-1, seq_len)
 
 
+def compute_ce_freq_weight(
+    shard_path: str,
+    n_tokens: int,
+    vocab_size: int,
+    alpha: float,
+    clamp_value: float,
+) -> tuple[torch.Tensor, dict]:
+    """Build Zipf-frequency CE weights from a training shard.
+
+    Reads the first n_tokens of `shard_path`, computes per-vocab counts,
+    forms w[v] = (count[v] / total)^(-alpha), clamps to max=clamp_value,
+    and normalizes to mean=1.0. Counts are Laplace-smoothed (min=1) so that
+    never-seen tokens get a finite (but capped) weight after clamping.
+
+    Returns (weights[vocab_size] float32, stats_dict).
+    """
+    shard = _load_data_shard(Path(shard_path))
+    n_tokens = min(n_tokens, shard.numel())
+    tokens = shard[:n_tokens].to(torch.int64)
+    counts = torch.bincount(tokens, minlength=vocab_size).clamp(min=1)
+    freq = counts.float() / counts.sum().float()
+    w = freq.pow(-alpha)
+    w_unclamped_max = float(w.max().item())
+    w = w.clamp(max=clamp_value)
+    w_clip_count = int((w >= clamp_value).sum().item())
+    w = w / w.mean()
+    stats = {
+        "n_tokens_used": int(n_tokens),
+        "unique_tokens_seen": int((counts > 1).sum().item()),
+        "max_count": int(counts.max().item()),
+        "min_count": int(counts.min().item()),
+        "weight_max": float(w.max().item()),
+        "weight_min": float(w.min().item()),
+        "weight_unclamped_max": w_unclamped_max,
+        "weight_clip_count": w_clip_count,
+        "alpha": alpha,
+        "clamp": clamp_value,
+    }
+    return w.contiguous(), stats
+
+
 ########################################
 #             Architecture             #
 ########################################
@@ -530,14 +571,24 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # Zipf-frequency CE weight buffer (PR #923). Default uniform → unweighted CE.
+        # Populated from training-data token counts before training begins when
+        # NANOGPT_CE_FREQ_ALPHA > 0; otherwise stays all-ones and is unused.
+        self.register_buffer(
+            "ce_freq_weight", torch.ones(vocab_size, dtype=torch.float32), persistent=False
+        )
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, weights: Tensor | None = None):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        if weights is None:
+            return F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+        return F.cross_entropy(flat_logits, flat_targets, weight=weights, reduction="sum")
 
 
 ########################################
@@ -593,6 +644,17 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+
+# Zipf-frequency CE weighting (PR #923). w[v] = clip(freq[v]^(-alpha), max=clamp); w /= w.mean().
+# alpha=0 (default) -> uniform weights (bit-identical to standard CE).
+# Weights are computed once from the first FineWeb training shard and registered as a buffer.
+# Weighted CE is applied only during training; validation always uses unweighted CE so val/loss
+# remains comparable to baseline.
+NANOGPT_CE_FREQ_ALPHA = float(os.environ.get("NANOGPT_CE_FREQ_ALPHA", "0.0"))
+NANOGPT_CE_FREQ_CLAMP = float(os.environ.get("NANOGPT_CE_FREQ_CLAMP", "20.0"))
+NANOGPT_CE_FREQ_TOKENS = int(os.environ.get("NANOGPT_CE_FREQ_TOKENS", "10000000"))
+NANOGPT_CE_FREQ_SHARD = os.environ.get(
+    "NANOGPT_CE_FREQ_SHARD", "data/fineweb10B/fineweb_train_000001.bin")
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -832,6 +894,12 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(
+    f"CE_FREQ_ALPHA: {NANOGPT_CE_FREQ_ALPHA} clamp={NANOGPT_CE_FREQ_CLAMP} "
+    f"tokens={NANOGPT_CE_FREQ_TOKENS:,} "
+    f"({'WEIGHTED CE (built later from shard)' if NANOGPT_CE_FREQ_ALPHA > 0 else 'UNIFORM (bit-identical)'})",
+    console=True,
+)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -846,6 +914,32 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+
+# Populate Zipf-frequency CE weights (#923). When alpha=0 the buffer stays uniform.
+ce_freq_stats: dict[str, float] | None = None
+if NANOGPT_CE_FREQ_ALPHA > 0:
+    _ce_w, ce_freq_stats = compute_ce_freq_weight(
+        shard_path=NANOGPT_CE_FREQ_SHARD,
+        n_tokens=NANOGPT_CE_FREQ_TOKENS,
+        vocab_size=50304,
+        alpha=NANOGPT_CE_FREQ_ALPHA,
+        clamp_value=NANOGPT_CE_FREQ_CLAMP,
+    )
+    model.ce_freq_weight.copy_(_ce_w.cuda())
+    print0(
+        f"CE_FREQ_WEIGHT: alpha={NANOGPT_CE_FREQ_ALPHA} clamp={NANOGPT_CE_FREQ_CLAMP} "
+        f"n_tokens={ce_freq_stats['n_tokens_used']:,} unique={ce_freq_stats['unique_tokens_seen']:,} "
+        f"weight_min={ce_freq_stats['weight_min']:.4f} weight_max={ce_freq_stats['weight_max']:.4f} "
+        f"unclamped_max={ce_freq_stats['weight_unclamped_max']:.4f} clipped={ce_freq_stats['weight_clip_count']} "
+        f"(WEIGHTED CE ACTIVE)",
+        console=True,
+    )
+else:
+    print0(
+        f"CE_FREQ_WEIGHT: alpha={NANOGPT_CE_FREQ_ALPHA} (UNIFORM — bit-identical to baseline CE)",
+        console=True,
+    )
+
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -896,6 +990,15 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_ce_freq_alpha": NANOGPT_CE_FREQ_ALPHA,
+            "nanogpt_ce_freq_clamp": NANOGPT_CE_FREQ_CLAMP,
+            "nanogpt_ce_freq_tokens": NANOGPT_CE_FREQ_TOKENS,
+            "nanogpt_ce_freq_shard": NANOGPT_CE_FREQ_SHARD,
+            "ce_freq_weight_min": (ce_freq_stats or {}).get("weight_min", 1.0),
+            "ce_freq_weight_max": (ce_freq_stats or {}).get("weight_max", 1.0),
+            "ce_freq_weight_unclamped_max": (ce_freq_stats or {}).get("weight_unclamped_max", 1.0),
+            "ce_freq_weight_clip_count": (ce_freq_stats or {}).get("weight_clip_count", 0),
+            "ce_freq_unique_tokens_seen": (ce_freq_stats or {}).get("unique_tokens_seen", 0),
         },
     )
 
@@ -1086,8 +1189,12 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        # When alpha=0 the weights buffer is unused (uniform); pass None to keep
+        # the training forward bit-identical to baseline. Validation never passes
+        # weights, so val/loss is always unweighted CE — comparable to baseline.
+        ce_weights_for_step = model.ce_freq_weight if NANOGPT_CE_FREQ_ALPHA > 0 else None
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs], weights=ce_weights_for_step)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
