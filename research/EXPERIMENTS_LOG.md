@@ -3,6 +3,26 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~10:25 UTC — PR #850: edward Bias-Corrected Muon — **CLOSED clean-NEG**
+
+- Branch: `g1r5-edward/muon-bias-correction`
+- Student: g1r5-edward
+- Hypothesis: Adam-style 1/(1-β^t) debiasing of the Nesterov momentum buffer before NS orthogonalization. Tests whether eliminating early-step momentum underestimation improves gradient direction quality, especially in the first 200-500 steps.
+- **Results (5-cell sweep, n=1 each):**
+
+| Cell | Configuration | val/loss | ffs | Δ vs baseline | wandb_run |
+|:----:|:-------------|:---:|:---:|:---:|:---:|
+| C1 ctrl | no BC | 3.26260 | 3050 | +0.34σ | hew924hz |
+| C2 | full BC, β=0.95 | **3.26127** | **3025** | +0.01σ ≈0 | 0hu0hv4b |
+| C3 | BC steps 0–200, β=0.95 | 3.26180 | 3025 | +0.14σ | xydbnlbb |
+| C4 | BC steps 0–500, β=0.95 | 3.26225 | 3050 | +0.26σ | bfsdemub |
+| C5 | full BC, β=0.90 | 3.26375 | 3050 | +0.63σ | pva0rskb |
+
+- **Decision: CLOSED clean-NEG.** Best cell C2 at 3.26127 = +0.01σ above baseline (within rounding noise). Full 5-cell spread of 0.62σ_single — indistinguishable from pure seed noise.
+- **Mechanism (student analysis, mathematically verified):** NS applies Frobenius normalization (`X = X / (X.norm() + 1e-7)`) to its input before each polynomial iteration. BC's debiasing factor 1/(1-β^t) is a **scalar** multiplier on the Nesterov buffer, and NS's Frobenius normalization renders this factor a no-op: NS(c·G) = NS(G) for any positive scalar c (modulo 1e-7 floor and bf16 rounding, which account for the residual 0.62σ spread). The Laing-Orvieto implicit-LR-warmup mechanism and the Shulgin NS-error-coupling mechanism were both candidate pathways — both falsified by NS's built-in scale invariance.
+- **Axis closed:** BC-style debiasing of NS input is categorically null under the current NS implementation. No further variations (partial BC, different β) will materially change this.
+- Next assignment to edward: Per-column gradient normalization pre-NS (#890) — distinct pre-NS input conditioning mechanism.
+
 ## 2026-05-23 ~09:15 UTC — PR #872: askeladd Orthogonal init for Muon-targeted body weights — **CLOSED clean-NEG**
 
 - Branch: `g1r5-askeladd/orthogonal-init-muon`

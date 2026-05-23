@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~09:55Z (poll #498) — **#840 trial 1/4 ~45% (step 1453); 5 cells terminal across other PRs; #873 Cell B γ=0.10 sub-baseline at 3.2599 (n=1)**
+- **Last updated:** 2026-05-23 ~10:30Z (poll #499) — **#850 CLOSED clean-NEG (BC null per NS Frobenius invariance); #890 edward per-col-norm assigned; #840 trial 1 step 1799 (~55%)**
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,25 +13,27 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #498)
+## Active WIP Portfolio (poll #499)
 
-8 PRs in flight; #840 trial 1 in progress; 4 cells terminal since poll #496; **#873 Cell B sub-baseline at 3.2599 (second-strongest n=1 post-#699)**.
+8 PRs in flight (#850 CLOSED clean-NEG; #890 edward freshly assigned); **#840 trial 1 ~55%**; #873 Cell B sub-baseline at 3.259897 (n=1).
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **#887** | **askeladd** | **★ NEW poll #497.** AGC-Muon — adaptive gradient clipping pre-NS (NFNet-style ‖g‖_F/‖W‖_F ≤ λ). Cell B (λ=0.01, MLP-only) PRIMARY per #840 pattern. | Cell A ctrl step 124 val=10.83 (early warmup, normal). 5-cell sweep starts. |
-| **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | Cell A=3.26094, Cell B no-rescale=3.26187, **Cell C with-rescale=3.26310 (NEG, +0.000879 vs baseline; confirms #844 rescale-breaks-NS-budget).** **Cell D mlp-only step 325 (early).** Pre-NS mask not winning at any setting. |
-| **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | Cell A=3.26013, Cell B λ=1.0=3.26456, Cell C λ=0.5=3.26147. **Cell D λ=2.0 step 2591/3250 val=3.3609 (~80% done, large NEG expected per dose-response).** Cell E gated. |
-| **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | Cell A=3.26226, Cell B β=0.99=3.26923, **Cell C β=0.97=3.26313 (NEG, +0.000913 vs baseline).** **Cell D β=0.95 step 796 (early).** SF mechanism harmful at multiple β. |
-| **#850** | **edward** | Bias-Corrected Muon — Adam-style 1/(1-β^t) debiasing of Nesterov buffer before NS ortho | C1=3.26260, C2=3.26127, C3=3.26180, C4=3.26225 (all parity ±0.0015). **C5 bc-beta090 step 3091/3250 val=3.2763 (~95% done, near terminal).** BC null on this stack. |
-| **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **★ N=4 CONFIRM trial 1/4 step 1453 (~45% through trial 1, ~5-6h to full terminal).** P1: A=3.26123, B=3.26029, C=3.28512, D=3.26358, **E (MLP-only)=3.25960 (−2.74σ_single, strongest n=1 in programme).** E already below n=4 merge gate (3.259221) by Δ=−0.000379. Decision tree: μ_n=4 ≤ 3.259221 → MERGE. |
-| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | Cell A n=4 mean=3.261745 (parity); **Cell B (sign mlp) n=4 TERMINAL — final-step val=3.2615; awaiting PR comment with full n=4 mean.** **Cell C (sign all) step 847 (early).** |
-| **#873** | **alphonse** | MARS gradient variance reduction for Muon — g_vr = g + γ×(g − g_prev) | **★ Cell A ctrl=3.26072, Cell B γ=0.10 TERMINAL at 3.2599 (−2.16σ_single vs baseline, second-strongest n=1 in programme).** Above n=4 gate by +0.000679 though — n=4 confirm uncertain. **Cell C γ=0.30 step 634 (early).** |
+| **#890** | **edward** | **★ NEW poll #499.** Per-column gradient normalization pre-NS — equalize per-neuron scale before NS polar-decomposition to improve condition number. Cell B (col-absorbed, MLP-only) PRIMARY. | Just assigned; 5-cell sweep: A ctrl, B col-absorbed MLP-only ★, C col-propagated, D col-absorbed all-body, E row-absorbed MLP-only. |
+| **#887** | **askeladd** | AGC-Muon — adaptive gradient clipping pre-NS (NFNet ‖g‖_F/‖W‖_F ≤ λ). Cell B (λ=0.01, MLP-only) PRIMARY. | Cell A ctrl step 487 (~15%). 5-cell sweep in progress. |
+| **#867** | **thorfinn** | Pre-NS Cautious Muon — grad-agreement mask BEFORE NS orthogonalization | Cells A=3.26094, B=3.26187, C=3.26310 (all NEG). **Cell D mlp-only step 695 (~21%).** Pre-NS mask not winning at any setting. |
+| **#859** | **frieren** | GrokFast-Muon — amplify slow-frequency gradient EMA before Nesterov step | A=3.26013, B λ=1.0=3.26456, C λ=0.5=3.26147. **Cell D λ=2.0 step 2964 (~91%), terminal imminent, large NEG expected.** Cell E gated. |
+| **#855** | **tanjiro** | Schedule-Free Muon — Polyak-averaged iterate evaluation (sf_beta sweep) | A=3.26226, B β=0.99=3.26923, C β=0.97=3.26313 (all NEG). **Cell D β=0.95 step 1094 (~34%).** SF mechanism harmful at all tested β. |
+| **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **★ N=4 CONFIRM trial 1/4 step 1799 (~55%, ~4.5h to full terminal).** P1: A=3.26123, B=3.26029, C=3.28512, D=3.26358, **E (MLP-only)=3.25960 (−2.74σ_single — STRONGEST n=1 in programme).** n=1 below n=4 merge gate by Δ=−0.000379. Decision tree: μ_n=4 ≤ 3.259221 → MERGE. |
+| **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | Cell A n=4 mean=3.261745 (parity). **Cell B (sign mlp) n=4 TERMINAL step 13003 final-val=3.2615 (awaiting PR comment for full n=4 mean).** **Cell C (sign all) step 1225 (~38%).** |
+| **#873** | **alphonse** | MARS gradient variance reduction for Muon — g_vr = g + γ×(g − g_prev) | **★ Cell A ctrl=3.260717, Cell B γ=0.10 TERMINAL at 3.259897 (−2.23σ_single, second-strongest n=1 post-#699).** Above n=4 gate by +0.000676. **Cell C γ=0.30 step 1004 (~31%).** Await full sweep before deciding n=4 path. |
 
 ## Recent Closures
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#850 edward** (poll #499) | clean-NEG | BC-Muon: 5-cell sweep (full BC/partial/different β). Best C2=3.26127 (+0.01σ above baseline — parity). **Mechanism: NS Frobenius normalization swallows BC's scalar multiplier by design; Laing-Orvieto LR-warmup and Shulgin NS-error-coupling mechanisms both null.** BC-debiasing of NS input axis closed. |
+| **#872 askeladd** (poll #497) | clean-NEG | Orthogonal init at matched magnitude. Cell B orth-auto=3.26784 (+0.00662 vs baseline, +0.00525 vs ctrl). NS-5 already orthogonalizes from Gaussian in 1-2 inner iters; orthogonal init eliminates the M-P spectral spread that early Muon-NS exploits. Init-shape axis closed. |
 | **#785 alphonse** (poll #485) | clean-NEG | Residual-proj init magnitude α=0.50 P2 n=4. μ_n=4=3.261895 (statsig=−0.001348, needs ≥+0.004). Trials 0–2 cluster at 3.2615 (within-cluster σ=0.00011, 5× tighter than σ_single). P1 winner (3.25978) was a downward fluctuation. **Init magnitude axis fully closed** — musoft optimal. |
 | **#826 askeladd** (poll #483) | clean-NEG | Lookahead outer wrapper. All active cells (B/C/E) harmful: +0.012/+0.017/+0.009 above ctrl. Only D (α=0.8 ≈ no-op) reaches parity. Mechanism: outer-loop averager adds bias drag on well-conditioned Muon+SOAP+NS trajectory. **2nd outer-wrapper closure (joins #844).** Pattern: outer-loop modifications to Muon are systematically negative. |
 | **#844 thorfinn** (poll #479) | clean-NEG | Cautious Muon post-NS sign-agreement mask. **A=3.26058 (ctrl parity), B=3.28395 (+38.3σ_single catastrophic). C/D/E gated.** Mechanism (student's analysis): (1) NS produces 35-40% sign-disagreement with raw gradient as a *structural* feature, not noise; (2) Rescale-to-preserve-Frobenius (×1.6) destroys NS's spectral bound; (3) Net regression toward signed-SGD on Frobenius budget, undoing NS's gain. cautious_kept rates 0.635 (MLP) / 0.610 (attn) mean, rising 0.53→0.67 over training. Distinct from #823 SignMuon (sign BEFORE NS preserves spectral). **Key insight:** post-NS modifications that break spectral budget are destructive — pre-NS is the correct intervention point for sign/mask operations. Pre-NS Cautious assigned as #867. |

@@ -37,16 +37,18 @@ Should not affect the n=4 confirm decision (E n=1 is below merge gate; if it rep
 
 | Rank | Idea | Status |
 |------|------|--------|
-| 1 | Idea 4 — Muon WD sweep on body matrices | ★ Top — body matrices currently WD=0, fresh axis |
-| 2 | Idea 2 — AdEMAMix β₃/α grid | Defer until #840 n=4 lands |
-| 3 | Idea 3 — Nesterov pre-NS | High — formula change, no extra cost |
-| 4 | Idea 5 — Per-column normalization pre-NS | High — clean mechanism |
-| 5 | Idea 7 — Momentum reset at cooldown onset | Medium — schedule interaction (novel) |
-| 6 | Idea 8 — Top-k sparsification pre-NS | Medium — gradient filtering |
-| 7 | Idea 6 — Path-heterogeneous β₁ (mlp vs attn) | Medium — distinct from #800 depth-het |
-| 8 | Idea 9 — Q/K/V consensus update | Lower — risky structural bet |
-| — | Idea 1 — SOAP on MLP path | ✗ MOOT (already in baseline) |
-| — | Idea 10 — AdaFactor factored preconditioner | ✗ MOOT (would replace SOAP, likely worse) |
+| 1 | Idea 5 — Per-column normalization pre-NS | ★ Top — clean novel mechanism |
+| 2 | Idea 3 — Nesterov pre-NS (finite-diff form) | High — formula change, no extra cost (verify against current Muon impl) |
+| 3 | Idea 2 — AdEMAMix β₃/α grid | Defer until #840 n=4 lands |
+| 4 | Idea 7 — Momentum reset at cooldown onset | Medium — schedule interaction (novel) |
+| 5 | Idea 8 — Top-k sparsification pre-NS | Medium — gradient filtering |
+| 6 | Idea 6 — Path-heterogeneous β₁ (mlp vs attn) | Medium — distinct from #800 depth-het |
+| 7 | Idea 9 — Q/K/V consensus update | Lower — risky structural bet |
+| — | Idea 1 — SOAP on MLP path | ✗ MOOT (already in baseline, `SOAP_MLP_SUFFIXES` unconditional line 570) |
+| — | Idea 4 — Muon WD on body matrices | ✗ MOOT (already has wd_mlp=wd_attn=0.025 default line 52/56; "introduce WD" premise false) |
+| — | Idea 10 — AdaFactor factored preconditioner | ✗ MOOT (would replace SOAP on MLP, likely worse) |
+
+**Pattern**: Researcher missed that the SOAP+WD stack is already heavily applied to body matrices in the baseline. Future researcher dispatches must read `train_gpt_simple.py` lines 52-60, 570-590, 852-863 first to avoid this class of error.
 
 ---
 
