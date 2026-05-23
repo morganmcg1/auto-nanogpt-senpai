@@ -8,7 +8,8 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-# Post-#787 merged-stack envs, locked across all 4 arms.
+# Post-#847 merged-stack envs (baseline 3.26756 / fs=3183.33), locked across all 4 arms.
+# IMPORTANT: NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001 is the #847 baseline contribution.
 export NANOGPT_GRAD_CLIP=10.0
 export NANOGPT_GRAD_CLIP_BODY=10.0
 export NANOGPT_GRAD_CLIP_AUX=5.0
@@ -23,6 +24,7 @@ export NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 export NANOGPT_MUON_ATTN_LR_MULT=0.80
 export NANOGPT_MUON_MLP_LR_MULT=1.20
 export NANOGPT_NS_STOCHASTIC_COOLDOWN=2
+export NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001
 export NANOGPT_TRAIN_STEPS=3350
 
 LOG_DIR=logs_path_norm_4arm
