@@ -83,6 +83,15 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--la_k", type=int, default=0,
+                        help="Lookahead outer step frequency (0=disabled). "
+                             "Every k inner optimizer steps, slow weights are interpolated "
+                             "toward fast weights with alpha and fast weights are reset to slow.")
+    parser.add_argument("--la_alpha", type=float, default=0.5,
+                        help="Lookahead slow-weight interpolation rate (Zhang et al. 2019).")
+    parser.add_argument("--la_scope", type=str, default="all", choices=["all", "muon"],
+                        help="Which optimizers to wrap with Lookahead: "
+                             "all=Muon+AdamW, muon=Muon only.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -901,6 +910,19 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+
+    # Lookahead (Zhang et al. 2019, arXiv:1907.08610) slow-weights init.
+    # Cloned post-broadcast so slow weights are identical across all ranks.
+    la_slow_params: list[tuple[torch.optim.Optimizer, dict[int, Tensor]]] = []
+    if args.la_k > 0:
+        opts_to_wrap = [optimizer2] if args.la_scope == "muon" else [optimizer1, optimizer2]
+        for opt in opts_to_wrap:
+            slow_dict: dict[int, Tensor] = {}
+            for group in opt.param_groups:
+                for p in group["params"]:
+                    slow_dict[id(p)] = p.data.clone()
+            la_slow_params.append((opt, slow_dict))
+    la_outer_step_count = 0
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1009,6 +1031,17 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # Lookahead outer step: every la_k inner steps, slow ← slow + α(fast − slow);
+        # fast ← slow. Muon already all_gathers fast weights, so all ranks have identical
+        # values here and copy_(slow) preserves synchronization.
+        if args.la_k > 0 and train_step % args.la_k == 0:
+            for opt, slow_dict in la_slow_params:
+                for group in opt.param_groups:
+                    for p in group["params"]:
+                        slow = slow_dict[id(p)]
+                        slow.add_(p.data - slow, alpha=args.la_alpha)
+                        p.data.copy_(slow)
+            la_outer_step_count += 1
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
@@ -1026,6 +1059,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["train/lookahead/k"] = args.la_k
+                per_group_metrics["train/lookahead/alpha"] = args.la_alpha
+                per_group_metrics["train/lookahead/outer_step_count"] = la_outer_step_count
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
