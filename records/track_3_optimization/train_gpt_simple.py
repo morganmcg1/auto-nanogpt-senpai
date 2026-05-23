@@ -83,6 +83,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--muon_bias_correction", action="store_true", default=False,
+        help="Apply 1/(1-beta^t) debiasing to Muon Nesterov buffer before each NS step")
+    parser.add_argument("--muon_bc_steps", type=int, default=0,
+        help="If > 0, only apply BC for first N steps (0 = all steps)")
+    parser.add_argument("--muon_beta", type=float, default=0.95,
+        help="Muon momentum coefficient (default 0.95); used for BC and optimizer init")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -509,8 +515,29 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
 
 
 @torch.compile
+def muon_update_bc(grad, momentum, bc_factor, mu=0.95, nesterov=True):
+    """Bias-corrected variant: divides the Nesterov lookahead by bc_factor
+    before NS. Does NOT modify the momentum state, only scales the input
+    passed to NS."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum.clone()
+    update = update / bc_factor
+    update = zeropower_via_newtonschulz5(update)
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
+
+@torch.compile
 def soap_ns_step(nesterov_update):
     update = zeropower_via_newtonschulz5(nesterov_update)
+    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    return update
+
+
+@torch.compile
+def soap_ns_step_bc(nesterov_update, bc_factor):
+    """Bias-corrected variant: scales input by 1/bc_factor before NS."""
+    update = zeropower_via_newtonschulz5(nesterov_update / bc_factor)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -571,7 +598,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 bc_enabled=False, bc_steps=0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +622,9 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.bc_enabled = bool(bc_enabled)
+        self.bc_steps = int(bc_steps)
+        self._step_count = 0  # 0-indexed global optimizer step counter
 
         param_groups = []
         for g in groups_raw:
@@ -615,10 +646,23 @@ class Muon(torch.optim.Optimizer):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Decide whether BC applies on this step (gate by bc_steps).
+        bc_active_this_step = (
+            self.bc_enabled and (self.bc_steps == 0 or self._step_count < self.bc_steps)
+        )
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            # Per-group bias correction factor: 1 - mu^(step+1), 0-indexed step.
+            if bc_active_this_step:
+                mu_val = float(group["mu"])
+                bc_value = 1.0 - mu_val ** (self._step_count + 1)
+                bc_factor_t = torch.tensor(
+                    bc_value, dtype=torch.float32, device=params[0].device
+                )
+            else:
+                bc_factor_t = None
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
@@ -637,9 +681,15 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        if bc_factor_t is not None:
+                            u_soap = soap_ns_step_bc(precond_nesterov, bc_factor_t)
+                        else:
+                            u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            if bc_factor_t is not None:
+                                u_muon = soap_ns_step_bc(raw_nesterov, bc_factor_t)
+                            else:
+                                u_muon = soap_ns_step(raw_nesterov)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,13 +699,18 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if bc_factor_t is not None:
+                            update = muon_update_bc(p.grad, state["momentum"], bc_factor_t, mu=group["mu"])
+                        else:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+        # Increment global step counter once per optimizer.step() call.
+        self._step_count += 1
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -765,6 +820,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "muon_bias_correction": bool(args.muon_bias_correction),
+            "muon_bc_steps": int(args.muon_bc_steps),
+            "muon_beta": float(args.muon_beta),
         },
     )
 
@@ -852,7 +910,9 @@ for trial_idx in range(args.num_trials):
             dict(named_params=mlp_named,  lr=args.lr_mlp,  weight_decay=args.wd_mlp,  name="muon_mlp"),
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
+        mu=args.muon_beta,
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        bc_enabled=args.muon_bias_correction, bc_steps=args.muon_bc_steps,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
