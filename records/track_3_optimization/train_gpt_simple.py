@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+ADAMW_DENOM_POWER = float(os.environ.get("ADAMW_DENOM_POWER", "0.5"))  # 0.5 = standard AdamW sqrt(v_t); <0.5 reduces damping (AdamPower, Liu et al. 2025)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -866,9 +867,54 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/adamw_denom_power": ADAMW_DENOM_POWER,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
+
+
+class AdamWPower(torch.optim.Optimizer):
+    """AdamW with v_t^alpha denominator instead of sqrt(v_t) (AdamPower, Liu et al. 2025).
+    alpha=0.5 reproduces standard AdamW; alpha<0.5 reduces effective LR damping on high-curvature dirs."""
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.0, denom_power=0.5):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, denom_power=denom_power)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            alpha = group["denom_power"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p)
+                    state["exp_avg_sq"] = torch.zeros_like(p)
+                state["step"] += 1
+                step_n = state["step"]
+                exp_avg = state["exp_avg"]
+                exp_avg_sq = state["exp_avg_sq"]
+
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+
+                exp_avg.mul_(beta1).add_(p.grad, alpha=1 - beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(p.grad, p.grad, value=1 - beta2)
+
+                bias_correction1 = 1 - beta1**step_n
+                bias_correction2 = 1 - beta2**step_n
+
+                # v_t^alpha instead of sqrt(v_t). Standard AdamW: alpha=0.5.
+                # Bias-correct v_t first, then raise to alpha.
+                denom = (exp_avg_sq / bias_correction2).pow(alpha).add_(eps)
+                p.data.addcdiv_(exp_avg, denom, value=-lr / bias_correction1)
+
 
 for trial_idx in range(args.num_trials):
 
@@ -898,10 +944,16 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if abs(ADAMW_DENOM_POWER - 0.5) < 1e-9:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    else:
+        optimizer1 = AdamWPower([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, denom_power=ADAMW_DENOM_POWER)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
