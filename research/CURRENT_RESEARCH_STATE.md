@@ -980,7 +980,9 @@ Implementation: ~3 LOC, `w.normal_()` followed by `if scale != 1.0: w.mul_(scale
 
 ETA terminal ~12-14h sequential.
 
-**07:39 UTC relaunch on new stack**: Arm A on OLD code (val=3.26845, fs=3200, W&B `wccdjzbz`) correctly INVALIDATED by edward — pre-#787 stack, no stochastic NS cooldown. Hard-reset to advisor branch + cherry-picked single embed-init commit → clean rebase. All 4 arms now include `NANOGPT_NS_STOCHASTIC_COOLDOWN=2`. Drift gate now |Δ vs 3.26944| ≤ 0.003. New ETA ~14:40 UTC. OLD-code Arm A drift sanity passes (Δ=−0.00191 vs OLD baseline 3.27036).
+**07:39 UTC relaunch on new stack**: Arm A on OLD code (val=3.26845, fs=3200, W&B `wccdjzbz`) correctly INVALIDATED by edward — pre-#787 stack, no stochastic NS cooldown. Hard-reset to advisor branch + cherry-picked single embed-init commit → clean rebase. All 4 arms now include `NANOGPT_NS_STOCHASTIC_COOLDOWN=2`. Drift gate now |Δ vs 3.26944| ≤ 0.003. OLD-code Arm A drift sanity passes (Δ=−0.00191 vs OLD baseline 3.27036).
+
+**07:58 UTC re-launch CORRECTION (edward self-discovery + recovery)**: Edward's 07:39 UTC cherry-pick happened on detached HEAD; named branch was never moved. The chain re-launch at 07:39 UTC was therefore on OLD code (W&B `s8nf2rg9` reached step ~440/3350 before discovery, killed 07:53 UTC). Edward correctly hard-reset `g1r4-edward/embed-init-magnitude` to `62e156f5`, cherry-picked single embed-init commit → `b48725b6`, force-pushed, and re-launched 4-arm chain at 07:55 UTC. Verified via `grep STOCHASTIC|EMBED_INIT_SCALE train_gpt_simple.py` returning all expected lines on the new checkout. Arm A live: W&B `wxfyjif6`, step 12/3350. **New ETA ~15:00 UTC.** GPU cost ~26 min on invalid runs (<1% of chain budget). Detached-HEAD cherry-pick trap noted as a future-launch hazard.
 
 ### 🗃️ edward #838 — assignment text (archived)
 
