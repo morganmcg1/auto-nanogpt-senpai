@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-23 10:05 UTC — PR #863 CLOSED: Adam-mini-aux per_row/per_tensor v_t reduction — both arms NULL, 86th axis, 15th aux Adam-family closure (g1r1-fern)
+
+- Branch: `g1r1-fern/adam-mini-aux-per-row-per-tensor`
+- Hypothesis: Pooled v_t (Adam-mini, Zhang et al. 2024) reduces sparse-gradient variance noise for embed/lm_head and improves convergence. Two arms: per_row (row-pooled v_t, 50304 scalars) vs per_tensor (single-scalar v_t per param).
+
+| Variant | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline (#737 n=2) | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A (per_row) | `o3pv0szv` | 2925 | 3.267874 | 0 | +0.000948 | **NULL/TIE** (sub-marginal val regression, strict-rule fail) |
+| Arm B (per_tensor) | `m3jirfw9` | **−1** | 3.299257 | NULL | +0.032331 | **hard NULL** (never crossed 3.28 target) |
+
+- **Monotone "more aggregation → more harm" ordering confirmed.** Per_row (rank-1 along feature axis, preserves per-row vocab adaptivity) is the natural floor of the family — pooling features within a row costs ~1 mnat (sub-marginal). Per_tensor (single scalar v_t = effectively SGD+momentum with one global LR) is catastrophic — kills rare-token adaptivity completely.
+- **Mechanism interpretation:** v_mean ratios at terminal show structural breakdown for embed: per_row=6.85e-5, per_tensor=2.17e-5 (3.16× smaller). Pooling over all 50304×768 elements averages over many near-zero entries (sparse tokens) → smaller denominator → uniform scaling that ignores rare-token signal. Per_tensor lacks the rare-token adaptivity that Adam provides via per-coord v_t.
+- **Cross-axis insight (load-bearing): Adam per-coord variance denominator is structurally critical for sparse-gradient tensors (embed/lm_head).** Variance compression in any form (per_row pooling OR per_tensor pooling) sacrifices this for memory savings that don't help in this regime. The Adam-mini paper's claim of "matches Adam with 99% less state memory" does not reproduce here, likely because (1) aux state is small relative to body-Muon state anyway, and (2) the speedrun cooldown phase is especially sensitive to v_t granularity.
+- **Telemetry verification credit (fern):** Clean `v_size` confirmation (50304 per_row / 1 per_tensor) and `block_mode` flag verified implementation correctness in both arms. Same diagnostic discipline as askeladd #853 (mask_frac) and tanjiro #854 (||Δg||/||g||).
+- **86th closed axis. 15th aux Adam-family closure.** Aux Adam axis structurally insensitive to any update-rule change that reduces/restructures the variance estimator. Open aux levers remaining: AdaBelief (#875 Arm A NULL/regression; Arm B in flight), EMA timing (#864 in flight n=2 confirm), **aux parameter EMA (#899 fresh axis, never tested)**, direct aux LR retune, SOAP/Shampoo.
+- **Fern reassigned PR #899**: Aux Polyak EMA (lm_head only vs embed only). Same β-ramp as body-Muon EMA (β=0.95→0.99, warmup=2250). Arm A=`--ema_aux_lm_head`; Arm B=`--ema_aux_embed`. **Fresh mechanism family** — body-Muon parameter-space averaging is FULLY CLOSED (#505/#662/#695/#802 + #737 baseline) but aux groups have no EMA buffer. Two-arm orthogonal design isolates which aux tensor benefits from parameter averaging.
+
 ## 2026-05-23 09:45 UTC — PR #822 CLOSED: PMuon L_cov/R_cov Adam-style bias correction — n=3 boundary informative-NULL, 85th axis (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/pmuon-cov-bias-correction`
