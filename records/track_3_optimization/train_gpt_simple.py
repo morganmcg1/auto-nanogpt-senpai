@@ -14,6 +14,7 @@ import uuid
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 from torch.optim import AdamW
@@ -27,6 +28,7 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+POLAR_EXPRESS = None  # str: 'default' | 'pure' | None — overridden by args.polar_express
 
 
 def parse_args():
@@ -67,6 +69,13 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--polar_express", type=str, default=None,
+                        choices=["default", "pure"],
+                        help="Use Polar Express per-iteration minimax-optimal NS coefficients "
+                             "(Amsel et al., arXiv:2505.16932). "
+                             "'default'=safety_factor_eps=1e-2,cushion=0.02; "
+                             "'pure'=no safety/cushion. "
+                             "None=fixed coefficients (2,-1.5,0.5).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +102,8 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+if args.polar_express is not None:
+    POLAR_EXPRESS = args.polar_express
 
 
 def clean_metric_name(name: str) -> str:
@@ -480,20 +491,85 @@ class GPT(nn.Module):
 #              Optimizer               #
 ########################################
 
+def _optimal_quintic(l, u):
+    """Minimax-optimal quintic polynomial coefficients for interval [l, u]."""
+    from math import inf
+    assert 0 <= l <= u
+    if 1 - 5e-6 <= l / u:
+        return (15 / 8) / u, (-10 / 8) / (u ** 3), (3 / 8) / (u ** 5)
+    q = (3 * l + u) / 4
+    r = (l + 3 * u) / 4
+    E, old_E = inf, None
+    while not old_E or abs(old_E - E) > 1e-15:
+        old_E = E
+        LHS = np.array([
+            [l, l ** 3, l ** 5, 1],
+            [q, q ** 3, q ** 5, -1],
+            [r, r ** 3, r ** 5, 1],
+            [u, u ** 3, u ** 5, -1],
+        ])
+        a, b, c, E = np.linalg.solve(LHS, np.ones(4))
+        q, r = np.sqrt((-3 * b + np.array([-1, 1]) *
+                        ((9 * b ** 2 - 20 * a * c) ** 0.5)) / (10 * c))
+    return float(a), float(b), float(c)
+
+
+def _compute_polar_express_coefficients(l, num_iters, safety_factor_eps=0, cushion=0):
+    """Per-iteration minimax-optimal NS coefficients (Amsel et al., arXiv:2505.16932)."""
+    u = 1.0
+    safety_factor = 1 + safety_factor_eps
+    coefficients = []
+    for i in range(num_iters):
+        a, b, c = _optimal_quintic(max(l, cushion * u), u)
+        if cushion * u > l:
+            pl = a * l + b * l ** 3 + c * l ** 5
+            pu = a * u + b * u ** 3 + c * u ** 5
+            rescaler = 2 / (pl + pu)
+            a *= rescaler
+            b *= rescaler
+            c *= rescaler
+        if i < num_iters - 1:
+            a /= safety_factor
+            b /= safety_factor ** 3
+            c /= safety_factor ** 5
+        coefficients.append((a, b, c))
+        l = a * l + b * l ** 3 + c * l ** 5
+        u = 2 - l
+    return coefficients
+
+
+# Precompute at module load — cheap, numpy only, not in hot path.
+_PE_COEFFS_DEFAULT = _compute_polar_express_coefficients(
+    l=1e-3, num_iters=10, safety_factor_eps=1e-2, cushion=0.02,
+)
+_PE_COEFFS_PURE = _compute_polar_express_coefficients(
+    l=1e-3, num_iters=10, safety_factor_eps=0, cushion=0,
+)
+
+
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
         X = X.mT
 
-    # Ensure spectral norm is at most 1
-    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if POLAR_EXPRESS:
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) * 1.01 + 1e-7)
+        coeffs = _PE_COEFFS_DEFAULT if POLAR_EXPRESS == "default" else _PE_COEFFS_PURE
+        iters = list(coeffs[:NS_ITER]) + [coeffs[-1]] * max(0, NS_ITER - len(coeffs))
+        for a, b, c in iters:
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+    else:
+        # Ensure spectral norm is at most 1
+        X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+        # Perform the NS iterations, not optimizing for wallclock speed
+        a, b, c = 2, -1.5, 0.5
+        for _ in range(NS_ITER):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -756,6 +832,7 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "polar_express": POLAR_EXPRESS,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
