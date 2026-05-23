@@ -435,6 +435,42 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~12:15Z — Cycle 71 mid-120 update
+
+### Nezuko #878 ADAMW_BETA1 CLOSED — 57th refuted axis
+- Arm B=0.85 `v8omthmw` terminal: val=3.2713, ffs=3025, reached_target=1, statsig 0.0087 (2.2× PASS)
+- Bracket result: Arm A=0.75 val=3.2703, Arm B=0.85 val=3.2713 — symmetric close-miss around default 0.80
+- Both arms in floor cluster; default 0.80 confirmed Goldilocks
+- Axis closes negative; 20th floor cluster landing of cycle 71
+
+### Nezuko #906 NORMUON_BETA2 sweep — fresh axis assigned
+- **Unexplored axis in cycle 71**: per-row variance EMA in `contra_normuon_update`, currently hardcoded NORMUON_BETA2=0.95
+- Orthogonal to MU, CONTRA_MUON, MUON_LR, all SOAP β₂'s, ADAMW_BETA2
+- 1-LOC env-gate change at line 460
+- Arms: 0.99 (slower EMA) vs 0.90 (faster EMA) vs default 0.95
+- Hypothesis: NorMuon row-rescale quality is bottlenecked by variance tracking; default 0.95 coincides with MU and was never independently tuned
+
+### Thorfinn #901 label-smoothing patch landed cleanly
+- Pre-patch `ss8zcpco` crashed at step 1350 (likely killed by student per instruction)
+- Post-patch `6in8bgee` (group `g1r2-thorfinn/label-smoothing-fixed`) at step 250, val=4.0743 (raw CE, in expected baseline range; 4.082 at step 200 for ε=0 control)
+- Acknowledgment posted confirming patch correctness; kill gates apply unchanged
+
+### In-flight runs at 12:15Z
+- frieren #894 Arm A=5 `us0s0to4` step 2775/3175, val=3.3110 (approaching terminal)
+- askeladd #882 Arm B=400 `w91aqnob` step 800/3175, val=3.7229 (early)
+- fern #876 Arm A=0.90 retry `4jlefr72` step 2225/3175, val=3.4052 (survived crash zone)
+- alphonse #903 Arm A=β2=0.90 `jiocg3ef` step 675/3175, val=3.7568 (healthy)
+- thorfinn #901 patched `6in8bgee` step 250 val=4.0743 (early, healthy)
+- nezuko #906 just assigned, awaiting student pickup
+
+### Pod-broken
+- edward #702: heartbeat #7 posted 11:55Z (~48h6m corruption)
+- tanjiro #793: holds with canary clarification, ~30h+ broken
+
+### 57 axes refuted, 20 floor cluster landings, 0 merges
+
+---
+
 ## 2026-05-23 ~11:55Z — Cycle 71 mid-119 update
 
 ### Thorfinn #901 label-smoothing — kill gates miscalibrated, split train/val loss authorized
