@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 01:38 UTC
+- **Date:** 2026-05-23 01:48 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -850,7 +850,7 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 
 **Follow-up:** edward assigned **#838 AdamW multiplicative v_t floor for lm_head** — same Zipf-distributional intuition but at the preconditioner level. Mechanism-distinct from #652 (additive ε NEG): multiplicative floor caps the ratio between rare-row and frequent-row step sizes via `v_eff = max(v_t, α × v_t.median())`.
 
-### 🔄 edward #838 — AdamW multiplicative v_t floor for lm_head [assigned 20:55 UTC; stale_wip status-check 23:06 UTC]
+### 🔄 edward #838 — AdamW multiplicative v_t floor for lm_head [assigned 20:55 UTC; 4-arm chain past 50% at 01:45 UTC]
 
 **Branch:** `g1r4-edward/adamw-vmin-floor`
 **Hypothesis**: lm_head AdamW `v_t` is Zipf-distributed across vocab rows. ε=1e-10 doesn't practically floor rare rows → extreme per-coord step magnitude variance. Multiplicative floor `v_eff = max(v_t, α × v_t.median())` compresses this variance at sqrt-time (without mutating state buffer). Mechanism-distinct from #652 (additive ε in denom — irrelevant to frequent rows; doesn't cap rare-vs-frequent step-size ratio).
@@ -861,7 +861,20 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 - D: max_frac=1e-6, lm_head (max-anchored — caps at 1000× max-row step)
 **Risk class:** LOW (AdamW aux only; cannot affect body Muon or NS). Worst case: fused→non-fused ~1-2% step time overhead.
 **Decision gate:** Arm A drift ≤ 0.003 vs baseline (verifies fused/non-fused equivalence) → proceed. Best arm Δ_vs_A ≤ −0.002 AND vs baseline → positive signal, paired-pod n=3 follow-up.
-**23:06 UTC status-check** (PR was flagged stale_wip at 2h7m post-assignment): Pod alive, GPU 100%, run `67w8k970` Arm A (mode=none) at step 2900/3350 val=3.318 (late-cooldown band ≈OK), but **3 ghost crashes** (`sd072zai`/`nbk1nc3l`/`qpb3n12z`) all logged Arm A config — chain script possibly relaunching A instead of progressing to B/C/D. Edward's branch has only my assignment commit (`fc306c9`) — local edits to `train_gpt_simple.py` not pushed. Posted #838 advisor comment requesting: (1) push implementation, (2) explain ghost crashes, (3) post Arm A terminal val/fs immediately for drift-gate check before B/C/D land. Non-disruptive (no label swap).
+**23:06 UTC status-check** (PR was flagged stale_wip at 2h7m post-assignment): Pod alive, GPU 100%, run `67w8k970` Arm A at step 2900/3350 val=3.318, **3 ghost crashes** (`sd072zai`/`nbk1nc3l`/`qpb3n12z`) all logged Arm A config. Branch had only assignment commit; local edits unpushed. Posted advisor comment requesting push + ghost-crash explanation + drift-gate check.
+
+**01:45 UTC progress refresh #2** (W&B-verified):
+
+| Arm | run ID | state | step | val/loss | fs | Δ_vs_baseline 3.27036 | Δ_within_vs_A |
+|:---:|---|---|:---:|:---:|:---:|:---:|:---:|
+| A (mode=none) | `67w8k970` | **finished** | 3350 | **3.2682** | 3200 | **−0.00216 (favorable seed, drift PASS edge)** | — |
+| B (median 1e-4) | `zxxxagn7` | **finished** | 3350 | **3.2698** | 3200 | −0.00056 | **+0.0016 (mild regression)** |
+| C (median 1e-3) | `xayaoxhz` | running | 475/3350 (~14%) | 3.91 (in-prog) | — | TBD | TBD |
+| D (max 1e-6) | — | not yet | — | — | — | — | — |
+
+**Reading**: Arm A drift gate PASSES at edge (|Δ|=0.00216 < 0.003) — `FloorAdamW` non-fused path reproduces baseline; implementation sound for bit-clean fallback. Arm A came in fortuitously favorable. Arm B (mild floor `v_floor=1e-4 × v_t.median()`) shows +0.0016 within-pod regression — barely-active floor mildly hurts vs control. For signal, C or D would need val ≤ 3.2662. Branch still has only assignment commit; ghost crashes still unexplained. Posted #838 progress refresh comment 01:45 UTC. ETA terminal ~05:10 UTC.
+
+**Pre-staged verdict (current trajectory)**: A favorable seed + B mild regression → leans productive-NEG closure unless C or D shows signal. Will assess at terminal with all 4 arms.
 
 ### ✅ edward #550 — Muon WD cooldown reduction — CLOSED 02:50 UTC productive-NULL (paired-pod collapse)
 
