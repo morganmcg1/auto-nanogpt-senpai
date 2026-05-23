@@ -82,6 +82,23 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Gradient Multi-Normalization (Scetbon et al. NeurIPS 2025, arXiv:2502.06742).
+    # When enabled, replaces NS5 polar map in MuonH with a combination of Frobenius
+    # and (approximated) spectral normalizations on the post-momentum direction.
+    parser.add_argument("--gmn_enabled", type=int, default=0, choices=[0, 1],
+                        help="Enable Gradient Multi-Normalization (replaces NS5 polar map in MuonH).")
+    parser.add_argument("--gmn_weight_frobenius", type=float, default=0.5,
+                        help="Weight of Frobenius-norm-normalized direction in GMN combination.")
+    parser.add_argument("--gmn_weight_spectral", type=float, default=0.5,
+                        help="Weight of spectral-norm-normalized direction in GMN combination.")
+    parser.add_argument("--gmn_spectral_approx", type=str, default="per_row",
+                        choices=["per_row", "power_iter"],
+                        help="Spectral norm approximation method for GMN.")
+    parser.add_argument("--gmn_power_iter_steps", type=int, default=2,
+                        help="Power iteration steps if gmn_spectral_approx=power_iter.")
+    parser.add_argument("--gmn_magnitude_calibration", type=float, default=1.0,
+                        help="Scalar multiplier applied to GMN output to match NS5 magnitude. "
+                             "Set after measuring update_norm_pre_outer at smoke step 100.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -504,6 +521,67 @@ def muon_update(grad, momentum, mu=0.95, nesterov=True):
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
+
+def gmn_update(M: Tensor, w_F: float, w_S: float,
+               approx: str, power_iter_steps: int,
+               calibration: float = 1.0,
+               eps: float = 1e-8) -> Tensor:
+    """Gradient Multi-Normalization (Scetbon et al. NeurIPS 2025).
+
+    Normalizes the post-momentum direction by a weighted combination of two
+    different norms instead of NS5's polar (matrix-sign) iteration.
+
+    Args:
+        M: post-momentum direction (m_t).
+        w_F: weight on Frobenius-normalized direction (u_F = M / ||M||_F).
+        w_S: weight on spectral-normalized direction (u_S, approx-dependent).
+        approx: "per_row" cheap approximation (each row to unit L2) or
+                "power_iter" tight approximation (sigma_1 via power iteration).
+        power_iter_steps: number of power iterations if approx="power_iter".
+        calibration: scalar multiplier on the final output (post-combination).
+            Used to match NS5's output magnitude after empirical measurement
+            at smoke step 100. Default 1.0 leaves the formula bit-untouched.
+        eps: numerical floor on normalizer denominators.
+
+    Returns:
+        GMN-normalized update with same shape and dtype as M.
+    """
+    work_dtype = M.dtype
+    X = M.float()
+    # Frobenius normalization: unit Frob norm by construction (||u_F||_F = 1).
+    u_F = X / (X.norm() + eps)
+    # Spectral normalization: per_row is fast and matches the paper's GMN-fast
+    # variant; power_iter is closer to a true spectral norm.
+    if approx == "per_row":
+        u_S = X / (X.norm(dim=-1, keepdim=True) + eps)
+    else:
+        v = torch.randn(X.shape[-1], device=X.device, dtype=X.dtype)
+        u = X @ v
+        for _ in range(power_iter_steps):
+            u = u / (u.norm() + eps)
+            v = X.mT @ u
+            v = v / (v.norm() + eps)
+            u = X @ v
+        sigma = (u @ v).abs().clamp_min(eps)
+        u_S = X / sigma
+    combined = w_F * u_F + w_S * u_S
+    if calibration != 1.0:
+        combined = combined * calibration
+    return combined.to(work_dtype)
+
+
+@torch.compile
+def muon_update_gmn(grad, momentum, w_F: float, w_S: float,
+                    calibration: float, approx: str, power_iter_steps: int,
+                    mu: float = 0.95, nesterov: bool = True):
+    """Muon-style momentum + GMN normalization + shape-scaled output."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    update = gmn_update(update, w_F, w_S, approx, power_iter_steps, calibration)
+    # Same downstream shape factor as NS5 path so other invariants stay aligned.
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update
+
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
@@ -612,6 +690,13 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        # GMN telemetry (populated each step on a representative 768x768 block).
+        self._last_update_norm = 0.0
+        self._last_gmn_u_F_norm = 0.0
+        self._last_gmn_u_S_norm = 0.0
+        self._last_gmn_combined_norm = 0.0
+        # Held tensor for at-validation SVD diagnostic (None when not captured).
+        self._sv_diag_tensor = None
 
     @torch.no_grad()
     def step(self):
@@ -621,6 +706,11 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        rep_update_norm = None
+        rep_u_F_norm = None
+        rep_u_S_norm = None
+        rep_combined_norm = None
+        rep_sv_tensor = None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -635,7 +725,42 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if args.gmn_enabled:
+                        update = muon_update_gmn(
+                            p.grad, state["momentum"],
+                            w_F=args.gmn_weight_frobenius,
+                            w_S=args.gmn_weight_spectral,
+                            calibration=args.gmn_magnitude_calibration,
+                            approx=args.gmn_spectral_approx,
+                            power_iter_steps=args.gmn_power_iter_steps,
+                            mu=group["mu"],
+                        )
+                    else:
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # Capture representative 768x768 telemetry on the first
+                    # square block we encounter (deterministic across ranks
+                    # since params are sorted by size).
+                    if (rep_update_norm is None
+                        and p.dim() == 2 and p.size(-2) == 768 and p.size(-1) == 768):
+                        rep_update_norm = float(update.float().norm().item())
+                        if args.gmn_enabled:
+                            # After muon_update_gmn, p.grad is the Nesterov mix M
+                            # (lerped in-place). Reproduce u_F / u_S norms here
+                            # so telemetry doesn't depend on returning extras from
+                            # the @torch.compile body.
+                            X = p.grad.float()
+                            X_F = X / (X.norm() + 1e-8)
+                            X_S = X / (X.norm(dim=-1, keepdim=True) + 1e-8)
+                            rep_u_F_norm = float(X_F.norm().item())
+                            rep_u_S_norm = float(X_S.norm().item())
+                            rep_combined_norm = float(
+                                (args.gmn_weight_frobenius * X_F
+                                 + args.gmn_weight_spectral * X_S).norm().item()
+                            )
+                        # Stash the post-normalizer update for the SVD
+                        # diagnostic (cloned so MuonH's in-place step doesn't
+                        # mutate the snapshot).
+                        rep_sv_tensor = update.detach().float().clone()
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -678,6 +803,14 @@ class MuonH(torch.optim.Optimizer):
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if rep_update_norm is not None:
+            self._last_update_norm = rep_update_norm
+        if rep_u_F_norm is not None:
+            self._last_gmn_u_F_norm = rep_u_F_norm
+            self._last_gmn_u_S_norm = rep_u_S_norm
+            self._last_gmn_combined_norm = rep_combined_norm
+        if rep_sv_tensor is not None:
+            self._sv_diag_tensor = rep_sv_tensor
 
 
 ########################################
@@ -724,6 +857,15 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.gmn_enabled:
+    print0(
+        f"GMN ENABLED (replaces NS5 polar map): w_F={args.gmn_weight_frobenius} "
+        f"w_S={args.gmn_weight_spectral} approx={args.gmn_spectral_approx} "
+        f"power_iter_steps={args.gmn_power_iter_steps} calibration={args.gmn_magnitude_calibration}",
+        console=True,
+    )
+else:
+    print0("GMN DISABLED (using NS5 polar map)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +922,12 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "gmn_enabled": bool(args.gmn_enabled),
+            "gmn_weight_frobenius": args.gmn_weight_frobenius,
+            "gmn_weight_spectral": args.gmn_weight_spectral,
+            "gmn_spectral_approx": args.gmn_spectral_approx,
+            "gmn_power_iter_steps": args.gmn_power_iter_steps,
+            "gmn_magnitude_calibration": args.gmn_magnitude_calibration,
         },
     )
 
@@ -987,6 +1135,19 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                # SVD diagnostic on a representative 768x768 post-normalizer
+                # update (NS5 or GMN). Same shape comparison as H90/H93.
+                for opt in optimizers:
+                    if isinstance(opt, MuonH) and opt._sv_diag_tensor is not None:
+                        try:
+                            with torch.no_grad():
+                                sv = torch.linalg.svdvals(opt._sv_diag_tensor)
+                            metrics["train/gmn/sv_min"] = float(sv.min().item())
+                            metrics["train/gmn/sv_max"] = float(sv.max().item())
+                            metrics["train/gmn/sv_mean"] = float(sv.mean().item())
+                            metrics["train/gmn/sv_median"] = float(sv.median().item())
+                        except Exception:
+                            pass
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
@@ -1069,6 +1230,25 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        muonh_metrics["train/muonh/update_norm_pre_outer"] = opt._last_update_norm
+                        if args.gmn_enabled:
+                            muonh_metrics["train/gmn/u_F_norm"] = opt._last_gmn_u_F_norm
+                            muonh_metrics["train/gmn/u_S_norm"] = opt._last_gmn_u_S_norm
+                            muonh_metrics["train/gmn/u_combined_norm"] = opt._last_gmn_combined_norm
+                        # Print early-step telemetry to stdout so smoke gate
+                        # checks don't require querying W&B.
+                        if step + 1 <= 200:
+                            gmn_extra = (
+                                f" gmn_uF={opt._last_gmn_u_F_norm:.3f}"
+                                f" gmn_uS={opt._last_gmn_u_S_norm:.3f}"
+                                f" gmn_uC={opt._last_gmn_combined_norm:.3f}"
+                            ) if args.gmn_enabled else ""
+                            print0(
+                                f"[smoke] step={step+1} "
+                                f"update_norm_pre_outer={opt._last_update_norm:.4f}"
+                                f"{gmn_extra}",
+                                console=True, log=False,
+                            )
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
