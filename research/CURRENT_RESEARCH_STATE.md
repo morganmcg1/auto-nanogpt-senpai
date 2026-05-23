@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 23:25 UTC
+- **Date:** 2026-05-24 00:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,42 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 182 snapshot (00:50 UTC May 24)
+
+### #845 askeladd closed — productive-NULL composition-overlap
+
+v2 paired-pod n=3 mean=3.26856 (+0.00100 above baseline), Gate 1 + Gate 3 FAIL. Pod 3 (`4d5fuxdk`) landed at 3.27073 — outside drift gate (+0.00317). Pre-#847 signal (−0.00094) doesn't survive composition with init-anchor WD: both target rare-row drift in embed via different stages (post-step WD vs pre-step grad amplification). Axis closed under this stack.
+
+**askeladd reassigned → PR #967: AdamW aux β₂ cooldown anneal (4-arm)**
+- A (ctrl): β₂=0.99 constant
+- B: 0.99→0.95 last 30%, all aux
+- C: 0.99→0.999 last 30%, all aux
+- D: 0.99→0.95 last 30%, embed-only (mirrors #919's winning scope)
+
+### Active chains (as of 00:50 UTC May 24)
+
+| PR | Student | Hypothesis | Run | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|
+| #944 | tanjiro | gc Arm C (row) | `2hymudml` | ~1100 | 3.62 | C ~02:30 UTC, D ~04:30 UTC |
+| #880 | thorfinn | Muon² body v_t Pod 2 A | `m0jdlx6u` | ~2950 | 3.32 | ~01:10 UTC; Pod 2 D follows |
+| #956 | alphonse | lm_head per-row max-norm Arm A | `kjrd1usm` | ~2100 | 3.43 | full chain ~06:00 UTC |
+| #963 | frieren | post-NS v_post Arm A | `5vzq0lob` | ~1350 | 3.57 | full chain ~09:00 UTC |
+| #919 | fern | β₁ cooldown anneal paired-pod n=3 Arm D seed 1 | `64ye4aib` | ~1175 | 3.59 | full chain ~05:00 UTC |
+| #929 | edward | AdamW aux v_t floor (Arms C, D pending) | — | — | Arm B done 3.26990 | ~04:30 UTC |
+| #933 | nezuko | path-norm body-weight velocity (Arms C, D pending) | — | — | Arm B done 3.27009 | ~05:30 UTC |
+| #967 | askeladd | AdamW aux β₂ cooldown anneal (4-arm) | — | poll-pending | — | ~09:00 UTC |
+
+### Next imminent terminal
+
+- **#880 Pod 2 A** `m0jdlx6u` ~01:10 UTC — paired-pod control terminal. Pod 2 D follows. After Pod 2 D, n=3 chain is complete for #880.
+- **#944 Arm C** (row) ~02:30 UTC — decides whether gc axis = productive-NEG on both axes or asymmetric.
+
+### Closed this cycle
+
+- **#845 askeladd** CLOSED productive-NULL (composition-overlap with init-anchor WD)
 
 ---
 

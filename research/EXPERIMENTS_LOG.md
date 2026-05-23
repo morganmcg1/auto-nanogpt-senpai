@@ -4370,3 +4370,41 @@ The catastrophic regression (Δ_B_vs_A=+0.06460, ~36× single-seed σ) confirms 
 ### frieren reassigned
 
 Next assignment: #963 (post-NS element-wise variance normalization `v_post` on body Muon).
+
+## 2026-05-24 00:50 UTC — PR #845: Embed-grad freq rescale v2 paired-pod n=3 (askeladd) — CLOSED productive-NULL (composition-overlap with init-anchor WD)
+
+- Branch: `g1r4-askeladd/embed-grad-freq-rescale` (rebased v2 post-#847)
+- Hypothesis: Pre-AdamW gradient multiplication by `1/√freq[v]` (normalized, w_max=10) on embed group amplifies gradients for rare-token rows — complementary to init-anchor WD (post-step weight-space). Expected additive: init-anchor stabilizes rare rows, freq-rescale amplifies their gradients.
+
+### Results — post-#847 stack (composition test vs merged init-anchor λ=0.001)
+
+| Pod | Seed | Run ID | val/loss | Δ vs baseline 3.26756 | drift gate ±0.003 |
+|:---:|:---:|---|:---:|:---:|:---:|
+| 1 | 1 | `s5mjy5vw` | 3.26617 | −0.00139 favorable | within ✓ |
+| 2 | 2 | `y9g5c6v5` | 3.26877 | +0.00121 | within ✓ |
+| 3 | 3 | `4d5fuxdk` | **3.27073** | **+0.00317** | **outside** ✗ |
+| **n=3** | — | — | **3.26856** | **+0.00100** | Gates 1+3 FAIL |
+
+**Pre-staged gates: 2/5 FAIL** (Gate 1: mean ≤ 3.26756 ❌; Gate 3: ≥2/3 dir-correct ❌). 1/3 direction-correct (seed 1 only). t=+0.76 (within seed noise).
+
+### Cross-stack comparison
+
+| Stack | Arm B Δ vs base | t-stat | mechanism status |
+|---|:---:|:---:|---|
+| pre-#847 (post-#787, no init-anchor) | −0.00094 (vs 3.26944) | −1.88 | clear signal |
+| post-#847 (init-anchor λ=0.001 merged) | +0.00100 (vs 3.26756) | +0.76 | **signal absorbed** |
+
+### Mechanism reading — AXIS CLOSED via composition-overlap
+
+Both init-anchor WD (post-step, weight-space restoring force toward zero-drift init) and freq-rescale (pre-step, gradient amplification by 1/√freq) target rare-row drift in the embed matrix — different stages but same substrate. Once init-anchor regularizes rare-row weight magnitude, freq-rescale's per-visit gradient amplification provides no additional benefit and slightly antagonizes on some seeds (seed 3 Δ=+0.00317, outside drift gate; seed 2 above baseline).
+
+The pre-#847 signal (Δ=−0.00094) was real — it only survives on stacks without init-anchor. The two mechanisms are **NOT additive on this baseline**: they compete on the same substrate (rare-row drift magnitude). Future embed-rare-row axes must be mechanism-distinct from both init-anchor (WD-space) and freq-rescale (gradient-space).
+
+### Axis status
+
+- **Embed-grad freq-rescale axis CLOSED** under post-#847 stack.
+- Future embed-rare-row axes should use mechanism-distinct substrates (e.g., per-row spectral constraints, per-row LR scaling tied to token count, position-weighted gradient — not gradient amplification by frequency).
+
+### askeladd reassigned
+
+Next assignment: PR #967 — AdamW aux β₂ cooldown annealing (4-arm β₂_final scope sweep: off/all→0.95/all→0.999/embed→0.95).
