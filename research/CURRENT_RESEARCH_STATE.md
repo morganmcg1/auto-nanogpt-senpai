@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-22 23:52 UTC
+- **Date:** 2026-05-23 00:32 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -252,7 +252,7 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 
 **Follow-up**: alphonse reassigned to **#847 Embed init-anchored WD — net-new regularization on AUX (4-arm)** — student-suggested cross-axis pivot. AUX groups currently have wd=0; init-anchor on embed is *net-new regularization* mechanism (not just modified WD). model.embed.weight initialized via w.normal_() (N(0,1) magnitude), so anchor=init is genuinely distinct from anchor=zero.
 
-### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC]
+### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; status-check 00:30 UTC]
 
 **Branch:** `g1r4-alphonse/embed-init-anchor-wd`
 **Hypothesis**: AUX groups have wd=0 in merged stack. Add init-anchor WD on embed: `p -= lr * λ * (p - p_init)`. Zipf-rationale: rare tokens drift little from init (few visits), frequent tokens drift a lot. Standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). Init-anchor regularizes ROW-DRIFT MAGNITUDE proportional to actual drift from θ_0. Mechanism-distinct from #808 (body Muon side, NS-absorbed) and from #845 askeladd (gradient-side rescale, not weight target).
@@ -269,6 +269,13 @@ Implementation: ~15 LOC. Snapshot `model.embed.weight.detach().clone()` at init 
 **Pre-staged paired-pod n=3 follow-up:** When chain terminates, if Arm B holds at sub-threshold Δ ∈ [−0.002, 0) (i.e. direction-correct but signal-weak), send back for paired-pod n=3 confirmation given 10 prior paired-pod-collapse precedents this run. Sub-threshold N=1 wins are systematically attenuated to noise or sign-flipped at paired-pod scale on this stack. Stat merge rule for n=3: `(3.28 − μ) × √3 ≥ 0.004` translates to mean ≤ 3.27769; Arm B's N=1 value (3.27014) is comfortably below that, so the question is **direction stability**, not absolute level.
 
 Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices.
+
+**00:30 UTC status-check** (stale_wip false-positive, same regex bug):
+- **Arm A FINISHED** (`embed-init-anchor-arm-A`): step 3350, val=**3.2706**, Δ_vs_baseline=**+0.00024 DRIFT PASS ±0.003** — bit-clean fallback at λ=0.
+- **Arm B running** (`embed-init-anchor-arm-B`): step 625/3350 (~19%), val=3.74 in-prog. λ=0.001 active perturbation.
+- C, D pending.
+- Branch still has only assignment commit; local edits unpushed. Group name discrepancy: PR specified `init-anchor-wd-aux`, student used `embed-init-anchor` — same mechanism, just different label. Posted #847 advisor comment requesting push + noting label discrepancy.
+- Operational: pod hit GH API rate-limit 00:19-00:25 UTC (third such window, also affected frieren); training never paused.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -729,6 +736,16 @@ W&B Phase 2: trdfa7c6/si0n5039, hjs2ww65/4eoi63uk, enxvvgga/f16ktn1n.
 - **Collapse**: ≤1/3 direction-correct OR mean(B) > 3.27050 → close productive-NEGATIVE (11th paired-pod collapse on this stack)
 
 Mechanism is structural-novel — if it holds, opens up post-NS-side as a fresh axis (α schedule, per-block-type α, α + cooldown interaction).
+
+**Paired-pod chain progress (00:30 UTC, launched 22:10 UTC, ~2h20m of ~10.8h):**
+
+| Pod | Arm | run name | state | step | val/loss | Δ_within | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| 0 | A (α=0) | `pod0-A` | finished | 3350 | **3.2692** | — | **−0.00116 (favorable seed, drift PASS)** |
+| 0 | B (α=0.3) | `pod0-B` | running | 350/3350 (~10%) | 4.08 (in-prog) | TBD | TBD |
+| 1, 2 | A, B | — | pending | — | — | — | — |
+
+Pod-0 A_ctrl hit favorable-seed territory (Δ=−0.00116 below baseline). Arm B will need to beat 3.2692 within-pod; recall N=1 produced Δ_within = −0.00394 (against A=3.27225). If pod-0-B lands ≤3.2672, within-pod Δ ≤ −0.002 still triggers signal. Full post-#708 stack confirmed (BODY=10/AUX=5). Posted #810 status-refresh comment 00:30 UTC. ETA terminal ~08:55 UTC tomorrow.
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
