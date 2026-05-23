@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 15:15 UTC
+- **Date:** 2026-05-23 15:35 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -111,21 +111,27 @@ Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses a
 
 ### Closures & assignments this cycle
 - **#900 frieren CLOSED 15:09 UTC productive-NEG** — Anisotropic grad noise (Adam-variance-matched). Pre-staged outcome #4 fired: all arms Δ ≥ +0.0015. Arm A drift PASS (−0.00133); Arm B val=3.41640 **Δ_vs_A=+0.14829 catastrophic**; Arm C killed at step 375 (trajectory matching B); Arm D aborted. Mechanism: `noise_std ∝ sqrt(v_t/mean(v_t))` is direction-inverted at this maturity — high v_t (common-token) coordinates get MORE noise, inverting the intended Zipf-tail boost. ~3.4 GPU-hours saved by early abort. **Curvature-matched noise injection family fully closed** (axis-fencing): isotropic #411 NULL + anisotropic #900 catastrophic-NEG. 89th productive-null/negative.
-- **#923 frieren ASSIGNED 15:15 UTC Zipf-freq-weighted CE loss (WAVE5-1)** — Redistribute gradient mass toward rare-token long tail by multiplying per-token CE by `w(v) ∝ 1/freq(v)^α` (normalized mean=1.0). 4-arm α sweep: A=0 (ctrl), B=0.50 (1/sqrt), C=0.33 (softer), D=0.75 (aggressive). Mechanism-distinct from focal #791 (model-confidence weighting), label smoothing #446 NEG, z-loss #441 NEG. Loss-side, negligible compute overhead. Fresh axis targeting Zipf information imbalance in the CE objective.
+- **#923 frieren ASSIGNED 15:15 UTC Zipf-freq-weighted CE loss (WAVE5-1)** — Redistribute gradient mass toward rare-token long tail by multiplying per-token CE by `w(v) ∝ 1/freq(v)^α` (normalized mean=1.0). 4-arm α sweep: A=0 (ctrl), B=0.50 (1/sqrt), C=0.33 (softer), D=0.75 (aggressive).
 
-### Active chains at cycle 133
+## Cycle 135 snapshot (15:35 UTC)
+
+### Closures & assignments this cycle
+- **#874 edward CLOSED 15:31 UTC productive-NULL** — Embed init magnitude sweep (N(0,1) scale ∈ {1.0 ctrl, 0.5, 0.7, 1.5}). All 3 non-ctrl arms direction-correct vs Arm A but ALL absolute values ≥ baseline 3.26944. De-biased read: Arm A drift +0.00173 unfavorable absorbs all apparent within-pod signal. Best arm D=3.26957 fails Gate 1 by +0.00013. No arm clears stat-rule range (0.00160 < 0.004). Student's NULL verdict accepted — embed init magnitude is robust to ±50% at merged hp cocktail. 90th productive-null/negative.
+- **#929 edward ASSIGNED 15:35 UTC AdamW aux v_t second-moment floor (WAVE5-2)** — Multiplicative floor `v_eff = max(v_t, v_floor_frac × median(v_t))` on aux groups (embed + lm_head + scalars). Mechanism-distinct from #652 eps NEG (additive constant inert). Targets Zipf-structured v_t distribution: rare-token rows have tiny v_t → step-size blowup risk. 4-arm: A=ctrl, B=1e-4 median, C=1e-3 median, D=1e-6 max_frac. AMSGrad-inspired softer variant.
+
+### Active chains at cycle 135
 | PR | Student | Status | ETA |
 |:--:|:-------:|--------|-----|
-| #923 | frieren | ASSIGNED Zipf-freq-CE (4-arm α sweep) | student polling |
-| #919 | fern | ASSIGNED β₁ cooldown anneal (4-arm) | student polling |
-| #847 | alphonse | rebased s2 `1zjpifpb` in-flight ~52% | terminal ~16:30 UTC |
-| #845 | askeladd | rebased s2 `z85uh78i` in-flight ~58% | terminal ~16:13 UTC |
-| #880 | thorfinn | rebased paired-pod, Pod 0 A `5y792dxt` ~15% | full chain ~01:30 UTC |
-| #874 | edward | Arm D `t6kzt6lx` ~75% in cooldown | terminal ~15:32 UTC |
-| #789 | tanjiro | Pod 2 A `m9u912jc` launched 14:56 UTC | terminal ~18:30 UTC |
+| #929 | edward | ASSIGNED AdamW aux v_min floor | student polling |
+| #923 | frieren | ASSIGNED Zipf-freq-CE | student polling |
+| #919 | fern | Arm A `7nvjseq2` ~13% live | terminal ~16:37 UTC |
+| #847 | alphonse | rebased s2 `1zjpifpb` ~76% | terminal ~16:00 UTC |
+| #845 | askeladd | rebased s2 `z85uh78i` ~81% | terminal ~15:55 UTC |
+| #880 | thorfinn | Pod 0 A `5y792dxt` ~39% | full chain ~01:30 UTC |
+| #789 | tanjiro | Pod 2 A `m9u912jc` ~24% | terminal ~18:30 UTC |
 | #825 | nezuko | Pod 2 D pending launch | ~end of day |
 
-### Zero idle students. Eight active WIP PRs (#923 #919 #847 #845 #880 #874 #789 #825).
+### Zero idle students. Eight active WIP PRs (#929 #923 #919 #847 #845 #880 #789 #825).
 
 ---
 
