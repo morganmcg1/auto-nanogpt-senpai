@@ -1,3 +1,51 @@
+## 2026-05-23 06:45 UTC — PR #881 ASSIGNED (fern): H84 Septic Schulz iteration on MuonH body — higher-degree orthogonalization algorithm family (unlock follow-up to five-PR NS5 polynomial closure)
+
+- Branch: `g1r3-fern/septic-schulz-body`
+- Hypothesis: Replace MuonH's NS5 quintic Schulz iteration (degree-5, coefs (2,-1.5,0.5)) with a SEPTIC (degree-7) iteration on body 2D weights. Direct unlock follow-up to PR #834 closure note, which explicitly named "Schulz-modified higher-degree polynomials" as the algorithm-family-level escape from the NS5 quintic flat basin.
+- Mechanism-distinct from all NS5 polynomial variants (static k, coefs, per-LAYER, per-call, temporal-schedule) — DEGREE CHANGE introduces Y³ = (X.T@X)³ term capturing rank-3 spectral interactions absent from quintic's Y² limit.
+- Proposed septic family: (a,b,c,d) = (1-d, 3d, -3d, d) with f(1)=1, f'(1)=0, f''(1)=0. Test d=-1 → coefs (2,-3,3,-1).
+- 3 arms (n=1, 3325 steps):
+  - arm_a CTRL `--use_septic_ns 0` (NS5 quintic k=12, bit-identical to baseline)
+  - arm_b PRIMARY `--use_septic_ns 1 --septic_iters 8 --septic_coefs "2,-3,3,-1"` (FLOP-matched vs NS5 k=12)
+  - arm_c FLOP+ `--use_septic_ns 1 --septic_iters 10 --septic_coefs "2,-3,3,-1"` (+25% FLOP budget)
+- Mandatory smoke gates: (1) septic k=8 convergence: `||X.T@X - I||_F < 0.005` on representative body matrix BEFORE full launch; (2) bit-identical invariant for arm_a; (3) arm_b/c smoke val ∈ [4.20, 4.30].
+- Telemetry: `ns/post_orthogonality_max_singular_dev`, `ns/effective_rank`, `ns/iteration_residual_at_k4` (convergence verification), wall-clock ratio at step 100.
+- Decision tree: WIN < 3.27039 → Septic unlocks new signal; NULL closes degree-axis (flat basin extends to degree 7); NEG arm_b → coef family unstable at FLOP-matched.
+- Pre-closure note: NS5 polynomial-mechanism axis closed for same-degree coef variants; septic is explicitly the UNLOCK direction named in the #834 closure note.
+- LoC: ~60 (new `zeropower_via_septic_schulz` function + CLI wiring + telemetry).
+- W&B group `h84_septic_schulz`. Reassignment after #849 closure.
+
+---
+
+## 2026-05-23 06:40 UTC — PR #849 CLOSED NEG (fern): H75 Lookahead-on-aux — 3-arm NEG, outer-aggregation-of-aux-AdamW-weights programme-level finding
+
+- Branch: `g1r3-fern/lookahead-aux-wrapper`
+- Hypothesis: Apply Lookahead Optimizer (Zhang et al. 2019) around aux AdamW — maintain slow-weights as EMA of fast-weights every k inner steps then reset fast=slow.
+- Terminal SENPAI-RESULT — clean 3-arm closure:
+
+| arm | config | W&B | val/loss | Δ vs arm_a (3.27258) | σ-equivalent |
+|---|---|---|---|---|---|
+| arm_a CTRL | bypass | `tsgjirsz` | **3.27258** | — | inside ctrl pop μ±σ |
+| arm_b PRIMARY | k=5 α=0.5 | `9ei769kr` | **3.27972** | **+0.00714** | **~8.9σ NEG** |
+| arm_c longer | k=10 α=0.5 | `kkrcvhx5` | **3.28197** | **+0.00939** | **~11.7σ NEG; +2.8σ vs arm_b** |
+
+- arm_c WORSE than arm_b confirms failure mode: information loss from across-step weight averaging (NOT snap-frequency artifact). More lookback → more signal discarded.
+- Mechanism telemetry: `aux/lookahead_drift_adam_embed` trajectory monotone-decreasing 0.09 (mid) → 2e-5 (terminal), exactly Zhang 2019 spec; snap_count = 665 = 3325/5 ✓ (arm_b), 332 ≈ 3325/10 ✓ (arm_c). Inner AdamW state continuity proven by code construction (wrapper never indexes inner.state[p]). No sawtooth in `train/grad/global_norm`. arm_a clean ctrl pop sample (inside μ±σ) → bit-identical invariant confirmed.
+- **PROGRAMME-LEVEL FINDING: Outer-aggregation-of-aux-AdamW-weights is NEG at 3325-step horizon across mechanism-distinct realizations:**
+
+| Mechanism | PR | Verdict |
+|---|---|---|
+| Continuous EMA-of-aux-weights (Polyak) | #761 H53 | NULL |
+| Snapshot-averaging (Lookahead k=5,10 α=0.5) | #849 H75 | NEG ~9-12σ |
+| Stochastic noise injection (Neelakantan) | #852 H76 | NEG ~12σ |
+| Eval-time SWA on full model (arm_b) | #856 H77 | NEG ~6σ |
+
+- **Aux groups (embed, lm_head, scalars) are past the noise floor**: across-step weight averaging not just useless but actively harmful. The α=0.5 snap discards half the inner AdamW direction each k steps; more lookback discards proportionally more signal.
+- Pre-closes: Lookahead-on-aux with smaller α; Lookahead-on-body; Polyak/uniform averaging on any aux subset; all across-step snapshot averaging of aux weights.
+- Routing → PR #881 H84 Septic Schulz iteration (unlock follow-up to NS5 polynomial structural closure).
+
+---
+
 ## 2026-05-23 03:15 UTC — PR #871 ASSIGNED (edward): H83 Focal Loss on training CE — fresh loss-side axis after Cautious three-axis closure
 
 - Branch: `g1r3-edward/focal-loss-train-only`
