@@ -573,6 +573,15 @@ NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
 NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MULT", "1.0"))
+# Cautious-AdamW masking on aux groups (#825): mask update components whose sign disagrees
+# with the current grad, then rescale to preserve total step magnitude
+# (Liao et al. 2024, arXiv:2411.16085). "none" = bit-identical to stock AdamW.
+NANOGPT_AUX_CAUTIOUS = os.environ.get("NANOGPT_AUX_CAUTIOUS", "none")
+_VALID_AUX_CAUTIOUS = ("none", "embed", "lm_head", "all")
+if NANOGPT_AUX_CAUTIOUS not in _VALID_AUX_CAUTIOUS:
+    raise ValueError(
+        f"NANOGPT_AUX_CAUTIOUS={NANOGPT_AUX_CAUTIOUS!r}, must be one of {_VALID_AUX_CAUTIOUS}"
+    )
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
@@ -762,6 +771,53 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
 
 
+class CautiousAdamW(torch.optim.AdamW):
+    """AdamW with optional per-group Cautious masking (Liao et al. 2024, arXiv:2411.16085).
+
+    Mask out update components whose sign disagrees with the current grad, then rescale by
+    `mask.mean().clamp(min=1e-4)` to preserve total step magnitude. Implemented via
+    snapshot-delta around `super().step()` so we don't reimplement AdamW's update math
+    (which is C++-fused upstream). When weight_decay=0 the snapshot-delta is exactly
+    `u_t = m_hat / (sqrt(v_hat) + eps)` from the paper.
+    """
+
+    def __init__(self, params, **kwargs):
+        # Snapshot-delta requires non-fused so .step() updates p.data in-place predictably.
+        kwargs['fused'] = False
+        super().__init__(params, **kwargs)
+        # Per-group mask-mean telemetry; populated each step for groups with cautious=True.
+        # Read by the training loop after .step() for W&B logging.
+        self.cautious_mask_mean: dict[str, float] = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        snaps = []
+        for group in self.param_groups:
+            if not group.get("cautious", False):
+                continue
+            for p in group["params"]:
+                if p.grad is not None:
+                    snaps.append((group, p, p.data.clone(), p.grad.clone()))
+        loss = super().step(closure)
+        self.cautious_mask_mean = {}
+        group_mask_acc: dict[str, list[float]] = {}
+        for group, p, p_old, g in snaps:
+            lr = group["lr"]
+            if lr == 0.0:
+                continue
+            # weight_decay=0 here, so delta = -lr * update_direction (descent direction).
+            update = (p_old - p.data) / lr
+            mask = (update * g).gt(0).to(p.dtype)
+            mean_t = mask.mean()
+            scale = mean_t.clamp(min=1e-4)
+            p.data.copy_(p_old - lr * update * mask / scale)
+            name = group.get("name", "unnamed")
+            group_mask_acc.setdefault(name, []).append(float(mean_t.item()))
+        for name, vals in group_mask_acc.items():
+            self.cautious_mask_mean[name] = sum(vals) / len(vals)
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -904,10 +960,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # CautiousAdamW with cautious=False on all groups is bit-identical to stock AdamW;
+    # CautiousAdamW forces fused=False because snapshot-delta needs predictable in-place
+    # p.data updates. Per-group `cautious` flag is set from NANOGPT_AUX_CAUTIOUS (#825).
+    cautious_embed = NANOGPT_AUX_CAUTIOUS in ("embed", "all")
+    cautious_lm_head = NANOGPT_AUX_CAUTIOUS in ("lm_head", "all")
+    cautious_scalars = NANOGPT_AUX_CAUTIOUS == "all"
+    optimizer1 = CautiousAdamW([
+        dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed", cautious=cautious_embed),
+        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head", cautious=cautious_lm_head),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars", cautious=cautious_scalars),
+    ], betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0)
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1238,6 +1301,22 @@ for trial_idx in range(args.num_trials):
                 }.get(NS_COEF_SCHEDULE, -1),
             })
             wandb.log(ns_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and telemetry_due:
+            # Cautious-AdamW mask telemetry (#825): mean of the cautious mask per group.
+            # Healthy training: ~0.5 (half of update components agree in sign with grad).
+            # Near 0: aggressive masking — Cautious is rejecting most components.
+            cautious_metrics = optimizer1.cautious_mask_mean
+            if cautious_metrics:
+                cautious_log = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/cautious/aux_cautious_mode": {
+                        "none": 0, "embed": 1, "lm_head": 2, "all": 3,
+                    }.get(NANOGPT_AUX_CAUTIOUS, -1),
+                }
+                for name, val in cautious_metrics.items():
+                    cautious_log[f"train/cautious/mask_mean/{name}"] = val
+                wandb.log(cautious_log, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
