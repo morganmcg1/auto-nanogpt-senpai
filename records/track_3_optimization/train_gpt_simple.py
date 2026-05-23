@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+ASPECT_RATIO_EXP = float(os.environ.get("ASPECT_RATIO_EXP", "0.5"))  # exponent on max(1, m/n) in contra_normuon_update; default 0.5 = Marchenko-Pastur √(m/n)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -512,7 +513,7 @@ def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
     # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
     update = update - CONTRA_MUON / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
-    update *= max(1, update.size(-2) / update.size(-1))**0.5
+    update *= max(1, update.size(-2) / update.size(-1))**ASPECT_RATIO_EXP
     # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
     if update.size(-2) >= update.size(-1):
         per_row_var = (update * update).mean(dim=-1, keepdim=True)
@@ -866,6 +867,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aspect_ratio_exp": ASPECT_RATIO_EXP,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
