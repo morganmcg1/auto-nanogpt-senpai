@@ -61,6 +61,14 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ns_a", type=float, default=NS_A,
+                        help="NS5 polar map coefficient a (default 1.5 cubic; quintic=3.4445).")
+    parser.add_argument("--ns_b", type=float, default=NS_B,
+                        help="NS5 polar map coefficient b (default -0.5 cubic; quintic=-4.7750).")
+    parser.add_argument("--ns_c", type=float, default=NS_C,
+                        help="NS5 polar map coefficient c (default 0.0 cubic; quintic=2.0315).")
+    parser.add_argument("--ns_iters", type=int, default=NS_ITERS,
+                        help="NS5 polar iteration count (default 12).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -496,6 +504,7 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    ns_iters: int = NS_ITERS,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
@@ -510,7 +519,7 @@ def pmuon_update(
     R_neg = matrix_neg_power(R_cov, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
-    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
+    polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c, iters=ns_iters)
     # Sample ortho residual ||X X^T - I||_F on the polar output (before spectral scaling).
     # Only the first eligible parameter per step writes — keeps cost ~O(d^2) once per step.
     if polar_diag is not None and "residual" not in polar_diag:
@@ -532,11 +541,11 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, ns_iters=NS_ITERS):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, ns_iters=ns_iters)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -570,6 +579,7 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        ns_iters=group["ns_iters"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -660,6 +670,7 @@ print0(code)
 print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
+print0(f"NS polar map: a={args.ns_a} b={args.ns_b} c={args.ns_c} iters={args.ns_iters}")
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -704,10 +715,10 @@ if dist.get_rank() == 0:
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
-            "ns_iterations": NS_ITERS,
-            "ns_coef_a": NS_A,
-            "ns_coef_b": NS_B,
-            "ns_coef_c": NS_C,
+            "ns_iterations": args.ns_iters,
+            "ns_coef_a": args.ns_a,
+            "ns_coef_b": args.ns_b,
+            "ns_coef_c": args.ns_c,
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
@@ -753,7 +764,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      ns_a=args.ns_a, ns_b=args.ns_b, ns_c=args.ns_c, ns_iters=args.ns_iters)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1022,9 +1034,10 @@ for trial_idx in range(args.num_trials):
                     "polar/ortho_residual_sample": polar_diag["residual"],
                     "polar/sample_rows": polar_diag.get("sample_rows", 0),
                     "polar/sample_cols": polar_diag.get("sample_cols", 0),
-                    "polar/ns_coef_a": NS_A,
-                    "polar/ns_coef_b": NS_B,
-                    "polar/ns_coef_c": NS_C,
+                    "polar/ns_coef_a": args.ns_a,
+                    "polar/ns_coef_b": args.ns_b,
+                    "polar/ns_coef_c": args.ns_c,
+                    "polar/ns_iters": args.ns_iters,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
