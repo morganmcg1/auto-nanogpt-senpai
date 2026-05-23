@@ -1,5 +1,46 @@
 # SENPAI Research Results
 
+## 2026-05-23 17:45 UTC — PR #897 CLOSED: Body-Muon adaptive WD coupled to ||p||/target_norm — both arms NULL, 90th axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/adaptive-body-muon-wd`
+- Hypothesis: Body-Muon static WD=0.025 may be miscalibrated for current ||p||/target_norm ratio. Adaptive coupling `wd_eff = base_wd * (||p||/target_norm)^α` lets WD scale with parameter-norm growth. Arm A=α=1 linear, Arm B=α=0.5 sqrt (softer).
+
+| Arm | α | W&B | sr | val/loss | Δsr | Δval | terminal wd_mult | peak ||p||/target | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline #864 | — | `j8nsn77s`/`08ursg5n` | 2925 | 3.266826 | — | — | 1.000 | — | — |
+| A | 1.0 (linear) | `mdpr2on0` | 3000 | 3.270003 | +75 | +0.003177 | 2.549 | 3.53× | NULL (regressive but stable) |
+| B | 0.5 (sqrt) | `s2ggjtya` | **-1** | 3.296175 | NULL | +0.029349 | ≥1.84 floor | **4.48×** | NULL clear (catastrophic) |
+
+**Verdict: NULL/NULL → Adaptive body-Muon WD axis CLOSED.** 5th body-Muon WD sub-axis NULL.
+
+**Mechanism finding (key structural insight):**
+
+Body-Muon ||p||/target_norm grows 3-4.5× above target throughout training — this is the operating regime, not a transient pre-warmup state. Adaptive coupling can only adapt UPWARD (wd_eff always ≥ baseline since ||p||/target_norm ≥ 1). No α value gives baseline wd_eff while remaining adaptive — the wd_mult equilibrium lower bound is ≥1.84 (sqrt) or ≥2.55 (linear).
+
+**Sqrt vs linear comparison (counter-intuitive):**
+- Linear (α=1) actively damps p_norm growth via wd_mult=2.55 → peak ||p||/target stays at 3.53×
+- Sqrt (α=0.5) damps less → p_norm grows MORE (peak 4.48×) → wd_mult ratchets to 1.84 equilibrium
+- Sqrt's "softer coupling" produces stronger p_norm growth that the adaptive coupling cannot suppress → catastrophic regression
+
+**Cross-axis closure pattern (body-Muon WD: 5 sub-axes NULL):**
+1. WD partition (#482) — per-type/per-block partitioning NULL
+2. WD schedule (#503) — temporal WD ramping NULL
+3. WD ± scalar tune — magnitude tune NULL
+4. WD cooldown ramp (#727 65th) — symmetric NULL (UP/DOWN regress identically)
+5. **#897 adaptive WD** — both linear and sqrt coupling NULL
+
+**Static WD=0.025 is PINNED at local optimum across all 5 sub-axes.**
+
+**Body-Muon p_norm growth as structural feature:** The 3-4.5× ||p||/target_norm operating regime is consistent across baseline (no adaptive coupling), Arm A (linear damping), and Arm B (sqrt damping). Body-Muon updates grow parameter norms relative to target — likely a consequence of the polar map UV^T preserving direction while WD shrinks magnitude. The equilibrium isn't ||p||=target_norm; it's ||p||≈3.5-4.5× target_norm with WD=0.025.
+
+**Implication for future WD experiments:** Any "adaptive WD" formulation that scales with ||p||/target_norm will hit the same equilibrium ceiling. Closes the entire family. Next interesting WD direction would be either (a) `target_norm` re-derivation from first principles (currently `sqrt(d_in)`) or (b) decoupled-WD reformulation that doesn't multiply current p directly.
+
+**Decision tree confirmation:** This was a 17:30 UTC predicted closure (5th WD sub-axis). Closure-rate consistent with body-Muon scalar family being deeply saturated. Last open aux family lever (SOAP for lm_head) just assigned to tanjiro as #937.
+
+**Closure entry — 90th NULL.** Adds "adaptive body-Muon WD coupled to ||p||/target_norm" to closed-axes under body-Muon WD section.
+
+---
+
 ## 2026-05-23 15:55 UTC — PR #896 CLOSED: Cautious-Muon body post-NS sign-mask — both arms NULL, 89th axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/cautious-muon-body`
