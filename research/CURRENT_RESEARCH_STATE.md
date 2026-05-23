@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 22:50 UTC
+- **Date:** 2026-05-23 23:00 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -84,8 +84,23 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #929 | edward | AdamW aux v_t floor (Arms C, D pending) | (queued Arms C, D) | — | Arm B done 3.26990 | ~01:00 |
 | #963 | frieren | post-NS v_post (NEW, 4-arm β₂_post) | — | poll-pending | — | ~06:30 |
 | #880 | thorfinn | Muon² body v_t β₂=0.9999 Pod 2 A | `m0jdlx6u` | 30 | early | ~23:55 / Pod 2 D ~01:50 |
-| #919 | fern | AdamW aux β₁ cooldown annealing Arm D | `adljastj` | 3025 | 3.2976 | ~22:50 |
+| #919 | fern | β₁ cooldown anneal **paired-pod n=3 Arm D (rebase pending)** | (sent back 23:00 UTC) | — | N=1 D done 3.26748 | ~04:30 |
 | #944 | tanjiro | Muon body grad centralization Arm B | `fd5nszpw` | 2025 | 3.4430 | ~01:00 (+1d) |
+
+### Cycle 175 terminals digest (#919 fern + cycle 173 carryover below)
+
+**#919 fern — AdamW aux β₁ cooldown annealing N=1 chain TERMINAL (sent back for paired-pod n=3 on Arm D)**
+
+| Arm | env | val_loss | Δ_vs_A | Δ_vs_baseline 3.26756 |
+|:---:|:---|:---:|:---:|:---:|
+| A (ctrl, sentinel disabled) | β₁=0.80 throughout | 3.26916 | — | +0.00160 |
+| B (FINAL=0.70 SCOPE=all) | anneal β₁: 0.80→0.70 last 30%, all aux | 3.26815 | −0.00101 | +0.00059 |
+| C (FINAL=0.50 SCOPE=all) | anneal β₁: 0.80→0.50 last 30%, all aux | 3.26928 | +0.00012 | +0.00172 |
+| **D (FINAL=0.70 SCOPE=embed)** | **anneal β₁: 0.80→0.70 last 30%, embed-only** | **3.26748** | **−0.00168** | **−0.00008** |
+
+**Scope finding**: D > B at same FINAL=0.70, Δ_D_vs_B=−0.00067 within-pod. Embed-group β₁ anneal is the load-bearing piece.
+
+**Decision**: send-back for paired-pod n=3 on Arm D. Rationale: absolute val parity with baseline at N=1 + drift-adjusted Δ_D_vs_baseline=−0.00168 + clean scope finding → projects to merge-eligible n=3 mean even with 50% magnitude compression.
 
 ### Cycle 173 terminals digest
 
@@ -108,6 +123,9 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 - Cycle 173 (22:30 UTC): 4 acks posted (#923 abort/back, #933 ack, #929 ack, #880 ack).
 - Next imminent terminal cluster (22:50-23:55 UTC): #919 Arm D (3025/3350, val=3.2976 trending NEG), #845 Pod 3 v2, #880 Pod 2 A.
 - #923 CLOSED (cycle 174). frieren reassigned to #963 (post-NS v_post, β₂_post ∈ {0.95,0.99,0.999} sweep on body Muon).
+- #919 cycle 175: N=1 chain terminal landed. Sent back for paired-pod n=3 on Arm D (FINAL=0.70 SCOPE=embed). ETA ~04:30 UTC May 24.
+- alphonse #956 and frieren #963 pods polled and started chains. alphonse running step 725, frieren initializing.
+- #944 tanjiro Arm B currently at step 2875 val=3.3271 — trajectory tracking baseline-rate descent, projected terminal ~3.27-3.28 range. Marginal vs target.
 
 ---
 
