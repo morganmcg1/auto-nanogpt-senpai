@@ -12,6 +12,7 @@ with open(sys.argv[0]) as f:
 import argparse
 import uuid
 import time
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -83,6 +84,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--init_shape", type=str, default="gaussian",
+                        choices=["gaussian", "orthogonal"],
+                        help="Init shape for body 2D weights: gaussian=default, orthogonal=torch.nn.init.orthogonal_")
+    parser.add_argument("--orth_gain", type=float, default=0.0,
+                        help="Gain for orthogonal init. 0=auto (uses std_base=sqrt(0.33/fan_in) per layer). "
+                             "Only used with --init_shape orthogonal.")
+    parser.add_argument("--orth_scope", type=str, default="nonresid",
+                        choices=["nonresid", "all"],
+                        help="nonresid=apply to QKV+fc only (keep musoft for resid-proj); "
+                             "all=apply to ALL body 2D including resid-proj (overrides musoft)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -803,38 +814,69 @@ for trial_idx in range(args.num_trials):
                 not _is_block_residual_proj(name))
 
     # initialize model parameters
+    init_branch_log: list[tuple[str, tuple, str]] = []
     for name, p in model.named_parameters():
         w = p.data
+        branch = "unhandled"
         if name.endswith("weight"):
             if _is_block_residual_proj(name):
                 # residual-injection paths — experiment axis
                 if args.depth_init_mode == "ctrl":
                     w.zero_()
+                    branch = "resid_proj/ctrl_zero"
+                elif args.init_shape == "orthogonal" and args.orth_scope == "all":
+                    # Cell E: orthogonal overrides musoft for resid-proj too
+                    musoft_std = _resid_proj_std(w.size(-1), args.depth_init_mode, NUM_LAYERS)
+                    gain = args.orth_gain if args.orth_gain > 0 else musoft_std
+                    torch.nn.init.orthogonal_(w, gain=gain)
+                    branch = f"resid_proj/orth(gain={gain:.6f})"
                 else:
                     std = _resid_proj_std(w.size(-1), args.depth_init_mode, NUM_LAYERS)
                     w.normal_(std=std)
+                    branch = f"resid_proj/normal(std={std:.6f})"
             elif "proj" in name:
                 # lm_head (model.proj.weight) — keep zero-init for ALL cells
                 w.zero_()
+                branch = "lm_head/zero"
             elif "embed" in name:
                 w.normal_()  # N(0,1) — unchanged
-            else:
-                # non-residual 2D weights (block Q/K/V/fc and any others)
+                branch = "embed/N(0,1)"
+            elif _is_block_nonresidual_2d(name):
+                # non-residual 2D block weights (block Q/K/V/fc)
                 std_base = (0.33 ** 0.5) / (w.size(-1) ** 0.5)
-                if args.depth_init_mode == "muall" and _is_block_nonresidual_2d(name):
-                    w.normal_(std=std_base / (NUM_LAYERS ** 0.5))
+                if args.init_shape == "orthogonal":
+                    gain = args.orth_gain if args.orth_gain > 0 else std_base
+                    torch.nn.init.orthogonal_(w, gain=gain)
+                    branch = f"nonresid_2d/orth(gain={gain:.6f})"
+                elif args.depth_init_mode == "muall":
+                    eff_std = std_base / (NUM_LAYERS ** 0.5)
+                    w.normal_(std=eff_std)
+                    branch = f"nonresid_2d/muall(std={eff_std:.6f})"
                 else:
                     w.normal_(std=std_base)
+                    branch = f"nonresid_2d/normal(std={std_base:.6f})"
+            else:
+                # any other "weight"-ending tensor — leave at constructor default
+                branch = "other_weight/constructor_default"
         elif name.endswith("bias"):
             w.zero_()
+            branch = "bias/zero"
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
+            branch = "gains/ones"
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+        init_branch_log.append((name, tuple(p.shape), branch))
 
     # Sanity print — will appear in W&B stdout logs
     _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
+    print0(f"[init] init_shape={args.init_shape}  orth_gain_arg={args.orth_gain}  orth_scope={args.orth_scope}", console=True)
+    # Per-parameter branch trace (first 8 + summary by branch)
+    branch_counts = Counter(b for _, _, b in init_branch_log)
+    print0(f"[init] per-branch counts: {dict(branch_counts)}", console=True)
+    for n, shp, br in init_branch_log[:8]:
+        print0(f"[init] param  {n}  shape={shp}  branch={br}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
