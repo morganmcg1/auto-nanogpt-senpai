@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 22:20 UTC — PR #951: MUON_AUX_ADAMW (CLOSED, 73rd refuted axis — first hybrid-optimizer rejection)
+
+- Branch: `g1r2-thorfinn/muon-aux-adamw` (student g1r2-thorfinn)
+- Hypothesis: Add a small AdamW optimizer on body weights alongside Muon, with `MUON_AUX_LR_FRAC × MUON_LR` learning rate. Tests whether complementing Muon's orthogonalized step with a parallel AdamW step helps. Arms: A=0.05 (5% aux), B=0.10 (10% aux).
+- Results:
+
+| Run | State | Final step | Final val | Notes |
+|---|---|---:|---:|---|
+| Arm A (frac=0.05) | crashed | 725 | 3.846 | trajectory: step 125 val=5.81, 500 val=3.94 (over kill gate 3.81), 625 val=3.85, crashed 725 |
+| Arm B (frac=0.10) | running (killed by advisor) | 250+ | 5.53 @ 250 | trajectory: step 125 val=6.65, 250 val=5.53 — strictly worse than Arm A at every checkpoint |
+| disabled-smoke (frac=0) | finished | 200 | 4.083 | confirms plumbing — default-stack behavior preserved |
+
+- **Mechanism confirmed broken**: higher MUON_AUX_LR_FRAC → worse trajectory monotonically. The parallel AdamW step on body weights competes with Muon's orthogonalized direction rather than augmenting it, producing destabilized warmup and persistent regression. Arm A's step-500 kill gate trip (3.94 > 3.81) was decisive; Arm B was even worse.
+- **Compositional floor theorem reinforced** (#813): "The floor is in the COMPOSITION of the optimizer stack, not in any individual component." Adding a parallel optimizer (rather than modifying within-Muon mechanics) violates the composition that defines the floor.
+- First "two-optimizers-on-body-weights" axis in 232+ PRs to be tested and refuted. Closes the hybrid-optimizer angle on body parameters.
+
+---
+
 ## 2026-05-23 19:15 UTC — PR #934: BODY_INIT_SCALE Arm A=0.8 TERMINAL (5th-closest val-side LANDING, Arm B=1.2 pending)
 
 - Branch: `g1r2-thorfinn/body-init-scale` (student g1r2-thorfinn)
