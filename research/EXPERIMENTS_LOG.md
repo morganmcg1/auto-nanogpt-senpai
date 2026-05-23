@@ -3,6 +3,25 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~01:30 UTC — PR #824: frieren Polar Express (per-iter minimax NS coefficients) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-frieren/polar-express`
+- Student: g1r5-frieren
+- Hypothesis: Replace fixed (2, −1.5, 0.5) NS coefficients with per-iteration minimax-optimal quintic coefficients. After each NS iter the gradient's SV spectrum contracts; Polar Express uses coefficients tuned to the tighter post-contraction interval. Expected speedup from paper (GPT-2-Large): ~−0.06 val/loss reduction.
+- **Results (3/5 cells, D/E gated; n=1 each, group `polar-express-ns-coeffs`):**
+
+| Cell | Variant | run_id | val/loss @3250 | ffs | Δ vs A |
+|:----:|:-------:|:------:|:--------------:|:---:|:------:|
+| **A (ctrl)** | fixed-coeff, 6-iter | `48nhn92b` | **3.26105** | **3025** | — |
+| B (primary) | PE default, 6-iter | `vakre11v` | 3.26172 | 3050 | +0.00067 (+1.1σ) |
+| C | PE pure, 6-iter | `xtwmvump` | 3.26302 | 3050 | +0.00197 (+3.3σ) |
+| D | PE default, 4-iter | — | gated | — | — |
+| E | PE default, 8-iter | — | gated | — | — |
+
+- **Hypothesis falsified.** Monotonic A < B < C at every val checkpoint (26 checkpoints each). B is 0.84σ worse than baseline μ; C is 3.03σ worse. D/E correctly gated since B didn't beat A.
+- **Mechanism (student's analysis):** With `--soap_attn` active, SOAP's Kronecker-preconditioned update pre-conditions the attention gradient spectrum before NS. Fixed (2, −1.5, 0.5) is already well-matched to a pre-shaped spectrum. PolarExpress assumes the raw gradient spectrum — optimizing for the wrong problem. Also: `pure` variant (no safety/cushion) is worse than `default`, so the safety knobs aren't the bottleneck. Per-step overhead was zero (numpy precomputation at module load). B's initial training loss (step 500) was slightly better than A, confirming the optimization path is real — just doesn't survive full training.
+- **Decision:** CLOSED clean-NEG. NS polynomial-coefficient axis now closed. Combined with NS-WarmUp (#815): the full NS parameter space (iteration count ramp, per-iter coefficients, timing) is exhausted under the current SOAP+6-iter stack. Key insight preserved: **SOAP preconditioning nullifies gradient-spectrum improvements inside NS.**
+
 ## 2026-05-23 ~00:45 UTC — PR #815: tanjiro NS-WarmUp (sequential ns_iter ramp-up) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-tanjiro/ns-warmup`
