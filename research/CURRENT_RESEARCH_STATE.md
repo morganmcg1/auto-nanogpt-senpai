@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~11:21Z (poll #512) — **#859 frieren GrokFast-Muon CLOSED clean-NEG** (monotonic worsening with λ at fixed α; mechanism: NS already optimally extracts spectral signal, pre-amplification of slow-EMA harmful). frieren assigned top-k gradient sparsification next. **#840 trial 1 terminal=3.261360** (regression from n=1=3.25960 by +0.001760); trial 2 ~78%, full n=4 ~3h ETA. #873 cell B 3.259897 still strongest n=1 post-#699. #890 cell A terminal 3.261209 (NEG), cell B PRIMARY just launched.
+- **Last updated:** 2026-05-23 ~12:15Z (poll #516) — **#867 thorfinn Pre-NS Cautious CLOSED clean-NEG** (Cautious family fully exhausted: post-NS #844 destructive, pre-NS #867 null; SOAP's eigenbasis already concentrates signal, sign-disagreement IS structural not noise). thorfinn assigned Q/K/V Update Consensus next. **#840 n=2 mean 3.261158** (trials 1+2 done, trial 3 9% — full n=4 unlikely to clear gate). #873 cell B 3.259897 still strongest n=1 post-#699; cell D NEG, cell E launching. #902 frieren picked up assignment (ctrl running).
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 

@@ -3,6 +3,29 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~12:15 UTC — PR #867: thorfinn Pre-NS Cautious Muon — **CLOSED clean-NEG**
+
+- Branch: `g1r5-thorfinn/pre-ns-cautious-muon`
+- Student: g1r5-thorfinn
+- Hypothesis: Apply grad-direction-agreement mask BEFORE NS orthogonalization (distinct from #844 post-NS Cautious which destructively rescaled NS output). Test whether filtering sign-disagreement entries upstream of NS improves orthogonalized step quality.
+- **Results (5-cell sweep, n=1 each):**
+
+| Cell | Configuration | val/loss | Δ vs μ | σ_single | ffs | wandb_run |
+|:----:|:-------------|:---:|:---:|:---:|:---:|:---:|
+| **A** ctrl | no mask | **3.26094** | −0.00028 | −0.24σ | 3025 | t3q3mkr7 |
+| B | pre-NS no-rescale | 3.26187 | +0.00065 | +0.55σ | 3025 | x33lo2ik |
+| C | pre-NS rescale | 3.26313 | +0.00191 | +1.61σ | 3050 | w71ndnsw |
+| D | pre-NS MLP-only | 3.26258 | +0.00136 | +1.15σ | 3050 | 7hxcuxjg |
+| E | pre-NS + lr_mlp 0.060 | 3.26112 | −0.00010 | −0.09σ | 3025 | ddi68oz3 |
+
+- **Decision: CLOSED clean-NEG.** Best treatment cell E (lr_mlp=0.060) = 3.26112, parity with ctrl A. All other treatments slightly worse than ctrl. No cell ≤ 3.260; mechanism null at every setting.
+- **Mechanism analysis:** Pre-NS sign-agreement mask filters gradient entries where momentum and current gradient disagree. Under SOAP+NS, the gradient signal is already concentrated by SOAP's eigenbasis rotation; residual sign-disagreement (~35-40% of entries per #844 telemetry) is STRUCTURAL, not noise. Filtering it removes information without benefit.
+- **Pattern with #844:** The full Cautious family (post-NS #844, pre-NS #867) is now exhausted. Both pipeline positions tested:
+  - Post-NS Cautious (#844): destructive (+38σ harm at one cell, NS rescale breaks spectral budget)
+  - Pre-NS Cautious (#867): null mechanism (best treatment cell parity with ctrl)
+- **Axis closed: Grad-direction-agreement masking on Muon momentum**. Neither pre-NS nor post-NS placement helps.
+- Next assignment to thorfinn: Q/K/V Update Consensus — mix attention projection gradients to share a portion of their direction before NS.
+
 ## 2026-05-23 ~11:21 UTC — PR #859: frieren GrokFast-Muon — **CLOSED clean-NEG**
 
 - Branch: `g1r5-frieren/grokfast-muon`
