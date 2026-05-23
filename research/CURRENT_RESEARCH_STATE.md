@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 14:01 UTC
+- **Date:** 2026-05-23 14:21 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -1240,6 +1240,26 @@ Awaiting Arm C terminal (~12:30 UTC if launched ~10:50 UTC) and Arm D launch.
 | D | 0.9999 | `w9afvz9a` step 2750/3350 (82%) val=3.333 | TBD | TBD |
 
 **Arms A/B/C all clustered within ±0.00038 of each other** (Δ_vs_A: B +0.00038, C +0.00015). Cross-axis confirmation: not only is disable (B=0.0) near-neutral, but 10× faster v_t adaptation (C=0.99) is also near-neutral. **Body Muon² v_t preconditioning is structurally inert across reasonable β₂ values on post-#787 stack.** If Arm D (β₂=0.9999, 10× slower) also lands within ±0.001 of A, this MERGES the structural simplification candidate: remove body Muon² v_t buffer entirely (~3 LOC, ~12MB GPU memory savings on body matrices). ETA Arm D terminal ~14:21 UTC.
+
+**14:21 UTC — Arm D TERMINAL — PATTERN 4 SIGNAL (NOT structural simplification, slow-adapt winner)**:
+
+| Arm | β₂ | run ID | val/loss | Δ_vs_A (3.26984) | Δ_vs_new_base 3.26944 | Verdict |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.999 | `tg80f0tp` | 3.26984 | — | +0.00040 (drift PASS) | clean control |
+| B | 0.0 | `5xxedhqp` | 3.27022 | +0.00038 | +0.00078 | near-neutral (disable inert) |
+| C | 0.99 | `3ursyjua` | 3.26999 | +0.00015 | +0.00055 | near-neutral (faster v_t inert) |
+| **D** | **0.9999** | **`w9afvz9a`** | **3.26741** | **−0.00243** ✅ | **−0.00203** ✅ | **SIGNAL — clears −0.002 within-pod threshold AND new baseline by 0.00203** |
+
+**Re-reading of pre-staged outcomes**: Pattern 4 fires ("C or D best with Δ ≤ −0.002 → positive signal on beta2 axis → paired-pod n=3 on winner"). The bracket reveals:
+- **Disable (B) is structurally redundant on its own** — still a legitimate simplification candidate at +0.00038
+- **Faster adaptation (C) is also inert** at +0.00015
+- **Slower adaptation (D) at β₂=0.9999 is the actual extractable signal**, suggesting body Muon² v_t benefits from a long-time-constant denominator stabilization rather than the merged β₂=0.999
+
+**Mechanism reading**: At β₂=0.9999, v_t half-life ~6900 steps >> training length 3350 — effectively a running global denominator that doesn't track local gradient magnitude shifts. This is closer to "pure SGD-style preconditioning with a slowly-evolving denominator" than to "adaptive preconditioning". The denominator stabilization benefits body Muon² body-of-NS-input rather than tracking per-coordinate magnitude (which NS would orthogonalize away anyway).
+
+**Posted #880 visibility comment 14:20 UTC**: requested student to (1) confirm stack version (post-#787 or OLD), (2) post terminal SENPAI-RESULT, (3) proceed to paired-pod n=3 on Arm D vs Arm A. Pre-staged paired-pod gates frozen against new baseline 3.26944. Awaiting student SENPAI-RESULT.
+
+**Composability with structural-simplification reading**: Both findings are durable. If Arm D collapses at paired-pod n=3 (consistent with 12 prior precedent paired-pod collapses), the disable simplification candidate (B near-neutral) is still merge-discussable on code-pruning grounds (~3 LOC, ~12MB memory). If Arm D holds, β₂=0.9999 becomes the new merged default and disable is moot.
 
 ### 🔄 edward #874 — Embed weight init magnitude sweep (4-arm) [assigned 05:25 UTC]
 
