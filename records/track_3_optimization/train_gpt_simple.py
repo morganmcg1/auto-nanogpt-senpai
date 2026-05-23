@@ -71,6 +71,18 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H81 orthogonal init for body 2D params. 0 (default) keeps the baseline normal_(std=σ)
+    # path bit-identical. With 1, the same per-module σ controls the gain via the chosen mode:
+    # frob_matched preserves per-module Frobenius norm, unit uses gain=1.0, saxe_relu uses
+    # gain=sqrt(2). LM head (proj.weight, zeroed) and embed.weight are untouched.
+    parser.add_argument("--orthogonal_init", type=int, default=int(os.environ.get("ORTHOGONAL_INIT", "0")),
+                        help="If 1, use torch.nn.init.orthogonal_ for body 2D weights instead of normal_(std=σ). "
+                             "0 (default) = bit-identical baseline.")
+    parser.add_argument("--orthogonal_init_gain", type=str,
+                        default=os.environ.get("ORTHOGONAL_INIT_GAIN", "frob_matched"),
+                        choices=["frob_matched", "unit", "saxe_relu"],
+                        help="Gain mode for orthogonal_init. frob_matched: gain=std*sqrt(max(out,in)) preserves "
+                             "per-module Frobenius norm. unit: 1.0. saxe_relu: sqrt(2).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -713,6 +725,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.orthogonal_init:
+    print0(f"ORTHOGONAL INIT ENABLED on body 2D weights: gain={args.orthogonal_init_gain}", console=True)
+else:
+    print0("ORTHOGONAL INIT DISABLED (normal_(std=σ) baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +782,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "orthogonal_init": bool(args.orthogonal_init),
+            "orthogonal_init_gain": args.orthogonal_init_gain,
         },
     )
 
@@ -783,6 +801,32 @@ for trial_idx in range(args.num_trials):
     # while keeping the LM head (model.proj.weight) at zero so initial logits are 0.
     # The "proj" substring matches both block proj weights and the LM head, so the
     # LM head is special-cased by exact-name first.
+    #
+    # H81: when --orthogonal_init 1, body 2D weights are initialized with
+    # torch.nn.init.orthogonal_(w, gain=g). For a 2D matrix W of shape (out, in)
+    # this yields min(out, in) singular values all equal to g (sv_ratio = 1).
+    # frob_matched picks g = std * sqrt(max(out, in)) so the Frobenius norm
+    # matches the normal_(std=σ) baseline in expectation:
+    #   ||W_normal||_F ≈ std * sqrt(out * in)
+    #   ||W_orth(g)||_F = g * sqrt(min(out, in)) = std * sqrt(out * in)  ✓
+    def _orth_gain(std, shape, mode):
+        out_dim, in_dim = shape[0], shape[1]
+        if mode == "frob_matched":
+            return std * (max(out_dim, in_dim) ** 0.5)
+        elif mode == "unit":
+            return 1.0
+        elif mode == "saxe_relu":
+            return 2.0 ** 0.5
+        else:
+            raise ValueError(f"unknown orthogonal_init_gain: {mode}")
+
+    def _init_body_weight(w, std):
+        if args.orthogonal_init:
+            gain = _orth_gain(std, w.shape, args.orthogonal_init_gain)
+            torch.nn.init.orthogonal_(w, gain=gain)
+        else:
+            w.normal_(std=std)
+
     for name, p in model.named_parameters():
         w = p.data
         if name.endswith("weight"):
@@ -791,21 +835,67 @@ for trial_idx in range(args.num_trials):
             elif name == "embed.weight":
                 w.normal_()  # token embedding: default torch init
             elif "attn.proj" in name:
-                w.normal_(std=0.026)
+                _init_body_weight(w, 0.026)
             elif "mlp.proj" in name:
-                w.normal_(std=0.031)
+                _init_body_weight(w, 0.031)
             elif "mlp.fc" in name:
-                w.normal_(std=0.031)
+                _init_body_weight(w, 0.031)
             elif "attn." in name:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
+                _init_body_weight(w, 0.33**0.5 / w.size(-1)**0.5)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)
+                _init_body_weight(w, 0.33**0.5 / w.size(-1)**0.5)
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Step-0 weight statistics for arm verification. For arm_a (normal init) we
+    # expect sv_ratio O(10–100) and large frob_norm scatter. For arm_b/arm_c
+    # (orthogonal init) sv_ratio should be 1.0 exactly across all 768 singular
+    # values; frob_norm matches arm_a for frob_matched gain, differs for unit gain.
+    if dist.get_rank() == 0:
+        params = dict(model.named_parameters())
+        targets = [
+            ("attn_q",    "blocks.0.attn.q.weight"),
+            ("attn_k",    "blocks.0.attn.k.weight"),
+            ("attn_v",    "blocks.0.attn.v.weight"),
+            ("attn_proj", "blocks.0.attn.proj.weight"),
+            ("mlp_fc",    "blocks.0.mlp.fc.weight"),
+            ("mlp_proj",  "blocks.0.mlp.proj.weight"),
+        ]
+        init_metrics = {"trial": trial_idx}
+        rows = []
+        for key, pname in targets:
+            w32 = params[pname].detach().float()
+            frob_norm = float(w32.norm().item())
+            sv = torch.linalg.svdvals(w32)
+            sv_max = float(sv.max().item())
+            sv_min = float(sv.min().item())
+            sv_ratio = sv_max / max(sv_min, 1e-30)
+            init_metrics[f"init/frob_norm_{key}_block_0"] = frob_norm
+            init_metrics[f"init/sv_max_{key}_block_0"] = sv_max
+            init_metrics[f"init/sv_min_{key}_block_0"] = sv_min
+            init_metrics[f"init/sv_ratio_{key}_block_0"] = sv_ratio
+            rows.append((key, tuple(w32.shape), frob_norm, sv_max, sv_min, sv_ratio))
+        wandb.log(init_metrics, step=trial_idx * (train_steps + 1))
+        print0("=" * 100, console=True)
+        print0(
+            f"INIT WEIGHT STATS @ block_0  (orthogonal_init={args.orthogonal_init} "
+            f"gain={args.orthogonal_init_gain})",
+            console=True,
+        )
+        print0(
+            f"  {'param':<11}{'shape':<14}{'frob_norm':>12}{'sv_max':>12}{'sv_min':>12}{'sv_ratio':>12}",
+            console=True,
+        )
+        for key, shape, fn, smax, smin, sr in rows:
+            print0(
+                f"  {key:<11}{str(shape):<14}{fn:>12.4f}{smax:>12.5f}{smin:>12.5f}{sr:>12.4f}",
+                console=True,
+            )
+        print0("=" * 100, console=True)
 
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
