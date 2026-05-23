@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Neelakantan et al. 2015 (arXiv:1511.06807) annealed Gaussian gradient noise.
+    # sigma_t = eta / (1 + step)^gamma applied to each p.grad just before opt.step,
+    # uniformly across aux AdamW params and MuonH body params. eta=0.0 disables
+    # (no-op, bit-identical). Noise is added AFTER AGC clipping, BEFORE opt.step.
+    parser.add_argument("--gradient_noise_eta", type=float, default=float(os.environ.get("GRADIENT_NOISE_ETA", "0.0")),
+                        help="Initial Gaussian gradient noise scale (Neelakantan et al. 2015). 0.0 disables (bit-identical).")
+    parser.add_argument("--gradient_noise_gamma", type=float, default=float(os.environ.get("GRADIENT_NOISE_GAMMA", "0.55")),
+                        help="Decay exponent for sigma_t = eta / (1 + step)^gamma. Neelakantan default 0.55.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -567,6 +575,49 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+def inject_gradient_noise(parameters, eta: float, gamma: float, step: int, compute_norms: bool):
+    """Neelakantan-annealed Gaussian gradient noise (arXiv:1511.06807).
+
+    sigma_t = eta / (1 + step)^gamma. Adds zero-mean Gaussian noise in-place to
+    each p.grad uniformly across the provided parameter list. Returns None when
+    eta <= 0 (bit-identical no-op: no randn_like call, no telemetry). When
+    compute_norms=True, also reports the global L2 grad norm before/after
+    injection for SNR diagnostics. Uses torch.randn_like on the default CUDA
+    generator so reruns are deterministic given the same seed as the rest of
+    the program.
+    """
+    if eta <= 0:
+        return None
+    sigma_t = eta / ((1.0 + step) ** gamma)
+    grad_norm_pre = None
+    if compute_norms:
+        pre_sq = None
+        for p in parameters:
+            if p.grad is None:
+                continue
+            s = p.grad.detach().float().square().sum()
+            pre_sq = s if pre_sq is None else pre_sq + s
+        grad_norm_pre = float(pre_sq.sqrt().item()) if pre_sq is not None else 0.0
+    for p in parameters:
+        if p.grad is None:
+            continue
+        p.grad.add_(torch.randn_like(p.grad), alpha=sigma_t)
+    grad_norm_post = None
+    if compute_norms:
+        post_sq = None
+        for p in parameters:
+            if p.grad is None:
+                continue
+            s = p.grad.detach().float().square().sum()
+            post_sq = s if post_sq is None else post_sq + s
+        grad_norm_post = float(post_sq.sqrt().item()) if post_sq is not None else 0.0
+    return {
+        "sigma_t": sigma_t,
+        "grad_norm_pre": grad_norm_pre,
+        "grad_norm_post": grad_norm_post,
+    }
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -713,6 +764,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.gradient_noise_eta > 0:
+    print0(f"Gradient noise ENABLED (Neelakantan 2015): eta={args.gradient_noise_eta} gamma={args.gradient_noise_gamma} "
+           f"(sigma_t = eta / (1 + step)^gamma)", console=True)
+else:
+    print0("Gradient noise DISABLED (eta=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +822,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "gradient_noise_eta": args.gradient_noise_eta,
+            "gradient_noise_gamma": args.gradient_noise_gamma,
         },
     )
 
@@ -828,6 +886,9 @@ for trial_idx in range(args.num_trials):
     # Inner-MuonH AGC targets: block 2D weights consumed by MuonH. Clipped BEFORE
     # the MuonH momentum buffer integrates the gradient.
     muonh_params_for_agc = [p for g in optimizer2.param_groups for p in g["params"]]
+    # Gradient-noise targets: union of aux AdamW params and MuonH body params,
+    # which (per the assertion below) covers every trainable model parameter.
+    noise_params = aux_params_for_agc + muonh_params_for_agc
     assert set(p for opt in optimizers for group in opt.param_groups
                for p in group["params"]) == set(model.parameters())
     for opt in optimizers:
@@ -1018,6 +1079,31 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # Gradient noise injection (Neelakantan 2015). Applied AFTER AGC, BEFORE
+        # opt.step. No-op (bit-identical) when gradient_noise_eta <= 0.
+        noise_log_due = (step == 0 or (step + 1) % 100 == 0 or step + 1 == train_steps)
+        noise_stats = inject_gradient_noise(
+            noise_params,
+            args.gradient_noise_eta,
+            args.gradient_noise_gamma,
+            step,
+            compute_norms=(noise_log_due and dist.get_rank() == 0),
+        )
+        if dist.get_rank() == 0 and noise_log_due and noise_stats is not None:
+            noise_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "noise/sigma_t": noise_stats["sigma_t"],
+            }
+            pre = noise_stats["grad_norm_pre"]
+            post = noise_stats["grad_norm_post"]
+            if pre is not None and post is not None:
+                noise_metrics["noise/grad_norm_pre"] = pre
+                noise_metrics["noise/grad_norm_post"] = post
+                noise_sq = max(0.0, post * post - pre * pre)
+                if noise_sq > 0:
+                    noise_metrics["noise/grad_snr"] = pre / (noise_sq ** 0.5)
+            wandb.log(noise_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
