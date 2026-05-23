@@ -61,6 +61,16 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--adan_aux", action="store_true",
+                        help="Use Adan optimizer for aux groups (embed/lm_head/scalars) instead of AdamW. "
+                             "Adan (Xie et al. 2022, arXiv:2208.06677) adds Nesterov-momentum on gradient "
+                             "differences (Δg = g_t - g_{t-1}) to the standard Adam-style EMAs.")
+    parser.add_argument("--adan_aux_b1", type=float, default=0.98,
+                        help="Adan β1 (default 0.98 per paper) — gradient EMA decay for aux groups.")
+    parser.add_argument("--adan_aux_b2", type=float, default=0.92,
+                        help="Adan β2 (default 0.92 per paper) — gradient-difference EMA decay.")
+    parser.add_argument("--adan_aux_b3", type=float, default=0.99,
+                        help="Adan β3 (default 0.99 per paper) — variance (NAG-corrected) EMA decay.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -630,6 +640,104 @@ def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[
     return {}
 
 
+class AdanAux(torch.optim.Optimizer):
+    """Adan (Xie et al. 2022, arXiv:2208.06677) for aux param groups.
+
+    Canonical Adan algorithm in Adam-style β notation (large momentum weights):
+        m_t = b1 m_{t-1} + (1-b1) g_t                              (gradient EMA)
+        diff_t = g_t - g_{t-1}                                     (gradient difference)
+        v_t = b2 v_{t-1} + (1-b2) diff_t                           (diff EMA)
+        n_t = b3 n_{t-1} + (1-b3) (g_t + b2*diff_t)^2              (NAG-corrected variance)
+        update = (m_hat + b2*v_hat) / (sqrt(n_hat) + eps)
+        theta = (1 - lr*wd) * theta - lr * update                  (decoupled WD)
+
+    Note: the paper writes formulas with paper-convention (small) β where the
+    NAG bracket multiplier is (1-β_paper). In Adam-style convention (large β,
+    e.g. b2=0.92), (1-β_paper) == b2, so the bracket multiplier is b2.
+    Cross-checked against sail-sg/Adan and timm Adan implementations.
+
+    Bias-corrected per Adam convention.
+    Memory: 4 fp32 state tensors per param (m, v, n, prev_g) — 2x AdamW.
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.98, 0.92, 0.99), eps=1e-10, weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self._diag: dict = {}
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        diag: dict = {}
+        for group in self.param_groups:
+            lr = group["lr"]
+            b1, b2, b3 = group["betas"]
+            eps = group["eps"]
+            wd = group["weight_decay"]
+            group_name = group.get("name", "")
+            first_p = group["params"][0] if group["params"] else None
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["n"] = torch.zeros_like(p, dtype=torch.float32)
+                    # Initialize prev_g to current grad so diff = 0 on the first step
+                    # (matches sail-sg/Adan first-step convention; avoids first-step
+                    # diff = g spike that would happen with zero-init prev_g).
+                    state["prev_g"] = g.detach().float().clone()
+                state["step"] += 1
+                t = state["step"]
+                m, v, n, prev_g = state["m"], state["v"], state["n"], state["prev_g"]
+                g32 = g.detach().float()
+                diff = g32 - prev_g
+                # update EMAs
+                m.mul_(b1).add_(g32, alpha=1 - b1)
+                v.mul_(b2).add_(diff, alpha=1 - b2)
+                u_t = g32 + b2 * diff
+                n.mul_(b3).addcmul_(u_t, u_t, value=1 - b3)
+                # bias correction
+                bc1 = 1 - b1 ** t
+                bc2 = 1 - b2 ** t
+                bc3 = 1 - b3 ** t
+                m_hat = m / bc1
+                v_hat = v / bc2
+                n_hat = n / bc3
+                denom = n_hat.sqrt().add_(eps)
+                m_part = m_hat / denom
+                v_part = (b2 * v_hat) / denom
+                update = m_part + v_part
+                # decoupled weight decay (Adan paper: theta -= lr * (update + wd*theta))
+                if wd != 0:
+                    p.data.mul_(1 - lr * wd)
+                p.data.add_(update.to(p.dtype), alpha=-lr)
+                # store current grad for next-step diff
+                prev_g.copy_(g32)
+                if p is first_p and group_name:
+                    diag[group_name] = {
+                        "step": t,
+                        "diff_norm": float(diff.norm().item()),
+                        "m_norm": float(m.norm().item()),
+                        "v_norm": float(v.norm().item()),
+                        "n_norm": float(n.norm().item()),
+                        "m_hat_norm": float(m_hat.norm().item()),
+                        "v_hat_norm": float(v_hat.norm().item()),
+                        "m_part_norm": float(m_part.norm().item()),
+                        "v_part_norm": float(v_part.norm().item()),
+                        "update_norm": float(update.norm().item()),
+                        "g_norm": float(g32.norm().item()),
+                        "nonfinite_count": int((~torch.isfinite(update)).sum().item()),
+                    }
+        self._diag = diag
+        return loss
+
+
 ########################################
 #                Setup                 #
 ########################################
@@ -717,6 +825,10 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "adan_aux_enabled": int(args.adan_aux),
+            "adan_aux_b1": args.adan_aux_b1 if args.adan_aux else 0.0,
+            "adan_aux_b2": args.adan_aux_b2 if args.adan_aux else 0.0,
+            "adan_aux_b3": args.adan_aux_b3 if args.adan_aux else 0.0,
         },
     )
 
@@ -748,10 +860,18 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    param_groups_aux = [
+        dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars"),
+    ]
+    if args.adan_aux:
+        # Adan (Xie et al. 2022) for aux groups. Per-group lr from param_groups_aux is preserved.
+        optimizer1 = AdanAux(param_groups_aux,
+                             betas=(args.adan_aux_b1, args.adan_aux_b2, args.adan_aux_b3),
+                             eps=1e-10, weight_decay=0.0)
+    else:
+        optimizer1 = AdamW(param_groups_aux, betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1049,6 +1169,37 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+            if args.adan_aux:
+                adan_diag = getattr(optimizer1, "_diag", None)
+                if adan_diag:
+                    adan_metrics = {"trial": trial_idx, "train/step": train_step}
+                    for gname, d in adan_diag.items():
+                        short = gname.replace("adam_", "")
+                        prefix = f"train/adan_aux/{short}"
+                        adan_metrics[f"{prefix}/diff_norm"] = d["diff_norm"]
+                        adan_metrics[f"{prefix}/g_norm"] = d["g_norm"]
+                        adan_metrics[f"{prefix}/m_norm"] = d["m_norm"]
+                        adan_metrics[f"{prefix}/v_norm"] = d["v_norm"]
+                        adan_metrics[f"{prefix}/n_norm"] = d["n_norm"]
+                        adan_metrics[f"{prefix}/m_hat_norm"] = d["m_hat_norm"]
+                        adan_metrics[f"{prefix}/v_hat_norm"] = d["v_hat_norm"]
+                        adan_metrics[f"{prefix}/m_part_norm"] = d["m_part_norm"]
+                        adan_metrics[f"{prefix}/v_part_norm"] = d["v_part_norm"]
+                        adan_metrics[f"{prefix}/update_norm"] = d["update_norm"]
+                        adan_metrics[f"{prefix}/diff_to_m_ratio"] = (
+                            d["diff_norm"] / max(d["m_norm"], 1e-12)
+                        )
+                        adan_metrics[f"{prefix}/diff_to_g_ratio"] = (
+                            d["diff_norm"] / max(d["g_norm"], 1e-12)
+                        )
+                        adan_metrics[f"{prefix}/v_to_m_part_ratio"] = (
+                            d["v_part_norm"] / max(d["m_part_norm"], 1e-12)
+                        )
+                        adan_metrics[f"{prefix}/nonfinite_count"] = d["nonfinite_count"]
+                    adan_metrics["train/adan_aux/b1"] = args.adan_aux_b1
+                    adan_metrics["train/adan_aux/b2"] = args.adan_aux_b2
+                    adan_metrics["train/adan_aux/b3"] = args.adan_aux_b3
+                    wandb.log(adan_metrics, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
