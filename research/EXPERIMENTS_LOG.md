@@ -6490,3 +6490,27 @@ Kill-gate ladder: both arms razor-edge at step 1000 (+0.00038 Arm B, +0.00291 Ar
 **Student observation acknowledged**: Arm A tripped gate by only +0.00139 (at noise floor), kill-gate ladder is tight. However, the strict gate caught real degradation (both arms ~0.005 above baseline at step 500) — late-trajectory recovery would have cost ~2h GPU time for no-headroom axis. Closure correct under either gate interpretation. Excellent student work.
 
 **Closure outcome**: 71st refuted axis. Next assignment for alphonse: **PR #950 LOGIT_SOFTCAP_SCHEDULE** — first temporal axis on LOGIT_SOFTCAP in 232+ PRs. Loss-side temporal mechanism, diversifies the in-flight temporal cluster (#947 CONTRA optimizer-side, #948 NS5_ITERS optimizer-side). Arms A=ramp 20→15 (tighter cooldown softcap), B=ramp 20→30 (looser cooldown softcap).
+
+
+## 2026-05-23 21:38 UTC — PR #934: BODY_INIT_SCALE — body weight init scalar sweep CLOSED (72nd refuted axis)
+
+- `g1r2-thorfinn/body-init-scale`
+- Hypothesis: BODY_INIT_SCALE=1.0 (default torch init) may not be optimal under Muon+NS5 stack. Arm A=0.8 (smaller init), Arm B=1.2 (larger init).
+- W&B runs: `867nb0m8` (Arm A=0.8), `dg3kijef` (Arm B=1.2).
+
+| Arm | BODY_INIT_SCALE | val/loss @3175 | ffs | Δval | Δffs | Hold gate |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline (n=2) | 1.0 | 3.26776 | 3000 | — | — | — |
+| Arm A | **0.8** | **3.26950** | 3025 | +0.00174 | +25 | val PASS / ffs FAIL |
+| Arm B | **1.2** | **3.27147** | 3025 | +0.00371 | +25 | FAIL both |
+
+**Results commentary**: Asymmetric unimodal Goldilocks confirmed at 1.0:
+- Arm A=0.8 val-favorable trend (+0.00174) — 5th-closest val-side landing of cycle 71, val PASSES hold gate by 0.00050
+- Arm B=1.2 clear regression (+0.00371) — 2.1× asymmetry suggests larger init pushes model out of Goldilocks region faster than smaller does
+- Both arms hit ffs=3025 at the 25-step eval cadence quantization wall
+
+**Arm B kill-gate trips (razor-edge)**: step 1000 +0.00085, step 2000 +0.00093. Student correctly continued — Muon+NS5+CONTRA stack exhibits characteristic late-trajectory recovery (Arm A had similar step-2000 razor-edge PASS at -0.00131 and recovered to 3.26950). Student judgment exemplary on continue-vs-kill decision.
+
+**Mechanistic conclusion**: Initial singular-value structure already saturates what NS5 needs at default init. Smaller init slightly val-favorable but ffs blocked by quantization. Larger init clearly past inflection. Default 1.0 is the asymmetric Goldilocks endpoint. Body init magnitude is fully tuned within the mandatory stack.
+
+**Closure outcome**: 72nd refuted axis. Student's suggested follow-ups (BODY_INIT_SCALE=0.6, joint EMBED×BODY sweep, longer schedule with smaller init) are all scalar precision in nature — declined per launch directive ("do not let the run become mostly scalar hyperparameter search"). Next assignment for thorfinn: **PR #951 MUON_AUX_ADAMW** — first "two-optimizers-on-body-weights" mechanism in 232+ PRs. Adds a small secondary AdamW running on body weights alongside Muon, providing per-element variance correction that bypasses Muon's Frobenius rescale composition (categorically distinct from #939 AdaMuon which kept per-element inside Muon's rescaled pipeline).

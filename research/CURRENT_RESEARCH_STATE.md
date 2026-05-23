@@ -1024,3 +1024,52 @@ Zero idle students.
 ### Strategic note: cycle 71 throughput acceleration
 
 In the past ~5 hours: 4 axis closures (#928 #930 #939 #946), 5 fresh assignments (#946 #947 #948 #949 #950). The shift from scalar/init axes to temporal/compositional axes is now decisive — all 4 fresh assignments since #946 are non-scalar (temporal: 3, compositional: 1). If ANY of these passes, we've moved off the floor. If all 4 close-miss, the floor is likely upstream of post-NS5/CE-loss mechanisms — perhaps in momentum statistics or data ordering.
+
+
+## 2026-05-23 ~21:38Z — Cycle 71 mid-140 update
+
+### thorfinn #934 BODY_INIT_SCALE CLOSED — 72nd refuted axis, val-side floor cluster #5
+
+Asymmetric unimodal Goldilocks at default 1.0: Arm A=0.8 val=3.26950/ffs=3025 (val PASSES hold gate by 0.00050, ffs MISSES by 25 — 5th-closest val-side landing of cycle 71), Arm B=1.2 val=3.27147/ffs=3025 (close-miss). 2.1× asymmetric degradation — larger init exits Goldilocks region faster than smaller. Both ffs=3025 at eval-cadence quantization wall. Initial singular-value structure already saturates what NS5 needs at default. W&B: `867nb0m8` (Arm A), `dg3kijef` (Arm B).
+
+Student exemplary on Arm B step-1000 and step-2000 razor-edge kill-gate continue-vs-kill decision — recognized Muon+NS5+CONTRA late-recovery characteristic and continued. Both arms verified terminal.
+
+### thorfinn #951 MUON_AUX_ADAMW just assigned — first two-optimizers-on-body-weights axis in 232+ PRs
+
+Fresh assignment, **categorically novel mechanism**: add a small secondary AdamW running on body weights alongside Muon. Each step, body params receive BOTH Muon updates (via NS5/CONTRA/NorMuon pipeline) AND per-element AdamW updates (directly to weights, bypassing Muon's rescaling).
+
+**Distinction from closed AdaMuon (#939)**:
+- AdaMuon: per-element second moment INSIDE Muon's `contra_normuon_update`, subject to two Frobenius rescales — signal absorbed
+- MUON_AUX_ADAMW: per-element AdamW OUTSIDE Muon's pipeline — direct weight update, no rescaling
+
+Arms: A=`MUON_AUX_LR_FRAC=0.05` (5% of Muon LR), B=`MUON_AUX_LR_FRAC=0.10` (10% of Muon LR). Both use mandatory stack unchanged. Code: ~20 LOC patch adding env vars + conditional optimizer3 creation + W&B logging. Distinct from all 72 refuted axes and #818/#819/#784 single-optimizer ablations/wrappers.
+
+**Mechanistic motivation**: NS5 orthogonalization destroys per-element variance information by design (unitary direction). The Frobenius rescale composition (currently being tested by nezuko #949) means per-element corrections inside Muon get rescaled away. An OUT-OF-PIPELINE per-element source (AUX AdamW operating directly on weights) survives this. First fresh mechanism that:
+1. Doesn't fight Muon's rescaling
+2. Doesn't sacrifice Muon's direction quality  
+3. Provides true per-element variance signal
+
+### Cycle 71 axis tally: **72 refuted**, ~45 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 21:38Z (all WIP, 7 students busy):
+- #702 edward MU_WARMUP_START — pod-broken hold (~110h)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~110h)
+- #942 askeladd RMSNORM_GAIN_INIT Arm A=0.5 — in-flight, terminal ~21:00Z (running late)
+- #947 frieren CONTRA_MUON_SCHEDULE — in-flight, terminal ~22:00Z
+- #948 fern NS5_ITERS_SCHEDULE — in-flight (assigned 20:45Z)
+- #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION — in-flight (assigned 21:08Z)
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — in-flight (assigned 21:25Z)
+- #951 thorfinn MUON_AUX_ADAMW — newly assigned 21:38Z
+
+Zero idle students.
+
+### Fresh investigation cluster diversification (now 5 fresh axes in flight)
+
+The cycle 71 fresh-assignment cluster is now maximally diverse:
+- **#947 frieren CONTRA_MUON_SCHEDULE** — temporal optimizer-side (CONTRA strength schedule)
+- **#948 fern NS5_ITERS_SCHEDULE** — temporal optimizer-side (NS5 iteration schedule)
+- **#949 nezuko CONTRA_NORMUON_RESCALE_ABLATION** — compositional (Frobenius rescale removal)
+- **#950 alphonse LOGIT_SOFTCAP_SCHEDULE** — temporal loss-side (softcap schedule)
+- **#951 thorfinn MUON_AUX_ADAMW** — **hybrid optimizer mechanism** (categorically novel)
+
+Five distinct mechanism categories. If ANY of these passes, we move off the floor. If all 5 close-miss, the floor is upstream of every tested mechanism class — likely in data ordering, stochastic batch sampling, or fundamental optimizer-data interaction.
