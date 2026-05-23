@@ -61,6 +61,20 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--train_steps", type=int, default=3250,
+                        help="Number of optimizer steps per trial. Default 3250 = benchmark.")
+    parser.add_argument("--cooldown_frac", type=float, default=0.7,
+                        help="Fraction of training spent in power-law LR cooldown (default 0.7). "
+                             "Set to 0.0 for constant LR (useful for short smoke tests).")
+    parser.add_argument("--radam_aux", action="store_true", default=False,
+                        help="Replace aux optimizer1 (embed/lm_head/scalars) with inline RAdam "
+                             "(Liu et al. 2019, arXiv:1908.03265). SGD-fallback during rho_t<=4.")
+    parser.add_argument("--radam_embed_lr", type=float, default=0.3,
+                        help="RAdam LR for embed group (default matches AdamW baseline).")
+    parser.add_argument("--radam_lmhead_lr", type=float, default=1/160,
+                        help="RAdam LR for lm_head group.")
+    parser.add_argument("--radam_scalars_lr", type=float, default=0.025,
+                        help="RAdam LR for scalar (RMSNorm) group.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -586,6 +600,87 @@ class Muon(torch.optim.Optimizer):
         self._polar_diag = polar_diag
 
 
+class RAdam(torch.optim.Optimizer):
+    """Inline Rectified Adam (Liu et al. 2019, arXiv:1908.03265) — always-adaptive variant.
+
+    Uses the adaptive (Adam-style) update at every step, with the rectification
+    factor r_t = 0 during the early-training high-variance window (rho_t <= 4)
+    and r_t ramping smoothly to 1 once the variance estimate stabilizes. This
+    differs from the canonical paper's SGD-with-momentum fallback (which is
+    unsafe at modded-nanogpt's high aux LR=0.3: SGD fallback magnitude scales
+    with |grad|, while Adam's first step is sign-scaled (~lr). See PR #814
+    smoke run `ako6z01l` diagnosis.) The rectification mechanism is preserved
+    — early steps simply do no update, then updates ramp in smoothly.
+
+    State (m, v) is stored in FP32 explicitly because aux params (embed,
+    lm_head) are BF16, and BF16 + β2=0.95 second-moment storage rounds toward
+    1.0 (known memory hazard from earlier optimizer PRs in this stack).
+    Weight decay is decoupled (AdamW style).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0):
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self):
+        for group in self.param_groups:
+            b1, b2 = group["betas"]
+            rho_inf = 2.0 / (1.0 - b2) - 1.0
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["m"] = torch.zeros_like(p, dtype=torch.float32)
+                    state["v"] = torch.zeros_like(p, dtype=torch.float32)
+                state["step"] += 1
+                t = state["step"]
+                m, v = state["m"], state["v"]
+                g_f = g.detach().float()
+                m.mul_(b1).add_(g_f, alpha=1.0 - b1)
+                v.mul_(b2).addcmul_(g_f, g_f, value=1.0 - b2)
+                b1t = b1 ** t
+                b2t = b2 ** t
+                m_hat = m / (1.0 - b1t)
+                v_hat = v / (1.0 - b2t)
+                rho_t = rho_inf - 2.0 * t * b2t / (1.0 - b2t)
+                if group.get("weight_decay", 0.0) > 0:
+                    p.mul_(1.0 - group["lr"] * group["weight_decay"])
+                if rho_t > 4.0:
+                    r_num = (rho_t - 4.0) * (rho_t - 2.0) * rho_inf
+                    r_den = (rho_inf - 4.0) * (rho_inf - 2.0) * rho_t
+                    r_t = (r_num / r_den) ** 0.5
+                else:
+                    r_t = 0.0
+                update = m_hat / (v_hat.sqrt().add_(group["eps"]))
+                p.add_(update.to(p.dtype), alpha=-group["lr"] * r_t)
+
+
+def radam_rho_t(step_count: int, beta2: float = 0.95) -> float:
+    """Closed-form RAdam rho_t at given step count (no optimizer state needed)."""
+    if step_count <= 0:
+        return 0.0
+    rho_inf = 2.0 / (1.0 - beta2) - 1.0
+    b2t = beta2 ** step_count
+    if b2t >= 1.0:
+        return 0.0
+    return rho_inf - 2.0 * step_count * b2t / (1.0 - b2t)
+
+
+def radam_r_t(rho_t: float, beta2: float = 0.95) -> float:
+    """RAdam rectification factor r_t. Returns 0 if rho_t <= 4 (SGD fallback)."""
+    if rho_t <= 4.0:
+        return 0.0
+    rho_inf = 2.0 / (1.0 - beta2) - 1.0
+    r_num = (rho_t - 4.0) * (rho_t - 2.0) * rho_inf
+    r_den = (rho_inf - 4.0) * (rho_inf - 2.0) * rho_t
+    if r_den <= 0:
+        return 0.0
+    return (r_num / r_den) ** 0.5
+
+
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
     # Post-whitening spectral diagnostic on the first PMuon-managed param (largest
     # by sort order). Re-evaluated against current L_cov, R_cov, momentum state.
@@ -711,12 +806,17 @@ if dist.get_rank() == 0:
             "target_uw_floor": 0.35,
             "target_uw": 0.35,
             "power_cooldown_gamma": COOLDOWN_POWER,
-            "cooldown_frac": 0.7,
+            "cooldown_frac": args.cooldown_frac,
             "muon_method": MUON_METHOD,
             "ema_beta": args.ema_beta,
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "train_steps_config": args.train_steps,
+            "radam_aux": int(args.radam_aux),
+            "radam_embed_lr": args.radam_embed_lr if args.radam_aux else 0.0,
+            "radam_lmhead_lr": args.radam_lmhead_lr if args.radam_aux else 0.0,
+            "radam_scalars_lr": args.radam_scalars_lr if args.radam_aux else 0.0,
         },
     )
 
@@ -728,7 +828,7 @@ for trial_idx in range(args.num_trials):
     ########################################
 
     # we want to minimize this while still reaching 3.28 val loss
-    train_steps = 3250
+    train_steps = args.train_steps
 
     # initialize model parameters
     for name, p in model.named_parameters():
@@ -748,10 +848,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if args.radam_aux:
+        optimizer1 = RAdam([dict(params=[model.embed.weight], lr=args.radam_embed_lr, name="radam_embed"),
+                            dict(params=[model.proj.weight], lr=args.radam_lmhead_lr, name="radam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2],
+                                 lr=args.radam_scalars_lr, name="radam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0)
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -773,11 +880,13 @@ for trial_idx in range(args.num_trials):
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
-    def compute_lr_mult(step, cooldown_frac=0.7):
+    def compute_lr_mult(step, cooldown_frac=args.cooldown_frac):
         """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
         if step >= train_steps:
             return 0.0
         progress = step / train_steps
+        if cooldown_frac <= 0.0:
+            return 1.0
         if progress < 1 - cooldown_frac:
             return 1.0
         cooldown_progress = (progress - (1 - cooldown_frac)) / cooldown_frac
@@ -797,10 +906,13 @@ for trial_idx in range(args.num_trials):
         hi = max(args.ema_beta, args.ema_beta_target)
         return max(lo, min(hi, beta_t))
 
-    def set_hparams(step, cooldown_frac=0.7):
+    def set_hparams(step, cooldown_frac=args.cooldown_frac):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        if cooldown_frac <= 0.0:
+            eta = 1.0
+            cooldown_progress = 0.0
+        elif progress < 1 - cooldown_frac:
             eta = 1.0
             cooldown_progress = 0.0
         else:
@@ -976,6 +1088,22 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # RAdam diagnostic: log rho_t, in_sgd_fallback, r_t. Closed-form from
+        # step count + beta2; opt.step() above has already advanced state["step"]
+        # to train_step. Log dense for first 500 steps to capture the SGD->adaptive
+        # transition (which at β2=0.95 occurs at step 5), then every 100 steps.
+        if (args.radam_aux and dist.get_rank() == 0
+                and (train_step <= 500 or train_step % 100 == 0 or train_step == train_steps)):
+            rho_t_val = radam_rho_t(train_step, beta2=0.95)
+            r_t_val = radam_r_t(rho_t_val, beta2=0.95)
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "radam/rho_t": rho_t_val,
+                "radam/in_sgd_fallback": float(rho_t_val <= 4.0),
+                "radam/r_t": r_t_val,
+                "radam/rho_inf": 2.0 / (1.0 - 0.95) - 1.0,
+            }, step=wandb_step)
         # EMA buffer update on body-Muon matrix params.
         # During warmup: track params live (no averaging) so post-warmup buffer is
         # seeded with stable, non-zero params (handles proj zero-init bias and lets
