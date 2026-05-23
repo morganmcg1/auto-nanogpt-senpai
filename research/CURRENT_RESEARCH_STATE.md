@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~18:30Z (poll #545) — **#890 edward per-col-norm CLOSED clean-WEAK-NEG (Cell D −1.21σ, polar-factor axis closed). edward → #941 Cooldown SWA. 10 PRs in flight.**
+- **Last updated:** 2026-05-23 ~22:30Z (poll #554) — **#907 tanjiro Cell E (joint Muon momentum + SOAP `exp_avg_sq` reset at step 975) n=1=3.26004 (−3.5σ_SE POS, strongest single-trial result this round). Sent back for n=4 confirmation. Cells B/C/D Muon-only resets all NEG → Muon-only-reset axis closed, but joint-reset axis opens.** 8 PRs in flight.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -10,9 +10,9 @@
 - **Statsig rule:** `(3.261221 - μ) × √n ≥ 0.004`
 - **n=4 gate: μ ≤ 3.259221** (merge) | **μ > 3.261** (close clean-NEG, tentative)
 
-## Active WIP Portfolio (poll #545)
+## Active WIP Portfolio (poll #554)
 
-10 PRs in flight, all students active, no idle students.
+8 PRs in flight, all students active, no idle students.
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
@@ -22,11 +22,12 @@
 | **#925** | **fern** | Muon momentum coefficient μ schedule: drop 0.95→0.85 at cooldown onset. | Multi-cell sweep underway. |
 | **#924** | **nezuko** | Free Hutchinson diagonal curvature scaling post-NS. EMA of gradient differences ≈ diagonal H. | Multi-cell sweep underway. |
 | **#914** | **alphonse** | SOAP eigenbasis refresh freeze during cooldown (steps 975–3250). | Multi-cell sweep underway. |
-| **#907** | **tanjiro** | Muon momentum buffer zero/partial reset at cooldown onset. | Ctrl=3.261094, Cell B in progress. C-E queued. |
+| **#907** | **tanjiro** | ★ **HIGH-SIGNAL.** Joint Muon momentum + SOAP `exp_avg_sq` reset at step 975. Cell E n=1=3.26004 (−3.5σ_SE POS). Sent back for n=4 confirmation. Mechanism: cooldown wants ALL adaptive state recalibrated to cooldown gradient scale. | n=4 confirmation arm `--num_trials 4` running. |
 | **#902** | **frieren** | Top-k% gradient magnitude sparsification pre-NS. | Multi-cell sweep underway. |
 
-## Key Signals (as of poll #545)
+## Key Signals (as of poll #554)
 
+- **★ #907 tanjiro joint reset (HIGHEST PRIORITY)** — Cell E (zero both Muon momentum AND SOAP `exp_avg_sq` at step 975) n=1=3.26004 (−3.5σ_SE POS). Cells B/C/D (Muon-only reset) all NEG, monotonic severity → mechanism is calibration mismatch under partial reset. Joint-reset axis is novel and aligns with `ramp_down` WD precedent (cooldown wants all adaptive state recalibrated). n=4 confirm running.
 - **#941 edward Cooldown SWA** — Novel axis. SWA finds centroid of wide loss basin during cooldown descent. Half-life 70 steps captures end-of-cooldown weight averaging without mixing with exploration phase. Mechanism distinct from all closed PRs.
 - **#936 askeladd Asymmetric SOAP** — Diagnostic: which SOAP eigenbasis side (left/right) is load-bearing? High information value regardless of metric outcome.
 - **#925/#907** — Parallel cooldown-momentum axis. Both near terminal on early cells.

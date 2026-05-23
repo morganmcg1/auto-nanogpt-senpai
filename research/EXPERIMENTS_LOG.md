@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~22:30 UTC — PR #907: tanjiro Muon momentum buffer reset at cooldown onset — **CHANGES REQUESTED (Cell E n=4 confirmation needed)**
+
+- **Branch:** `g1r5-tanjiro/momentum-reset-at-cooldown-onset`
+- **Student:** g1r5-tanjiro
+- **Hypothesis:** Zeroing/partially decaying Muon momentum buffer at LR cooldown onset (step 975) eliminates stale steady-phase momentum bias.
+
+| Cell | gamma | soap_reset | val_loss | Δ vs A | ffs | W&B |
+|:---:|:---:|:---:|---:|---:|---:|-----|
+| A (ctrl) | — | — | 3.26109 | — | 3025 | a201an6b |
+| B ★ | 0.0 | F | 3.26139 | +0.00030 (+1.0σ_SE) | 3025 | ffjj7wwu |
+| C | 0.1 | F | 3.26223 | +0.00114 (+3.8σ_SE NEG) | 3050 | pd28dmto |
+| D | 0.5 | F | 3.26175 | +0.00066 (+2.2σ_SE NEG) | 3025 | r6e7wkt9 |
+| **E** | **0.0** | **T** | **3.26004** | **−0.00105 (−3.5σ_SE POS)** | **3025** | **ltcj6g6y** |
+
+**Headline:** Cell E (joint Muon momentum + SOAP `exp_avg_sq` zero-reset at step 975) is the only POS arm and the strongest by a wide margin. Cells B/C/D (Muon-only reset) are all NEG with monotonic NEG severity B<D<C.
+
+**Mechanism (student's analysis):** SOAP's `exp_avg_sq` after 975 warm-phase steps reflects large-magnitude steady-phase gradients. Resetting Muon momentum alone causes calibration mismatch — SOAP params get under-stepped at cooldown. Cell E resets both → consistent fresh state across all param groups. Structurally similar to the `ramp_down` WD finding (PR #699): cooldown wants ALL adaptive state calibrated to small-step regime.
+
+**Decision:** n=1 not enough to merge (Cell E sits +0.00082 above n=4 merge gate). Send back for n=4 confirmation of Cell E vs Cell A.
+
+---
+
 ## 2026-05-23 ~18:30 UTC — PR #890: edward Per-column gradient normalization pre-NS — **CLOSED clean-WEAK-NEG**
 
 - **Branch:** `g1r5-edward/per-column-normalization-pre-ns`
