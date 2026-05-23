@@ -61,11 +61,18 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--ema_aux_lm_head", action="store_true", default=False,
+                        help="Apply Polyak EMA (β-ramp matching body) to model.proj.weight (lm_head).")
+    parser.add_argument("--ema_aux_embed", action="store_true", default=False,
+                        help="Apply Polyak EMA (β-ramp matching body) to model.embed.weight (embed).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    if (args.ema_aux_lm_head or args.ema_aux_embed) and args.ema_beta <= 0:
+        raise ValueError("--ema_aux_lm_head/--ema_aux_embed require --ema_beta > 0 "
+                         "(aux EMA reuses the body-Muon β-ramp).")
     return args
 
 
@@ -717,6 +724,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "ema_aux_lm_head": int(args.ema_aux_lm_head),
+            "ema_aux_embed": int(args.ema_aux_embed),
         },
     )
 
@@ -771,6 +780,18 @@ for trial_idx in range(args.num_trials):
     ema_params = None
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
+
+    # Aux EMA buffers — Polyak EMA on lm_head (model.proj.weight) and/or embed
+    # (model.embed.weight). Use SAME β-ramp dynamics as body-Muon EMA. FP32 buffer.
+    ema_lm_head = None
+    ema_embed = None
+    if args.ema_beta > 0:
+        if args.ema_aux_lm_head:
+            ema_lm_head = model.proj.weight.detach().float().clone()
+            assert ema_lm_head.dtype == torch.float32, "aux EMA buffer must be FP32"
+        if args.ema_aux_embed:
+            ema_embed = model.embed.weight.detach().float().clone()
+            assert ema_embed.dtype == torch.float32, "aux EMA buffer must be FP32"
 
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
@@ -870,6 +891,21 @@ for trial_idx in range(args.num_trials):
                 buffer_frob_dist = sq_sum ** 0.5
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     p.data.copy_(ema_p.to(p.dtype))
+            # Aux EMA swap (in addition to body-Muon swap). lm_head=model.proj.weight,
+            # embed=model.embed.weight. Buffer/restore identically to body path.
+            aux_train_bufs: dict[str, Tensor] = {}
+            aux_lm_head_frob = float("nan")
+            aux_embed_frob = float("nan")
+            if ema_lm_head is not None:
+                aux_train_bufs["lm_head"] = model.proj.weight.detach().clone()
+                diff_lm = (ema_lm_head - model.proj.weight.detach().float())
+                aux_lm_head_frob = float(diff_lm.square().sum().sqrt().item())
+                model.proj.weight.data.copy_(ema_lm_head.to(model.proj.weight.dtype))
+            if ema_embed is not None:
+                aux_train_bufs["embed"] = model.embed.weight.detach().clone()
+                diff_em = (ema_embed - model.embed.weight.detach().float())
+                aux_embed_frob = float(diff_em.square().sum().sqrt().item())
+                model.embed.weight.data.copy_(ema_embed.to(model.embed.weight.dtype))
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -882,6 +918,11 @@ for trial_idx in range(args.num_trials):
             if train_bufs is not None:
                 for train_p, p in zip(train_bufs, optimizer2.param_groups[0]["params"]):
                     p.data.copy_(train_p)
+            # Restore aux train weights.
+            if "lm_head" in aux_train_bufs:
+                model.proj.weight.data.copy_(aux_train_bufs["lm_head"])
+            if "embed" in aux_train_bufs:
+                model.embed.weight.data.copy_(aux_train_bufs["embed"])
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -920,6 +961,13 @@ for trial_idx in range(args.num_trials):
                     metrics["ema/n_eff"] = 1.0 / max(1e-12, (1.0 - beta_t_now))
                     metrics["ema/active"] = int(step >= args.ema_warmup_steps)
                     metrics["ema/warmup_steps"] = args.ema_warmup_steps
+                # Aux EMA telemetry — active flags + per-tensor Frobenius drift.
+                if ema_lm_head is not None:
+                    metrics["ema_aux/lm_head_buffer_frob_dist"] = aux_lm_head_frob
+                if ema_embed is not None:
+                    metrics["ema_aux/embed_buffer_frob_dist"] = aux_embed_frob
+                metrics["ema_aux/lm_head_active"] = int(args.ema_aux_lm_head)
+                metrics["ema_aux/embed_active"] = int(args.ema_aux_embed)
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -995,6 +1043,22 @@ for trial_idx in range(args.num_trials):
                 lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
+        # Aux EMA update — uses SAME β-ramp logic as body-Muon EMA so that aux and
+        # body remain phase-aligned (live tracking through warmup, lerp afterwards).
+        if ema_lm_head is not None or ema_embed is not None:
+            if step < args.ema_warmup_steps:
+                if ema_lm_head is not None:
+                    ema_lm_head.copy_(model.proj.weight.detach().float())
+                if ema_embed is not None:
+                    ema_embed.copy_(model.embed.weight.detach().float())
+            else:
+                # Reuse body lerp weight when body EMA is active; otherwise compute.
+                lerp_w_aux = (1.0 - ema_beta_t_now) if ema_params is not None else \
+                             (1.0 - compute_ema_beta_t(step))
+                if ema_lm_head is not None:
+                    ema_lm_head.lerp_(model.proj.weight.detach().float(), lerp_w_aux)
+                if ema_embed is not None:
+                    ema_embed.lerp_(model.embed.weight.detach().float(), lerp_w_aux)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
