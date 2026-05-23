@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 09:05 UTC
+- **Date:** 2026-05-23 09:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -606,6 +606,8 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 **If paired-pod confirms**: merge B, then consider cap sweep (wmax=8, 12, 15) and cross-axis combination with #847 init-anchored WD if that also confirms. **If collapses**: 12th paired-pod collapse precedent → closes axis as "N=1 Δ ≈ −0.001 to −0.0015 below paired-pod noise floor on this baseline".
 
 **~07:43 UTC seed 1 finished** (W&B-verified, askeladd silent-progression pattern — visibility comment posted 09:05 UTC): seed 1 (`riny958o`) val=**3.26864**, Δ_vs_new_base 3.26944 = **−0.00080** ✅ direction-correct. Drift vs N=1 Arm B (3.26903): |Δ|=0.00039 (clean PASS ±0.0010). Seed 2 (`lgn6hwxh`) running ~67% (step ~2250/3350), ETA terminal ~09:55 UTC. Seed 3 ETA ~11:50 UTC. **Cross-PR parallel pattern with alphonse #847**: both n=3 chains show direction-correct seed 1 (askeladd Δ=−0.00080, alphonse Δ=−0.00091) — two independent AUX-side mechanisms (gradient pre-conditioner ↔ weight-anchor WD) both trending favorable. Watch for paired-pod collapse vs sustained signal at terminal.
+
+**09:39 UTC seed 2 finished, seed 3 launched**: seed 2 (`lgn6hwxh`) val=**3.26913**, Δ_vs_new_base = **−0.00031** ✅ direction-correct. Drift vs N=1: |Δ|=0.00010 (clean PASS). Mean(n=2) = **3.268885**, Δ_vs_new_base = −0.000555. Gates 3 (direction-correct ≥2/3): already PASS 2/2. Gates 4 (no seed >3.275) + 5 (≥1 seed within ±0.0010 of N=1): PASS. For final mean(n=3) ≤ 3.26944, seed 3 needs val ≤ 3.26995. Seed 3 (`31f549pg`) launched 09:38 UTC, ETA terminal ~11:26 UTC. **Direction-correct gate would be 3/3 dir-correct, drift PASS, mean below baseline — but cross-PR protocol applies (chain on OLD pre-#787 stack)**. Askeladd has explicitly acknowledged rebase + re-run protocol at terminal.
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 
