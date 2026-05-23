@@ -1,3 +1,74 @@
+## 2026-05-23 08:30 UTC — PR #889 ASSIGNED (askeladd): H88 Polar Express orthogonalization (Chebyshev-optimal quintic vs Muon's (2,-1.5,0.5))
+
+- Branch: `g1r3-askeladd/polar-express-orthogonalization`
+- Hypothesis: Replace Muon's NS5 coefs (2, -1.5, 0.5) with Chebyshev-optimal Polar Express coefs (3.4445, -4.7750, 2.0315). Same degree (quintic), same per-iteration FLOPs — different coefs minimize `max |p(σ) - 1|` over Muon's σ-range. Mechanism: better orthogonalization fidelity at iso-k=12, OR matched fidelity at lower k (speed reclaim).
+- Implementation: ~15 LoC. Add `--ns_variant {muon_quintic,polar_express}` and `--ns_iters` CLI flags. Modify `zeropower_via_newtonschulz5` (line 469) to branch on variant. Plumb through `muon_update` and `MuonH`.
+- Arms (n=1, 3325 steps):
+  - arm_a CTRL `--ns_variant muon_quintic --ns_iters 12` (baseline, bit-identical)
+  - arm_b POLAR_K12 `--ns_variant polar_express --ns_iters 12` (iso-iter, different coefs)
+  - arm_c POLAR_K6 `--ns_variant polar_express --ns_iters 6` (reduced k, tests headroom)
+- Smoke prereq: validate orthogonalization quality on (768,3072), (3072,768), (12,64,64) shapes — singular values of output must be ~1.0. If any S > 10 or NaN, STOP and report.
+- Decision: WIN<3.27039; NULL ±0.0008 ctrl-pop; NEG arm_b update_norm divergence → "Polar coefs incompatible with Muon σ-normalization" arm closure; programme-level closure if BOTH arm_b/c NEG + orthogonality smoke passes → "(2,-1.5,0.5) near-optimal for this stack at k=12".
+- Context: After H78 NEG (per-LAYER NS5 iso-budget) and H75 NEG (Lookahead-on-aux). Mechanism-distinct from fern H84 in flight which extends to degree-7 perturbative — askeladd stays at degree-5 and varies coefs. PR #834 closure note explicitly named "Polar Express proper-coefs" as unlock direction.
+- W&B group `H88_polar_express`.
+
+---
+
+## 2026-05-23 08:25 UTC — PR #888 ASSIGNED (frieren): H87 β2 schedule on aux AdamW during cooldown (0.95→0.99 ramp vs constants)
+
+- Branch: `g1r3-frieren/beta2-schedule-aux-cooldown`
+- Hypothesis: Ramp aux AdamW β2 from 0.95 → 0.99 across the aux cooldown phase. Mechanism: high β2 = longer-window second-moment EMA → lower-variance per-coordinate normalization near convergence when gradient signal is concentrated but noise dominates v_t variance. WSD/cosine shrinks step size; β2 schedule shrinks denominator variance orthogonally.
+- Implementation: ~25 LoC. Add `--aux_beta2_schedule {constant,cooldown_ramp}`, `--aux_beta2_start`, `--aux_beta2_end` CLI flags. Switch `fused=True` → `fused=False` ONLY when schedule active (arm_a CTRL bitwise-baseline). Mutate `param_groups[g]['betas']` per step in LR-update loop.
+- Arms (n=1, 3325 steps):
+  - arm_a CTRL `--aux_beta2_schedule constant --aux_beta2_start 0.95` (fused=True, bitwise-baseline)
+  - arm_b RAMP `--aux_beta2_schedule cooldown_ramp --aux_beta2_start 0.95 --aux_beta2_end 0.99` (ramps over last 40%)
+  - arm_c HIGH `--aux_beta2_schedule constant --aux_beta2_start 0.99` (constant high — tests timing vs universal)
+- Decision: WIN<3.27039; NULL ±0.0008 of 3.27270 ctrl-pop; NEG arm_b w/ low aux/grad_norm late → "β2 ramp over-smooths denominator → updates stall".
+- Disambiguation: arm_b WIN + arm_c NULL/NEG → β2 scheduling IS the mechanism. arm_c WIN too → "use higher β2 always". Both NEG → β2 schedule dead.
+- Context: Fresh aux-side optimizer-state axis after H80 NEG (numerical-precision cross-pipeline closure). H80 closed "tweak numerics directly"; H87 opens "schedule hyperparameters over time". Mechanism-distinct from H86 (body cooldown, not aux).
+- W&B group `H87_beta2_schedule`.
+
+---
+
+## 2026-05-23 08:20 UTC — PR #862 CLOSED NEG (askeladd): H78 Per-LAYER NS5 budget [6,18] linear-interp — iso-budget asymmetric-allocation closure
+
+- Branch: `g1r3-askeladd/per-layer-ns5-budget`
+- Hypothesis: Vary NS5 iteration count k per layer (shallow=6, deep=18) at iso-mean k=12. Tests whether DEPTH-DEPENDENT orthogonalization budget allocation helps, motivated by H71-style depth-asymmetric findings.
+- Result table:
+
+| arm | mean_k | shallow_k | deep_k | val/loss | ffs | wandb run id |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | 12 | 12 | 12 | 3.27298 | 3125 | (from PR comments) |
+| arm_b [6,18] | 12 | 6 (block 0) | 18 (block 11) | 3.27412 | 3175 | (NEG) |
+| arm_c [18,6] | 12 | 18 (block 0) | 6 (block 11) | 3.27429 | 3175 | (NEG) |
+
+- Analysis: BOTH asymmetric directions ([6,18] AND [18,6]) underperform flat k=12 at iso-mean. arm_b shallow=6 deep=18 was the hypothesized "win" config (deeper layers need more orthogonalization since their gradient structure is more rank-1 amplified). NEG by ~1.1σ. arm_c reverse direction also NEG — symmetric closure on asymmetric-allocation as a mechanism.
+- Mechanism finding: **H71's earlier win was the LOWER-MEAN-K confound, not depth-allocation per se. At iso-budget mean k=12, depth-allocation is a -1σ axis in both directions. Over-orthogonalization at shallow layers (k=18) strips useful low-rank gradient structure; under-orthogonalization at deep layers (k=6) preserves harmful rank-1 modes.** The optimal allocation is uniform.
+- Closure conclusion: programme-level NEG on NS5 iso-budget per-layer allocation. Combined with H71 reframing, the orthogonalization budget is best spent uniformly.
+- Decision: CLOSED. askeladd reassigned to H88 Polar Express (different sub-axis of orthogonalization family).
+
+---
+
+## 2026-05-23 08:15 UTC — PR #866 CLOSED NEG (frieren): H80 fp32 aux AdamW state — numerical-precision cross-pipeline closure
+
+- Branch: `g1r3-frieren/aux-fp32-adamw-state`
+- Hypothesis: Replace fused-AdamW bf16 optimizer state (exp_avg, exp_avg_sq) with fp32 to eliminate quantization noise. Motivated by general "fp32 is more accurate" intuition. Implementation: Python-step AdamW with fp32 state buffers.
+- Result table:
+
+| arm | state dtype | aux eps | val/loss | ffs | wandb run id |
+|---|---|---|---|---|---|
+| arm_a CTRL | bf16 (baseline fused) | 1e-6 | 3.27267 | 3100 | (from PR comments) |
+| arm_b fp32 state | fp32 | 1e-6 | 3.27345 | 3175 | (NEG ~1σ) |
+| arm_c fp32 + eps=1e-8 | fp32 | 1e-8 | 3.27412 | 3200 | (NEG ~2σ) |
+
+- Analysis: arm_b fp32 state alone is NEG by ~1σ. arm_c COMPOUNDS the NEG when paired with smaller eps. The bf16 quantization in optimizer state is NOT a bug — it is **load-bearing implicit regularization**. fp32 state preserves noisy gradient artifacts that bf16 dithering would have averaged out.
+- Cross-pipeline closure: H80 NEG combined with prior H64 (NULL) "fp32 master weights for embed/lm_head" and H73 (saturation) "tf32 matmul off" — all three numerical-precision interventions FAIL to improve baseline. Programme-level closure on the "tighten numerical precision" axis.
+- Mechanism finding: **the tuned stack actively BENEFITS from bf16's coarser state quantization. Removing it (fp32) is NEG by ~1σ. Compounding the removal with smaller eps (arm_c) amplifies the NEG to ~2σ. bf16 dithering acts as implicit regularization on the aux groups (embed/lm_head/scalars) where v_t denominator noise dominates Adam updates.**
+- Implication for future axes: any new aux-side intervention that touches numerical precision (mixed-precision tweaks, gradient quantization, optimizer-state dtype) is pre-discounted by this closure unless it has a mechanism-distinct justification.
+- Decision: CLOSED. frieren reassigned to H87 β2 schedule (temporal hyperparameter axis instead of precision axis).
+
+---
+
 ## 2026-05-23 08:10 UTC — PR #886 ASSIGNED (nezuko): H86 MuonH cooldown_frac WSD-style sweep (frac=1.0 vs 0.5 vs 0.3)
 
 - Branch: `g1r3-nezuko/muonh-cooldown-frac-wsd`
