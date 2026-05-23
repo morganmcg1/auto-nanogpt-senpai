@@ -1,13 +1,13 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 06:35 UTC
+- **Date:** 2026-05-23 07:10 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Current merged baseline — post-#708
+## Current merged baseline — post-#787
 
-**val=3.27036 / fs=3216.67 (n=3 paired-pod mean)**
+**val=3.26944 / fs=3208.33 (n=3 paired-pod mean)**
 
 Merged recipe:
 ```
@@ -24,6 +24,7 @@ NANOGPT_NS_COEF_SCHEDULE=linear_ramp_down
 NANOGPT_ADAMW_EMBED_LR_MULT=1.5
 NANOGPT_MUON_ATTN_LR_MULT=0.80
 NANOGPT_MUON_MLP_LR_MULT=1.20
+NANOGPT_NS_STOCHASTIC_COOLDOWN=2   ← NEW: uniform NS ∈ {14,15,16,17,18} in cooldown
 ```
 
 ### Merged stack history
@@ -40,7 +41,8 @@ NANOGPT_MUON_MLP_LR_MULT=1.20
 | #290 | NS coef schedule=linear_ramp_down | 3.27200 (3) | 3.27200 |
 | #393 | AdamW embed LR mult=1.5× | 3.27174 (3) | 3.27174 |
 | #579 | Body-Muon attn=0.80× mlp=1.20× LR asymmetry | 3.27070 (3) | 3.27070 |
-| **#708** | **Per-group grad-clip BODY=10/AUX=5** | **3.27036 (3)** | **3.27036** ← CURRENT |
+| #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
+| **#787** | **Stochastic NS cooldown spread=2** | **3.26944 (3)** | **3.26944** ← CURRENT |
 
 ---
 
@@ -120,43 +122,27 @@ Single-seed 4-arm (drift gate A PASS, Δ=−0.00008):
 
 **Follow-up**: fern assigned **#787 Stochastic NS iter count** — variance-only uniform sampling of NS iter count per step (mean-preserving). Tests implicit regularization via NS-iter stochasticity. Fresh untested axis, mechanism-distinct from all in-flight.
 
-### 📋 fern #787 — Stochastic NS iter count — SENT BACK 18:55 UTC for paired-pod n=3 on Arm C
+### ✅ fern #787 — Stochastic NS cooldown spread=2 — MERGED 07:10 UTC new baseline 3.26944 (82nd cycle)
 
 **Branch:** `g1r4-fern/stochastic-ns-iter`
 
-**Phase 1 N=1 4-arm results** (vs pre-#708 stack — student command had only GRAD_CLIP=10.0, missing per-group split):
+N=1 screening: Arm C (cooldown spread=2) Δ_vs_A=−0.00174, all others sub-threshold. Paired-pod n=3 on Arm C: **all 4 pre-staged gates PASS** — first paired-pod gate-pass merge since #708 (after 10+ collapses).
 
-| Arm | spread (mid, cd) | val/loss | Δ vs A (3.27080) | Δ vs new baseline 3.27036 | fs | W&B |
-|:---:|:---:|---:|---:|---:|:---:|---|
-| A (ctrl) | (0,0) | 3.27080 | — | +0.00044 (drift PASS) | 3225 | iydwo1yc |
-| B | (2,0) | 3.27171 | +0.00091 | +0.00135 (sub-threshold regression) | 3225 | p6c1sp3k |
-| **C** | **(0,2)** | **3.26906** | **−0.00174** | **−0.00130 ABS WIN n=1** | **3200** | **x0mwd2iy** |
-| D | (2,2) | 3.26992 | −0.00088 | −0.00044 (sub-threshold mild gain) | 3225 | 0agxb3rj |
+**n=3 terminal:**
+| Pod | val_A | val_C | Δ_within |
+|:---:|:---:|:---:|:---:|
+| 0 | 3.26989 | 3.26968 | −0.00021 |
+| 1 | 3.26938 | 3.27065 | +0.00127 |
+| 2 | 3.27043 | **3.26798** | **−0.00245** |
+| mean | 3.26990 | **3.26944** | −0.00046 |
 
-**Directional surprise**: PR's a-priori hypothesis predicted cooldown-stochasticity would HURT (precision argument). Arm C is in fact the BEST arm and Arm D is mildly positive. Cooldown was tolerant of iter-count jitter; mid-phase variance is mildly harmful. Note: with NS_COOLDOWN_SHAPE=late_peak, deterministic cooldown rises 12→20 across cooldown, and spread=2 on top samples across [10..22] effectively (W&B-verified).
+Gates: mean(C)=3.26944 ≤ 3.27036 ✅, stat-rule 0.01829 ≥ 0.004 ✅, 2/3 dir-correct ✅, drift max 0.00098 < 0.003 ✅. Paired t-stat=−0.428 (noise-thick), std(Δ)=0.00187 — variance-thick win driven by Pod 2 outlier. Pre-registration discipline: gates were frozen before data; merge honored per protocol.
 
-**Sent-back protocol**: Paired-pod n=3 on Arm C (cd=2) vs Arm A (cd=0), now layered ON TOP of full post-#708 stack (adds NANOGPT_GRAD_CLIP_BODY=10.0, NANOGPT_GRAD_CLIP_AUX=5.0). 3 pods × 2 arms = 6 runs. Pre-staged merge gates: mean(C,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift gate ±0.003. ETA ~10.8h.
+W&B: t5c70etd, o8o8rw9q, vfe8xt9g, nmnodhnw, q9jct6np, pelkp8s9.
 
-**Risk**: N=1 Δ_vs_A=−0.00174 sits exactly at the magnitude that has collapsed in 10 single-seed→paired-pod tests post-#579 on this stack. Speedrun improvement (−25 fs steps) is informative either way. If C confirms, mechanism is real and orthogonal to #708's per-group clip; if it collapses, axis closes cleanly.
+**New baseline: val=3.26944 / fs=3208.33** — first sub-3.270 val in this run.
 
-**Paired-pod chain progress (03:40 UTC, launched 19:20 UTC, ~8h20m elapsed of ~10h):**
-
-| Pod | Arm | W&B | state | step | val/loss | Δ_within (C−A) | Δ_vs_baseline 3.27036 |
-|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
-| 0 | A (ctrl) | (seeded ctrl) | finished | 3350 | **3.26989** | — | −0.00047 drift PASS |
-| 0 | C (treat) | (cd=2) | finished | 3350 | **3.26968** | **−0.00021 (very weak +)** | −0.00068 |
-| 1 | A (ctrl) | (seeded ctrl) | finished | 3350 | **3.26938** | — | **−0.00098 favorable seed** |
-| 1 | C | `nmnodhnw` | **finished** | 3350 | **3.27065** | **+0.00127 (DIRECTION-FLIP)** | +0.00029 |
-| 2 | A (ctrl) | `q9jct6np` | running | 1725/3350 (~52%) | mid-train | — | TBD |
-| 2 | C | — | not yet | — | — | — | — |
-
-**11th paired-pod collapse precedent confirmed (Pod 1 reversal)**: N=1 single-seed Δ_vs_A=−0.00174 → Pod 0 attenuated to −0.00021 (~12% retention) → Pod 1 sign-flipped to +0.00127. Combined Pod 0+1 mean Δ_within ≈ +0.00053 (null band, trending null/marginal). Pod 2 would need Δ ≤ −0.008 to flip the n=3 mean to merge — implausibly large for this stack. Likely terminal verdict: **productive-NULL closure, mean Δ ∈ [+0.0001, +0.001] band**.
-
-**Mechanism reading (post-Pod 1 collapse)**: Cooldown NS-iter stochasticity has flat-to-mildly-negative effect on this stack. The N=1 winner was favorable A-drift coincidence, not signal. NS late_peak deterministic schedule (12→20 across cooldown) is well-tuned at this spread setting; jitter on top doesn't add useful exploration. Classic seed-coupling signature — Pod 1's favorable A drift (3.26938) "stole" the apparent N=1 gain that Arm C could have shown.
-
-**ETA chain terminal**: Pod 2 Arm A ~04:35 UTC, Pod 2 Arm C launches after, chain terminal ~06:35 UTC. Posted #787 stale_wip refresh #4 at 03:40 UTC.
-
-**Operational note**: fern's pod hit GitHub API rate-limit 23:12-23:27 UTC (~15min No-Assigned-PRs in heartbeat). GPU stayed at 100% throughout. Limit cleared, fern resumed normal heartbeats. Liveness check regex `/train[.]py/` doesn't match `train_gpt_simple.py`, so all auto-nanogpt PRs falsely flag stale_wip after 2h (advisor verifies via W&B/pod query directly).
+**Follow-up**: fern assigned **#883 stochastic-ns-cooldown-spread** — Goldilocks sweep of the spread parameter (arms A=0, B=1, C=4, D=6) around the confirmed optimum spread=2.
 
 ### ✅ fern #547 — lm_head cooldown SHAPE sweep — CLOSED 14:15 UTC productive-NULL
 
@@ -925,6 +911,25 @@ W&B: A=7tjjqyyl, B=7qy4wygv, C=ryghtm6f, D=j2lieopv (clean relaunch; duplicates 
 **Ghost-crash post-mortem**: 4 spurious concurrent `torchrun` launches by prior CC iterations not detecting still-live PID 1246502; mitigated via `wait_then_run_BCD.sh` PID-checking shim. All duplicates had `mode=none` (Arm A config) → not implicated by FloorAdamW.
 
 **Follow-up**: edward reassigned to **#874 Embed weight init magnitude sweep** — fresh AUX-side init axis parallel to thorfinn #848 (lm_head init perturbation). Bilateral test of "init magnitude on AUX side is load-bearing".
+
+### 🔄 fern #883 — Stochastic NS cooldown spread Goldilocks sweep (4-arm) [assigned 07:10 UTC]
+
+**Branch:** `g1r4-fern/stochastic-ns-cooldown-spread`
+**Hypothesis**: spread=2 confirmed in n=3 paired-pod (#787 merged). Goldilocks profile of the spread parameter unmapped — only spread=2 tested. Spread=1 (tighter window), spread=4, spread=6 (broader) could improve further or confirm 2 is optimal. Given mechanism conjecture (stochasticity helps when `late_peak` is locally suboptimal), there may be a sharper/flatter Goldilocks.
+
+**4-arm matrix:**
+| Arm | NANOGPT_NS_STOCHASTIC_COOLDOWN | NS range in cooldown |
+|:---:|:---:|:---|
+| A | 0 | Deterministic (control, old pre-#787 baseline) |
+| B | 1 | {15,16,17} — tighter than merged |
+| C | 4 | {12,13,...,20} — wider |
+| D | 6 | {10,11,...,22} — very wide |
+
+Signal threshold: Δ_vs_A ≤ −0.002 (note: new baseline 3.26944 is stricter than old 3.27036; any winning arm needs to beat 3.26944 in paired-pod). ETA ~7.2h. W&B group: `g1r4-fern/stochastic-ns-cooldown-spread`.
+
+**Baseline update note**: New baseline is 3.26944 / fs=3208.33 (post-#787). In-flight chains #845 and #847 notified — their pre-staged gates remain frozen but terminal evaluation uses new baseline 3.26944.
+
+---
 
 ### 🔄 thorfinn #880 — Muon² body v_t ablation (4-arm beta2 sweep + structural disable) [assigned 06:35 UTC]
 

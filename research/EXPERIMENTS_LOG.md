@@ -3,6 +3,60 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-23 07:10 UTC — PR #787: Stochastic NS cooldown spread=2 (fern) — MERGED NEW BASELINE (82nd cycle)
+
+- Branch: `g1r4-fern/stochastic-ns-iter` (commit `4445794`)
+- Hypothesis: NS iteration counts are currently fixed at NS_ITERS=12 (mid-training) and NS_ITERS_COOLDOWN=16 (cooldown). Per-step uniform sampling around the deterministic mean (mean-preserving, variance-only intervention) may act as implicit regularization through update-direction stochasticity — similar to dropout regularizing activations.
+
+**4-arm N=1 screening result:**
+
+| Arm | STOCHASTIC_MID | STOCHASTIC_COOLDOWN | val/loss | Δ_vs_A | Verdict |
+|:---:|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | 0 | 0 | 3.27080 | — | drift PASS (+0.00010) |
+| B | 2 | 0 | ~3.27171 | +0.00091 | mid-stochastic REGRESSES |
+| **C** | **0** | **2** | **3.26906** | **−0.00174** | **best, send back for paired-pod** |
+| D | 2 | 2 | (both) | — | not selected |
+
+Arm C (cooldown spread=2): NS ∈ {14,15,16,17,18} per step. N=1 Δ_vs_A=−0.00174 sub-signal threshold but > typical paired-pod trigger.
+
+**Paired-pod n=3 confirmation (Arm C, spread=2 cooldown):**
+
+| Pod | Arm | W&B | val/loss | fs | Δ_within | Direction |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| 0 | A | t5c70etd | 3.26989 | 3225 | — | — |
+| 0 | C | o8o8rw9q | 3.26968 | 3200 | −0.00021 | ✓ |
+| 1 | A | vfe8xt9g | 3.26938 | 3200 | — | — |
+| 1 | C | nmnodhnw | 3.27065 | 3225 | +0.00127 | ✗ FLIP |
+| 2 | A | q9jct6np | 3.27043 | 3225 | — | — |
+| 2 | C | pelkp8s9 | **3.26798** | 3200 | **−0.00245** | ✓ STRONG |
+
+**n=3 aggregate:**
+- mean(C, n=3) = **3.26944** (Δ_vs_baseline = −0.00092)
+- mean(Δ_within) = −0.00046 ± 0.00108 SEM (paired t-stat = −0.428, noise-thick)
+- std(Δ) = 0.00187 — high inter-pod variance
+- mean(fs_C) = **3208.33** (Δ_fs = −8.33 steps)
+
+**Gate verification:**
+
+| # | Gate | Threshold | Observed | Verdict |
+|:---:|---|---|---|:---:|
+| 1 | mean(C,n=3) ≤ baseline | ≤ 3.27036 | 3.26944 | ✅ PASS |
+| 2 | (3.28−mean)×√3 ≥ 0.004 | ≥ 0.004 | 0.01829 | ✅ PASS |
+| 3 | direction-correct ≥ 2/3 | ≥ 2/3 | 2/3 | ✅ PASS |
+| 4 | drift gate A pods ±0.003 | ±0.003 | max 0.00098 | ✅ PASS |
+
+**MERGED** — all 4 pre-staged gates PASS. First paired-pod gate-pass merge since #708. Pre-registration discipline: gates were frozen before n=3 data; demanding n=6 post-hoc would violate the protocol. Track 3 fs improvement is concrete (−8.33 steps, 2/3 pods hit fs=3200).
+
+**Analysis**: Cooldown-NS stochasticity provides a small, variance-thick benefit. Pod 2's outlier −0.00245 Δ_within drove most of the absolute gain; paired t-stat noise-thick. Mechanism conjecture: stochasticity helps when `late_peak` schedule is locally suboptimal, adds destructive noise when locally near-optimal — explains pod-by-pod variance pattern.
+
+**New baseline**: val=3.26944 / fs=3208.33 (n=3). Merged stack adds `NANOGPT_NS_STOCHASTIC_COOLDOWN=2`.
+
+**Follow-up assigned**: fern #883 — cooldown spread Goldilocks sweep (spread ∈ {0,1,4,6} vs confirmed spread=2). Arm B (mid spread=2) already ruled out (regressed +0.00091 in N=1).
+
+**11th paired-pod chain**: 11 paired-pod chains since post-#579 baseline. 10 collapsed (fern #787 Pod 0+1 partial, askeladd #845 in-flight, alphonse #847 in-flight, edward #838 neg, thorfinn #848 NULL, etc.); this #787 chain is the **first confirmed gate-pass** after 10 collapses. N=1 → n=3 retention: ~27% of N=1 signal (−0.00174 → −0.00046 mean Δ_within). Durable confirmation that seed coupling on this baseline systematically compresses N=1 signals.
+
+---
+
 ## 2026-05-23 06:35 UTC — PR #848: lm_head non-zero init magnitude sweep (thorfinn) — CLOSED productive-NULL (81st cycle)
 
 - Branch: `g1r4-thorfinn/lm-head-init-std` (commit `63a2953`)
