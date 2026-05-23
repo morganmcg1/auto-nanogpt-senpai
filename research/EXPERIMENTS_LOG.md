@@ -6432,3 +6432,20 @@ Kill-gate ladder: both arms razor-edge at step 1000 (+0.00038 Arm B, +0.00291 Ar
 
 **Closure outcome**: 68th refuted axis (alphonse #930 was 67th). Confirms the broader pattern that precision/magnitude knobs on the contra path don't crack the floor. Student's own follow-up #3 ("test the *trigger* for contra correction — magnitude-modulated triggers rather than precision tweaks") directly motivates the next assignment: **PR #947 CONTRA_MUON_SCHEDULE** (temporal ramp on contra strength during cooldown), exploiting the #729 empirical finding that contra helps early-phase noise but hurts late-cooldown convergence. First temporal CONTRA axis in 232+ PRs.
 
+
+
+## 2026-05-23 20:35 UTC — PR #922: ATTN_SCALE — attention temperature sweep CLOSED (69th refuted axis)
+
+- `g1r2-fern/attn-scale-temperature`
+- Hypothesis: under QK-norm + rotary the default ATTN_SCALE=0.12 (1.36× above geometric 1/√head_dim ≈ 0.0884) may be Goldilocks for sharpness. Arm A=0.10 (sharper), Arm B=0.14 (softer).
+- W&B runs: `2tdxbosa` (Arm A=0.10), `dcx9n5qq` (Arm B=0.14).
+
+| Arm | ATTN_SCALE | val/loss @3175 | ffs | Δval vs baseline | Δffs vs baseline | Hold gate |
+|---|---:|---:|---:|---:|---:|---|
+| Baseline | 0.12 | 3.26776 (n=2) | 3000 | — | — | — |
+| Arm A | 0.10 | **3.27307** | 3050 | +0.00531 | +50 | FAIL by 0.00307 val + 50 ffs |
+| Arm B | 0.14 | **3.27176** | 3050 | +0.00400 | +50 | FAIL by 0.00176 val + 50 ffs |
+
+**Results commentary**: Bidirectional symmetric degradation. ±0.02 perturbations both ~0.004-0.005 nats worse than default 0.12. Geometric standard `1/√64 ≈ 0.125` is essentially what QK-norm wants; 0.12 already mildly sharpens it. Both arms land in floor cluster band (#41 Arm B, #42 Arm A — softer slightly better than sharper). Default 0.12 confirmed Goldilocks under the mandatory stack; QK-norm-induced decoupling does not leave scalar-temperature headroom.
+
+**Closure outcome**: 69th refuted axis. Student suggestions correctly flag (1) axis is now closed under current stack, (2) further intermediate values (0.11, 0.13) unlikely to break the baseline without a coupled structural change, (3) muP-aware width sweep would re-open this at different width. Next assignment for fern: **PR #948 NS5_ITERS_SCHEDULE** — first temporal NS5 axis in 232+ PRs, sibling to frieren #947 CONTRA_MUON_SCHEDULE in temporal-axis investigation cluster. Arms A=ramp 14→8 (fewer late), B=ramp 14→20 (more late) during cooldown phase. Tests whether direction-quality (NS5 polynomial saturation) is non-stationary across training phases.

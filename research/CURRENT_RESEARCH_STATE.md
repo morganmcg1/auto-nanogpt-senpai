@@ -898,3 +898,47 @@ Zero idle students.
 ### Strategic note: temporal axes as floor-escape candidates
 
 The floor cluster (40 landings) is composed almost entirely of STATIC axis perturbations. Frieren #947 CONTRA_MUON_SCHEDULE is the **first temporal axis tested for the contra mechanism**. If the floor cluster is sensitive to *terminal direction quality* (per post-NS5 direction-only theorem), this should move it. If the floor is upstream of NS5 (e.g. in momentum or grad statistics), this won't move it. Either result is informative and signals where to look next.
+
+
+## 2026-05-23 ~20:45Z — Cycle 71 mid-137 update
+
+### fern #922 ATTN_SCALE CLOSED — 69th refuted axis, floor clusters #41 + #42
+
+Bidirectional symmetric degradation: Arm A=0.10 (sharper) val=3.27307/ffs=3050 (MISS by 0.00307 val + 50 ffs), Arm B=0.14 (softer) val=3.27176/ffs=3050 (MISS by 0.00176 val + 50 ffs). Default 0.12 confirmed Goldilocks within ±0.02 bracket. Geometric standard 1/√64 ≈ 0.125 already what QK-norm wants; 0.12 already mildly sharpens it. Scalar temperature axis exhausted under mandatory stack. W&B: `2tdxbosa` (Arm A), `dcx9n5qq` (Arm B).
+
+### fern #948 NS5_ITERS_SCHEDULE just assigned — first temporal NS5 axis in 232+ PRs
+
+Fresh assignment, **sibling to frieren #947 CONTRA_MUON_SCHEDULE** in the temporal-axis investigation cluster. Linear ramp on NS5 iteration count from `NS5_ITERS=14` (steady) to `NS5_ITERS_END` during cooldown phase (progress > 0.3, matching LR cooldown_frac=0.7). Arm A=8 (fewer late iters, tests NS5 saturation), Arm B=20 (more late iters, tests direction-quality during fine-grained descent). Code: ~12 LOC patch adding `NS5_ITERS_END` + `NS5_SCHEDULE_FRAC` env vars, `_NS5_ITERS_CURRENT` module-level dynamic var, mutation in `set_hparams`, log to W&B `optimizer/ns5_iters_current`.
+
+**Mechanistic motivation**: NS5 polynomial residual decays as 1e-3 → 1e-6 → 1e-12 at iters 5/8/14. Marginal value of additional iterations is **direction-quality**, not magnitude. During cooldown the model makes sub-percent loss-per-step changes — direction matters more here. Inverse hypothesis (Arm A): fewer iterations during steady-state may be sufficient since NS5 saturates fast; would also be a compute win. **Strictly orthogonal** to all 69 closed axes (all used constant NS5_ITERS=14 throughout).
+
+### nezuko #939 NORMUON_SM_GRANULARITY — Arm A FINISHED via W&B, awaiting student SENPAI-RESULT
+
+Run `n63z75s5` terminal at val=3.27656/ffs=3100/reached=1 — floor cluster landing at high end of band (val misses hold gate by +0.00656, ffs misses by +100). Per-element second-moment hypothesis from AdaMuon (Li et al. 2507.11005) does not crack the floor at this regime. Advisor nudge posted 20:42Z requesting SENPAI-RESULT comment so PR can be formally closed.
+
+### Cycle 71 axis tally: **69 refuted**, ~42 floor cluster landings, **0 merges above baseline**
+
+In-flight as of 20:45Z (all WIP except #948):
+- #702 edward MU_WARMUP_START — pod-broken hold (~109h)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~109h)
+- #934 thorfinn BODY_INIT_SCALE Arm B=1.2 — terminal ~21:00Z
+- #939 nezuko NORMUON_SM_GRANULARITY — Arm A terminal, awaiting student SENPAI-RESULT
+- #942 askeladd RMSNORM_GAIN_INIT Arm A=0.5 — in-flight, terminal ~21:00Z
+- #946 alphonse ROPE_FRACTION — newly assigned 19:40Z
+- #947 frieren CONTRA_MUON_SCHEDULE — newly assigned 20:08Z
+- #948 fern NS5_ITERS_SCHEDULE — newly assigned 20:45Z
+
+Zero idle students.
+
+### Temporal-axis investigation cluster forming
+
+Three concurrent temporal axes now in flight on Muon-side mechanisms:
+- #947 frieren CONTRA_MUON_SCHEDULE — temporal CONTRA strength
+- #948 fern NS5_ITERS_SCHEDULE — temporal NS5 iteration count (direction-quality lever)
+- (BODY_INIT_SCALE, RMSNORM_GAIN_INIT, ROPE_FRACTION are structural/init, not temporal)
+
+Combined, these test whether the floor cluster is sensitive to non-stationary mechanism settings. If either #947 or #948 PASSES, we've found a way past the floor. If both close-miss, the floor is likely upstream of post-NS5 update (in momentum/grad statistics or model representation).
+
+### Strategic note: cycle 71 throughput
+
+68 axis closures (#928 + #930) and 3 fresh assignments (#946 + #947 + #948) in the past ~3.5 hours. Throughput is healthy; no idle GPUs. Plateau Protocol ongoing — focus shifting from scalar/precision axes (now exhausted) to temporal/structural axes.
