@@ -83,6 +83,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--agc_lambda", type=float, default=0.0,
+                        help="AGC clipping ratio lambda: clip g so ||g||_F <= lambda*||W||_F. 0=disabled.")
+    parser.add_argument("--agc_scope", type=str, default="all",
+                        choices=["mlp", "attn", "all"],
+                        help="Apply AGC to: mlp=MLP fc, attn=Q/K/V, all=all Muon-targeted body 2D in scope.")
+    parser.add_argument("--agc_eps", type=float, default=1e-3,
+                        help="Floor on ||W||_F to prevent divide-by-zero (default 1e-3).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -499,6 +506,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
         X = X.mT
     return X
 
+def _apply_agc(grad, weight, agc_lambda, agc_eps=1e-3):
+    """NFNet-style adaptive gradient clipping (Brock et al. 2102.06171).
+    Clips grad so ||grad||_F <= agc_lambda * max(||weight||_F, agc_eps).
+    Direction is preserved; only magnitude is reduced when ||g||/||W|| > lambda.
+    Returns (clipped_grad, was_clipped: 0-dim bool tensor, g_to_w_ratio: 0-dim float tensor).
+    """
+    w_norm = torch.linalg.norm(weight.float()).clamp(min=agc_eps)
+    g_norm = torch.linalg.norm(grad.float()).clamp(min=1e-12)
+    g_to_w = g_norm / w_norm
+    max_g_norm = agc_lambda * w_norm
+    was_clipped = g_norm > max_g_norm
+    clip_factor = torch.where(was_clipped, max_g_norm / g_norm, torch.ones_like(g_norm))
+    clipped_grad = grad * clip_factor.to(grad.dtype)
+    return clipped_grad, was_clipped, g_to_w
+
+
 @torch.compile
 def muon_update(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -571,7 +594,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 agc_lambda=0.0, agc_scope="all", agc_eps=1e-3):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +618,10 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.agc_lambda = float(agc_lambda)
+        self.agc_scope = agc_scope
+        self.agc_eps = float(agc_eps)
+        self._agc_stats: dict = {}
 
         param_groups = []
         for g in groups_raw:
@@ -615,6 +643,12 @@ class Muon(torch.optim.Optimizer):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        device = self.param_groups[0]["params"][0].device
+        agc_on = self.agc_lambda > 0.0
+        agc_clipped_count = torch.zeros((), device=device, dtype=torch.float32)
+        agc_ratio_sum = torch.zeros((), device=device, dtype=torch.float32)
+        agc_ratio_max = torch.zeros((), device=device, dtype=torch.float32)
+        agc_in_scope_count = 0
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
@@ -624,6 +658,19 @@ class Muon(torch.optim.Optimizer):
                     p = params[base_i + rank]
                     state = self.state[p]
                     use_soap = p in self.soap_params
+                    p_name = self.param_names[id(p)]
+                    is_mlp_2d = ("mlp.fc" in p_name) and (p.ndim == 2)
+                    is_attn_2d = (
+                        (".attn.q." in p_name or ".attn.k." in p_name or ".attn.v." in p_name)
+                        and (p.ndim == 2)
+                    )
+                    apply_agc = agc_on and (
+                        (self.agc_scope == "mlp" and is_mlp_2d)
+                        or (self.agc_scope == "attn" and is_attn_2d)
+                        or (self.agc_scope == "all" and (is_mlp_2d or is_attn_2d))
+                    )
+                    if apply_agc:
+                        agc_in_scope_count += 1
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         if use_soap:
@@ -637,9 +684,22 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        if apply_agc:
+                            precond_nesterov, was_clipped, g_to_w = _apply_agc(
+                                precond_nesterov, p.data, self.agc_lambda, self.agc_eps,
+                            )
+                            agc_clipped_count.add_(was_clipped.float())
+                            agc_ratio_sum.add_(g_to_w)
+                            agc_ratio_max = torch.maximum(agc_ratio_max, g_to_w)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            if apply_agc:
+                                raw_nesterov_for_muon, _, _ = _apply_agc(
+                                    raw_nesterov, p.data, self.agc_lambda, self.agc_eps,
+                                )
+                            else:
+                                raw_nesterov_for_muon = raw_nesterov
+                            u_muon = soap_ns_step(raw_nesterov_for_muon)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,13 +709,30 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if apply_agc:
+                            state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                            nesterov_grad = p.grad.lerp_(state["momentum"], group["mu"])
+                            nesterov_grad, was_clipped, g_to_w = _apply_agc(
+                                nesterov_grad, p.data, self.agc_lambda, self.agc_eps,
+                            )
+                            agc_clipped_count.add_(was_clipped.float())
+                            agc_ratio_sum.add_(g_to_w)
+                            agc_ratio_max = torch.maximum(agc_ratio_max, g_to_w)
+                            update = soap_ns_step(nesterov_grad)
+                        else:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+        self._agc_stats = {
+            "in_scope_count": agc_in_scope_count,
+            "clipped_count": agc_clipped_count,
+            "ratio_sum": agc_ratio_sum,
+            "ratio_max": agc_ratio_max,
+        }
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -679,6 +756,40 @@ class Muon(torch.optim.Optimizer):
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
         return result
+
+    def get_agc_stats(self) -> dict[str, float]:
+        """Sync AGC per-step counters to host. Returns scalar metrics or {} when AGC is off."""
+        stats = self._agc_stats
+        if not stats:
+            return {}
+        in_scope = stats["in_scope_count"]
+        clipped = stats["clipped_count"]
+        ratio_sum = stats["ratio_sum"]
+        ratio_max = stats["ratio_max"]
+        world_size = dist.get_world_size()
+        if world_size > 1:
+            in_scope_t = torch.tensor(float(in_scope), device=clipped.device, dtype=torch.float32)
+            dist.all_reduce(in_scope_t, op=dist.ReduceOp.SUM)
+            in_scope = float(in_scope_t.item())
+            clipped = clipped.clone()
+            ratio_sum = ratio_sum.clone()
+            ratio_max = ratio_max.clone()
+            dist.all_reduce(clipped, op=dist.ReduceOp.SUM)
+            dist.all_reduce(ratio_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(ratio_max, op=dist.ReduceOp.MAX)
+        if in_scope == 0:
+            return {}
+        clipped_f = float(clipped.item())
+        ratio_sum_f = float(ratio_sum.item())
+        ratio_max_f = float(ratio_max.item())
+        in_scope_f = float(in_scope)
+        return {
+            "agc/in_scope_count": in_scope_f,
+            "agc/clipped_count": clipped_f,
+            "agc/clipped_frac": clipped_f / in_scope_f,
+            "agc/g_to_w_mean": ratio_sum_f / in_scope_f,
+            "agc/g_to_w_max": ratio_max_f,
+        }
 
 
 ########################################
@@ -765,6 +876,9 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "agc_lambda": args.agc_lambda,
+            "agc_scope": args.agc_scope,
+            "agc_eps": args.agc_eps,
         },
     )
 
@@ -835,6 +949,7 @@ for trial_idx in range(args.num_trials):
     # Sanity print — will appear in W&B stdout logs
     _ex_resid_std = _resid_proj_std(768, args.depth_init_mode, NUM_LAYERS) if args.depth_init_mode != "ctrl" else 0.0
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
+    print0(f"[init] agc_lambda={args.agc_lambda}  agc_scope={args.agc_scope}  agc_eps={args.agc_eps}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
@@ -853,6 +968,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        agc_lambda=args.agc_lambda, agc_scope=args.agc_scope, agc_eps=args.agc_eps,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1011,6 +1127,7 @@ for trial_idx in range(args.num_trials):
             opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
+            agc_stats = optimizer2.get_agc_stats()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
@@ -1026,6 +1143,8 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                for name, val in agc_stats.items():
+                    per_group_metrics[name] = val
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
