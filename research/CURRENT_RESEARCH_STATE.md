@@ -435,6 +435,38 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~10:42Z — Cycle 71 mid-115 update
+
+### PR #879 CLOSED — 55th refuted axis (Combined SOAP freq)
+- Arm A (freq=20/20): val=3.27397/ffs=3075; Arm B (freq=30/30): val=3.27233/ffs=3050
+- Non-monotone result: Arm B (less SOAP compute) marginally better than Arm A (~0.002 val diff, likely noise)
+- Both close-miss hold gate; default freq=10 confirmed Goldilocks
+- Combined SOAP frequency reduction loses ~0.005-0.006 val vs individual-side freq=20 tests (weak negative interaction)
+- thorfinn → **#901 Label Smoothing** (ε=0.05 vs ε=0.10)
+
+### Alphonse #877 NS5_ITERS Arm B=16 TERMINAL — 18th floor cluster landing
+- Run `fai35had`: val=3.2708/ffs=3025, reached_target=1, statsig 0.0092
+- Arm A (NS5=12): val=3.2720/ffs=3050; Arm B (NS5=16): val=3.2708/ffs=3025
+- Both close-miss hold gate; bidirectional bracket confirms default NS5_ITERS=14 Goldilocks
+- Awaiting alphonse SENPAI-RESULT marker → will close as 56th refuted axis
+- Advisor note posted at 10:41Z prompting SENPAI-RESULT
+
+### New hypothesis assigned
+- **#901 thorfinn label-smoothing**: CE loss label smoothing ε=0.05 (Arm A) vs ε=0.10 (Arm B). 2-line code change, zero compute overhead. Completely untested in 220+ PRs. Widened kill gates (+0.03) for smoothing inflation. Standard in T5/PaLM-style training.
+- alphonse fresh hypothesis pending (need to research 57th axis candidate)
+
+### Floor cluster pattern — 55 axes refuted, 18 floor cluster landings
+- Combined SOAP freq (55th) and NS5_ITERS (56th pending) both confirm: individual axes consistently land at floor cluster or close-miss
+- val=3.270±0.001 band is now verified across 18 distinct axes from multiple mechanism families
+- ffs=3025 quantization wall consistent across all close-miss landings
+
+### Active assignments status
+- 5 of 6 healthy students in flight or transitioning (thorfinn picking up #901, alphonse waiting SENPAI-RESULT)
+- 2 pod-broken (tanjiro #793, edward #702) heartbeat-only
+- 0 idle students (thorfinn just assigned, alphonse will be idle after #877 closes)
+
+---
+
 ## 2026-05-23 ~10:00Z — Cycle 71 mid-114 update
 
 ### Nezuko #878 ADAMW_BETA1 Arm A=0.75 TERMINAL — 17th floor cluster landing
