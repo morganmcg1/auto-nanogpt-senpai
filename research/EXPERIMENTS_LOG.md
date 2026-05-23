@@ -1,3 +1,39 @@
+## 2026-05-23 15:10 UTC — PR #921 ASSIGNED (askeladd): H96 Lion optimizer for AUX groups (sign-momentum paradigm shift vs AdamW)
+
+- Branch: `g1r3-askeladd/h96-aux-lion-optimizer`
+- Hypothesis: Replace aux AdamW (β1=0.8, β2=0.99) with Lion (Chen et al. 2023 arXiv:2302.06675). Lion uses sign-momentum: `update = sign(β1*m_t + (1-β1)*g_t)`, separate momentum EMA `m_{t+1} = β2*m_t + (1-β2)*g_t`. **Removes adaptive per-coord second-moment normalization entirely** — orthogonal mechanism to H87 WIN (β2=0.99 kept AdamW's adaptive `m_t / √v_t`; only extended v_t EMA window).
+- Why mechanism-distinct from in-flight aux experiments: H89 ADOPT (thorfinn #891) is also β2-independent but keeps adaptive form; H94 β2-push (frieren #915) is still AdamW with β2=0.999. Lion is paradigm shift away from RMS-scaled updates — uniform sign per coord regardless of grad magnitude.
+- For lm_head (50304 × 768 = 38M params with heterogeneous per-row grad distributions — rare tokens tiny grads, common tokens large grads), Lion's uniform sign treatment is the load-bearing question: either surfaces headroom AdamW's per-coord ε hides (rare-token rows updated more) OR oscillates on bimodal-grad rows (where AdamW averaging would converge).
+- Arms (n=1, 3325 steps, --wandb_group H96_aux_lion): arm_a CTRL aux AdamW β2=0.99 (byte-identical) / arm_b PRIMARY Lion β1=0.9 β2=0.99 lr/3 (embed 0.1, head 0.00104) / arm_c DIAGNOSTIC Lion β1=0.9 β2=0.99 lr/10 (embed 0.03, head 0.000313). Lion's recommended lr 3-10× smaller than AdamW.
+- 200-step smoke gate: aux weight RMS within 3× step-0; aux gradient norm bounded ≤1.5 post-AGC; train/loss within 1.5× of arm_a CTRL train/loss at step 200; no NaN/Inf. STOP if smoke fails.
+- AGC composes naturally with Lion (clip g_t pre-update; sign-momentum interp consumes clipped g). β2-schedule code path skipped when aux_optimizer=lion (different semantics).
+- LoC ~30 (Lion optimizer class) + ~15 CLI plumbing. Implementation pointer: google/automl/tree/master/lion (Apache 2.0).
+- Decision: WIN<3.26877 (1.25σ margin, satisfies (3.28−μ)·√n ≥ 0.004); NULL ∈ [3.26897, 3.27057]; NEG>3.27057. Closure-amplifier: both arm_b AND arm_c NEG → AdamW's per-coord adaptive normalization is load-bearing on aux side (closure on Lion-on-aux paradigm-shift axis).
+- Builds on askeladd's H88 matrix-numerical rigor (caught Polar Express misattribution before launch); Lion's clean published recipe with careful pre-launch smoke fits his strength.
+
+---
+
+## 2026-05-23 15:00 UTC — PR #889 CLOSED NEG/closure (askeladd): H88 Polar Express orthogonalization — programme-level closure on polynomial-Schulz polar-map family (degree sweep × coef sweep)
+
+- Branch: `g1r3-askeladd/polar-express-orthogonalization`
+- Result: All measured arms NEG against new baseline 3.26977 (post-PR-#888 merge bar).
+  - arm_a CTRL muon_quintic (2.0, -1.5, 0.5) k=12: val/loss=**3.27443** (W&B `hbegufq2`, contended runtime 7958s, +0.00466 vs new baseline)
+  - arm_b PRIMARY high_amp_25 (2.5, -2.5, 1.0) k=12: val/loss=**3.27243** (W&B `xkx1kajc`, 6492s, **+0.00266 NEG vs new baseline**, was NULL vs old baseline 3.27270)
+  - arm_c' DIAGNOSTIC high_amp_2p75 (2.75, -3.0, 1.25) k=12: val/loss=**3.27354** (W&B `nef04qal`, 6040s, +0.00377 NEG)
+  - arm_c high_amp_30 (3.0, -3.5, 1.5) k=12: **SKIPPED** (smoke STOP — NaN cliff at k≥10 on (768,768) blocks, σ_max → 10²² by k=10)
+- PR was `CONFLICTING` (needs rebase onto PR #888 merge) but rebasing wouldn't recover headroom: mechanism axis (NS5 polynomial coefs at iso-budget) is **orthogonal** to PR #888's win (aux AdamW β2 EMA window). Re-running against rebased baseline would burn 6h GPU only to reconfirm NEG. Closed without rebase.
+- **Programme-level closure on polynomial-Schulz polar-map family**: joins H78 (per-layer iso-budget NEG) + H84 (degree-7 perturbative septic NEG) + H90 (NSCubic degree-3 in flight). Combined with H79+H86 (MuonH schedule-structure 2D closure) and H82+H76 (input-gradient-mod closure), the **Schulz polynomial polar-map family — measured along degree, schedule-shape, input pre-normalization, coef sweep within stable basin, and per-layer iteration budget — has no detectable headroom above canonical Muon (2,-1.5,0.5) at k=12** on this 1×H100 stack.
+- **Mechanism findings preserved**:
+  1. **Stability cliff between a=2.75 and a=3.0** for (a, 2.5−2a, a−1.5) family on Frobenius-normalized inputs. Square (768,768) blocks (Q/K/V slices, attention out-proj) diverge to σ_max≈10²² by k=10 at a=3.0. Basin of attraction shrinks as `a` grows.
+  2. **Non-monotonic σ_max overshoot in `a`** within stable basin — a=2.75 has tighter σ_max=1.019 than a=2.5 (σ_max=1.057) on same shape. σ-trajectory traces different basin paths.
+  3. **Original "Polar Express" coefs (3.4445, −4.7750, 2.0315) are misattributed in optimizer-paper folklore.** Violate p(1)=1 (sum=0.701, converge to σ≈0.866). They belong to Halley/Padé matrix-sign-function family (Higham 2008 Algorithm 8.20), NOT pure Schulz. Askeladd's pre-launch smoke caught this — saves future PRs that explore Halley/Padé separately from running the wrong iteration.
+  4. **Iso-iteration amplification within stable Schulz basin is flat-to-bowl-shaped val_loss(a)** — a=2.5 marginally best of high-`a` arms, a=2.75 slightly worse, a=2.0 (baseline) competitive. All within n=1 noise (σ≈0.001).
+- **Closed-axis additions**: (a, 2.5−2a, a−1.5) one-parameter family with a∈(2.0, 3.0) at k=12 closed within stable basin; Halley/Padé with misattributed coefs structurally wrong; Schulz polynomial coef-sweeps within f(1)=1, f'(1)=0 closed at family level.
+- **What stays open** (for future fresh PRs, NOT rebased H88): mathematically-correct Halley/Padé rational sign iteration (different basin structure, requires inversion), Kim & Yin rational maps, even-degree Schulz with alternative input normalization. Mechanism-distinct inner optimizers already in flight via H89/H91/H92/H93.
+- Implementation work (NS_VARIANTS dict, --ns_variant / --ns_iters CLI plumbing, W&B logging) was clean; reusable infrastructure pattern for future PRs that explore Halley/Padé or other non-Schulz orthogonalization families.
+
+---
+
 ## 2026-05-23 14:30 UTC — PR #916 ASSIGNED (nezuko): H95 MuonH Nesterov µ re-tuning under current stack (µ∈{0.85,0.90,0.95,0.98})
 
 - Branch: `g1r3-nezuko/muonh-momentum-sweep`
