@@ -1,3 +1,78 @@
+## 2026-05-23 23:00 UTC — PR #960 ASSIGNED (thorfinn): H105 Per-layer AGC clip_ratio adaptation from grad/weight ratios
+
+- Branch: `g1r3-thorfinn/h105-per-layer-agc`
+- Hypothesis: Replace the global AGC clip_ratio=0.05 with per-layer clip_ratios calibrated from step-200 grad/weight norm ratios: `clip_ratio_i = 0.05 * (ratio_median / ratio_i)^γ`. Directly motivated by fern's H93 PSGD-Kron closure mechanism finding "AGC clips 100% of inner steps under MuonH-SI + AGC stack" — global flat clip may be over-protecting some layers, under-protecting others.
+- Arms: arm_a CTRL γ=0 global (bit-identical) / arm_b PRIMARY γ=0.5 (half-inverse adaptation: 2x median → clip 0.035, 0.5x median → clip 0.071) / arm_c STRONG γ=1.0 (full inverse-ratio).
+- Mechanism-distinct from fern in-flight H102 (Sharpness-Disparity Blockwise LR Multipliers, PR #952): H102 modifies per-block muonh_lr; H105 modifies per-layer AGC clip_ratio. Different intervention points, different ratios used for calibration (RMS for H102 vs grad/weight ratio for H105).
+- Why thorfinn: H97 demonstrated extraordinary numerical-precision diagnostic skill (separated bf16 underflow mechanism-sidestepped from rank-1 deficiency separate-failure-mode). H105 is numerical-mechanism axis — needs rigorous step-200 ratio measurement, per-layer book-keeping, telemetry table (ratio_disparity, clipped_frac, effective_clip min/max). Plays directly to H97's diagnostic style.
+- Decision: WIN < 3.26897; NULL ∈ [3.26880, 3.27070]; NEG > 3.27150. Closure-amplifier: both NEG → per-layer AGC adaptation axis CLOSED + joint with H93 finding establishes "AGC ratio = 0.05 global flat is locally optimal".
+- LoC ~35. W&B group `H105_per_layer_agc`. AGC clip_ratio axis has never been varied per-layer in this programme.
+
+---
+
+## 2026-05-23 23:00 UTC — PR #959 ASSIGNED (frieren): H104 EMA-eval Polyak-Ruppert averaging (training unchanged, eval-only)
+
+- Branch: `g1r3-frieren/h104-ema-eval-polyak-ruppert`
+- Hypothesis: Maintain Polyak-Ruppert EMA of model weights at EVALUATION TIME ONLY. Training trajectory unchanged; evaluation uses `ema_weights = α * ema_weights + (1-α) * fast_weights`. Decouples weight averaging from training dynamics entirely.
+- **Fresh-axis distinction from ALL prior weight-averaging closures**: H53 EMA on aux (NULL, modified training), H75 Lookahead on aux (NEG, modified training), H77 SWA arm_b (NEG, modified LR), H85 Schedule-Free on aux (NEG, replaced cooldown), H101 alphonse in-flight (Schedule-Free outer, modifies training). H104 is the FIRST eval-only weight-averaging experiment — zero modification to training, zero compute overhead beyond O(N) EMA update per step.
+- Arms: arm_a CTRL α=0 disabled (bit-identical) / arm_b PRIMARY α=0.999 (~1000-step effective window matches late-cosine-cooldown regime) / arm_c LONG-EMA α=0.9999 (~10k-step window, pure final-basin smoothing).
+- Telemetry: `ema/ema_weight_norm_avg`, `ema/fast_weight_norm_avg`, `ema/ema_fast_diff_norm`, `ema/eval_loss_fast`, `ema/eval_loss_ema`. Primary diagnostic: does `eval_loss_ema < eval_loss_fast` consistently in last 25% of training (fast-weight basin oscillation smoothed)?
+- Why frieren: H87 WIN (β2 schedule infra) demonstrated they carefully gate runtime modifications without contaminating CTRL. H94 NEG/closure showed exceptional 2x2 factorial discipline with mechanism-confirmed predictions. H104's swap/restore eval path needs the same careful gating discipline.
+- Decision: WIN < 3.26897; NULL ∈ [3.26880, 3.27070]; NEG > 3.27150. NULL signature = fast-weight basin is tight (no oscillation to smooth, programme-level finding constraining future averaging axis).
+- LoC ~30. W&B group `H104_ema_eval`. Memory cost ~150MB EMA buffer (negligible on H100 96GB).
+
+---
+
+## 2026-05-23 23:00 UTC — PR #926 CLOSED NEG/closure (thorfinn): H97 Adafactor for AUX groups — programme-level closure on factored-second-moment paradigm + 5-axis aux AdamW landscape closure
+
+- Branch: `g1r3-thorfinn/h97-aux-adafactor-2`
+- Hypothesis tested: Replace aux AdamW with Adafactor (Shazeer 2018 arXiv:1804.04235), `v_hat[i,j] = v_row[i] * v_col[j] / mean(v_row)` instead of full per-coord v_t. Directly motivated by thorfinn's H89 ADOPT closure: bf16 state at β2=0.999 has (1-β2)·g²=0.001·g² underflow → factored row/col averages avoid this.
+- Results: arm_a CTRL AdamW val/loss=**3.27084** (NULL +0.00107, ffs=3100, baseline reproduce). arm_b PRIMARY Adafactor β2=0.99 val/loss=**3.30843** NEG (+0.03866, ffs=-1, never reached 3.28). arm_c HIGH_β2 Adafactor β2=0.999 val/loss=**3.31572** NEG (+0.04595, ffs=-1, worse than arm_b). Closure-amplifier triggered.
+- **Load-bearing mechanism finding (textbook two-step diagnosis)**:
+  - **Step 1**: The H89-followup question is answered cleanly: YES, Adafactor sidesteps the bf16 underflow at β2=0.999. Row/col means stay 3e-5 to 1e-4, v_hat_min stays 5e-7 to 4e-7 — finite and normal even at β2=0.999. The precision-axis insurance worked.
+  - **Step 2**: But precision is NOT the bottleneck. **Rank-1 factored approximation loses 74% of per-coord second-moment information on embed (50304×768), 35-42% on lm_head (768×50304).** The embed has meaningful cross-terms between per-row token-frequency structure and per-col feature structure that are NOT separable by a rank-1 outer product. Val/loss penalty +0.04 is an order of magnitude beyond merge bar. Increasing β2 to 0.999 only compounds the wrong signal.
+- **5-axis programme-level closure on aux AdamW landscape** (H97 + H94 + H89 + H80 + H73 + H87 WIN): AdamW's bf16-state with per-coord v_t is a tightly-tuned operating point. **Both finer (fp32 per-coord, H80) and coarser (rank-1 factored, H97) representations fail in different directions. Both higher β2 (0.999, H89/H94) and lower β2 (pre-merge baseline) fail. Both wd>0 (H94) and wd=0 (H87) directions are explored — wd=0 is optimal. The aux-AdamW per-coord-bf16-v_t-with-β2=0.99-wd=0 is now demonstrably load-bearing across precision (3 ways), second-moment representation (2 ways), and hyperparameter (3 axes).**
+- Pre-closes broadly: rank-k>1 factored second-moment variants, Adafactor + auxiliary correction, mixed precision states (fp32 + bf16 hybrids), per-group Adafactor, hybrid factored/per-coord (H97 mechanism shows rank-1 deficiency is fundamental on embed).
+- Does NOT pre-close: aux β1 axis (first-moment EMA window untouched at 0.8), cooldown-ramp β2 schedule (H94 follow-up), aux-side completely DIFFERENT optimizer families (Tiger, GrokFast wrapper, signSGD variants).
+- Methodological commendation (extraordinary): pre-launch step-200 smoke calibration (3 separate smoke runs), telemetry-driven verification of paper claim (v_hat_min stays above bf16 floor → confirms theoretical robustness), discriminating rank1_residual diagnostic that ISOLATES failure cause from precision-axis success, honest acknowledgment that BOTH the predicted-failure-mechanism (bf16 underflow) was sidestepped AND a separate-mechanism (rank-1 deficiency) caused NEG. Diagnostic resolution distinguishing scientific result from null result.
+- 18th plateau-protocol swing closure. thorfinn reassigned to PR #960 H105 Per-layer AGC.
+
+---
+
+## 2026-05-23 23:00 UTC — PR #915 CLOSED NEG/closure (frieren): H94 Aux β2 push + weight decay 2x2 factorial — programme-level closure on aux AdamW (β2, wd) hyperparameter axes
+
+- Branch: `g1r3-frieren/aux-beta2-push-and-wd`
+- Hypothesis tested: 2x2 factorial sweeping aux AdamW β2 ∈ {0.99, 0.999} × wd ∈ {0, 0.01}. Tests whether pushing β2 higher (longer EMA window) and/or adding aux weight decay improves on H87 WIN.
+- Results: arm_a CTRL β2=0.99 wd=0 val/loss=**3.27200**, ffs=3125 (NULL +0.00223, baseline reproduce within seed noise). arm_b β2=0.999 wd=0 val/loss=**3.27323** (+0.00346, marginal NEG). arm_c β2=0.99 wd=0.01 val/loss=**3.28017** (+0.01040 NEG, missed target ffs=-1). arm_d β2=0.999 wd=0.01 val/loss=**3.28356** (+0.01379 NEG, missed target ffs=-1).
+- **Interaction term = arm_d - arm_c - arm_b + arm_a = +0.00216** (positive: β2=0.999 and wd=0.01 compound, do NOT cancel). Both effects degrade through same channel (v_t magnitude).
+- **Load-bearing mechanism finding (textbook a-priori prediction confirmed)**:
+  - **β2=0.999 failure**: EMA window (~1000 effective steps) ≈ run length (3325) → v_t never reaches steady-state → cooldown-phase gradients are underweighted. arm_b `aux/v_t_mean=0.00092` (10x baseline) and MONOTONICALLY rising (vs arm_a's peak-then-decay shape).
+  - **wd=0.01 failure**: explicit L2 on aux groups (embed 50304×768, lm_head 768×50304) adds wd·θ contribution every step. With β2 smoothing v_t over 100 steps, this slow-moving offset elevates steady-state v_t and reduces effective per-coord LR right when cooldown wants aggressive updates. arm_c `aux/v_t_mean=0.00036` (4x baseline). Aligns with Muon-trunk's wd=0 design choice — extending L2 to aux groups (giant low-rank-effective matrices) conflicts with the LM objective.
+  - **Compounding**: arm_d v_t_mean=0.00266 (30x baseline) → cooldown LR most severely depressed → widest target miss.
+- **H87 (β2=0.95→0.99 WIN merged) sits at a sweet-spot operating point**: long enough EMA to smooth, short enough to track cosine-cooldown. Pushing further in EITHER dimension breaks that operating point.
+- Joins H80 (fp32 state NEG), H89 (ADOPT β2=0.999 catastrophic NEG), H73 (z-loss saturation NEG), H97 (Adafactor factored NEG, closed same cycle), H87 (current baseline WIN) — **5-axis programme-level closure on aux AdamW landscape** (jointly with H97 closure described above).
+- Does NOT pre-close: cooldown-ramp β2 schedule (constant 0.99 stable → ramp DOWN to 0.95 cooldown — the natural inverse of H87's WIN, directly motivated by arm_b's monotonically-rising-v_t failure mode); aux β1 axis (currently 0.8 across aux, no experiment has touched this); per-group aux wd (embed-only or lm_head-only wd>0 at very small magnitudes wd<0.001).
+- Methodological commendation: 2x2 factorial with explicit interaction term reporting is the textbook design for compound-effect hypotheses. Mechanism diagnostic table (v_t_mean per-arm shape: peak-then-decay vs monotonic rise) is gold-standard for adaptive-optimizer state telemetry. Honest "what happened" section names the H87 sweet-spot interpretation directly.
+- 18th plateau-protocol swing closure (joint with H97). frieren reassigned to PR #959 H104 EMA-eval.
+
+---
+
+## 2026-05-23 23:00 UTC — PR #954 SEND-BACK with Option A pivot (nezuko): H103 Outer Nesterov SGDM pivoted to "heavy-ball vs current Nesterov baseline"
+
+- Branch: `g1r3-nezuko/h103-outer-nesterov`
+- **nezuko's critical pre-launch diagnostic catch**: Read the actual code at `train_gpt_simple.py:1128-1131` and identified that the current MuLoCo outer apply IS ALREADY in Nesterov form (`anchor - lr * (mu*v + delta)`), NOT heavy-ball as the original H103 PR body claimed. In-file docstring and BASELINE.md PR #114 row both confirm. The originally-proposed arm_a (heavy-ball CTRL) and arm_b (Nesterov PRIMARY) would have been a variation vs no-op, exactly backwards from the intent.
+- **Advisor pivot directive (Option A — invert interpretation)**: Re-cast H103 as "does HEAVY-BALL outperform the current NESTEROV outer-SGDM?" — same 3-arm structure, formula roles flipped:
+  - arm_a CTRL: Nesterov (current code, bit-identical to baseline 3.26977)
+  - arm_b PRIMARY: Heavy-ball at outer_momentum=0.5
+  - arm_c TUNED: Heavy-ball at outer_momentum=0.7
+- Implementation gate on `--outer_nesterov` flag (default 1 for bit-identical CTRL). Apply line: `apply_term = mu*v + delta` if Nesterov else `apply_term = v`. Then `slow -= outer_lr * apply_term`.
+- Telemetry in ALL arms: `outer/heavy_ball_apply_norm`, `outer/nesterov_apply_norm`, `outer/nesterov_heavy_ratio`. If ratio ≈ 1.0 throughout → lookahead correction is small relative to velocity buffer at sync_interval=30 → formula axis mechanically equivalent → predicts NULL. If ratio >> 1.0 → lookahead is load-bearing → predicts arm_b/c NEG.
+- Mechanism interpretation transfers cleanly: arm_b/c WIN → heavy-ball beats current Nesterov; arm_b/c NULL → flat basin in formula × momentum 2D; arm_b/c NEG (closure-amplifier) → outer-momentum formula axis CLOSED, Nesterov is locally optimal (Sutskever 2013 lookahead is load-bearing for our outer dynamics).
+- **Methodological commendation**: nezuko's pre-launch code-read saved a wasted 3-arm run. The diagnostic discipline of verifying PR premise against actual codebase (not just hypothesis description) is textbook research engineering hygiene. This is the same diagnostic style nezuko brought to PR #916 H95 µ-sweep (cooldown-phase momentum asymmetry mechanism finding).
+- Re-labeled status:wip; ETA new run launch within hours.
+
+---
+
 ## 2026-05-23 22:30 UTC — PR #927 CLOSED NEG/closure (alphonse): H98 Sophia-G diagonal Hessian preconditioning pre-NS5 — programme-level 3-leg closure on second-order body preconditioning pre-NS5
 
 - Branch: `g1r3-alphonse/h98-sophia-g-pre-ns5`
