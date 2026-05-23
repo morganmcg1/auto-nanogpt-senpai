@@ -3,6 +3,31 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~08:30 UTC — PR #840: nezuko Muon-AdEMAMix P1 sweep TERMINAL — **★ SENT BACK FOR n=4 CONFIRM ON CELL E**
+
+- Branch: `g1r5-nezuko/muon-ademamix`
+- Student: g1r5-nezuko
+- Hypothesis: Mix slow EMA buffer (β₃≈0.99) with raw gradient before NS orthogonalization, applied to Muon's Nesterov input. Tests whether dual-EMA (AdEMAMix-style) gives the NS step a richer, lower-variance gradient direction. Predicted: B > C > D > E > A.
+- **Results (P1 5-cell sweep, n=1 each):**
+
+| Cell | β₃ | α | Scope | wandb_run | val/loss | ffs | Δ vs baseline 3.261221 | σ_single |
+|:----:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| A | 0 (off) | — | — | 8pyx0p79 | 3.26123 | 3025 | +0.00001 | +0.02σ |
+| B | 0.99 | 0.3 | all | 6lqtiuqb | 3.26029 | 3025 | −0.00094 | **−1.58σ** |
+| C | 0.999 | 0.3 | all | 56x6uuci | 3.28512 | -1 (missed) | +0.0239 | +40σ |
+| D | 0.99 | 1.0 | all | 2fm93hrh | 3.26358 | 3050 | +0.00236 | +3.97σ |
+| **E** | **0.99** | **0.3** | **mlp** | **xje4qes8** | **3.25960** | **3025** | **−0.00162** | **−2.74σ** ★ |
+
+- **Observed order: E > B > A > D > C** (vs predicted B > C > D > E > A — scope=mlp surprise winner)
+- **Strongest single-seed signal in entire post-#699 programme.** Cell E n=1 is BELOW n=4 merge gate (3.259221) by Δ=−0.000379.
+- **Student interpretation (n=1):** Cell E scope=mlp may win over B (all-scope) because attn body already gets SOAP preconditioning — layering slow-EMA there overlaps with SOAP's running curvature estimate. Confining slow-EMA to plain Muon (MLP) removes that overlap. Direction consistent with E < B but Δ=−0.00069 is within noise.
+- **W&B diagnostics** (Cell E): `muon_slow/cos_sim_mean` final = 0.741 (indistinguishable from B's 0.750; well-aligned with current gradient). `train_time` 6415.7s (no speed penalty).
+- **Cells C/D negative findings:** β₃=0.999 (half-life ~700 steps vs total 3250) → slow EMA fails to track trajectory (cos_sim collapses to 0.258). α=1.0 (vs 0.3 in B) → slow EMA dominates magnitude (norm 122 vs B's small steady-state) → biases NS input toward stale curvature. Both effects internally consistent with hypothesis.
+- **Advisor decision:** Sent back to nezuko for n=4 confirm on Cell E settings (β=0.99/α=0.3/scope=mlp). Predeclared decision tree: μ_n=4 ≤ 3.259221 → MERGE; ≤ 3.261221 but > gate → P3 (n=8) stacked confirm or close with detailed analysis; > 3.261221 → close clean-NEG. ETA ~7-8h.
+- **Strategic significance:** First post-#699 mechanism candidate to clear the n=1 stage gate. If it confirms at n=4, this opens a new mechanism family ("auxiliary slow-EMA injection into specific Muon parameter groups"), orthogonal to all 14+ closed Muon mechanism axes (mask/sign/clamp/depth-scale/polynomial-coefficient/etc.).
+
+---
+
 ## 2026-05-23 ~04:30 UTC — PR #785: alphonse Residual-proj init magnitude multiplier α=0.50 P2 — **CLOSED clean-NEG**
 
 - Branch: `g1r5-alphonse/resid-alpha-P2-a050-n4`
