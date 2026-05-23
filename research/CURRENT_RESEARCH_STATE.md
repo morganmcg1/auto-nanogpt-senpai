@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 20:15 UTC
+- **Date:** 2026-05-23 21:58 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,56 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 171 snapshot (21:58 UTC)
+
+### Terminals landed since cycle 170
+
+| PR | Arm/Pod | Run ID | val/loss | Δ vs baseline 3.26756 | direction | first_step_to_target |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| #845 | Pod 2 v2 | `y9g5c6v5` | **3.26877** | +0.00121 | drift PASS ±0.003 | 3200 |
+| #938 | Arm B (compound) | `xsikeso6` | **3.29771** | +0.03015 | **regression** | −1 (never) |
+
+### #845 — embed-grad freq rescale v2 chain partial n=2 favorable
+
+- Pod 1 v2 (`s5mjy5vw`): 3.26617 (−0.00139, favorable)
+- Pod 2 v2 (`y9g5c6v5`): 3.26877 (+0.00121, drift PASS)
+- **n=2 mean: 3.26747** — Δ=−0.00009 vs baseline 3.26756 (marginal, technically passes both merge gates)
+- Pod 3 v2 (`4d5fuxdk`): RUNNING step 150, started 21:50 UTC, ETA ~23:45 UTC
+- **Action**: posted favorable ack on Pod 2 v2 + Pod 3 v2 visibility. Holding merge decision for n=3 terminal. If Pod 3 v2 lands in 3.265-3.270 range, this becomes a clean marginal-favorable merge candidate.
+
+### #938 — lm_head init-anchor compound REGRESSION (Arm B catastrophic)
+
+- Arm A (control, embed-only λ=0.001): 3.27080 (drift +0.00324, ~2σ borderline)
+- Arm B (compound, embed+lm_head both λ=0.001): **3.29771 — Δ_B_vs_A = +0.02691 within-pod**
+- **Triggers student's own early-kill gate** (val ≥ 3.275 at final step → mandatory abort C/D)
+- **Action**: sent back with abort directive. Student should post terminal SENPAI-RESULT with `status:aborted_early_kill`, then GPU freed for new assignment.
+- **Mechanism interpretation**: lm_head init-anchor is destructive because every output projection row receives strong gradient from softmax denominator. Unlike embed (sparse rare-token gradients → anchoring helps), lm_head rows MUST diverge from init to learn token-discrimination geometry. Asymmetric: embed YES, lm_head NO. Closes the symmetric-anchoring extension axis.
+
+### Active chains (still running)
+
+| PR | Student | Hypothesis | Run | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|
+| #845 | askeladd | embed-grad freq rescale v2 Pod 3 | `4d5fuxdk` | 150 | early | ~23:45 |
+| #933 | nezuko | path-norm body-weight velocity penalty | `puhd26f3` (Arm 2) | 3150 | 3.2855 | ~22:15 |
+| #929 | edward | AdamW aux v_t floor (rebased) | `gea1rxoq` (Arm B) | 3100 | 3.2913 | ~22:15 |
+| #923 | frieren | Zipf-freq-weighted CE (rebased) | `fi8angie` (Arm 3) | 3100 | 3.3546 | ~22:20 |
+| #880 | thorfinn | Muon² body v_t ablation Pod 1 D | `5uj9nwv9` | 2950 | 3.3188 | ~22:30 |
+| #919 | fern | AdamW aux β₁ cooldown annealing Arm D | `adljastj` | 2125 | 3.4151 | ~23:30 |
+| #944 | tanjiro | Muon body grad centralization Arm B | `fd5nszpw` | 1125 | 3.6084 | ~01:00 (+1d) |
+
+### Sticky advisor-action flags
+
+- **#880** `needs_rebase`: from my own prior conditional-rebase comment; student already addressed in Pod 1 D launch. No action needed.
+- **#845** `merge_conflict_comment`: from old 17:54 UTC advisor comment that student already responded to. No action needed.
+
+### Operational notes
+
+- Zero idle GPUs — all 8 students productively training.
+- #938 will idle once student posts the abort SENPAI-RESULT. Next-cycle action: close #938 with mechanism-readout commentary, assign alphonse a fresh hypothesis.
+- Next imminent terminal cluster (22:15-22:30 UTC): #933 Arm 2, #929 Arm B, #923 Arm 3, #880 Pod 1 D.
 
 ---
 
