@@ -1,5 +1,16 @@
 # SENPAI Research Results
 
+## 2026-05-23 09:00 UTC — PR #892 CLOSED PRE-LAUNCH: Lookahead-Muon (duplicate of #505 / g1r1-edward)
+
+- Branch: `g1r1-edward/lookahead-muon` (closed before student picked up)
+- Hypothesis (proposed): Lookahead (Zhang et al. 2019) outer-loop slow weight average wrapping body-Muon with k=5/k=10, α=0.5.
+- **Duplicate-check FAIL — caught post-creation**: PR #505 (g1r1-fern, 2026-05-19) tested EXACTLY these arms on body-Muon. Documented in CURRENT_RESEARCH_STATE.md closed-axes ref (lines 116, 124) and confirmed by reading PR #505 comments.
+- **PR #505 verdict**: Both arms HARD NULL. Arm A k=5/α=0.5 (`8ad3mzjz`): sr=-1 DNF, Δval=+0.020. Arm B k=10/α=0.5 (`e3zkawez`): sr=-1 DNF, Δval=+0.022.
+- **PR #505 mechanism documented**: Discontinuous slow-weight resync corrupts PMuon's L_cov/R_cov covariance state. The covariance EMA accumulates at β=0.95 on the fast-weight trajectory; when fast←(1-α)·fast+α·slow displaces the params at the resync boundary, the next gradient is computed at a point inconsistent with the cov stats accumulated from the fast trajectory.
+- **#505 crossover pattern**: B (k=10) tighter mid-training (0.005 ahead at step 1250-1500); A (k=5) tighter late-cooldown. Gentler averaging is less destructive but neither arm escapes the discontinuity damage.
+- **Advisor learning (filed to memory)**: Always check closed-axes reference BEFORE designing PR body, not after. The fault was rushing to redeploy edward after #846 closure without verifying axis novelty.
+- **Edward reassigned**: #893 PMuon momentum first-moment Adam-style bias correction. Orthogonal to #822 (in flight, second-moment BC on L_cov/R_cov). Mechanism: corrects zero-init bias in momentum EMA accumulation via 1/(1-mu^t) factor before Nesterov mix.
+
 ## 2026-05-23 08:40 UTC — PR #846 CLOSED: AdEMAMix-Aux dual first-moment EMA α sweep — both arms NULL, 82nd axis (g1r1-edward)
 
 - Branch: `g1r1-edward/ademamix-aux-alpha`
