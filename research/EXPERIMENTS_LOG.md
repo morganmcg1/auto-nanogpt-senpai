@@ -1,3 +1,44 @@
+## 2026-05-23 02:35 UTC — PR #869 ASSIGNED (thorfinn): H81 Orthogonal init for transformer body 2D params (Saxe-style, fresh init-axis)
+
+- Branch: `g1r3-thorfinn/orthogonal-init-body`
+- Hypothesis: Body 2D params currently use `w.normal_(std=σ)` per-module (attn.proj 0.026, mlp.* 0.031, attn.QKV 0.33^0.5/sqrt(d_model)). Replace with `torch.nn.init.orthogonal_(w, gain=g)` so all singular values are unity at init — aligns initial spectrum with NS5's orthogonalization target instead of fighting it from step 0.
+- LoC ~25-30: gated init branch in `train_gpt_simple.py:785-810`. Bit-identical baseline when `--orthogonal_init 0`.
+- 3 arms (n=1, 3325 steps):
+  - arm_a CTRL `--orthogonal_init 0` (current normal_(std=σ) per-module)
+  - arm_b PRIMARY `--orthogonal_init 1 --orthogonal_init_gain frob_matched` (orthogonal STRUCTURE, Frobenius norm matched per-module via `gain = std × sqrt(max(out, in))`)
+  - arm_c DIAGNOSTIC `--orthogonal_init 1 --orthogonal_init_gain unit` (orthogonal structure, gain=1 — same structure as arm_b but different Frobenius)
+- arm_b vs arm_a tests **structure alone at fixed Frobenius**; arm_b vs arm_c tests **magnitude at fixed orthogonal structure**.
+- Mandatory smoke gates: step-0 sv_ratio verification per module (arm_a should be O(10-100); arm_b/arm_c should be 1.000 exactly); Frobenius norm match between arm_a and arm_b within 1%; bit-identical invariant for arm_a.
+- Mechanism telemetry every 250 steps: `train/sv_ratio_max_block_*` (does sv_ratio stay at 1.0 for orthogonal init? → NS5+Frobenius-ball is sufficient maintainer); `train/cos_sim_to_init_block_*` (does orthogonal init drift faster/slower from its starting weights?).
+- Decision tree:
+  - WIN: val < 3.27039 → mergeable (programme-level)
+  - HOLD: ≥0.5σ improvement → n=4 confirmation
+  - NULL: all 3 within ±1σ → init structure washes out by ~100 steps under NS5; programme-level finding "init structure doesn't matter for MuonH-SI's converged optimum"
+  - NEG: arm_b/c regresses >2σ → unforeseen interaction with MuLoCo's outer aggregation; document
+- Fresh axis: prior init experiments tested SCALE (#52, #57, #298, #507) but never STRUCTURE. H81 is first structure-axis init test in this programme.
+- W&B group `h81_orthogonal_init_body`. Reassignment after #831 closure. Why thorfinn: H70's rigorous 12-block mu telemetry + assertion-protected step-0 verification translates directly to weight singular-value structure verification at step 0.
+
+---
+
+## 2026-05-23 02:30 UTC — PR #831 CLOSED NEG (thorfinn): H70 Per-LAYER MuonH momentum — joint mu axis closure across temporal + per-LAYER (#767 + #831), axis-dependent MuLoCo homogenization finding
+
+- Branch: `g1r3-thorfinn/per-layer-mu`
+- Hypothesis: Vary inner MuonH `mu` per-LAYER (shallow vs deep blocks) to test if momentum-axis asymmetry is uniformly incompatible with MuLoCo (per-LAYER LR closure pattern) or LR-axis-specific.
+- Terminal SENPAI-RESULT, asymmetric NEG signal:
+
+| arm | mu pattern | val/loss | Δ vs arm_a | Δ vs ctrl pop μ | FFS | W&B |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | uniform 0.95 | **3.27157** | — | -0.00128 (-1.6σ favorable) | 3125 | `5mbyj1n5` |
+| arm_b PRIMARY | shallow=0.92, deep=0.97 | **3.27376** | +0.00219 | +0.00088 (+1.1σ ctrl-flat) | 3150 | `5pgorhxl` |
+| arm_c INVERSE | shallow=0.97, deep=0.92 | **3.27931** | +0.00774 | +0.00647 (**+8σ NEG**) | 3275 | `z4nhxhn5` |
+
+- **Asymmetric NEG**: arm_c clearly NEG, arm_b ctrl-flat. **Direction is informative**: deep-mu direction-sensitivity (low mu on deep blocks = noisier NS5 input → catastrophic; low mu on shallow blocks = benign).
+- **INTEGRATED PROGRAMME-LEVEL RULE (load-bearing)**: "MuonH-mu direction-window degradation is **depth-specific**, not uniformly homogenized by MuLoCo. **MuLoCo's per-group homogenization is axis-dependent**: LR-axis homogenizes (per-LAYER LR-axis CLOSED uniformly NEG #799+#807); mu-axis does NOT homogenize — preserves depth direction-sensitivity. Joint temporal+spatial mu axis closure across PR #767 (temporal schedule, ~12σ NEG uniform) + PR #831 (per-LAYER, ~8σ NEG asymmetric). Future per-LAYER mu proposals (deeper-only sweep, gradient-of-mu, mu-warmup) pre-closed by joint structural analogy."
+- Forensic discipline notes: caught dual-launch GPU contention (`5mbyj1n5` and `ra6powt3` both ctrl, ~50-67% step-rate; killed duplicate, recovered single-process speed); 12-block step-0 mu telemetry verified linear interpolation (0.92→0.97); `grouped_params == all_body_2d` assertion protected against orphan body matrices; bumped `torch._dynamo.config.cache_size_limit` 8→64 to handle 12 per-LAYER Dynamo cache (gated, no-op for single-mu path).
+- Routing → PR #869 H81 Orthogonal init for body 2D params (pivots to init-axis, fundamentally different layer; thorfinn's step-0 telemetry verification strength applies directly).
+
+---
+
 ## 2026-05-23 02:20 UTC — PR #866 ASSIGNED (frieren): H80 FP32 storage for aux AdamW state (m_t, v_t) — upstream complement to H64 fp32-eval
 
 - Branch: `g1r3-frieren/aux-fp32-state-adamw`
