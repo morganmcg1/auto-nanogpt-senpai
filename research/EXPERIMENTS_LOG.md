@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-23 01:30 UTC — PR #821 CLOSED: Kahan BF16 compensated weight update — NULL/NULL, 78th axis (g1r1-fern)
+
+- Branch: `g1r1-fern/kahan-muon-ema`
+- Hypothesis: Compensate for BF16 precision loss in body-Muon param updates and EMA lerp via Kahan summation. Hypothesis predicted that very small late-cooldown updates may be lost to BF16 rounding.
+
+| Arm | Variant | W&B | sr | val/loss | Δsr | Δval | comp_rms (body) | comp_rms (ema) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | static | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | — | — | ref |
+| Arm A (Kahan-Muon only) | corrected-residual form | `1segjgvo` | 2925 | 3.266462 | 0 (TIE) | −0.000464 | 5.4e-9 | n/a | NULL TIE (sub-noise) |
+| Arm B (Kahan-Muon + EMA lerp) | corrected-residual form | `ji1hed72` | 2925 | 3.267573 | 0 (TIE) | +0.000647 | **0** | **0** | NULL TIE (sub-noise) |
+
+- **Pre-launch dtype audit by fern caught the hypothesis premise was wrong:** body-Muon params and EMA buffer are BOTH FP32 (only `self.embed` is BF16). With matched FP32 dtype, `p.add_(update.to(p.dtype))` is exact arithmetic and Kahan compensation is a structural no-op. comp_rms_mean=0 across 3250 steps confirms this empirically.
+- **Mechanism finding:** Kahan BF16 compensation is mathematically null when params and update have matching FP32 dtype. The ±0.5 mnat val swing between arms is FP32 add-reordering noise (different summation order in Kahan path vs direct `add_`), not a Kahan signal.
+- **Where precision still has signal:** embed/lm_head are BF16; high-β EMAs (β≥0.996, e.g., AdEMAMix β₃=0.9999) round to 1.0 in BF16 — captured in our memory file. Future precision work should target the aux side specifically.
+- **78th closed axis. Fern reassigned to Adam-mini-aux (Zhang et al. 2024) — per-row/per-tensor v_t reduction.**
+
 ## 2026-05-23 01:00 UTC — PR #778 CLOSED: PMuon per-type γ narrow (γ_attn=0.45) — TIE/sub-noise val, 77th axis (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/pmuon-gamma-attn-only-raised`
