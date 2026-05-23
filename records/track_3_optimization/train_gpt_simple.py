@@ -61,6 +61,14 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--pmuon_bias_correction", action="store_true", default=False,
+                        help="Adam-style bias correction on PMuon L_cov/R_cov EMAs: divide "
+                             "L_cov, R_cov by (1 - beta_cov^t) before matrix_neg_power. "
+                             "Matches the un-normalized accumulator's asymptotic scale from "
+                             "step 1, reducing eps-floor clamping in early training.")
+    parser.add_argument("--pmuon_beta_cov", type=float, default=0.95,
+                        help="EMA coefficient for PMuon L_cov/R_cov covariance estimates. "
+                             "Default 0.95 preserves baseline behavior.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -475,10 +483,17 @@ def zeropower_via_newtonschulz5(G: Tensor, a: float = NS_A, b: float = NS_B, c: 
     return X
 
 
-def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
+def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12,
+                     diag_out: dict | None = None) -> Tensor:
     # Symmetric PSD M -> M^{-gamma} via eigendecomposition; eps clamp handles rank deficiency.
+    # When diag_out is provided, populates min/max eigvalue and eps-clamp fraction (as GPU
+    # scalar tensors, no .item() sync) for downstream logging.
     M = 0.5 * (M + M.T)
     eigvals, eigvecs = torch.linalg.eigh(M)
+    if diag_out is not None:
+        diag_out["min_eig"] = eigvals.min().detach()
+        diag_out["max_eig"] = eigvals.max().detach()
+        diag_out["eps_clamp_frac"] = (eigvals < eps).float().mean().detach()
     eigvals = eigvals.clamp_min(eps).pow(-gamma)
     return (eigvecs * eigvals) @ eigvecs.T
 
@@ -497,6 +512,9 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    t: int = 1,
+    bias_correction: bool = False,
+    bc_diag: list | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -506,8 +524,33 @@ def pmuon_update(
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
 
-    L_neg = matrix_neg_power(L_cov, gamma, eps)
-    R_neg = matrix_neg_power(R_cov, gamma, eps)
+    # Adam-style bias correction: rescale L_cov, R_cov by 1/(1 - beta_cov^t) so the
+    # un-normalized accumulator's magnitude matches its asymptotic value from step 1.
+    # Clamp to >= 0.01 to bound the multiplier at 100× (matters for beta_cov >= 0.99).
+    if bias_correction:
+        bc = max(1.0 - beta_cov ** t, 0.01)
+        L_for_inv = L_cov / bc
+        R_for_inv = R_cov / bc
+    else:
+        bc = 1.0
+        L_for_inv = L_cov
+        R_for_inv = R_cov
+
+    if bc_diag is not None:
+        L_diag: dict = {}
+        R_diag: dict = {}
+        L_neg = matrix_neg_power(L_for_inv, gamma, eps, diag_out=L_diag)
+        R_neg = matrix_neg_power(R_for_inv, gamma, eps, diag_out=R_diag)
+        bc_diag.append({
+            "L_min": L_diag["min_eig"], "L_max": L_diag["max_eig"],
+            "L_eps_frac": L_diag["eps_clamp_frac"],
+            "R_min": R_diag["min_eig"], "R_max": R_diag["max_eig"],
+            "R_eps_frac": R_diag["eps_clamp_frac"],
+            "bc": bc, "t": t,
+        })
+    else:
+        L_neg = matrix_neg_power(L_for_inv, gamma, eps)
+        R_neg = matrix_neg_power(R_for_inv, gamma, eps)
     m_pre = (L_neg @ update.float()) @ R_neg
 
     polar = zeropower_via_newtonschulz5(m_pre.to(update.dtype), a=ns_a, b=ns_b, c=ns_c)
@@ -532,12 +575,15 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C, bias_correction=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c, bias_correction=bias_correction)
         super().__init__(params, defaults)
+        # Set by external caller before .step() to collect per-param bias-correction eigval
+        # diagnostics. Computed cheaply by reusing matrix_neg_power's eigvals (no extra eigh).
+        self._collect_bc_diag = False
 
     @torch.no_grad()
     def step(self):
@@ -548,6 +594,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        bc_diag: list | None = [] if self._collect_bc_diag else None
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -559,6 +606,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        state["pmuon_step"] = 0
+                    state["pmuon_step"] += 1
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -571,6 +620,9 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        t=state["pmuon_step"],
+                        bias_correction=group["bias_correction"],
+                        bc_diag=bc_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -584,6 +636,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._bc_diag = bc_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -701,7 +754,8 @@ if dist.get_rank() == 0:
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": 0.035,
             "muon_weight_decay": 0.025,
-            "pmuon_beta_cov": 0.95,
+            "pmuon_beta_cov": args.pmuon_beta_cov,
+            "pmuon_bias_correction": int(args.pmuon_bias_correction),
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
             "ns_iterations": NS_ITERS,
@@ -753,7 +807,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=args.pmuon_beta_cov,
+                      gamma=PMUON_GAMMA, bias_correction=args.pmuon_bias_correction)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -974,6 +1029,8 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # Toggle PMuon bc diag collection only on telemetry steps to avoid per-step .item() syncs.
+        optimizer2._collect_bc_diag = telemetry_due and dist.get_rank() == 0
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
@@ -1025,6 +1082,32 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            bc_diag = getattr(optimizer2, "_bc_diag", None)
+            if bc_diag:
+                # Aggregate per-param tensor stats (single .item() per param × stat).
+                L_min_vals = [float(d["L_min"].item()) for d in bc_diag]
+                L_max_vals = [float(d["L_max"].item()) for d in bc_diag]
+                R_min_vals = [float(d["R_min"].item()) for d in bc_diag]
+                R_max_vals = [float(d["R_max"].item()) for d in bc_diag]
+                L_eps_fracs = [float(d["L_eps_frac"].item()) for d in bc_diag]
+                R_eps_fracs = [float(d["R_eps_frac"].item()) for d in bc_diag]
+                n = len(bc_diag)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon_bc/enabled": int(args.pmuon_bias_correction),
+                    "pmuon_bc/beta_cov": args.pmuon_beta_cov,
+                    "pmuon_bc/denominator_t": float(bc_diag[0]["bc"]),
+                    "pmuon_bc/pmuon_step_t": int(bc_diag[0]["t"]),
+                    "pmuon_bc/L_eigval_min_mean": sum(L_min_vals) / n,
+                    "pmuon_bc/L_eigval_max_mean": sum(L_max_vals) / n,
+                    "pmuon_bc/R_eigval_min_mean": sum(R_min_vals) / n,
+                    "pmuon_bc/R_eigval_max_mean": sum(R_max_vals) / n,
+                    "pmuon_bc/L_eps_clamp_frac": sum(L_eps_fracs) / n,
+                    "pmuon_bc/R_eps_clamp_frac": sum(R_eps_fracs) / n,
+                    "pmuon_bc/eps_clamp_frac": (sum(L_eps_fracs) + sum(R_eps_fracs)) / (2 * n),
+                    "pmuon_bc/num_params": n,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
