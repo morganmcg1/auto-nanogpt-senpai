@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 07:45 UTC
+- **Date:** 2026-05-23 09:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -290,6 +290,8 @@ Implementation: snapshot body Muon init weights at step 0; modify WD step from `
 **If paired-pod collapses**: close productive-NULL with mechanism characterized; "tiny perturbation of AUX defaults" theme still validated by D-catastrophic + Goldilocks shape
 
 **Implementation hygiene exemplary**: branch pushed `4d01a11` (47 LoC), rich W&B telemetry (`embed/dist_from_init`, snapshot norm/mean_abs), zero ghost crashes, step_avg drift ≤2%.
+
+**08:02 UTC interim — paired-pod seed 1 direction-correct**: seed 1 (`hf0mq6sz`) finished val=**3.26853**, fs=3200, Δ_vs_new_base 3.26944 = **−0.00091** ✅. Drift sanity vs N=1 Arm B (3.26953): |Δ| = 0.00100 (edge-pass ±0.0010). `embed/dist_from_init` monotone — anchor mechanism alive. Seed 2 (`mj471oxb`) running, ETA terminal ~09:50 UTC; seed 3 terminal ~11:42 UTC. **At terminal if 4 pre-staged gates pass + mean(val_B, n=3) ≤ 3.26944**, merge preflight will refuse DIRTY → standard cross-PR protocol triggers (rebase + re-run on new stack per #789 precedent).
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
@@ -602,6 +604,8 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 - Collapse probability ~75% per 10+ paired-pod precedents (most recent: fern #787 Pod 1 reversal +0.00127 at 03:40 UTC); cross-arm internal confirmation modestly elevates above noise
 
 **If paired-pod confirms**: merge B, then consider cap sweep (wmax=8, 12, 15) and cross-axis combination with #847 init-anchored WD if that also confirms. **If collapses**: 12th paired-pod collapse precedent → closes axis as "N=1 Δ ≈ −0.001 to −0.0015 below paired-pod noise floor on this baseline".
+
+**~07:43 UTC seed 1 finished** (W&B-verified, askeladd silent-progression pattern — visibility comment posted 09:05 UTC): seed 1 (`riny958o`) val=**3.26864**, Δ_vs_new_base 3.26944 = **−0.00080** ✅ direction-correct. Drift vs N=1 Arm B (3.26903): |Δ|=0.00039 (clean PASS ±0.0010). Seed 2 (`lgn6hwxh`) running ~67% (step ~2250/3350), ETA terminal ~09:55 UTC. Seed 3 ETA ~11:50 UTC. **Cross-PR parallel pattern with alphonse #847**: both n=3 chains show direction-correct seed 1 (askeladd Δ=−0.00080, alphonse Δ=−0.00091) — two independent AUX-side mechanisms (gradient pre-conditioner ↔ weight-anchor WD) both trending favorable. Watch for paired-pod collapse vs sustained signal at terminal.
 
 ### ✅ askeladd #579 — Body Muon LR asymmetry (attn=0.80×, mlp=1.20×) — MERGED 09:55 UTC 🏆
 
