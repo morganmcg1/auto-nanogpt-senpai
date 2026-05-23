@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 07:25 UTC
+- **Date:** 2026-05-23 07:45 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -979,6 +979,8 @@ ETA ~7h chain. Edward #874 (embed init magnitude) and #880 thorfinn are both sta
 Implementation: ~3 LOC, `w.normal_()` followed by `if scale != 1.0: w.mul_(scale)`. Bit-identical fallback at scale=1.0. Mechanism-orthogonal to #812 (body), #847 (drift-suppression-from-init), #848 (lm_head zero-perturbation). Symmetric to #393 ADAMW_EMBED_LR_MULT=1.5 MERGED but on init axis.
 
 ETA terminal ~12-14h sequential.
+
+**07:39 UTC relaunch on new stack**: Arm A on OLD code (val=3.26845, fs=3200, W&B `wccdjzbz`) correctly INVALIDATED by edward — pre-#787 stack, no stochastic NS cooldown. Hard-reset to advisor branch + cherry-picked single embed-init commit → clean rebase. All 4 arms now include `NANOGPT_NS_STOCHASTIC_COOLDOWN=2`. Drift gate now |Δ vs 3.26944| ≤ 0.003. New ETA ~14:40 UTC. OLD-code Arm A drift sanity passes (Δ=−0.00191 vs OLD baseline 3.27036).
 
 ### 🗃️ edward #838 — assignment text (archived)
 
