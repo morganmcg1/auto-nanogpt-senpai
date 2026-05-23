@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 22:15 UTC
+- **Date:** 2026-05-23 22:30 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -78,14 +78,23 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 
 | PR | Student | Hypothesis | Run | step | val/loss | ETA |
 |:---:|:---:|---|---|:---:|:---:|:---:|
-| #845 | askeladd | embed-grad freq rescale v2 Pod 3 | `4d5fuxdk` | 150 | early | ~23:45 |
-| #956 | alphonse | lm_head per-row max-norm soft-clamp (NEW) | — | — (not started) | — | ~29:00 |
-| #933 | nezuko | path-norm body-weight velocity penalty | `puhd26f3` (Arm 2) | 3150 | 3.2855 | ~22:15 |
-| #929 | edward | AdamW aux v_t floor (rebased) | `gea1rxoq` (Arm B) | 3100 | 3.2913 | ~22:15 |
-| #923 | frieren | Zipf-freq-weighted CE (rebased) | `fi8angie` (Arm 3) | 3100 | 3.3546 | ~22:20 |
-| #880 | thorfinn | Muon² body v_t ablation Pod 1 D | `5uj9nwv9` | 2950 | 3.3188 | ~22:30 |
-| #919 | fern | AdamW aux β₁ cooldown annealing Arm D | `adljastj` | 2125 | 3.4151 | ~23:30 |
-| #944 | tanjiro | Muon body grad centralization Arm B | `fd5nszpw` | 1125 | 3.6084 | ~01:00 (+1d) |
+| #845 | askeladd | embed-grad freq rescale v2 Pod 3 | `4d5fuxdk` | 925 | 3.6562 | ~23:45 |
+| #956 | alphonse | lm_head per-row max-norm soft-clamp (NEW) | — | poll-pending | — | ~03:30 |
+| #933 | nezuko | path-norm body-weight velocity (Arms C, D pending) | (queued Arms C, D) | — | Arm B done 3.27009 | ~01:50 |
+| #929 | edward | AdamW aux v_t floor (Arms C, D pending) | (queued Arms C, D) | — | Arm B done 3.26990 | ~01:00 |
+| #923 | frieren | Zipf-freq-weighted CE — **abort recommended** | aborting Arms C, D | — | Arm B 3.33335 CATASTROPHIC | — |
+| #880 | thorfinn | Muon² body v_t β₂=0.9999 Pod 2 A | `m0jdlx6u` | 30 | early | ~23:55 / Pod 2 D ~01:50 |
+| #919 | fern | AdamW aux β₁ cooldown annealing Arm D | `adljastj` | 3025 | 3.2976 | ~22:50 |
+| #944 | tanjiro | Muon body grad centralization Arm B | `fd5nszpw` | 2025 | 3.4430 | ~01:00 (+1d) |
+
+### Cycle 173 terminals digest
+
+| PR | Arm | Run | val/loss | Δ vs ctrl | direction |
+|:---:|:---:|---|:---:|:---:|:---:|
+| #933 | Arm B (λ=1e-5/k=10) | `puhd26f3` | 3.27009 | +0.00070 (vs `2ejxjr5g` 3.26939) | productive-NULL |
+| #929 | Arm B | `gea1rxoq` | 3.26990 | +0.00009 (vs `tm15vkbl` 3.26981) | noise-floor NULL |
+| #880 | Pod 1 D | `5uj9nwv9` | 3.26876 | −0.00061 (vs Pod 1 A `it83u13l` 3.26937) | sub-threshold ✓ |
+| #923 | Arm B (α=0.50) | `fi8angie` | **3.33335** | **+0.06460** (vs `43z88t0h` 3.26875) | **CATASTROPHIC — abort C/D** |
 
 ### Sticky advisor-action flags
 
@@ -95,8 +104,10 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 ### Operational notes
 
 - Zero idle GPUs — all 8 students productively training.
-- #938 CLOSED (cycle 172). alphonse reassigned to #956 (lm_head per-row max-norm soft-clamp).
-- Next imminent terminal cluster (22:15-22:30 UTC): #933 Arm 2, #929 Arm B, #923 Arm 3, #880 Pod 1 D.
+- #938 CLOSED (cycle 172). alphonse reassigned to #956 (lm_head per-row max-norm soft-clamp); pod has not yet polled (PR assigned 22:15 UTC).
+- Cycle 173 (22:30 UTC): 4 acks posted (#923 abort/back, #933 ack, #929 ack, #880 ack).
+- Next imminent terminal cluster (22:50-23:55 UTC): #919 Arm D (3025/3350, val=3.2976 trending NEG), #845 Pod 3 v2, #880 Pod 2 A.
+- #923 frieren will idle once student posts terminal abort SENPAI-RESULT. Next-cycle action: close #923 with mechanism-readout commentary, assign frieren a fresh hypothesis.
 
 ---
 
