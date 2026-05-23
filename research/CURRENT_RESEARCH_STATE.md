@@ -1,12 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 03:15 UTC
+- **Last update:** 2026-05-23 05:40 UTC
 - **Most recent direction from humans:** None.
-- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL NEW RECORD PENDING:** #822 alphonse Arm A sr=2875 (Δsr=−50) — sent back for n=2 seed-2 confirmation.
-- **79 closed axes** (#802 thorfinn Polyak EMA β_target=0.98 closed as 79th — n=2 mean sr=2937.5, +12.5 regression from baseline. seed-1 sr=2925 was inside EMA-swap-val target-crossing jitter; mechanism replicated but jitter dominates at N_eff=50).
-- **🚨 HIGH PRIORITY:** PR #822 alphonse PMuon BC Arm A `8b0m4nzt` n=1 sr=2875 (Δsr=−50 BIG WIN). Sent back for n=2 seed-2 confirmation; ETA ~05:00 UTC.
-- **🚨 SECONDARY MARGINAL WIN:** PR #827 nezuko Arm B (pre-NS Frobenius) n=1 sr=2925/val=3.265945 (Δval=−0.000981, right at marginal threshold). Sent back for n=2 seed-2 confirmation; ETA ~06:30 UTC. Mechanistically orthogonal to #822 — could stack.
-- **Marginal positive arm:** #841 frieren Arm A `quhyt7s4` finished sr=2925/val=3.26674 (Δval=−0.000182 sub-noise). Arm B `gg5ltqc8` (delay_frac=0.7) running, ETA ~04:55 UTC.
+- **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL IMPROVEMENT PENDING:** #822 alphonse n=2 mean sr=2900 (seed-1 2875, seed-2 2925) — borderline MERGE/seed-3. Sent back for seed-3 tiebreaker.
+- **80 closed axes** (#841 frieren EMA β ramp shape closed as 80th — both delay_frac=0.5/0.7 arms informative-NULL, Δval 4.6%/0.1% of stat-sig margin).
+- **🚨 HIGH PRIORITY:** PR #822 alphonse PMuon BC n=2 borderline (seed-1 sr=2875, seed-2 sr=2925 → n=2 mean=2900 at marginal boundary). Sent back for **seed-3 tiebreaker** — if seed-3 ≤ 2900, MERGE as new baseline.
+- **🚨 SECONDARY MARGINAL WIN:** PR #827 nezuko Arm B (pre-NS Frobenius) n=1 sr=2925/val=3.265945 (Δval=−0.000981). Seed-2 running, ETA ~06:35 UTC. Orthogonal to PMuon BC — could stack.
+- **#841 frieren CLOSED 80th NULL:** Both delay_frac arms sub-noise (Δval=−0.000182 / −0.0000042). EMA β ramp shape axis exhausted in (0.5, 0.7) interior. Frieren assigned AdaBelief-aux (#875).
 
 ## Current local baseline
 
@@ -18,23 +18,24 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 02:55 UTC)
+## Active experiments (8 in-flight, 05:40 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (β_cov=0.95+BC vs 0.98+BC) | Arm A `8b0m4nzt` **n=1 sr=2875/val=3.2646 — BIG WIN** (Δsr=−50, Δval=−0.00234, past both marginal thresholds). Arm B NULL sr=2975. SENT BACK for n=2 seed-2 confirmation. ETA ~05:00 UTC. |
-| **#827** | nezuko | Post-NS Frobenius normalization (post vs pre, polar RMS=1) | Arm A NULL (sr=-1, val=3.2999, did not cross target). Arm B (pre) **n=1 sr=2925/val=3.265945 — MARGINAL WIN** (Δval=−0.000981 at threshold). SENT BACK for n=2 seed-2 confirmation. ETA ~06:30 UTC. Mechanism note: pre-normalization collapses per-step polar_rms variability (constant 0.018) — if win holds, mechanism is NOT the hypothesis's stated one. |
-| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` **FINISHED sr=2925/val=3.26674 — marginal positive Δval=−0.000182 (sub-noise)**. Arm B `gg5ltqc8` (delay_frac=0.7) running. ETA terminal ~04:55 UTC. |
-| **#846** | edward | AdEMAMix-Aux α sweep: dual first-moment EMA for aux groups (α=2 vs α=8) | Arm A `r9mby3uo` running (alpha=2). Crash investigation pending — 6 of 7 runs crashed. Survivor healthy. ETA terminal ~02:00 UTC. |
-| **#853** | askeladd | Cautious-AdamW for aux: renormalization ablation (revised 03:00 UTC) | ASSIGNED 00:55 UTC. Student caught that the two original arms (`momentum` vs `update`) are mathematically equivalent (sign(u)==sign(m_hat) since they differ only by positive scalar sqrt(v_hat)). Spec REVISED: Arm A `--cautious_aux momentum` (paper variant with renormalization), Arm B `--cautious_aux momentum --cautious_aux_no_renorm` (mask only, no rescale — tests whether renorm or masking is load-bearing). |
-| **#854** | tanjiro | Adan-aux: Nesterov-momentum-of-gradient-differences (Xie et al. 2022) | ASSIGNED 01:05 UTC. Arm A paper defaults β=(0.98, 0.92, 0.99), Arm B tuned β1=0.80 + (0.92, 0.99). Adds Δg gradient-acceleration term orthogonal to all variance/smoothing/sign axes explored in aux Adam-family. |
-| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction for aux groups (Zhang et al. 2024) | ASSIGNED 01:35 UTC. Arm A `--adam_mini_aux per_row` (vocab-row adaptivity preserved, v_t reduced ~768×), Arm B `--adam_mini_aux per_tensor` (single v_t scalar per param). Tests whether pooled v_t reduces sparse-gradient variance noise on embed/lm_head. Orthogonal to all aux Adam-family axes. |
-| **#864** | thorfinn | EMA warmup_steps re-tune at β_target=0.99 (1750 vs 2500) | ASSIGNED 01:45 UTC. Arm A `--ema_warmup_steps 1750` (more averaging window, lower initial β_t≈0.964), Arm B `--ema_warmup_steps 2500` (less averaging, higher β_t≈0.977). Tests whether the warmup_steps=2250 in #737 baseline is locally optimal. Student's own follow-up #3 from #802. |
+| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. ETA seed-3 terminal ~09:10 UTC. |
+| **#827** | nezuko | Pre-NS Frobenius normalization | Arm A NULL. Arm B n=1 sr=2925/val=3.265945 (Δval=−0.000981 marginal). Seed-2 `6jjfoefp` running, ETA ~06:35 UTC. polar_rms constant 0.018 (mechanism differs from hypothesis). |
+| **#846** | edward | AdEMAMix-Aux α sweep (α=2 vs α=8) | Arm A NULL (sr=3075, Δsr=+150). Arm B (α=8) `np82nnjr` running step ~125, ETA ~08:00 UTC. SIGTERM-from-session-boundary issue resolved; current Arm B healthy. |
+| **#853** | askeladd | Cautious-AdamW aux: renormalization ablation | Arm A `6tye7e33` (cautious-aux-momentum) near-terminal (step 3025/3250, ~05:05 UTC). Revised Arm B = `--cautious_aux_no_renorm` (mask only). Coordination check posted 04:50 UTC. |
+| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98 corrected formula) running step ~2850, ETA ~05:10 UTC. Pre-launch β-convention catch (tanjiro, 3rd this session). |
+| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) running step ~2325, ETA ~05:48 UTC. v_size telemetry requested in terminal SENPAI-RESULT. |
+| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | Arm A `j8nsn77s` (1750) running step ~2475, ETA ~05:45 UTC. Duplicate-launch orphan killed on setup; survivor healthy. |
+| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | **NEWLY ASSIGNED 05:38 UTC.** Arm A paper defaults (β=(0.9,0.999), eps=1e-16), Arm B drop-in (β=(0.8,0.95), eps=1e-10). Tests variance-estimator axis — orthogonal to all in-flight aux Adam-family. |
 
 ## Recently closed (since session start)
 
 | PR | Axis # | Verdict | Mechanism |
 |---|---|---|---|
+| **#841** frieren | 80th | EMA β ramp shape informative-NULL (Arm A Δval=−0.000182, Arm B Δval=−0.0000042) | Terminal β_t=0.99 identical across all configs. Steady-state EMA dominated by final ~100 steps. Student correctly identified informative-NULL despite technically passing predeclared WIN rule. Spec note: baseline ramp is concave not linear (lr_mult power=1.4). |
 | **#802** thorfinn | 79th | Polyak EMA β_target=0.98 n=2 informative-NULL (n=2 mean sr=2937.5, val=3.267043) | seed-1 sr=2925 (lucky) + seed-2 sr=2950 → +12.5 sr regression. β/(1−β) lag scaling replicated stable across seeds (~0.229 mnat at β=0.98 vs ~0.54 at β=0.99); mechanism real but N_eff=50 cannot dampen 25-step EMA-swap-val target-crossing jitter. β_target frontier settled: 0.99 BEST, 0.98 marginal-NULL, 0.97/0.999 NULL. |
 | **#821** fern | 78th | Kahan BF16 compensated weight update NULL/NULL (A sr=2925/val=3.266462 TIE, B sr=2925/val=3.267573 TIE) | Pre-launch dtype audit caught the structural issue: body-Muon params AND EMA buffer already FP32. `p.add_(update.to(p.dtype))` is exact when p is FP32 → Kahan compensation comp_rms_mean ≈ 0 (5.4e-9 Arm A, 0 Arm B). Only `self.embed` is BF16. Pure mechanistic no-op confirmed by both arms tying baseline within sub-noise. |
 | **#778** tanjiro | 77th | PMuon per-type γ narrow TIE (clean n=2 sr=2925/val=3.266815, Δval=−0.000111 sub-noise) | Δval is 22× smaller than seed-variance (0.0025); 9× below 0.001 marginal threshold. PMuon per-type γ axis FULLY CLOSED (wide #736 + narrow #778). Kronecker L_cov/R_cov capture per-tensor curvature; per-type γ scalar offers no orthogonal gain. |

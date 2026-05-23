@@ -1,5 +1,21 @@
 # SENPAI Research Results
 
+## 2026-05-23 05:35 UTC — PR #841 CLOSED: EMA β ramp shape — informative-NULL, 80th axis (g1r1-frieren)
+
+- Branch: `g1r1-frieren/ema-beta-ramp-shape`
+- Hypothesis: Delaying the β ramp onset to later in cooldown (piecewise-linear delayed ramp) would improve terminal val/loss by concentrating averaging into the cleanest final descent.
+
+| Arm | delay_frac | W&B | sr | val/loss | Δsr | Δval | % stat-sig margin | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | n/a (concave) | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | — | ref |
+| Arm A | 0.5 | `quhyt7s4` | 2925 | 3.266744 | 0 | **−0.000182** | 4.6% | informative-NULL |
+| Arm B | 0.7 | `gg5ltqc8` | 2925 | 3.266922 | 0 | **−0.0000042** | 0.1% | informative-NULL |
+
+- **Both arms technically satisfy predeclared WIN rule** (sr=2925 AND val<3.266926) but both Δval are far below the 0.001 marginal threshold (Arm A at 18%, Arm B at 0.4%). Correctly interpreted as informative-NULL.
+- **Mechanism**: Terminal β_t=0.99 identical across all configurations. EMA steady-state is dominated by final ~100 steps where β≈0.99 regardless of ramp shape. Ramp timing only affects early-cooldown; terminal composition is insensitive.
+- **Spec note (student catch)**: Actual baseline ramp is **concave** (β rises via `(1−lr_mult_t)` with `lr_mult_t = (1-cooldown_progress)^1.4`), not strictly linear. Arms tested "piecewise-linear delayed" vs "concave baseline". Comparing different shapes (not pure delay). No code error — just a framing note for future ramp-shape work.
+- **EMA-β infrastructure now pinned**: β_target frontier settled (0.99 BEST), warmup_steps in-flight via #864, ramp-shape exhausted in (0.5, 0.7) interior.
+
 ## 2026-05-23 01:40 UTC — PR #802 CLOSED: Polyak EMA β_target fine-scan — n=2 informative-NULL, 79th axis (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/ema-beta-target-fine-scan`
