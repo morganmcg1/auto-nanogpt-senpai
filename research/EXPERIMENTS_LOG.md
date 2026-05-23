@@ -3,6 +3,50 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-23 05:25 UTC — PR #838: AdamW multiplicative v_t floor for lm_head (edward) — CLOSED productive-NEGATIVE (77th cycle)
+
+- Branch: `g1r4-edward/adamw-vmin-floor` (commit `1271aa73`)
+- Hypothesis: lm_head AdamW `v_t` is Zipf-distributed across vocab; multiplicative percentile-anchored floor `v_eff = max(v_t, α × reduce(v_t))` compresses per-coord step magnitude variance without mutating state buffer. Mechanism-distinct from #652 additive ε (additive in denom) and #618 NS replacement (full homogenization).
+
+**Terminal 4-arm N=1 result (drift gate A PASS edge, favorable seed Δ=−0.00212):**
+
+| Arm | mode | frac | run_id | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 | Verdict |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---|
+| A (ctrl) | none | 0 | 67w8k970 | 3.26824 | 3200 | — | −0.00212 (favorable seed) | drift PASS edge |
+| B | median_frac | 1e-4 | zxxxagn7 | 3.26983 | 3200 | **+0.00159** | −0.00053 | marginal regression |
+| C | median_frac | 1e-3 | xayaoxhz | 3.26942 | 3200 | **+0.00118** | −0.00094 | sub-threshold regression |
+| D | max_frac | 1e-6 | ku2ihasf | 3.27483 | 3275 | **+0.00659** | +0.00447 | **strong regression** |
+
+**Verdict**: No arm crosses signal threshold (Δ_vs_A ≤ −0.002). All floored arms direction-incorrect within-pod. Arm A's primary_metric below baseline is favorable-seed luck on the non-fused codepath — not the mechanism.
+
+**Durable mechanism finding (Edward's terminal observation)**: For Zipf-distributed v_t on lm_head, `max(v)/median(v) > 1000` → **`max_frac=1e-6` is stronger in absolute floor magnitude than `median_frac=1e-3`**. The PR's label "very mild reference" for Arm D was wrong; Arm D was actually the most aggressive floor. Reading B→C→D in absolute floor magnitude (not in nominal labels) gives monotone direction-incorrect: weak (Arm A 0) → mild (Arm C 32× median) → mildly-stronger (Arm B 100× median) → strongest (Arm D > median 1e-3 in absolute units). The Zipf-distributed v_t carries legitimate per-token signal; compressing it strips that signal.
+
+**Composition with lm_head closed-axes ledger (13 closures)**:
+
+| PR | Mechanism | Verdict |
+|---|---|---|
+| #441 | Logit z-loss | NEG (loss-side) |
+| #446 | Label smoothing | NEG (loss-side) |
+| #547 | Cooldown shape | NULL |
+| #560 | β₂ per-group | NULL |
+| #584 | LR-mult sweep | NULL |
+| #599 | β₁ per-group | NEG |
+| #618 | Muon² (NS replacement) | NEG |
+| #652 | Per-group ε (additive floor) | NEG |
+| #663 | SOAP preconditioning | NULL |
+| #664 | BC disable | NULL |
+| #668 | Per-row L2 grad clip | NEG |
+| #791 | Focal loss | NEG |
+| **#838** | **Multiplicative v_t floor** | **NEG** |
+
+**Pattern across 13 closures**: lm_head's optimizer-side preconditioner is structurally distinct from inner-block Hessians, and AdamW with merged defaults (lr=1/320, grad_clip_aux=5.0, β₂=0.99) extracts the available signal. Future lm_head work should NOT target preconditioner replacements/magnitude interventions — pivot to representational mechanisms or structural changes (architecture changes are out of scope per launch isolation).
+
+**Branch hygiene clean**: commit `1271aa73` pushed 2026-05-22T23:30:40Z (my earlier "not pushed" claim was a stale view; corrected in closure comment). 4 ghost-crash Arm A retries (`sd072zai`/`nbk1nc3l`/`qpb3n12z`/`pdi1ao34`) were spurious concurrent `torchrun` launches by prior CC iterations not detecting still-live PID — mitigated via `wait_then_run_BCD.sh` PID-checking shim. Not implicated by FloorAdamW (all duplicates had `mode=none`).
+
+**Follow-up**: edward reassigned to **#849 Embed weight initialization magnitude sweep** — fresh AUX-side init axis parallel to thorfinn #848 (lm_head init perturbation). Bilateral test of "init magnitude on AUX side is load-bearing" — building on tonight's emerging "tiny perturbation of AUX defaults wins" theme (#847 Goldilocks at λ=0.001 + #848 Goldilocks at std=0.0001).
+
+---
+
 ## 2026-05-22 22:30 UTC — PR #812: Orthogonal Haar-measure init for body Muon matrices (thorfinn) — CLOSED productive-NULL (76th cycle)
 
 - Branch: `g1r4-thorfinn/ortho-body-init`
