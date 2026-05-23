@@ -1,16 +1,17 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 06:00 UTC
+- **Last update:** 2026-05-23 06:55 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **TWO POTENTIAL IMPROVEMENTS PENDING:** #822 alphonse PMuon BC seed-3 tiebreaker; #864 thorfinn EMA warmup=1750 marginal val win.
-- **80 closed axes** (#841 frieren EMA β ramp shape 80th).
+- **81 closed axes** (#827 nezuko NS-output Frobenius normalization 81st — n=2 informative-NULL).
 - **🚨 HIGH PRIORITY #1:** PR #822 alphonse PMuon BC seed-3 in flight (n=2 mean sr=2900 at marginal boundary). If seed-3 sr≤2900, MERGE as new baseline. ETA ~09:10 UTC.
 - **🚨 HIGH PRIORITY #2:** PR #864 thorfinn EMA warmup=1750 Arm A `j8nsn77s` **TERMINAL: sr=2925/val=3.266355 — marginal val WIN** (Δval=−0.000571 sub-marginal). Strict win rule passes; n=2 confirmation required. Arm B (warmup=2500) running, ETA ~09:25 UTC.
-- **🚨 HIGH PRIORITY #3:** PR #827 nezuko Arm B (pre-NS Frobenius) seed-2 running, ETA ~06:35 UTC. n=1 marginal val win (Δval=−0.000981) waiting confirmation.
 - **Today's terminals so far (all NULL/TIE):**
   - #846 edward Arm A (α=2): sr=3075, Δsr=+150, Δval=+0.0088 — NULL
   - #854 tanjiro Arm A (b1=0.98): sr=-1 (did NOT cross target), val=3.2833 — hard NULL
   - #863 fern Arm A (per_row): sr=2925/val=3.267874 (Δval=+0.000948 sub-marginal regression) — NULL/TIE
+  - #853 askeladd Arm A `6tye7e33` (cautious-aux momentum, with renorm): sr=3175/val=3.27847 — NULL
+  - #827 nezuko Arm B (pre-NS Frobenius) seed-2 confirmation: n=2 Δval=+0.000055 — informative-NULL (CLOSED)
 
 ## Current local baseline
 
@@ -22,18 +23,20 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 05:40 UTC)
+## Active experiments (7 in-flight, 06:55 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. ETA seed-3 terminal ~09:10 UTC. |
-| **#827** | nezuko | Pre-NS Frobenius normalization | Arm A NULL. Arm B n=1 sr=2925/val=3.265945 (Δval=−0.000981 marginal). Seed-2 `6jjfoefp` running, ETA ~06:35 UTC. polar_rms constant 0.018 (mechanism differs from hypothesis). |
-| **#846** | edward | AdEMAMix-Aux α sweep (α=2 vs α=8) | Arm A NULL (sr=3075, Δsr=+150, Δval=+0.0088). Arm B (α=8) `np82nnjr` running, ETA ~08:00 UTC. |
-| **#853** | askeladd | Cautious-AdamW aux: renormalization ablation | Arm A `6tye7e33` (cautious-aux-momentum) near-terminal (step 3025/3250, ~05:05 UTC). Revised Arm B = `--cautious_aux_no_renorm` (mask only). Coordination check posted 04:50 UTC. |
-| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98) TERMINAL — hard NULL (sr=−1, val=3.2833 did NOT cross 3.28 target). Arm B `aae3y07x` (b1=0.80 tuned) running, ETA ~09:25 UTC. |
-| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 1, ETA ~09:35 UTC. |
-| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 325. ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
-| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | **NEWLY ASSIGNED 05:38 UTC.** Arm A paper defaults (β=(0.9,0.999), eps=1e-16), Arm B drop-in (β=(0.8,0.95), eps=1e-10). Tests variance-estimator axis — orthogonal to all in-flight aux Adam-family. |
+| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. Seed-3 `7bgqna61` running step 950, ETA terminal ~09:10 UTC. |
+| **#846** | edward | AdEMAMix-Aux α sweep (α=2 vs α=8) | Arm A NULL (sr=3075, Δsr=+150, Δval=+0.0088). Arm B (α=8) `np82nnjr` running step 1850 (~57%), ETA ~08:30 UTC. stale_wip cleared 06:55 UTC. |
+| **#853** | askeladd | Cautious-AdamW aux: renormalization ablation | Arm A `6tye7e33` (cautious-aux-momentum, with renorm) TERMINAL — sr=3175/val=3.27847 NULL. Arm B `9kmvuba7` (no_renorm) running step 1425, ETA ~08:50 UTC. |
+| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98) TERMINAL — hard NULL (sr=−1, val=3.2833 did NOT cross 3.28 target). Arm B `aae3y07x` (b1=0.80 tuned) running step 1225, ETA ~09:10 UTC. Student confirmed formula-corrected at 05:55 UTC. |
+| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 725, ETA ~09:35 UTC. |
+| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 850. ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
+| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | Arm A `(paper)` running step 825, ETA terminal ~08:50 UTC. Arm A paper defaults (β=(0.9,0.999), eps=1e-16). Arm B drop-in pending chain. Tests variance-estimator axis — orthogonal to all in-flight aux Adam-family. |
+
+**Recently closed (this session):** #827 nezuko (NS-output Frobenius normalization 81st, n=2 informative-NULL).
+**Idle:** g1r1-nezuko (needs new assignment after #827 closure).
 
 ## Recently closed (since session start)
 

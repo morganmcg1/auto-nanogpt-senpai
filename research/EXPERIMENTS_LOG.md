@@ -1,5 +1,24 @@
 # SENPAI Research Results
 
+## 2026-05-23 06:50 UTC — PR #827 CLOSED: NS-output Frobenius normalization — n=2 informative-NULL, 81st axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/post-ns-frobenius-norm`
+- Hypothesis: Normalizing NS polar output to unit Frobenius (post variant) or pre-NS gradient to RMS=1 (pre variant) would stabilize per-step update magnitude variability and improve sr/val.
+
+| Arm | Mode | Seed | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | none | n=2 | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A | post | seed-1 | `q72w28l9` | **−1** | 3.299976 | NULL | +0.033050 | **hard NULL** (did not cross 3.28) |
+| Arm B | pre | seed-1 | `oey1pogu` | 2925 | 3.265945 | 0 | −0.000981 | marginal n=1 win → request n=2 |
+| Arm B | pre | seed-2 | `6jjfoefp` | 2925 | 3.268016 | 0 | +0.001090 | seed-2 regression |
+| **Arm B** | **pre** | **n=2 mean** | — | **2925** | **3.266981** | **0** | **+0.000055** | **informative-NULL** |
+
+- **Seed-1 marginal val win perfectly canceled by seed-2 regression** — Δval seed-1=−0.000981 and Δval seed-2=+0.001090 are symmetric around baseline. n=2 mean tracks baseline within +0.055 mnat (sub-noise).
+- **Mechanism documented (lasting contribution)**: `polar/ns_polar_rms` telemetry showed Arm B (pre-NS) yields a constant ~0.018 per-step value — pre-normalization collapses the conditioning-dependent magnitude variability that the original hypothesis targeted. Telemetry was deterministic across seeds (matched to 4 decimal places), confirming the mechanism is RNG-independent.
+- **Arm A (post-NS)** is strictly worse: forcing NS output to unit Frobenius destroys the u/w-floor signal entirely, blocking target crossing.
+- **NS-output-scale normalization axis CLOSED**: Neither pre nor post Frobenius normalization improves over the natural NS polar map output scale. The natural scale is load-bearing for the u/w-floor stack.
+- **81st closed axis. Nezuko reassigned next.**
+
 ## 2026-05-23 05:35 UTC — PR #841 CLOSED: EMA β ramp shape — informative-NULL, 80th axis (g1r1-frieren)
 
 - Branch: `g1r1-frieren/ema-beta-ramp-shape`
