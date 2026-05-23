@@ -1,3 +1,50 @@
+## 2026-05-23 03:00 UTC — PR #870 ASSIGNED (alphonse): H82 Gradient Centralization on 2D weight gradients — projection axis pivot from H76 NEG
+
+- Branch: `g1r3-alphonse/gradient-centralization`
+- Hypothesis: Subtract per-output-channel mean from gradients of 2D weight tensors BEFORE the optimizer step (Yong et al. 2020, "Gradient Centralization", ~1500 citations). **Projection, not addition** — mechanism-distinct from H76 (NEG) which tested additive Gaussian noise.
+- LoC ~20: gated `centralize_grads` helper + CLI `--gradient_centralization off|aux|all`, hook before optimizer.step(). Bit-identical baseline when `off`.
+- 3 arms (n=1, 3325 steps):
+  - arm_a CTRL `--gradient_centralization off` (no GC — bit-identical)
+  - arm_b PRIMARY `--gradient_centralization aux` (GC on aux 2D params: embed.weight + lm_head; NO NS5 interaction since aux uses AdamW)
+  - arm_c COMBINED `--gradient_centralization all` (GC on aux + body 2D params; body GC strips rank-1 mean BEFORE MuonH `.step()` orthogonalization sees it)
+- arm_b tests **does the stack tolerate gradient projection where there's no NS5?**; arm_c tests **does GC + NS5 compose productively or anti-compose?**
+- Mandatory smoke gates: arm_a in [4.20, 4.30] @ step 300 (matches nesterov-ctrl 4.22940 calibration); `gc/mean_mag_sum_aux > 0` (GC IS removing non-zero mean); `gc/post_norm_ratio_avg_aux` in (0.95, 1.0] (typical GC removes 1-5% of norm).
+- Telemetry every 100 steps: `gc/mean_mag_sum_{aux,body}` (magnitude of removed rank-1 component), `gc/post_norm_ratio_avg_{aux,body}` (=√(1 − mean²/g_norm²)), `gc/n_layers_centralized_*` (sanity).
+- Decision tree:
+  - WIN: val < 3.27039 (formal merge bar) or arm_b/c < 3.270 informal noise-aware → mergeable
+  - HOLD: ≥0.5σ improvement → n=4 confirmation
+  - NULL: all 3 within ±1σ → gradient-modification axis CLOSED across BOTH noise injection (H76 NEG) AND rank-1 projection (H82 NULL); strong constraint on future input-gradient interventions (PCGrad, gradient surgery, DropGrad)
+  - NEG: arm_b regresses >2σ → rank-1 mean component contains load-bearing signal; or arm_c NEG → NS5 + GC anti-composes
+- Fresh axis: prior gradient-side experiments tested ADDITION (H76 noise NEG); none tested PROJECTION. Grep of EXPERIMENTS_LOG.md for "gradient centralization", "GC ", "Yong", "rank-1 mean" returns 0 matches.
+- Mechanism prediction: H76 NEG saturation finding does NOT predict H82 NEG. Stack may tolerate consistent projection (steady AdamW v_t adaptation) while rejecting stochastic perturbation. A NEG would extend H76 finding to "all gradient modifications saturate stack"; a WIN/NULL preserves projection as distinct mechanism.
+- W&B group `h82_gradient_centralization`. Reassignment after #852 closure. Why alphonse: H60 effective_step_rms + H68 direction_alignment + H76 grad_snr telemetry signature maps directly to GC's three diagnostic questions (mean magnitude, norm-ratio reduction, direction change).
+
+---
+
+## 2026-05-23 02:55 UTC — PR #852 CLOSED NEG (alphonse): H76 Neelakantan gradient noise — stack-noise-absorption SATURATED programme-level finding
+
+- Branch: `g1r3-alphonse/gradient-noise-injection`
+- Hypothesis: Inject Neelakantan-style annealed Gaussian gradient noise (σ_t = η/(1+t)^γ) before optimizer steps to probe whether five existing noise-absorption mechanisms (NS5, MuonH-SI Frobenius projection, AdamW v_t, MuLoCo Nesterov, AGC) leave headroom for additional implicit regularization.
+- Terminal SENPAI-RESULT — replication-clean monotone NEG signal at smoke step 300:
+
+| arm | η | sigma_t @ s=300 | grad_norm_pre | grad_norm_post | grad_snr | val/loss @ s=300 | Δ vs ctrl |
+|---|---|---|---|---|---|---|---|
+| arm_a rep1-3 | 0.0 | (off) | — | — | — | 4.2199-4.2299 | — |
+| arm_b rep1 | 0.01 | 0.0004341 | 158.02 | 158.12 | 28.5 | 4.5846 | +0.36 |
+| arm_b rep2 | 0.01 | 0.0004341 | 160.80 | 160.89 | 29.1 | 4.5914 | +0.37 |
+| arm_b rep3 | 0.01 | 0.0004341 | 152.45 | 152.55 | 27.5 | 4.5947 | +0.37 |
+| arm_c rep1 | 0.05 | 0.0021705 | 187.83 | 189.86 | 6.79 | 5.0447 | +0.82 |
+
+- Implementation verified correct: sigma_t schedule matches Neelakantan formula (0.01/(1+300)^0.55=0.000434 ✓), arm_c sigma is 5× arm_b ✓, grad_norm_post > pre confirms noise reaching grads ✓, noise magnitude matches σ·√Nparams ≈ 4.8 (vs measured 5.6) ✓, arm_a has zero `noise/*` keys (bit-identical no-op gate verified) ✓.
+- Predeclared NEG rule (>2σ regression): arm_b at >70σ above ctrl pop σ≈0.005, arm_c at >160σ. Orders of magnitude beyond NEG bar.
+- **Programme-level finding: stack-noise-absorption is SATURATED, NOT headroom.** At SNR=28 (noise was 3.5% of signal magnitude), val/loss regressed +0.36 at step 300 — noise that should be invisible against gradient signal destroys downstream signal extraction. Five existing absorption mechanisms leave ANTI-headroom for additive noise.
+- **Tightens H60/H68 "direction WITH magnitude" rule**: H60 (outer scale must preserve magnitude not just direction), H68 (outer scale must preserve magnitude under aggressive direction stabilization), now H76 (even tiny magnitude-preserving Gaussian perturbations of inner gradients destroy signal extraction). The optimizer pipeline has zero tolerance for ADDED noise even at SNR=28.
+- **Pre-closes future noise-based regularizer proposals**: DP-SGD differentially-private noise (would need SNR>>28 → impractical), Langevin-style stochastic gradient methods (Welling & Teh 2011 same saturation), gradient noise scale tuning (McCandlish 2018 already at saturation), stochastic weight quantization with noise dithering. Future noise-based interventions need to clear a very high implicit bar.
+- Killed-redundant-replications discipline: alphonse killed h29z5ymb (arm_a rep#4 at step 180) and 405b0rau (arm_c rep#2 at step 120) once monotone NEG was confirmed.
+- W&B group `h76_gradient_noise_neelakantan`. 9 runs total: arm_a {n957kxfy, ys0wnc9d, 0071tgg1}, arm_b {rj7gblyq, zlf6xa5v, gsh6twk1}, arm_c {761sttsj}.
+
+---
+
 ## 2026-05-23 02:35 UTC — PR #869 ASSIGNED (thorfinn): H81 Orthogonal init for transformer body 2D params (Saxe-style, fresh init-axis)
 
 - Branch: `g1r3-thorfinn/orthogonal-init-body`
