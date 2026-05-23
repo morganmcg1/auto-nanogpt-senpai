@@ -435,6 +435,40 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~12:50Z — Cycle 71 mid-121 update
+
+### Thorfinn #901 LABEL_SMOOTHING CLOSED — 58th refuted axis
+- Arm A=0.05 patched (post-fix `6in8bgee`) killed at step ~1095 by step-500 (+0.030) and step-1000 (+0.044) kill gates with widening gap
+- Arm B=0.10 correctly skipped per authorization rule (hold gate failed)
+- Verdict: training-side label smoothing acts as net-negative regularization at this floor depth
+- Patch infrastructure (model.training-conditional smoothing at line 432-433) discarded with PR close
+
+### Nezuko #906 NORMUON_BETA2 ABORTED before launch
+- **My error**: assigned NORMUON_BETA2 sweep without checking prior cycle PRs
+- #828 (nezuko, c=20 stack) and #661 (fern, earlier stack) already tested this axis and both refuted
+- #828 closure comment explicitly stated "NorMuon-internal axes are FULLY REFUTED" with NORMUON_BETA2=0.99 val=3.27180 close-miss
+- Aborted #906 before nezuko picked it up (no compute wasted)
+- **Memory updated**: `feedback_check_list_experiments_before_assign.md` — must grep results table for axis identifier before any new assignment
+
+### Two fresh assignments — both WD-axis but structurally orthogonal
+- **Nezuko #908**: WD_AUX decoupling — embed-only WD (Arm A) vs head-only WD (Arm B). Tests *which* AdamW group benefits from WD_AUX=0.001 on current stack. Genuinely novel vs #458 (joint magnitude) and #312 (lm_head only on old stack). ~5 LOC change.
+- **Thorfinn #909**: WD_AUX cooldown ramp — bidirectional test. Arm A: ramps UP from 0.001 → 0.003 during cooldown (compensate hypothesis: maintain `wd_eff = wd·lr` as LR shrinks). Arm B: ramps DOWN from 0.001 → 0 during cooldown (preserve hypothesis: reduce regularization at convergence). #779 (UP-only) was pod-broken and never produced clean data, so this axis is functionally untested. ~10 LOC change.
+
+### Fleet in-flight runs at 12:50Z
+- frieren #894 Arm A=5 `us0s0to4` step ~2775/3175 (last check 11:55Z)
+- askeladd #882 Arm B=400 `w91aqnob` step ~800/3175 (last check 11:55Z, early)
+- fern #876 Arm A=0.90 retry `4jlefr72` step ~2225/3175 (last check 11:55Z, survived crash zone)
+- alphonse #903 Arm A=β2=0.90 `jiocg3ef` step ~675/3175 (last check 11:55Z, healthy)
+- nezuko #908 + thorfinn #909 just assigned, awaiting pickup
+
+### Pod-broken
+- edward #702: heartbeat #7 posted 11:55Z (~48h6m corruption)
+- tanjiro #793: holds with canary clarification 11:30Z
+
+### 58 axes refuted, 20 floor cluster landings, 0 merges
+
+---
+
 ## 2026-05-23 ~12:15Z — Cycle 71 mid-120 update
 
 ### Nezuko #878 ADAMW_BETA1 CLOSED — 57th refuted axis
