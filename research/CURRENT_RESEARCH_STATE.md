@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-22 ~22:40Z (poll #472)
+- **Last updated:** 2026-05-23 ~00:50Z (poll #476)
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -13,15 +13,14 @@
 
 **What changed in #699:** Block residual-injection paths (`blocks.*.attn.proj.weight`, `blocks.*.mlp.proj.weight`) now initialized to N(0, sqrt(0.33)/sqrt(fan_in×L)) ≈ N(0, 0.006) instead of zero. μP 1/√L depth scaling provides non-zero starting basis for gradient flow through each block from step 1.
 
-## Active WIP Portfolio (poll #472)
+## Active WIP Portfolio (poll #476)
 
-8 PRs in flight; 0 idle students:
+7 PRs in flight; 1 idle (tanjiro — fresh assignment in progress):
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
 | **#840** | **nezuko** | Muon-AdEMAMix — dual slow/fast momentum before NS ortho (Pagliardini et al. 2409.03137) | **Assigned poll #465.** 5 cells: A=ctrl, B=β₃=0.99/α=0.3 all (primary), C=β₃=0.999/α=0.3, D=β₃=0.99/α=1.0, E=β₃=0.99/α=0.3 MLP-only. Prediction: B > C > D > E > A. Kill: B val/loss > 3.265 at step 1000. ETA ~9h. |
 | **#824** | **frieren** | Polar Express — minimax-optimal per-iter Newton-Schulz coefficients | **Assigned poll #438.** 5 cells: A=ctrl fixed NS, B=PE default 6-iter, C=PE pure 6-iter, D=PE default 4-iter, E=PE default 8-iter. Prediction: B > C > A > D > E. Kill: B val/loss > 3.264 at step 1000. ETA ~9h from assignment. |
-| **#815** | **tanjiro** | NS-WarmUp — sequential Newton-Schulz iteration ramp-up | **Assigned poll #418.** 5 cells: A=ctrl ns_iter=6, B=warmup_steps=500 start=2 (primary), C=300/start=3, D=1000/start=2, E=500/start=1 (aggressive). Prediction: B > C > A > D > E. Kill at val/loss>3.32 step 1000. ETA ~9h from assignment. |
 | **#823** | **fern** | SignMuon — sign-transform Nesterov momentum before NS ortho | **Assigned poll #434.** 5 cells: A=ctrl, B=sign MLP-only, C=sign all, D=sign all + lr_mlp 0.06, E=sign all + ns_iter 4. Prediction: D > C > B > E > A. Kill: Cell B <0.001 improvement vs A → close. ETA ~9h from assignment. |
 | **#826** | **askeladd** | Lookahead outer slow-weights wrapper (Zhang et al. NeurIPS 2019) | **Assigned poll #439.** 5 cells: A=ctrl, B=k=5 α=0.5 all (primary), C=k=10 α=0.5, D=k=5 α=0.8, E=k=5 α=0.5 Muon-only. Prediction: B > C > D > A ≈ E. Kill: B val/loss >3.265 step 1000. ETA ~9h from assignment. |
 | **#844** | **thorfinn** | Cautious Muon — post-NS sign-agreement mask (Liang et al. arXiv 2411.16085) | **Assigned poll #467.** 5 cells: A=ctrl, B=full cautious all (primary), C=MLP-only, D=attn-only, E=cautious+lr_mlp=0.06. Prediction: B ≥ C > D > A. Kill: B > 3.261 at terminal. ETA ~9h. |
@@ -32,6 +31,7 @@
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#815 tanjiro** (poll #476) | clean-NEG | NS-WarmUp ns_iter ramp-up. **Hypothesis falsified — A(ctrl) wins both val/loss AND ffs.** Observed A > C > B ≈ D > E (predicted B > C > A > D > E). E (start=1 most aggressive) worst at +0.00735 val. Mechanism: at init, low ns_iter concentrates noise in random top SVs of essentially-random gradient. Cell A replicates baseline (3.26137 vs 3.26122, +0.00015 within σ_single). NS-iter-count temporal-schedule axis closed at fixed LR. Combined with #824 Polar Express, NS-side temporal-schedule family is closed. |
 | **#800 edward** (poll #472) | clean-NEG | Per-layer depth-tapered Muon momentum (mu_depth_scale). Best A(ctrl)=3.26149 ffs=3025 (clean wrapper). B/C/D monotonic harm in α: ffs +50/+100/+150, Δval +7.9σ/+16.1σ/+23.4σ. E (inverse) lands at D's value: **+23.8σ**. **Direction-symmetric harm** — heterogeneous μ across body layers is rejected regardless of which layers are low. musoft mechanism transfer FAILS: depth-aware init helped because it perturbs forward-pass scale; depth-aware momentum hurts because NS already normalizes gradient magnitudes globally. Axis closed; block-type-specific μ unlikely to recover given heterogeneity-itself-harms signature. |
 | **#781 thorfinn** (poll #467) | clean-NEG | Per-group AdamW ε (embed/lm_head/scalars 3-way split). Best B (eps_embed=1e-8)=3.26046 (−0.64σ_single, ffs=3025). B/C plateau around 1e-8; E (1e-9) flat with A; D (asymmetric lm_head=1e-11) loses +1.48σ, ffs=3050. No cell clears n=1 P2 trigger 3.259221. Per-group AdamW HP family fully exhausted. Refactor (3-way AdamW split) preserved in codebase as reusable lever. |
 | **#706 nezuko** (poll #465) | clean-NEG (subsumed) | Embed-init std=0.1 compound P3 (musoft×embed). μ_n=4=3.261093 (−0.11σ_seed, parity). P3 mean +0.39 mNat ABOVE P2 pre-#699 mean. Both mechanisms target early-step gradient stress in embed subspace → substitutes, not stackers. musoft dominates. Init-magnitude axis for embed fully exhausted. |
@@ -62,7 +62,7 @@
 - embed (**#706 CLOSED clean-NEG poll #465, subsumed by musoft**; std=0.1 mechanism real but redundant with musoft residual-stream calming)
 - transformations (#748 CLOSED clean-NEG: ×2.0 does not stack with musoft; smaller-magnitude catastrophically worse, larger-within-noise)
 
-**Novel Muon mechanisms**: GC (#756 CLOSED), adaptive-mu (#773 CLOSED), update-RMS-norm (#776 CLOSED), per-block mu-depth-scale (#800 CLOSED), NS-WarmUp (#815 P1 in-flight), SignMuon (#823 P1 in-flight), Polar Express polynomial (#824 P1 in-flight), Muon-AdEMAMix dual slow EMA (#840 P1 in-flight), Cautious Muon post-NS mask (#844 P1 in-flight), **Bias-Corrected Muon pre-NS buffer debiasing (#850 P1 new — early-training NS conditioning)**.
+**Novel Muon mechanisms**: GC (#756 CLOSED), adaptive-mu (#773 CLOSED), update-RMS-norm (#776 CLOSED), per-block mu-depth-scale (#800 CLOSED), **NS-WarmUp (#815 CLOSED clean-NEG poll #476 — control wins; low ns_iter at init amplifies noise)**, SignMuon (#823 P1 in-flight), Polar Express polynomial (#824 terminal pending student post — clean-NEG), Muon-AdEMAMix dual slow EMA (#840 P1 in-flight), Cautious Muon post-NS mask (#844 P1 in-flight), Bias-Corrected Muon pre-NS buffer debiasing (#850 P1 in-flight).
 
 **Outer-loop mechanisms**: Lookahead (#826 P1 in-flight — operates outside NS/SOAP/Nesterov pipeline entirely).
 

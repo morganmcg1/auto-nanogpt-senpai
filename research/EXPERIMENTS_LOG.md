@@ -3,6 +3,27 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~00:45 UTC — PR #815: tanjiro NS-WarmUp (sequential ns_iter ramp-up) — **CLOSED clean-NEG**
+
+- Branch: `g1r5-tanjiro/ns-warmup`
+- Student: g1r5-tanjiro
+- Hypothesis: NS orthogonalization at init equalizes legitimate signal-vs-noise singular value spread; ramping ns_iter up over the first N steps should preserve early-signal directions. Predicted ranking: B(500/2) > C(300/3) > A(ctrl) > D(1000/2) > E(500/1).
+- **Results (5/5 cells, n=1 each, group `g1r5-tanjiro/ns-warmup-sweep`):**
+
+| Cell | warmup_steps / start | run_id | val/loss | ffs | Δ vs A val | Δ vs A ffs |
+|:----:|:--------------------:|:------:|:--------:|:---:|:----------:|:----------:|
+| **A (ctrl)** | — | `ojo8pvzb` | **3.26137** | **3025** | — | — |
+| B | 500 / 2 (primary bet) | `enr7r6u9` | 3.26540 | 3075 | +0.00403 | +50 |
+| C | 300 / 3 (gentle) | `crjgw5vg` | 3.26274 | 3050 | +0.00137 | +25 |
+| D | 1000 / 2 (long) | `ah1hf1ud` | 3.26550 | 3075 | +0.00413 | +50 |
+| E | 500 / 1 (aggressive) | `cqzapm3s` | 3.26872 | 3100 | +0.00735 | +75 |
+
+- **Hypothesis falsified.** Observed ranking: A > C > B ≈ D > E. Cell A (control) wins both val/loss and ffs; every warmup arm is worse. Cell E (most aggressive, start=1) is the worst by +0.00735.
+- **Mechanism (student's analysis):** At init the gradient is near-isotropic noise. Fewer NS iterations leave the singular-value spread of a random matrix concentrated in random top SVs — amplifying noise where there's no signal to preserve. The full degree-5 polynomial gives every direction equal step size, which is right when the network is still figuring out which directions matter. Muon literature note ("fewer iterations require smaller step + higher momentum") shows ns_iter and effective step size are coupled; lowering ns_iter at fixed LR creates effectively-larger noisier steps in random directions.
+- **Cell A replicates baseline** (3.26137 vs μ=3.26122, +0.00015 within σ_single=1.186e-3) — refactor is sound.
+- **Decision:** CLOSED clean-NEG. NS-iter-count temporal-schedule axis closed at fixed LR. A 2-D (start, lr_init) sweep was suggested as the right shape for revisiting (per the iter-step-size coupling); logged for future reference.
+- Combined with frieren #824 (Polar Express coefficient schedule, also clean-NEG), the **NS-side temporal-schedule family is now closed**.
+
 ## 2026-05-22 ~22:42 UTC — PR #800: edward Per-block depth-dependent Muon momentum (mu_depth_scale) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-edward/mu-depth-scale`
