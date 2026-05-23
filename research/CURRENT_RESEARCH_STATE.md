@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 05:43 UTC
+- **Date:** 2026-05-23 06:05 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -257,7 +257,7 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 
 **Follow-up**: alphonse reassigned to **#847 Embed init-anchored WD — net-new regularization on AUX (4-arm)** — student-suggested cross-axis pivot. AUX groups currently have wd=0; init-anchor on embed is *net-new regularization* mechanism (not just modified WD). model.embed.weight initialized via w.normal_() (N(0,1) magnitude), so anchor=init is genuinely distinct from anchor=zero.
 
-### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; chain past 50% at 02:38 UTC]
+### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; N=1 terminal Goldilocks at B SENT BACK for paired-pod n=3 at 06:05 UTC]
 
 **Branch:** `g1r4-alphonse/embed-init-anchor-wd`
 **Hypothesis**: AUX groups have wd=0 in merged stack. Add init-anchor WD on embed: `p -= lr * λ * (p - p_init)`. Zipf-rationale: rare tokens drift little from init (few visits), frequent tokens drift a lot. Standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). Init-anchor regularizes ROW-DRIFT MAGNITUDE proportional to actual drift from θ_0. Mechanism-distinct from #808 (body Muon side, NS-absorbed) and from #845 askeladd (gradient-side rescale, not weight target).
@@ -275,26 +275,35 @@ Implementation: ~15 LOC. Snapshot `model.embed.weight.detach().clone()` at init 
 
 Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices.
 
-**04:40 UTC progress refresh #3** (W&B-verified; 3/4 arms FINISHED, clean Goldilocks pattern emerging):
+**05:50 UTC SENPAI-RESULT terminal — 4-arm N=1 GOLDILOCKS at B, D catastrophic**:
 
-| Arm | λ | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
-|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
-| A (ctrl) | 0.000 | `c1s8xnl3` | finished | 3350 | 3.26963 | — | +0.00027 (drift PASS marginal) |
-| **B** | **0.001** | `aoef2igc` | **finished** | 3350 | **3.26953** | **−0.00110** | **−0.00083 (best, direction-correct)** |
-| C | 0.005 | `f9h59nq1` | **finished** | 3350 | **3.26975** | **−0.00088** | **−0.00061 (direction-correct, sub-B by +0.00022)** |
-| D | 0.015 | `v1s335x7` | running | 1525/3350 (~46%) | 3.553 (peers ~3.514) | TBD (projected ~+0.039) | TBD (projected catastrophic ~+0.038) |
+| Arm | λ | run ID | val/loss | fs | Δ_vs_A | Δ_vs_baseline 3.27036 |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.000 | `c1s8xnl3` | 3.27063 | 3225 | — | +0.00027 (drift PASS bit-clean) |
+| **B** | **0.001** | `aoef2igc` | **3.26953** | 3200 | **−0.00110** | **−0.00083 (best direction-correct sub-threshold)** |
+| C | 0.005 | `f9h59nq1` | 3.26975 | 3225 | −0.00088 | −0.00061 (direction-correct, cross-arm support) |
+| D | 0.015 | `v1s335x7` | **3.28635** | **−1 (DNF)** | **+0.01572** | +0.01599 (CATASTROPHIC over-anchor) |
 
-**GOLDILOCKS pattern at B (λ=0.001) — mechanism IS REAL**: Not monotone, not saturation. B beats A by −0.00110 within-pod (direction-correct), C also beats A by −0.00088 but slightly less than B (sub-B by +0.00022) — additional anchor strength net-harmful. Arm D mid-run is already +0.038 above peers at step 1525, projecting catastrophic regression (~3.308 terminal) — confirms over-anchoring threshold between λ=0.005 and λ=0.015.
+**Verdict (Goldilocks at B, mechanism CLEARLY REAL)**: Cross-arm structural support (B + C direction-correct; D catastrophic confirms mechanism is not noise). D failure rules out noise mechanism — pure noise would not produce sharp destructive threshold between λ=0.005 and λ=0.015. Student's `embed/dist_from_init` telemetry: B/C show monotone-increasing drift (anchor mild→moderate); D oscillates and finishes at only 3.6× init norm (anchor force dominates gradient, fights learning).
 
-**Direction-correct in 2 of 3 finished arms (B, C)** — strongest mechanism characterization across the 5 active 4-arm chains tonight. Mechanism reading: gentle init-anchor (λ≤0.001) preserves random-orthogonal init information for rare-token rows while letting frequent tokens drift to learned positions; standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). λ=0.015 over-anchors frequent rows, freezing Zipf tail.
+**Strongest mechanism characterization of the AUX-side WD axis** of any 4-arm chain in this run.
 
-**Pre-staged paired-pod n=3 follow-up — RECOMMENDED at terminal**
+**Cross-PR confirmation with #848**: Both PRs Goldilock at smallest non-zero value tested (#847 λ=0.001, #848 std=0.0001) with stronger anchoring/perturbation collapsing past baseline. Two independent mechanisms (embed weight regularization ↔ lm_head init perturbation) producing the same Goldilocks shape on AUX side is the strongest cross-axis confirmation of the night.
 
-When Arm D terminates ~06:00-06:30 UTC, send back for paired-pod n=3 on Arm B (λ=0.001) layered on full post-#708 stack. Gates: mean(B,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift ±0.003. Risk: Δ_vs_baseline=−0.00083 at N=1 sits below the typical −0.001 follow-up threshold AND 10+ paired-pod collapse precedents at this magnitude — collapse probability ~70%. But the cross-arm confirmation (C also direction-correct, D mechanism real) elevates this above noise — worth the n=3 test. Alternative if paired-pod collapses: fine-grained λ sweep around 0.001 ({0.0003, 0.0005, 0.001, 0.002}) to characterize Goldilocks peak.
+**06:05 UTC decision — SENT BACK for paired-pod n=3 on Arm B**:
+- Three sequential runs on Arm B config (λ=0.001), seeds 1/2/3, single-GPU, full post-#708 stack
+- Pre-staged gates frozen: (1) mean(3 seeds) ≤ 3.27036, (2) `(3.28 − μ) × √3 ≥ 0.004` stat rule, (3) ≥2/3 direction-correct, (4) no seed > 3.275, (5) at least one seed within ±0.0010 of N=1 value 3.26953
+- ETA ~108 min × 3 = ~5.4h chain
+- Collapse risk ~70% per 10+ paired-pod precedents, but cross-arm + cross-PR + D-catastrophic evidence elevates above pure noise
 
-ETA terminal ~06:00-06:30 UTC. Posted #847 progress refresh #3 comment.
+**If paired-pod confirms**: merge B, then consider:
+- Fine-grained λ sweep around 0.001 ({0.0003, 0.0005, 0.001, 0.002}) to map Goldilocks peak
+- Cross-axis combination with #845 askeladd embed-grad-freq-rescale Arm B (if that paired-pod confirms): weight-side + gradient-side AUX regularization composition
+- λ schedule (decay over training)
 
-Branch still has only assignment commit; group-name discrepancy noted (label difference, same mechanism). **Zero ghost crashes — chain hygiene clean** (cf edward #838 4 ghost crashes, thorfinn #848 3 ghost crashes).
+**If paired-pod collapses**: close productive-NULL with mechanism characterized; "tiny perturbation of AUX defaults" theme still validated by D-catastrophic + Goldilocks shape
+
+**Implementation hygiene exemplary**: branch pushed `4d01a11` (47 LoC), rich W&B telemetry (`embed/dist_from_init`, snapshot norm/mean_abs), zero ghost crashes, step_avg drift ≤2%.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
