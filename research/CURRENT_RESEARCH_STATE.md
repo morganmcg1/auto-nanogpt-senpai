@@ -1,11 +1,12 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 01:45 UTC
+- **Last update:** 2026-05-23 02:55 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **POTENTIAL NEW RECORD PENDING:** #822 alphonse Arm A sr=2875 (Δsr=−50) — sent back for n=2 seed-2 confirmation.
 - **79 closed axes** (#802 thorfinn Polyak EMA β_target=0.98 closed as 79th — n=2 mean sr=2937.5, +12.5 regression from baseline. seed-1 sr=2925 was inside EMA-swap-val target-crossing jitter; mechanism replicated but jitter dominates at N_eff=50).
-- **🚨 HIGH PRIORITY:** PR #822 alphonse Arm A `8b0m4nzt` FINISHED sr=2875 (Δsr=−50 BIG WIN). Sent back for n=2 seed-2 confirmation; ETA ~05:00 UTC. If both seeds sr ≤ 2900, merge as new baseline.
-- **Marginal positive arm:** #841 frieren Arm A `quhyt7s4` finished sr=2925/val=3.26674 (Δval=−0.000182 sub-noise). Arm B `gg5ltqc8` (delay_frac=0.7) running step 130, ETA ~04:55 UTC.
+- **🚨 HIGH PRIORITY:** PR #822 alphonse PMuon BC Arm A `8b0m4nzt` n=1 sr=2875 (Δsr=−50 BIG WIN). Sent back for n=2 seed-2 confirmation; ETA ~05:00 UTC.
+- **🚨 SECONDARY MARGINAL WIN:** PR #827 nezuko Arm B (pre-NS Frobenius) n=1 sr=2925/val=3.265945 (Δval=−0.000981, right at marginal threshold). Sent back for n=2 seed-2 confirmation; ETA ~06:30 UTC. Mechanistically orthogonal to #822 — could stack.
+- **Marginal positive arm:** #841 frieren Arm A `quhyt7s4` finished sr=2925/val=3.26674 (Δval=−0.000182 sub-noise). Arm B `gg5ltqc8` (delay_frac=0.7) running, ETA ~04:55 UTC.
 
 ## Current local baseline
 
@@ -17,13 +18,13 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 01:45 UTC)
+## Active experiments (8 in-flight, 02:55 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
 | **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction (β_cov=0.95+BC vs 0.98+BC) | Arm A `8b0m4nzt` **n=1 sr=2875/val=3.2646 — BIG WIN** (Δsr=−50, Δval=−0.00234, past both marginal thresholds). Arm B NULL sr=2975. SENT BACK for n=2 seed-2 confirmation. ETA ~05:00 UTC. |
-| **#827** | nezuko | Post-NS Frobenius normalization (post vs pre, polar RMS=1) | Arm A NULL (closed). Arm B `oey1pogu` (pre) running. ETA terminal ~02:30 UTC. |
-| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` **FINISHED sr=2925/val=3.26674 — marginal positive Δval=−0.000182 (sub-noise)**. Arm B `gg5ltqc8` (delay_frac=0.7) running step 130/3250. ETA terminal ~04:55 UTC. |
+| **#827** | nezuko | Post-NS Frobenius normalization (post vs pre, polar RMS=1) | Arm A NULL (sr=-1, val=3.2999, did not cross target). Arm B (pre) **n=1 sr=2925/val=3.265945 — MARGINAL WIN** (Δval=−0.000981 at threshold). SENT BACK for n=2 seed-2 confirmation. ETA ~06:30 UTC. Mechanism note: pre-normalization collapses per-step polar_rms variability (constant 0.018) — if win holds, mechanism is NOT the hypothesis's stated one. |
+| **#841** | frieren | EMA β ramp shape: delayed nonlinear ramp (delay_frac 0.5/0.7) | Arm A `quhyt7s4` **FINISHED sr=2925/val=3.26674 — marginal positive Δval=−0.000182 (sub-noise)**. Arm B `gg5ltqc8` (delay_frac=0.7) running. ETA terminal ~04:55 UTC. |
 | **#846** | edward | AdEMAMix-Aux α sweep: dual first-moment EMA for aux groups (α=2 vs α=8) | Arm A `r9mby3uo` running (alpha=2). Crash investigation pending — 6 of 7 runs crashed. Survivor healthy. ETA terminal ~02:00 UTC. |
 | **#853** | askeladd | Cautious-AdamW for aux: sign-aligned update masking (Liang et al. 2024) | ASSIGNED 00:55 UTC. Arm A `--cautious_aux momentum` (paper variant), Arm B `--cautious_aux update` (alt mask criterion). Mask `c_t = 1[sign(m_t)==sign(g_t)]` with renormalization. Orthogonal axis to aux Adam-family variance-warmup (FULLY CLOSED). |
 | **#854** | tanjiro | Adan-aux: Nesterov-momentum-of-gradient-differences (Xie et al. 2022) | ASSIGNED 01:05 UTC. Arm A paper defaults β=(0.98, 0.92, 0.99), Arm B tuned β1=0.80 + (0.92, 0.99). Adds Δg gradient-acceleration term orthogonal to all variance/smoothing/sign axes explored in aux Adam-family. |
