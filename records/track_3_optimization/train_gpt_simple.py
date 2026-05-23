@@ -71,6 +71,16 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # H80: force fp32 storage for aux AdamW moment buffers (m_t, v_t). PyTorch's
+    # fused / foreach / single-tensor AdamW paths all require state to match
+    # param dtype, so when this flag is set we replace optimizer1.step() with a
+    # custom Python loop that holds fp32 exp_avg/exp_avg_sq regardless of param
+    # dtype. Affects embed.weight (bf16 param → bf16 state in baseline); lm_head
+    # and scalars are fp32 params already with fp32 state. Default 0 keeps the
+    # fused AdamW path (bit-identical baseline).
+    parser.add_argument("--aux_fp32_state", type=int, default=int(os.environ.get("AUX_FP32_STATE", "0")),
+                        help="1 = force fp32 aux AdamW state via custom step (affects bf16 embed.weight). "
+                             "0 = baseline fused AdamW (state matches param dtype).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -520,6 +530,108 @@ class Muon(torch.optim.Optimizer):
 
 
 @torch.no_grad()
+def log_aux_state_telemetry(
+    optimizer1, trial_idx: int, train_step: int, wandb_step: int, log_dtypes_and_mem: bool
+):
+    """Log aux AdamW state quantization telemetry.
+
+    - exp_avg / exp_avg_sq min_abs and zero-fraction for embed and lm_head: if
+      bf16 storage is quantizing rare-token state to zero, the min-abs floor and
+      the zero-fraction will differ from the fp32-state arm.
+    - state dtypes and memory once at the first telemetry tick (step 0).
+    """
+    metrics = {"trial": trial_idx, "train/step": train_step}
+    group_sample = {group["name"]: group["params"][0] for group in optimizer1.param_groups if group["params"]}
+    for label, group_name in [("embed", "adam_embed"), ("lm_head", "adam_lm_head")]:
+        p = group_sample.get(group_name)
+        if p is None:
+            continue
+        state = optimizer1.state.get(p)
+        if not state or "exp_avg" not in state:
+            continue
+        ea = state["exp_avg"].detach()
+        es = state["exp_avg_sq"].detach()
+        ea_abs = ea.abs()
+        es_abs = es.abs()
+        metrics[f"aux/exp_avg_min_abs_{label}"] = float(ea_abs.min().item())
+        metrics[f"aux/exp_avg_sq_min_abs_{label}"] = float(es_abs.min().item())
+        nonzero_ea = ea_abs[ea_abs > 0]
+        nonzero_es = es_abs[es_abs > 0]
+        metrics[f"aux/exp_avg_min_abs_nonzero_{label}"] = (
+            float(nonzero_ea.min().item()) if nonzero_ea.numel() > 0 else 0.0
+        )
+        metrics[f"aux/exp_avg_sq_min_abs_nonzero_{label}"] = (
+            float(nonzero_es.min().item()) if nonzero_es.numel() > 0 else 0.0
+        )
+        metrics[f"aux/exp_avg_zero_fraction_{label}"] = float((ea == 0).float().mean().item())
+        metrics[f"aux/exp_avg_sq_zero_fraction_{label}"] = float((es == 0).float().mean().item())
+        metrics[f"aux/exp_avg_max_abs_{label}"] = float(ea_abs.max().item())
+        metrics[f"aux/exp_avg_sq_max_abs_{label}"] = float(es_abs.max().item())
+    if log_dtypes_and_mem:
+        dtype_summary = {}
+        for label, group_name in [("embed", "adam_embed"),
+                                  ("lm_head", "adam_lm_head"),
+                                  ("scalars", "adam_scalars")]:
+            p = group_sample.get(group_name)
+            if p is None:
+                continue
+            state = optimizer1.state.get(p)
+            if not state or "exp_avg" not in state:
+                continue
+            dtype_summary[f"aux/state_dtype_exp_avg_{label}"] = str(state["exp_avg"].dtype)
+            dtype_summary[f"aux/state_dtype_exp_avg_sq_{label}"] = str(state["exp_avg_sq"].dtype)
+            dtype_summary[f"aux/state_dtype_step_{label}"] = str(state["step"].dtype)
+            dtype_summary[f"aux/state_param_dtype_{label}"] = str(p.dtype)
+        for k, v in dtype_summary.items():
+            wandb.run.summary[k] = v
+        print0("AUX STATE DTYPES: " + ", ".join(f"{k}={v}" for k, v in dtype_summary.items()), console=True)
+        mem_bytes = 0
+        for group in optimizer1.param_groups:
+            for p in group["params"]:
+                state = optimizer1.state.get(p) or {}
+                for key in ("exp_avg", "exp_avg_sq", "step"):
+                    t = state.get(key)
+                    if isinstance(t, torch.Tensor):
+                        mem_bytes += t.numel() * t.element_size()
+        metrics["train/aux_state_mem_gb"] = mem_bytes / (1024**3)
+        metrics["train/cuda_alloc_gb"] = torch.cuda.memory_allocated() / (1024**3)
+        metrics["train/cuda_reserved_gb"] = torch.cuda.memory_reserved() / (1024**3)
+    wandb.log(metrics, step=wandb_step)
+
+
+@torch.no_grad()
+def aux_fp32_adamw_step(optimizer):
+    """Custom AdamW step that holds fp32 moment state regardless of param dtype.
+
+    Mirrors PyTorch's reference single-tensor Adam math but reads/writes
+    exp_avg, exp_avg_sq, and the running step counter in fp32. State must be
+    pre-populated with fp32 buffers before the first call. weight_decay=0 in
+    every aux group, so the decoupled weight-decay branch is omitted.
+    """
+    for group in optimizer.param_groups:
+        lr = group["lr"]
+        beta1, beta2 = group["betas"]
+        eps = group["eps"]
+        for p in group["params"]:
+            if p.grad is None:
+                continue
+            state = optimizer.state[p]
+            state["step"].add_(1)
+            t = float(state["step"].item())
+            grad32 = p.grad.detach().to(torch.float32)
+            m = state["exp_avg"]
+            v = state["exp_avg_sq"]
+            m.lerp_(grad32, 1 - beta1)
+            v.mul_(beta2).addcmul_(grad32, grad32, value=1 - beta2)
+            bias_correction1 = 1 - beta1 ** t
+            bias_correction2 = 1 - beta2 ** t
+            step_size = lr / bias_correction1
+            denom = (v.sqrt() / (bias_correction2 ** 0.5)).add_(eps)
+            update = m / denom
+            p.data.add_(update.to(p.dtype), alpha=-step_size)
+
+
+@torch.no_grad()
 def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     """Per-tensor AGC (Brock et al. 2021).
 
@@ -713,6 +825,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_fp32_state:
+    print0("AUX FP32 STATE ENABLED: optimizer1 uses custom AdamW step with fp32 exp_avg/exp_avg_sq", console=True)
+else:
+    print0("AUX FP32 STATE DISABLED: optimizer1 uses fused AdamW (state dtype = param dtype)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +882,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "aux_fp32_state": args.aux_fp32_state,
         },
     )
 
@@ -816,6 +933,17 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=args.aux_adamw_eps, weight_decay=0, fused=True)
+    # H80: when fp32 state is requested, pre-allocate fp32 exp_avg/exp_avg_sq
+    # buffers and dispatch to a Python-side AdamW step (PyTorch's fused /
+    # foreach / single-tensor paths all require state to match param dtype).
+    if args.aux_fp32_state:
+        for group in optimizer1.param_groups:
+            for p in group["params"]:
+                optimizer1.state[p] = {
+                    "step": torch.tensor(0.0, dtype=torch.float32, device=p.device),
+                    "exp_avg": torch.zeros_like(p, dtype=torch.float32),
+                    "exp_avg_sq": torch.zeros_like(p, dtype=torch.float32),
+                }
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1019,7 +1147,18 @@ for trial_idx in range(args.num_trials):
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
         for opt in optimizers:
-            opt.step()
+            if opt is optimizer1 and args.aux_fp32_state:
+                aux_fp32_adamw_step(opt)
+            else:
+                opt.step()
+        if dist.get_rank() == 0 and telemetry_due:
+            log_aux_state_telemetry(
+                optimizer1=optimizer1,
+                trial_idx=trial_idx,
+                train_step=train_step,
+                wandb_step=wandb_step,
+                log_dtypes_and_mem=(step == 0),
+            )
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
