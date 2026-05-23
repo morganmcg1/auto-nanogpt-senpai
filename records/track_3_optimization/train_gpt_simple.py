@@ -10,6 +10,7 @@ import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
 import argparse
+import re
 import uuid
 import time
 from pathlib import Path
@@ -83,6 +84,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--qkv_consensus_alpha", type=float, default=None,
+                        help="Blend strength for per-layer Q/K/V Nesterov-momentum consensus "
+                             "before NS orthogonalization. After the EMA momentum update for the "
+                             "muon_attn group, each layer's Q/K/V momentum buffer is linearly "
+                             "interpolated toward the layer's (Q+K+V)/3 average via "
+                             "buf <- (1-alpha)*buf + alpha*g_avg. 0=off, 0.1=mild blend, "
+                             "1.0=identical direction. Default: off.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +579,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, qkv_consensus_alpha=None):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +602,16 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.qkv_consensus_alpha = float(qkv_consensus_alpha or 0.0)
+        # Map layer_idx -> {'q': param, 'k': param, 'v': param} for per-layer Q/K/V consensus.
+        # Names from model.blocks.named_parameters() look like "<layer_idx>.attn.q.weight".
+        self._qkv_layer_params: dict[int, dict[str, Tensor]] = {}
+        if self.qkv_consensus_alpha:
+            for n, p in all_named:
+                m = re.search(r'(\d+)\.attn\.([qkv])\.weight$', n)
+                if m:
+                    idx, role = int(m.group(1)), m.group(2)
+                    self._qkv_layer_params.setdefault(idx, {})[role] = p
 
         param_groups = []
         for g in groups_raw:
@@ -610,31 +628,62 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _ensure_state(self, p):
+        state = self.state[p]
+        if len(state) == 0:
+            state["momentum"] = torch.zeros_like(p)
+            if p in self.soap_params:
+                state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
+                state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
+                state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
+                state["q_row"] = None
+                state["q_col"] = None
+                state["soap_step"] = 0
+        return state
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+
+        # Q/K/V consensus pre-pass: update muon_attn momentum (EMA) for all params, then
+        # blend each layer's Q/K/V momentum buffers toward the layer's (Q+K+V)/3 average.
+        # Operates on the EMA momentum buffer used by the Nesterov computation downstream.
+        # Note: replicates the EMA update across ranks for muon_attn (gradients are already
+        # all-reduced before optimizer.step()), so each rank holds consistent muon_attn momenta.
+        if self.qkv_consensus_alpha:
+            alpha = self.qkv_consensus_alpha
+            for group in self.param_groups:
+                if group.get("name") != "muon_attn":
+                    continue
+                for p in group["params"]:
+                    state = self._ensure_state(p)
+                    state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                for idx, role_to_p in self._qkv_layer_params.items():
+                    if len(role_to_p) != 3:
+                        continue
+                    bq = self.state[role_to_p['q']]["momentum"]
+                    bk = self.state[role_to_p['k']]["momentum"]
+                    bv = self.state[role_to_p['v']]["momentum"]
+                    g_avg = (bq + bk + bv) / 3.0
+                    bq.lerp_(g_avg, alpha)
+                    bk.lerp_(g_avg, alpha)
+                    bv.lerp_(g_avg, alpha)
+
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
+            ema_pre_done = bool(self.qkv_consensus_alpha) and group.get("name") == "muon_attn"
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
                     p = params[base_i + rank]
-                    state = self.state[p]
+                    state = self._ensure_state(p)
                     use_soap = p in self.soap_params
-                    if len(state) == 0:
-                        state["momentum"] = torch.zeros_like(p)
-                        if use_soap:
-                            state["exp_avg_sq"] = torch.zeros_like(p, dtype=torch.float32)
-                            state["row_gg"] = torch.zeros(p.size(0), p.size(0), dtype=torch.float32, device=p.device)
-                            state["col_gg"] = torch.zeros(p.size(1), p.size(1), dtype=torch.float32, device=p.device)
-                            state["q_row"] = None
-                            state["q_col"] = None
-                            state["soap_step"] = 0
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
+                        if not ema_pre_done:
+                            state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
@@ -649,7 +698,11 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if ema_pre_done:
+                            raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                            update = soap_ns_step(raw_nesterov)
+                        else:
+                            update = muon_update(p.grad, state["momentum"], mu=group["mu"])
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +818,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "qkv_consensus_alpha": args.qkv_consensus_alpha,
         },
     )
 
@@ -853,6 +907,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        qkv_consensus_alpha=args.qkv_consensus_alpha,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
