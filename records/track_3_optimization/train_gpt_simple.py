@@ -82,6 +82,9 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    parser.add_argument("--aux_adamw_weight_decay", type=float,
+                        default=float(os.environ.get("AUX_ADAMW_WEIGHT_DECAY", "0.0")),
+                        help="Weight decay on aux AdamW groups (embed, lm_head, scalars). Default 0.0 = baseline.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -780,6 +783,7 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_adamw_weight_decay": args.aux_adamw_weight_decay,
         },
     )
 
@@ -833,7 +837,8 @@ for trial_idx in range(args.num_trials):
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
                         dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps,
+                       weight_decay=args.aux_adamw_weight_decay, fused=_aux_fused)
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -1063,6 +1068,22 @@ for trial_idx in range(args.num_trials):
         if dist.get_rank() == 0 and (telemetry_due or warmup_due):
             muonh_metrics = {"trial": trial_idx, "train/step": train_step}
             muonh_metrics["aux/beta2"] = aux_beta2
+            muonh_metrics["aux/weight_decay"] = args.aux_adamw_weight_decay
+            if telemetry_due:
+                # Aux AdamW second-moment (v_t = exp_avg_sq) diagnostic. Higher β2 →
+                # smoother v_t → smaller v_t magnitude in early steps (bias-correction
+                # factor is smaller). After warmup the magnitude reflects squared-grad
+                # EMA across aux params.
+                _v_sum = 0.0
+                _v_cnt = 0
+                for _g in optimizer1.param_groups:
+                    for _p in _g["params"]:
+                        _st = optimizer1.state.get(_p, None)
+                        if _st is not None and "exp_avg_sq" in _st:
+                            _v_sum += float(_st["exp_avg_sq"].float().mean().item()) * _p.numel()
+                            _v_cnt += _p.numel()
+                if _v_cnt > 0:
+                    muonh_metrics["aux/v_t_mean"] = _v_sum / _v_cnt
             for opt in optimizers:
                 if isinstance(opt, MuonH):
                     if telemetry_due:
