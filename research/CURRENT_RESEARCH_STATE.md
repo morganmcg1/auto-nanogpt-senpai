@@ -435,6 +435,40 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~11:30Z — Cycle 71 mid-118 update
+
+### Askeladd #882 Arm A=100 TERMINAL — 19th floor cluster landing
+- Run `dqi808ne` retry: val=3.2726, reached_target=1, statsig 0.0074
+- ffs key absent from W&B summary (unusual); estimated ffs≈3025 from floor-cluster pattern
+- val MISS hold gate by 0.0026; another floor-cluster landing
+- Authorized Arm B=400 at 11:27Z
+
+### Tanjiro canary `1oapq6a6` — all NaN confirmed, pod remains broken
+- Run finished 100 steps but val/loss=NaN throughout (best step=0, val=10.825 init only)
+- Confirms: pod corruption still present despite "finished" status
+- Heartbeat-only hold confirmed correct; no override posted
+- ~48h GPU-hours lost on this slot, #768 still unresolved
+
+### Fern #876 pod instability — double crash at step ~900
+- Two consecutive crashes at step ~900 (runs `lq4jnals`, `tty02nef`)
+- Third attempt `4jlefr72` at step 875 when warning posted
+- Same config (mu_cooldown_start=0.9), no training divergence — pod hardware instability
+- Warning comment posted 11:24Z asking fern to monitor step ~900 and run GPU health check if 3rd crash
+
+### Fleet status
+- alphonse: #903 adamw-beta2 picked up
+- thorfinn: #901 label-smoothing picked up
+- nezuko: #878 Arm B=0.85 in flight
+- askeladd: #882 Arm A terminal, Arm B=400 authorized
+- fern: #876 Arm A third attempt `4jlefr72` at step 875 (unstable pod)
+- frieren: #894 retry `us0s0to4` step 1425 val=3.5639 (healthy)
+- tanjiro: #793 pod-broken all-NaN confirmed
+- edward: #702 pod-broken mtime unchanged
+
+### 56 axes refuted, 19 floor cluster landings, 0 merges
+
+---
+
 ## 2026-05-23 ~11:18Z — Cycle 71 mid-117 update
 
 ### PR #877 CLOSED — 56th refuted axis (NS5_ITERS)
