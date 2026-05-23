@@ -61,6 +61,10 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--pmuon_momentum_bc", action="store_true", default=False,
+                        help="Adam-style bias correction 1/(1-mu^t) on PMuon momentum buffer.")
+    parser.add_argument("--pmuon_momentum_bc_until", type=int, default=0,
+                        help="If >0, BC active only for first N steps (then equivalent to baseline). 0=always active.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -497,6 +501,10 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    pmuon_step: int = 0,
+    momentum_bc: bool = False,
+    momentum_bc_until: int = 0,
+    bc_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -504,7 +512,29 @@ def pmuon_update(
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+
+    # Adam-style first-moment bias correction (Kingma & Ba 2014, Section 3).
+    # Corrects underestimation of E[gradient] from zero-init lerp_ accumulation.
+    # CRITICAL: allocate m_for_update as a new tensor; the momentum buffer itself
+    # must keep the un-corrected EMA for the next step's lerp_ accumulation.
+    bc_active = momentum_bc and pmuon_step > 0 and (
+        momentum_bc_until == 0 or pmuon_step <= momentum_bc_until
+    )
+    if bc_active:
+        bc_factor = 1.0 / (1.0 - mu ** pmuon_step)
+        m_for_update = momentum * bc_factor
+    else:
+        bc_factor = 1.0
+        m_for_update = momentum
+
+    if bc_diag is not None and "bc_factor" not in bc_diag:
+        bc_diag["bc_factor"] = float(bc_factor)
+        bc_diag["bc_active"] = int(bool(bc_active))
+        bc_diag["pmuon_step"] = int(pmuon_step)
+        bc_diag["momentum_norm"] = float(momentum.float().norm().item())
+        bc_diag["m_for_update_norm"] = float(m_for_update.float().norm().item())
+
+    update = grad.lerp_(m_for_update, mu) if nesterov else m_for_update
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
@@ -532,11 +562,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 momentum_bc=False, momentum_bc_until=0):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        momentum_bc=momentum_bc, momentum_bc_until=momentum_bc_until)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -548,6 +580,7 @@ class Muon(torch.optim.Optimizer):
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
+        bc_diag: dict = {}
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -559,6 +592,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                        state["pmuon_step"] = 0
+                    state["pmuon_step"] += 1
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -571,6 +606,10 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        pmuon_step=state["pmuon_step"],
+                        momentum_bc=group["momentum_bc"],
+                        momentum_bc_until=group["momentum_bc_until"],
+                        bc_diag=bc_diag,
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -584,6 +623,7 @@ class Muon(torch.optim.Optimizer):
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._bc_diag = bc_diag
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -717,6 +757,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "pmuon_momentum_bc": int(bool(args.pmuon_momentum_bc)),
+            "pmuon_momentum_bc_until": int(args.pmuon_momentum_bc_until),
         },
     )
 
@@ -753,7 +795,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      momentum_bc=args.pmuon_momentum_bc,
+                      momentum_bc_until=args.pmuon_momentum_bc_until)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1025,6 +1069,19 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            bc_diag = getattr(optimizer2, "_bc_diag", None)
+            if bc_diag and "bc_factor" in bc_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon/bc_factor": bc_diag["bc_factor"],
+                    "pmuon/bc_active": bc_diag["bc_active"],
+                    "pmuon/bc_pmuon_step": bc_diag["pmuon_step"],
+                    "pmuon/momentum_norm": bc_diag["momentum_norm"],
+                    "pmuon/m_for_update_norm": bc_diag["m_for_update_norm"],
+                    "pmuon/momentum_bc_enabled": int(bool(args.pmuon_momentum_bc)),
+                    "pmuon/momentum_bc_until": int(args.pmuon_momentum_bc_until),
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
