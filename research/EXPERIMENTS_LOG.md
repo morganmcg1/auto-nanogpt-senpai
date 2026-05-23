@@ -3,6 +3,28 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~23:40 UTC — PR #914: alphonse SOAP eigenbasis refresh freeze during cooldown — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-alphonse/soap-refresh-freeze-during-cooldown`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** During cooldown LR, tiny per-step parameter moves → SOAP eigenbasis refresh becomes noise-dominated → freezing/slowing refresh should help.
+
+| Cell | Stable/Cooldown freq | val/loss | Δ vs baseline | σ_single |
+|:---:|:---:|---:|---:|---:|
+| A ctrl | 16/16 | 3.26129 | +0.000069 | +0.12σ |
+| **B ★** | **16/64** | **3.26115** | **−0.000071** | **−0.12σ** |
+| C (freeze) | 16/99999 | 3.26413 | +0.002909 | **+4.90σ NEG** |
+| D | 8/64 | 3.26150 | +0.000279 | +0.47σ |
+| E | 16/32 | 3.26217 | +0.000949 | +1.60σ NEG |
+
+**Hypothesis falsified.** Best cell B PRIMARY at baseline parity. Cell C freeze at +4.9σ NEG is the decisive falsifier: SOAP eigenbasis continues carrying useful curvature signal during cooldown — even tiny per-step moves rotate the Hessian spectrum because Transformer landscapes have anisotropic curvature at this scale.
+
+**Trend:** flat 16↔64, sharp cliff past 64. Not monotonic in refresh frequency (Cell E at 32 worse than both 16 and 64) — single-seed noise around essentially flat region.
+
+**Reassigning alphonse → #966 cooldown weight rescaling (fresh weight-space axis, parallels #907 Cell E state-rescaling mechanism).**
+
+---
+
 ## 2026-05-23 ~23:00 UTC — PR #902: frieren Top-k% gradient magnitude sparsification pre-NS — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-frieren/top-k-gradient-sparsification-pre-ns`
