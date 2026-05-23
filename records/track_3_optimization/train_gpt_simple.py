@@ -593,6 +593,11 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Init-anchored WD on lm_head (model.proj.weight; #938). Analogous to embed anchor
+# but applied to the output projection V×d rows. Pull is *unscaled* by LR — applied
+# at constant strength `lambda` per step (differs from embed which uses lr_embed*lambda).
+# At lambda=0 the snapshot is None and the hook is bit-identical to lm_head-anchor-off.
+NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA", "0.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +829,9 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"LM_HEAD_INIT_ANCHOR_LAMBDA: {NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA} "
+       f"({'ACTIVE' if NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +904,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_lm_head_init_anchor_lambda": NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA,
         },
     )
 
@@ -936,6 +945,18 @@ for trial_idx in range(args.num_trials):
                f"snapshot_norm={embed_init_snapshot.norm().item():.4f} "
                f"snapshot_mean_abs={embed_init_snapshot.abs().mean().item():.4f} "
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
+
+    # lm_head init-anchor snapshot (#938). Analogous to embed; uses model.proj.weight
+    # (the V×d output projection — semantic "lm_head"). Note the proj.weight is zero-
+    # initialized (see init block above: `if "proj" in name: w.zero_()`), so the
+    # snapshot is the zero tensor. The anchor therefore pulls lm_head rows toward 0.
+    lm_head_init_snapshot = None
+    if NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA > 0.0:
+        lm_head_init_snapshot = model.proj.weight.detach().clone()
+        print0(f"LM_HEAD_INIT_ANCHOR: lambda={NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA} "
+               f"snapshot_norm={lm_head_init_snapshot.norm().item():.4f} "
+               f"snapshot_mean_abs={lm_head_init_snapshot.abs().mean().item():.4f} "
+               f"snapshot_shape={tuple(lm_head_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
@@ -1221,6 +1242,16 @@ for trial_idx in range(args.num_trials):
                             alpha=lr_embed * NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
                         )
                         break
+        # Init-anchored WD on lm_head (#938). Unscaled by LR — applied at constant
+        # strength `lambda` per step (differs from embed which is lr_embed-scaled).
+        # lm_head proj.weight is zero-initialized, so this is effectively L2 decay
+        # toward 0 on the V×d output projection.
+        if lm_head_init_snapshot is not None:
+            with torch.no_grad():
+                model.proj.weight.data.add_(
+                    lm_head_init_snapshot - model.proj.weight.data,
+                    alpha=NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA,
+                )
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1265,6 +1296,20 @@ for trial_idx in range(args.num_trials):
                     "embed/dist_from_init": embed_dist_from_init,
                     "embed/dist_from_init_mean_abs": embed_dist_from_init_mean_abs,
                     "embed/init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+                }, step=wandb_step)
+            # lm_head init-anchor verification telemetry (#938). Logged only when
+            # the snapshot is alive so λ=0 runs add no extra W&B keys.
+            if lm_head_init_snapshot is not None:
+                with torch.no_grad():
+                    lm_head_delta = model.proj.weight.detach() - lm_head_init_snapshot
+                    lm_head_dist_from_init = float(lm_head_delta.norm().item())
+                    lm_head_dist_from_init_mean_abs = float(lm_head_delta.abs().mean().item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "lm_head/dist_from_init": lm_head_dist_from_init,
+                    "lm_head/dist_from_init_mean_abs": lm_head_dist_from_init_mean_abs,
+                    "lm_head/init_anchor_lambda": NANOGPT_LM_HEAD_INIT_ANCHOR_LAMBDA,
                 }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
