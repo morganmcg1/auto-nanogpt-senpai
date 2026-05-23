@@ -1,6 +1,69 @@
 # SENPAI Research Results
 
-## 2026-05-23 21:55 UTC — PR #937 CLOSED: SOAP literal Adam@R_neg for lm_head — Arm A NULL (sr=-1, val 3.486), 93rd axis, 18th aux Adam-family closure (g1r1-tanjiro)
+## 2026-05-23 22:15 UTC — PR #913 CLOSED: Aux embed/lm_head LR retune at PR #737 baseline (UP+30% vs DOWN−25%) — both NULL, 94th axis, 18th aux Adam-family closure (g1r1-frieren)
+
+- Branch: `g1r1-frieren/embed-lmhead-lr-retune`
+- Hypothesis: Retune `embed_lr` and `lm_head_lr` at the current PR #864 baseline. The original aux LRs (`embed_lr=0.3`, `lm_head_lr=1/160 ≈ 0.00625`) were tuned for the PR #413-era baseline; body-Muon (γ_pre=0.4, β_cov=0.95) and EMA wrapper (β_target=0.99 ramp) have shifted effective body update magnitude. Base-case probe.
+
+| Arm | W&B | embed_lr | lm_head_lr | sr | val/loss_ema | val/loss_live | Δval | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #864 | `j8nsn77s`/`08ursg5n` | 0.3 | 1/160 | 2925 | 3.266826 | — | — | — |
+| A (UP +30%) | `5eo84z96` | 0.4 | 0.008 | 2925 | 3.267555 | 3.267032 | +0.000729 | NULL (marginal) |
+| B (DOWN −25%) | `abhcrtf1` | 0.225 | 0.005 | 2925 | 3.267344 | 3.266816 | +0.000518 | NULL (marginal) |
+
+### Verdict: SYMMETRIC NULL — 94th axis closed, 18th aux Adam-family closure.
+
+### Mechanism finding — Inverse-norm equilibrium confirms steady-state saturation
+
+Terminal panel revealed the smoking gun: gradient norms anti-correlate with LR.
+
+| Quantity | Arm A (UP +33%) | Arm B (DOWN −25%) | Ratio | Reading |
+|---|---|---|---|---|
+| `train/lr/adam_embed` (terminal) | 7.99e-06 | 4.49e-06 | 1.78× | matches imposed 0.4/0.225 LR ratio ✓ |
+| `train/grad_param/embed/weight/norm` | 41.04 | 72.20 | 0.57× | inverse — higher LR shrinks ||g|| |
+| `train/grad_param/proj/weight/norm` (lm_head) | 4723.1 | 7157.6 | 0.66× | same inverse-norm pattern |
+| `polar/ortho_residual_sample` | 0.1628 | 0.1203 | — | both within healthy band |
+
+Adam steady-state: `||update|| ∝ lr / ||g||`. Higher LR drives ||W_embed|| up faster → inflates √v_t denominator → shrinks `||g||/√v_t` proportionally. The product `lr · update` stays roughly constant → variance scaling **self-normalizes** under linear LR perturbation. This is the cleanest evidence yet that aux Adam is in a flat shallow minimum w.r.t. base LR.
+
+Cross-axis with #875's `s/m² ≫ 1`: when momentum doesn't predict gradient, the update is dominated by `1/√v_t` per-coord variance scaling — which is scale-invariant under LR scaling. So LR perturbation cannot extract additional signal from a structurally i.i.d. aux gradient.
+
+### Operational note
+
+Student detected and resolved a duplicate-launch race at Arm B start (stale `arm_b_launcher.sh` from prior PR fired alongside the live chain). Killed the stale process, updated `aux_lr_down.{pid,logpath,wandb_id}` to point at the surviving `abhcrtf1` run. Trajectory recovered cleanly. Suggestion for team-wide launcher hygiene: have launchers self-delete after exit.
+
+### What this NULL closes vs leaves open
+
+**Closes:** Aux base-LR sensitivity in both directions (±30% perturbation lands inside ±0.001 noise band on val/loss_ema; SR ties at 2925 for both arms).
+
+**Leaves open in the aux family:** Off-Adam aux mechanisms — future aux work must move OFF the AdamW scaffolding (aux Muon-as-aux, aux Shampoo/KFAC with magnitude-budget pairing, aux Sophia/Hutchinson Hessian, etc.). The aux Adam-family is now structurally saturated across 18 update-rule variants + 3 scalar-hyperparameter axes (#460 scalar_lr, #463 embed_eps, #466 aux WD) + base-LR scaling (this PR).
+
+### Aux Adam-family closure status (18 total — accounting corrected)
+
+NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814), AdEMAMix (#585 + #846), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545 + #875), Lion (#604), Cautious-AdamW (#853), Adan (#854), Adam-mini (#863), aux parameter EMA (#899), SOAP literal @ R_neg (#937 — corrected from 18th to 17th), **aux base-LR retune (#913 — this PR, 18th)**.
+
+### Cross-axis with #875, #899, #937
+
+Four independent measurement axes now confirm the aux gradient is i.i.d.:
+
+| PR | Aux operation | Result | Mechanism |
+|---|---|---|---|
+| #875 | AdaBelief denominator | NULL | `s/m² ≫ 1` — momentum doesn't predict gradient |
+| #899 | Parameter EMA | NULL | wrong-sign `ema_minus_live` — no directional trajectory |
+| #937 | Cross-dim preconditioner (scale-coupled) | NULL | scale mismatch — Adam update ⊥ R_neg natural units |
+| #913 | Base-LR linear scaling | NULL | inverse-norm equilibrium — variance scaling self-normalizes |
+
+Aux gradient is structurally i.i.d. across time (correlation, EMA), structure (cross-dim preconditioner), and magnitude (base LR). Only DIRECTION-itself remains untested on aux — would require Muon-as-aux or natural-gradient-style alternative.
+
+### Reward
+
+Three-axis excellent work: (1) duplicate-launch race detection + clean recovery (saved ~7-8 min contention), (2) inverse-norm equilibrium mechanism analysis at terminal — the gradient/LR anti-correlation framing is the right way to see Adam's saturation, (3) recommendation to move off Adam scaffolding entirely — exactly the structural conclusion the round is driving toward.
+
+Frieren freed to PR #958 (γ_pre temporal schedule, body-side first probe).
+
+---
+
+## 2026-05-23 21:55 UTC — PR #937 CLOSED: SOAP literal Adam@R_neg for lm_head — Arm A NULL (sr=-1, val 3.486), 93rd axis, 17th aux Adam-family closure (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/soap-lm-head`
 - Hypothesis: SOAP one-sided preconditioner for lm_head — postmultiply AdamW update by `R_neg = R_cov^(−1/4)` where `R_cov` = `g.T @ g` EMA. Tests whether cross-vocab-dim gradient covariance structure can improve lm_head convergence.
@@ -11,7 +74,7 @@
 | A (`gudcg46p`, precond_freq=5) | `gudcg46p` | **−1** (never hit 3.28) | **3.486250** | 3.485687 | **0.01367** (~73× damped) | NULL |
 | B (precond_freq=10) | — | killed | — | — | — | killed per advisor (deterministic NULL) |
 
-### Verdict: NULL — 93rd axis closed, 18th aux Adam-family closure.
+### Verdict: NULL — 93rd axis closed, 17th aux Adam-family closure.
 
 ### Mechanism finding — Scale mismatch confirmed in production
 
@@ -34,9 +97,9 @@ Student posted the full mechanism analysis at 18:43 UTC (step 705, 22% through),
 
 **Leaves open:** Direction-only norm-preserving SOAP (assigned to tanjiro as PR #953). Tests whether lm_head's gradient cross-dim correlation has signal when scale is not modified. Both R_cov^(-1/4) and R_cov^(-1/2) variants tested.
 
-### Aux Adam-family closure status (18 total)
+### Aux Adam-family closure status (17 total after #937; #913 became 18th)
 
-NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814), AdEMAMix (#585 + #846), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545 + #875), Lion (#604), Cautious-AdamW (#853), Adan (#854), Adam-mini (#863), aux parameter EMA (#899), **SOAP literal @ R_neg (#937 — this PR)**.
+NAdam (#698), β2 ramp (#741), β1 ramp (#796), RAdam (#814), AdEMAMix (#585 + #846), AMSGrad (#578), Adamax (#583), LAMB (#609), Lookahead (#617), Schedule-Free (#623), AdaBelief (#545 + #875), Lion (#604), Cautious-AdamW (#853), Adan (#854), Adam-mini (#863), aux parameter EMA (#899), **SOAP literal @ R_neg (#937 — this PR, 17th)**.
 
 Only #913 (aux base-LR retune, frieren) remains active as the 19th potential closure. Also norm-preserving SOAP variant (#953 tanjiro) is the direction-only follow-up.
 
