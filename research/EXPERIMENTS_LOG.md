@@ -1,3 +1,74 @@
+## 2026-05-23 14:00 UTC — PR #912 ASSIGNED (fern): H93 PSGD-Kron Kronecker preconditioner replacing NS5 — fundamentally different inner-optimizer mechanism (second-order, non-polynomial)
+
+- Branch: `g1r3-fern/H93-psgd-kron-body`
+- Hypothesis: Replace Newton-Schulz polynomial polar map in MuonH with online Lie-group Kronecker preconditioner Q_L (m×m) and Q_R (n×n) such that Q_L^T Q_L ≈ (G G^T)^{-1/2} and Q_R^T Q_R ≈ (G^T G)^{-1/2}. Preconditioned gradient: `G_pre = Q_L^T @ G @ Q_R`, normalized to unit Frobenius norm. Lie-group update each step: closed-form O(mn) without matrix inverses or SVDs. Reference: arXiv:2402.04553, `evanatyourservice/kron_torch`.
+- Programme-shift rationale: The team's degree sweep (H78 per-LAYER, H84 degree-7, H88 Polar Express degree-5 coefs in flight, H90 NSCubic degree-3 in flight) is closing the polynomial-polar-map family. PSGD-Kron is OUTSIDE that family — it's a *maintained-state second-order preconditioner* with no polynomial approximation. First experiment to attack this axis.
+- Implementation: ~100 LoC. Add `psgd_kron_init_factors/update_factors/precondition` helpers, integrate via `--use_psgd_kron 0/1` CLI flag in MuonH.step(). Numerical smoke prereq: 100 random-matrix update steps must keep Q_L^T Q_L, Q_R^T Q_R PSD and finite.
+- Advisor follow-up posted: SIMPLIFIED first-order Lie-group update in PR body — fern instructed to verify against reference repo `evanatyourservice/kron_torch` `update_precond_kron_math_()` before launching full chain. Critical: Frobenius-norm contract (PSGD output magnitude must match NS5 baseline output magnitude post-aspect-ratio-scaling).
+- Arms (n=1, 3325 steps each): arm_a CTRL `--use_psgd_kron 0` (bit-identical) / arm_b PRIMARY `precond_lr=0.1 update_prob=0.1` / arm_c HIGH-LR `precond_lr=0.3` / arm_d HIGH-FREQ `update_prob=0.3`.
+- Decision: WIN<3.27039; NULL ∈ [3.27190, 3.27310]; NEG>3.27430; DIVERGED (crash) → pivot precond_lr=0.03 before closing.
+- Diagnostic: `psgd_kron/Q_L_fro_norm`, `Q_R_fro_norm`, `precond_grad_fro_norm`/`raw_grad_fro_norm` ratio, `condition_number_estimate`. If Q_L_fro_norm grows monotonically without bound → Lie-group update broken → port reference impl.
+- Plateau-protocol context: **14th post-plateau swing**. Fundamentally different inner-optimizer mechanism (non-polynomial second-order preconditioning) — the textbook escape from the polynomial-polar-map family closure.
+
+---
+
+## 2026-05-23 14:00 UTC — PR #911 ASSIGNED (tanjiro): H92 MARS-M variance reduction pre-NS5 — stochastic recursive momentum correction on body gradient BEFORE Newton-Schulz
+
+- Branch: `g1r3-tanjiro/H92-mars-m-body`
+- Hypothesis: Apply stochastic recursive momentum variance reduction to body matrix gradient BEFORE NS5: `c_t = g_t + γ * (β/(1-β)) * (g_t - g_{t-1})`. NS5 sees a lower-variance better-conditioned gradient, improving polar-factor quality. γ=0 ≡ bit-identical baseline (smoke invariant). Reference: arXiv:2510.21800 MARS Section 4 (MARS-M Muon variants on FineWeb-Edu).
+- Mechanism-distinct from closed axes: gradient-modification axis (H82 GC, H83 Focal, H76 PCGrad/DropGrad) was closed for *input-space* and *per-token* modifications. MARS-M acts on the raw stochastic gradient as a variance reducer before any spectral transformation — orthogonal to the closed axes (no per-token/per-sample reweighting, no rank-1 mean removal, no noise injection).
+- Implementation: ~25 LoC. Add `--mars_m_gamma`, `--mars_m_beta` CLI flags. Cache `state["prev_grad"]` per body parameter; compute corrected_grad inside MuonH.step() before muon_update call.
+- Arms (n=1, 3325 steps each): arm_a CTRL γ=0 (bit-identical) / arm_b γ=0.005 / arm_c γ=0.01 / arm_d γ=0.02. β=0.95 fixed (matching existing Nesterov mu).
+- Decision: WIN<3.27039; NULL all-arms ∈ [3.27190, 3.27310]; NEG all-arms>3.27430.
+- Diagnostic: `mars_m/correction_norm_ratio` (||correction|| / ||p.grad||, expect 0.05-0.2 — sanity that mechanism isn't no-op), `mars_m/grad_diff_norm` (||g_t − g_{t-1}|| — tracks chaotic-phase variance trajectory).
+- Plateau-protocol context: **13th post-plateau swing**. Attacks variance reduction in body gradients pre-NS5 — genuinely untouched axis (no prior experiment has applied any variance-reduction operator to the body gradient stream).
+
+---
+
+## 2026-05-23 13:45 UTC — PR #885 CLOSED NEG (tanjiro): H85 Schedule-Free aux training — weight-averaging-on-aux paradigm-level closure (EMA + SWA + Lookahead + SF all closed)
+
+- Branch: `g1r3-tanjiro/schedule-free-aux`
+- Hypothesis: Replace aux AdamW linear cooldown with constant LR + Polyak online averaging (Defazio 2023, arXiv:2310.04415). Mechanism distinct from EMA (cosine-cooldown contamination), SWA (averaging over monotonic-descent trajectory), Lookahead (interpolation during schedule) — SF removes the schedule entirely.
+- Result table:
+
+| arm | config | val/loss (live) | val/loss_sf (z_t) | ffs | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | linear cooldown | 3.27262 | — | 3125 | in-pop |
+| arm_b PRIMARY | SF from step 0 | 3.29595 | **5.08499** | -1 | catastrophic NEG (never reached 3.28) |
+| arm_c WARM-START | SF from step 1500 | 3.29596 | **3.33977** | -1 | NEG (+0.067 over WIN bar) |
+
+- Two structurally distinct failure modes (excellent diagnostic):
+  1. **Constant aux LR alone destabilizes y_t**: arm_b and arm_c posted identical live val/loss=3.296 (matching to 5 decimals via state-invariant). The +0.023 regression is attributable to constant aux LR alone, not the averaging.
+  2. **Polyak z_t never converges to y_t under monotonic-descent y_t**: Defazio's "z_t catches up to y_t once within-basin oscillation begins" requires *oscillating* y_t. Our 3325-step constant-LR y_t keeps descending (no within-basin phase), so z_t is dominated by early high-loss iterates. `sf/delta_norm_embed` grew monotonically 0.506→0.815 confirming z stays divergent from y throughout.
+  3. arm_c warm-start (avoid 45% early pollution) gave +1.745 better val_loss_sf than arm_b (3.34 vs 5.08) — strong mechanism evidence that early pollution dominated arm_b — but still NEG vs CTRL.
+- **Programme-level finding**: Joint closure with PR #761 EMA-of-weights (NULL — horizon pathology), PR #856 SWA eval-time (NEG — cooldown ⟂ averaging), PR #849 Lookahead-aux (NEG — aux-averaging saturation). **Weight-averaging on aux groups is closed across all paradigms at our scale.** Aux groups (embed_lr=0.3 driving 65k-batch × 50k-vocab gradient) require explicit LR cooldown for final-basin descent — no averaging substitute works.
+- Pre-closed: SF-AdamW interpolated-x_t (Defazio exact formulation), other warm-start steps (2000, 2500), embed_lr=0.15 constant + SF, all weight-averaging-only mechanisms on aux groups.
+- 12th plateau closure.
+
+---
+
+## 2026-05-23 13:45 UTC — PR #881 CLOSED NEG (fern): H84 perturbative septic Schulz — degree-7 polar map polynomial-form closure (programme-level orthogonalization axis closure with team sweep)
+
+- Branch: `g1r3-fern/septic-schulz-perturbative`
+- Hypothesis: Extend NS5 quintic polar map to degree-7 perturbative septic in the f(1)=1, f'(1)=0 amplification-preserving family: coefs (2, d-1.5, 0.5-2d, d) with d=0.05 (arm_b) and d=0.10 (arm_c). d=0 sanity case bit-identical to NS5 quintic baseline.
+- Result table:
+
+| arm | coefs | val/loss | Δ vs CTRL | ffs | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL (quintic) | (2,-1.5,0.5) | 3.272459 | — | 3125 | in-pop |
+| arm_b septic d=0.05 | (2,-1.45,0.4,0.05) | 3.273985 | +0.00153 (~2σ NEG) | 3150 | NEG |
+| arm_c septic d=0.10 | (2,-1.4,0.3,0.10) | 3.272673 | +0.0002 (in-pop) | 3125 | NULL |
+
+- Non-monotonic in d — magnitude-axis tuning ruled out as a follow-up.
+- Mechanism finding (fern's analysis): septic *converges more tightly* on real body matrices than quintic (sv_mean_dev ~30-40% smaller, fro_err ~30-40% smaller). Smoke prediction overturned. **Septic IS a structurally better polar projector — but the better polar projection is not what the body needs at this recipe.**
+- step_avg_ms identical to ±0.1% across arms (1815.96/1816.57/1817.52) — body NS is below noise floor in step wall-clock; closure is on *quality* axis not wall-clock confound.
+- **Programme-level closure of the orthogonalization-polynomial axis** — joins team's degree sweep: degree 3 (alphonse H90 in flight), degree 5 coefs (askeladd H88 in flight), degree 5 baseline (Muon NS5), degree 7 (fern H84 NEG closure). Team's joint finding: NS5 quintic (2,-1.5,0.5)×k=12 inhabits a flat basin in polynomial-form space — any structurally distinct polynomial in f(1)=1, f'(1)=0 family converges to the same training trajectory ±2σ.
+- Pre-closed: higher-degree polynomials in amplification-preserving family (degree 9, 11+), coefficient-only sweeps within fixed-degree NS5, per-position scaling across iterations (closed PR #834), per-call adaptive iteration counts (closed), temporal scheduling throughout training (closed).
+- Mechanism axis to escape this closure: **abandon polynomial polar maps entirely** — e.g., second-order Kronecker (PSGD-Kron, H93, just assigned to fern), spectral methods via Lanczos, Halley/Padé iterations.
+- 13th plateau closure.
+
+---
+
 ## 2026-05-23 11:50 UTC — PR #904 ASSIGNED (edward): H91 Outer-Adam MuLoCo wrapper — replace outer Nesterov-SGDM with per-coordinate AdamW
 
 - Branch: `g1r3-edward/outer-adam-muloco`
