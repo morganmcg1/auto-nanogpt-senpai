@@ -1,9 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 14:25 UTC
+- **Last update:** 2026-05-23 14:50 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #864, merged 2026-05-23 14:10 UTC). **ONE POTENTIAL IMPROVEMENT PENDING:** #893 edward PMuon momentum BC Arm A marginal val win (Arm B BC warmup-only in flight ETA ~16:50 UTC).
-- **87 closed axes** (#875 frieren AdaBelief-aux 87th NULL; #864 thorfinn EMA warmup=1750 **MERGED as new baseline** — n=2 mean val=3.266826, Δval=−0.0001 vs PR #737, strictly passes predeclared merge rule). #899 Arm A terminal NULL pending Arm B confirmation. Zero idle students after #913 frieren + #918 thorfinn assigned.
+- **88 closed axes** (#884 nezuko NS_ITERS={8,16} both-NULL 88th — NS_ITERS fully pinned at static=12 across {8, 12, 16, 20}; asymmetric closure: 8→under-converged catastrophic (residual 14), 16→over-saturation marginal (residual 0.067), 12 saturating equilibrium (residual 0.10). Combined with #540 (polynomial at NS=12 fixed), NS subsystem pinned across all 2D cells except quintic×low-iters joint cell). #899 Arm A terminal NULL; Arm B in flight. Zero idle students after #913 + #918 + #920 assigned.
 
 ## Current local baseline
 
@@ -15,12 +15,13 @@ W&B seeds: `j8nsn77s` (seed-1 val=3.266355), `08ursg5n` (seed-2 val=3.267298). *
 
 Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future experiments that previously compared against val=3.266926 now compare against 3.266826 (slightly harder target).
 
-## Active experiments (8 in-flight, 14:25 UTC)
+## Active experiments (8 in-flight, 14:50 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
 | ~~**#864**~~ | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **MERGED 14:10 UTC as new baseline.** n=2 mean val=3.266826 (Δval=−0.0001 vs #737). ema_warmup_steps=1750 adopted. |
-| **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | Arm A `fjp71ucq` (NS_ITERS=8) TERMINAL sr=3050/val=3.2744 — NULL regression. Arm B (NS_ITERS=16) chained, running step ~2125 @ 12:30 UTC. **ETA terminal ~14:25 UTC.** |
+| ~~**#884**~~ | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | **CLOSED 14:50 UTC as 88th NULL.** Arm A (NS=8) sr=3050/val=3.2744 catastrophic regression (residual ~14, under-cliff). Arm B (NS=16) sr=2975/val=3.2703 marginal regression (residual ~0.067, over-saturation). NS_ITERS axis CLOSED at static=12 across {8, 12, 16, 20}. |
+| **#920** | nezuko | Quintic NS at low iter count (NS_ITERS=5 vs 6) — joint cell never tested | **Newly assigned 14:48 UTC** after #884 closure. Quintic coefs (3.4445, -4.7750, 2.0315) at NS_ITERS={5,6}. Joint cell quintic×low-iters is the last untested cell in the 2D NS coef × iter family. Tests whether quintic's faster per-iter small-σ amplification can match cubic-at-12 in fewer iters with a different per-iter spectral signature. |
 | **#893** | edward | PMuon momentum first-moment Adam-style BC (1/(1-mu^t)) | **Arm A `lrackrk3` TERMINAL marginal val WIN: sr=2925/val=3.266211 (Δval=−0.000715).** Cross-axis falsification of #822 "PMuon warmup mechanically denoised" prediction — m_pre BC is directional (NS5 absorbs magnitude bias but NOT directional bias). Arm B (BC warmup-only) chained, running. **ETA terminal ~16:50 UTC.** |
 | **#896** | askeladd | Cautious-Muon body: post-NS multiplicative sign-mask | **Arm A `qw18ifdw` TERMINAL HARD NULL: val=3.2974, sr=−1, mask_frac=0.625.** Confirms #696 Contra-Muon closure pattern: post-NS perturbations break polar map spectral structure. Arm B (mask-only, no renorm) chained, running. **ETA terminal ~17:15 UTC.** |
 | **#897** | tanjiro | Body-Muon adaptive WD coupled to ||p||/target_norm | **Arm A TERMINAL NULL: sr=3000, val=3.270003**, terminal wd_mult=2.549 (moderated from mid-run 3.22). Adds to body-Muon WD axis closure pattern: static 0.025 locked across 5 closed sub-axes. Arm B (α=0.5 sqrt) chained, running. **ETA terminal ~17:30 UTC.** |

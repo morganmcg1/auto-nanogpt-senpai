@@ -1,5 +1,48 @@
 # SENPAI Research Results
 
+## 2026-05-23 14:50 UTC — PR #884 CLOSED: NS_ITERS tune (8 vs 16) — both arms NULL, 88th axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/ns-iters-tune`
+- Hypothesis: NS_ITERS=12 baseline is over-converged → Arm A NS=8 (33% reduction) might TIE baseline. Arm B NS=16 tests over-iteration.
+
+| Arm | ns_iters | W&B | sr | val/loss | Δsr | Δval | Polar residual | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Baseline #864 | 12 | `j8nsn77s`/`08ursg5n` | 2925 | 3.266826 | — | — | ~0.10 | — |
+| A | 8 | `fjp71ucq` | 3050 | 3.274412 | +125 | +0.0076 | **~13.9 (140× over)** | NULL clear (under-converged catastrophic) |
+| B | 16 | `mg6vuky6` | 2975 | 3.270314 | +50 | +0.0035 | ~0.067 (1.5× cleaner) | NULL marginal (over-saturation drift) |
+
+**Verdict: NULL/NULL clear → NS_ITERS axis CLOSED at static=12.**
+
+**Mechanism finding (student telemetry):** Polar orthogonality residual `||XX^T - I||_F` is the cleanest NS-family diagnostic. Convergence is **highly nonlinear**:
+- 8→12: residual drops 140× (14 → 0.10). The under-convergence cliff is between 8 and 12.
+- 12→16: residual drops 1.5× (0.10 → 0.067). Already saturated; extra iters add numerical perturbation.
+
+**Asymmetric closure**: going DOWN from 12 costs much more than going UP. 12 is the saturating equilibrium for the cubic Newton polynomial.
+
+**NS_ITERS frontier (combined with #898 alphonse NS=20 marginal NULL):**
+
+| NS_ITERS | sr | val | Pattern |
+|---|---|---|---|
+| 8 | 3050 | 3.2744 | Under-converged catastrophic |
+| **12** | **2925** | **3.2668** | **OPTIMAL** (saturating equilibrium) |
+| 16 | 2975 | 3.2703 | Marginal over-saturation |
+| 20 (via #898) | 2925 | 3.2681 | sr-TIE but val-regress (perturbation drift) |
+
+**Step-time falsification:** student measured ~0.2% step-time variation between {8, 12, 16}. NS iter count is NOT the step-time bottleneck — "33% compute savings" hypothesis falsified.
+
+**Telemetry win:** `polar/ortho_residual_sample` per-step trajectory is now the body-side screening filter (analog to #875's `s/m² > 5` aux Adam-family screen):
+- residual > 1.0 → under-converged catastrophic (skip benchmark)
+- residual ∈ [0.05, 0.20] → plateau-quality polar map
+- residual < 0.05 → over-saturated, expect marginal regression
+
+**Combined with #540 (cubic vs quintic at NS=12 NULL/NULL):** NS subsystem now PINNED across all 2D cells except joint cell quintic×low-iters → assigned to nezuko as follow-up (#920).
+
+**Suggested follow-up (deferred):** interior probe NS=10 (inflection candidate). Compute savings negligible — not assigned.
+
+PR: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/884
+
+---
+
 ## 2026-05-23 14:05 UTC — PR #875 CLOSED: AdaBelief-aux gradient-surprise variance — both arms NULL, 87th axis, 16th aux Adam-family closure (g1r1-frieren)
 
 - Branch: `frieren/adabelief-aux`
