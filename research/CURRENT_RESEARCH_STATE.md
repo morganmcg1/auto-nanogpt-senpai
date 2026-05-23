@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 10:08 UTC
+- **Date:** 2026-05-23 10:11 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -807,15 +807,29 @@ W&B Phase 2: trdfa7c6/si0n5039, hjs2ww65/4eoi63uk, enxvvgga/f16ktn1n.
 
 Mechanism is structural-novel — if it holds, opens up post-NS-side as a fresh axis (α schedule, per-block-type α, α + cooldown interaction).
 
-**Paired-pod chain progress (00:30 UTC, launched 22:10 UTC, ~2h20m of ~10.8h):**
+**Paired-pod chain TERMINAL (10:10 UTC, all 6 runs finished + 1 crashed retry, n=3 complete):**
 
-| Pod | Arm | run name | state | step | val/loss | Δ_within | Δ_vs_baseline 3.27036 |
-|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
-| 0 | A (α=0) | `pod0-A` | finished | 3350 | **3.2692** | — | **−0.00116 (favorable seed, drift PASS)** |
-| 0 | B (α=0.3) | `pod0-B` | running | 350/3350 (~10%) | 4.08 (in-prog) | TBD | TBD |
-| 1, 2 | A, B | — | pending | — | — | — | — |
+| Pod | Arm | run_id | state | val/loss | Δ_within | Δ_vs_new_base 3.26944 |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| 0 | A (α=0) | `k787xn6h` | finished | 3.26922 | — | −0.00022 (drift PASS) |
+| 0 | B (α=0.3) v1 | `c83g1myx` | crashed | 3.61855 | — | (ignored) |
+| 0 | B (α=0.3) v2 | `0ial88yh` | finished | 3.26890 | **−0.00032** | −0.00054 |
+| 1 | A (α=0) | `lntre2rk` | finished | 3.27030 | — | +0.00086 (drift PASS) |
+| 1 | B (α=0.3) | `cknbzxxu` | finished | 3.27132 | **+0.00102** | +0.00188 |
+| 2 | A (α=0) | `03432nbb` | finished | 3.26888 | — | −0.00056 (drift PASS) |
+| 2 | B (α=0.3) | `kyi2ei6z` | finished | **3.26812** | **−0.00076** | −0.00132 |
 
-Pod-0 A_ctrl hit favorable-seed territory (Δ=−0.00116 below baseline). Arm B will need to beat 3.2692 within-pod; recall N=1 produced Δ_within = −0.00394 (against A=3.27225). If pod-0-B lands ≤3.2672, within-pod Δ ≤ −0.002 still triggers signal. Full post-#708 stack confirmed (BODY=10/AUX=5). Posted #810 status-refresh comment 00:30 UTC. ETA terminal ~08:55 UTC tomorrow.
+**n=3 paired-pod summary:**
+- Mean(A) = 3.26947 (drift vs baseline 3.26944 = +0.00003, near-perfect baseline reproduction)
+- Mean(B) = 3.26945 (Δ_vs_new_base = +0.00001, functionally tied)
+- **Mean Δ_within = −0.00002** (essentially neutral; signal collapsed from N=1 −0.00394)
+- Direction-correct 2/3 pods (Pod 0 mild, Pod 2 sub-threshold; Pod 1 direction-wrong)
+
+**Verdict: productive-NULL** — pre-staged outcome triggered. Gate 1 (mean Δ ≤ −0.002) FAIL at −0.00002. Gate 2 (mean val_B ≤ 3.26944) technical FAIL at 3.26945 (+0.00001). Direction-correct 2/3, drift-PASS 3/3. **NOT a catastrophic collapse — the signal magnitude collapsed (N=1 −0.00394 → n=3 −0.00002) but direction maintained 2/3 pods.** This is the **11th paired-pod outcome since #708** — pattern continues: N=1 single-arm signals at this baseline rarely survive paired-pod confirmation.
+
+**Mechanism reading**: Post-NS momentum at α=0.3 reproduces baseline within rounding error. The post-NS axis (structurally novel mechanism level) does not extract additional gain over baseline's existing pre-NS μ=0.95 EMA. Composes with pre-NS μ axis (#356 NULL, #530 NULL) and weight-space-EMA (#436 NEG, #434 Lookahead NEG) — **post-NS adds another fenced corner; full Muon temporal-smoothing family substantially exhausted across pre-NS/in-NS/post-NS/weight-space**.
+
+Awaiting frieren SENPAI-RESULT terminal marker before close. ETA student post within ~30 min of Pod 2 B terminal (10:10 UTC).
 
 ### ✅ frieren #506 — NS-iter warmup schedule — CLOSED 16:15 UTC productive-NEGATIVE [paired-pod n=3]
 
