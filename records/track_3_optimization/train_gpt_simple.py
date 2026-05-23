@@ -83,6 +83,23 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--cautious_muon",
+        action="store_true",
+        default=False,
+        help="Apply Cautious Optimizer mask (Liang et al. 2411.16085) to post-NS Muon update: "
+             "zero out elements where sign(update) != sign(raw_grad), then rescale surviving "
+             "elements by numel/(sum_mask+1) to preserve approximate step RMS.",
+    )
+    parser.add_argument(
+        "--cautious_muon_scope",
+        type=str,
+        default="all",
+        choices=["all", "mlp", "attn"],
+        help="Scope of --cautious_muon: 'all' applies to both muon_mlp and muon_attn groups; "
+             "'mlp' applies only to muon_mlp (skip attn); 'attn' applies only to muon_attn "
+             "(skip mlp). Ignored unless --cautious_muon.",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +588,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 cautious=False, cautious_scope="all"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +612,10 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.cautious = bool(cautious)
+        assert cautious_scope in ("all", "mlp", "attn"), f"bad cautious_scope: {cautious_scope}"
+        self.cautious_scope = cautious_scope
+        self.cautious_stats_buffer: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -610,14 +632,29 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _cautious_applies(self, group_name: str) -> bool:
+        if not self.cautious:
+            return False
+        if self.cautious_scope == "all":
+            return True
+        if self.cautious_scope == "mlp":
+            return group_name == "muon_mlp"
+        if self.cautious_scope == "attn":
+            return group_name == "muon_attn"
+        return False
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.cautious_stats_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
             params = group["params"]
             norm_sum = torch.zeros((), device=params[0].device, dtype=torch.float32)
+            apply_cautious = self._cautious_applies(group.get("name", ""))
+            kept_sum = torch.zeros((), device=params[0].device, dtype=torch.float32) if apply_cautious else None
+            elem_sum = torch.zeros((), device=params[0].device, dtype=torch.float32) if apply_cautious else None
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
             for base_i in range(0, len(params), world_size):
                 if base_i + rank < len(params):
@@ -633,6 +670,7 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    raw_grad = p.grad.detach().clone() if apply_cautious else None
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -650,12 +688,23 @@ class Muon(torch.optim.Optimizer):
                         soap_update_preconditioner(p.grad, state)
                     else:
                         update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    if apply_cautious:
+                        upd_dtype = update.dtype
+                        mask = (update.float() * raw_grad.float()).gt(0)
+                        mask_sum = mask.sum().float()
+                        alpha_rescale = mask.numel() / (mask_sum + 1.0)
+                        update = (update * mask.to(upd_dtype) * alpha_rescale.to(upd_dtype))
+                        kept_sum.add_(mask_sum)
+                        elem_sum.add_(float(mask.numel()))
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+            if apply_cautious:
+                group["_cautious_kept_sum"] = kept_sum
+                group["_cautious_elem_sum"] = elem_sum
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -678,6 +727,36 @@ class Muon(torch.optim.Optimizer):
                 mean = float(norm_sum.item()) / count
             name = group.get("name", f"group_{g_idx}")
             result[name] = mean
+        return result
+
+    def get_cautious_kept_fractions(self) -> dict[str, float]:
+        """Return per-group fraction of update elements retained by the Cautious mask.
+
+        Empty dict when cautious is disabled or no group has matching scope.
+        """
+        if not self.cautious:
+            return {}
+        world_size = dist.get_world_size()
+        result: dict[str, float] = {}
+        for g_idx, group in enumerate(self.param_groups):
+            kept = group.get("_cautious_kept_sum", None)
+            elem = group.get("_cautious_elem_sum", None)
+            if kept is None or elem is None:
+                continue
+            if world_size > 1:
+                k = kept.clone()
+                e = elem.clone()
+                dist.all_reduce(k, op=dist.ReduceOp.SUM)
+                dist.all_reduce(e, op=dist.ReduceOp.SUM)
+                k_val = float(k.item())
+                e_val = float(e.item())
+            else:
+                k_val = float(kept.item())
+                e_val = float(elem.item())
+            if e_val <= 0:
+                continue
+            name = group.get("name", f"group_{g_idx}")
+            result[name] = k_val / e_val
         return result
 
 
@@ -765,6 +844,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cautious_muon": bool(args.cautious_muon),
+            "cautious_muon_scope": args.cautious_muon_scope,
         },
     )
 
@@ -853,6 +934,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        cautious=args.cautious_muon, cautious_scope=args.cautious_muon_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1011,6 +1093,7 @@ for trial_idx in range(args.num_trials):
             opt.step()
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
+            cautious_kept = optimizer2.get_cautious_kept_fractions()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
                            for i, group in enumerate(optimizer2.param_groups)}
             current_wds = {group.get("name", f"group_{i}"): group.get("weight_decay", 0.0)
@@ -1023,6 +1106,8 @@ for trial_idx in range(args.num_trials):
                     per_group_metrics[f"train/lr/{name}"] = lr
                 for name, wd in current_wds.items():
                     per_group_metrics[f"train/wd/{name}"] = wd
+                for name, kept in cautious_kept.items():
+                    per_group_metrics[f"train/cautious_kept/{name}"] = kept
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
