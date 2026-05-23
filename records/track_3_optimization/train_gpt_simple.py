@@ -83,6 +83,19 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument(
+        "--pre_ns_norm_mode",
+        type=str,
+        default="none",
+        choices=["none", "col_absorbed", "col_propagated", "all_col_absorbed", "row_absorbed"],
+        help="Per-column/row gradient normalization applied before Newton-Schulz "
+             "to improve polar-decomposition condition number at finite ns_iter. "
+             "none=baseline (default); "
+             "col_absorbed=divide by per-column L2 norms on MLP path (pure direction); "
+             "col_propagated=col-absorbed then re-multiply col norms post-NS (col-adaptive LR); "
+             "all_col_absorbed=col_absorbed on all Muon body matrices (MLP + attn); "
+             "row_absorbed=divide by per-row L2 norms on MLP path (row vs col test).",
+    )
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,18 +513,62 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def muon_update(grad, momentum, mu=0.95, nesterov=True, pre_ns_mode=0):
+    """Muon update: momentum lerp + nesterov blend + NS orthogonalization + size scale.
+
+    pre_ns_mode: 0=none, 1=col_absorbed, 2=col_propagated, 3=row_absorbed
+    Specializes via torch.compile on the Python int value.
+    """
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
-    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    if pre_ns_mode == 1:
+        col_norms = update.norm(p=2, dim=0, keepdim=True).clamp(min=1e-8)
+        update = update / col_norms
+        update = zeropower_via_newtonschulz5(update)
+        update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    elif pre_ns_mode == 2:
+        col_norms = update.norm(p=2, dim=0, keepdim=True).clamp(min=1e-8)
+        update = update / col_norms
+        update = zeropower_via_newtonschulz5(update)
+        update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+        update = update * col_norms
+    elif pre_ns_mode == 3:
+        row_norms = update.norm(p=2, dim=1, keepdim=True).clamp(min=1e-8)
+        update = update / row_norms
+        update = zeropower_via_newtonschulz5(update)
+        update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    else:
+        update = zeropower_via_newtonschulz5(update)
+        update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
-    update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+def soap_ns_step(nesterov_update, pre_ns_mode=0):
+    """NS orthogonalization + size scale, with optional pre-NS per-column or per-row normalization.
+
+    pre_ns_mode: 0=none, 1=col_absorbed, 2=col_propagated, 3=row_absorbed
+    Specializes via torch.compile on the Python int value.
+    """
+    if pre_ns_mode == 1:
+        col_norms = nesterov_update.norm(p=2, dim=0, keepdim=True).clamp(min=1e-8)
+        x = nesterov_update / col_norms
+        update = zeropower_via_newtonschulz5(x)
+        update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    elif pre_ns_mode == 2:
+        col_norms = nesterov_update.norm(p=2, dim=0, keepdim=True).clamp(min=1e-8)
+        x = nesterov_update / col_norms
+        update = zeropower_via_newtonschulz5(x)
+        update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+        update = update * col_norms
+    elif pre_ns_mode == 3:
+        row_norms = nesterov_update.norm(p=2, dim=1, keepdim=True).clamp(min=1e-8)
+        x = nesterov_update / row_norms
+        update = zeropower_via_newtonschulz5(x)
+        update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
+    else:
+        update = zeropower_via_newtonschulz5(nesterov_update)
+        update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
 
@@ -571,7 +628,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, pre_ns_norm_mode="none"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +651,29 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+
+        # Pre-NS normalization setup
+        self.pre_ns_norm_mode = pre_ns_norm_mode
+        _mode_int_map = {
+            "none": 0,
+            "col_absorbed": 1,
+            "col_propagated": 2,
+            "row_absorbed": 3,
+            "all_col_absorbed": 1,  # same operation as col_absorbed, different scope
+        }
+        if pre_ns_norm_mode not in _mode_int_map:
+            raise ValueError(f"Unknown pre_ns_norm_mode: {pre_ns_norm_mode}")
+        self.pre_ns_mode_int = _mode_int_map[pre_ns_norm_mode]
+        if pre_ns_norm_mode == "all_col_absorbed":
+            scope_suffixes = self.SOAP_MLP_SUFFIXES + self.SOAP_ATTN_SUFFIXES
+        elif pre_ns_norm_mode in ("col_absorbed", "col_propagated", "row_absorbed"):
+            scope_suffixes = self.SOAP_MLP_SUFFIXES
+        else:
+            scope_suffixes = ()
+        self.pre_ns_scope_params = {
+            p for n, p in all_named
+            if any(n.endswith(suf) for suf in scope_suffixes)
+        }
 
         param_groups = []
         for g in groups_raw:
@@ -633,13 +713,14 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    mode_int = self.pre_ns_mode_int if p in self.pre_ns_scope_params else 0
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, pre_ns_mode=mode_int)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, pre_ns_mode=mode_int)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,7 +730,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], pre_ns_mode=mode_int)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +846,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "pre_ns_norm_mode": args.pre_ns_norm_mode,
         },
     )
 
@@ -853,6 +935,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        pre_ns_norm_mode=args.pre_ns_norm_mode,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
