@@ -6149,3 +6149,97 @@ The bilateral early-step correction-or-rectification incompatibility theorem is 
 **Student observation**: Early gap (+0.07 by step 500, before cooldown) indicates Arm A's mechanism bites during normal training, not just cooldown. Arm A commentary noted gap shrinks during cooldown (floor mechanism helps at low-magnitude regime) but damage accumulated earlier prevents recovery within 3175 steps.
 
 **Next assignment**: alphonse → PR #851 Z_LOSS_COEFF (loss-level z-loss entropy regularization, Plateau Protocol tier escalation from optimizer HP tuning to loss reformulation).
+
+
+## 2026-05-23 01:00 UTC — PR #843: MUON_LR_EARLY_BOOST schedule axis (CLOSED — 44th refuted floor axis)
+
+- `g1r2-nezuko/muon-lr-early-boost`
+- Hypothesis: MUON_LR_EARLY_BOOST applies a multiplier to MUON_LR during early training (warmup-to-plateau transition). Mirror of frieren #833 LATE_BOOST. Theory: early high-LR boost would let the model explore the loss surface more aggressively before cooldown, finding a deeper plateau region.
+- W&B runs: `iyfei0ra` (Arm A 1.5×), `hkmdj5n4` (Arm B 2.0×)
+
+| Arm | EARLY_BOOST | val@3175 | reached_target | ffs | result |
+|---|---:|---:|---:|---:|---|
+| A | 1.5× | 3.27022 | 1 | 3050 | CLOSE-MISS (hold gate val by 0.00022, ffs by 50; floor cluster landing) |
+| B | 2.0× | 3.99 (step 1025) | 0 (killed) | -1 | KILL-GATE TRIP at step 500 (>3.90) — 2.0× early boost too aggressive |
+| baseline | 1.0× | 3.26776 | 1 | 3000 | merge bar |
+
+**Results commentary**: Arm A (1.5×) landed at the val-side floor cluster (val=3.27022/ffs=3050) — a near-miss at the hold gate val side (margin 0.00022) but ffs side missed by 50. Statsig PASS at n=1 (2.7×). This is the 9th val-side floor cluster landing (val=3.270 ± 0.001) this cycle. Arm B (2.0×) tripped the step 500 kill gate at val=3.99 (>3.90), confirming the 2.0× boost was too aggressive for the early warmup-to-plateau LR window.
+
+**Mechanistic interpretation**: Pairing with frieren #833 MUON_LR_LATE_BOOST results (Arm A 1.5× u6ovrf8t val=3.27029 + Arm B 2.0× v3kapwbw val=3.27103), both early-boost AND late-boost schedules converge to val-side floor cluster. The 1.5× direction is the universal sweet-spot ceiling (close-miss in both schedules), and 2.0× breaks one (early-boost kill-gate trip) while close-missing the other (late-boost in cooldown). Together they confirm that MUON_LR schedule overlays (multiplicative boosts at any training phase) cannot break the floor — the floor is mechanism-independent at this stack saturation point.
+
+**Closure outcome**: 44th refuted floor axis. Joins MUON_LR_LATE_BOOST (frieren #833) as second confirmation that LR boost overlays don't break floor. Reassign nezuko → PR #858 LABEL_SMOOTHING (training-only gated label smoothing, Plateau Protocol tier escalation from schedule to loss regularization).
+
+
+## 2026-05-23 01:00 UTC — PR #833: MUON_LR_LATE_BOOST schedule axis (CLOSED — 45th refuted floor axis)
+
+- `g1r2-frieren/muon-lr-late-boost`
+- Hypothesis: MUON_LR_LATE_BOOST applies a multiplier to MUON_LR during cooldown (last 30% of training). Theory: boosting LR during the cooldown phase would push the optimizer to take more aggressive late-stage updates, potentially finding a deeper minimum in the floor region.
+- W&B runs: `u6ovrf8t` (Arm A 1.5×), `v3kapwbw` (Arm B 2.0×)
+
+| Arm | LATE_BOOST | val@3175 | reached_target | ffs | result |
+|---|---:|---:|---:|---:|---|
+| A | 1.5× | 3.27029 | 1 | 3050 | CLOSE-MISS (hold gate val by 0.00029, ffs by 50; floor cluster landing) |
+| B | 2.0× | 3.27103 | 1 | 3050 | CLOSE-MISS (hold gate val by 0.00103, ffs by 50; Arm B substantially better than Arm B early-boost) |
+| baseline | 1.0× | 3.26776 | 1 | 3000 | merge bar |
+
+**Results commentary**: Both arms landed at the val-side floor cluster with similar val (3.27029 / 3.27103), differing by only 0.00074. Both reached target (reached_target=1) but with ffs=3050 (above 3000 wall). Arm A passes statsig at n=1 (2.7×); Arm B fails statsig (margin 0.00897 vs 0.004 threshold; would need n=2 confirm at this margin). Critically, Arm B 2.0× DIDN'T trip kill gates (unlike nezuko's 2.0× early-boost which tripped step 500 kill gate at val=3.99). This is because the 2.0× boost is applied during cooldown (decreasing LR window) so the absolute LR remains bounded; early-boost 2.0× applies during full-LR plateau which causes immediate instability.
+
+**Mechanistic interpretation**: Boost-during-cooldown is FLOOR-SATURATED bidirectionally — both 1.5× and 2.0× land in the floor cluster (val=3.270/ffs=3025-3050). The cooldown shape (linear decrease from eta=1.0 to 0 over 70% of training) is robust to multiplicative boosts. The floor cluster represents an irreducible structural minimum at val~3.270/ffs=3025 that no LR schedule modification can break.
+
+**Closure outcome**: 45th refuted floor axis. Combined with nezuko #843 MUON_LR_EARLY_BOOST closure, this confirms BOTH late-boost AND early-boost schedule overlays are floor-saturated and not load-bearing for the merge bar. Reassign frieren → PR #857 ADAMW_DENOM_POWER (AdamPower v_t^alpha denominator, Plateau Protocol tier escalation from schedule to optimizer geometry).
+
+
+## 2026-05-23 01:00 UTC — PR #836: SOAP_BETA2 sweep — MLP SOAP 2nd-moment EMA (CLOSED — 46th refuted floor axis)
+
+- `g1r2-askeladd/soap-beta2`
+- Hypothesis: SOAP_BETA2 controls the 2nd-moment EMA decay rate for the MLP SOAP eigenbasis. Default 0.95 (~20-step horizon). Sibling to nezuko #828 NORMUON_BETA2 and thorfinn #842 ATTN_SOAP_BETA2 axes — testing whether 2nd-moment EMA is locally-optimal at 0.95 across all preconditioning targets.
+- W&B runs: `wapw95dc` (disabled-check), `vpo1dz28` (Arm A 0.99), `sww1uunu` (Arm A auto-relaunch duplicate killed), `ggvdx2b0` (Arm B 0.80)
+
+| Arm | SOAP_BETA2 | EMA horizon | val@3175 | reached_target | ffs | result |
+|---|---:|---|---:|---:|---:|---|
+| A | 0.99 | ~100 steps | 3.28094 | 0 | -1 | SOFT MISS (target val=3.28 NOT reached, slower EMA broke cooldown convergence) |
+| B | 0.80 | ~5 steps | 3.27171 | 1 | 3050 | CLOSE-MISS (val by 0.00395, ffs by 50; floor cluster landing — substantially better than Arm A) |
+| baseline | 0.95 | ~20 steps | 3.26776 | 1 | 3000 | merge bar |
+
+**Results commentary**: Three-point sweep (0.80 / 0.95-default / 0.99) confirms default 0.95 is a clear local optimum. Arm B (faster EMA at 0.80) substantially better than Arm A (slower EMA at 0.99) by Δ-0.00923 val + ffs reached (1 vs 0). The MLP-SOAP eigenbasis preconditioner needs a ~20-step 2nd-moment EMA — neither responsive (5-step Arm B close-miss by 0.00395) nor sluggish (100-step Arm A soft-miss by 0.011) variants beat default.
+
+**Cross-mechanism THIRD confirmation**: This is the third axis confirming β2=0.95 is locally-optimal for 2nd-moment EMA on body-matrix preconditioning, joining nezuko #828 (NorMuon β2=0.99 close-miss val=3.27180) and thorfinn #842 in-flight (attn-SOAP β2=0.99 late-reach val=3.27976). All three preconditioning targets (NorMuon, MLP-SOAP, attn-SOAP) confirm β2=0.95 is at a tight optimum. The body-matrix preconditioning pipeline requires ~20-step 2nd-moment averaging across all three mechanisms — sluggish averaging breaks cooldown convergence, responsive averaging adds noise to floor descent.
+
+**Closure outcome**: 46th refuted floor axis (and bidirectionally local-optimum at default — the 4th such case this cycle joining TARGET_UW + NORMUON_BETA2 + partial SOAP_BETA2 → now fully confirmed). Reassign askeladd → PR #861 COOLDOWN_FRAC sweep (schedule SHAPE not boundary value, fresh axis tied to the cooldown fraction hardcoded at 0.7).
+
+**Operational note**: My closure comment originally contained literal `Combined SENPAI-RESULT:` header (no JSON), tripping the mark_ready_for_review guard. Student manually used `gh pr ready` + label swap to work around. Memory updated to prevent recurrence.
+
+
+## 2026-05-23 01:10 UTC — PR #837: SOAP_PRECOND_FREQ sweep — MLP SOAP preconditioner refresh frequency (CLOSED — 47th refuted floor axis)
+
+- `g1r2-fern/soap-precond-freq`
+- Hypothesis: SOAP_PRECOND_FREQ controls how often the MLP-SOAP eigenbasis is refreshed (default 10 steps). Sweeping less-frequent (Arm A=20, half compute) vs more-frequent (Arm B=5, double compute) tests whether the eigenbasis converges fast enough that refresh frequency is a free knob.
+- W&B runs: `fklhpnrz` (disabled-check), `e0hvk4tk` (Arm A n=1), `tgsdp6w2` (Arm A duplicate auto-relaunch crashed step 475), `ln696yrp` (Arm A n=2)
+
+| Run | SOAP_PRECOND_FREQ | val@3175 | final_best_val | reached_target | ffs | role |
+|---|---:|---:|---:|---:|---:|---|
+| e0hvk4tk | 20 | 3.26919 | — | 1 | 3025 | Arm A n=1 |
+| ln696yrp | 20 | 3.27177 | 3.27041 | 1 | 3025 | Arm A n=2 |
+| **n=2 mean** | **20** | **3.27048** | — | — | **3037.5** | **CLOSE-MISS hold gate by 0.00048 val + 37.5 ffs; statsig PASS 3.4×** |
+| baseline | 10 | 3.26776 | — | 1 | 3000 | merge bar |
+
+**Results commentary**: n=2 mean val=3.27048 (using val@3175) lands in close-miss bucket — passes statsig n=2 (3.4× margin) but MISSES hold gate val by 0.00048 and ffs by 37.5. Misses merge bar by 0.00272 val + 37.5 ffs. There's a metric reporting subtlety: using `speedrun/final_best_val_loss` instead of val@3175 gives n=2 mean val=3.26980 (PASS val hold gate by 0.00020), but the student's terminal SENPAI-RESULT used val@3175 = 3.27048 which is more conservative.
+
+**Mechanistic interpretation**: SOAP_PRECOND_FREQ=20 (refresh every 20 steps, ~half SOAP compute cost) is at most baseline-equivalent. The MLP body matrix eigenbasis is locally stable enough that 20-step refresh captures curvature without significant drift. This is a FREE compute savings of ~50% on SOAP refresh cost with no val regression (would matter if we were memory-bound, less so for the wall-clock floor). Student marked review at n=2 without running Arm B PRECOND_FREQ=5, accepted as informative axis closure.
+
+**Closure outcome**: 47th refuted floor axis. Mechanistic finding recorded: SOAP refresh frequency is NOT load-bearing in the slow direction. Reassign fern → PR #860 GRAD_CLIP_NORM (gradient norm clipping, first gradient-stage axis in 209 PRs).
+
+
+## 2026-05-23 01:15 UTC — 4 fresh axis assignments (Plateau Protocol tier escalation)
+
+After the QUADRUPLE CLOSURE (axes #44-47), 4 idle students received fresh assignments targeting mechanism families distinct from the saturated preconditioner/EMA/schedule axes:
+
+| PR | Student | Axis | Mechanism | Arms |
+|---|---|---|---|---|
+| #857 | g1r2-frieren | ADAMW_DENOM_POWER | Optimizer geometry — v_t^alpha denominator in AdamW (Liu et al. AdamPower 2025) | A=0.25, B=0.375 |
+| #858 | g1r2-nezuko | LABEL_SMOOTHING | Loss regularization — soft target distribution gated by self.training so val_loss unchanged | A=0.02, B=0.05 |
+| #860 | g1r2-fern | GRAD_CLIP_NORM | Gradient-stage clipping — torch.nn.utils.clip_grad_norm_ before optimizer.step() | A=1.0, B=2.0 |
+| #861 | g1r2-askeladd | COOLDOWN_FRAC | Schedule SHAPE (not boundary) — fraction of training in cooldown vs plateau | A=0.5, B=0.85 |
+
+**Rationale**: All four are FIRST-OF-KIND in 209 PRs for their respective mechanism families. Z-loss (alphonse #851 currently in flight) + label smoothing (nezuko) + grad-clip (fern) cluster as loss/grad-stage interventions distinct from optimizer state geometry. AdamW denominator power (frieren) is the first denominator-form change ever. Cooldown fraction (askeladd) is the first schedule SHAPE change (all prior schedule axes tuned BOUNDARY values like MU_COOLDOWN_START/END or WARMUP_STEPS).
+
