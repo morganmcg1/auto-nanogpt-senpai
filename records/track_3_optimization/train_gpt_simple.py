@@ -61,6 +61,10 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--pre_ns_sign_mask", action="store_true",
+                        help="Apply sign-alignment mask to m_pre BEFORE bilateral whitening + NS5")
+    parser.add_argument("--pre_ns_sign_mask_renorm", action="store_true",
+                        help="Restore Frobenius norm after pre-NS mask")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -496,15 +500,36 @@ def pmuon_update(
     ns_a: float = NS_A,
     ns_b: float = NS_B,
     ns_c: float = NS_C,
+    pre_ns_sign_mask: bool = False,
+    pre_ns_sign_mask_renorm: bool = False,
     polar_diag: dict | None = None,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
+    # Snapshot raw gradient sign BEFORE momentum lerp mutates it (grad.lerp_ below is in-place).
+    raw_grad_sign = grad.sign() if pre_ns_sign_mask else None
     L_cov.mul_(beta_cov).add_(g32 @ g32.T)
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
+
+    # Pre-NS sign-mask: align m_pre direction with current gradient sign BEFORE bilateral whitening.
+    if pre_ns_sign_mask:
+        mask = (update.sign() == raw_grad_sign).to(update.dtype)
+        if polar_diag is not None and "pre_ns_mask_frac" not in polar_diag:
+            polar_diag["pre_ns_mask_frac"] = float(mask.mean().item())
+            polar_diag["pre_ns_pre_norm"] = float(update.norm().item())
+        if pre_ns_sign_mask_renorm:
+            pre_norm = update.norm()
+            update = update * mask
+            post_norm = update.norm()
+            if post_norm > 0:
+                update = update * (pre_norm / (post_norm + 1e-12))
+        else:
+            update = update * mask
+        if polar_diag is not None and "pre_ns_post_norm" not in polar_diag:
+            polar_diag["pre_ns_post_norm"] = float(update.norm().item())
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
@@ -532,11 +557,14 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 pre_ns_sign_mask=False, pre_ns_sign_mask_renorm=False):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        pre_ns_sign_mask=pre_ns_sign_mask,
+                        pre_ns_sign_mask_renorm=pre_ns_sign_mask_renorm)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -570,6 +598,8 @@ class Muon(torch.optim.Optimizer):
                         ns_a=group["ns_a"],
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
+                        pre_ns_sign_mask=group["pre_ns_sign_mask"],
+                        pre_ns_sign_mask_renorm=group["pre_ns_sign_mask_renorm"],
                         polar_diag=polar_diag,
                     )
                     floor_eligible_count += 1
@@ -753,7 +783,9 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      pre_ns_sign_mask=args.pre_ns_sign_mask,
+                      pre_ns_sign_mask_renorm=args.pre_ns_sign_mask_renorm)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1025,6 +1057,16 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            if polar_diag and "pre_ns_mask_frac" in polar_diag:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "polar/pre_ns_mask_frac": polar_diag["pre_ns_mask_frac"],
+                    "polar/pre_ns_pre_norm": polar_diag.get("pre_ns_pre_norm", 0.0),
+                    "polar/pre_ns_post_norm": polar_diag.get("pre_ns_post_norm", 0.0),
+                    "polar/pre_ns_sign_mask_enabled": int(args.pre_ns_sign_mask),
+                    "polar/pre_ns_sign_mask_renorm_enabled": int(args.pre_ns_sign_mask_renorm),
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
