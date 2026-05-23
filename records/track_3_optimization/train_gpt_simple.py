@@ -468,6 +468,7 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+GAIN_INIT_MEAN = float(os.environ.get("GAIN_INIT_MEAN", "1.0"))  # RMSNorm gain init mean (default 1.0 = baseline)
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +868,9 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "init/embed_init_std": EMBED_INIT_STD,
+            "init/gain_init_mean": GAIN_INIT_MEAN,
+            "init/logit_softcap": LOGIT_SOFTCAP,
         },
     )
 
@@ -893,7 +897,7 @@ for trial_idx in range(args.num_trials):
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
-            w.normal_(mean=1, std=0)
+            w.normal_(mean=GAIN_INIT_MEAN, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
