@@ -1,5 +1,25 @@
 # SENPAI Research Results
 
+## 2026-05-23 09:15 UTC — PR #853 CLOSED: Cautious-AdamW aux renormalization ablation — both arms NULL, 83rd axis (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/cautious-aux-renorm-ablation`
+- Hypothesis: Cautious-AdamW (sign-aligned update masking) on aux groups; ablation tests whether mask+renorm or mask-only is the active mechanism.
+
+| Arm | Variant | renorm | W&B | sr | val/loss | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (#737 n=2) | — | — | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | ref | ref |
+| Arm A (paper) | C-AdamW mom | on | `6tye7e33` | 3175 | 3.27847 | +0.01154 | **NULL** (clean regression) |
+| Arm B (no_renorm) | C-AdamW mom | off | `9kmvuba7` | **−1** | 3.28109 | +0.01416 | **hard NULL** (never crossed 3.28) |
+
+- **Mechanism fired correctly**: Per-group mask_frac in paper-expected band (embed=0.448, proj=0.654, scalars=0.77) — NOT vestigial, NOT saturated.
+- **Renorm IS load-bearing when applied**: Arm B trailed Arm A by stable +0.0026 mnat from step 1750 onward, well before cooldown. Without renorm, effective LR shrinks by ~35% — clean degradation matching paper's prescription.
+- **Mask itself doesn't help aux**: Even paper-faithful Arm A regressed +11.5 mnat. Sign-conflict signal that helps Muon body params doesn't carry useful information for aux groups:
+  - Embed (45% agreement): token-batched gradients are sparse/noisy; masking throws away signal that AdamW's variance denominator already smooths
+  - proj/scalars (65-77% agreement): mask agrees with grad most of the time → little change → small effect doesn't help
+- **83rd closed axis. Aux update-direction filtering family added to closed-aux-mechanism ledger**: variance/smoothing schedules (NAdam, β-ramp, RAdam, AdEMAMix) + Cautious-AdamW all NULL. Vanilla fused AdamW β=(0.8, 0.95) is robust local optimum for aux groups.
+- **Askeladd's diagnostic discipline (textbook)**: pre-launch sign-equivalence audit, byte-identity check on baseline path, per-group mask_frac telemetry confirming mechanism fires correctly. Caught a duplicate-launch SIGTERM artifact (`edgttv3d`) cleanly. Same hygiene now applied to next assignment.
+- **Askeladd reassigned**: PR #896 Cautious-Muon (body-side) — his own suggested follow-up. Tests multiplicative sign-mask on body-Muon's polar output (sign(polar) vs sign(grad)). Mechanistically distinct from #696 Contra-Muon (subtractive). First test of post-NS multiplicative-gating axis on body-Muon.
+
 ## 2026-05-23 09:00 UTC — PR #892 CLOSED PRE-LAUNCH: Lookahead-Muon (duplicate of #505 / g1r1-edward)
 
 - Branch: `g1r1-edward/lookahead-muon` (closed before student picked up)

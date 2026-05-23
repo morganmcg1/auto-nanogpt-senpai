@@ -1,16 +1,16 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 09:00 UTC
+- **Last update:** 2026-05-23 09:20 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #737, merged 2026-05-22). **TWO POTENTIAL IMPROVEMENTS PENDING:** #822 alphonse PMuon BC seed-3 tiebreaker; #864 thorfinn EMA warmup=1750 marginal val win.
-- **82 closed axes** (#846 edward AdEMAMix-Aux α sweep 82nd — both arms hard NULL).
+- **83 closed axes** (#853 askeladd Cautious-AdamW aux 83rd — both arms NULL; mask fires correctly, renorm load-bearing, mask alone does not help aux).
 - **🚨 HIGH PRIORITY #1:** PR #822 alphonse PMuon BC seed-3 in flight (n=2 mean sr=2900 at marginal boundary). If seed-3 sr≤2900, MERGE as new baseline. ETA ~09:10 UTC.
 - **🚨 HIGH PRIORITY #2:** PR #864 thorfinn EMA warmup=1750 Arm A `j8nsn77s` **TERMINAL: sr=2925/val=3.266355 — marginal val WIN** (Δval=−0.000571 sub-marginal). Strict win rule passes; n=2 confirmation required. Arm B (warmup=2500) running, ETA ~09:25 UTC.
 - **Today's terminals so far (all NULL/TIE):**
   - #846 edward Arm A (α=2): sr=3075, Δsr=+150, Δval=+0.0088 — NULL; Arm B (α=8): sr=−1/val=3.332 — hard NULL (CLOSED 82nd)
   - #854 tanjiro Arm A (b1=0.98): sr=-1 (did NOT cross target), val=3.2833 — hard NULL
   - #863 fern Arm A (per_row): sr=2925/val=3.267874 (Δval=+0.000948 sub-marginal regression) — NULL/TIE
-  - #853 askeladd Arm A `6tye7e33` (cautious-aux momentum, with renorm): sr=3175/val=3.27847 — NULL
+  - #853 askeladd: Arm A (renorm) sr=3175/val=3.27847 NULL; Arm B (no_renorm) sr=-1/val=3.28109 hard NULL (CLOSED 83rd)
   - #827 nezuko Arm B (pre-NS Frobenius) seed-2 confirmation: n=2 Δval=+0.000055 — informative-NULL (CLOSED 81st)
 
 ## Current local baseline
@@ -23,23 +23,24 @@ W&B seeds: `rdbmnzpc` (seed-1), `32r3isz5` (seed-2). **Win vs new baseline:** sr
 
 Val note: +2.65 mnat regression vs PR #413 val (3.264278) is accepted — primary metric is sr and it improved. Future experiments must compare against sr=2925/val=3.266926.
 
-## Active experiments (8 in-flight, 09:00 UTC)
+## Active experiments (8 in-flight, 09:20 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
-| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. Seed-3 `7bgqna61` running step 2200 (~68%), ETA terminal ~09:10 UTC. |
-| **#853** | askeladd | Cautious-AdamW aux: renormalization ablation | Arm A `6tye7e33` (cautious-aux-momentum, with renorm) TERMINAL — sr=3175/val=3.27847 NULL. Arm B `9kmvuba7` (no_renorm) running step 2650, ETA ~08:50 UTC. |
-| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98) TERMINAL — hard NULL (sr=−1, val=3.2833 did NOT cross 3.28 target). Arm B `aae3y07x` (b1=0.80 tuned) running step 2475 (~76%), ETA ~09:10 UTC. Mid-cooldown val=3.333. |
-| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 1975, ETA ~09:35 UTC. |
-| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 2100 (~65%). ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
-| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | Arm A `5mha8dpz` (paper β=(0.9,0.999), eps=1e-16) running step 2075 (~64%), ETA terminal ~09:00 UTC. Arm B drop-in pending chain. Tests variance-estimator axis. |
-| **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | Arm A `fjp71ucq` (NS_ITERS=8) running step 1050 (~32%), val=3.658. ETA ~11:00 UTC. Arm B (NS_ITERS=16) pending chain. |
+| **#822** | alphonse | PMuon L_cov/R_cov Adam-style bias correction | n=2 borderline (seed-1 sr=2875, seed-2 sr=2925, n=2 mean=2900). **SENT BACK for seed-3 tiebreaker** — need seed-3 sr≤2900 to confirm merge. Seed-3 `7bgqna61` running step 2725 (~84%), val=3.305. ETA terminal ~09:25 UTC. |
+| **#854** | tanjiro | Adan-aux: Nesterov gradient-difference term | Arm A `cidw81e1` (b1=0.98) TERMINAL — hard NULL (sr=−1, val=3.2833 did NOT cross 3.28). Arm B `aae3y07x` (b1=0.80 tuned) running step 2975 (~92%), val=3.278/sr=2950. ETA Arm B ~09:20 UTC. Likely borderline NULL (val>3.276 stat-sig threshold). |
+| **#863** | fern | Adam-mini-aux: per-row/per-tensor v_t reduction | Arm A `o3pv0szv` (per_row) TERMINAL — NULL/TIE (sr=2925/val=3.267874, Δval=+0.000948 sub-marginal regression). Arm B `m3jirfw9` (per_tensor) running step 2500, val=3.354. ETA ~09:35 UTC. |
+| **#864** | thorfinn | EMA warmup_steps re-tune (1750 vs 2500) | **Arm A `j8nsn77s` TERMINAL: sr=2925/val=3.266355 (Δval=−0.000571 sub-marginal val WIN, strict-rule pass).** Arm B `p75chp4s` (2500) running step 2650, val=3.303. ETA Arm B ~09:25 UTC. If Arm B holds, n=2 confirm Arm A. |
+| **#875** | frieren | AdaBelief-aux: gradient-surprise variance for aux groups | Arm A `5mha8dpz` (paper β=(0.9,0.999), eps=1e-16) running step 2600 (~80%), val=3.324. ETA terminal ~09:35 UTC. Arm B drop-in pending chain. Tests variance-estimator axis. |
+| **#884** | nezuko | NS_ITERS tune: 8 vs 16 polar convergence (current=12) | Arm A `fjp71ucq` (NS_ITERS=8) running step 1750 (~54%), val=3.479. ETA terminal ~10:42 UTC. Arm B (NS_ITERS=16) pending chain. |
 | **#893** | edward | PMuon momentum first-moment Adam-style BC (1/(1-mu^t)) | Newly assigned 09:00 UTC. Arm A=BC ON always; Arm B=BC ON warmup-only (until 200). Tests first-moment BC analog of #822 (which does second-moment BC on L_cov/R_cov). Orthogonal mechanism, fresh axis. |
+| **#896** | askeladd | Cautious-Muon body: post-NS multiplicative sign-mask (his own followup) | Newly assigned 09:20 UTC. Arm A=mask+renorm; Arm B=mask-only. Tests sign(polar) vs sign(grad) gating analog of C-AdamW on body-Muon polar output. Mechanistically distinct from #696 Contra-Muon (subtractive). |
 
 **Recently closed (this session):**
 - #846 edward (AdEMAMix-Aux 82nd, both arms NULL)
 - #827 nezuko (NS-output Frobenius 81st, n=2 informative-NULL)
-- #892 edward Lookahead-Muon (closed pre-launch as duplicate of #505 — same arms k=5/k=10 α=0.5 already NULL/NULL on body-Muon at PR #505 2026-05-20; my pre-launch duplicate-check failure caught before student touched it).
+- #853 askeladd (Cautious-AdamW aux 83rd, both arms NULL; mask fired correctly, renorm load-bearing, mask alone no benefit)
+- #892 edward Lookahead-Muon (closed pre-launch as duplicate of #505 — same arms k=5/k=10 α=0.5 already NULL/NULL on body-Muon at PR #505 2026-05-20; pre-launch duplicate-check failure caught before student touched it).
 
 ## Recently closed (since session start)
 
