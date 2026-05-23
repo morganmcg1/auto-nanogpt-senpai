@@ -589,6 +589,24 @@ NANOGPT_NS_STOCHASTIC_COOLDOWN = int(os.environ.get("NANOGPT_NS_STOCHASTIC_COOLD
 # stochastic-NS runs (Arm B/C/D N=1 in PR #787).
 _SENPAI_SEED_RAW = os.environ.get("SENPAI_SEED", "")
 NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
+# Anisotropic gradient noise (#900): curvature-matched exploration injection.
+# scope='none' (default) is bit-identical to baseline. scope='aux' adds noise
+# to AdamW grads scaled by sqrt(v_t / mean(v_t)). scope='all' additionally
+# adds post-NS noise to Muon updates scaled by per-block update RMS.
+# noise anneals linearly from MAX -> 0 over the first ANNEAL_FRAC of training.
+NANOGPT_GRAD_NOISE_MAX = float(os.environ.get("NANOGPT_GRAD_NOISE_MAX", "0.0"))
+NANOGPT_GRAD_NOISE_ANNEAL_FRAC = float(os.environ.get("NANOGPT_GRAD_NOISE_ANNEAL_FRAC", "0.50"))
+NANOGPT_GRAD_NOISE_SCOPE = os.environ.get("NANOGPT_GRAD_NOISE_SCOPE", "none")
+_VALID_GRAD_NOISE_SCOPES = ("none", "aux", "all")
+if NANOGPT_GRAD_NOISE_SCOPE not in _VALID_GRAD_NOISE_SCOPES:
+    raise ValueError(
+        f"NANOGPT_GRAD_NOISE_SCOPE={NANOGPT_GRAD_NOISE_SCOPE!r}, must be one of {_VALID_GRAD_NOISE_SCOPES}"
+    )
+_GRAD_NOISE_ENABLED = NANOGPT_GRAD_NOISE_SCOPE != "none" and NANOGPT_GRAD_NOISE_MAX > 0.0
+if NANOGPT_GRAD_NOISE_ANNEAL_FRAC <= 0.0:
+    raise ValueError(
+        f"NANOGPT_GRAD_NOISE_ANNEAL_FRAC={NANOGPT_GRAD_NOISE_ANNEAL_FRAC}, must be > 0"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -719,6 +737,12 @@ class Muon(torch.optim.Optimizer):
         # Step-dependent NS iteration count. Set by the training loop before each step()
         # using `set_ns_iters_this_step()`. Defaults to the static NS_ITERS env var.
         self.ns_iters_this_step = NS_ITERS
+        # Post-NS anisotropic-noise scale (#900). 0.0 -> no noise, bit-identical to
+        # the noise-free path. When > 0, each block's post-NS update gets Gaussian
+        # noise scaled by its own per-block update RMS:
+        #   update += randn_like(update) * noise_scale * update_rms
+        # Set by the training loop via `set_noise_scale_this_step()` before step().
+        self.noise_scale_this_step = 0.0
         # Optional reference to the parameter whose orthogonalized update we
         # log spectral statistics for (e.g. blocks[0].attn.q.weight). When set,
         # `step()` populates `self.spectral_stats` with svd-based metrics that
@@ -728,6 +752,9 @@ class Muon(torch.optim.Optimizer):
 
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
+
+    def set_noise_scale_this_step(self, noise_scale: float) -> None:
+        self.noise_scale_this_step = float(noise_scale)
 
     @torch.no_grad()
     def step(self):
@@ -769,6 +796,13 @@ class Muon(torch.optim.Optimizer):
                             }
                         except Exception:
                             self.spectral_stats = None
+                    if self.noise_scale_this_step > 0.0:
+                        # Per-block post-NS anisotropic noise (#900, body Muon path).
+                        # Scale noise by this block's own update RMS so injection
+                        # magnitude matches per-block update scale. Applied after
+                        # spectral logging so the diagnostic spectrum remains clean.
+                        update_rms = update.norm() / (update.numel() ** 0.5 + 1e-12)
+                        update.add_(torch.randn_like(update) * (self.noise_scale_this_step * update_rms))
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
@@ -825,6 +859,12 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(
+    f"GRAD_NOISE: max={NANOGPT_GRAD_NOISE_MAX} anneal_frac={NANOGPT_GRAD_NOISE_ANNEAL_FRAC} "
+    f"scope={NANOGPT_GRAD_NOISE_SCOPE} "
+    f"({'ENABLED' if _GRAD_NOISE_ENABLED else 'DISABLED'})",
+    console=True,
+)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -888,6 +928,10 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
+            "nanogpt_grad_noise_max": NANOGPT_GRAD_NOISE_MAX,
+            "nanogpt_grad_noise_anneal_frac": NANOGPT_GRAD_NOISE_ANNEAL_FRAC,
+            "nanogpt_grad_noise_scope": NANOGPT_GRAD_NOISE_SCOPE,
+            "nanogpt_grad_noise_enabled": int(_GRAD_NOISE_ENABLED),
         },
     )
 
@@ -1120,6 +1164,16 @@ for trial_idx in range(args.num_trials):
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
         slope_due = (train_step % slope_interval == 0 or train_step == train_steps)
         wandb_step = trial_idx * (train_steps + 1) + train_step
+        # Anisotropic gradient noise schedule (#900). Computed here so the value
+        # can be logged at slope_due cadence; the actual noise injection happens
+        # below, just before optimizer.step().
+        if _GRAD_NOISE_ENABLED:
+            _t_frac = step / train_steps
+            noise_scale_t = NANOGPT_GRAD_NOISE_MAX * max(
+                0.0, 1.0 - _t_frac / NANOGPT_GRAD_NOISE_ANNEAL_FRAC
+            )
+        else:
+            noise_scale_t = 0.0
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
         if dist.get_rank() == 0 and slope_due:
@@ -1127,6 +1181,8 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/slope/window_target_steps": slope_window_steps,
+                "train/grad_noise/scale_t": noise_scale_t,
+                "train/grad_noise/active": int(_GRAD_NOISE_ENABLED and noise_scale_t > 0.0),
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
@@ -1186,6 +1242,33 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Anisotropic gradient noise (#900). noise_scale_t was computed above
+        # so the slope_due block could log it; here we inject it. When disabled
+        # (scope='none' or MAX=0), noise_scale_t == 0.0 and the entire block is
+        # skipped — no state access, no RNG calls — so behavior is bit-identical
+        # to baseline.
+        if NANOGPT_GRAD_NOISE_SCOPE in ("aux", "all") and noise_scale_t > 0.0:
+            # AdamW aux path: per-coord noise scaled by sqrt(v_t / mean(v_t)).
+            # v_t is the AdamW state's exp_avg_sq (running second moment) and
+            # is unavailable at step 0 — fall back to isotropic for that step
+            # only. Applied after grad-clip so clip cannot bound the noise.
+            for group in optimizer1.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    state = optimizer1.state.get(p)
+                    if state is None or "exp_avg_sq" not in state:
+                        p.grad.add_(torch.randn_like(p.grad) * noise_scale_t)
+                    else:
+                        v_t = state["exp_avg_sq"]
+                        v_mean = v_t.mean().clamp(min=1e-12)
+                        noise_std = noise_scale_t * torch.sqrt(v_t / v_mean)
+                        p.grad.add_(torch.randn_like(p.grad) * noise_std)
+        # Pass body-Muon noise scale (0 if scope != 'all'). The Muon class
+        # itself guards on > 0.0, so 'aux'/'none' incur only an attribute write.
+        optimizer2.set_noise_scale_this_step(
+            noise_scale_t if NANOGPT_GRAD_NOISE_SCOPE == "all" else 0.0
+        )
         for opt in optimizers:
             opt.step()
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
