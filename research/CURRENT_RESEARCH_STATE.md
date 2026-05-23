@@ -435,6 +435,41 @@ ATTN_SOAP_TRUST_THRESHOLD=0.85 MU_WARMUP_STEPS=200 MU_WARMUP_START=0.85
 
 ---
 
+## 2026-05-23 ~09:18Z — Cycle 71 mid-113 update
+
+### Terminal Arm A results (W&B verified)
+- **alphonse #877 Arm A=12 (NS5_ITERS=12)**: `c1kv9ks0` val=3.2720/ffs=3050 — **16th floor cluster landing**. val passes n=1 hold gate (3.2720 ≤ 3.27); ffs misses by 50 (eval-cadence quantization). statsig 2×. Default 14 vs A=12: 12 cheaper-per-step, lands at floor.
+- **thorfinn #879 Arm A (both SOAP freq=20)**: `l1x2352e` val=3.2740/ffs=3075 — close-miss above floor cluster threshold (val>3.27+0.004). Slight regression vs individual freq=20 results (fern #837 mlp-side val=3.26919, thorfinn #868 attn-side val=3.2710). Halving BOTH SOAP frequencies has weak negative interaction (~0.005 val loss vs individual sides at floor).
+
+### In-flight Arm B status
+- alphonse #877 Arm B=16 (NS5_ITERS=16): `fai35had` step 875 val=3.6924 (mid-run, ~15 min to terminal)
+- thorfinn #879 Arm B (both freq=30): `4v4qmqx2` step 950 val=3.6972 (mid-run, ~15 min to terminal)
+- nezuko #878 Arm A (AdamW β1=0.75): `6emmoksf` step 1925 val=3.4549 — most advanced; step 2000 kill gate at 3.43, currently slightly above. Borderline — may or may not survive kill gate. ~8 min to terminal.
+- fern #876 Arm A (MU_COOLDOWN_START=0.90): `j78eoxcp` step 425 val=3.8785 (early, passing step 500 kill gate at 3.81)
+- askeladd #882 Arm A (MU_WARMUP_STEPS=100): `73ox4d8j` step 400 val=3.8883 (early, just below step 500 kill gate at 3.81 — close)
+- frieren #894 Arm A (ATTN_SOAP_PRECOND_FREQ=5): `qtcj6qif` step 175 val=4.3497 (very early warmup, healthy)
+
+### Override #2 results
+- Both fern (#876) and askeladd (#882) disabled-check stalls successfully broken — Arm A runs active and verified env-var plumbing in W&B config (`optimizer/mu_cooldown_start=0.9` + `optimizer/mu_cooldown_end=0.9` for fern; `optimizer/mu_warmup_steps=100` for askeladd).
+
+### Pod-broken hold continues
+- tanjiro (#793) heartbeat #6 posted 09:18Z. Pod broken since 2026-05-21 11:49 UTC (~46h corruption). #768 unresponded ~15h.
+- edward (#702) heartbeat #6 posted 09:18Z. Pod broken since 2026-05-21 11:49 UTC (~46h corruption). #692 unresponded ~15h.
+- Cumulative GPU-hours lost: ~58 (tanjiro) + ~46 (edward) ≈ 104+ GPU-hours.
+
+### Cycle 71 axis closure tally
+- **54 axes refuted** total (49–54 closed in rapid sequence: #861 cooldown_frac, #876_diagnosis MU stable-phase impl, #868 attn-SOAP-freq, #857 ADAMW_DENOM_POWER + 50–52 from prior runs)
+- **16 floor cluster landings** at val=3.270±0.001, ffs=3025–3075
+- **0 merges in 220+ PRs**
+- Pattern: every axis we test individually lands at floor cluster, monotone direction, or close-miss; no breakthrough above baseline yet
+
+### Active assignments status
+- 6 of 6 healthy students assigned and progressing (frieren, thorfinn, nezuko, alphonse, fern, askeladd all active)
+- 2 pod-broken (tanjiro, edward) on heartbeat-only hold
+- 0 idle students
+
+---
+
 ## 2026-05-23 ~09:00Z — Cycle 71 mid-112 update
 
 ### Frieren #857 ADAMW_DENOM_POWER — CLOSED as 54th refuted axis
