@@ -1,3 +1,40 @@
+## 2026-05-23 11:50 UTC — PR #904 ASSIGNED (edward): H91 Outer-Adam MuLoCo wrapper — replace outer Nesterov-SGDM with per-coordinate AdamW
+
+- Branch: `g1r3-edward/outer-adam-muloco`
+- Hypothesis: Replace MuLoCo's outer-step optimizer (currently outer-Nesterov-SGDM, outer_lr=0.7, outer_momentum=0.5) with per-coordinate AdamW applied to the slow weights at each `sync_interval=30` step. The inner delta `(current − slow)` is treated as a pseudo-gradient; outer-Adam gives coordinate-wise variance-based scaling on top of the existing inner adapter.
+- Untouched-axis rationale: The MuLoCo outer-step *internal optimizer choice* has never been varied in our programme. Only H55 (MuLoCo OFF binary ablation) has touched the outer loop. Per plateau protocol's "untouched mechanism axes" stance — this is the textbook next swing.
+- Implementation: ~60-80 LoC. Add `--outer_optimizer {sgdm,adam}`, `--outer_adam_beta1/beta2/eps`. Allocate per-param `outer_exp_avg/exp_avg_sq/step` buffers when adam mode; in MuLoCo sync, replace SGDM update with bias-corrected AdamW recipe on delta-as-pseudo-gradient. Keep all other hyperparameters identical to baseline (MuonH lr=0.018, AGC 0.05, aux betas/eps, sync_interval=30, warmup, cooldown).
+- Arms (n=1, 3325 steps):
+  - arm_a CTRL `--outer_optimizer sgdm` (current baseline outer-Nesterov-SGDM)
+  - arm_b STANDARD `--outer_optimizer adam --outer_adam_beta1 0.9 --outer_adam_beta2 0.999 --outer_adam_eps 1e-8` (most-tested AdamW defaults)
+  - arm_c MATCH-INNER `--outer_optimizer adam --outer_adam_beta1 0.8 --outer_adam_beta2 0.95 --outer_adam_eps 1e-8` (matches our inner aux AdamW betas — hypothesis: shorter-horizon β tracks 3325-step regime better than (0.9, 0.999))
+- Smoke prereq: 200-step smoke on arm_b/arm_c — no NaN/Inf in slow weights after first 10 sync events (step ≥300), val/loss at step 200 within ~0.5 of arm_a, training loss not diverging. STOP if smoke fails — likely outer_lr needs Adam-specific scaling.
+- Decision: WIN<3.27039; NULL ∈ [3.27190, 3.27310]; NEG>3.27430. If both arm_b AND arm_c NEG → outer-Adam axis closes (joins plateau closures).
+- Plateau-protocol context: **11th post-plateau experiment**. Continued bold-swing posture at the untouched outer-step mechanism axis.
+
+---
+
+## 2026-05-23 11:40 UTC — PR #871 CLOSED NEG (edward): H83 Focal Loss on CE — uniform per-token CE weighting is load-bearing (programme-level closure)
+
+- Branch: `g1r3-edward/focal-loss-cross-entropy`
+- Hypothesis: Per-token focal-loss reweighting on training CE (`(1-p_y)^γ * CE`) sharpens learning signal on hard tokens. Tested as a *loss-side* axis distinct from H73 z-loss (auxiliary penalty axis), H62/H69/H74 Cautious (gradient masking axis), and H82 Gradient Centralization (input gradient axis).
+- Result table:
+
+| arm | γ | wandb run id | val/loss | Δ vs CTRL | σ-deviation |
+|---|---|---|---|---|---|
+| arm_a CTRL | 0.0 | — | 3.27336 | — | in-pop |
+| arm_b PRIMARY | 1.0 | — | 3.27983 | +0.00647 | ~+8σ NEG |
+| arm_c HIGH-γ | 2.0 | — | 3.29609 | +0.02273 | ~+28σ NEG, never reaches 3.28 |
+
+- Monotonic NEG in γ — magnitude tuning ruled out as a follow-up.
+- Mechanism diagnostic (edward's analysis): focal_weight trajectory shows p_y_mean climbing 0.087 → 0.234 across training; effective_token_count drops 91.3% → 76.9% for arm_b. Focal loss systematically suppresses common-token signal at our scale, and that signal is load-bearing.
+- Structural reason: 50k-vocab × 65k-batch ≈ 1.3 tokens-per-vocab-entry per step. Common tokens are already representation-starved; any per-token reweighting further suppressing them shifts gradient away from where the model is learning.
+- **Programme-level finding**: Joint closure with H73 z-loss + H62/H69/H74 Cautious + H82 GC + H76 PCGrad/DropGrad — **uniform per-token CE weighting + unmodified input gradients are load-bearing at our scale**. The 50k-vocab × 65k-batch regime, combined with our highly-tuned MuonH + outer-optimizer stack, means any intervention that systematically reweights or suppresses token-level signal regresses val/loss.
+- Pre-closed by this finding (do not propose): label smoothing, asymmetric class weighting (frequency-inverse, IDF-weighted), dynamic per-token weighting (uncertainty-based, gradient-norm-based), hard-example mining variants (top-k loss, OHEM), all other per-sample/per-token CE reweighting schemes.
+- 10th NEG/NULL closure of the plateau. Continued bold-swing posture, pivoting next swing (H91) to the outer-step axis.
+
+---
+
 ## 2026-05-23 09:55 UTC — PR #895 ASSIGNED (alphonse): H90 NSCubic orthogonalization (degree-3, 1.5σ−0.5σ³) — lower-degree end of degree sweep
 
 - Branch: `g1r3-alphonse/ns-cubic-orthogonalization`
