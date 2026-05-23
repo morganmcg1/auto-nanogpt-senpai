@@ -83,6 +83,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--mars_gamma", type=float, default=0.0,
+                        help="MARS gradient VR coefficient (0=disabled). "
+                             "Applied to Muon body weights before Nesterov step. "
+                             "Recommended range: 0.01-0.10.")
+    parser.add_argument("--mars_scope", type=str, default="all",
+                        choices=["all", "mlp", "attn"],
+                        help="MARS VR scope: all=both Muon groups; mlp=MLP weights only; attn=attn weights only")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +578,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 mars_gamma=0.0, mars_scope="all"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +602,8 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.mars_gamma = float(mars_gamma)
+        self.mars_scope = mars_scope
 
         param_groups = []
         for g in groups_raw:
@@ -609,6 +619,16 @@ class Muon(torch.optim.Optimizer):
             param_groups.append(g_dict)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
+
+    def _mars_applies_to(self, p: Tensor) -> bool:
+        if self.mars_scope == "all":
+            return True
+        name = self.param_names.get(id(p), "")
+        if self.mars_scope == "mlp":
+            return any(name.endswith(s) for s in self.SOAP_MLP_SUFFIXES)
+        if self.mars_scope == "attn":
+            return any(name.endswith(s) for s in self.SOAP_ATTN_SUFFIXES)
+        return False
 
     @torch.no_grad()
     def step(self):
@@ -633,6 +653,11 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    if self.mars_gamma > 0.0 and self._mars_applies_to(p):
+                        prev_g = state.get("prev_grad")
+                        if prev_g is not None:
+                            p.grad = p.grad.add(p.grad.sub(prev_g), alpha=self.mars_gamma)
+                        state["prev_grad"] = p.grad.detach().clone()
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -765,6 +790,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "mars_gamma": args.mars_gamma,
+            "mars_scope": args.mars_scope,
         },
     )
 
@@ -853,6 +880,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        mars_gamma=args.mars_gamma, mars_scope=args.mars_scope,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
