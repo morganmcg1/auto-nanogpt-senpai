@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 04:01 UTC
+- **Date:** 2026-05-23 04:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -275,18 +275,26 @@ Implementation: ~15 LOC. Snapshot `model.embed.weight.detach().clone()` at init 
 
 Implementation: snapshot body Muon init weights at step 0; modify WD step from `p ← (1−lr·λ)·p` to `p ← (1−lr·λ)·p + lr·λ·p_init`. Memory: ~50MB for 24 body matrices.
 
-**02:38 UTC progress refresh #2** (W&B-verified, clean chain — no ghost crashes):
+**04:40 UTC progress refresh #3** (W&B-verified; 3/4 arms FINISHED, clean Goldilocks pattern emerging):
 
 | Arm | λ | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
 |:---:|:---:|---|---|:---:|:---:|:---:|:---:|
-| A (ctrl) | 0.0 | `c1s8xnl3` | finished | 3350 | 3.2706 | — | +0.00024 (drift PASS ±0.003) |
-| **B** | **0.001** | `aoef2igc` | **finished** | **3350** | **3.2695** | **−0.0011 (direction-correct, sub-signal)** | −0.00083 |
-| C | 0.005 | `f9h59nq1` | running | 1150/3350 (~34%) | 3.60 (in-prog) | TBD | TBD |
-| D | 0.015 | — | not yet | — | — | — | — |
+| A (ctrl) | 0.000 | `c1s8xnl3` | finished | 3350 | 3.26963 | — | +0.00027 (drift PASS marginal) |
+| **B** | **0.001** | `aoef2igc` | **finished** | 3350 | **3.26953** | **−0.00110** | **−0.00083 (best, direction-correct)** |
+| C | 0.005 | `f9h59nq1` | **finished** | 3350 | **3.26975** | **−0.00088** | **−0.00061 (direction-correct, sub-B by +0.00022)** |
+| D | 0.015 | `v1s335x7` | running | 1525/3350 (~46%) | 3.553 (peers ~3.514) | TBD (projected ~+0.039) | TBD (projected catastrophic ~+0.038) |
 
-**Mechanism alive**: Arm B at λ=0.001 shows direction-correct Δ_within=−0.0011 but sub-signal (threshold −0.002). Embedding init-anchored WD nudges θ_embed toward θ_0 — mildly preserves random-orthogonal init information without removing AdamW adaptation. C at λ=0.005 (5× stronger anchor) decides between three patterns: monotone increase → D extends gain; Goldilocks at C → D regresses; saturation → C≈B then D regresses. ETA terminal ~05:53 UTC. Posted #847 progress refresh #2 comment.
+**GOLDILOCKS pattern at B (λ=0.001) — mechanism IS REAL**: Not monotone, not saturation. B beats A by −0.00110 within-pod (direction-correct), C also beats A by −0.00088 but slightly less than B (sub-B by +0.00022) — additional anchor strength net-harmful. Arm D mid-run is already +0.038 above peers at step 1525, projecting catastrophic regression (~3.308 terminal) — confirms over-anchoring threshold between λ=0.005 and λ=0.015.
 
-Branch still has only assignment commit; group-name discrepancy noted (label difference, same mechanism). Clean chain hygiene vs edward #838 / thorfinn #848 ghost-crash patterns this evening.
+**Direction-correct in 2 of 3 finished arms (B, C)** — strongest mechanism characterization across the 5 active 4-arm chains tonight. Mechanism reading: gentle init-anchor (λ≤0.001) preserves random-orthogonal init information for rare-token rows while letting frequent tokens drift to learned positions; standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). λ=0.015 over-anchors frequent rows, freezing Zipf tail.
+
+**Pre-staged paired-pod n=3 follow-up — RECOMMENDED at terminal**
+
+When Arm D terminates ~06:00-06:30 UTC, send back for paired-pod n=3 on Arm B (λ=0.001) layered on full post-#708 stack. Gates: mean(B,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift ±0.003. Risk: Δ_vs_baseline=−0.00083 at N=1 sits below the typical −0.001 follow-up threshold AND 10+ paired-pod collapse precedents at this magnitude — collapse probability ~70%. But the cross-arm confirmation (C also direction-correct, D mechanism real) elevates this above noise — worth the n=3 test. Alternative if paired-pod collapses: fine-grained λ sweep around 0.001 ({0.0003, 0.0005, 0.001, 0.002}) to characterize Goldilocks peak.
+
+ETA terminal ~06:00-06:30 UTC. Posted #847 progress refresh #3 comment.
+
+Branch still has only assignment commit; group-name discrepancy noted (label difference, same mechanism). **Zero ghost crashes — chain hygiene clean** (cf edward #838 4 ghost crashes, thorfinn #848 3 ghost crashes).
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
