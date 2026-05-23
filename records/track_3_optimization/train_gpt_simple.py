@@ -593,6 +593,13 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Path-norm body regularization (#933): penalize ||theta_t - theta_{t-k}||^2 over
+# body (Muon-managed) matrices every PATH_NORM_WINDOW steps. LAMBDA=0.0 disables
+# the penalty for bit-identical control behavior.
+NANOGPT_PATH_NORM_LAMBDA = float(os.environ.get("NANOGPT_PATH_NORM_LAMBDA", "0.0"))
+NANOGPT_PATH_NORM_WINDOW = int(os.environ.get("NANOGPT_PATH_NORM_WINDOW", "10"))
+if NANOGPT_PATH_NORM_WINDOW <= 0:
+    raise ValueError(f"NANOGPT_PATH_NORM_WINDOW must be > 0, got {NANOGPT_PATH_NORM_WINDOW}")
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -832,6 +839,9 @@ else:
     print0(f"NS_SCHEDULE: constant ns_iters={NS_ITERS} (NS_ITERS_COOLDOWN=0, schedule disabled)",
            console=True)
 print0(f"NS_COEF_SCHEDULE: {NS_COEF_SCHEDULE}", console=True)
+print0(f"PATH_NORM: lambda={NANOGPT_PATH_NORM_LAMBDA} window={NANOGPT_PATH_NORM_WINDOW} "
+       f"({'ACTIVE (body-only velocity penalty)' if NANOGPT_PATH_NORM_LAMBDA > 0 else 'DISABLED'})",
+       console=True)
 for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else NS_ITERS):
     _table = get_ns_coef_table(_probe_iters)
     _c_vals = [round(t[2], 3) for t in _table]
@@ -894,6 +904,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
+            "nanogpt_path_norm_lambda": NANOGPT_PATH_NORM_LAMBDA,
+            "nanogpt_path_norm_window": NANOGPT_PATH_NORM_WINDOW,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
         },
@@ -1017,6 +1029,14 @@ for trial_idx in range(args.num_trials):
     train_loader = distributed_data_generator("data/fineweb10B/fineweb_train_*.bin", batch_size)
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
+    # Path-norm snapshot (#933): clone body params at trial start so penalty at
+    # step=PATH_NORM_WINDOW measures ||theta_W - theta_0||^2 on the post-broadcast
+    # initial parameters. Snapshots remain identical across ranks because params
+    # are identical after broadcast (and stay identical after each opt.step()).
+    body_snapshots = None
+    path_norm_total_fires = 0
+    if NANOGPT_PATH_NORM_LAMBDA > 0.0:
+        body_snapshots = [p.detach().clone() for p in body_clip_params]
     # start the clock
     training_time = 0
     last_val_step = 0
@@ -1093,6 +1113,30 @@ for trial_idx in range(args.num_trials):
         for name, p in model.named_parameters():
             assert p.grad is not None, name
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        # Path-norm body regularization (#933). After the per-step data gradient
+        # is reduced across ranks, add lambda * sum_p ||p - snapshot_p||^2 to the
+        # accumulated gradient for body (Muon-managed) matrices. The penalty is
+        # computed identically on each rank (params are bit-identical across
+        # ranks post-all_reduce + opt.step()) so no further reduction is needed.
+        # Snapshot is updated AFTER the penalty backward so the next firing sees
+        # the displacement over the next PATH_NORM_WINDOW steps.
+        path_norm_fired_this_step = False
+        path_norm_penalty_value = 0.0
+        path_norm_loss_value = 0.0
+        if (NANOGPT_PATH_NORM_LAMBDA > 0.0
+                and step > 0
+                and step % NANOGPT_PATH_NORM_WINDOW == 0):
+            path_penalty = sum(
+                ((p - snap) ** 2).sum()
+                for p, snap in zip(body_clip_params, body_snapshots)
+            )
+            path_loss = NANOGPT_PATH_NORM_LAMBDA * path_penalty
+            path_loss.backward()
+            path_norm_penalty_value = float(path_penalty.detach().item())
+            path_norm_loss_value = float(path_loss.detach().item())
+            path_norm_fired_this_step = True
+            path_norm_total_fires += 1
+            body_snapshots = [p.detach().clone() for p in body_clip_params]
         pre_clip_grad_norm_body = None
         pre_clip_grad_norm_aux = None
         if _PER_GROUP_GRAD_CLIP:
@@ -1141,6 +1185,20 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        # Path-norm telemetry: log when penalty fires so we can audit
+        # frac-of-CE health across training. The `total_fires` counter is also
+        # logged at telemetry steps below so disabled runs still record `0`.
+        if dist.get_rank() == 0 and path_norm_fired_this_step:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/path_norm/penalty_sum": path_norm_penalty_value,
+                "train/path_norm/loss": path_norm_loss_value,
+                "train/path_norm/frac_of_ce": (
+                    path_norm_loss_value / train_loss if train_loss > 0 else 0.0
+                ),
+                "train/path_norm/total_fires": path_norm_total_fires,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
