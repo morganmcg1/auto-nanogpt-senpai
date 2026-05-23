@@ -1049,27 +1049,33 @@ Arms: A=`MUON_AUX_LR_FRAC=0.05` (5% of Muon LR), B=`MUON_AUX_LR_FRAC=0.10` (10% 
 2. Doesn't sacrifice Muon's direction quality  
 3. Provides true per-element variance signal
 
-### Cycle 71 axis tally: **72 refuted**, ~45 floor cluster + kill-gate landings, **0 merges above baseline**
+### Cycle 71 axis tally: **73 refuted**, ~46 floor cluster + kill-gate landings, **0 merges above baseline**
 
-In-flight as of 21:38Z (all WIP, 7 students busy):
-- #702 edward MU_WARMUP_START — pod-broken hold (~110h)
-- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~110h)
-- #942 askeladd RMSNORM_GAIN_INIT Arm A=0.5 — in-flight, terminal ~21:00Z (running late)
-- #947 frieren CONTRA_MUON_SCHEDULE — in-flight, terminal ~22:00Z
-- #948 fern NS5_ITERS_SCHEDULE — in-flight (assigned 20:45Z)
-- #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION — in-flight (assigned 21:08Z)
-- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — in-flight (assigned 21:25Z)
-- #951 thorfinn MUON_AUX_ADAMW — newly assigned 21:38Z
+#### 22:22Z update — #951 CLOSED (73rd), #961 CONTRA_TYPE_SPLIT assigned to thorfinn
+
+**#951 MUON_AUX_ADAMW CLOSED (73rd)**: Arm A (frac=0.05) step 500 val=3.94 > kill gate 3.81, crashed step 725. Arm B (frac=0.10) step 250 val=5.53 — diverging worse than Arm A. Parallel AdamW on body weights fights Muon's orthogonalized step direction. W&B: `g1r2-thorfinn/muon-aux-adamw` group.
+
+**#947 frieren CONTRA_MUON_SCHEDULE Arm A TERMINAL** val=3.2731/ffs=3050 — floor cluster close-miss. Arm B (CONTRA_END=0.0, full ramp) launching per decision tree.
+
+**Advisor overrides posted**: nezuko #949 (4 disabled-checks verified, launch Arm A), alphonse #950 (Arm A bug at cooldown transition fixed, retry launching).
+
+**#961 CONTRA_TYPE_SPLIT assigned to thorfinn** (PR created): per-layer-type CONTRA strength (CONTRA_ATTN_FACTOR vs CONTRA_MLP_FACTOR). First attn/MLP CONTRA differentiation in 232+ PRs. Arms: A=attn1.5×/mlp0.5×, B=attn0.5×/mlp1.5×.
+
+In-flight as of 22:22Z (all WIP, 8 students busy):
+- #702 edward MU_WARMUP_START — pod-broken hold (~112h)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (~112h)
+- #942 askeladd RMSNORM_GAIN_INIT — Arm B (gain=1.5) running step 1275/3175 val=3.601
+- #947 frieren CONTRA_MUON_SCHEDULE — Arm A floor-cluster (val=3.273/ffs=3050), Arm B (end=0.0) launching
+- #948 fern NS5_ITERS_SCHEDULE — Arm A running step 2875/3175 val=3.295 (step-3000 kill gate borderline)
+- #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION — override posted, Arm A launching
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — retry Arm A launching post smoke-fix
+- #961 thorfinn CONTRA_TYPE_SPLIT — newly assigned
 
 Zero idle students.
 
-### Fresh investigation cluster diversification (now 5 fresh axes in flight)
-
-The cycle 71 fresh-assignment cluster is now maximally diverse:
-- **#947 frieren CONTRA_MUON_SCHEDULE** — temporal optimizer-side (CONTRA strength schedule)
-- **#948 fern NS5_ITERS_SCHEDULE** — temporal optimizer-side (NS5 iteration schedule)
-- **#949 nezuko CONTRA_NORMUON_RESCALE_ABLATION** — compositional (Frobenius rescale removal)
-- **#950 alphonse LOGIT_SOFTCAP_SCHEDULE** — temporal loss-side (softcap schedule)
-- **#951 thorfinn MUON_AUX_ADAMW** — **hybrid optimizer mechanism** (categorically novel)
-
-Five distinct mechanism categories. If ANY of these passes, we move off the floor. If all 5 close-miss, the floor is upstream of every tested mechanism class — likely in data ordering, stochastic batch sampling, or fundamental optimizer-data interaction.
+**Investigation portfolio** (diverse mechanism categories):
+- **#947 frieren** temporal CONTRA (Arm B final ramp in-flight)
+- **#948 fern** temporal NS5_ITERS (Arm A near terminal)
+- **#949 nezuko** compositional Frobenius rescale ablation (Arm A launching)
+- **#950 alphonse** temporal loss-side softcap (Arm A retry)
+- **#961 thorfinn** layer-type CONTRA differentiation (attn vs MLP, fresh start)
