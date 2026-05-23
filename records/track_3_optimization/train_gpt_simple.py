@@ -71,6 +71,14 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # MARS-M (arXiv:2510.21800): stochastic recursive momentum variance reduction
+    # on the matrix gradient BEFORE the Newton-Schulz polar projection in MuonH.
+    # corrected_grad = g_t + gamma * (beta / (1 - beta)) * (g_t - g_{t-1}).
+    # gamma=0 is bit-identical to baseline (no-op smoke gate).
+    parser.add_argument("--mars_m_gamma", type=float, default=float(os.environ.get("MARS_M_GAMMA", "0.0")),
+                        help="MARS-M variance reduction strength on MuonH body grad (0=disabled, baseline-equivalent).")
+    parser.add_argument("--mars_m_beta", type=float, default=float(os.environ.get("MARS_M_BETA", "0.95")),
+                        help="MARS-M momentum beta for correction term (default 0.95 matches muonh mu).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -591,16 +599,23 @@ class MuonH(torch.optim.Optimizer):
     norm exactly constant; weight_decay must be 0.
     """
     def __init__(self, params, lr=0.018, weight_decay=0.0, mu=0.95,
-                 hyperball=True, budget_mult=1.0, mode="clip"):
+                 hyperball=True, budget_mult=1.0, mode="clip",
+                 mars_m_gamma=0.0, mars_m_beta=0.95):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         assert mode in ("clip", "scale_invariant")
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu,
                         hyperball=hyperball, budget_mult=budget_mult, mode=mode)
         super().__init__(params, defaults)
+        self.mars_m_gamma = mars_m_gamma
+        self.mars_m_beta = mars_m_beta
         self._last_active_fraction = 0.0
         self._last_radius_to_norm_max = 0.0
         self._last_norm_to_radius_max = 0.0
+        self._last_mars_m_correction_norm_ratio_mean = 0.0
+        self._last_mars_m_correction_norm_ratio_max = 0.0
+        self._last_mars_m_grad_diff_norm_mean = 0.0
+        self._last_mars_m_grad_diff_norm_max = 0.0
 
     @torch.no_grad()
     def step(self):
@@ -610,6 +625,11 @@ class MuonH(torch.optim.Optimizer):
         total_count_local = 0
         max_r_over_n_local = 0.0
         max_n_over_r_local = 0.0
+        mars_m_ratio_sum_local = 0.0
+        mars_m_ratio_max_local = 0.0
+        mars_m_diff_sum_local = 0.0
+        mars_m_diff_max_local = 0.0
+        mars_m_count_local = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -624,7 +644,39 @@ class MuonH(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         if hb:
                             state["hyperball_radius"] = p.data.norm().item() * budget_mult
-                    update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                    # MARS-M variance reduction (arXiv:2510.21800): apply variance-reduction
+                    # correction on the matrix gradient BEFORE the Newton-Schulz polar projection.
+                    # corrected_grad = g_t + gamma * (beta/(1-beta)) * (g_t - g_{t-1}).
+                    # gamma=0 is bit-identical to baseline (corrected_grad is p.grad).
+                    if self.mars_m_gamma > 0:
+                        if "prev_grad" not in state:
+                            state["prev_grad"] = p.grad.detach().clone()
+                        correction_coeff = self.mars_m_gamma * (
+                            self.mars_m_beta / (1.0 - self.mars_m_beta)
+                        )
+                        grad_diff = p.grad - state["prev_grad"]
+                        correction_term = correction_coeff * grad_diff
+                        corrected_grad = p.grad + correction_term
+                        # Snapshot pre-NS5, pre-momentum grad for next step's correction.
+                        state["prev_grad"].copy_(p.grad.detach())
+                        # Diagnostics: relative magnitude of the correction term and the
+                        # bare grad-diff norm (paper Section 4 calls these the
+                        # variance-reduction magnitude indicators).
+                        grad_norm_val = float(p.grad.norm().item())
+                        if grad_norm_val > 0:
+                            corr_norm_val = float(correction_term.norm().item())
+                            ratio = corr_norm_val / max(grad_norm_val, 1e-30)
+                            mars_m_ratio_sum_local += ratio
+                            if ratio > mars_m_ratio_max_local:
+                                mars_m_ratio_max_local = ratio
+                        diff_norm_val = float(grad_diff.norm().item())
+                        mars_m_diff_sum_local += diff_norm_val
+                        if diff_norm_val > mars_m_diff_max_local:
+                            mars_m_diff_max_local = diff_norm_val
+                        mars_m_count_local += 1
+                    else:
+                        corrected_grad = p.grad
+                    update = muon_update(corrected_grad, state["momentum"], mu=group["mu"])
                     if hb and mode == "scale_invariant":
                         # Always-active variant: norm is held at initial value by construction.
                         scale_invariant_update_(p.data, update, group["lr"])
@@ -649,24 +701,48 @@ class MuonH(torch.optim.Optimizer):
                                 clip_count_local += 1
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         if world_size > 1:
-            counts = torch.tensor([clip_count_local, total_count_local],
+            counts = torch.tensor([clip_count_local, total_count_local, mars_m_count_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(counts, op=dist.ReduceOp.SUM)
-            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local],
+            ratios = torch.tensor([max_r_over_n_local, max_n_over_r_local,
+                                   mars_m_ratio_max_local, mars_m_diff_max_local],
                                   device="cuda", dtype=torch.float64)
             dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+            sums = torch.tensor([mars_m_ratio_sum_local, mars_m_diff_sum_local],
+                                device="cuda", dtype=torch.float64)
+            dist.all_reduce(sums, op=dist.ReduceOp.SUM)
             clip_count = float(counts[0].item())
             total_count = float(counts[1].item())
+            mars_m_count = float(counts[2].item())
             max_r_over_n = float(ratios[0].item())
             max_n_over_r = float(ratios[1].item())
+            mars_m_ratio_max = float(ratios[2].item())
+            mars_m_diff_max = float(ratios[3].item())
+            mars_m_ratio_sum = float(sums[0].item())
+            mars_m_diff_sum = float(sums[1].item())
         else:
             clip_count = float(clip_count_local)
             total_count = float(total_count_local)
+            mars_m_count = float(mars_m_count_local)
             max_r_over_n = max_r_over_n_local
             max_n_over_r = max_n_over_r_local
+            mars_m_ratio_max = mars_m_ratio_max_local
+            mars_m_diff_max = mars_m_diff_max_local
+            mars_m_ratio_sum = mars_m_ratio_sum_local
+            mars_m_diff_sum = mars_m_diff_sum_local
         self._last_active_fraction = clip_count / total_count if total_count > 0 else 0.0
         self._last_radius_to_norm_max = max_r_over_n
         self._last_norm_to_radius_max = max_n_over_r
+        if mars_m_count > 0:
+            self._last_mars_m_correction_norm_ratio_mean = mars_m_ratio_sum / mars_m_count
+            self._last_mars_m_correction_norm_ratio_max = mars_m_ratio_max
+            self._last_mars_m_grad_diff_norm_mean = mars_m_diff_sum / mars_m_count
+            self._last_mars_m_grad_diff_norm_max = mars_m_diff_max
+        else:
+            self._last_mars_m_correction_norm_ratio_mean = 0.0
+            self._last_mars_m_correction_norm_ratio_max = 0.0
+            self._last_mars_m_grad_diff_norm_mean = 0.0
+            self._last_mars_m_grad_diff_norm_max = 0.0
 
 
 ########################################
@@ -713,6 +789,11 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.mars_m_gamma > 0:
+    _mars_coeff = args.mars_m_gamma * (args.mars_m_beta / (1.0 - args.mars_m_beta))
+    print0(f"MARS-M ENABLED on MuonH body grad: gamma={args.mars_m_gamma} beta={args.mars_m_beta} correction_coeff={_mars_coeff:.4f}", console=True)
+else:
+    print0("MARS-M DISABLED on MuonH body grad (gamma=0)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -766,6 +847,8 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "mars_m_gamma": args.mars_m_gamma,
+            "mars_m_beta": args.mars_m_beta,
         },
     )
 
@@ -819,7 +902,9 @@ for trial_idx in range(args.num_trials):
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
-                       mode=args.muonh_mode)
+                       mode=args.muonh_mode,
+                       mars_m_gamma=args.mars_m_gamma,
+                       mars_m_beta=args.mars_m_beta)
     optimizer2.param_groups[0]["name"] = "muonh_blocks"
     optimizers = [optimizer1, optimizer2]
     # AGC targets: AdamW aux groups (embed, lm_head, scalars). Built from optimizer1
@@ -1036,6 +1121,11 @@ for trial_idx in range(args.num_trials):
                         muonh_metrics["train/muonh/active_fraction"] = opt._last_active_fraction
                         muonh_metrics["train/muonh/radius_to_norm_max"] = opt._last_radius_to_norm_max
                         muonh_metrics["train/muonh/norm_to_radius_max"] = opt._last_norm_to_radius_max
+                        if opt.mars_m_gamma > 0:
+                            muonh_metrics["mars_m/correction_norm_ratio"] = opt._last_mars_m_correction_norm_ratio_mean
+                            muonh_metrics["mars_m/correction_norm_ratio_max"] = opt._last_mars_m_correction_norm_ratio_max
+                            muonh_metrics["mars_m/grad_diff_norm"] = opt._last_mars_m_grad_diff_norm_mean
+                            muonh_metrics["mars_m/grad_diff_norm_max"] = opt._last_mars_m_grad_diff_norm_max
                     muonh_metrics["train/muonh/warmup_factor"] = muonh_warmup_factor
                     muonh_metrics["train/muonh/effective_lr"] = opt.param_groups[0]["lr"]
             if telemetry_due and args.aux_agc_clip_ratio > 0 and agc_stats["agc_total"] > 0:
