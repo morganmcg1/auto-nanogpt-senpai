@@ -1,5 +1,27 @@
 # SENPAI Research Results
 
+## 2026-05-23 09:25 UTC — PR #854 CLOSED: Adan-aux Nesterov gradient-difference momentum — both arms NULL, 84th axis (g1r1-tanjiro)
+
+- Branch: `g1r1-tanjiro/adan-aux-nesterov-grad-diff`
+- Hypothesis: Adan's Nesterov gradient-difference term (m_pre + (1-β3)*Δg) on aux groups would improve convergence via momentum-aware gradient lookahead. Two arms: paper β1=0.98 vs tuned β1=0.80 (codebase aux Adam default).
+
+| Arm | β1 | W&B | sr | val/loss | Δsr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline (PR #737 n=2) | — | rdbmnzpc/32r3isz5 | 2925 | 3.266926 | — | — | ref |
+| Arm A (paper) | 0.98 | `cidw81e1` | **−1** | 3.28330 | NULL | +0.01637 | **hard NULL** (never crossed 3.28) |
+| Arm B (tuned) | 0.80 | `aae3y07x` | 2950 | 3.26931 | +25 | +0.00238 | NULL (marginal sr regression, val borderline) |
+
+- **m_t lag killed paper β1=0.98**: Arm A's `m_norm ≈ 14.5` (embed) is ~2.5× smaller than Arm B's 36.7. Slow EMA can't track aux gradient direction during cooldown; adding a noisy Δg correction on a stale m made things strictly worse. Mirrors #846 AdEMAMix-Aux (β₃=0.9999 slow EMA pulled toward obsolete early-training direction).
+- **β1=0.80 recovered most of AdamW**: Arm B sits near baseline (+0.0024 val), with the remaining Δg contribution (~22% of update) acting as small additive noise. Costs +25 sr — predictable noise penalty.
+- **β2/β3 retuning unlikely to recover**: even at β2→1 (wash out Δg noise), v_t → E[Δg] ≈ 0, so Adan degenerates to AdamW. No β-region in this scale makes Adan-aux helpful.
+- **LASTING MECHANISM INSIGHT (tanjiro's contribution): Aux gradients are essentially i.i.d. step-to-step.** Telemetry: `||Δg||/||g|| ≈ 1.45` constant across all 3 aux groups, both arms. Implies consecutive-grad cosine ≈ −0.05 (very mild anti-correlation, ~independent). This rules out an entire family of future aux optimizer ideas:
+  - **Ruled out**: any update mechanism depending on positive Δg autocorrelation (Adan, NAdam lookahead, Polyak heavy-ball with γ>0, MARS variance reduction, gradient-acceleration methods)
+  - **NOT ruled out** (still worth testing): variance-shaping (AdaBelief #875 in flight, AMSGrad #578 closed), sign-based (Lion #604 closed), schedule-free / lookahead-style (most already closed)
+  - **Future aux-optimizer hypotheses depending on Δg signal should be predicted-NULL from this data before launching.**
+- **Math-catch closure credit (tanjiro pre-launch)**: paper-β vs Adam-β coefficient audit caught the literal `(1−β2)` issue → Δg would have been weighted at 0.08 instead of 0.92, near-no-op vs AdamW. Saved ~6h of GPU on what would have been an uninterpretable result. Textbook pre-launch math check.
+- **84th closed axis. Cumulative aux Adam-family closures: 14 update-rule families closed.** Aux Adam axis approaches full saturation; remaining open levers are AdaBelief (#875 in flight), Adam-mini reductions (#863 in flight), EMA timing (#864 in flight), direct base-LR retune, SOAP/Shampoo for lm_head.
+- **Tanjiro reassigned**: PR #897 Body-Muon adaptive WD coupled to ||p||/target_norm. Arm A=α=1.0 linear, Arm B=α=0.5 sqrt. Per-tensor WD scaling by current/init norm ratio. Different from all 4 closed WD axes (#482 partition, #503 schedule, #727 cooldown ramp, #466 aux WD): tests WD intensity per tensor as a function of its weight-norm-vs-init ratio. New mechanism family (regularization → weight-norm tracking).
+
 ## 2026-05-23 09:15 UTC — PR #853 CLOSED: Cautious-AdamW aux renormalization ablation — both arms NULL, 83rd axis (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/cautious-aux-renorm-ablation`
