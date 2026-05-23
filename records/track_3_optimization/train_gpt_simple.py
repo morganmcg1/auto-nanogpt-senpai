@@ -71,6 +71,13 @@ def parse_args():
     parser.add_argument("--muonh_agc_eps", type=float, default=float(os.environ.get("MUONH_AGC_EPS", "1e-3")))
     parser.add_argument("--aux_adamw_eps", type=float, default=float(os.environ.get("AUX_ADAMW_EPS", "1e-10")),
                         help="Aux AdamW eps (default 1e-10 = baseline). Standard PyTorch is 1e-8.")
+    # Focal loss (Lin et al. 2017) on training cross-entropy only. Per-token loss
+    # is reweighted by (1 - p_y)^gamma where p_y is the predicted prob for the
+    # correct token. Validation loss stays plain CE unconditionally. Default
+    # 0.0 short-circuits to the baseline path (bit-identical, no extra ops).
+    parser.add_argument("--focal_loss_gamma", type=float, default=float(os.environ.get("FOCAL_LOSS_GAMMA", "0.0")),
+                        help="If > 0, apply focal loss with this gamma on TRAIN CE only. "
+                             "Validation stays standard CE. 0.0 = disabled (default, bit-identical).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -452,6 +459,12 @@ class GPT(nn.Module):
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        # H83: focal-loss-on-training-CE knob; 0.0 short-circuits to baseline path.
+        # Set externally after construction; gated by self.training so validation
+        # always uses the plain-CE branch regardless of gamma.
+        self.focal_loss_gamma: float = 0.0
+        # Detached per-microbatch focal telemetry; read by training loop on rank 0.
+        self.last_focal_stats: tuple | None = None
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
@@ -459,6 +472,36 @@ class GPT(nn.Module):
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        if self.training and self.focal_loss_gamma > 0.0:
+            # Focal loss: L = -(1-p_y)^gamma * log p_y, summed across tokens to
+            # match the baseline aggregation (switching to mean would scale the
+            # gradient by 1/N and break the optimizer tuning).
+            #
+            # Implementation note: use log_softmax + gather (Lin et al. 2017 form)
+            # rather than `cross_entropy(reduction="none")` followed by
+            # `(-ce).exp().clamp(...)`. torch.compile fuses the latter chain and
+            # turns the clamp into an in-place op on exp's output, which corrupts
+            # the tensor exp's backward needs for gradient computation. Going
+            # through log_softmax keeps the autograd chain clean.
+            log_probs = F.log_softmax(logits.view(targets.numel(), -1), dim=-1)
+            log_p_y = log_probs.gather(1, targets.view(-1, 1)).squeeze(1)
+            p_y = log_p_y.exp()
+            # (1 - p_y) can be a tiny negative from FP rounding when p_y ≈ 1.
+            # Clamp the BASE of pow (not p_y itself) so the exp output is left
+            # untouched. With integer gamma values pow handles tiny negatives
+            # without NaN, but the clamp is cheap defensive insurance.
+            focal_weight = (1.0 - p_y).clamp_min(0.0).pow(self.focal_loss_gamma)
+            loss = -(focal_weight * log_p_y).sum()
+            self.last_focal_stats = (
+                focal_weight.detach().mean(),
+                focal_weight.detach().min(),
+                focal_weight.detach().max(),
+                focal_weight.detach().sum(),
+                p_y.detach().mean(),
+                p_y.detach().median(),
+                p_y.numel(),
+            )
+            return loss
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -721,6 +764,11 @@ mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model.focal_loss_gamma = float(args.focal_loss_gamma)
+if args.focal_loss_gamma > 0.0:
+    print0(f"H83 focal loss ENABLED on TRAIN CE: gamma={args.focal_loss_gamma}. Val stays plain CE.", console=True)
+else:
+    print0("H83 focal loss DISABLED (gamma=0, baseline path).", console=True)
 model.compile(dynamic=False)
 
 module_types = param_module_types(model)
@@ -766,6 +814,7 @@ if dist.get_rank() == 0:
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
             "muonh_agc_eps": args.muonh_agc_eps,
             "aux_adamw_eps": args.aux_adamw_eps,
+            "focal_loss_gamma": args.focal_loss_gamma,
         },
     )
 
@@ -1056,6 +1105,21 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
+        if (dist.get_rank() == 0 and telemetry_due
+                and args.focal_loss_gamma > 0.0
+                and getattr(model, "last_focal_stats", None) is not None):
+            fw_mean, fw_min, fw_max, fw_sum, p_mean, p_med, n_tokens = model.last_focal_stats
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "loss/focal_weight_mean": float(fw_mean.item()),
+                "loss/focal_weight_min": float(fw_min.item()),
+                "loss/focal_weight_max": float(fw_max.item()),
+                "loss/effective_token_count": float(fw_sum.item()),
+                "loss/p_y_mean": float(p_mean.item()),
+                "loss/p_y_median": float(p_med.item()),
+                "loss/n_tokens_per_microbatch": int(n_tokens),
+            }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
