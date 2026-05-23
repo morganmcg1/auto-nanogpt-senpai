@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 11:43 UTC
+- **Date:** 2026-05-23 11:55 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -243,7 +243,7 @@ Single-seed 4-arm N=1 complete; Phase 2 gate not reached (no arm Δ ≤ −0.001
 
 **Follow-up**: alphonse reassigned to **#847 Embed init-anchored WD — net-new regularization on AUX (4-arm)** — student-suggested cross-axis pivot. AUX groups currently have wd=0; init-anchor on embed is *net-new regularization* mechanism (not just modified WD). model.embed.weight initialized via w.normal_() (N(0,1) magnitude), so anchor=init is genuinely distinct from anchor=zero.
 
-### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; N=1 terminal Goldilocks at B SENT BACK for paired-pod n=3 at 06:05 UTC]
+### 🔄 alphonse #847 — Embed init-anchored WD on AUX (4-arm magnitude sweep) [assigned 21:55 UTC; N=1 Goldilocks SENT BACK 06:05 UTC; paired-pod terminal 11:48 UTC SENT BACK for rebase + re-run on post-#787 stack 11:54 UTC]
 
 **Branch:** `g1r4-alphonse/embed-init-anchor-wd`
 **Hypothesis**: AUX groups have wd=0 in merged stack. Add init-anchor WD on embed: `p -= lr * λ * (p - p_init)`. Zipf-rationale: rare tokens drift little from init (few visits), frequent tokens drift a lot. Standard WD pulls ALL rows toward zero uniformly (hurts frequent-token learned structure). Init-anchor regularizes ROW-DRIFT MAGNITUDE proportional to actual drift from θ_0. Mechanism-distinct from #808 (body Muon side, NS-absorbed) and from #845 askeladd (gradient-side rescale, not weight target).
@@ -315,6 +315,47 @@ Seed 3 ETA ~11:42 UTC. **Cross-PR-merge protocol** at terminal: chain on OLD pre
 Both are 2/3 direction-correct vs new baseline; #847 seed 3 lands further above new base (+0.00150) than #845 seed 3 (+0.00038), so #847's mean drift is smaller. **Both are marginal-pass-only at new baseline despite robust signals on OLD pre-#787 stack** (#845 mean Δ_vs_old=−0.00116; #847 likely similar). Already has `merge_conflict_comment` label — actual file-level conflicts present so rebase mandatory regardless of marginal-pass status.
 
 **Decision plan when SENPAI-RESULT lands**: send back for rebase + re-run on post-#787 stack, mirror of #845 send-back protocol. Pre-staged outcomes identical (MERGE if rebased mean ≤ 3.26944 AND ≥2/3 dir-correct, else productive-NULL/NEG).
+
+**11:48 UTC SENPAI-RESULT terminal — paired-pod n=3 on Arm B (λ=0.001), confirmed via student marker**:
+
+| Seed | run ID | val/loss | fs | Δ_vs_new_base 3.26944 | Δ_vs_old_base 3.27036 | drift vs N=1 (3.26953) |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| 1 | `hf0mq6sz` | 3.26853 | 3200 | −0.00091 ✅ | −0.00183 | 0.00100 (boundary) |
+| 2 | `mj471oxb` | **3.26843** ⭐ | 3200 | **−0.00101** ✅ | −0.00193 | 0.00110 (just outside) |
+| 3 | `eo4849yp` | 3.27094 | 3225 | +0.00150 ❌ | +0.00058 | 0.00141 (unfavorable) |
+| **mean(n=3)** | — | **3.26930** | **3208.33** | **−0.00014** ✅ marginal | **−0.00106** clean | — |
+
+**All 5 pre-staged gates PASS vs old baseline 3.27036:**
+- Gate 1: mean ≤ 3.27036 → PASS (Δ=−0.00106)
+- Gate 2: (3.28 − mean) × √3 ≥ 0.004 → PASS (0.01853, 4.6× threshold)
+- Gate 3: ≥2/3 dir-correct vs 3.27036 → PASS (2/3: s1, s2)
+- Gate 4: no seed > 3.275 → PASS (max=3.27094)
+- Gate 5: ≥1 seed within ±0.0010 of N=1 (3.26953) → PASS (seed 1 at boundary)
+
+**Vs new baseline 3.26944**: marginal PASS at mean(n=3)=3.26930 (Δ=−0.00014). SEM ≈ 0.000821, t-stat ≈ 0.17 — within seed noise. 2/3 direction-correct vs new.
+
+**Preflight verdict (11:54 UTC)**: `senpai_merge_winner_preflight 847` REFUSED on file-level merge conflicts with #787's stochastic-NS env-var additions. DIRTY refusal per cross-PR-merge-protocol — rebase mandatory. (Contrast #845 same cycle: preflight PASS file-level clean but still sent back due to marginal margin + OLD-stack chain.) Both PRs converged to identical send-back protocol.
+
+**11:54 UTC send-back protocol** (mirror of #845 askeladd):
+- Rebase branch on latest `auto-nanogpt-1gpu-r4` (post-#787 stack), integrate `NANOGPT_NS_STOCHASTIC_COOLDOWN` parsing alongside existing `NANOGPT_EMBED_INIT_ANCHOR_LAMBDA`.
+- Re-run paired-pod n=3 on Arm B (λ=0.001) with `NANOGPT_NS_STOCHASTIC_COOLDOWN=2` added to env block.
+- Pre-staged gates frozen against new baseline 3.26944 (not 3.27036): Gate 1 mean ≤ 3.26944, Gate 2 stat-rule, Gate 3 ≥2/3 dir-correct vs 3.26944, Gate 4 no seed > 3.275, Gate 5 drift sanity ±0.0010 vs current Arm B mean 3.26930 (mechanism preserved across stack composition).
+- ETA ~5.5h.
+
+**Pre-staged outcomes** (frozen 11:54 UTC):
+
+| rebased mean(n=3) | verdict | action |
+|:---:|:---:|---|
+| ≤ 3.26944 AND ≥2/3 dir-correct vs new | **MERGE** | mechanism composes with stochastic-NS-cooldown-spread |
+| (3.26944, 3.27036] | **productive-NULL** | mechanism preserved against old stack, lost against new |
+| > 3.27036 | **NEG** | regression; mechanism does not compose with new stack |
+
+**Durable findings preserved either way**:
+- Init-anchor mechanism alive at λ=0.001 on AUX embed group (N=1 Goldilocks + paired-pod telemetry monotone ▁→█)
+- Δ_vs_old_base=−0.00106 (n=3 mean) is clean evidence on pre-#787 stack
+- **2/2 paired-pod chains direction-correct against new baseline this cycle** (#845 askeladd embed-grad-rescale + #847 alphonse embed init-anchor): two independent AUX-side mechanisms (gradient-side rescaling + weight-side anchoring) both squeak under new baseline by sub-noise margins. If one or both survive rebase, durable finding.
+
+PR converted to draft, label swapped review→wip. Student themselves recommended this path in their terminal write-up.
 
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
