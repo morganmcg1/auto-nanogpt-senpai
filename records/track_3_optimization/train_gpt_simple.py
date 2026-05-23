@@ -61,6 +61,14 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--soap_lm_head", action="store_true",
+                        help="Apply SOAP one-sided (R_cov) preconditioner to lm_head's AdamW updates")
+    parser.add_argument("--soap_precond_freq", type=int, default=1,
+                        help="Update R_neg every K steps (1 = every step)")
+    parser.add_argument("--soap_beta_cov", type=float, default=0.95,
+                        help="EMA momentum for R_cov accumulator")
+    parser.add_argument("--soap_gamma", type=float, default=0.25,
+                        help="Inverse power for R_cov (standard SOAP = 1/4)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -483,6 +491,89 @@ def matrix_neg_power(M: Tensor, gamma: float, eps: float = 1e-12) -> Tensor:
     return (eigvecs * eigvals) @ eigvecs.T
 
 
+class AdamWSoapLmHead(torch.optim.AdamW):
+    """AdamW with one-sided SOAP (R_cov) preconditioner on the lm_head param.
+
+    Maintains an EMA R_cov of g.T @ g for the param in the `adam_lm_head` group, and
+    periodically computes R_neg = R_cov^{-gamma}. Each step, the Adam update direction
+    is right-multiplied by R_neg before the parameter is updated. Implemented as a
+    post-step delta correction: snapshot pre-step weights, run vanilla AdamW step,
+    then replace the applied delta with delta @ R_neg.
+    """
+    def __init__(self, *args, soap_lm_head: bool = False, soap_precond_freq: int = 1,
+                 soap_beta_cov: float = 0.95, soap_gamma: float = 0.25, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._soap_lm_head = soap_lm_head
+        self._soap_precond_freq = max(1, soap_precond_freq)
+        self._soap_beta_cov = soap_beta_cov
+        self._soap_gamma = soap_gamma
+        self._soap_step = 0
+        self._soap_state: dict[int, dict[str, Tensor]] = {}
+        self._soap_diag: dict[str, float] = {}
+
+    @torch.no_grad()
+    def step(self):
+        if not self._soap_lm_head:
+            super().step()
+            return
+
+        soap_params: list[torch.nn.Parameter] = []
+        for group in self.param_groups:
+            if group.get("name") != "adam_lm_head":
+                continue
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                soap_params.append(p)
+
+        for p in soap_params:
+            g32 = p.grad.detach().float()
+            if id(p) not in self._soap_state:
+                D = p.shape[1]
+                self._soap_state[id(p)] = {
+                    "R_cov": torch.zeros(D, D, device=p.device, dtype=torch.float32),
+                    "R_neg": torch.eye(D, device=p.device, dtype=torch.float32),
+                }
+            s = self._soap_state[id(p)]
+            s["R_cov"].mul_(self._soap_beta_cov).add_(g32.T @ g32)
+            if self._soap_step % self._soap_precond_freq == 0:
+                R_sym = 0.5 * (s["R_cov"] + s["R_cov"].T)
+                try:
+                    eigvals = torch.linalg.eigvalsh(R_sym).clamp_min(0)
+                    eig_max = float(eigvals.max().item())
+                    eig_min = float(eigvals.min().item())
+                    s["R_neg"] = matrix_neg_power(s["R_cov"], self._soap_gamma, eps=1e-12)
+                    self._soap_diag["soap/R_neg_trace"] = float(s["R_neg"].trace().item())
+                    self._soap_diag["soap/R_cov_max_eig"] = eig_max
+                    self._soap_diag["soap/R_cov_min_eig"] = eig_min
+                    self._soap_diag["soap/R_cov_condition_num"] = eig_max / max(eig_min, 1e-12)
+                except Exception as exc:
+                    self._soap_diag["soap/eigh_failed"] = 1.0
+                    self._soap_diag["soap/eigh_failed_step"] = float(self._soap_step)
+                    print0(f"SOAP eigh failed at step {self._soap_step}: {exc}", console=True)
+                    raise
+
+        pre_weights = {id(p): p.detach().clone() for p in soap_params}
+
+        super().step()
+
+        for p in soap_params:
+            if id(p) not in pre_weights:
+                continue
+            delta_applied = pre_weights[id(p)] - p
+            R_neg = self._soap_state[id(p)]["R_neg"].to(delta_applied.dtype)
+            soap_delta = delta_applied @ R_neg
+            adam_norm = float(delta_applied.norm().item())
+            soap_norm = float(soap_delta.norm().item())
+            self._soap_diag["soap/precond_update_norm_ratio"] = soap_norm / max(adam_norm, 1e-12)
+            self._soap_diag["soap/adam_delta_norm"] = adam_norm
+            self._soap_diag["soap/soap_delta_norm"] = soap_norm
+            p.add_(delta_applied)
+            p.sub_(soap_delta)
+
+        self._soap_step += 1
+
+
 def pmuon_update(
     grad: Tensor,
     momentum: Tensor,
@@ -717,6 +808,10 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "soap_lm_head": int(args.soap_lm_head),
+            "soap_precond_freq": args.soap_precond_freq,
+            "soap_beta_cov": args.soap_beta_cov,
+            "soap_gamma": args.soap_gamma,
         },
     )
 
@@ -748,10 +843,17 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    optimizer1 = AdamWSoapLmHead(
+        [dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
+         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
+        betas=(0.8, 0.95), eps=1e-10, weight_decay=0,
+        fused=not args.soap_lm_head,
+        soap_lm_head=args.soap_lm_head,
+        soap_precond_freq=args.soap_precond_freq,
+        soap_beta_cov=args.soap_beta_cov,
+        soap_gamma=args.soap_gamma,
+    )
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
                       lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
@@ -1026,6 +1128,17 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
                 }, step=wandb_step)
+            soap_diag = getattr(optimizer1, "_soap_diag", None)
+            if soap_diag:
+                soap_log = {
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "soap/active": int(args.soap_lm_head),
+                    "soap/precond_freq": args.soap_precond_freq,
+                    "soap/step": getattr(optimizer1, "_soap_step", 0),
+                }
+                soap_log.update(soap_diag)
+                wandb.log(soap_log, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
                 "train/step": train_step,
