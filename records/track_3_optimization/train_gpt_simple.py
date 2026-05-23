@@ -459,10 +459,10 @@ MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-
 TARGET_UW = 0.35
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
-SOAP_PRECOND_FREQ = 10
+SOAP_PRECOND_FREQ = int(os.environ.get("SOAP_PRECOND_FREQ", "10"))
 # Attention SOAP (record #16) hyperparameters
 ATTN_SOAP_BETA2 = 0.90
-ATTN_SOAP_PRECOND_FREQ = 10
+ATTN_SOAP_PRECOND_FREQ = int(os.environ.get("ATTN_SOAP_PRECOND_FREQ", "10"))
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
