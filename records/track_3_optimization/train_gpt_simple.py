@@ -467,6 +467,7 @@ ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
+BODY_INIT_SCALE = float(os.environ.get("BODY_INIT_SCALE", "1.0"))  # multiplier on body weight init std (default = 1.0 preserves baseline)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
 
@@ -866,6 +867,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "init/embed_init_std": EMBED_INIT_STD,
+            "init/body_init_scale": BODY_INIT_SCALE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -889,7 +892,7 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                w.normal_(std=BODY_INIT_SCALE * (0.33**0.5) / w.size(-1)**0.5)  # default torch init, scaled by BODY_INIT_SCALE
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
