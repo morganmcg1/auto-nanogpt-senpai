@@ -61,6 +61,10 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--adaptive_wd", action="store_true", default=False,
+                        help="Body-Muon adaptive WD: WD_eff_p = WD_base * (||p||/target_norm_p)^alpha.")
+    parser.add_argument("--adaptive_wd_alpha", type=float, default=1.0,
+                        help="Coupling exponent for adaptive WD. 1.0=linear, 0.5=sqrt. Active only when --adaptive_wd is set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -532,12 +536,15 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 adaptive_wd=False, adaptive_wd_alpha=1.0, target_norms=None):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        adaptive_wd=adaptive_wd, adaptive_wd_alpha=adaptive_wd_alpha)
         super().__init__(params, defaults)
+        self._target_norms = target_norms
 
     @torch.no_grad()
     def step(self):
@@ -579,11 +586,34 @@ class Muon(torch.optim.Optimizer):
                         if 0 < ratio < TARGET_UW:
                             floor_fired_count += 1
                             update.mul_(TARGET_UW / ratio)
-                    p.mul_(1 - group["lr"] * group["weight_decay"])
+                    base_wd = group["weight_decay"]
+                    if group.get("adaptive_wd", False) and self._target_norms is not None:
+                        tn = self._target_norms.get(id(p), None)
+                        if tn is not None and tn > 0:
+                            p_norm_val = float(p.detach().float().norm().item())
+                            ratio_pn = p_norm_val / tn
+                            wd_mult = ratio_pn ** group["adaptive_wd_alpha"]
+                            wd_eff = base_wd * wd_mult
+                            if not hasattr(self, "_adaptive_wd_diag") or \
+                                    self._adaptive_wd_diag.get("step", -1) != getattr(self, "_step_count", 0):
+                                self._adaptive_wd_diag = {
+                                    "step": getattr(self, "_step_count", 0),
+                                    "p_norm": p_norm_val,
+                                    "target_norm": tn,
+                                    "ratio": ratio_pn,
+                                    "wd_mult": wd_mult,
+                                    "wd_eff": wd_eff,
+                                }
+                        else:
+                            wd_eff = base_wd
+                    else:
+                        wd_eff = base_wd
+                    p.mul_(1 - group["lr"] * wd_eff)
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
         self._floor_diag = {"fired": floor_fired_count, "eligible": floor_eligible_count}
         self._polar_diag = polar_diag
+        self._step_count = getattr(self, "_step_count", 0) + 1
 
 
 def pmuon_spectral_diag(optimizer: torch.optim.Optimizer, gamma: float) -> dict[str, float]:
@@ -717,6 +747,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "adaptive_wd": int(args.adaptive_wd),
+            "adaptive_wd_alpha": args.adaptive_wd_alpha if args.adaptive_wd else 0.0,
         },
     )
 
@@ -752,8 +784,17 @@ for trial_idx in range(args.num_trials):
                         dict(params=[model.proj.weight], lr=1/160, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
-    optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+    body_muon_params = [p for p in model.blocks.parameters() if p.ndim >= 2]
+    if args.adaptive_wd:
+        target_norms = {id(p): float(p.detach().float().norm().item())
+                        for p in body_muon_params}
+    else:
+        target_norms = None
+    optimizer2 = Muon(body_muon_params,
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      adaptive_wd=args.adaptive_wd,
+                      adaptive_wd_alpha=args.adaptive_wd_alpha,
+                      target_norms=target_norms)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1025,6 +1066,17 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            adaptive_wd_diag = getattr(optimizer2, "_adaptive_wd_diag", None)
+            if adaptive_wd_diag is not None and args.adaptive_wd:
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "adaptive_wd/ratio": adaptive_wd_diag["ratio"],
+                    "adaptive_wd/wd_mult": adaptive_wd_diag["wd_mult"],
+                    "adaptive_wd/wd_eff": adaptive_wd_diag["wd_eff"],
+                    "adaptive_wd/p_norm": adaptive_wd_diag["p_norm"],
+                    "adaptive_wd/target_norm": adaptive_wd_diag["target_norm"],
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
