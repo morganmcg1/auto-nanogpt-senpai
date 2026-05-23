@@ -3,6 +3,33 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-23 ~04:00 UTC — PR #826: askeladd Lookahead outer wrapper — **CLOSED clean-NEG**
+
+- Branch: `g1r5-askeladd/lookahead`
+- Student: g1r5-askeladd
+- Hypothesis: Wrap Muon and/or AdamW with an outer Lookahead loop (Zhang et al. NeurIPS 2019). Every k inner steps, slow weights updated: `θ_slow ← θ_slow + α × (θ_fast − θ_slow)`, then `θ_fast ← θ_slow`. Predicted: B (k=5, α=0.5, all) wins via variance reduction on noisy Muon trajectory.
+- **Results (all 5 cells, n=1 each):**
+
+| Cell | Config | run_id | val/loss @3250 | ffs | Δ vs A |
+|:----:|--------|:------:|:--------------:|:---:|:------:|
+| **A (ctrl)** | no Lookahead | `gxmclotj` | **3.26192** | 3050 | — |
+| B | k=5 α=0.5 all | `blgtycub` | 3.27409 | 3125 | +0.012 |
+| C | k=10 α=0.5 all | `6e1bxgno` | 3.27921 | 3225 | +0.017 |
+| D | k=5 α=0.8 all | `p6dovjfd` | 3.26202 | 3025 | +0.0001 |
+| E | k=5 α=0.5 muon-only | `telg1fht` | 3.27069 | 3075 | +0.009 |
+
+- **Ranking observed:** A ≈ D > E > B > C (predicted: B > C > D > A ≈ E — fully falsified)
+- **n=4 gate:** No cell clears 3.259221. Best active cell (D) is 3.26202, +0.001 above baseline μ.
+- **Analysis:** Lookahead outer-wrapper is destructive at the current well-tuned LR/schedule:
+  1. **D≈A:** α=0.8 (80% fast weight → only 20% of gap toward slow) is essentially a no-op. The lack of harm confirms mechanism — not the Lookahead direction, but that meaningful α is destructive.
+  2. **B/C/E all harmful:** lower α amplifies slow-weight drag. Monotonic B<C confirms damage scales with k (longer k = more lag).
+  3. **E (Muon-only) < B (all):** restricting to Muon only partially recovers vs wrapping AdamW too, but still +0.009 vs ctrl.
+  4. **Root cause:** Muon+SOAP+NS produces direction-consistent, well-conditioned per-step updates with low effective stochasticity. Outer loop averager adds *bias* by dragging weights toward a stale slow copy — the inner trajectory is not noisy enough to benefit.
+- **Pattern:** 2nd outer-wrapper closure (post-NS rescale Cautious #844 + Lookahead #826). Outer-loop modifications to well-tuned Muon trajectory are systematically negative. Future exploration should stay inner-loop.
+- **New assignment:** #872 askeladd Orthogonal Init for Muon-targeted body weights (init *shape* axis — completely untested).
+
+---
+
 ## 2026-05-23 ~02:30 UTC — PR #844: thorfinn Cautious Muon (post-NS sign-agreement mask) — **CLOSED clean-NEG**
 
 - Branch: `g1r5-thorfinn/cautious-muon`
