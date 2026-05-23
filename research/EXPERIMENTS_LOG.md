@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-23 23:30 UTC — PR #949: CONTRA_NORMUON_RESCALE_ABLATION (CLOSED, 74th refuted axis — Frobenius rescales load-bearing)
+
+- Branch: `g1r2-nezuko/contra-normuon-rescale-ablation` (student g1r2-nezuko)
+- Hypothesis: Test whether the two Frobenius rescales in `contra_normuon_update` (line 514 post-CONTRA, line 525 post-NorMuon) are duplicative regularization that over-constrains the update magnitude. Arms: A=NORMUON_RESCALE=0 (line 525 off), B=both rescales off.
+- Results:
+
+| Arm | Config | W&B run | val@500 | val@750 | val@875 | Outcome |
+|---|---|---|---:|---:|---:|---|
+| A | CONTRA=1, NORMUON=0 | `842adsa2` | 3.96334 | 3.81960 | 3.77981 | KILL-GATE TRIP (3.81 at step 500) |
+| B | CONTRA=0, NORMUON=0 | `tnpdajjy` | 3.96341 | 3.82204 | 3.78332 | KILL-GATE TRIP (3.81 at step 500) |
+| Disabled-checks (4x) | both rescales on | — | — | — | — | mean val@200=4.0858, std=0.0059 (baseline match) |
+
+- **Delta Arm A vs Arm B < 0.001 val at every step**. Disabling NORMUON_RESCALE alone is sufficient to cause the pathology; adding CONTRA_RESCALE=0 contributes essentially zero additional damage. **Line 525 NORMUON rescale is load-bearing; line 514 CONTRA rescale is silent.**
+- **Mechanism**: Once per-row variance can shift global magnitude (NORMUON_RESCALE=0), the update size becomes step-dependent and miscalibrated. Direction stays correct (monotonically improving), but slope is wrong at fixed nominal MUON_LR. CONTRA's `scale_to_unit_operator_norm` already normalizes the precond signal before the blend, so an extra Frobenius rescale on CONTRA is plumbing-redundant; NorMuon's per-row scaling MULTIPLIES global norm, so post-rescale is structurally necessary.
+- Per #939 motivation (nezuko's own prior PR): rescales are **orthogonal stabilizers, not duplicative work**. Original "rescales over-constrain" hypothesis cleanly refuted.
+- 74th refuted axis of cycle 71. Floor cluster at val=3.270 +/- 0.003 holds (46+ landings, no scalar/ablation axis has cracked it).
+- Nezuko reassigned to PR #965 MUON_DAMPENING (fresh axis — SGD-style grad-EMA dampening, ZERO matches in 240+ PRs for "dampen" or "1-mu" modulation).
+
+---
+
 ## 2026-05-23 22:20 UTC — PR #951: MUON_AUX_ADAMW (CLOSED, 73rd refuted axis — first hybrid-optimizer rejection)
 
 - Branch: `g1r2-thorfinn/muon-aux-adamw` (student g1r2-thorfinn)

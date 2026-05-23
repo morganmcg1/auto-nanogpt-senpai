@@ -1079,3 +1079,43 @@ Zero idle students.
 - **#949 nezuko** compositional Frobenius rescale ablation (Arm A launching)
 - **#950 alphonse** temporal loss-side softcap (Arm A retry)
 - **#961 thorfinn** layer-type CONTRA differentiation (attn vs MLP, fresh start)
+
+## 2026-05-23 ~23:30Z — Cycle 71 mid-142 update
+
+### #949 nezuko CONTRA_NORMUON_RESCALE_ABLATION CLOSED — 74th refuted axis (Frobenius rescales load-bearing)
+
+Bilateral kill-gate trip (Arm A val@500=3.96 > 3.81, Arm B identical val@500=3.96). Delta Arm A vs Arm B < 0.001 val at every step. **Localizes load-bearing to line 525 NORMUON rescale; line 514 CONTRA rescale is silent**. Per-row variance amplification on the polar map projection without rescale produces step-dependent miscalibrated magnitudes. CONTRA's `scale_to_unit_operator_norm` already normalizes precond signal before blend, so an extra Frobenius rescale on CONTRA is plumbing-redundant.
+
+Student's #939 (closed in mid-138) was directly motivated by suspected duplication of these rescales — this PR refutes that hypothesis: rescales are **orthogonal stabilizers, not duplicative work**. Clean mechanistic interpretation. W&B: `842adsa2` (Arm A), `tnpdajjy` (Arm B), 4 disabled-checks mean val@200=4.0858.
+
+### #965 nezuko MUON_DAMPENING assigned — fresh axis, ZERO matches in 240+ PRs
+
+SGD-style grad-EMA dampening on body Muon momentum update. Modifies `state["momentum"].lerp_(grad, 1 - group["mu"])` (line 695) to `state["momentum"].lerp_(grad, (1 - group["mu"]) * (1 - MUON_DAMPENING))`. **Distinct from MU sweep (#876, momentum coefficient itself), Nesterov correction (#703/#605, modifies re-blend at line 696), and momentum warmup (#415, varies MU linearly)**. Dampening reduces grad's influence on the EMA without changing mu — shifts effective momentum horizon by dampening the grad input, but preserves the Nesterov-style re-blend at line 696. Arms: A=0.05, B=0.10. ~3 LOC patch, fully env-gated, default=0.0 preserves byte-equivalent baseline.
+
+### Cycle 71 axis tally: **74 refuted**, ~46 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 23:30Z (all 8 WIPs, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold (~57h, heartbeat #12 posted)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (heartbeat #12 at 21:52Z, #13 due ~23:52Z)
+- #942 askeladd RMSNORM_GAIN_INIT — Arm B (gain=1.5) running step ~2300/3175 val=3.40
+- #947 frieren CONTRA_MUON_SCHEDULE — Arm B (end=0.0) running step ~825 val=3.72 (nudged 22:58Z for status comment)
+- #948 fern NS5_ITERS_SCHEDULE — Arm A floor cluster terminal (val=3.270/ffs=3025), Arm B (end=20) just launched step 1
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — `-buf` retry past step 1500, logit_softcap_current ramping correctly (bug fix verified)
+- #961 thorfinn CONTRA_TYPE_SPLIT — disabled-check passed (val@200=4.089), Arm A running step ~375 val=3.88
+- #965 nezuko MUON_DAMPENING — newly assigned
+
+**Mechanism category coverage (active and recent)**:
+- Temporal schedules: #947, #948, #950 (3 active)
+- Compositional ablation: #949 (refuted)
+- Layer-type differentiation: #961 (attn vs MLP)
+- Initialization: #942 (RMSNorm gain)
+- Position encoding sub-axes: #946 ROPE_FRACTION (refuted, mid-139)
+- Body-weight grad-EMA: #965 (newly assigned)
+- Hybrid optimizers: #951 (refuted)
+- AdaMuon transfer: #939 (refuted)
+
+**Compositional floor theorem (#813) still holds**: floor cluster at val=3.270 ± 0.003 / ffs=3025-3075 stable across 46+ landings. No scalar/ablation axis has cracked it. Cycle 71 has tested 74 refuted axes; the floor is in the COMPOSITION of NS5+CONTRA+NorMuon+SOAP+cooldown, not in any individual component.
+
+**Heartbeat status** (pod-broken pair): edward #702 heartbeat #12 at 23:04Z (~3h14m since #11). tanjiro #793 heartbeat #12 at 21:52Z (#13 due 23:52Z). Zero infra responses on #692 (edward) or #768 (tanjiro) since 30h+ ago. Continuing 2h cadence.
+
+**Next research direction tier** (per Plateau Protocol): scalar perturbation axes saturated at 74 closed. Mid-141 → mid-142 sees the first sustained run of TEMPORAL-axis cluster (#947 cooldown CONTRA, #948 cooldown NS5_ITERS, #950 cooldown softcap) — all expected to land floor cluster. If all close-miss, the next-tier axes should explore: (a) per-layer NS iter count by depth (already in flight on r5 as #932), (b) embedding-side temporal regularization, (c) loss-curvature-aware schedule modulation, (d) structural body-weight re-initialization at cooldown boundary.
