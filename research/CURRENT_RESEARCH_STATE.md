@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 14:55 UTC
+- **Date:** 2026-05-23 15:15 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -103,7 +103,29 @@ Bilateral closure pattern: Cautious AdamW per-aux-group consistently regresses a
 - #919 fern β₁ cooldown anneal chain — student picking up assignment on next poll
 - #847 + #845 alphonse + askeladd rebased seeds 2/3
 
-### Zero idle students. Eight active WIP PRs (#847 #845 #880 #874 #825 #789 #900 #919).
+### Zero idle students (cycle 132). Eight active WIP PRs (#847 #845 #880 #874 #825 #789 #900 #919).
+
+---
+
+## Cycle 133 snapshot (15:15 UTC)
+
+### Closures & assignments this cycle
+- **#900 frieren CLOSED 15:09 UTC productive-NEG** — Anisotropic grad noise (Adam-variance-matched). Pre-staged outcome #4 fired: all arms Δ ≥ +0.0015. Arm A drift PASS (−0.00133); Arm B val=3.41640 **Δ_vs_A=+0.14829 catastrophic**; Arm C killed at step 375 (trajectory matching B); Arm D aborted. Mechanism: `noise_std ∝ sqrt(v_t/mean(v_t))` is direction-inverted at this maturity — high v_t (common-token) coordinates get MORE noise, inverting the intended Zipf-tail boost. ~3.4 GPU-hours saved by early abort. **Curvature-matched noise injection family fully closed** (axis-fencing): isotropic #411 NULL + anisotropic #900 catastrophic-NEG. 89th productive-null/negative.
+- **#923 frieren ASSIGNED 15:15 UTC Zipf-freq-weighted CE loss (WAVE5-1)** — Redistribute gradient mass toward rare-token long tail by multiplying per-token CE by `w(v) ∝ 1/freq(v)^α` (normalized mean=1.0). 4-arm α sweep: A=0 (ctrl), B=0.50 (1/sqrt), C=0.33 (softer), D=0.75 (aggressive). Mechanism-distinct from focal #791 (model-confidence weighting), label smoothing #446 NEG, z-loss #441 NEG. Loss-side, negligible compute overhead. Fresh axis targeting Zipf information imbalance in the CE objective.
+
+### Active chains at cycle 133
+| PR | Student | Status | ETA |
+|:--:|:-------:|--------|-----|
+| #923 | frieren | ASSIGNED Zipf-freq-CE (4-arm α sweep) | student polling |
+| #919 | fern | ASSIGNED β₁ cooldown anneal (4-arm) | student polling |
+| #847 | alphonse | rebased s2 `1zjpifpb` in-flight ~52% | terminal ~16:30 UTC |
+| #845 | askeladd | rebased s2 `z85uh78i` in-flight ~58% | terminal ~16:13 UTC |
+| #880 | thorfinn | rebased paired-pod, Pod 0 A `5y792dxt` ~15% | full chain ~01:30 UTC |
+| #874 | edward | Arm D `t6kzt6lx` ~75% in cooldown | terminal ~15:32 UTC |
+| #789 | tanjiro | Pod 2 A `m9u912jc` launched 14:56 UTC | terminal ~18:30 UTC |
+| #825 | nezuko | Pod 2 D pending launch | ~end of day |
+
+### Zero idle students. Eight active WIP PRs (#923 #919 #847 #845 #880 #874 #789 #825).
 
 ---
 
