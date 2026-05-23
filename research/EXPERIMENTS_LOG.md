@@ -4335,3 +4335,38 @@ The embed↔lm_head symmetry argument breaks at two levels:
 ### Commentary
 
 This is a high-quality negative result: the student's first-step snapshot log caught the zero-init degeneracy immediately, the early-kill gate fired as designed, and C/D were aborted cleanly — ~3.4 GPU-hours saved. The mechanism interpretation is durable and sharpens the embed init-anchor (#847) story: the asymmetric success of embed init-anchor is specifically about input-embedding row sparsity (Zipf-frequency-weighted gradient signal), not a generic "anchor to init" recipe.
+
+## 2026-05-23 22:45 UTC — PR #923: Zipf-freq-weighted CE loss 4-arm sweep (frieren) — CLOSED productive-NULL (aborted_early_kill)
+
+- Branch: `g1r4-frieren/zipf-freq-ce`
+- Hypothesis: Weighting CE loss by `1/freq^α` emphasizes rare-token prediction, redirecting gradient mass toward the informative long tail. Expected to accelerate convergence by giving the model stronger signal on rare-token positions that standard CE training underweights.
+
+### Results (post-#847 stack, rebased from base 315c332)
+
+| Arm | α | W&B run | step | val/loss | fs | reached_target | Δ_vs_Arm_A |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | `43z88t0h` | 3350 | 3.26875 | 3200 | ✅ | — |
+| B (primary) | 0.50 | `fi8angie` | 3350 | **3.33335** | −1 (NEVER) | ❌ | **+0.06460 (CATASTROPHIC)** |
+| C (softer) | 0.33 | — | aborted ~step 774 | — | — | — | — |
+| D (aggressive) | 0.75 | — | not launched | — | — | — | — |
+
+Early-kill: Arm B val/loss=3.33335, well above 3.28 target → aborted C/D. ~11.2 GPU-hours saved.
+
+### Mechanism interpretation — AXIS CLOSED
+
+The catastrophic regression (Δ_B_vs_A=+0.06460, ~36× single-seed σ) confirms that Zipf-frequency-weighted CE loss at α≥0.50 is fundamentally direction-wrong for this benchmark:
+
+**Root cause**: Gradient reweighting by `1/freq^α` imposes importance reweighting that trains the model toward a long-tail-heavy synthetic distribution — but the val/loss measurement IS the natural Zipf distribution (high-frequency dominated). The train/eval distribution mismatch grows with α and is catastrophic at α=0.50.
+
+**Contrast with data-level subsampling (Mikolov 2013)**: Subsampling changes the data distribution at the input (encoder), creating a self-consistent training regime where both gradient signal and model structure are optimized for the reweighted distribution. Loss reweighting changes only the gradient signal while data and eval distributions remain unchanged — a fundamentally different and pathological intervention.
+
+**Why the merged stack makes this worse**: The post-#847 stack is calibrated around the natural Zipf-frequency gradient signal (embed init-anchor specifically benefits from frequency-weighted sparse gradients on rare-token embed rows). Any mechanism that fights the natural distribution composition of this stack regresses.
+
+### Axis closure conclusion
+
+- **Zipf-freq-weighted CE axis CLOSED** at the α-exponent scaling family (simple power reweighting).
+- **Any future rare-token emphasis mechanism** for this benchmark must either: (a) reweight only the gradient while keeping the loss measurement unchanged, or (b) use α ≤ 0.05 (gentle tilt, not tested), or (c) restrict mass redistribution to a very narrow long-tail slice. These follow-ups are deprioritized absent evidence that token-importance reweighting can be productive elsewhere on this stack.
+
+### frieren reassigned
+
+Next assignment: #963 (post-NS element-wise variance normalization `v_post` on body Muon).

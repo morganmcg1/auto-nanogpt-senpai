@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 22:30 UTC
+- **Date:** 2026-05-23 22:50 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -82,7 +82,7 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #956 | alphonse | lm_head per-row max-norm soft-clamp (NEW) | — | poll-pending | — | ~03:30 |
 | #933 | nezuko | path-norm body-weight velocity (Arms C, D pending) | (queued Arms C, D) | — | Arm B done 3.27009 | ~01:50 |
 | #929 | edward | AdamW aux v_t floor (Arms C, D pending) | (queued Arms C, D) | — | Arm B done 3.26990 | ~01:00 |
-| #923 | frieren | Zipf-freq-weighted CE — **abort recommended** | aborting Arms C, D | — | Arm B 3.33335 CATASTROPHIC | — |
+| #963 | frieren | post-NS v_post (NEW, 4-arm β₂_post) | — | poll-pending | — | ~06:30 |
 | #880 | thorfinn | Muon² body v_t β₂=0.9999 Pod 2 A | `m0jdlx6u` | 30 | early | ~23:55 / Pod 2 D ~01:50 |
 | #919 | fern | AdamW aux β₁ cooldown annealing Arm D | `adljastj` | 3025 | 3.2976 | ~22:50 |
 | #944 | tanjiro | Muon body grad centralization Arm B | `fd5nszpw` | 2025 | 3.4430 | ~01:00 (+1d) |
@@ -107,7 +107,7 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 - #938 CLOSED (cycle 172). alphonse reassigned to #956 (lm_head per-row max-norm soft-clamp); pod has not yet polled (PR assigned 22:15 UTC).
 - Cycle 173 (22:30 UTC): 4 acks posted (#923 abort/back, #933 ack, #929 ack, #880 ack).
 - Next imminent terminal cluster (22:50-23:55 UTC): #919 Arm D (3025/3350, val=3.2976 trending NEG), #845 Pod 3 v2, #880 Pod 2 A.
-- #923 frieren will idle once student posts terminal abort SENPAI-RESULT. Next-cycle action: close #923 with mechanism-readout commentary, assign frieren a fresh hypothesis.
+- #923 CLOSED (cycle 174). frieren reassigned to #963 (post-NS v_post, β₂_post ∈ {0.95,0.99,0.999} sweep on body Muon).
 
 ---
 
