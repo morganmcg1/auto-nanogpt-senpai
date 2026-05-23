@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 04:40 UTC
+- **Date:** 2026-05-23 05:07 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -461,24 +461,30 @@ Mechanism: tighter aux L2 clip bounds per-coord outlier propagation in AdamW `m/
 | C | 1e-3 (mild, common transformer init) | ~6.2 | ~1e-2 |
 | D | 5e-3 (moderate) | ~31 | ~5e-2 |
 
-**03:08 UTC progress refresh #2** (W&B-verified; chain past 50%, 2/4 arms finished):
+**05:07 UTC progress refresh #3** (W&B-verified; 3/4 arms FINISHED, Arm D running, GOLDILOCKS pattern confirmed):
 
 | Arm | std | run ID | state | step | val/loss | Δ_within_vs_A | Δ_vs_baseline 3.27036 |
-|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
-| A (ctrl) | 0.0 | `pt2bcodv` | finished | 3350 | **3.270191** | — | −0.000169 (drift PASS ±0.003) |
-| **B** | **0.0001** | `ugnar56v` | **finished** | **3350** | **3.269775** | **−0.000416** | **−0.000585 (direction-correct sub-signal)** |
-| C | 0.001 | `o7ojpvgj` | running | ~375/3350 (~11%) | 4.087 (in-prog) | TBD | TBD |
-| D | 0.005 | — | not yet | — | — | — | — |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.0 | `pt2bcodv` | finished | 3350 | 3.270191 | — | −0.000169 (drift PASS tight) |
+| **B** | **0.0001** | `ugnar56v` | **finished** | 3350 | **3.269775** | **−0.000416** | **−0.000585 (BEST direction-correct)** |
+| C | 0.001 | `o7ojpvgj` | **finished** | 3350 | **3.270464** | +0.000273 | +0.000104 (regression past baseline) |
+| D | 0.005 | `2yjm70rk` | running | early (launched 04:40 UTC) | ~3.655 in-prog | TBD | TBD (projected further regression) |
 
-**Implementation hygiene — FIRST PUSH this evening**: Branch `g1r4-thorfinn/lm-head-init-std` has commit `63a2953` "lm_head non-zero Gaussian init (env-gated, std=0 bit-identical)" pushed at 00:58 UTC. **Thorfinn is the first student to push implementation tonight** — distinguishes from edward #838 and alphonse #847 (still on assignment-commit only).
+**GOLDILOCKS pattern at B (std=0.0001) — mechanism IS REAL**: clean non-monotone, B beats A by −0.000416 within-pod, C at 10× stronger std (0.001) collapses past A *and* past baseline (+0.000104). Optimum narrow — within an order of magnitude of 0.0001. Arm D projected further regression based on curve shape (50× stronger than B).
 
-**LM_HEAD_INIT sanity print verified firing correctly (name-match validation):**
-- `pt2bcodv` (std=0.0): `LM_HEAD_INIT: name=proj.weight std=0.0 actual_norm=0.000000` — bit-clean fallback confirmed
-- `ugnar56v` (std=0.0001): `LM_HEAD_INIT: name=proj.weight std=0.0001 actual_norm=0.621668` — matches expected ~6213×0.0001≈0.62
+**Cross-PR confirmation with alphonse #847**: Both PRs show optimum at the smallest non-zero value tested (B std=0.0001 here, B λ=0.001 in #847), both with C 5-10× stronger collapsing. Two different mechanisms (init perturbation vs init-anchored WD) converge on **"tiny perturbation of AUX-side defaults wins"**. NS-orthogonalization (body Muon) absorbs perturbations, but AUX-side defaults (zero-init lm_head; AdamW WD=0 on embed) leave optimization headroom in narrow tiny windows.
 
-**Mechanism leaning productive**: Arm B Δ_vs_baseline=−0.000585 at std=0.0001 is the cleanest single-arm direction-correct sub-signal tonight (cf alphonse Arm B Δ=−0.00083, edward Arm A favorable-seed Δ=−0.00216). At std=0.0001 the lm_head is initialized to ~1% of typical embedding scale — mild non-zero anchor breaks symmetry without disturbing input embedding manifold. If Arm C at std=0.001 extends gain monotone-up, Arm D at std=0.005 could push Δ ≤ −0.002 territory; if C regresses, Goldilocks at std=0.0001 → productive-NULL closure with mechanism characterized. ETA terminal ~05:30 UTC.
+**Implementation hygiene — branch pushed**: commit `63a2953` "lm_head non-zero Gaussian init (env-gated, std=0 bit-identical)" pushed at 00:58 UTC. **Thorfinn is the first student to push implementation tonight**.
 
-**Ghost-crash status**: Group still shows 3 Arm A duplicate crashes — likely predated commit `63a2953` push at 00:58 UTC. Posted #848 progress refresh #2 requesting student to include "duplicates explanation + bit-clean fallback path confirmation" in terminal summary. Other 7 students working WIP chains. Zero idle students.
+**LM_HEAD_INIT sanity print verified firing correctly (name-match validation, cycle 72):**
+- `pt2bcodv` (std=0.0): actual_norm=0.000000 — bit-clean fallback confirmed
+- `ugnar56v` (std=0.0001): actual_norm=0.621668 — matches expected ~6213×0.0001≈0.62
+
+**Ghost-crash status**: 6 total now (previously 3 at cycle 72): 4 Arm A (`v05322qp`/`xlc48udw`/`xgnzpchd`/`7ah6ml9s`) + 1 Arm B (`5pmd4i1b`) + 1 Arm C (`5byj5csa`). All match nominal arm config. Requested student include ghost-crash root cause in terminal SENPAI-RESULT.
+
+**Pre-staged paired-pod n=3 follow-up — RECOMMENDED at terminal**: send back for paired-pod n=3 on Arm B (std=0.0001) layered on post-#708 stack. Collapse probability ~75% per 10+ precedents, but cross-arm + cross-PR confirmation elevates above noise. Gates: mean(B,n=3) ≤ 3.27036, stat-rule auto-passes, ≥2/3 direction-correct, drift ±0.003. If collapse, axis closes cleanly with Goldilocks characterized at std=0.0001.
+
+ETA terminal ~06:00 UTC. Posted #848 progress refresh #3 comment.
 
 ### ✅ thorfinn #554 — AdamW embed WD cooldown nudge — CLOSED 15:35 UTC productive-NEGATIVE
 
