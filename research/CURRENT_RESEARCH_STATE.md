@@ -1,9 +1,9 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-23 14:15 UTC
+- **Last update:** 2026-05-23 14:25 UTC
 - **Most recent direction from humans:** None.
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #864, merged 2026-05-23 14:10 UTC). **ONE POTENTIAL IMPROVEMENT PENDING:** #893 edward PMuon momentum BC Arm A marginal val win (Arm B BC warmup-only in flight ETA ~16:50 UTC).
-- **87 closed axes** (#875 frieren AdaBelief-aux 87th NULL; #864 thorfinn EMA warmup=1750 **MERGED as new baseline** — n=2 mean val=3.266826, Δval=−0.0001 vs PR #737, strictly passes predeclared merge rule).
+- **87 closed axes** (#875 frieren AdaBelief-aux 87th NULL; #864 thorfinn EMA warmup=1750 **MERGED as new baseline** — n=2 mean val=3.266826, Δval=−0.0001 vs PR #737, strictly passes predeclared merge rule). #899 Arm A terminal NULL pending Arm B confirmation. Zero idle students after #913 frieren + #918 thorfinn assigned.
 
 ## Current local baseline
 
@@ -15,7 +15,7 @@ W&B seeds: `j8nsn77s` (seed-1 val=3.266355), `08ursg5n` (seed-2 val=3.267298). *
 
 Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future experiments that previously compared against val=3.266926 now compare against 3.266826 (slightly harder target).
 
-## Active experiments (7 in-flight, 14:15 UTC)
+## Active experiments (8 in-flight, 14:25 UTC)
 
 | PR | Student | Hypothesis | Status |
 |---|---|---|---|
@@ -25,8 +25,9 @@ Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future exper
 | **#896** | askeladd | Cautious-Muon body: post-NS multiplicative sign-mask | **Arm A `qw18ifdw` TERMINAL HARD NULL: val=3.2974, sr=−1, mask_frac=0.625.** Confirms #696 Contra-Muon closure pattern: post-NS perturbations break polar map spectral structure. Arm B (mask-only, no renorm) chained, running. **ETA terminal ~17:15 UTC.** |
 | **#897** | tanjiro | Body-Muon adaptive WD coupled to ||p||/target_norm | **Arm A TERMINAL NULL: sr=3000, val=3.270003**, terminal wd_mult=2.549 (moderated from mid-run 3.22). Adds to body-Muon WD axis closure pattern: static 0.025 locked across 5 closed sub-axes. Arm B (α=0.5 sqrt) chained, running. **ETA terminal ~17:30 UTC.** |
 | **#898** | alphonse | PMuon residual-driven adaptive NS_ITERS (per-tensor early termination) | **Arm A `d332v1wk` TERMINAL 13:58 UTC: sr=2925, val=3.26813 (Δval=+0.00120 vs new baseline 3.266826).** `adaptive_ns/iter_count=20` constant — eps=1e-3 unreachable (residual floor 0.05). Arm A degenerates to static NS_ITERS=20, gives same sr but slight val regression vs NS_ITERS=12. Arm B `ypejugws` inadvertently launched (script-edit hazard), now running as n=2 sanity confirmation. **ETA Arm B terminal ~17:57 UTC.** |
-| **#899** | fern | Aux Polyak EMA: lm_head only vs embed only (β-ramp matches body) | Arm A (`--ema_aux_lm_head`) running step ~1600 @ 12:13 UTC, pre-EMA-activation. **ETA terminal ~14:00 UTC.** Arm B (`--ema_aux_embed`) pending chain. Fresh axis — aux parameter EMA has never been tested. |
-| **#913** | frieren | Aux embed/lm_head LR retune at PR #737 baseline | **Newly assigned 14:05 UTC after #875 closure.** Arm A=embed_lr=0.4/lm_head_lr=0.008 (UP); Arm B=embed_lr=0.225/lm_head_lr=0.005 (DOWN). embed/lm_head LRs unchanged since PR #413; body-Muon (γ_pre=0.4, β_cov=0.95) and EMA wrapper (β_target=0.99 ramp) have shifted effective body magnitude. Base-case probe — sharpens 16-closure "aux saturation" finding from #875 `s/m²≫1`. |
+| **#899** | fern | Aux Polyak EMA: lm_head only vs embed only (β-ramp matches body) | **Arm A `byqi2lgf` TERMINAL 14:15 UTC NULL: sr=2925 TIE, val=3.268543 (Δval=+0.00172 vs new baseline; val_live=3.267891, val/ema_minus_live=+0.000652 — EMA slightly WORSE than live).** Structural finding: aux EMA on lm_head SMEARS across uncorrelated update vectors (consistent with #875 `s/m²≫1` and #854 `||Δg||/||g||≈1.45`). 17th aux family closure direction. Arm B `cw1ub4f3` (`--ema_aux_embed`) launched 14:16 UTC, running step ~50. **ETA Arm B terminal ~18:05 UTC.** |
+| **#913** | frieren | Aux embed/lm_head LR retune at PR #737 baseline | **Assigned 14:05 UTC after #875 closure.** Arm A=embed_lr=0.4/lm_head_lr=0.008 (UP); Arm B=embed_lr=0.225/lm_head_lr=0.005 (DOWN). embed/lm_head LRs unchanged since PR #413; body-Muon (γ_pre=0.4, β_cov=0.95) and EMA wrapper (β_target=0.99 ramp) have shifted effective body magnitude. Base-case probe — sharpens 16-closure "aux saturation" finding from #875 `s/m²≫1`. |
+| **#918** | thorfinn | Body-Muon LR retune at post-#864 baseline (UP 0.040 vs DOWN 0.030) | **Newly assigned 14:25 UTC** after #864 merge. Arm A `muon_lr=0.040` (UP +14%); Arm B `muon_lr=0.030` (DOWN −14%). Body-Muon static LR was last retuned at PR #248 BEFORE EMA wrapper (PR #737) and shortened warmup (PR #864) — last retune is structurally stale. **Forms parallel pair with #913 (aux LR retune)**: joint outcome produces LR-axis saturation signal at post-#864 baseline (5th sub-axis after WD ±, mu ±, β_cov ±, γ ±). |
 
 **Recently closed (this session):**
 - #846 edward (AdEMAMix-Aux 82nd, both arms NULL)
