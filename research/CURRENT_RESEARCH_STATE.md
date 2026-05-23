@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-23 11:55 UTC
+- **Date:** 2026-05-23 12:40 UTC
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -357,6 +357,8 @@ Both are 2/3 direction-correct vs new baseline; #847 seed 3 lands further above 
 
 PR converted to draft, label swapped review→wip. Student themselves recommended this path in their terminal write-up.
 
+**12:08 UTC — rebased run LIVE**: `ddiux6wz` under `g1r4-alphonse/embed-init-anchor-rebased`. Step 175/3350 (5%), val 4.595 (early), on post-#787 stack with `NANOGPT_NS_STOCHASTIC_COOLDOWN=2` added. Seed 1 ETA ~14:18 UTC; full n=3 chain ETA ~17:30 UTC. Student picked up send-back rapidly (~14 min from comment-post to launch).
+
 ### ✅ tanjiro #441 — Logit Z-loss sweep — CLOSED 17:00 UTC productive-NEGATIVE
 
 Z-loss (PaLM style λ∈{1e-5,1e-4,1e-3}) regresses at all non-zero λ. D (λ=1e-3) fails benchmark (val=3.29393 > 3.28). Root cause: logit softcap c=15 already provides sufficient logit regularization — z-loss is redundant and competes at high λ. **18th productive-null/negative this cycle.** Loss-side auxiliary regularization axis fully closed.
@@ -692,6 +694,7 @@ Second confirmation of `self.training` validation gate durability across CE-modi
 **11:42 UTC decision — sent back for rebase + re-run** (per #789 tanjiro precedent despite preflight passing): although senpai_merge_winner_preflight returned PASS (file-level diff is clean against post-#787 advisor branch), the chain validated mechanism on OLD pre-#787 stack and the margin vs new baseline is marginal. Student themselves recommended rebase + re-run. Re-run protocol:
 - Rebase onto current advisor branch (now post-#787)
 - Re-run paired-pod n=3 on Arm B (sqrt_inv, wmax=10) with `NANOGPT_NS_STOCHASTIC_COOLDOWN=2` added
+- **11:56 UTC — rebased run LIVE**: `zkx8xeqb` under `g1r4-askeladd/embed-grad-freq-rescale-rebased`. Step 525/3350 (16%), val 3.808 (early), on post-#787 stack. Seed 1 ETA ~14:00 UTC; full n=3 chain ETA ~17:00 UTC. Student picked up send-back rapidly (~13 min from comment-post to launch).
 - Pre-staged gates frozen as-set against new baseline 3.26944
 - ETA ~5.4h chain
 - Pre-staged outcomes: MERGE if mean(rebased,n=3) ≤ 3.26944 AND ≥2/3 dir-correct vs new; productive-NULL if ∈ (3.26944, 3.27036]; productive-NEG if > 3.27036
@@ -1165,6 +1168,17 @@ ETA terminal ~12-14h sequential.
 **09:55 UTC W&B-verified — Arm A terminal, direction-WRONG but within drift**: Arm A (`wxfyjif6`) finished val=**3.27117**, Δ_vs_new_base 3.26944 = **+0.00173** (drift PASS ±0.003). Arm A is the ctrl (init_scale=1.0 = N(0,1) default) — direction-wrong is unfavorable seed, NOT mechanism (Arm A by construction is bit-clean to merged stack at the pre-`mul_` gate). Mid-trajectory chain on Arms B/C/D will produce within-pod Δ_vs_A comparisons; absolute baseline comparison less reliable given +0.00173 drift. Chain continues; Arm B in flight.
 
 **10:08 UTC — Arm B (`kjqev5sg`, scale=0.5) launched 09:49 UTC, running step 475/3350 (14%)**. Stale_wip auto-flag posted, addressed as false-positive — chain progressing per normal silent modus operandi. Posted #874 visibility-check comment. ETA Arm B terminal ~12:35 UTC, full chain (A→D sequential) ETA ~15:00 UTC. Chain on NEW post-#787 stack already — no cross-PR rebase needed at terminal if gates pass.
+
+**12:38 UTC — Arm B TERMINAL + Arm C live**:
+
+| Arm | scale | run ID | val/loss | Δ_vs_A (ctrl 3.27117) | Δ_vs_new_base 3.26944 |
+|:---:|:---:|---|:---:|:---:|:---:|
+| A (ctrl) | 1.0 | `wxfyjif6` | 3.27117 | — | +0.00173 (unfavorable seed) |
+| B | 0.5 | `kjqev5sg` | **3.26978** | **−0.00139** ✅ direction-correct sub-threshold | +0.00034 marginal |
+| C | 0.7 | `swk8ntvs` | running step 1000/3350 (30%) | TBD | TBD |
+| D | 1.5 | pending | — | — | — |
+
+Arm B Δ_vs_A=−0.00139: direction-correct but sub-signal (below −0.002 within-pod threshold). Mechanism reading at half-scale init: ‖embed‖_F ≈ 3107 (half of N(0,1) default 6213) → smaller initial activation magnitude → mildly different early-trajectory body gradient profile. Matches pre-staged interpretation #2 ("monotone-favorable in inverse-scale"). Arm C terminal ETA ~14:55 UTC, Arm D ~17:00 UTC. Posted #874 stale_wip false-positive ack comment. **Second stale_wip false-positive on this PR** (10:08 + 12:38) — flag fires whenever chain progresses silently between SENPAI-RESULT markers; expected modus operandi for sequential 4-arm chains.
 
 ### 🗃️ edward #838 — assignment text (archived)
 
