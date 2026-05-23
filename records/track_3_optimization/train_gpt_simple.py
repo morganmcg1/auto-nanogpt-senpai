@@ -82,6 +82,21 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Lion (Chen et al. 2023 arXiv:2302.06675) as an alternative aux optimizer.
+    # Sign-momentum update: update=sign(β1*m + (1-β1)*g); m=β2*m + (1-β2)*g.
+    # No per-coord adaptive second-moment normalization. ||update||_F = √n per step.
+    parser.add_argument("--aux_optimizer", type=str, default=os.environ.get("AUX_OPTIMIZER", "adamw"),
+                        choices=["adamw", "lion"],
+                        help="Which optimizer to use for aux (embed/lm_head/scalars) groups.")
+    parser.add_argument("--aux_lion_lr_embed", type=float, default=float(os.environ.get("AUX_LION_LR_EMBED", "0.1")))
+    parser.add_argument("--aux_lion_lr_head", type=float, default=float(os.environ.get("AUX_LION_LR_HEAD", "0.00104")))
+    parser.add_argument("--aux_lion_lr_scalars", type=float, default=float(os.environ.get("AUX_LION_LR_SCALARS", "0.00333")),
+                        help="Lion lr for aux scalar group (~1/3 of AdamW scalar lr=0.01 as published Lion guidance).")
+    parser.add_argument("--aux_lion_beta1", type=float, default=float(os.environ.get("AUX_LION_BETA1", "0.9")),
+                        help="Lion β1: sign-momentum interpolation weight. NOTE: this is *opposite* of AdamW's β1.")
+    parser.add_argument("--aux_lion_beta2", type=float, default=float(os.environ.get("AUX_LION_BETA2", "0.99")),
+                        help="Lion β2: momentum EMA decay (NOT second-moment EMA — Lion has none).")
+    parser.add_argument("--aux_lion_wd", type=float, default=float(os.environ.get("AUX_LION_WD", "0.0")))
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -578,6 +593,49 @@ def adaptive_gradient_clip(parameters, clip_ratio: float, eps: float = 1e-3):
     return stats
 
 
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al. 2023, arXiv:2302.06675 "Symbolic Discovery of
+    Optimization Algorithms"). Sign-momentum update:
+
+        update      = sign(β1 * m_t + (1 - β1) * g_t)
+        m_{t+1}     = β2 * m_t + (1 - β2) * g_t
+        weight     -= lr * (update + wd * weight)
+
+    Unlike AdamW, Lion has no per-coordinate adaptive second-moment normalization
+    and no ε; ||update||_F = √n per step, independent of gradient magnitude.
+    Note β1/β2 semantics differ from AdamW: β1 is the sign-interp weight (not the
+    momentum EMA), β2 is the momentum EMA decay (not the second-moment EMA).
+    """
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                g = p.grad
+                state = self.state[p]
+                if "m" not in state:
+                    state["m"] = torch.zeros_like(p)
+                m = state["m"]
+                # Update direction: sign of (β1*m + (1-β1)*g). Cast to bf16/fp32-safe
+                # path by computing in fp32 if needed; for our aux params the param
+                # dtype matches the buffer dtype so this works in-place.
+                update = (beta1 * m + (1.0 - beta1) * g).sign_()
+                # Momentum buffer update — uses raw g, not the sign(...) above.
+                m.mul_(beta2).add_(g, alpha=(1.0 - beta2))
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(update, alpha=-lr)
+        return None
+
+
 def scale_invariant_update_(param, update, lr, eps=1e-10):
     """Always-active hyperball step: rescale update to param's current norm scale,
     take the step, then renormalise the result back onto the sphere of radius
@@ -724,6 +782,12 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.aux_optimizer == "lion":
+    print0(f"AUX OPTIMIZER = Lion: β1={args.aux_lion_beta1} β2={args.aux_lion_beta2} wd={args.aux_lion_wd} "
+           f"lr_embed={args.aux_lion_lr_embed} lr_head={args.aux_lion_lr_head} lr_scalars={args.aux_lion_lr_scalars}",
+           console=True)
+else:
+    print0(f"AUX OPTIMIZER = AdamW (β2 schedule={args.aux_beta2_schedule}, β2_start={args.aux_beta2_start})", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +844,13 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "aux_optimizer": args.aux_optimizer,
+            "aux_lion_lr_embed": args.aux_lion_lr_embed,
+            "aux_lion_lr_head": args.aux_lion_lr_head,
+            "aux_lion_lr_scalars": args.aux_lion_lr_scalars,
+            "aux_lion_beta1": args.aux_lion_beta1,
+            "aux_lion_beta2": args.aux_lion_beta2,
+            "aux_lion_wd": args.aux_lion_wd,
         },
     )
 
@@ -829,11 +900,23 @@ for trial_idx in range(args.num_trials):
     # fused AdamW reads betas from param_groups on every .step(), but to avoid any
     # silent-failure-mode risk we use fused=False whenever the β2 schedule is active.
     # constant schedule keeps fused=True so arm_a is bitwise-identical to baseline.
-    _aux_fused = (args.aux_beta2_schedule == "constant")
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    if args.aux_optimizer == "adamw":
+        _aux_fused = (args.aux_beta2_schedule == "constant")
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, args.aux_beta2_start), eps=args.aux_adamw_eps, weight_decay=0, fused=_aux_fused)
+    elif args.aux_optimizer == "lion":
+        # Lion replaces AdamW on the aux groups. Same param-group structure
+        # (embed / lm_head / scalars). β2 schedule code path is skipped below
+        # since Lion's β2 controls momentum EMA, not second-moment EMA.
+        optimizer1 = Lion([dict(params=[model.embed.weight], lr=args.aux_lion_lr_embed, name="lion_embed"),
+                           dict(params=[model.proj.weight], lr=args.aux_lion_lr_head, name="lion_head"),
+                           dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.aux_lion_lr_scalars, name="lion_scalars")],
+                          betas=(args.aux_lion_beta1, args.aux_lion_beta2),
+                          weight_decay=args.aux_lion_wd)
+    else:
+        raise ValueError(f"unknown aux_optimizer: {args.aux_optimizer}")
     optimizer2 = MuonH([p for p in model.blocks.parameters() if p.ndim >= 2],
                        lr=args.muonh_lr, weight_decay=0.0, mu=0.95,
                        hyperball=True, budget_mult=args.muonh_budget_mult,
@@ -897,17 +980,23 @@ for trial_idx in range(args.num_trials):
         # Aux β2 schedule: ramp β2 from start to end linearly across the aux
         # cooldown phase (last aux_cooldown_frac of training). constant schedule
         # is a no-op since b2 stays equal to aux_beta2_start = baseline 0.95.
-        if args.aux_beta2_schedule == "cooldown_ramp":
-            cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
-            if step < cooldown_start:
-                b2 = args.aux_beta2_start
-            else:
-                prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
-                b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+        # Skipped entirely when aux_optimizer == "lion" — Lion's β2 controls
+        # momentum EMA, not second-moment EMA, so the schedule semantics don't
+        # carry over. Lion's β2 is set at construction and held constant.
+        if args.aux_optimizer == "lion":
+            b2 = args.aux_lion_beta2
         else:
-            b2 = args.aux_beta2_start
-        for g in optimizer1.param_groups:
-            g["betas"] = (g["betas"][0], b2)
+            if args.aux_beta2_schedule == "cooldown_ramp":
+                cooldown_start = int((1.0 - aux_cooldown_frac) * train_steps)
+                if step < cooldown_start:
+                    b2 = args.aux_beta2_start
+                else:
+                    prog = (step - cooldown_start) / max(1, train_steps - cooldown_start)
+                    b2 = args.aux_beta2_start + prog * (args.aux_beta2_end - args.aux_beta2_start)
+            else:
+                b2 = args.aux_beta2_start
+            for g in optimizer1.param_groups:
+                g["betas"] = (g["betas"][0], b2)
         return muonh_warmup, b2
 
 
