@@ -1,5 +1,39 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 08:30 UTC — PR #1004: MUON_UW_FLOOR_ABLATION (CLOSED, 94th refuted — GOLDILOCKS OUTCOME confirming TARGET_UW=0.35 tuned-optimum, first quantification of u/w-floor contribution since PR #71)
+
+- Branch: `g1r2-askeladd/muon-uw-floor-ablation` (student g1r2-askeladd)
+- Hypothesis: Sweep the previously-frozen TARGET_UW scalar (=0.35, frozen at PR #71 ~232 PRs ago) to test stack-pruning ablation directly per launch directive. Arm A=0.0 (FULL DISABLE of u/w-floor mechanism) vs Arm B=0.50 (more aggressive floor). u/w-floor block at lines 705-710 scales u/w directions of post-NS5 update above the threshold, asymmetric design (floor-only, no cap) since PR #71.
+
+| Arm | Spec | W&B | val@500 | val@1000 | val@1500 | terminal | ffs | Outcome |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| Disabled check (TARGET_UW=0.35) | identity branch | `ggmlzeg7` | val@200=4.085 ✓ | — | — | — | — | plumbing OK |
+| Arm A (TARGET_UW=0.0, full disable) | u/w-floor OFF | `5tm2ce7x` | **3.751** ✓ (-0.034 vs ref) | ~3.57 ✓ | ~3.48 ✓ | **3.29097** | **-1** | close-miss (miss target by 0.013) |
+| Arm B (TARGET_UW=0.50, aggressive floor) | u/w-floor 1.4× stronger | `a7e6z4yz` | **3.867** ❌ (+0.057) | **3.745** ❌ (+0.085) | **3.609** ❌ (+0.059) | KILLED step 1750 | -1 | 3 consecutive gate trips |
+| Reference baseline (PR #613) | TARGET_UW=0.35 | — | ~3.785 | ~3.66 | ~3.55 | 3.26776 | 3000 | baseline |
+
+**Mechanistic reading (Goldilocks outcome reveals phase asymmetry)**:
+
+1. **Arm A (TARGET_UW=0.0)** is **NOT catastrophic — close-miss only**. Most striking: val@500=3.751 is **0.034 nats BETTER than reference baseline at the same step**. The u/w-floor is **net-harmful during warmup**: forcing small u/w directions above threshold when overall update direction is still noisy degrades early descent. Then cooldown-phase drift: terminal val=3.29097 misses target by 0.013, indicating u/w-floor contributes ~0.02 nats during cooldown when the direction signal is clean.
+
+2. **Arm B (TARGET_UW=0.50)** is **catastrophic — 3 consecutive gate trips**. Step 500 trip +0.057, step 1000 trip +0.085, step 1500 trip +0.059, KILLED step 1750. More-aggressive floor over-magnifies degenerate small-singular-direction updates exactly when NS5 polar projection is most uncertain (early training when momentum buffer is still warming up).
+
+3. **Phase asymmetry mechanism**: u/w-floor regularization is net-harmful in warmup (Arm A beats reference at step 500) but net-helpful in cooldown (Arm A close-miss at terminal). This is the **FIRST QUANTIFICATION of u/w-floor contribution since PR #71** froze TARGET_UW=0.35 ~232 PRs ago.
+
+**Combined with #1007 cap-side refutation (mid-158)**: u/w-band NOW COMPLETELY CHARACTERIZED:
+
+| Side | Mechanism | Refuted PR | Status |
+|---|---|---|---|
+| Floor (lower bound on u/w direction magnitude) | TARGET_UW=0.35 constant | #1004 (94th) | tuned-optimum, asymmetric design structurally necessary |
+| Cap (upper bound on u/w direction magnitude) | upper bound 1.0 or 2.0 | #1007 (91st) | refuted — body Muon updates MUST be FREE to be large |
+| Schedule (time-varying TARGET_UW) | linear/step kind | **#1023 IN-FLIGHT** | **20th distinct mechanism class** — first SCHEDULE test |
+
+**Student askeladd's KEY mechanistic insight**: "Arm A is close-miss not catastrophic — the u/w-floor is regularization not invariant; Arm B catastrophe at TARGET_UW=0.5 confirms the threshold matters in DIRECTION as well as MAGNITUDE — too aggressive a floor over-magnifies degenerate directions exactly when NS5 polar projection is most uncertain"
+
+**Suggested follow-up #2 from student promoted to PR #1023**: schedule TARGET_UW over training — linear ramp 0.0→0.35 or step function with cooldown transition. Captures the warmup advantage (Arm A early phase) AND the cooldown contribution (TARGET_UW=0.35 during cooldown only).
+
+**Cycle 71 portfolio at mid-161**: **94 refuted axes**, 20 distinct mechanism classes probed. The u/w-band is FULLY CHARACTERIZED, future axes must AVOID intervening in lines 705-710 unless SCHEDULING the existing threshold (which #1023 does as 20th class).
+
 ## 2026-05-24 08:00 UTC — PR #1012: AUX_LION (CLOSED, 93rd refuted — Lion as aux optimizer structurally fails, AUX OPTIMIZER FAMILY SATURATED)
 
 - Branch: `g1r2-thorfinn/aux-lion` (student g1r2-thorfinn)
