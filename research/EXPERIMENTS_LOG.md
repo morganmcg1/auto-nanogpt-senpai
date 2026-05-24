@@ -4927,3 +4927,54 @@ Four independent state-reset-class closures across both optimizer sides. **STATE
 - Balanced "I lean (1) but defer to advisor judgment" framing = appropriate epistemic posture.
 
 ### Tanjiro reassigned → PR #1047 (LookAhead optimizer wrapper on body Muon — Zhang et al. 2019 — fresh META-OPTIMIZER axis: inner-loop Muon fast weights + outer-loop slow weights averaging every K steps. 4-arm sweep A=ctrl K=0; B=K=5/α=0.5; C=K=10/α=0.5; D=K=5/α=0.2)
+
+## 2026-05-24 13:25 — PR #1008: NS static-c operating-point sweep — 4-arm (CLOSED productive-NULL)
+
+- Branch: `g1r4-alphonse/ns-coef-static-value`
+- Student: alphonse
+- Hypothesis: Static-c sweep across NS polynomial coefficients tests whether the linear_ramp_down (#290 merged) wins via *trajectory averaging* or via its *endpoint* in cooldown. 4 arms: A=linear_ramp_down (ctrl), B=static_c065, C=static_c070 (high-precision sustained), D=static_c040 (mid-low, below ramp mean ~0.49). Mechanism-distinct from #1031 (adaptive residual stopping, in-flight) — this is the static-value sweep.
+
+### Results
+
+| Arm | Schedule | run_id | val/loss | first_step_to_target | Δ_vs_A | val@2500 | Δ@2500 vs A |
+|:---:|:---|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | linear_ramp_down | `lp81hhew` | **3.26887** | 3200 | — | 3.36732 | — |
+| B | static_c065 | `u4jdeu7l` | **3.26886** | 3200 | −0.00001 | 3.36688 | −0.00044 |
+| C | static_c070 | `7t99gpnm` | **3.26895** | 3200 | +0.00008 | 3.36743 | +0.00011 |
+| D | static_c040 | `52e5is0c` | **3.26843** | 3200 | **−0.00044** | 3.36660 | −0.00072 |
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL — NS polynomial coefficient operating point within [0.28, 0.70] is not load-bearing at trajectory granularity.**
+
+- Drift gate Arm A: |3.26887 − 3.26756| = 0.00131 ≤ 0.003 → PASS (within ±0.003 drift envelope).
+- Signal threshold (Δ_vs_A ≤ −0.0020): NO arm crosses. D closest at −0.00044 (4.5× short of threshold).
+- Productive-NULL band (±0.0015): ALL arms inside. Max spread |best − worst| = 0.00052.
+- Productive-NEG threshold (≥ +0.005): NO arm crosses.
+- All 4 arms identical `first_step_to_target=3200` — preconditioner spectral contraction differences within [0.28, 0.70] absorbed by cooldown LR schedule.
+
+**Single-seed σ ≈ 0.005 noise calibration (from #998 frieren insight):**
+- Max |Δ_vs_A| = 0.00044 (Arm D): ~0.09σ — sub-noise.
+- All arm-to-arm distances well within 1σ — fully indistinguishable at N=1.
+
+**Mechanism reading (excellent student analysis):**
+
+1. **Ramp-down's averaging-over-time is not load-bearing.** Holding c=0.65 (B) or c=0.70 (C) constant for all 3350 steps matches the linear ramp-down's trajectory (which averages ≈0.49) to within 0.00008. The per-iter coefficient *trajectory* matters less than a coarse "in-range" property — meaning **#290's win was endpoint-driven (c=0.28 in cooldown), not trajectory-driven**.
+
+2. **Surprising D direction.** Arm D (c=0.40, mid-low) marginally best — opposite of Shulgin et al. 2026's prediction (higher c → tighter spectral contraction → better). The merged stack's cooldown (NS=16, late_peak, NS_stochastic=2, body asym 0.80/1.20) has been co-tuned to a *lower-precision regime* than naive NS theory expects. But the +0.00044 effect is well below σ ≈ 0.005 single-seed noise — suggestive only.
+
+3. **NS-coef × LR coupling cannot be tested here.** LR is held fixed across arms — Shulgin's precision-LR coupling prediction (higher c → larger effective step) requires paired retune. Future work: paired `static_c070 + muon_lr×1.10` vs `linear_ramp_down + muon_lr×1.0`.
+
+**Cross-PR axis closure language (for state doc):**
+
+> **NS polynomial coefficient operating point within [0.28, 0.70] — productive-NULL on this stack.** PR #1008 closes the static-c sweep axis (combined with #290 merged linear_ramp_down endpoint-driven; #1031 in-flight adaptive residual stop targets iteration count, not coefficient value). The cooldown LR schedule and NS iteration count schedule together absorb NS-coef variations in this range. Future NS-precision work should pivot to: (a) endpoint-driven static c=0.28 test (direct confirmation of endpoint hypothesis), or (b) paired NS-coef × Muon-LR coupling retune experiments.
+
+**Cross-mechanism implication:** NS preconditioner *value* axis within tested range is closed; NS *iteration count* axis (#1031 in-flight) is the live mechanism-distinct alternative. Trajectory-shape interventions on NS-coef are not productive — but *endpoint* and *iteration count* remain open.
+
+### Process commendation
+- Per-arm terminal pings (Arm A, B, C) with W&B run_id + val/loss + step count = exemplary stale_wip prevention process.
+- Step-2500 early-kill check reported per arm = defensive verification (max |Δ@2500| = 0.00072, well within +0.10 gate).
+- Honest read on N=1 noise floor: "Δ values are below typical run-to-run noise floor (~0.001-0.002 at n=1)" = appropriate epistemic posture.
+- Suggested follow-ups (static c=0.28 missing arm; NS-coef × LR coupling; wider trajectory range) = high-quality next-step thinking.
+
+### Alphonse reassigned → PR #TBD (Body Muon LR cooldown shape sweep — fresh SCHEDULE-CURVATURE axis. Mirror image of merged #235 embed-only floor: body Muon (`muon_attn` + `muon_mlp`) currently uses hardcoded linear cooldown — sweeps alternative cooldown curvatures against the merged NS=20 cooldown precision and late_peak NS shape. 4 arms: A=linear ctrl, B=cosine, C=sqrt (slower-decay), D=linear_floor at 0.15)
