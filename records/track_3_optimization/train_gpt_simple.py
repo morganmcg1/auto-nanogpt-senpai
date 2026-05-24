@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--label_smoothing", type=float, default=0.0,
+                        help="Label smoothing epsilon for training cross-entropy loss (0.0 = hard CE = baseline). "
+                             "Applied only to training loss; validation loss always uses hard CE (benchmark contract).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -446,13 +449,22 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor, label_smoothing: float = 0.0,
+                return_hard_ce: bool = False):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        logits_flat = logits.view(targets.numel(), -1)
+        targets_flat = targets.view(-1)
+        loss = F.cross_entropy(logits_flat, targets_flat,
+                               reduction="sum", label_smoothing=label_smoothing)
+        if return_hard_ce:
+            # Validation/benchmark contract: hard CE (label_smoothing=0.0) for fair comparison.
+            loss_hard = F.cross_entropy(logits_flat, targets_flat, reduction="sum")
+            return loss, loss_hard
+        return loss
 
 
 ########################################
@@ -720,6 +732,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "label_smoothing": args.label_smoothing,
         },
     )
 
@@ -941,8 +954,17 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        track_hard_ce = args.label_smoothing > 0.0
+        step_loss_hard = torch.zeros((), device=device) if track_hard_ce else None
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            if track_hard_ce:
+                loss, loss_hard = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs],
+                                        label_smoothing=args.label_smoothing,
+                                        return_hard_ce=True)
+                step_loss_hard += loss_hard.detach()
+            else:
+                loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs],
+                             label_smoothing=args.label_smoothing)
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -950,6 +972,10 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        train_loss_hard = float("nan")
+        if step_loss_hard is not None:
+            dist.all_reduce(step_loss_hard, op=dist.ReduceOp.SUM)
+            train_loss_hard = float((step_loss_hard / batch_size).item())
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
         train_step = step + 1
@@ -959,6 +985,15 @@ for trial_idx in range(args.num_trials):
         wandb_step = trial_idx * (train_steps + 1) + train_step
         if dist.get_rank() == 0:
             train_loss_history.append((train_step, train_loss))
+        if dist.get_rank() == 0 and track_hard_ce:
+            wandb.log({
+                "trial": trial_idx,
+                "train/step": train_step,
+                "train/loss_smoothed": train_loss,
+                "train/loss_hard_ce": train_loss_hard,
+                "train/loss_smoothing_gap": train_loss - train_loss_hard,
+                "hyperparams/label_smoothing": args.label_smoothing,
+            }, step=wandb_step)
         if dist.get_rank() == 0 and slope_due:
             slope_metrics = {
                 "trial": trial_idx,
