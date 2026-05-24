@@ -3,6 +3,43 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~00:55 UTC — PR #925: fern Muon momentum μ schedule sweep — **★ CELL E SENT BACK FOR n=4 CONFIRM**
+
+- **Branch:** `g1r5-fern/mu-schedule-cooldown-drop`
+- **Student:** g1r5-fern
+- **Hypothesis:** Drop Muon momentum coefficient μ at cooldown onset (step 975) so the optimizer follows fresher gradients during the small-LR basin. Distinguishes from PR #693 (continuous deep ramps to 0.5/0.0) by testing conservative range (0.85–0.90) with step switch + linear ramp variants.
+
+- **5-cell P1 sweep results (n=1):**
+
+| Cell | μ schedule | val/loss | ffs | Δ vs baseline | σ_single | W&B |
+|:----:|:-----------|:--------:|:---:|:-------------:|:--------:|:---:|
+| A (ctrl) | μ=0.95 const | 3.261821 | 3025 | +0.000600 | +1.01σ | 26y34f1w |
+| B | step 0.95→0.85 @ 975 | 3.264527 | 3050 | +0.003306 | +5.57σ NEG | sfwnmpdc |
+| C | step 0.95→0.80 @ 975 | 3.265881 | 3075 | +0.004660 | +7.86σ NEG | pm1ufwan |
+| D | step 0.95→0.90 @ 975 | 3.264204 | 3050 | +0.002983 | +5.03σ NEG | 5jmd9dud |
+| **E ★** | **linear ramp 0.95→0.85 over cooldown** | **3.258418** | **2975** | **−0.002803** | **−4.73σ POS** | **utti60b8** |
+
+- **Decision gate:** Cell E n=1=3.258418, projected n=4 statsig (3.261221−3.258418)×√4 = **0.0056 ≥ 0.004 ✓** → passes n=4 confirm gate. SENT BACK for n=4 confirmation arm.
+
+- **Step-switch falsification (B/C/D):** abrupt μ drop at cooldown onset hurts terminal val/loss monotonically with drop depth (0.90→+5.03σ, 0.85→+5.57σ, 0.80→+7.86σ). Confirms PR #693's "accumulated buffer is dominant cooldown signal" finding, extending it to the conservative range that #693 had deferred. **Hard-switch variant of soft-μ-drop hypothesis FALSIFIED.**
+
+- **Cell E mechanism (the rescue):** Linear ramp ends at terminal μ=0.85 (same as B) but does so smoothly across cooldown:
+  - At cooldown onset, ramp starts at 0.95 → no buffer flush, no overshoot
+  - μ decays in lockstep with LR — small step sizes pair naturally with smaller momentum half-lives
+  - By final basin, μ=0.85 (half-life ~6 steps) → optimizer tracks near-instantaneous gradients while LR → 0
+  - **Buffer is never simultaneously high-μ and obsolete-direction** — the smoothness of the ramp avoids the transient overshoot regime that B/D suffer
+
+- **Trajectory observation (student-confirmed):** Cell B shows transient *lower* val/loss at step ~1000 (faster cooldown descent because buffer flushes quickly) but worse terminal val/loss by step 3250 — classic overshoot from rapid forget. Linear ramp avoids this regime entirely.
+
+- **Cross-PR significance — second high-signal cooldown calibration result:**
+  - **#907 tanjiro Cell E** (joint Muon momentum + SOAP `exp_avg_sq` reset at step 975): n=1=3.26004 (−3.5σ_SE POS) — currently in n=4 confirm
+  - **#925 Cell E** (linear μ ramp): n=1=3.258418 (**−4.73σ_single POS**) — even stronger n=1 signal, now in n=4 confirm
+  - Both implement "cooldown wants smaller/fresher state" at different timescales (instantaneous vs continuous). If both confirm at n=4, unified mechanism story is robust.
+
+- **n=4 confirm arm:** `--mu_stable 0.95 --mu_cooldown 0.85 --mu_linear_ramp --num_trials 4`, wandb_group `g1r5-fern/mu_ramp_E_n4_confirm`. Deferred follow-ups (#2–#5 ramp endpoint/shape sweeps, μ(t)=mu_stable·(lr(t)/lr(0))^α) held pending n=4 outcome.
+
+---
+
 ## 2026-05-23 ~23:40 UTC — PR #914: alphonse SOAP eigenbasis refresh freeze during cooldown — **CLOSED clean-NEG**
 
 - **Branch:** `g1r5-alphonse/soap-refresh-freeze-during-cooldown`

@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-23 ~23:40Z (poll #560) — **#914 alphonse SOAP refresh freeze CLOSED clean-NEG (Cell C freeze +4.9σ NEG → SOAP eigenbasis carries useful curvature signal even during cooldown). alphonse → #966 cooldown weight rescaling (fresh weight-space axis, parallels #907 Cell E state-rescaling).** 8 PRs in flight.
+- **Last updated:** 2026-05-24 ~01:00Z (poll #565) — **★★ #925 fern Cell E (linear μ ramp 0.95→0.85 over cooldown) n=1=3.258418, ffs=2975, −4.73σ_single POS, projected n=4 statsig 0.0056 ≥ 0.004. SENT BACK FOR n=4 CONFIRM. Now TWO high-signal cooldown-calibration POS results awaiting n=4: #907 Cell E (joint reset, −3.5σ_SE) and #925 Cell E (μ ramp, −4.73σ_single — even stronger).** 8 PRs in flight.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -10,31 +10,33 @@
 - **Statsig rule:** `(3.261221 - μ) × √n ≥ 0.004`
 - **n=4 gate: μ ≤ 3.259221** (merge) | **μ > 3.261** (close clean-NEG, tentative)
 
-## Active WIP Portfolio (poll #554)
+## Active WIP Portfolio (poll #565)
 
 8 PRs in flight, all students active, no idle students.
 
 | PR # | Student | Hypothesis | Phase / Status |
 |:----:|:-------:|:-----------|:---------------|
-| **#941** | **edward** | ★ **NEW poll #545.** Cooldown SWA: maintain weight EMA during cooldown (steps 975–3250), use EMA weights for eval. β=0.99 (half-life ~70 steps). Distinct from Lookahead (#826) and Schedule-Free (#855). Novel axis. | Just assigned. 5-cell: A ctrl, B β=0.99 ★, C β=0.999, D β=0.95, E late-start SWA (step 1625). |
-| **#936** | **askeladd** | Asymmetric SOAP eigenbasis ablation — left-only (Q_col=I) vs right-only (Q_row=I) to reveal which side is load-bearing. | Just assigned. 5-cell: A ctrl, B left-only ★, C right-only, D left MLP-only, E right MLP-only. |
-| **#932** | **thorfinn** | Per-layer NS iteration count scaled by transformer depth. depth_scale=0.5 → early=3..late=9, mean=6. Budget-neutral. | Cell A ctrl in progress. B-E queued. |
-| **#925** | **fern** | Muon momentum coefficient μ schedule: drop 0.95→0.85 at cooldown onset. | Multi-cell sweep underway. |
+| **#925** | **fern** | ★★ **Cell E n=1=3.258418 (−4.73σ POS).** Linear ramp μ=0.95→0.85 over cooldown. Step-switch variants (B/C/D) all NEG (PR #693 extension). Linear ramp rescues soft-μ-drop hypothesis by changing *timing* — μ tracks LR's freshness requirements. | **n=4 confirm arm running.** `--mu_stable 0.95 --mu_cooldown 0.85 --mu_linear_ramp --num_trials 4`. |
+| **#907** | **tanjiro** | ★ **HIGH-SIGNAL.** Joint Muon momentum + SOAP `exp_avg_sq` reset at step 975. Cell E n=1=3.26004 (−3.5σ_SE POS). Cells B/C/D (Muon-only reset) all NEG, monotonic severity → mechanism is calibration mismatch under partial reset. | n=4 confirmation arm `--num_trials 4` running. |
+| **#941** | **edward** | Cooldown SWA: maintain weight EMA during cooldown (steps 975–3250), use EMA weights for eval. β=0.99 (half-life ~70 steps). Distinct from Lookahead (#826) and Schedule-Free (#855). Novel axis. | 5-cell sweep running: A ctrl, B β=0.99 ★, C β=0.999, D β=0.95, E late-start SWA (step 1625). |
+| **#936** | **askeladd** | Asymmetric SOAP eigenbasis ablation — left-only (Q_col=I) vs right-only (Q_row=I) to reveal which side is load-bearing. | 5-cell sweep running: A ctrl, B left-only ★, C right-only, D left MLP-only, E right MLP-only. |
+| **#932** | **thorfinn** | Per-layer NS iteration count scaled by transformer depth. depth_scale=0.5 → early=3..late=9, mean=6. Budget-neutral. | Multi-cell sweep underway. |
 | **#924** | **nezuko** | Free Hutchinson diagonal curvature scaling post-NS. EMA of gradient differences ≈ diagonal H. | Multi-cell sweep underway. |
-| **#966** | **alphonse** | ★ **NEW poll #560.** Cooldown weight rescaling: one-shot uniform shrink of body matrix weights at step 975. Tests if weight norms need recalibration to cooldown regime, parallel to #907 Cell E state-rescaling mechanism. | Just assigned. 5-cell: A ctrl, B α=0.99 ★, C α=0.97, D α=0.95, E α=1.01 (falsifier). |
-| **#907** | **tanjiro** | ★ **HIGH-SIGNAL.** Joint Muon momentum + SOAP `exp_avg_sq` reset at step 975. Cell E n=1=3.26004 (−3.5σ_SE POS). Sent back for n=4 confirmation. Mechanism: cooldown wants ALL adaptive state recalibrated to cooldown gradient scale. | n=4 confirmation arm `--num_trials 4` running. |
-| **#962** | **frieren** | ★ **NEW poll #557.** NS polynomial coefficient ablation. (a,b,c)=(2,-1.5,0.5) ctrl vs cubic-conv (1.875,-1.25,0.375) ★, Muon-paper (3.4445,-4.775,2.0315), cubic-only (1.5,-0.5,0), high-amp (2.5,-2,0.5). Tests NS-internal axis: does the polynomial structure matter beyond iter count? | Just assigned. 5-cell sweep. |
+| **#966** | **alphonse** | Cooldown weight rescaling: one-shot uniform shrink of body matrix weights at step 975. Tests if weight norms need recalibration to cooldown regime, parallel to #907 Cell E state-rescaling mechanism. | 5-cell sweep running: A ctrl, B α=0.99 ★, C α=0.97, D α=0.95, E α=1.01 (falsifier). |
+| **#962** | **frieren** | NS polynomial coefficient ablation. (a,b,c)=(2,-1.5,0.5) ctrl vs cubic-conv (1.875,-1.25,0.375) ★, Muon-paper (3.4445,-4.775,2.0315), cubic-only (1.5,-0.5,0), high-amp (2.5,-2,0.5). Tests NS-internal axis: does the polynomial structure matter beyond iter count? | 5-cell sweep underway. |
 
-## Key Signals (as of poll #554)
+## Key Signals (as of poll #565)
 
-- **★ #907 tanjiro joint reset (HIGHEST PRIORITY)** — Cell E (zero both Muon momentum AND SOAP `exp_avg_sq` at step 975) n=1=3.26004 (−3.5σ_SE POS). Cells B/C/D (Muon-only reset) all NEG, monotonic severity → mechanism is calibration mismatch under partial reset. Joint-reset axis is novel and aligns with `ramp_down` WD precedent (cooldown wants all adaptive state recalibrated). n=4 confirm running.
-- **#941 edward Cooldown SWA** — Novel axis. SWA finds centroid of wide loss basin during cooldown descent. Half-life 70 steps captures end-of-cooldown weight averaging without mixing with exploration phase. Mechanism distinct from all closed PRs.
+- **★★ #925 fern Cell E linear μ ramp (NEW HIGHEST-SIGNAL n=1)** — val/loss=3.258418, ffs=2975, **−4.73σ_single POS** at n=1. Projected n=4 statsig 0.0056 ≥ 0.004 ✓. n=4 confirm in flight. Step-switch B/C/D all NEG (+5–8σ) — confirms #693's "accumulated buffer is dominant cooldown signal", but the *smooth ramp* rescues the soft-μ-drop hypothesis by changing timing.
+- **★ #907 tanjiro joint reset (HIGH-SIGNAL n=1)** — Cell E (zero both Muon momentum AND SOAP `exp_avg_sq` at step 975) n=1=3.26004 (−3.5σ_SE POS). Cells B/C/D (Muon-only reset) all NEG. n=4 confirm running.
+- **Cooldown calibration cluster** — Two parallel POS results now in n=4 confirm: #907 (instantaneous state reset) and #925 (continuous μ ramp). Both implement "cooldown wants smaller/fresher state" at different timescales. If both confirm, unified mechanism story is robust.
+- **#941 edward Cooldown SWA** — Novel axis. SWA finds centroid of wide loss basin during cooldown descent. Mechanism distinct from all closed PRs.
 - **#936 askeladd Asymmetric SOAP** — Diagnostic: which SOAP eigenbasis side (left/right) is load-bearing? High information value regardless of metric outcome.
-- **#925/#907** — Parallel cooldown-momentum axis. Both near terminal on early cells.
-- **#914 alphonse / #932 thorfinn** — Preconditioner dynamics and NS iteration allocation.
-- **#924 nezuko Hutchinson** — Post-NS curvature axis.
+- **#966 alphonse cooldown weight rescaling** — Weight-space parallel to #907 state-reset. First test of this axis.
+- **#962 frieren NS polynomial coefficients** — First test of NS-internal polynomial structure axis (beyond iter count).
+- **#932 thorfinn / #924 nezuko** — Per-layer NS iteration allocation and post-NS Hutchinson curvature.
 
-## Recent Closures (poll #534–560)
+## Recent Closures (poll #534–565)
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
@@ -53,7 +55,7 @@
 **Schedule layer (5/5):** ALL CLOSED. Cooldown SWA (#941) is a *weight* not LR modification — novel.
 **SOAP dynamics:** trust threshold #467 neutral, refresh rate in cooldown #914 NEG (freeze +4.9σ), eigenbasis side #936 open.
 **Weight-space interventions at cooldown:** cooldown weight rescaling #966 open (first time this axis tested, parallel to #907 state-reset).
-**Momentum at cooldown:** μ schedule #925 open, buffer reset #907 open.
+**Momentum at cooldown:** ★★ μ schedule #925 Cell E linear ramp POS (n=4 confirm), buffer reset #907 Cell E POS (n=4 confirm). Hard-switch μ drop #925 B/C/D NEG.
 **Post-NS curvature:** Hutchinson #924 open (first time this axis tested).
 **Outer-loop wrappers:** Lookahead #826 NEG, Cautious #844/#867 NEG, SF Muon #855 NEG.
 **Weight averaging:** Cooldown SWA #941 open (first time this axis tested — distinct from Lookahead/SF).
