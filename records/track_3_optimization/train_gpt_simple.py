@@ -615,6 +615,12 @@ def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple
     elif schedule == "linear_ramp_down":
         # c=0.7 at iter 0 -> c=0.28 at iter total_iters-1, avg ~= 0.49
         c = 0.7 - (0.7 - 0.28) * iter_idx / max(total_iters - 1, 1)
+    elif schedule == "static_c065":
+        c = 0.65  # high-precision fixed; a=2.15, b=-1.80
+    elif schedule == "static_c070":
+        c = 0.70  # max of ramp range, held throughout; a=2.20, b=-1.90
+    elif schedule == "static_c040":
+        c = 0.40  # mid-low; a=1.90, b=-1.30
     else:
         c = 0.5  # fallback
     a = 1.5 + c
@@ -1323,6 +1329,9 @@ for trial_idx in range(args.num_trials):
                     "aggressive_to_gentle": 1,
                     "gentle_to_aggressive": 2,
                     "linear_ramp_down": 3,
+                    "static_c065": 4,
+                    "static_c070": 5,
+                    "static_c040": 6,
                 }.get(NS_COEF_SCHEDULE, -1),
             })
             wandb.log(ns_metrics, step=wandb_step)
