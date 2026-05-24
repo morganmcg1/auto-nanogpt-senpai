@@ -3,6 +3,52 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~01:25 UTC — PR #973: nezuko Cosine-gated adaptive Muon momentum — **ASSIGNED**
+
+- **Branch:** `g1r5-nezuko/cosine-gated-adaptive-muon-momentum`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** Adapt Muon momentum coefficient μ per-parameter per-step based on cosine similarity between current gradient and accumulated momentum buffer. When grad aligns with momentum (cos→+1), use μ_max=0.99; when opposed (cos→−1), reduce to μ_min=0.70. Distinct from #925 (time-based μ ramp) and #907 (one-shot reset at fixed step) — this is *geometry-driven* continuous adaptation.
+
+- **5-cell sweep:**
+
+| Cell | Config | Role |
+|:----:|:-------|:-----|
+| A | ctrl (μ=0.95 const) | baseline reproducibility |
+| B ★ | μ_min=0.70, μ_max=0.99 | PRIMARY — moderate floor |
+| C | μ_min=0.50, μ_max=0.99 | aggressive reset when opposed |
+| D | μ_min=0.85, μ_max=0.99 | conservative range |
+| E | μ_min=0.70, μ_max=0.99, exploration-only (revert at step 975) | phase-isolation test |
+
+- **Context:** PR #924 Hutchinson closed clean-NEG. Post-NS curvature axis closed. New axis: geometry-aware momentum adaptation (orthogonal to all closed PRs). Implementation note: scalar whole-matrix cosine (NOT per-element) avoids Hutchinson's per-element direction-warping failure mode.
+
+---
+
+## 2026-05-24 ~01:20 UTC — PR #924: nezuko Free Hutchinson diagonal curvature scaling post-NS — **CLOSED clean-NEG**
+
+- **Branch:** `g1r5-nezuko/hutchinson-diag-curvature-post-ns`
+- **Student:** g1r5-nezuko
+- **Hypothesis:** Use free Hutchinson estimator of per-element diagonal Hessian (from consecutive gradient differences `dg=g_t−g_{t-1}`) to rescale post-NS update by inverse curvature magnitude.
+
+- **5-cell P1 sweep results (n=1 each, 3250 steps):**
+
+| Cell | Config | val/loss | ffs | Δ vs baseline | W&B |
+|:----:|:-------|:--------:|:---:|:-------------:|:---:|
+| A (ctrl) | no hutch | 3.25998 | 3025 | −0.00124 (lucky n=1) | jbnxn2f0 |
+| **B ★** | α=0.5, MLP (PRIMARY) | 3.27072 | 3100 | +0.00950 NEG | 57g1wvkz |
+| C | α=0.25, MLP | 3.26021 | 3025 | −0.00101 (≈parity, no hutch benefit) | skfc4h44 |
+| D | α=0.75, MLP | 3.29815 | −1 (diverged) | +0.03693 NEG | zii3jxv6 |
+| E | α=0.5, all-scope | 3.27358 | 3125 | +0.01236 NEG | 4fxv00bj |
+
+- **Decision gate:** Cell D diverged; Cell B +0.00950 NEG; Cell E worse than B; Cell C ≈parity but no positive hutch signal. CLOSED clean-NEG.
+
+- **Root cause analysis (excellent student diagnosis):** `|g_t − g_{t−1}|` mixes (i) actual H·Δθ, (ii) gradient noise from data-stochasticity, (iii) post-NS update's non-curvature structure. Dividing by this biased proxy reweights update *direction* toward elements with small EMA — backwards for a useful preconditioner. h_ema reaches 60–105 for B/D. Float32 buffer fix ruled out precision-loss as cause; the hypothesis itself is unsound.
+
+- **Implementation note:** Student applied float32 cast to `prev_grad`/`h_diag_ema` buffers (bf16 has ~3 sig figs, rounds away small |dg| values). Cell A (no hutch, just new float32 buffers) drew 3.25998 = −2.1σ lucky n=1 draw — no mechanistic signal.
+
+- **Axis closed:** Post-NS curvature scaling via gradient-difference proxy. Unbiased HVP (true Hutchinson) de-prioritized (costs extra backward per step). 
+
+---
+
 ## 2026-05-24 ~00:55 UTC — PR #925: fern Muon momentum μ schedule sweep — **★ CELL E SENT BACK FOR n=4 CONFIRM**
 
 - **Branch:** `g1r5-fern/mu-schedule-cooldown-drop`
