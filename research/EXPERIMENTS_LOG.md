@@ -1,3 +1,72 @@
+## 2026-05-25 00:35 UTC — PR #1104 ASSIGNED (frieren): Outer LR Warmup Duration Sweep (0/250/1000 steps — first-ever outer LR warmup axis)
+
+- Branch: `g1r3-frieren/outer-lr-warmup-duration`
+- Hypothesis (direct H126 suggestion #1 followup): H126 closure (today, see entry below) found outer SGDM must be on from step 0 — LATE/MID step-on activations catastrophically NEG (+0.01711 / +0.01017) due to activation shock + lost anchor history. H134 tests the SMOOTH alternative: ramp outer_lr linearly from 0 to 0.7 over the first N training steps, with outer nominally on from step 0 (anchor history accumulates gracefully, no shock). Isolates anchor-tracking contribution (always on) from pull-strength contribution (weak early, strong late).
+- Implementation: ~10-15 LoC. Add `--outer_lr_warmup_steps` CLI flag (default=0 for bit-id), compute `eff_outer_lr = args.outer_lr * min(1.0, train_step / args.outer_lr_warmup_steps)`, replace `args.outer_lr` at lines 1170-1171 with `eff_outer_lr`, log `outer_lr_t` and `outer_lr_ratio` per outer firing.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--outer_lr_warmup_steps 0` (bit-id baseline 3.26706 guard)
+  - arm_b SHORT_WARMUP: `--outer_lr_warmup_steps 250` (ramp 0→0.7 over first 250 steps, then constant 0.7)
+  - arm_c LONG_WARMUP: `--outer_lr_warmup_steps 1000` (ramp 0→0.7 over first 1000 steps, then constant 0.7)
+- Effective outer_lr sanity-check matrix at key sync points:
+  - step 30 (first outer firing): CTRL=0.700 / SHORT=0.084 / LONG=0.021
+  - step 250 (end of SHORT warmup): CTRL=0.700 / SHORT=0.700 / LONG=0.175
+  - step 500: CTRL=0.700 / SHORT=0.700 / LONG=0.350
+  - step 1000 (end of LONG warmup): all = 0.700
+- Critical telemetry:
+  - Per outer firing: `outer_lr_t`, `outer_lr_ratio`, `delta_rms`, `velocity_rms`
+  - 8-checkpoint val/loss: 250, 500, 1000, 1500, 2000, 2500, 3000, 3300
+  - **Mid-training comparison @ step 1500**: report all 3 arms' val/loss to compare with H126 step-1500 inner-only "lead" pattern (in H126: arm_b LATE led CTRL by **-0.0225** at step 1500 before flipping at step 2000 outer activation; what does smooth ramp produce?)
+  - Final val/loss at step 3325 per arm + best checkpoint
+- Decision rules:
+  - arm_b WIN < 3.26626: weak early outer beats full pull-strength; merge, sweep more warmups
+  - arm_c WIN < 3.26626: even weaker early outer better; merge longest, axis fully tunable
+  - arm_b NULL + arm_c NULL: outer pull-strength is dispersion-tolerant; close axis as warmup-neutral
+  - arm_b NULL + arm_c NEG: short-warmup ok, long-warmup loses load-bearing pull; partial closure
+  - both NEG monotone (longer NEG harder): outer pull-strength IS load-bearing from step 0 — H126 finding AMPLIFIED → outer-axis fully closed on timing AND strength
+  - arm_a NEG > 3.27250: CTRL drift; rerun
+- Mechanism-distinctness vs in-flight schedule axes:
+  - vs H126 (closed today): NO activation shock; outer nominally on from step 0
+  - vs H131 askeladd inner LR warmup duration: DIFFERENT optimizer (MuonH-SI per-step vs MuLoCo every-30-steps), DIFFERENT update mechanism (per-coord NS5-orth vs full-vector outer Nesterov-SGDM)
+  - vs H120 fern inner cooldown frac (closed): DIFFERENT schedule phase + DIFFERENT optimizer
+  - vs H130 thorfinn aux cooldown shape: DIFFERENT schedule phase + DIFFERENT optimizer
+  - vs H108/H116/H123 outer momentum/velocity (all closed): tests outer_lr (pull strength) NOT momentum (velocity buffer)
+  - **First-ever outer LR warmup axis test in programme.**
+- Why frieren: just closed outer-timing axis with monotone graded NEG; the natural mechanism-distinct followup is a smoother ramp-on test that preserves anchor history. frieren's own H126 suggestion #1 directly proposed this; frieren has the best context on outer-timing mechanism to interpret new arm results. frieren's 4th consecutive outer-schedule cycle.
+- W&B group: `g1r3-frieren-h134-outer-lr-warmup-duration`
+
+## 2026-05-24 23:55 UTC — PR #1065 CLOSED (frieren): H126 Hybrid Sync Schedule — Outer LATE/MID Enablement (NEG/CLOSURE — 12th outer-aggregation axis closure; monotone graded NEG with delay duration; "anchor history is load-bearing not just outer pull strength" mechanism identified; H118-style mid-training "lead" pattern triple-confirmed across H118/H125/H126)
+
+- Branch: `g1r3-frieren/hybrid-sync-schedule`
+- Hypothesis (now refuted): MuLoCo outer SGDM's load-bearing contribution may concentrate in cooldown/late phase. Enabling outer only after a threshold step could be neutral or better if pre-cooldown outer cost exceeds pre-cooldown benefit. Two timing tests: LATE (60% through training, step 1995) vs MID (30% through training, step 998).
+- Terminal results (W&B verified):
+
+| Arm | run_id | outer_start_step | val/loss | delta_vs_baseline | step1500 (mid-training) | step2000 (post-activation for LATE) | verdict |
+|-----|--------|------------------|----------|-------------------|-------------------------|--------------------------------------|---------|
+| arm_a CTRL | rz43b68j | 0 (always on) | **3.26914** | +0.00208 | 3.5792 | 3.4464 | NULL bit-id (within CTRL band) ✅ |
+| arm_b LATE | dn4lgjtn | 1995 (60%) | **3.28417** | +0.01711 | **3.5567 (-0.0225 lead!)** | **3.4515 (+0.0051 flip)** | NEG (severe) |
+| arm_c MID | 0znkskse | 998 (30%) | **3.27723** | +0.01017 | 3.5994 | 3.4613 | NEG (moderate) |
+
+Baseline: val/loss=3.26706 (PR #1027 H117 µ-decreasing 0.95→0.90).
+
+- Programme-level findings (4):
+
+  **Finding 1 — Anchor history is load-bearing, not just outer pull strength.** Both LATE and MID arms catastrophically lose the inner-only mid-training "lead" pattern at the activation step, then accumulate further loss through cooldown. The activation shock is not a transient — it scars the trajectory.
+
+  **Finding 2 — H118-style inner-only mid-training "lead" pattern recurs (3rd confirmation).** At step 1500: arm_b LATE leads CTRL by **-0.0225** before outer activates (matching H118 inner-only magnitude exactly). At step 2000 (immediately post-activation), arm_b flips to **+0.0051** worse than CTRL and widens through cooldown. This is the THIRD experiment confirming that mid-training low-loss is real but does NOT survive integration into the cooldown phase when the optimizer regime is shifted abruptly. Pairs with **H125 fern** (cooldown compresses µ-driven mid-training lead from -0.068 to +0.0021) and **H118** (inner-only mid-training lead erased by cooldown).
+
+  **Finding 3 — Outer's load-bearing contribution is NOT cleanly localized to cooldown.** Pre-H126 hypothesis was that outer is mostly noise pre-cooldown and useful in cooldown. Data refutes: pre-cooldown outer activity is anchoring the parameter trajectory, NOT just adding noise. Removing it for 30% / 60% of training is catastrophic, not neutral.
+
+  **Finding 4 — Activation-shock mechanism: lost anchor history compounds across cooldown.** The flip happens AT the activation step (step 2000 for LATE). Inner runs freely for 1995 steps, building inner-only trajectory. When outer activates, outer_anchor suddenly applies hard pullback toward stale anchor state + outer_velocity starts from zero (no prior momentum). Shock + lost anchor history compounds through cooldown. CTRL avoids this because anchor + velocity accumulate gracefully from step 0.
+
+- Outer-aggregation axis closure tally (12 axes closed in this programme):
+  - H108 outer momentum magnitude (locked at 0.5)
+  - H115 nezuko outer-disable (constant outer_lr=0) — NEG
+  - H116 outer velocity buffer existence — locked needed
+  - H123 askeladd EMA-stabilized outer velocity — NEG (raw Nesterov triple-locked: existence + magnitude + formulation)
+  - **H126 frieren outer-timing — NEG (active from step 0 required; LATE/MID activation catastrophic)**
+- Operational commendation: clean 3-arm chain, bit-id CTRL verification, full mid-training trajectory comparison (step 1500 vs step 2000 flip), excellent followup suggestions. Programme-quality closure work — 12-axis closure tally now stands.
+- Followup chosen for frieren H134 (assigned today, see entry above): outer LR WARMUP duration sweep (smooth ramp-on alternative to step-on; directly tests "anchor history is load-bearing" mechanism by preserving outer presence from step 0 but ramping pull strength).
+
 ## 2026-05-24 22:15 UTC — PR H133 ASSIGNED (fern): Inner MuonH LR Cooldown SHAPE Sweep (cosine/linear/sqrt at frac=1.0 — first-ever ablation of inner cooldown shape)
 
 - Branch: `g1r3-fern/h133-inner-cooldown-shape`
