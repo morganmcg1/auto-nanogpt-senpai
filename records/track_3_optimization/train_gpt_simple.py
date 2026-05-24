@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# PR #1083: RMSProp-style per-element second-moment preconditioning on the body
+# Muon gradient INPUT pathway (before the momentum lerp). Disabled at 0.0.
+MUON_BODY_GRAD_PRECONDITION = float(os.environ.get("MUON_BODY_GRAD_PRECONDITION", "0.0"))
+MUON_BODY_GRAD_PRECOND_BETA = float(os.environ.get("MUON_BODY_GRAD_PRECOND_BETA", "0.95"))
+MUON_BODY_GRAD_PRECOND_EPS = float(os.environ.get("MUON_BODY_GRAD_PRECOND_EPS", "1e-8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,6 +660,10 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1083: track grad-preconditioning norms on the first body weight matrix.
+        self._grad_precond_tracked_param = params[0] if params else None
+        self._grad_precond_last_norm_raw: float | None = None
+        self._grad_precond_last_norm_precond: float | None = None
 
     @torch.no_grad()
     def step(self):
@@ -692,7 +701,21 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
+                    if MUON_BODY_GRAD_PRECONDITION > 0.0:
+                        if "grad_sq_ema" not in state:
+                            state["grad_sq_ema"] = torch.zeros_like(p)
+                        state["grad_sq_ema"].lerp_(grad * grad, 1.0 - MUON_BODY_GRAD_PRECOND_BETA)
+                        denom = state["grad_sq_ema"].sqrt().clamp_min(MUON_BODY_GRAD_PRECOND_EPS)
+                        grad_precond = grad / denom
+                        grad_effective = (MUON_BODY_GRAD_PRECONDITION * grad_precond
+                                          + (1.0 - MUON_BODY_GRAD_PRECONDITION) * grad)
+                        # Telemetry: cache norms on the tracked first body param for W&B logging.
+                        if p is self._grad_precond_tracked_param:
+                            self._grad_precond_last_norm_raw = float(grad.float().norm().item())
+                            self._grad_precond_last_norm_precond = float(grad_precond.float().norm().item())
+                    else:
+                        grad_effective = grad
+                    state["momentum"].lerp_(grad_effective, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
@@ -719,6 +742,18 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def grad_precond_stats(self) -> dict[str, float]:
+        """PR #1083: latest raw vs preconditioned grad norms for the first body weight."""
+        if (self._grad_precond_last_norm_raw is None
+                or self._grad_precond_last_norm_precond is None):
+            return {}
+        return {
+            "grad_norm_raw": self._grad_precond_last_norm_raw,
+            "grad_norm_precond": self._grad_precond_last_norm_precond,
+            "ratio": (self._grad_precond_last_norm_precond
+                      / max(self._grad_precond_last_norm_raw, 1e-12)),
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +901,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_grad_precondition": MUON_BODY_GRAD_PRECONDITION,
+            "optimizer/muon_body_grad_precond_beta": MUON_BODY_GRAD_PRECOND_BETA,
+            "optimizer/muon_body_grad_precond_eps": MUON_BODY_GRAD_PRECOND_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1097,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "grad_precond_stats"):
+                    gp_stats = opt.grad_precond_stats()
+                    if gp_stats:
+                        wandb.log(prefixed("train/muon_grad_precond", gp_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
