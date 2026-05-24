@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 00:50 UTC
+- **Date:** 2026-05-24 00:55 UTC (cycle 189)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -60,18 +60,33 @@ v2 paired-pod n=3 mean=3.26856 (+0.00100 above baseline), Gate 1 + Gate 3 FAIL. 
 - C: 0.99→0.999 last 30%, all aux
 - D: 0.99→0.95 last 30%, embed-only (mirrors #919's winning scope)
 
-### Active chains (as of 00:50 UTC May 24)
+### Active chains (as of 00:55 UTC May 24, cycle 189)
 
 | PR | Student | Hypothesis | Run | step | val/loss | ETA |
 |:---:|:---:|---|---|:---:|:---:|:---:|
-| #944 | tanjiro | gc Arm C (row) | `2hymudml` | ~1100 | 3.62 | C ~02:30 UTC, D ~04:30 UTC |
-| #880 | thorfinn | Muon² body v_t Pod 2 A | `m0jdlx6u` | ~2950 | 3.32 | ~01:10 UTC; Pod 2 D follows |
-| #956 | alphonse | lm_head per-row max-norm Arm A | `kjrd1usm` | ~2100 | 3.43 | full chain ~06:00 UTC |
-| #963 | frieren | post-NS v_post Arm A | `5vzq0lob` | ~1350 | 3.57 | full chain ~09:00 UTC |
-| #919 | fern | β₁ cooldown anneal paired-pod n=3 Arm D seed 1 | `64ye4aib` | ~1175 | 3.59 | full chain ~05:00 UTC |
-| #929 | edward | AdamW aux v_t floor (Arms C, D pending) | — | — | Arm B done 3.26990 | ~04:30 UTC |
-| #933 | nezuko | path-norm body-weight velocity (Arms C, D pending) | — | — | Arm B done 3.27009 | ~05:30 UTC |
-| #967 | askeladd | AdamW aux β₂ cooldown anneal (4-arm) | — | poll-pending | — | ~09:00 UTC |
+| #944 | tanjiro | gc Arm D (both) | `g32ouqhe` | step 0 | starting | D ~02:45 UTC |
+| #880 | thorfinn | Muon² body v_t Pod 2 D | `suqw6j4e` | 1800 | 3.4705 | Pod 2 D ~01:42 UTC; chain decision after |
+| #956 | alphonse | lm_head per-row max-norm Arm C | `pfusx38h` | step 0 | starting | C ~02:42 UTC, D ~04:30 UTC |
+| #963 | frieren | post-NS v_post Arm B | `355k8llh` | 425 | 4.58 (early) | full chain ~07:30 UTC |
+| #919 | fern | β₁ cooldown PP seed 2 | `ofm1da08` | 275 | 4.08 (early) | full chain ~05:30 UTC |
+| #929 | edward | AdamW aux v_t floor Arm D | `9h5tfm5h` | 1825 | 3.475 | ~04:30 UTC |
+| #933 | nezuko | path-norm body-weight velocity Arm D | `aqr7jjlm` | 1975 | 3.452 | ~04:30 UTC |
+| #967 | askeladd | AdamW aux β₂ cooldown anneal Arm A | `v4iymkx1` | 1675 | 3.49 | Arm A ~01:46 UTC, full chain ~08:30 UTC |
+
+### #944 grad-centralization chain — 3/4 terminal (asymmetric pattern)
+
+| arm | run_id | gc_mode | val/loss | Δ_vs_A (3.26656) | Δ_vs_baseline 3.26756 |
+|:---:|---|---|:---:|:---:|:---:|
+| A (ctrl) | `6ht4oj5l` | none | 3.26656 | — | −0.00100 (drift PASS) |
+| B | `fd5nszpw` | col | 3.27594 | **+0.00938** | **+0.00838 (productive-NEG)** |
+| C | `2hymudml` | row | **3.26955** | **+0.00299** | **+0.00199 (drift edge NULL/mild-NEG)** |
+| D | `g32ouqhe` | both | pending | pending | pending |
+
+**Reading**: gc=col catastrophic-NEG, gc=row mild-NEG/within-drift. Asymmetric outcome confirmed — col mechanism worse than row mechanism. Arm D (both) is the deciding arm; if both-arm ≥ +0.005 vs A, axis closes productive-NEG. If both arm > B (compositional worsening), interference effect. If both arm ~ row-only (~+0.003), composition is row-dominant.
+
+### #956 alphonse — Arm B early-killed (cap=1.0 too aggressive)
+
+Arm A `kjrd1usm` finished val=**3.26765** (drift PASS Δ=+0.00009 essentially baseline parity, hook cap=0.0 bit-clean). Arm B (cap=1.0) early-killed at step 1125: cap fired on 90.4% of rows, val/loss=3.65469, conclusive divergence per midpoint kill gate. Student launched Arm C (cap=4.0) at 00:58 UTC. Arm C is the most likely "Goldilocks" cap given natural lm_head row-norm distribution (mean=3.70, p50=3.60, max=12.70).
 
 ### Next imminent terminal
 
