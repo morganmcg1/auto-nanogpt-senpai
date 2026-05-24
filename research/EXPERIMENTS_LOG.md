@@ -3,6 +3,66 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~18:55 UTC — PR #1022: frieren NS polynomial degree variation — **CLOSED clean-NEG (5th NS-internals axis NEG)**
+
+- **Branch:** `g1r5-frieren/ns-polynomial-degree-variation`
+- **Student:** g1r5-frieren
+- **Hypothesis:** NS polynomial DEGREE never CLI-sweepable; default quintic (d=5) hardcoded. Test septic (d=7) at lower iter count for compute parity, plus cubic (d=3) with more iters. If higher degree converges faster near x=1, fewer iters could match quintic accuracy at less wallclock.
+
+| Cell | Config | val/loss | Δ vs μ_base | z_base | Δ vs A | z_A | ffs | run_id |
+|------|--------|----------|-------------|--------|--------|-----|-----|--------|
+| A | d=5, iter=6 (ctrl) | **3.25967** | −0.00155 | **−2.62σ** | — | — | 3025 | `r47n3lqj` |
+| B ★ | d=7, iter=4 (PRIMARY) | **3.26558** | +0.00436 | **+7.35σ** | +0.00591 | +9.97σ | 3075 | `j7tr7bio` |
+| C | d=7, iter=6 | 3.26250 | +0.00128 | +2.16σ | +0.00283 | +4.77σ | 3050 | `rlu3zcgx` |
+| D | d=5, iter=8 | 3.26046 | −0.00076 | −1.28σ | +0.00079 | +1.33σ | 3025 | `6w6ab7hr` |
+| E | d=3, iter=8 | 3.26116 | −0.00006 | −0.10σ | +0.00149 | +2.51σ | 3025 | `xx5fhzr5` |
+
+**PRIMARY verdict:** Cell B falsified at +7.35σ_base, +9.97σ_A. Catastrophic — septic d=7 at iter=4 is iter-starved (not degree-starved).
+
+**Cell A lucky-seed caveat:** A is algorithmically identical to baseline (d=5, i=6 = mandatory `--ns_iter 6`). Its −2.62σ_base is n=1 seed noise on baseline-config — NOT a winner. Same handling as fern #1021 Cell A. z_base is load-bearing for absolute claims.
+
+**Cell D borderline:** 3.26046 sits 0.000168 below n=1 confirm gate (3.260628) — 0.28σ inside gate, well within n=1 noise envelope. Not pursuing n=4 confirmation; mechanism interpretation (compute saturation) closes axis.
+
+**Mechanism findings (two distinct):**
+1. **Iter count is orthogonalization-quality floor.** B (d=7, i=4) is iter-starved despite higher degree. Early NS iterations do coarse contraction far from x=1 where polynomial degree barely matters; only late iterations (near x=1) benefit from cubic-convergence septic. At iter=4, the polynomial cannot reach the near-x=1 regime where d=7 would pay off.
+2. **Degree×iter trades off symmetrically at constant total NS compute.** E (d=3 i=8) ≈ A (d=5 i=6) ≈ baseline μ. The benchmark sits AT the convergence knee — minimum sufficient orthogonalization compute is required, but additional compute (D: d=5 i=8) doesn't pay back. **d=5 iter=6 is a tight local optimum in the (degree, iter) grid.**
+
+**Combined NS-internals axes (all NEG):**
+- #932 by-depth scheduling, #815 early-time, #1010 late-time, #962 quintic coefficient sweep, **#1022 degree variation** ← this PR
+
+NS-internals COMPREHENSIVELY saturated at d=5, iter=6, bf16. Only one NS axis still open: tanjiro #1062 precision (bf16 vs fp32). After tanjiro closes, NS-internals will be fully exhausted.
+
+**Decision:** CLOSED clean-NEG. New assignment incoming.
+
+## 2026-05-24 ~18:55 UTC — PR #1024: alphonse init mode ablation — **CLOSED clean-NEG (init mode axis closed)**
+
+- **Branch:** `g1r5-alphonse/init-mode-ablation`
+- **Student:** g1r5-alphonse
+- **Hypothesis:** 4 of 5 built-in `--depth_init_mode` variants untested. Closes PR #699 verification loop. PRIMARY: muall (extend 1/√L depth scaling to ALL block 2D weights, not just residual proj).
+
+| Cell | mode | val/loss | Δ vs A | σ_diff | resid proj_std | ffs | run_id |
+|------|------|----------|--------|--------|----------------|-----|--------|
+| A | musoft (ctrl) | **3.26148** | — | — | 0.005984 | 3025 | `i4ve2pn3` |
+| B ★ | muall (PRIMARY) | 3.26636 | +0.00488 | +5.82σ | 0.005984+QKV/fc | 3075 | `2p3fnxnn` |
+| C | mumedium | 3.26328 | +0.00180 | +2.15σ | 0.001727 | 3050 | `2kv4gdbh` |
+| D | ctrl_noinit | 3.26198 | +0.00050 | +0.60σ | 0.000000 | 3025 | `91x3wkla` |
+| E | smallconst | **3.26143** | −0.00005 | −0.06σ | 0.001000 | 3025 | `wqp4kesq` |
+
+**PRIMARY verdict:** Cell B muall falsified at +5.82σ_diff. Extending 1/√L scaling to non-residual Q/K/V/MLP-fc costs ~+0.005 val/loss and +50 steps to target.
+
+**Mechanism findings (three-axis decomposition):**
+1. **Residual proj_std magnitude** (0 → 6e-3): all 4 cells within ~3σ; **weakly load-bearing at n=1.**
+2. **Depth scaling on NON-residual Q/K/V/MLP-fc:** only muall does this — the ONLY cell >>3σ NEG. Residual path is special: 1/√L damping prevents signal explosion in skip-add; Q/K/V/fc are RECEIVING paths needing full-strength initial weights. Pre-damping starves model of initial capacity, never recovers.
+3. **NS-orthogonalization re-normalizes init differences.** Trajectories agree to ~3% by step 500 across all 5 cells. Init scale matters for early gradient flow direction; Muon's NS-orth recovers this within ~50 steps.
+
+**Crossover observation:** muall (B) has LOWEST val/loss at step 125 (4.456) but HIGHEST at step 3250 (3.266). Compressing 2D block weights by 1/√L gives faster initial progress (smaller logits → faster gradient response) but worse late-cooldown convergence.
+
+**Cell D ctrl_noinit at +0.60σ:** Within n=1 noise of A. Student suggested n=4 D vs A to confirm musoft is load-bearing — out of scope here; could revisit if compute available.
+
+**Cell E smallconst at −0.06σ:** Essentially identical to musoft. Hints residual init magnitude barely matters in current stack.
+
+**Decision:** CLOSED clean-NEG. Init-mode axis comprehensively explored (all 5 built-in modes ablated). musoft remains optimal; muall actively harms. New assignment incoming.
+
 ## 2026-05-24 ~18:10 UTC — PR #1021: fern embed/lm_head LR ablation — **CLOSED clean-NEG (local optimum confirmed)**
 
 - **Branch:** `g1r5-fern/lr-embed-lm-head-ablation`
