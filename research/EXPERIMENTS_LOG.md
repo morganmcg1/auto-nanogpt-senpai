@@ -1,5 +1,28 @@
 # SENPAI Research Results
 
+## 2026-05-24 20:08 UTC — PR #1035 CLOSED: UW-floor pruning ablation (TARGET_UW=0 vs 0.50) — 112th NULL, clean U-shape confirmation, floor IS partially load-bearing at 0.35 (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/uw-floor-pruning`
+- Hypothesis: TARGET_UW=0.35 baseline is one of (A) load-bearing regulator, (B) dead-weight scalar multiplier in disguise, (C) partial regulator at interior optimum. Two arms: A floor=0 (OFF), B floor=0.50 (more aggressive).
+
+| Arm | target_uw_floor | W&B | val/loss | sr | Δval vs #918 | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 0.35 | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | — | Pareto-optimum |
+| **Arm A OFF** | 0 | `5kad6ybm` | **3.27219** | **3000** | +0.00580 | +75 | NULL (6× past marginal) |
+| **Arm B HIGH** | 0.50 | `20an0zgw` | **3.28608** | **-1** | +0.01969 | catastrophic | CATASTROPHIC NULL (failed 3.28 target) |
+
+- **Decision: 112th NULL — DOES NOT MERGE.** Both arms regress on val and fail sr=2925 conjunct. No clause of `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` is satisfied. Hypothesis (B) "dead weight" DECISIVELY REJECTED — +6 mnat regression at floor=0 with no LR compensation rules out scalar-multiplier-in-disguise interpretation. Hypothesis (C) partial regulator CONFIRMED with clean U-shape interior optimum near 0.35.
+- **Canon finding 1: EMA buffer divergence is the dominant failure signal across the floor axis.** `ema/buffer_frob_dist` final: Arm A=3.99 (under-driven), baseline≈22.6, Arm B=1379 (catastrophic explosion). The floor's BOOST drives most of the EMA<>live divergence at lr=0.040. Without boost → under-driven trajectory averaging; over-aggressive boost → EMA buffer drift explodes by ~62× over baseline.
+- **Canon finding 2: NS5 polar accuracy is co-degraded by aggressive floor.** `polar/ortho_residual_sample` mean: Arm A=0.29, Arm B=0.67 (+0.38). Post-floor magnitude scaling pushes polar outputs away from true orthogonality. Cross-axis link to #898 (NS5 rank-deficient residual finding).
+- **Canon finding 3: Asymmetric regression confirms well-tuned regulator at sweet spot.** Removing floor is 3.3× CHEAPER (+6 mnat) than over-cranking it (+20 mnat). Downside-of-over-application steeper than upside-of-correct-application is typical signature of an actively tuned regulator near its optimum.
+- **Canon finding 4: `fired_fraction` correctly bracketed the operating regime** at 0.0 / 0.975 / ~1.0 across arms — telemetry verification was exemplary, validating the per-trajectory mechanism deconvolution.
+- **Canon finding 5: Floor's boost behavior is the dominant LR-amplifier at lr=0.040.** Cross-axis with #918 / #986: explains why body-Muon LR axis closed at 0.040 (the LR sweet spot is implicitly conditional on the floor's boost being present at 0.35).
+- **WHAT'S CLOSED:** u/w-floor pruning axis at TARGET_UW ∈ {0, 0.35, 0.50} — 0.35 is the Pareto-optimum, NOT prunable.
+- **WHAT'S OPEN:** Fine-grained U-shape sweep around 0.35 (low-yield, deferred); EMA-buffer-cap as alternative regulator (speculative, would replace floor's indirect EMA-buffer effect with direct regulator).
+- thorfinn → **#1080** (body weights init scale ablation 0.5× vs 2.0× baseline, mirror of #1059 embed / #1015 lm_head — completes 3-matrix init-scale family).
+
+---
+
 ## 2026-05-24 16:05 UTC — PR #969 CLOSED: WSD cooldown power γ=1.2 n=2 — 111th NULL, INFORMATIVE Pareto-shift (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/wsd-cooldown-power`
