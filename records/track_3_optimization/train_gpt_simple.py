@@ -83,6 +83,18 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cos_gate_mu", action="store_true", default=False,
+                        help="Enable cosine-gated adaptive Muon momentum. "
+                             "mu_local per-param/step from cos(grad, momentum_buffer): "
+                             "mu_local = cos_gate_mu_min + (cos_gate_mu_max - cos_gate_mu_min) * (cos + 1) / 2.")
+    parser.add_argument("--cos_gate_mu_min", type=float, default=0.7,
+                        help="Minimum mu when gradient opposes momentum (cos=-1).")
+    parser.add_argument("--cos_gate_mu_max", type=float, default=0.99,
+                        help="Maximum mu when gradient aligns with momentum (cos=+1).")
+    parser.add_argument("--cos_gate_mu_cooldown_off", action="store_true", default=False,
+                        help="If set with --cos_gate_mu, disable cosine gating during the "
+                             "cooldown phase and revert to fixed mu (group default 0.95). "
+                             "Cooldown begins at step >= train_steps*(1-cooldown_frac)=975 for default.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -571,7 +583,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 cos_gate=False, cos_mu_min=0.70, cos_mu_max=0.99):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +607,14 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        # Cosine-gated adaptive Muon momentum (PR #973 axis).
+        # cos_gate_enabled stays fixed; cos_gate_active is toggled per-step by the
+        # training loop (used to disable gating during cooldown for Cell E).
+        self.cos_gate_enabled = bool(cos_gate)
+        self.cos_gate_active = bool(cos_gate)
+        self.cos_mu_min = float(cos_mu_min)
+        self.cos_mu_max = float(cos_mu_max)
+        self.mu_locals_buffer: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -610,9 +631,30 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(param_groups, defaults)
 
+    def _cos_gated_mu(self, grad: Tensor, momentum: Tensor, default_mu: float) -> float:
+        """Compute mu_local from scalar cosine similarity between grad and momentum buffer.
+
+        Returns mu_local as a Python float. Forces one CUDA->CPU sync per param via .item().
+        Falls back to default_mu when either norm is essentially zero (e.g., step 0).
+        """
+        g = grad.float()
+        m = momentum.float()
+        gn = g.norm()
+        bn = m.norm()
+        dot = (g * m).sum()
+        cos_sim = (dot / (gn * bn + 1e-8)).clamp(-1.0, 1.0)
+        mu_t = self.cos_mu_min + (self.cos_mu_max - self.cos_mu_min) * (cos_sim + 1.0) / 2.0
+        has_signal = (gn > 1e-8) & (bn > 1e-8)
+        mu_t = torch.where(
+            has_signal, mu_t,
+            torch.full_like(mu_t, float(default_mu)),
+        )
+        return float(mu_t.item())
+
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.mu_locals_buffer = {}
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -633,9 +675,19 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                    # PR #973: cosine-gated adaptive Muon momentum modifies the momentum
+                    # buffer accumulation rate (mu). The buffer-update mechanism is shared by
+                    # both the raw Muon NS path and the SOAP-preconditioned path, so the gate
+                    # naturally applies to both (logs mlp_fc/mlp_proj which are SOAP under
+                    # baseline --soap_attn confirm this is the intended scope).
+                    if self.cos_gate_active:
+                        mu_local = self._cos_gated_mu(p.grad, state["momentum"], group["mu"])
+                        self.mu_locals_buffer[self.param_names[id(p)]] = mu_local
+                    else:
+                        mu_local = float(group["mu"])
                     if use_soap:
-                        state["momentum"].lerp_(p.grad, 1 - group["mu"])
-                        raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
+                        state["momentum"].lerp_(p.grad, 1 - mu_local)
+                        raw_nesterov = p.grad.lerp(state["momentum"], mu_local)
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
@@ -649,7 +701,7 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        update = muon_update(p.grad, state["momentum"], mu=mu_local)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
@@ -765,6 +817,10 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cos_gate_mu": bool(args.cos_gate_mu),
+            "cos_gate_mu_min": float(args.cos_gate_mu_min),
+            "cos_gate_mu_max": float(args.cos_gate_mu_max),
+            "cos_gate_mu_cooldown_off": bool(args.cos_gate_mu_cooldown_off),
         },
     )
 
@@ -853,6 +909,9 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        cos_gate=args.cos_gate_mu,
+        cos_mu_min=args.cos_gate_mu_min,
+        cos_mu_max=args.cos_gate_mu_max,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -892,6 +951,11 @@ for trial_idx in range(args.num_trials):
                 group["lr"] = group["initial_lr"] * eta
                 if "initial_wd" in group and group.get("name", "").startswith("muon_"):
                     group["weight_decay"] = group["initial_wd"] * wd_mu
+        # PR #973 Cell E: turn the cosine gate off during cooldown to test whether the
+        # gating only helps in the exploration phase.
+        if optimizer2.cos_gate_enabled:
+            in_cooldown = progress >= (1 - cooldown_frac)
+            optimizer2.cos_gate_active = not (args.cos_gate_mu_cooldown_off and in_cooldown)
 
 
     ########################################
@@ -1060,6 +1124,44 @@ for trial_idx in range(args.num_trials):
                 trust_metrics["trust/cos_sim_mean_attn"] = sum(attn_vals) / len(attn_vals)
                 trust_metrics["trust/fired_count_attn"] = fired_attn
             wandb.log(trust_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and optimizer2.mu_locals_buffer:
+            mu_buffer = optimizer2.mu_locals_buffer
+            mu_metrics = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "cos_gate/active": 1 if optimizer2.cos_gate_active else 0,
+            }
+            mlp_fc_vals: list[float] = []
+            mlp_proj_vals: list[float] = []
+            attn_mu_vals: list[float] = []
+            all_mu_vals: list[float] = []
+            for name, mu_val in mu_buffer.items():
+                all_mu_vals.append(mu_val)
+                if name.endswith(".mlp.fc.weight"):
+                    mlp_fc_vals.append(mu_val)
+                elif name.endswith(".mlp.proj.weight"):
+                    mlp_proj_vals.append(mu_val)
+                elif any(name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_mu_vals.append(mu_val)
+                if telemetry_due:
+                    mu_metrics[f"cos_gate/mu_local/{clean_metric_name(name)}"] = mu_val
+            if all_mu_vals:
+                mu_metrics["cos_gate/mu_local/all_mean"] = sum(all_mu_vals) / len(all_mu_vals)
+                mu_metrics["cos_gate/mu_local/all_min"] = min(all_mu_vals)
+                mu_metrics["cos_gate/mu_local/all_max"] = max(all_mu_vals)
+            if mlp_fc_vals:
+                mu_metrics["cos_gate/mu_local/mlp_fc"] = sum(mlp_fc_vals) / len(mlp_fc_vals)
+                mu_metrics["cos_gate/mu_local/mlp_fc_min"] = min(mlp_fc_vals)
+                mu_metrics["cos_gate/mu_local/mlp_fc_max"] = max(mlp_fc_vals)
+            if mlp_proj_vals:
+                mu_metrics["cos_gate/mu_local/mlp_proj"] = sum(mlp_proj_vals) / len(mlp_proj_vals)
+                mu_metrics["cos_gate/mu_local/mlp_proj_min"] = min(mlp_proj_vals)
+                mu_metrics["cos_gate/mu_local/mlp_proj_max"] = max(mlp_proj_vals)
+            if attn_mu_vals:
+                mu_metrics["cos_gate/mu_local/attn"] = sum(attn_mu_vals) / len(attn_mu_vals)
+                mu_metrics["cos_gate/mu_local/attn_min"] = min(attn_mu_vals)
+                mu_metrics["cos_gate/mu_local/attn_max"] = max(attn_mu_vals)
+            wandb.log(mu_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
