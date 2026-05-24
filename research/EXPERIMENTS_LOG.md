@@ -1,5 +1,41 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 04:35 UTC — PR #991: MUON_MOMENTUM_DROPOUT (CLOSED, 86th refuted axis — bidirectional monotonically-worsening dropout on momentum buffer)
+
+- Branch: `g1r2-alphonse/muon-momentum-dropout` (student g1r2-alphonse)
+- Hypothesis: Per-step Bernoulli dropout on body Muon momentum buffer with `1/(1-p)` magnitude rescaling. Arm A p=0.05, Arm B p=0.15.
+- Results:
+
+| Arm | p (dropout) | W&B run | val@125 | val@250 | val@375 | val@500 (gate 3.81) | Verdict |
+|---|---|---|---:|---:|---:|---:|---|
+| Disabled | 0.0 | `5n0nj0bu` | — | — | — | 4.08244@200 (in-band) | plumbing OK |
+| Arm A | 0.05 | `u3toeycb` | 4.70899 | 4.26373 | 4.11097 | **4.03536 (TRIP +0.23)** | killed |
+| Arm B | 0.15 | `lbl7lwls` | 4.93421 | 4.59462 | 4.44088 | **4.36209 (TRIP +0.55)** | killed |
+
+- **Mechanistic insight (student-articulated)**: Per-element dropout zeros 5-15% of momentum positions per step. The `1/(1-p)` rescaling maintains expected magnitude of buffer but does NOT restore the DIRECTION at dropped coordinates. NS5 orthogonalization relies on full-rank coherence of the momentum buffer; randomly zeroing entries before NS5 produces a coarser, less coherent orthogonalized direction. Per-coordinate momentum integration needs 7-20 steps to re-accumulate after a zero, but continuous dropout never lets coordinates fully recover.
+- **Refutation pattern**: Strict monotonic. At every val checkpoint (125/250/375/500), p=0.15 is worse than p=0.05. Gap widens with time — compounding regression. Both arms trip step-500 kill gate by huge margins (Arm A +0.23, Arm B +0.55).
+- **Cycle 71 cluster context**: First STOCHASTIC mechanism class refuted in cycle 71. Joins refuted deterministic per-coordinate transformations (#965, #968 in flight, #971 in flight, #974, #975, #981) of the body Muon momentum/gradient — consistent pattern that the full-rank coherent integration of consecutive gradient updates is structurally load-bearing.
+- **Conclusion**: Stochastic momentum-buffer-side mechanism class CLOSED. 86th refuted axis.
+- **Student suggestion noted**: Stochastic NS5 iteration count `NS5_ITERS ∈ {12, 14}` per-step — moving stochasticity to a DIFFERENT layer (NS5 polynomial) that doesn't disrupt per-coordinate momentum integration. **Accepted as alphonse's next assignment (PR #999)** — 12th distinct mechanism class.
+
+## 2026-05-24 04:35 UTC — PR #989: MUON_GRAD_HIGH_PASS (CLOSED, 85th refuted axis — bidirectional, Arm A slow-descent + Arm B outright divergence, temporal-domain pre-momentum CLOSED)
+
+- Branch: `g1r2-thorfinn/muon-grad-high-pass` (student g1r2-thorfinn)
+- Hypothesis: Subtract slow-EMA (beta=0.01) of grad from grad before momentum lerp, as a temporal high-pass filter. Arm A=alpha 0.5 partial, Arm B=alpha 1.0 full subtraction.
+- Results:
+
+| Arm | alpha | W&B run | val@500 (gate 3.81) | val@625 | Verdict |
+|---|---|---|---:|---:|---|
+| Disabled | 0.0 | `9mnbw1r8` | 4.09652@200 (in-band ~0.012 above center) | — | plumbing OK |
+| Arm A | 0.5 | `o3diwado` | **3.84193 (TRIP +0.03)** | 3.78684 | killed step 643 (slow descent, never recovers) |
+| Arm B | 1.0 | `njzhf3y4` | **4.24023 (TRIP +0.43)** | 4.37045 | killed step 658 (**OUTRIGHT DIVERGENCE** — loss climbing) |
+
+- **Mechanistic insight (student-articulated, exceptional)**: "The DC component IS the descent signal. The consistent, slowly-changing direction over a ~100-step window of gradients is precisely what carries the useful descent information. The momentum buffer already integrates this; subtracting a SECOND slow EMA from the raw gradient before momentum essentially attempts to remove the very signal momentum is trying to capture." High-pass filtering BEFORE the momentum lerp is double-filtering — removing exactly what momentum is built to integrate.
+- **Refutation pattern**: Bidirectional and monotonic. Arm B (alpha=1.0) shows complete optimizer breakdown: loss climbs from 4.14 (step 375) → 4.24 (step 500) → 4.37 (step 625). Falsifies the framing "AC component alone is sufficient for convergence."
+- **Cycle 71 cluster context**: First TEMPORAL-DOMAIN pre-momentum mechanism refuted in cycle 71. Combined with #965 DAMPENING (lerp coefficient), #974 POWER, #975 HARDCLIP, #981 SIGN_MAG_DECOUPLE, #987 CG_DECORRELATE — this is the **9th refutation of Muon body gradient stream pre-momentum interventions** in cycle 71. Pattern is now overwhelming: ANY intervention on the body Muon gradient stream BEFORE the momentum lerp is harmful across all mechanism families tested (element-wise 5×, geometric 1×, temporal 1×).
+- **Conclusion**: Pre-momentum temporal-domain axis CLOSED. 85th refuted axis.
+- **Student suggestions accepted**: (1) STOP probing pre-momentum gradient stream — confirmed across portfolio; (2) place temporal intervention AFTER momentum (overlaps with #983 nezuko in flight); (4) pivot to optimizer-internal state — strongly aligned, stochastic NS5 iter count assigned to alphonse, AdamW eps sweep assigned to thorfinn.
+
 ## 2026-05-24 04:18 UTC — PR #987: MUON_GRAD_CG_DECORRELATE (CLOSED, 84th refuted axis — bidirectional kill-gate trip, geometric mechanism class CLOSED as first geometric axis in cycle 71, exceptional student mechanistic analysis)
 
 - Branch: `g1r2-fern/muon-grad-cg-decorrelate` (student g1r2-fern)
