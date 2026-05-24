@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r5
 
-- **Last updated:** 2026-05-24 ~02:15Z (poll #568) — **#932 thorfinn per-layer NS-iter-by-depth closed clean-NEG (inverted schedule was SECOND-BEST → late layers MORE tolerant of fewer NS iters; early-layer orthogonalization is load-bearing). thorfinn → #979 SOAP exp_avg_sq scaling ablation (SOAP-internals pruning, joins #936 asymmetric Q ablation). Still awaiting n=4 confirms on #907 and #925.** 8 PRs in flight.
+- **Last updated:** 2026-05-24 ~03:30Z (poll #573) — **#936 askeladd asymmetric SOAP CLOSED clean-NEG with STRONG mechanism signal (B−C contrast +12.25σ → Q_col input-side load-bearing for attn, Q_row output-side dispensable for attn). askeladd → #993 gradient-norm-anomaly-driven Muon momentum reset (magnitude-anomaly axis, joins #907/#925/#973 reset/momentum cluster). Still awaiting n=4 confirms on #907 and #925.** 8 PRs in flight.
 
 ## CURRENT BASELINE (PR #699 MERGED poll #378)
 
@@ -20,7 +20,7 @@
 | **#925** | **fern** | ★★ **Cell E n=1=3.258418 (−4.73σ POS).** Linear ramp μ=0.95→0.85 over cooldown. Step-switch variants (B/C/D) all NEG (PR #693 extension). Linear ramp rescues soft-μ-drop hypothesis by changing *timing* — μ tracks LR's freshness requirements. | **n=4 confirm arm running.** `--mu_stable 0.95 --mu_cooldown 0.85 --mu_linear_ramp --num_trials 4`. |
 | **#907** | **tanjiro** | ★ **HIGH-SIGNAL.** Joint Muon momentum + SOAP `exp_avg_sq` reset at step 975. Cell E n=1=3.26004 (−3.5σ_SE POS). Cells B/C/D (Muon-only reset) all NEG, monotonic severity → mechanism is calibration mismatch under partial reset. | n=4 confirmation arm `--num_trials 4` running. |
 | **#941** | **edward** | Cooldown SWA: maintain weight EMA during cooldown (steps 975–3250), use EMA weights for eval. β=0.99 (half-life ~70 steps). Distinct from Lookahead (#826) and Schedule-Free (#855). Novel axis. | 5-cell sweep running: A ctrl, B β=0.99 ★, C β=0.999, D β=0.95, E late-start SWA (step 1625). |
-| **#936** | **askeladd** | Asymmetric SOAP eigenbasis ablation — left-only (Q_col=I) vs right-only (Q_row=I) to reveal which side is load-bearing. | 5-cell sweep running: A ctrl, B left-only ★, C right-only, D left MLP-only, E right MLP-only. |
+| **#993** | **askeladd** | ★ **NEW poll #573.** Gradient-norm-anomaly-driven Muon momentum reset. Track ||grad||_F EMA; when current norm > K × EMA, partial momentum reset. Magnitude-anomaly axis (distinct from #907 time, #925 schedule, #973 cos-direction). | Just assigned. 5-cell: A ctrl, B thresh=3 frac=0.5 ★, C thresh=2 (sensitive), D frac=1.0 (full reset), E thresh=5 (conservative). |
 | **#979** | **thorfinn** | ★ **NEW poll #568.** SOAP exp_avg_sq scaling ablation. Tests whether Adam-in-basis component (per-element second-moment scaling in Q-basis) is load-bearing or vestigial. Mechanistically distinct from #936 (Q ablation) and #914 (Q refresh). | Just assigned. 5-cell: A ctrl, B skip exp_avg_sq ★, C also drop norm-preserve, D freeze exp_avg_sq=1, E instantaneous (no EMA). |
 | **#973** | **nezuko** | ★ **NEW poll #566.** Cosine-gated adaptive Muon momentum: μ adapts per-step per-matrix based on cos(grad, momentum). cos=+1 → μ_max=0.99 (aligned, keep velocity); cos=−1 → μ_min=0.70 (opposed, reset to fresh gradient). Scalar whole-matrix cosine (avoids Hutchinson's per-element direction-warping failure). | Just assigned. 5-cell: A ctrl, B μ_min=0.70 μ_max=0.99 ★, C μ_min=0.50 μ_max=0.99, D μ_min=0.85 μ_max=0.99, E exploration-only (revert at step 975). |
 | **#966** | **alphonse** | Cooldown weight rescaling: one-shot uniform shrink of body matrix weights at step 975. Tests if weight norms need recalibration to cooldown regime, parallel to #907 Cell E state-rescaling mechanism. | 5-cell sweep running: A ctrl, B α=0.99 ★, C α=0.97, D α=0.95, E α=1.01 (falsifier). |
@@ -37,10 +37,11 @@
 - **#962 frieren NS polynomial coefficients** — First test of NS-internal polynomial structure axis (beyond iter count).
 - **#932 thorfinn / #924 nezuko** — Per-layer NS iteration allocation and post-NS Hutchinson curvature.
 
-## Recent Closures (poll #534–568)
+## Recent Closures (poll #534–573)
 
 | PR | Close type | Key finding |
 |:--:|:----------:|:------------|
+| **#936 askeladd** (poll #573) | clean-NEG (high info) | Asymmetric SOAP: B left-only (drop Q_col) +14.07σ vs ctrl. **B−C contrast +12.25σ** → Q_col (input-side) load-bearing for attn, Q_row (output-side) largely redundant for attn. MLP weights more symmetric. |
 | **#932 thorfinn** (poll #568) | clean-NEG | Per-layer NS iter by depth: B (depth_scale=0.5) +0.012 NEG, C (depth_scale=1.0) diverged, D **inverted=SECOND-BEST** → refutes "late layers need more NS"; early-layer NS quality is load-bearing. NS_ITER<3 is hard floor. |
 | **#924 nezuko** (poll #566) | clean-NEG | Hutchinson diagonal curvature: Cell B (α=0.5) +0.00950 NEG, Cell D (α=0.75) diverged. `\|dg\|` proxy is biased (mixes H·Δθ + gradient noise); divides by noise scale not curvature. **Closes post-NS curvature axis.** |
 | **#914 alphonse** (poll #560) | clean-NEG | SOAP refresh freeze: Cell C freeze +4.9σ NEG, B PRIMARY (cooldown_freq=64) baseline parity. Eigenbasis carries useful curvature signal during cooldown. |
@@ -56,9 +57,9 @@
 **Pre-NS gradient transformation (FULLY SATURATED, 9/9 NEG):** per-col-norm #890, AGC #887, MARS #873, AdEMAMix #840, Q/K/V consensus #905 STRONG NEG, top-k #902 NEG, sign #823 NEG, GrokFast #859 NEG, sign-Cautious #844/#867 NEG.
 **NS quality/structure:** polar expression #824, NS warmup #815, RMS-clamp #776, per-layer NS iter by depth #932 — all CLOSED. Key finding from #932: early-layer NS quality is load-bearing (inverted schedule was second-best). NS polynomial coefficients #962 open (testing polynomial structure axis).
 **Schedule layer (5/5):** ALL CLOSED. Cooldown SWA (#941) is a *weight* not LR modification — novel.
-**SOAP dynamics:** trust threshold #467 neutral, refresh rate in cooldown #914 NEG (freeze +4.9σ), eigenbasis side #936 open, exp_avg_sq scaling ablation #979 open (NEW — internals pruning).
+**SOAP dynamics:** trust threshold #467 neutral, refresh rate in cooldown #914 NEG (freeze +4.9σ), eigenbasis side #936 CLOSED clean-NEG (Q_col load-bearing for attn), exp_avg_sq scaling ablation #979 open. **SOAP-simplification follow-up candidate:** drop Q_row from attn entirely (Cell C trajectory from #936 + #979 result will inform).
 **Weight-space interventions at cooldown:** cooldown weight rescaling #966 open (first time this axis tested, parallel to #907 state-reset).
-**Momentum at cooldown:** ★★ μ schedule #925 Cell E linear ramp POS (n=4 confirm), buffer reset #907 Cell E POS (n=4 confirm). Hard-switch μ drop #925 B/C/D NEG.
+**Momentum at cooldown:** ★★ μ schedule #925 Cell E linear ramp POS (n=4 confirm), buffer reset #907 Cell E POS (n=4 confirm). Hard-switch μ drop #925 B/C/D NEG. Gradient-norm-anomaly reset #993 open (NEW magnitude-anomaly axis, complements time/schedule/geometry triggers).
 **Post-NS curvature:** Hutchinson #924 NEG (per-element |dg| proxy biased; divides by noise scale). Closed. Cosine-gated adaptive μ #973 open (orthogonal — momentum buffer, not update magnitude).
 **Outer-loop wrappers:** Lookahead #826 NEG, Cautious #844/#867 NEG, SF Muon #855 NEG.
 **Weight averaging:** Cooldown SWA #941 open (first time this axis tested — distinct from Lookahead/SF).

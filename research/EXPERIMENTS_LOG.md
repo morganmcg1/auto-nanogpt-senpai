@@ -3,6 +3,54 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~03:30 UTC — PR #993: askeladd Gradient-norm-anomaly-driven Muon momentum reset — **ASSIGNED**
+
+- **Branch:** `g1r5-askeladd/grad-norm-anomaly-momentum-reset`
+- **Student:** g1r5-askeladd
+- **Hypothesis:** Detect gradient-distribution anomalies via per-parameter `||grad||_F` EMA; when current grad norm exceeds K × EMA(grad norm), partially reset Muon momentum buffer (and optionally SOAP exp_avg_sq). Magnitude-anomaly-driven reset, distinct from #907 (time-based), #925 (schedule-based), #973 (cos-direction-based), #887 (AGC pre-NS clipping).
+
+- **5-cell sweep:**
+
+| Cell | Config | Role |
+|:----:|:-------|:-----|
+| A | ctrl — no reset | baseline |
+| B ★ | PRIMARY: threshold=3.0, fraction=0.5, β=0.95 | moderate sensitivity, moderate reset |
+| C | sensitive: threshold=2.0, fraction=0.5 | more triggers |
+| D | aggressive: threshold=3.0, fraction=1.0 | full reset on trigger |
+| E | conservative: threshold=5.0, fraction=0.3 | rare strong-anomaly reset only |
+
+- **Context:** Joins the momentum/state-reset cluster (#907, #925, #973). Magnitude-anomaly axis is the only major "reset trigger" condition untested. Expected trigger frequency 0.1–1% of steps per param.
+
+---
+
+## 2026-05-24 ~03:25 UTC — PR #936: askeladd Asymmetric SOAP eigenbasis ablation — **CLOSED clean-NEG (strong mechanism signal)**
+
+- **Branch:** `g1r5-askeladd/asymmetric-soap-eigenbasis`
+- **Student:** g1r5-askeladd
+- **Hypothesis:** Ablate SOAP Q matrices — left-only (drop Q_col) vs right-only (drop Q_row) — to reveal which eigenbasis side is load-bearing.
+
+- **5-cell P1 results (n=1, 3250 steps):**
+
+| Cell | Variant | val/loss | ffs | Δ vs ctrl | σ_single | W&B |
+|:----:|:--------|:--------:|:---:|:---------:|:--------:|:---:|
+| A | both (ctrl) | 3.261952 | 3050 | 0.00000 | +1.23σ vs baseline | npk0pfxx |
+| **B ★** | left-only (drop Q_col), global | **3.270294** | 3125 | **+0.00834 (+14.07σ)** | s7fl75f9 |
+| C | right-only (drop Q_row), global | 3.263028 | 3050 | +0.00108 (+1.81σ) | 1ryjksm2 |
+| D | left-only MLP-scope (attn full) | 3.263464 | 3050 | +0.00151 (+2.55σ) | ccx4p027 |
+| E | right-only MLP-scope (attn full) | 3.262498 | 3050 | +0.00055 (+0.92σ) | 98p7l6mg |
+
+- **Mechanism signal (the gold):**
+  - **B − C contrast = +12.25σ_single (global asymmetry)** — Q_col >> Q_row in importance
+  - **B − D contrast = +11.52σ** — the asymmetry is concentrated in ATTN weights, not MLP
+  - **C − E contrast = +0.89σ** — dropping Q_row from attn is essentially free
+- **Interpretation:** SOAP's gain over plain Muon is dominated by **input-side (Q_col, fan-in) decorrelation on attention weights**. For square 768×768 attn matrices: input-side carries nearly all the SOAP signal. For rectangular MLP weights (768→3072, 3072→768): both sides contribute roughly equally.
+
+- **Decision:** CLOSED clean-NEG. No cell beats baseline, but the asymmetry signal is high information value. SOAP can potentially be simplified by dropping Q_row from attn entirely — to be tested in a future SOAP-simplification PR after #979 (exp_avg_sq ablation, in flight) closes.
+
+- **Cross-PR insight:** Combined with #979 thorfinn (exp_avg_sq ablation in flight), the SOAP-internals map is being completed: which Q side matters (this PR), and whether the Adam-in-basis scaling matters (#979). Future minimal-SOAP variant could drop both Q_row and exp_avg_sq if redundant.
+
+---
+
 ## 2026-05-24 ~02:15 UTC — PR #979: thorfinn SOAP exp_avg_sq scaling ablation — **ASSIGNED**
 
 - **Branch:** `g1r5-thorfinn/soap-exp-avg-sq-ablation`
