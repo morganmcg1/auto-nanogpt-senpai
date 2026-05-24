@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--lm_head_init_scale", type=float, default=0.0,
+                        help="Initialization scale (gain) for proj.weight (lm_head). "
+                             "0.0 = baseline (zero init). >0 = orthogonal init with the given gain.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +723,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "lm_head_init_scale": args.lm_head_init_scale,
+            "lm_head_init_type": "orthogonal" if args.lm_head_init_scale > 0 else "zero",
         },
     )
 
@@ -738,7 +743,13 @@ for trial_idx in range(args.num_trials):
         w = p.data
         if name.endswith("weight"):
             if "proj" in name:
-                w.zero_()
+                # Default modded-nanogpt behavior is zero-init for all proj weights.
+                # When --lm_head_init_scale > 0, ONLY the lm_head (model.proj.weight)
+                # gets a non-zero orthogonal init; block-internal *.proj.weight remain zero.
+                if args.lm_head_init_scale > 0 and name == "proj.weight":
+                    torch.nn.init.orthogonal_(w, gain=args.lm_head_init_scale)
+                else:
+                    w.zero_()
             elif "embed" in name:
                 w.normal_()  # default torch init
             else:
@@ -749,6 +760,24 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Initial-state diagnostic for lm_head (proj.weight) — one-shot log at step 0,
+    # confirms the init was applied with the expected magnitude budget.
+    if dist.get_rank() == 0:
+        lm_head_w = model.proj.weight.detach().float()
+        row_l2 = lm_head_w.norm(dim=1)
+        init_wandb_step = trial_idx * (train_steps + 1)
+        wandb.log({
+            "trial": trial_idx,
+            "init/lm_head_init_scale": args.lm_head_init_scale,
+            "init/proj_weight_frob_norm": float(lm_head_w.norm().item()),
+            "init/proj_weight_row_l2_mean": float(row_l2.mean().item()),
+            "init/proj_weight_row_l2_max": float(row_l2.max().item()),
+            "init/proj_weight_row_l2_min": float(row_l2.min().item()),
+            "init/proj_weight_abs_mean": float(lm_head_w.abs().mean().item()),
+            "init/proj_weight_abs_max": float(lm_head_w.abs().max().item()),
+        }, step=init_wandb_step)
+        del lm_head_w, row_l2
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
