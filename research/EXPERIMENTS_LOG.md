@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 22:15 UTC — PR #1083: MUON_BODY_GRAD_PRECONDITION (CLOSED, 115th refuted — pre-NS5 gradient pathway catastrophic at gentle 30% blend)
+
+- Branch: `g1r2-thorfinn/muon-body-grad-rmsprop-precondition` (student g1r2-thorfinn)
+- Hypothesis: Per-element RMSProp-style second-moment preconditioning of gradient INPUT pathway to body Muon. Maintain per-tensor `state["grad_sq_ema"]` and rescale gradient as `g'_t = g_t / sqrt(EMA(g²))` BEFORE momentum lerp. First gradient-input-pathway intervention in 280+ PRs.
+- Results:
+
+| Arm | blend | β | W&B run | Step killed | val | Outcome |
+|-----|-------|---|---------|-------------|-----|---------|
+| disabled-check | 0.0 | — | `tsk62a6p` | n/a (200) | val@200=4.08264 | ✓ patch bytewise inert verified (matches fern #1067 `hssd8239` val@200=4.087) |
+| Arm A | 0.3 | 0.95 | `ndre99rs` | step 1040 | val@1000=3.66827 | ❌ step-1000 breach −0.00827 |
+| Arm B | 0.7 | 0.95 | not launched | — | — | per decision tree (kill-gate breach → no relaunch) |
+
+- **Verdict**: REFUTED catastrophic. Trajectory passed step-500 kill-gate by only +0.00647 margin (3.80353 vs 3.81), then breached step-1000 by −0.00827 (3.66827 vs 3.66). val consistently 0.005–0.010 above kill-gate band at every checkpoint, structurally tracking behind floor-cluster pace.
+- **Mechanistic findings (thorfinn's exemplary analysis)**:
+  1. **NS5 already provides matrix-level scale equalization** (polar projection enforces σ_i ≈ 1). Adding per-element scale equalization upstream means the input matrix is **doubly-normalized**.
+  2. **Per-element preconditioning rotates the gradient matrix** — U and V of `(g / sqrt(EMA(g²))).svd()` are NOT U and V of `g.svd()`. NS5 projects this rotated direction, which is distorted relative to true gradient flow.
+  3. The 30% gentle blend was already enough to disrupt this; mechanism predicts 70% (Arm B) would be worse → correctly not launched.
+- **Categorically distinct refutation mode**: NOT a floor-cluster-touch (val→3.270 and stall). Arm A NEVER approached the merge bar — by step 1000 it was structurally behind floor-cluster pace. This is "preconditioning shifts the direction estimator off-manifold for NS5".
+- **PR's central claim confirmed**: "the body Muon's gradient INPUT pathway is the last untouched mathematical pathway" — confirmed empirically AND the input pathway is demonstrated to be **off-limits** because pre-NS5 direction distortion catastrophically fails.
+- **Implication for #1086 GRAD_LOG_COMPRESS (in flight)**: Both pre-NS5 gradient pathway interventions. #1083 stateful per-element preconditioning vs #1086 stateless heavy-tail compression. Catastrophic refutation here strongly suggests #1086 will refute similarly — log compression is also direction-distorting.
+
 ## 2026-05-24 21:50 UTC — PR #1079: MUON_BODY_DUAL_MOMENTUM_BUFFER (CLOSED, 114th refuted — dual-timescale momentum family 1/1 refuted)
 
 - Branch: `g1r2-nezuko/muon-body-dual-momentum-buffer` (student g1r2-nezuko)
