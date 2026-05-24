@@ -4440,3 +4440,104 @@ The pre-#847 signal (Δ=−0.00094) was real — it only survives on stacks with
 ### askeladd reassigned
 
 Next assignment: PR #967 — AdamW aux β₂ cooldown annealing (4-arm β₂_final scope sweep: off/all→0.95/all→0.999/embed→0.95).
+
+## 2026-05-24 02:18 UTC — PR #933: Path-norm body-weight velocity penalty 4-arm λ/window sweep (nezuko) — CLOSED productive-NULL
+
+- Branch: `g1r4-nezuko/path-norm-body-reg` (rebased post-#847 baseline)
+- Hypothesis: Per-step body Muon weight velocity penalty `λ·Σ||W_t − ema(W_{<t-k})||²` smooths optimization trajectory. Fort & Jastrzebski intuition: longer trajectory horizons matter more than penalty magnitude. Mathematically independent of embed-side init-anchor (#847 merged): path-norm acts pre-grad-clip on body Muon matrices only, while init-anchor acts post-AdamW on `embed.weight` only.
+
+### Results — post-#847 stack (single-pod n=1, full 4-arm sweep)
+
+| Arm | run_id | λ | window | val/loss | Δ_vs_A | Δ_vs_base 3.26756 |
+|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | `2ejxjr5g` | 0.0 | — | 3.26939 | — | +0.00183 |
+| B | `puhd26f3` | 1e-5 | 10 | 3.27009 | +0.00070 | +0.00253 |
+| C | `ybgodxmq` | 1e-4 | 10 | 3.26954 | +0.00015 | +0.00198 |
+| **D (best)** | **`aqr7jjlm`** | **1e-5** | **50** | **3.26887** | **−0.00052** | **+0.00131** |
+
+### Mechanism reading
+
+- **λ axis** (B vs C at same k=10): C marginally better (Δ_C_vs_B=−0.00055). Stronger penalty produced no signal.
+- **Window axis** (B vs D at same λ=1e-5): D notably better (Δ_D_vs_B=−0.00122). Longer 50-step velocity window is the load-bearing dimension if any.
+- Direction-correct (best arm has lowest val/loss) but **sub-noise on this stack**. Fort & Jastrzebski intuition preserved in sign, not in magnitude.
+
+### Telemetry health
+
+- `train/path_norm/frac_of_ce` peaked at 0.189 (Arm C) and 0.209 (Arm D), but decayed late in training (≤0.021 in final third). No training instability across any arm.
+- Step-0 EMBED_INIT_ANCHOR snapshot_norm=6208.0000 confirmed post-rebase wiring on Arm A onward.
+- `yso8lfva` (pre-rebase orphan, killed at 18:13 UTC after advisor's rebase request) excluded — data integrity clean.
+
+### Closure rationale
+
+Best within-arm signal Δ=−0.00052 is well above the PP escalation threshold (|Δ| ≥ 0.002 = 26% of threshold). Magnitude-collapse precedent from #880 (Muon² v_t β₂=0.9999, n=3 mean retained 30% of N=1) makes PP confirmation unlikely to recover gate-clearing magnitude. Axis closes without PP escalation.
+
+### Axis status
+
+- **Path-norm body-velocity penalty axis CLOSED** under post-#847 stack (productive-NULL with longer-window directional positive but sub-noise).
+- Useful data point: velocity smoothing horizon (window k) is more load-bearing than penalty magnitude (λ) — file as a directional finding for future trajectory-smoothing experiments.
+
+### nezuko reassigned
+
+Returning to idle this cycle; mechanism-distinct fresh hypothesis pending.
+
+## 2026-05-24 02:19 UTC — PR #880: Muon² body v_t ablation 4-arm β₂ paired-pod n=3 (thorfinn) — CLOSED productive-NULL (magnitude collapse, sign-flip at n=3)
+
+- Branch: `g1r4-thorfinn/muon-squared-body`
+- Hypothesis: Body Muon² Adam-style pre-NS preconditioning with β₂=0.9999 (10× slower v_t adaptation) improves convergence vs the standard β₂=0.999. N=1 favorable screen showed Δ_within=−0.00243; PP confirmation to test robustness.
+
+### Results — paired-pod n=3 on post-#847 stack (full 6-run chain)
+
+| Pod | Arm | β₂ | Run ID | val/best_loss | Δ_vs_base 3.26756 | **Δ_within (D−A)** |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|
+| 0 | A (ctrl) | 0.999 | `5y792dxt` | 3.26951 | +0.00195 | — |
+| 0 | D | 0.9999 | `v3k18lkf` | 3.26786 | +0.00030 | **−0.00165** |
+| 1 | A (ctrl) | 0.999 | `it83u13l` | 3.26937 | +0.00181 | — |
+| 1 | D | 0.9999 | `5uj9nwv9` | 3.26876 | +0.00120 | **−0.00061** |
+| 2 | A (ctrl) | 0.999 | `m0jdlx6u` | 3.26794 | +0.00038 | — |
+| 2 | D | 0.9999 | `suqw6j4e` | 3.26803 | +0.00047 | **+0.00009** |
+| **mean** | A | — | — | **3.26894** | +0.00138 | — |
+| **mean** | D | — | — | **3.26822** | +0.00066 | **−0.00072** |
+
+`std(Δ_within, n=3) = 0.00071` ⇒ |mean Δ| / std ≈ 1.02 (barely separated from per-pod noise).
+
+### Gate evaluation
+
+| Gate | Constraint | Outcome | Status |
+|:---:|---|---|:---:|
+| 1 | mean Δ_within ≤ −0.002 | −0.00072 (36% of threshold) | ❌ FAIL |
+| 2 | mean(D, n=3) ≤ 3.26756 | 3.26822 (+0.00066 above) | ❌ FAIL |
+| 3 | (3.28 − μ_D)·√3 ≥ 0.004 | 0.02041 | ✅ PASS |
+| 4 | ≥2/3 direction-correct | 2/3 (Pod 2 flips at +0.00009) | ✅ marginal |
+| 5 | all pod-A within ±0.003 of base | 3/3 | ✅ PASS |
+| 6 | ≥1 pod-D within ±0.0010 of N=1 D | 2/3 | ✅ PASS |
+
+**Two binding gates (1, 2) FAIL.**
+
+### Canonical magnitude-collapse precedent
+
+| Sample | Δ_within | Retention vs N=1 (−0.00243) |
+|---|:---:|:---:|
+| N=1 (`w9afvz9a`) | −0.00243 | 100% (favorable seed tail) |
+| Pod 0 | −0.00165 | 68% |
+| Pod 1 | −0.00061 | 25% |
+| Pod 2 | +0.00009 | **−4% (sign flip)** |
+| n=3 mean | −0.00072 | **30%** |
+
+Monotonic collapse: each independent sample brought magnitude closer to zero; Pod 2 produced an outright sign flip. This is now the canonical magnitude-collapse precedent on the post-#847 stack for the +0.002 N=1-screen-to-noise transition.
+
+### Mechanism reading
+
+- β₂=0.9999 on body Muon² is **real in direction** (3/4 reads direction-correct including original screen) but **sub-noise in magnitude** under PP confirmation on post-#847 stack.
+- Headroom appears **conditional on equilibrium val height**: surfaced on pre-#847 baseline (room for v_t timescale to matter), collapsed under lower-equilibrium post-#847. **Not a robust mechanism — a baseline-shift-sensitive one.**
+- Arm B (disable_v=True) near-neutral at N=1 (+0.00038 vs A) — Adam-style pre-NS preconditioning on body Muon is only marginally load-bearing.
+
+### Axis status
+
+- **Body Muon² β₂ axis [0.999, 0.9999] CLOSED** productive-NULL with sign-flip-at-n=3 magnitude collapse.
+- Body Muon² v_t (any β₂ in tested band): not load-bearing at the merge-threshold level.
+- Code simplification opportunity (disable v_t entirely for −0.00038 absolute val cost) deprioritized.
+
+### thorfinn reassigned
+
+Returning to idle this cycle; mechanism-distinct fresh hypothesis pending.
+

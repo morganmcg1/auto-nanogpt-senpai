@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 02:00 UTC (cycle 197)
+- **Date:** 2026-05-24 02:28 UTC (cycle 198)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -48,31 +48,30 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 
 ---
 
-## Cycle 182 snapshot (00:50 UTC May 24)
+## Cycle 198 snapshot (02:28 UTC May 24)
 
-### #845 askeladd closed — productive-NULL composition-overlap
+### Closed this cycle (2)
 
-v2 paired-pod n=3 mean=3.26856 (+0.00100 above baseline), Gate 1 + Gate 3 FAIL. Pod 3 (`4d5fuxdk`) landed at 3.27073 — outside drift gate (+0.00317). Pre-#847 signal (−0.00094) doesn't survive composition with init-anchor WD: both target rare-row drift in embed via different stages (post-step WD vs pre-step grad amplification). Axis closed under this stack.
+- **#933 nezuko** CLOSED productive-NULL: path-norm body-velocity penalty 4-arm sweep. Best arm D (λ=1e-5, w=50) Δ_vs_A=−0.00052 (26% of PP escalation threshold). Window axis is load-bearing if any (Δ_D_vs_B=−0.00122); λ axis inert. Mechanism direction-correct but sub-noise. Magnitude-collapse precedent from #880 makes PP confirmation unlikely to recover gate-clearing magnitude. nezuko reassigned → #982.
+- **#880 thorfinn** CLOSED productive-NULL with canonical magnitude-collapse: Muon² body v_t β₂=0.9999 paired-pod n=3. Within-pod Δ went −0.00243 (N=1) → −0.00165 (Pod 0) → −0.00061 (Pod 1) → +0.00009 (Pod 2 sign flip), mean n=3 = −0.00072 (36% of Gate 1 threshold). Gates 1+2 FAIL. Mechanism real-in-direction but baseline-shift-sensitive; not robust. thorfinn reassigned → #984.
 
-**askeladd reassigned → PR #967: AdamW aux β₂ cooldown anneal (4-arm)**
-- A (ctrl): β₂=0.99 constant
-- B: 0.99→0.95 last 30%, all aux
-- C: 0.99→0.999 last 30%, all aux
-- D: 0.99→0.95 last 30%, embed-only (mirrors #919's winning scope)
+### New assignments this cycle (2)
 
-### Active chains (as of 02:00 UTC May 24, cycle 197)
+- **PR #982 nezuko** — Per-block-TYPE Muon momentum (μ_attn ≠ μ_mlp) 4-arm sweep. Complements merged per-block-type LR mults (#579). Mechanism-distinct from #980 (global μ cooldown anneal). Arms: A(0.95,0.95)/B(0.90,0.95)/C(0.95,0.90)/D(0.90,0.90). Single-pod N=1 screening; PP escalation if best |Δ_vs_A| ≤ −0.0020.
+- **PR #984 thorfinn** — Schedule-Free AdamW (Defazio NeurIPS 2024) for lm_head + scalars (embed EXCLUDED to preserve init-anchor coupling). Bold swing per plateau protocol — explicitly untested mechanism on EXPERIMENTS_LOG line 1487. Arms: A(off ctrl)/B(lm_head)/C(scalars)/D(lm_head_scalars). Requires inline `ScheduleFreeAdamW` class (~80 LOC), train/eval mode-switch in loop, SF groups skip the LR cooldown. Smoke-test required before full arms.
 
-| PR | Student | Hypothesis | Run | step | val/loss | ETA |
-|:---:|:---:|---|---|:---:|:---:|:---:|
-| #944 | tanjiro | gc Arm D (both) | `g32ouqhe` | ~825 | 3.71 | D ~02:47 UTC |
-| #880 | thorfinn | Muon² body v_t Pod 2 D | `suqw6j4e` | ~3225 | 3.28 | ~01:48 UTC (near terminal) |
-| #956 | alphonse | lm_head max-norm Arm C | `pfusx38h` | ~850 | 3.69 | C ~02:47 UTC, D ~04:30 UTC |
-| #963 | frieren | post-NS v_post Arm B | `355k8llh` | ~1340 | 3.71 | full chain ~07:30 UTC |
-| #919 | fern | β₁ cooldown PP seed 2 | `ofm1da08` | ~1150 | 3.60 | full chain ~05:30 UTC |
-| #933 | nezuko | path-norm velocity Arm D **FINISHED** | `aqr7jjlm` | 3350 | **3.2689** | awaiting student terminal post |
-| #929 | edward | AdamW aux v_t floor | CLOSED | — | 3.26990 best arm (NULL) | PR #980 assigned |
-| #967 | askeladd | AdamW aux β₂ cooldown anneal Arm A | `v4iymkx1` | ~3100 | 3.29 | Arm A ~01:56 UTC |
-| #980 | edward | **NEW: Muon mu cooldown anneal** | pending | — | — | picking up ~01:56 UTC |
+### Active chains (as of 02:28 UTC May 24, cycle 198)
+
+| PR | Student | Hypothesis | Run | state | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| #919 | fern | β₁ cooldown PP seed 2 | `ofm1da08` | running | ~1150 | 3.60 | full chain ~05:30 UTC |
+| #944 | tanjiro | gc Arm D (both) | `g32ouqhe` | running | ~825 | 3.71 | D ~02:47 UTC (decides axis) |
+| #956 | alphonse | lm_head max-norm Arm C (cap=4.0) | `pfusx38h` | running | ~850 | 3.69 | C ~02:47 UTC, D ~04:30 UTC |
+| #963 | frieren | post-NS v_post Arm B | `355k8llh` | running | ~1340 | 3.71 | full chain ~07:30 UTC |
+| #967 | askeladd | AdamW aux β₂ anneal Arm B (all→0.95) | `pd25zsdp` | running | ~775 (23%) | 3.69 | Arm A finished 3.26850 ✓; B ~03:50 UTC, C/D thereafter |
+| #980 | edward | Muon μ cooldown anneal | pending | — | — | — | pickup imminent |
+| **#982** | **nezuko** | **Per-block-type Muon μ (NEW)** | pending | — | — | — | pickup ~02:30 UTC |
+| **#984** | **thorfinn** | **SF-AdamW for aux (NEW)** | pending | — | — | — | pickup ~02:30 UTC (smoke-test then full arms) |
 
 ### #944 grad-centralization chain — 3/4 terminal (asymmetric pattern)
 
@@ -91,13 +90,17 @@ Arm A `kjrd1usm` finished val=**3.26765** (drift PASS Δ=+0.00009 essentially ba
 
 ### Next imminent terminal
 
-- **#880 Pod 2 A** `m0jdlx6u` ~01:10 UTC — paired-pod control terminal. Pod 2 D follows. After Pod 2 D, n=3 chain is complete for #880.
-- **#944 Arm C** (row) ~02:30 UTC — decides whether gc axis = productive-NEG on both axes or asymmetric.
+- **#944 Arm D** (both gc) `g32ouqhe` step ~825 → ETA ~02:47 UTC. Decides axis: D~A → axis closes asymmetric-NEG (col-only); D>B → compositional worsening; D∈(C,B) → row-dominant composition.
+- **#956 Arm C** (cap=4.0) `pfusx38h` step ~850 → ETA ~02:47 UTC. Decides Goldilocks cap viability.
+- **#967 Arm B** (β₂→0.95 all-aux) `pd25zsdp` step ~775 → ETA ~03:50 UTC.
+- **#919 PP seed 2** (β₁ cooldown) `ofm1da08` step ~1150 → ETA ~05:30 UTC. G1 budget tight.
 
-### Closed this cycle
+### Closed prior cycles (still relevant context)
 
-- **#929 edward** CLOSED productive-NULL with regression tail (v_t floor mechanism: inert at low floor, regression-harmful at binding floor)
-- **#845 askeladd** CLOSED productive-NULL (composition-overlap with init-anchor WD)
+- **#929 edward** CLOSED productive-NULL with regression tail (AdamW aux v_t floor: inert at low floor, regression-harmful at binding floor). Reassigned to #980 Muon μ cooldown anneal.
+- **#845 askeladd** CLOSED productive-NULL (composition-overlap with init-anchor WD). Reassigned to #967.
+- **#933 nezuko** [this cycle] CLOSED productive-NULL (path-norm body velocity, longer-window sub-threshold). Reassigned to #982.
+- **#880 thorfinn** [this cycle] CLOSED productive-NULL (Muon² body v_t β₂=0.9999 paired-pod n=3, canonical magnitude-collapse sign-flip at Pod 2). Reassigned to #984.
 
 ---
 
