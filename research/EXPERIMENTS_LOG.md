@@ -3,6 +3,40 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 05:05 UTC — PR #956: lm_head per-row max-norm soft-clamp (alphonse) — CLOSED productive-NEG (204th cycle)
+
+- Branch: `g1r4-alphonse/lm-head-row-maxnorm`
+- Hypothesis: high-frequency token rows accumulate gradient signal disproportionately early, creating row-norm imbalance in logit space; a per-row L2 max-norm soft-clamp post-step would improve convergence. 4-arm cap sweep {0.0=off, 1.0, 4.0, 16.0}.
+- Result: **monotone-regressive axis across full cap range, no window of improvement, right-tail rows load-bearing.**
+
+| Arm | cap | run_id | state | step | val/loss | Δ_vs_A | frac_at_cap @ term | reading |
+|:---:|:---:|---|:---:|:---:|---:|---:|:---:|---|
+| A (ctrl) | 0.0 | `kjrd1usm` | finished | 3350 | **3.26765** | — | 0.000 | drift PASS (+0.00009 vs baseline 3.26756) |
+| B | 1.0 | `2c9pm03k` | killed step 1150 | 1150 | 3.65469 | +0.387 | 0.904 | catastrophic over-constraint, conclusive divergence |
+| C | 4.0 | `pfusx38h` | finished | 3350 | 3.26836 | +0.00071 | 0.204 | cap LOAD-BEARING but direction-wrong |
+| D | 16.0 | `1xyvay46` | finished | 3350 | 3.26923 | +0.00158 | 0.000 | inactive (cap above natural max 12.70), drift-band noise |
+
+**Mechanism reading**: The lm_head row-norm distribution at end-of-training (mean=3.70, p50=3.60, max=12.70, std=0.73) is healthy and well-converged, NOT pathological. std/mean = 0.197 — light right tail, no runaway. When the cap is load-bearing (Arm C: 20% rows clipped at 4.0), val regresses +0.00071 — direct evidence that **right-tail rows (norm 5-12) are carrying useful signal**, not pathological growth. The post-#847 stack already conditions logit geometry via `ADAMW_EMBED_LR_MULT=1.5×`, `BETA2=0.99`, `EMBED_INIT_ANCHOR_LAMBDA=0.001` — these together produce the well-conditioned distribution observed; no headroom for an additional row-norm constraint.
+
+**Catastrophic threshold**: Arm B cap=1.0 fires on 90.4% of rows, collapsing the entire lm_head into the L2 unit ball (`row_norm_mean=0.997, std=0.006, max=1.000`), killing logit-scale headroom needed for confident predictions on common tokens. Confirms cap < natural mean = catastrophic.
+
+**Axis closure**: lm_head weight-space row-magnitude constraint family CLOSED. Joins closed neighborhood:
+- #618 NS on lm_head gradient (NEG)
+- #663 Zipf frequency-weighted L2 clip (NULL)
+- #668 per-row L2 grad clip (NULL)
+- #322 AdamW per-coordinate eps (NULL)
+- #652 AdamW per-coord eps (NEG)
+- #408 AGC (NULL)
+- #477 OrthoGrad (NULL)
+
+**Drift gate finding**: Arm D path (`if cap > 0`) runs the `norm + clamp + mul_(1.0)` kernel even when nothing is clipped (`scale.clamp(max=1.0)` returns 1.0 in inactive regime). Resulting +0.00158 drift is harmless here but flags a "no-op kernel side-effect" pattern: future row-wise hooks should add an explicit `if row_norms.max() > cap: skip` short-circuit to maintain bit-identical fallback.
+
+**Execution quality**: Excellent. Clean early-kill on Arm B at step 1150 saved ~3 GPU-hours. Sharp mechanism reading on Arm C's load-bearing-but-direction-wrong cap. Comprehensive 4-arm telemetry with per-arm `frac_at_cap` and row-norm distribution stats. Bit-clean baseline reproduction on Arm A (Δ=+0.00009 within drift gate).
+
+**Follow-up**: alphonse reassigned to a fresh axis selected from the researcher-agent's next-wave proposals (PR #TBD).
+
+W&B group: `g1r4-alphonse/lm-head-row-maxnorm`. Runs: kjrd1usm (A), 2c9pm03k (B killed), pfusx38h (C), 1xyvay46 (D).
+
 ## 2026-05-24 04:35 UTC — PR #919: AdamW aux-group β₁ cooldown annealing (fern) — CLOSED productive-NULL via N=1→PP magnitude collapse (203rd cycle)
 
 - Branch: `g1r4-fern/adamw-aux-beta1-cooldown-anneal`

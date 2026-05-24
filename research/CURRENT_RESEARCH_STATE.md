@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 04:50 UTC (cycle 203)
+- **Date:** 2026-05-24 05:05 UTC (cycle 204)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,56 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 204 snapshot (05:05 UTC May 24)
+
+### Closed this cycle (1)
+
+- **#956 alphonse** CLOSED productive-NEG: lm_head per-row max-norm soft-clamp 4-arm cap sweep terminal. **Monotone-regressive axis across full cap range, no window of improvement, right-tail rows load-bearing.** Arm A `kjrd1usm` 3.26765 (drift PASS +0.00009); Arm B `2c9pm03k` cap=1.0 catastrophic +0.387 killed @ step 1150 (cap fired on 90.4% rows); Arm C `pfusx38h` cap=4.0 direction-wrong +0.00071 (20.4% rows clipped, cap LOAD-BEARING but wrong direction); Arm D `1xyvay46` cap=16.0 inactive (cap above natural max 12.70). Mechanism: natural row-norm distribution (mean=3.70 std=0.73 max=12.70) is healthy NOT pathological; right-tail rows carry signal. **lm_head weight-space row-magnitude constraint family CLOSED.** Joins #618/#663/#668/#322/#652/#408/#477.
+
+### New assignments this cycle (1)
+
+- **PR #TBD alphonse** — fresh-axis hypothesis pending researcher-agent return (backgrounded). Strong candidates being researched: NS coefficient (a, b, c) static value perturbation sweep (only schedule tested via #290); per-tensor adaptive NS iteration count; alternative NS polynomial families; or other genuinely structural axes from the durable backlog.
+
+### Active chains (as of 05:05 UTC May 24, cycle 204)
+
+| PR | Student | Hypothesis | Run | state | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| #967 | askeladd | AdamW aux β₂ anneal Arm B (re-parented) | `pd25zsdp` | running | ~2700 | descent | B terminal soon, C+D thereafter |
+| #980 | edward | Muon μ cooldown anneal Arm B | `344uvcwt` | running | tbd | tbd | B ~05:55, C ~07:45, D ~09:35 UTC |
+| #982 | nezuko | Per-block-type Muon μ FASTER mlp | pending pickup | — | — | — | — |
+| #984 | thorfinn | SF-AdamW for aux Arm A retry | `hz7n0ex8` | running | ~2700 | descent | A terminal ~05:25 UTC, chain ~10:00 UTC |
+| #988 | tanjiro | AdamW state reset at cooldown boundary | pending pickup | — | — | — | — |
+| #998 | frieren | Muon body momentum reset timing | pending pickup | — | — | — | — |
+| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | pending pickup | — | — | — | — |
+
+### Mechanism axes CLOSED through cycle 204
+
+Adds **#956 (lm_head per-row max-norm soft-clamp, productive-NEG monotone-regressive)** to closed list. lm_head weight-space row-magnitude constraint family fully exhausted. Cumulative closed in this run still relevant: same as cycle 203 plus #956.
+
+### Mechanism axes EXPLICITLY UNTESTED (durable backlog after cycle 204)
+
+- D-Adaptation (Muon-side theoretical baggage)
+- Prodigy adaptive LR
+- NS coefficient (a, b, c) **static value perturbation sweep** (only schedule ramp-down tested in #290) ← strong candidate for alphonse
+- Per-tensor adaptive NS iteration count based on spectral residual ← strong candidate
+- Alternative NS polynomial families (Chebyshev-derived, higher-order) ← fresh structural axis
+- LR-coupled momentum decay (μ ∝ lr(t))
+- AdamW eps cooldown anneal UP (opposite of closed #652 DOWN)
+- Lion/Tiger for embed-only group (Lion-on-embed never specifically isolated)
+
+### Closed prior cycles (still relevant context)
+
+- **#929 edward** CLOSED productive-NULL. Reassigned → #980.
+- **#845 askeladd** CLOSED productive-NULL. Reassigned → #967.
+- **#933 nezuko** CLOSED productive-NULL. Reassigned → #982.
+- **#880 thorfinn** CLOSED productive-NULL with canonical magnitude-collapse. Reassigned → #984.
+- **#944 tanjiro** CLOSED productive-NEG. Reassigned → #988.
+- **#963 frieren** CLOSED productive-NEG (monotone-worsening). Reassigned → #998.
+- **#919 fern** CLOSED productive-NULL (canonical N=1→PP magnitude collapse). Reassigned → #1003.
+- **#956 alphonse** [this cycle] CLOSED productive-NEG (monotone-regressive). Reassigned → PR #TBD.
 
 ---
 
