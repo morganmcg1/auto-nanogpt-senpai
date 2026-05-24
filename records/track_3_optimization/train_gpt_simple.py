@@ -465,6 +465,14 @@ ATTN_SOAP_BETA2 = 0.90
 ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
+# Newton-Schulz polynomial degree. Default 5 = NS5 quadratic-convergence (Higham 1987).
+# NS_POLY_DEGREE=7 selects NS7 cubic-convergence polynomial p(s)=a*s + b*s^3 + c*s^5 + d*s^7
+# with constraints p(1)=1, p'(1)=0, p''(1)=0 (one-parameter family parametrized by d).
+NS_POLY_DEGREE = int(os.environ.get("NS_POLY_DEGREE", "5"))
+NS7_A = float(os.environ.get("NS7_A", "1.825"))
+NS7_B = float(os.environ.get("NS7_B", "-1.1"))
+NS7_C = float(os.environ.get("NS7_C", "0.225"))
+NS7_D = float(os.environ.get("NS7_D", "0.05"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
@@ -479,11 +487,22 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(NS5_ITERS):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if NS_POLY_DEGREE == 7:
+        # NS7 cubic-convergence polynomial p(s) = a*s + b*s^3 + c*s^5 + d*s^7
+        # with p(1)=1, p'(1)=0, p''(1)=0 (1 free param d).
+        a, b, c, d = NS7_A, NS7_B, NS7_C, NS7_D
+        for _ in range(NS5_ITERS):
+            A = X @ X.mT
+            A2 = A @ A
+            B = b * A + c * A2 + d * (A @ A2)
+            X = a * X + B @ X
+    else:
+        # NS5 quadratic-convergence polynomial (Higham 1987 / Jordan).
+        a, b, c = 2, -1.5, 0.5
+        for _ in range(NS5_ITERS):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -865,6 +884,11 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns_poly_degree": NS_POLY_DEGREE,
+            "optimizer/ns7_a": NS7_A,
+            "optimizer/ns7_b": NS7_B,
+            "optimizer/ns7_c": NS7_C,
+            "optimizer/ns7_d": NS7_D,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
