@@ -1,13 +1,21 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 08:07 UTC (cycle 211)
+- **Date:** 2026-05-24 10:00 UTC (cycle 214)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Cycle 211 snapshot (08:07 UTC May 24) — #967 closed NULL; askeladd reassigned #1020
+## Cycle 214 snapshot (10:00 UTC May 24) — #980 closed productive-NEG; edward reassigned #1028 (first SUBTRACTIVE experiment)
 
 ### Activity this cycle
+
+- **#980 edward** CLOSED productive-NEG monotone-regressive: Muon body μ DOWN-cooldown anneal. Δ_vs_A: +0.00173 → +0.00869 → +0.01214 across mu→{0.85, 0.70, 0.50}. Arm D never crossed 3.28. NS-on-body relies on momentum-smoothed direction; reducing μ in late cooldown injects raw-gradient noise that NS propagates. **Body-Muon momentum cooldown DOWN-anneal axis closed on post-#847 stack.**
+- **PR #1028 edward** assigned: **Merged-stack pruning ablation** — the **first SUBTRACTIVE experiment** in the run. All in-flight PRs test additive changes; this tests whether 3 merged levers (NS_STOCHASTIC_COOLDOWN=2 from #787, EMBED_INIT_ANCHOR_LAMBDA=0.001 from #847, EMBED_COOLDOWN_SHAPE=linear_floor from #235) remain load-bearing in current composition. Zero code changes; pure env-var ablation. Directive-mandated category ("pruning ablations of complex stacks").
+- **Mirror-image asymmetry validated:** Aux-side momentum cooldown anneals work (#919 productive-NULL via PP collapse, #514 closed); body-side Muon momentum cooldown anneals don't (#980 monotone-regressive). NS orthogonalization is the asymmetry source — body has it (absorbs noise); aux doesn't.
+
+## Cycle 211 snapshot (08:07 UTC May 24) — #967 closed NULL; askeladd reassigned #1020
+
+### Activity that cycle
 
 - **#967 askeladd** CLOSED productive-NULL: AdamW aux β₂ cooldown anneal. All 4 arms |Δ_vs_A| ≤ 0.00017. Symmetric tie B(+0.00008) vs C(+0.00014) testing opposite directions is the canonical non-load-bearing signal. **β-schedule axis on AdamW aux now fully exhausted.** Mechanism insight: v_t already converged by cooldown start; ε floor more likely the active lever → motivates PR #1020.
 - **PR #1020 askeladd** assigned: **AdamW ε UP-ramp cooldown** — linear ramp eps from 1e-10 → {1e-8, 1e-6, 1e-4} over cooldown window. Fresh axis: #652 (DOWN direction, closed NULL) tested opposite; ε UP-ramp at cooldown is genuinely untested.
@@ -32,7 +40,9 @@ Most Arm A controls reproduce baseline well (n=1 noise envelope ~±0.002-0.003).
 | #998 | frieren | Muon body momentum one-shot reset | **3.2665** | B (mom-reset) | `23xkxrwz` | ~1250+ | 3.565 |
 | #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | 3.2783 mid | A (ctrl) | `qcwdptmu` | ~3350 | terminal |
 | #1008 | alphonse | NS static-c op-point sweep | 3.2689 | B (static_c=0.65) | `u4jdeu7l` | ~200+ | early |
-| **#1020** | **askeladd** | **AdamW ε UP-ramp cooldown (NEW)** | — | pending pickup | — | — | — |
+| **#1020** | **askeladd** | **AdamW ε UP-ramp cooldown** | — | running | — | — | — |
+| #980 | edward | Muon μ cooldown anneal DOWN | 3.2678 | **CLOSED productive-NEG** | — | terminal | monotone-regressive all 4 arms |
+| **#1028** | **edward** | **Merged-stack pruning ablation (NEW, SUBTRACTIVE)** | — | pending pickup | — | — | — |
 
 ### Notable observations
 
@@ -160,6 +170,8 @@ Adds **#956 (lm_head per-row max-norm soft-clamp, productive-NEG monotone-regres
 - LR-coupled momentum decay (μ ∝ lr(t))
 - AdamW eps cooldown anneal UP → **#1020 IN FLIGHT** (askeladd) — linear ramp 1e-10 → {1e-8/1e-6/1e-4}
 - Lion/Tiger for embed-only group (Lion-on-embed never specifically isolated)
+- Pruning ablations of merged stack → **#1028 IN FLIGHT** (edward) — first SUBTRACTIVE experiment, 4-arm minus-stochNS / minus-anchor / minus-floor
+- Mu UP-anneal during cooldown (inverse of closed #980) — deprioritized (scalar HP search per directive)
 
 ### Closed prior cycles (still relevant context)
 

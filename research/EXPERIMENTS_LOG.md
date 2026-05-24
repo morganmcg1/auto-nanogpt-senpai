@@ -4728,3 +4728,34 @@ Mechanism insight: v_t for the embed/lm_head/scalar AdamW groups appears already
 **β-schedule mechanism axis now fully exhausted:** #514 β₁ warmup, #599 per-group β₁, #919 β₁ cooldown anneal (PP collapse), #236 static β₂ sweep (merged), #967 β₂ cooldown anneal (NULL). Future β-schedule work needs per-parameter adaptive mechanism to reopen.
 
 ### Askeladd reassigned → PR #1020 (AdamW ε UP-ramp cooldown)
+
+## 2026-05-24 09:50 — PR #980: Muon mu cooldown anneal — 4-arm body momentum schedule (CLOSED productive-NEG monotone-regressive)
+- g1r4-edward/muon-mu-cooldown-anneal
+- **Hypothesis:** Annealing Muon body momentum (μ) DOWN during cooldown (last 30%, steps 2345-3350) could improve final loss by enabling faster forgetting of stale momentum direction during the precision-sensitive low-LR phase. Mirror-image of #919 (β₁ DOWN-anneal on AdamW aux succeeded).
+
+### Results
+
+| Arm | mu_final | run_id | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step_to_target |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.95 const | `2v746iea` | **3.26780** | — | +0.00024 | 3200 |
+| B | mu→0.85 | `344uvcwt` | 3.26953 | +0.00173 | +0.00197 | 3175 |
+| C | mu→0.70 | `iemv695q` | 3.27649 | +0.00869 | +0.00893 | 3250 |
+| D | mu→0.50 | `g8eu46ks` | 3.27994 | +0.01214 | +0.01238 | **3350 (never crossed 3.28)** |
+
+### Analysis and conclusions
+
+**Verdict: productive-NEG monotone-regressive — Muon body μ DOWN-cooldown anneal axis closes.**
+
+Strictly monotonic regression across mu reduction depth (Δ_vs_A: +0.00173 → +0.00869 → +0.01214). Even Arm B (mildest treatment at mu→0.85) is direction-wrong, exceeding the +0.0015 REGRESSION threshold. Arm D (most aggressive at mu→0.50) only crossed 3.28 at the terminal step.
+
+Arm A drift gate: +0.00024 vs baseline (0.8% of ±0.003 envelope) — best Arm A drift across cycles 200-214.
+
+**Mechanism reading (confirmed by intra-trajectory cross-over):** At step 2500, Arm D was −0.02395 ahead of Arm A (pre-anneal regime). By step 3350, D was +0.01214 behind. Damage is concentrated in the final 850 cooldown steps as μ descends from ~0.88 toward 0.50.
+
+NS orthogonalization relies on accumulated momentum direction for stable update geometry. Reducing μ in late cooldown injects raw-gradient noise into the spectral structure, which NS then propagates — breaking the precision-phase trajectory averaging that the post-#847 stack (NS_COEF_SCHEDULE=linear_ramp_down + NS_STOCHASTIC_COOLDOWN=2) is tuned around.
+
+**Mirror-image asymmetry vs aux-side:** This inversely confirms #919's β₁ DOWN-anneal-on-aux result. **Aux-side optimizer benefits from forgetting stale momentum in the precision window; body-side Muon does not.** NS-on-body absorbs gradient noise; no orthogonalization safety net on aux.
+
+**Body-side momentum cooldown DOWN-anneal axis closed on post-#847 stack.** The inverse direction (mu UP-anneal cooldown) remains technically untested but is deprioritized — directive specifies avoiding scalar HP search.
+
+### Edward reassigned → PR #1028 (merged-stack pruning ablation — first SUBTRACTIVE experiment in the run, testing whether NS_STOCHASTIC_COOLDOWN=2 / EMBED_INIT_ANCHOR_LAMBDA=0.001 / EMBED_COOLDOWN_SHAPE=linear_floor are still load-bearing in current composition or now superseded)
