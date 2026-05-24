@@ -1,3 +1,69 @@
+## 2026-05-24 18:00 UTC — PR #1041 CLOSED NEG/closure (tanjiro): H122 Body Weight Orthogonal Init (init axis closure — default init is optimal because of SHAPE-AWARE FROB SCALING, not sv structure)
+
+- Branch: `g1r3-tanjiro/h122-ortho-init`
+- Hypothesis: First-ever init experiment in programme (launch-directive endorsed). Test whether `torch.nn.init.orthogonal_` body weight init (pre-loading sv_min ≈ sv_med ≈ sv_max = 1.0 at step 0) helps NS5 maintain its spectral target. arm_c ORTHO_SCALED (×√2) tested elevated Frobenius capacity from H112 finding.
+
+| arm | run_id | val/loss | Δ vs new baseline 3.26706 | Δ vs OLD CTRL 3.26977 | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL default | `l6o1axkw` | 3.27094 | +0.00388 | +0.00117 | NULL bit-id (within widened seed dispersion vs OLD) |
+| arm_b ORTHO | `3tovj9sn` | 3.27981 | +0.01275 | +0.01004 | NEG (well above ceiling 3.27250) |
+| arm_c ORTHO_SCALED | `s2yi0v5o` | 3.27605 | +0.00899 | +0.00628 | NEG (above ceiling) |
+
+Both ORTHO arms NEG. arm_c (×√2 Frob elevation) less negative than arm_b — Frob capacity elevation is mildly beneficial GIVEN orthogonal spectrum, but neither rescues the shape-uniformity penalty.
+
+**Programme-level findings (4 separate):**
+
+1. **Default normal_(std≈0.026/0.031) init is optimal because of SHAPE-AWARE FROB SCALING**, NOT sv structure. Per-shape std produces Frob ∝ √(d_in·d_out). Replacing with fixed-Frob orthogonal (√(min(d_in,d_out))=27.71 across all shapes) breaks shape-awareness: square attn weights start ELEVATED (27.71 vs CTRL's 16-20), non-square MLP weights start DEFICIT (27.71 vs CTRL's 47.6). The optimizer never re-equilibrates per-shape.
+
+2. **Orthogonal pre-loading DOES NOT persist.** sv_min collapses by step 200 (1.0001 → 0.0015). sv_median permanently drifts ABOVE 1.0 (final 2.80 vs CTRL 1.68) — the optimizer never returns to CTRL's spectrum.
+
+3. **REFINEMENT of H112 closure narrative**: sv_median ≈ 1.0 is **NOT a stable attractor** in weight space — it grows past 1.0 during training (CTRL: 0.46 → 1.05 → 1.68). NS5 enforces sv ≤ 1 in the *post-projection gradient*, but weight-space sv_median equilibrates at whatever value SGD-with-NS-projected-grad converges to, which depends on per-shape Frob scaling and is NOT pinned to 1.0. **Amends my H112 reading.**
+
+4. **Early head-start signal**: arm_b leads CTRL by -0.079 val/loss at step 125 (Frob already partway to equilibrium for square matrices). Lead inverts at step 1625 and gap widens through cooldown — MLP-bandwidth deficit becomes the binding constraint by mid-training.
+
+**Frobenius-norm by shape** (step 0 → terminal 3325):
+- attn/q (768×768): CTRL 15.92→58.78 vs ORTHO 27.71→101.76 vs SCALED 39.19→137.79 (ortho ELEVATED, persists)
+- mlp/fc (3072×768): CTRL 47.63→158.20 vs ORTHO 27.71→102.37 vs SCALED 39.19→126.93 (ortho DEFICIT, never catches up)
+- mlp/proj (768×3072): CTRL 47.63→182.05 vs ORTHO 27.71→104.93 vs SCALED 39.19→147.40 (ortho DEFICIT)
+- **Net: ortho arms end with LOWER total MLP capacity and HIGHER attn capacity vs CTRL — harmful rebalancing.**
+
+**Programme directive**: Future init experiments must preserve shape-aware Frobenius scaling. The natural next experiment is shape-aware Frob-matched orthogonal (decouples spectral structure from Frob) — assigned as H128.
+
+**Operational commendation** (4th consecutive gold-standard sv-trajectory diagnostic):
+1. Bit-id CTRL guard held (3.27094 within widened dispersion vs OLD baseline)
+2. Step-0 sv signature verification (1.0001 vs CTRL 0.464) confirms ortho init fired
+3. Frobenius-norm-by-shape table reveals shape-uniformity failure mode
+4. 8-checkpoint val/loss × sv × Frob trajectory is publication-quality
+5. Cross-check on H112 reading led to programme-level amendment
+
+---
+
+## 2026-05-24 18:00 UTC — PR H128 ASSIGNED (tanjiro): Shape-Aware Frobenius-Matched Orthogonal Init (decouple spectral structure from Frob capacity; direct H122 follow-up #1)
+
+- Branch: `g1r3-tanjiro/h128-frob-matched-ortho-init`
+- Hypothesis: H122 closure found default normal_() init is optimal because of SHAPE-AWARE FROB SCALING, not sv structure. H122 confounded two effects: orthogonal STRUCTURE (sv=1.0) AND uniform Frob (sqrt(min(d_in,d_out))). This PR DECOUPLES them: orthogonal init with per-shape Frob scaled to MATCH the existing normal_() init's Frob target. Tests whether spectral STRUCTURE itself helps once shape-aware Frob is preserved.
+- Implementation: extends `--body_init_mode` with new modes `ortho_frob_matched` and `ortho_frob_double`. Per-matrix gain computation: `target_frob = baseline_std_for_layer * sqrt(d_in*d_out)`; `orthogonal_(W)` gives Frob = √(min(d_in,d_out)); scale by `target_frob / √(min(d_in,d_out))`.
+  - attn.q (768×768): baseline_std=0.0208 → target_frob=15.93 → gain=0.575
+  - attn.proj (768×768): baseline_std=0.026 → target_frob=19.97 → gain=0.721
+  - mlp.fc (3072×768): baseline_std=0.031 → target_frob=47.63 → gain=1.719 (UPSIZED from default ortho)
+  - mlp.proj (768×3072): baseline_std=0.031 → target_frob=47.63 → gain=1.719 (UPSIZED)
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--body_init_mode default` (bit-id baseline 3.26706 reproduction)
+  - arm_b FROB_MATCHED: `--body_init_mode ortho_frob_matched` (ortho spectrum + per-shape Frob equal to default init)
+  - arm_c FROB_DOUBLE: `--body_init_mode ortho_frob_double` (ortho spectrum + 2× per-shape Frob — tests if elevated Frob with shape-aware scaling helps)
+- LoC ~30-40 (extends existing body_init_mode flag with per-matrix gain computation)
+- Critical telemetry: sv_min/sv_med/sv_max at steps 0/50/100/200/400/1000/2000/3325 (existing infrastructure); Frobenius norm at same checkpoints; bit-id CTRL guard for default mode.
+- Decision rules (widened NULL band [3.26536, 3.26976], WIN threshold ~3.26626):
+  - arm_b WIN: orthogonal STRUCTURE helps when shape-aware Frob is preserved — programme-level finding (init axis re-opened, MERGE)
+  - arm_b NULL + arm_c NEG: ortho structure neutral; Frob shape is dominant; H122 closure confirmed at higher precision
+  - arm_b NEG + arm_c NEG: closure-amplifier; H122 conclusion holds even with Frob preserved; spectral structure is itself harmful at init
+  - arm_c WIN: elevated Frob with ortho is special (unlikely given H122 finding)
+- Why tanjiro: 4th consecutive gold-standard sv-trajectory diagnostic (H105/H106/H112/H122); direct follow-up #1 to their own H122 closure; existing sv telemetry infrastructure already in place.
+- Mechanism-distinct from all in-flight (H120 thorfinn LR cooldown frac, H121 nezuko inner-µ pruning, H123 askeladd EMA-outer-velocity, H124 edward Lion aux, H125 fern µ-endpoint sweep, H126 frieren hybrid sync, H127 alphonse polyak-weight-avg).
+- W&B group: `g1r3-tanjiro-h128-frob-matched-ortho-init`
+
+---
+
 ## 2026-05-24 17:30 UTC — PR #1033 CLOSED NULL/closure (alphonse): H119 AGC Pruning Ablation (5-axis AGC closure; AGC is VESTIGIAL DEFENSE at 124M scale)
 
 - Branch: `g1r3-alphonse/h119-agc-pruning-ablation`
