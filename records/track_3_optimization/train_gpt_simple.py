@@ -468,6 +468,10 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Dual-timescale momentum buffer (PR #1079). alpha in [0,1]; 0 = disabled (single short buffer),
+# 1 = pure short = baseline. Long buffer uses MU_LONG (default 0.99, tau ~= 100).
+MUON_BODY_DUAL_BUFFER_ALPHA = float(os.environ.get("MUON_BODY_DUAL_BUFFER_ALPHA", "0.0"))
+MUON_BODY_DUAL_BUFFER_MU_LONG = float(os.environ.get("MUON_BODY_DUAL_BUFFER_MU_LONG", "0.99"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -693,7 +697,17 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    if MUON_BODY_DUAL_BUFFER_ALPHA > 0.0:
+                        if "momentum_long" not in state:
+                            state["momentum_long"] = torch.zeros_like(p)
+                        state["momentum_long"].lerp_(grad, 1.0 - MUON_BODY_DUAL_BUFFER_MU_LONG)
+                        m_effective = (
+                            MUON_BODY_DUAL_BUFFER_ALPHA * state["momentum"]
+                            + (1.0 - MUON_BODY_DUAL_BUFFER_ALPHA) * state["momentum_long"]
+                        )
+                        momentum_update = grad.lerp(m_effective, group["mu"])
+                    else:
+                        momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -866,6 +880,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_dual_buffer_alpha": MUON_BODY_DUAL_BUFFER_ALPHA,
+            "optimizer/muon_body_dual_buffer_mu_long": MUON_BODY_DUAL_BUFFER_MU_LONG,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
