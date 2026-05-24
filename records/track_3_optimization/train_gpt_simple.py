@@ -83,6 +83,12 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cooldown_weight_rescale", type=float, default=1.0,
+                        help="Multiplicative weight rescaling factor applied at cooldown onset (step 975 at 3250 steps). "
+                             "1.0=no-op, <1.0=shrink, >1.0=expand. Applied to body matrices only "
+                             "(MLP and attention weights, ndim>=2 in muon param groups).")
+    parser.add_argument("--cooldown_weight_rescale_scope", choices=["body", "all", "mlp", "attn"], default="body",
+                        help="Scope of weight rescaling: body=mlp+attn (default), all=all params, mlp=mlp only, attn=attn only.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +771,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cooldown_weight_rescale": args.cooldown_weight_rescale,
+            "cooldown_weight_rescale_scope": args.cooldown_weight_rescale_scope,
         },
     )
 
@@ -1007,6 +1015,42 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+        # One-shot weight rescaling at cooldown onset (PR #966).
+        # Fires BEFORE opt.step() when (step + 1) == COOLDOWN_ONSET, so the
+        # rescaled weights are picked up by the next forward pass.
+        COOLDOWN_ONSET = round(train_steps * (1 - 0.7))
+        if args.cooldown_weight_rescale != 1.0 and (step + 1) == COOLDOWN_ONSET:
+            rescaled_count = 0
+            rescaled_norm_before_sq = 0.0
+            rescaled_norm_after_sq = 0.0
+            for opt in optimizers:
+                for group in opt.param_groups:
+                    gname = group.get('name', '')
+                    if gname not in ('muon_mlp', 'muon_attn'):
+                        if args.cooldown_weight_rescale_scope != "all":
+                            continue
+                    if args.cooldown_weight_rescale_scope == "mlp" and gname != 'muon_mlp':
+                        continue
+                    if args.cooldown_weight_rescale_scope == "attn" and gname != 'muon_attn':
+                        continue
+                    for p in group['params']:
+                        if p.ndim >= 2:
+                            rescaled_norm_before_sq += p.detach().float().norm().item() ** 2
+                            p.data.mul_(args.cooldown_weight_rescale)
+                            rescaled_norm_after_sq += p.detach().float().norm().item() ** 2
+                            rescaled_count += 1
+            rescaled_norm_before = rescaled_norm_before_sq ** 0.5
+            rescaled_norm_after = rescaled_norm_after_sq ** 0.5
+            print0(f"step {step+1}: cooldown weight rescale α={args.cooldown_weight_rescale} "
+                   f"scope={args.cooldown_weight_rescale_scope} count={rescaled_count} "
+                   f"global_norm: {rescaled_norm_before:.3f} → {rescaled_norm_after:.3f}", console=True)
+            if dist.get_rank() == 0:
+                wandb.log({
+                    "cooldown/weight_rescale_factor": args.cooldown_weight_rescale,
+                    "cooldown/global_norm_before": rescaled_norm_before,
+                    "cooldown/global_norm_after": rescaled_norm_after,
+                    "cooldown/rescaled_param_count": rescaled_count,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         if telemetry_due:
