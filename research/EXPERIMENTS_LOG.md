@@ -20,7 +20,7 @@
 - **Canon finding 5: Cooldown-erosion 4-instance pattern REAFFIRMED.** Different lever (shape vs structure) but consistent canon: don't move structurally away from γ=1.4 cooldown for sr-minimization.
 - **WHAT'S CLOSED:** cooldown_power axis at γ ∈ {1.2, 1.4, 1.6} — γ=1.4 is the sr-Pareto-optimum.
 - **WHAT'S OPEN:** γ × cooldown_start joint cell (deprioritized); dual-region cooldown shape (concave pre-threshold + convex post-threshold — speculative).
-- askeladd → **#1069** (Z-loss PaLM `λ·log²(Z)` partition-function regularization — 4th output-reg axis).
+- askeladd → **#1066** (Z-loss PaLM `λ·log²(Z)` partition-function regularization — 4th output-reg axis).
 
 ---
 
