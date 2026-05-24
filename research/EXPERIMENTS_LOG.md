@@ -1,5 +1,44 @@
 # SENPAI Research Results
 
+## 2026-05-24 12:00 UTC — PR #990 CLOSED: Schedule-Free body-Muon (ε=SF c_t) — 106th NULL, SF-body-Muon axis FULLY CLOSED (g1r1-fern)
+
+- Branch: `g1r1-fern/body-muon-schedule-free`
+- Hypothesis: Replace Polyak EMA (β=0.99) with Schedule-Free c_t=γ²_t/Σγ²_i averaging. Arm A: SF c_t WITH WSD cooldown; Arm B: SF c_t WITHOUT cooldown (constant lr_mult=1.0).
+
+| Arm | W&B | terminal val/loss (EMA-eval) | val/loss_live (raw z_t) | best val | best step | sr | Δval vs #918 | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A — SF+WSD cooldown | `4kjfi8v7` | **3.39235** | **3.26641** | 3.36621 | 2375 | -1 | +0.126 | CATASTROPHIC NULL |
+| B — SF+constant LR | `vxcjae5r` | **3.91383** | **3.58460** | 3.49964 | 1875 | -1 | +0.647 | CATASTROPHIC NULL |
+| Baseline #918 | — | 3.266394 | — | — | — | 2925 | 0 | reference |
+
+- **Mechanism 1 (Arm A): SF c_t → 0 freezes the average mid-cooldown.** c_t @ step 3250 = 3.24e-12 (essentially frozen). frob_dist plateaus at ~1475 after step 2500 while live z_t continues refining. Polyak (1−β_t) ≈ 0.01 stays active throughout cooldown tail; SF c_t collapses to ~0. Result: EMA average is frozen mid-cooldown while baseline Polyak tracks the final converged state.
+- **STRIKING FINDING:** Arm A val_live at terminal = **3.26641** (≈ baseline 3.266394 n=2 mean within 1e-4). The underlying optimizer converges correctly; **SF averaging is what broke the benchmark metric reading**, not optimizer dynamics.
+- **Mechanism 2 (Arm B): constant LR fails on non-convexity.** frob_dist explodes to **66677** (45× Arm A's 1475, ~2200× baseline Polyak peak ~30). Iterates do NOT concentrate around a minimum at constant LR=0.040 for non-convex body-Muon on this transformer. SF c_t weighting assumes iterate concentration (convex guarantee); guarantee fails here.
+- **Canon finding: Polyak (1−β_t) ≥ 0.01 floor is LOAD-BEARING under WSD cooldown.** SF c_t under WSD cooldown is structurally incompatible. SF under constant LR fails via non-convexity.
+- **WHAT'S CLOSED:** SF c_t weighting on body-Muon Polyak EMA (both with-cooldown and no-cooldown); "SF as drop-in averaging replacement for Polyak β=0.99"; "constant LR + SF averaging can replace WSD cooldown".
+- fern → **#1043** (label smoothing: ε=0.05 vs ε=0.10, fresh loss regularization mechanism class).
+
+---
+
+## 2026-05-24 11:42 UTC — PR #1026 CLOSED: Body-Muon DEMA (cascaded EMA β=0.95/0.90) — 105th NULL, cascaded-EMA family FULLY CLOSED (g1r1-edward)
+
+- Branch: `g1r1-edward/body-muon-dema`
+- Hypothesis: Cascaded 2nd-order EMA (DEMA: m2_t = β·m2 + (1-β)·m1, where m1_t = β·m1 + (1-β)·g) before NS5 as structural filter. Arm A β=0.95 (doubled horizon ~40 steps), Arm B β=0.90 (matched horizon ~20 steps). Key diagnostic: `pmuon/dema_vs_single_cosine` (if ≥ 0.99 → DEMA is no-op; if < 0.99 → DEMA rotates NS5 input).
+
+| Arm | β | W&B | step (abort) | val/loss at abort | Verdict |
+|---|---|---|---|---|---|
+| A | 0.95 | step 719, aborted | 719 | **3.5629** | CATASTROPHIC NULL (killed at predeclared step-500 gate, caught at 719) |
+| B | 0.90 | step 500, aborted | 500 | **3.9202** | CATASTROPHIC NULL |
+| Baseline #918 | — | — | — | 3.266394 (terminal) | reference |
+
+- **Key diagnostic `pmuon/dema_vs_single_cosine`:** β=0.95 → cos~0.50-0.57 (43-50° rotation); β=0.90 → cos~0.61-0.73 (27-39° rotation). DEMA is emphatically NOT a structural no-op — it actively rotates the NS5 input direction.
+- **Mechanism:** DEMA cascades two EMAs with shared β, producing a step-response that emphasizes low-frequency gradient signal over high-frequency. This "doubling the time-horizon" injects stale directional bias into NS5 input, consistent with #977's stale-anchor finding: gradient direction changes on ~40-step horizon, so a doubled horizon (β=0.95 DEMA → ~80-step effective horizon) is already stale.
+- **Cross-axis canon with #977 (Dual-EMA): "1st-order EMA β=0.95→0.99 is multi-axis local optimum for NS5 + Nesterov + polar input."** DEMA at β=0.95 produces NS5 input more stale than 1st-order EMA at β=0.95 → worse. DEMA at β=0.90 produces less rotation than β=0.95 but still rotates enough to catastrophically harm performance.
+- **WHAT'S CLOSED:** Cascaded 2nd-order EMA (DEMA) family before NS5 at both β=0.95 and β=0.90; "DEMA as structural temporal filter for NS5 input"; the broader hypothesis that longer-horizon temporal smoothing of NS5 input is beneficial.
+- edward → **#1040** (WD decoupling form correction).
+
+---
+
 ## 2026-05-24 11:15 UTC — PR #986 CLOSED: Body-Muon LR fine-scan UP (0.045 vs 0.050) — 104th NULL, Body-Muon LR axis FULLY CLOSED (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/muon-lr-fine-scan-up`
