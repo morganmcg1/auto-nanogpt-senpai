@@ -1,3 +1,43 @@
+## 2026-05-24 07:00 UTC — PR #1009 ASSIGNED (thorfinn): H114 AGC Global Threshold Elevation Sensitivity Sweep
+
+- Branch: `g1r3-thorfinn/h114-agc-threshold-elevation`
+- Hypothesis: **Test the GLOBAL AGC clip_ratio magnitude** — is 0.05 the correct threshold, or is AGC over-restricting? Direct follow-up from thorfinn's own H105 closure finding (programme-level mechanism: AGC saturation is MAGNITUDE-driven, not HETEROGENEITY-driven). If every body layer's runtime grad/weight ratio is 10-1000× larger than the calibration-step ratio, then ELEVATING the global threshold should reduce `clipped_frac_body` measurably and either improve (if 0.05 was over-restrictive) or worsen (if 0.05 is the correct defensive bound) val/loss. **ZERO code changes** — only CLI flag values: `--muonh_agc_clip_ratio` and `--aux_agc_clip_ratio` are swept.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL clip=0.05 (bit-identical baseline) / arm_b ELEVATED clip=0.10 (2× elevation) / arm_c HIGH clip=0.20 (4× elevation).
+- Critical telemetry (programme-level finding regardless of val/loss): `agc/clipped_frac_body` trajectory — predicted monotone decrease with threshold (arm_a≈1.0, arm_b~0.5-0.7, arm_c~0.25-0.4); if clipped_frac does NOT decrease monotonically, H105's magnitude-driven mechanism is wrong and needs refinement. `agc/grad_norm_body` and `agc/weight_norm_body` trajectories for magnitude calibration.
+- Mechanism-distinct from all closed AGC variants (H93 binding-100% finding, H102 equalizer-absorbs-heterogeneity, H105 per-layer magnitude-driven) and all in-flight experiments. **First experiment to vary the AGC global threshold magnitude in programme history.**
+- Decision: WIN<3.26897 (instant merge — AGC at 0.05 was over-restrictive); NULL∈[3.26880,3.27070] with clipped_frac_body DROPPING → AGC relaxation is benign; NEG>3.27150 with clipped_frac_body DROPPING → 0.05 is correctly tuned, defensive role load-bearing; both NEG → global AGC threshold axis CLOSED at 0.05, joint with H93/H102/H105. Decision branches cover all 4 outcomes (WIN, benign-NULL, defensive-NEG, magnitude-invariant) as programme-level findings.
+- LoC 0 (no code changes). W&B group `H114_agc_threshold_elevation`. Why thorfinn: directly follows his own H105 closure suggestion #3; same numerical-mechanism diagnostic discipline from H97 and H105.
+- Key references: Brock et al. (2021) "High-Performance Large-Scale Image Recognition Without Normalization" (AGC, clip_ratio=0.05 default); H93 closure (AGC clips 100%); H105 closure note (magnitude-driven binding).
+
+---
+
+## 2026-05-24 06:50 UTC — PR #960 CLOSED NEG/closure (thorfinn): H105 Per-Layer AGC clip_ratio Adaptation (programme-level joint closure H93+H102+H105 — AGC saturation is MAGNITUDE-driven not HETEROGENEITY-driven)
+
+- Branch: `g1r3-thorfinn/h105-per-layer-agc`
+- Final 3-arm table (W&B-verified):
+
+| arm | γ | wandb run | val/best_loss | ffs | Δ vs baseline (3.26977) | band |
+|-----|---|-----------|---------------|-----|--------------------------|------|
+| arm_a CTRL | 0.0 | `c39maq34` | 3.26986 | 3075 | +0.00009 | NULL (bit-identical reproduce) |
+| arm_b PRIMARY | 0.5 | `rvyu7wbz` | 3.27121 | 3100 | +0.00144 | **soft-NEG** above NULL [3.26880, 3.27070], below strict-NEG 3.27150 |
+| arm_c STRONG | 1.0 | `shtikqnb` | 3.27069 | 3100 | +0.00092 | NULL upper edge (just inside band by 0.00001) |
+
+- Closure: arm_b soft-NEG + arm_c NULL-upper-edge → **soft closure on per-layer AGC clip-ratio adaptation axis**. Strict closure-amplifier (both NEG) not triggered, but BOTH adaptation arms underperform baseline with no WIN.
+- **Load-bearing mechanism finding (gold-standard via thorfinn's `agc/clipped_frac_body` trajectory)**: the smoke-gate disparity check **PASSED** (ratio_disparity_body=13.80×-15.70× at step 200, above 1.3 gate — heterogeneity EXISTS at calibration). But the smoke-gate clipped_frac reduction **FAILED** in BOTH arm_b and arm_c: `agc/clipped_frac_body=1.00` for gamma=0.5 AND gamma=1.0. Per-layer threshold redistribution (effective_clip range 0.0058-0.091 at gamma=1.0) still clips EVERY body layer every step because runtime grad/weight ratios are 10-1000× larger than calibration-step ratios. **The magnitude-driven mechanism**: static calibration at step 200 captures heterogeneity from a snapshot that doesn't reflect runtime behavior — every layer's runtime ratio overwhelms its individual per-layer threshold.
+- **Joint H93 + H102 + H105 programme-level amplifier finding**: 3 closed axes all confirm **the equalizer is the stack itself**:
+  - H93 PSGD-Kron: AGC clips 100% of inner steps under MuonH-SI + AGC (AGC is saturating)
+  - H102 Blockwise LR multipliers: per-block gradient-RMS disparity stays ≤1.13 (MuonH-SI + AGC absorb whatever sharpness disparity raw gradients carry)
+  - H105 per-layer AGC: calibration disparity 13.8-15.7× exists but runtime disparity is overwhelmed by magnitude → per-layer redistribution has nothing to exploit
+  - Common mechanism: MuonH-SI scale-invariant projection + AGC + MuLoCo outer SGDM together absorb per-block/per-layer heterogeneity earlier in the pipeline
+- **Aux outlier**: `agc/ratio_disparity_aux`≈800K driven by near-zero-gradient scalars at calibration step 200. Separate aux/body medians correctly applied (critical implementation note #4). Confirms structural importance of aux-vs-body separation in AGC calibration.
+- Methodological commendation: thorfinn's **smoke-gate-pass-but-clipped-frac-fail dichotomy** is a gold-standard diagnostic — two independent conditions (disparity>1.3 AND clipped_frac reduction) with dichotomous outcome providing precise mechanism evidence. Same numerical-precision diagnostic discipline from H97 (bf16 underflow vs rank-1 deficiency separation) and the H105 bit-identical CTRL invariant verification.
+- Operational note: clean recovery from concurrent-arm_a duplicates (6nftszri crashed watchdog kill + tpsbpzcg crashed own at step 210) → arm_a c39maq34 continued cleanly, arm_b/arm_c launched sequentially with pre-launch `ps -ef | grep train_gpt` verification.
+- Pre-closes: static per-layer AGC clip-ratio calibration from grad/weight ratios at any single calibration step; per-layer AGC from gradient-norm-only, param-norm-only, or RMS-based metrics at single calibration step.
+- Does NOT pre-close: global AGC threshold magnitude axis (H114 in-flight thorfinn's follow-up), dynamic per-layer recompute every K steps (H105 follow-up #1), per-block (not per-tensor) AGC calibration (follow-up #4), calibration at post-warmup step 500/1000 (follow-up #2).
+- Programme-level takeaway: AGC under MuonH-SI is a magnitude-level saturation phenomenon, not a heterogeneity phenomenon. The path to testing whether AGC is load-bearing or over-restrictive is the global threshold magnitude sweep (H114), not per-layer redistribution.
+
+---
+
 ## 2026-05-24 06:30 UTC — PR #1006 ASSIGNED (nezuko): H113 Aggregated Momentum on Outer SGDM (Lucas et al. ICLR 2019)
 
 - Branch: `g1r3-nezuko/h113-outer-aggmo`
