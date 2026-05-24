@@ -82,6 +82,24 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # H99: Outer-LR schedule. constant = current behavior (outer_lr held at --outer_lr
+    # throughout). cosine_late = WSD-style: outer_lr is stable for the first
+    # (1 - outer_lr_cooldown_frac) of training, then cosine-decays to
+    # outer_lr * outer_lr_floor_ratio over the remaining cooldown window.
+    parser.add_argument("--outer_lr_schedule", type=str,
+                        default=os.environ.get("OUTER_LR_SCHEDULE", "constant"),
+                        choices=["constant", "cosine_late"],
+                        help="Outer-LR schedule. 'constant' = current behavior. "
+                             "'cosine_late' = stable then cosine cooldown to outer_lr*outer_lr_floor_ratio "
+                             "over the last outer_lr_cooldown_frac of training.")
+    parser.add_argument("--outer_lr_cooldown_frac", type=float,
+                        default=float(os.environ.get("OUTER_LR_COOLDOWN_FRAC", "0.3")),
+                        help="Fraction of total steps over which outer_lr cosine-decays "
+                             "(only used with cosine_late schedule).")
+    parser.add_argument("--outer_lr_floor_ratio", type=float,
+                        default=float(os.environ.get("OUTER_LR_FLOOR_RATIO", "0.1")),
+                        help="Outer-LR cooldown floor as a fraction of peak outer_lr "
+                             "(e.g. 0.1 = decay to 10%% of peak).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -91,6 +109,30 @@ def parse_args():
 
 
 args = parse_args()
+
+
+def compute_outer_lr_t(step, args):
+    """Outer-LR at training step `step` (0-indexed in [0, train_steps)).
+
+    constant   : returns args.outer_lr unchanged (bit-identical to baseline).
+    cosine_late: stable at args.outer_lr until cooldown_start = train_steps *
+                 (1 - outer_lr_cooldown_frac), then half-cosine decay from
+                 args.outer_lr down to args.outer_lr * outer_lr_floor_ratio
+                 over the remaining cooldown window.
+    """
+    if args.outer_lr_schedule == "constant":
+        return args.outer_lr
+    if args.outer_lr_schedule == "cosine_late":
+        total_steps = args.train_steps
+        cooldown_steps = int(total_steps * args.outer_lr_cooldown_frac)
+        cooldown_start = total_steps - cooldown_steps
+        if step < cooldown_start:
+            return args.outer_lr
+        progress = (step - cooldown_start) / max(1, cooldown_steps)
+        progress = min(1.0, max(0.0, progress))
+        floor = args.outer_lr * args.outer_lr_floor_ratio
+        return floor + 0.5 * (args.outer_lr - floor) * (1.0 + math.cos(math.pi * progress))
+    raise ValueError(f"Unknown outer_lr_schedule: {args.outer_lr_schedule}")
 
 
 def clean_metric_name(name: str) -> str:
@@ -713,6 +755,16 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.outer_lr_schedule == "constant":
+        print0("Outer-LR schedule: constant (no cooldown)", console=True)
+    else:
+        print0(
+            f"Outer-LR schedule: {args.outer_lr_schedule} "
+            f"cooldown_frac={args.outer_lr_cooldown_frac} "
+            f"floor_ratio={args.outer_lr_floor_ratio} "
+            f"(floor outer_lr = {args.outer_lr * args.outer_lr_floor_ratio:.4f})",
+            console=True,
+        )
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -780,6 +832,9 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "outer_lr_schedule": args.outer_lr_schedule,
+            "outer_lr_cooldown_frac": args.outer_lr_cooldown_frac,
+            "outer_lr_floor_ratio": args.outer_lr_floor_ratio,
         },
     )
 
@@ -1119,6 +1174,7 @@ for trial_idx in range(args.num_trials):
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
+            outer_lr_t = compute_outer_lr_t(step, args)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
@@ -1127,7 +1183,7 @@ for trial_idx in range(args.num_trials):
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
                     outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
+                    p.data.copy_(outer_anchor[n] - outer_lr_t *
                                  (args.outer_momentum * outer_velocity[n] + delta))
                     outer_anchor[n].copy_(p.data)
                     if log_outer:
@@ -1144,6 +1200,10 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                    "train/outer/lr_t": outer_lr_t,
+                    "train/outer/lr_t_normalized": (
+                        outer_lr_t / args.outer_lr if args.outer_lr != 0 else 0.0
+                    ),
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
