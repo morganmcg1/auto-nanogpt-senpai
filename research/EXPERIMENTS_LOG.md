@@ -1,3 +1,44 @@
+## 2026-05-24 04:20 UTC — PR #997 ASSIGNED (alphonse): H110 Aux AdamW β1 Schedule (Level + Cooldown-Phase Asymmetry) — fresh untouched axis
+
+- Branch: `g1r3-alphonse/h110-aux-beta1-schedule`
+- Hypothesis: Schedule the aux AdamW β1 (first-moment EMA decay) — **completely untouched axis**. H87 (merged baseline) showed β2 LEVEL matters (constant β2=0.99 wins, schedule NULL). H94 closed β2 PUSH to 0.999 + wd 2x2 factorial. H95 closed inner-µ static sweep with explicit cooldown-phase momentum asymmetry finding. β1 LEVEL and SCHEDULE have never been touched. Two complementary mechanism hypotheses in single 3-arm experiment: (a) **β1 LEVEL** mirrors H87 β2=0.99 LEVEL win — longer first-moment EMA window may help; (b) **β1 ASYMMETRY** mirrors H95 µ asymmetry — cooldown-phase ramp may exploit "higher momentum wins late" pattern on aux side.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL `aux_beta1_schedule=off, start=0.8` (bit-identical baseline) / arm_b CONSTANT_HIGH `aux_beta1_schedule=off, start=0.9` (β1 LEVEL test) / arm_c COOLDOWN-RAMP `aux_beta1_schedule=cooldown_ramp, start=0.8, end=0.95` (β1 ASYMMETRY test, β1 ramps 0.8→0.95 over last aux_cooldown_frac).
+- Critical telemetry (programme-level finding regardless of val/loss): `aux/beta1` per log step (formula-verification mirror of alphonse's H101 sf_alpha_t check), `aux/grad/lm_head`, `aux/grad/embed` to compare 1st-moment EMA effects on two largest aux groups.
+- Why alphonse: H101 closure note explicitly recommended "Time to move attention elsewhere — perhaps inner-loop variants, MuonH state hygiene, or aux optimizer variants that haven't been swept yet." H110 is exactly that — aux β1 untouched. alphonse's 3rd assignment continuing the "advanced theoretical method, mechanism-rich diagnostic" pattern (H98 Sophia-G, H101 SF outer, now H110 aux β1).
+- Decision: WIN<3.26897 (instant merge); NULL∈[3.26880, 3.27070]; NEG>3.27150. Decision branches: arm_b WIN + arm_c NULL/NEG → β1 LEVEL load-bearing (mirrors H87 β2 LEVEL); arm_c WIN + arm_b NULL/NEG → β1 ASYMMETRY load-bearing (mirrors H95 µ); both WIN → both mechanisms compound; both NULL → β1 EMA NOT load-bearing (contrast with β2); both NEG → β1=0.8 at-margin-optimum, brittle to changes.
+- LoC ~30 (3 argparse + schedule block in `set_hparams` + return value plumbing + W&B log line). W&B group `H110_aux_beta1_schedule`. Mechanism-distinct from all in-flight g1r3 (H103-H109) and closed (H87/H89/H94/H97/H101 aux experiments + H95 inner-µ).
+- Key references: Kingma & Ba (2014) "Adam: A Method for Stochastic Optimization" arXiv:1412.6980; H87 merged baseline (β2 LEVEL); H95 inner-µ asymmetry closure note.
+
+---
+
+## 2026-05-24 04:20 UTC — PR #957 CLOSED NEG/closure (alphonse): H101 Schedule-Free Outer Averaging (programme-level closure on SF outer aggregation axis)
+
+- Branch: `g1r3-alphonse/h101-outer-schedule-free`
+- Final 3-arm table:
+
+| arm | flag | β_sf | val/loss | best | ffs | Δ vs baseline 3.26977 | verdict |
+|-----|------|------|----------|------|-----|------------------------|---------|
+| arm_a CTRL | heavyball SGDM | — | 3.27198 | 3.27198 | 3125 | +0.00221 | NULL (dispersion floor) |
+| arm_b PRIMARY | SF | 0.9 | 4.11583 | 4.08277 @ 3025 | -1 | +0.84606 | catastrophic NEG |
+| arm_c TUNED | SF | 0.7 | 4.12667 | 4.09282 @ 3025 | -1 | +0.85690 | catastrophic NEG |
+
+- Closure: arm_b NEG + arm_c NEG → SF outer averaging axis CLOSED. Joint with H91 (outer Adam direction), H99 (outer LR-WSD), H100 (grafted Adam-with-SGDM-magnitude), the outer-loop alternative aggregation axis is now BROADLY CONSTRAINED. MuLoCo outer SGDM heavy-ball is doing real work that explored alternatives cannot replicate.
+- **Load-bearing mechanism finding (gold-standard via alphonse's sf_alpha_t formula-verification + slow/fast geometry trajectory)**: sf_alpha_t matches Defazio β/(1+βt) formula to 4 decimals — implementation correct. Slow weights start at cos=0.477 with fast weights at outer step 1 (52% direction divergence after just 30 inner steps), and the 1/t alpha decay keeps them 12-25% behind in direction for 60-70% of training. Terminal cos=0.9998 confirms Polyak-Ruppert asymptotic catch-up, but logarithmic catch-up at α_t ∝ 1/t is too slow for 3325-step horizon (~110 outer syncs). Best val/loss occurs at step 3025 (90% through) — slow weights over-averaged at termination.
+
+- **Mechanism contrast with H85 (SF on aux, closed cycle 122)**: H85 closed because constant aux LR destabilized y_t (instability). H101 doesn't destabilize — fails for different reason: averaging too conservative for horizon (under-aggression). **Two different SF failure modes** at two different optimizer levels.
+
+| arm | sf_alpha_t @ step 1 | @ step 5 | @ step 50 | @ terminal | slow/fast cos @ start | @ terminal |
+|-----|---------------------|----------|-----------|-------------|------------------------|------------|
+| arm_b β=0.9 | 0.4737 | 0.1636 | 0.0099 | 0.0090 | 0.477 (outer_step=1) | 0.9998 |
+| arm_c β=0.7 | 0.4118 | 0.1556 | 0.0098 | 0.0090 | 0.412 → ~0.5 | 0.9998 |
+
+- arm_c TUNED hypothesis was wrong-signed: smaller β=0.7 gave SMALLER α₁=0.412 (vs 0.474 for β=0.9), so slow weights ramped UP slower not faster. arm_c uniformly worse than arm_b by +0.01-0.05 at every step.
+- Methodological commendation: alphonse's sf_alpha_t formula verification at outer steps 1-6 with exact-decimal match to β/(1+βt) is textbook implementation-correctness diagnostic. Joins edward H99 velocity_rms × outer_lr_t and askeladd H100 ratio_sgdm_over_adam as gold-standard outer-loop mechanism diagnosis templates.
+- Pre-closes: SF outer averaging variants without explicit momentum buffer; Polyak-Ruppert at our 3325-step horizon. Does NOT pre-close: hybrid SGDM-then-SF (bootstrap with heavy-ball then switch), inner-loop SF on MuonH momentum, aux-side SF (different optimizer level).
+- Programme-level takeaway: the outer aggregation *rule* matters substantially — removing momentum buffer entirely is not equivalent to SGDM heavy-ball. MuLoCo's outer heavy-ball SGDM (outer_lr=0.7, outer_momentum=0.5) is structurally needed to maintain slow-fast alignment throughout training.
+
+---
+
 ## 2026-05-24 03:50 UTC — PR #992 ASSIGNED (fern): H109 Inner MuonH µ Schedule — Cooldown-Phase Momentum Ramp (fresh axis from H95 closure note)
 
 - Branch: `g1r3-fern/h109-mu-schedule`
