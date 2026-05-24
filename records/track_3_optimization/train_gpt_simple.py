@@ -83,6 +83,13 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--cooldown_swa_beta", type=float, default=-1.0,
+                        help="Cooldown weight-EMA decay (SWA). -1=disabled. "
+                             "0.99=half-life ~70 steps. EMA is collected during cooldown only "
+                             "and used purely for evaluation; training continues on live weights.")
+    parser.add_argument("--cooldown_swa_start", type=int, default=-1,
+                        help="Step at which to start SWA EMA collection. -1=use COOLDOWN_ONSET "
+                             "(=round(train_steps * 0.3)). Set e.g. 1625 to start at cooldown midpoint.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -765,6 +772,8 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "cooldown_swa_beta": args.cooldown_swa_beta,
+            "cooldown_swa_start": args.cooldown_swa_start,
         },
     )
 
@@ -777,6 +786,12 @@ for trial_idx in range(args.num_trials):
 
     # we want to minimize this while still reaching 3.28 val loss
     train_steps = int(os.environ.get("SENPAI_TRAIN_STEPS", 3250))
+
+    # SWA (Stochastic Weight Averaging) setup — only active when --cooldown_swa_beta > 0.
+    # COOLDOWN_ONSET matches the cooldown_frac=0.7 default used in set_hparams().
+    COOLDOWN_ONSET = round(train_steps * (1.0 - 0.7))  # e.g. 975 for train_steps=3250
+    swa_start_step = args.cooldown_swa_start if args.cooldown_swa_start > 0 else COOLDOWN_ONSET
+    swa_state = None  # lazily initialized at step==swa_start_step (post opt.step)
 
     NUM_LAYERS = len(model.blocks)  # = 12 for the fixed baseline architecture
 
@@ -924,6 +939,16 @@ for trial_idx in range(args.num_trials):
             step_avg = time_since_last_val / (step - last_val_step) if step > 0 else float("nan")
             last_val_step = step
             training_time += time_since_last_val
+            # SWA: temporarily swap live -> SWA weights for eval; restore after.
+            using_swa = (args.cooldown_swa_beta > 0
+                         and swa_state is not None
+                         and step >= swa_start_step)
+            live_state = None
+            if using_swa:
+                live_state = {n: p.detach().clone() for n, p in model.named_parameters()}
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(swa_state[n])
             model.eval()
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
@@ -952,11 +977,25 @@ for trial_idx in range(args.num_trials):
                     "speedrun/reached_target": int(first_step_to_target >= 0),
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
+                    "val/used_swa": int(using_swa),
                 }
+                if using_swa and live_state is not None:
+                    total_dist_sq = 0.0
+                    for n in swa_state:
+                        d = (swa_state[n].float() - live_state[n].float()).norm().item()
+                        total_dist_sq += d * d
+                    metrics["swa/live_vs_swa_dist"] = total_dist_sq ** 0.5
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
-                   + f" step_avg:{1000*step_avg:.2f}ms", console=True)
+                   + f" step_avg:{1000*step_avg:.2f}ms"
+                   + (" [SWA]" if using_swa else ""), console=True)
+            # Restore live weights so training continues normally.
+            if using_swa and live_state is not None:
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(live_state[n])
+                del live_state
             model.train()
             # start the clock again
             dist.barrier()
@@ -1009,6 +1048,19 @@ for trial_idx in range(args.num_trials):
             )
         for opt in optimizers:
             opt.step()
+        # SWA EMA update on the post-step weights. Initialized at step==swa_start_step,
+        # then EMA'd every subsequent step. Pure read of model parameters; training is
+        # unaffected. Memory cost ~ one extra model copy.
+        if args.cooldown_swa_beta > 0:
+            if step == swa_start_step:
+                with torch.no_grad():
+                    swa_state = {n: p.detach().clone()
+                                 for n, p in model.named_parameters()}
+            elif step > swa_start_step and swa_state is not None:
+                with torch.no_grad():
+                    beta = args.cooldown_swa_beta
+                    for n, p in model.named_parameters():
+                        swa_state[n].mul_(beta).add_(p.detach(), alpha=1.0 - beta)
         if telemetry_due:
             update_norms = optimizer2.get_step_update_norms()
             current_lrs = {group.get("name", f"group_{i}"): group["lr"]
