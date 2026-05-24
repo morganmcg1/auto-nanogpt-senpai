@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# MUON_BODY_POST_NS5_RMS_SCALE (PR #1094): per-element RMS scaling of the post-NS5 body Muon update.
+# Maintains EMA of grad**2; rescales the post-NS5 update by (median(sqrt(EMA)) / sqrt(EMA)), then blends with raw update.
+# Blend coefficient 0.0 = disabled (default; patch is bytewise inert). Beta = EMA decay on grad**2. Eps = sqrt clamp.
+MUON_BODY_POST_NS5_RMS_SCALE = float(os.environ.get("MUON_BODY_POST_NS5_RMS_SCALE", "0.0"))
+MUON_BODY_POST_NS5_RMS_BETA = float(os.environ.get("MUON_BODY_POST_NS5_RMS_BETA", "0.95"))
+MUON_BODY_POST_NS5_RMS_EPS = float(os.environ.get("MUON_BODY_POST_NS5_RMS_EPS", "1e-8"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,11 +661,16 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        # PR #1094 MUON_BODY_POST_NS5_RMS_SCALE: per-step accumulator + global step counter.
+        self._post_ns5_rms_acc: list[tuple[float, float]] = []
+        self._global_step: int = 0
 
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        self._global_step += 1
+        debug_print_due = MUON_BODY_POST_NS5_RMS_SCALE > 0.0 and self._global_step == 100 and rank == 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -702,6 +713,34 @@ class Muon(torch.optim.Optimizer):
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
                     update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # PR #1094 MUON_BODY_POST_NS5_RMS_SCALE: per-element RMS rescaling DOWNSTREAM of NS5.
+                    # grad_sq_ema accumulates EMA of g**2; rescale post-NS5 update by median-normalized
+                    # inverse-sqrt of grad-variance so high-variance elements shrink and low-variance grow,
+                    # while median scale ≈ 1.0 preserves Frobenius norm in expectation. Blend with raw update.
+                    if MUON_BODY_POST_NS5_RMS_SCALE > 0.0:
+                        if "grad_sq_ema" not in state:
+                            state["grad_sq_ema"] = torch.zeros_like(p, dtype=torch.float32)
+                        grad_f = grad.float()
+                        state["grad_sq_ema"].lerp_(grad_f * grad_f, 1.0 - MUON_BODY_POST_NS5_RMS_BETA)
+                        rms_scale = state["grad_sq_ema"].sqrt().clamp_min(MUON_BODY_POST_NS5_RMS_EPS)
+                        rms_scale = rms_scale.median() / rms_scale  # MEDIAN-NORMALIZED: median scale == 1.0
+                        update_before_norm = update.float().norm().clamp_min(1e-10)
+                        update_rms = update * rms_scale.to(update.dtype)
+                        update = MUON_BODY_POST_NS5_RMS_SCALE * update_rms + (1.0 - MUON_BODY_POST_NS5_RMS_SCALE) * update
+                        update_after_norm = update.float().norm().clamp_min(1e-10)
+                        rms_max = rms_scale.max().item()
+                        rms_min = max(rms_scale.min().item(), 1e-12)
+                        self._post_ns5_rms_acc.append((
+                            rms_max / rms_min,
+                            (update_after_norm / update_before_norm).item(),
+                        ))
+                        if debug_print_due:
+                            print(f"[POST_NS5_RMS_DEBUG step={self._global_step}] blend={MUON_BODY_POST_NS5_RMS_SCALE} "
+                                  f"shape={tuple(p.shape)} "
+                                  f"rms_scale_min={rms_scale.min().item():.4f} "
+                                  f"rms_scale_max={rms_max:.4f} "
+                                  f"rms_scale_median={rms_scale.median().item():.4f}",
+                                  flush=True)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -719,6 +758,25 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+
+    def post_ns5_rms_stats(self) -> dict[str, float]:
+        """Return per-step post-NS5 RMS-scaling stats (PR #1094), accumulated since last call.
+
+        Empty when MUON_BODY_POST_NS5_RMS_SCALE == 0.0 (no entries appended). Calling resets the
+        accumulator so each telemetry tick reports stats since the previous tick.
+        """
+        acc = self._post_ns5_rms_acc
+        if not acc:
+            return {}
+        n = len(acc)
+        mean_scale_range = sum(r for r, _ in acc) / n
+        mean_norm_ratio = sum(nr for _, nr in acc) / n
+        self._post_ns5_rms_acc = []
+        return {
+            "count": n,
+            "post_ns5_rms_scale_range": mean_scale_range,
+            "post_ns5_update_norm_ratio": mean_norm_ratio,
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +924,9 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_post_ns5_rms_scale": MUON_BODY_POST_NS5_RMS_SCALE,
+            "optimizer/muon_body_post_ns5_rms_beta": MUON_BODY_POST_NS5_RMS_BETA,
+            "optimizer/muon_body_post_ns5_rms_eps": MUON_BODY_POST_NS5_RMS_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1120,14 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "post_ns5_rms_stats"):
+                    rms_stats = opt.post_ns5_rms_stats()
+                    if rms_stats:
+                        wandb.log({
+                            "optim/post_ns5_rms_scale_range": rms_stats["post_ns5_rms_scale_range"],
+                            "optim/post_ns5_update_norm_ratio": rms_stats["post_ns5_update_norm_ratio"],
+                            "optim/post_ns5_rms_obs_count": rms_stats["count"],
+                        }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
