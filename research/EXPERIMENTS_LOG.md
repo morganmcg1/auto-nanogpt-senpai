@@ -1,5 +1,50 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 11:40 UTC — PR #1017: MUON_MOMENTUM_PREFILL (CLOSED, 97th refuted — ZERO-SLOPE axis, both arms identical at floor cluster, momentum-buffer-INIT lifecycle exhausted)
+
+- Branch: `g1r2-alphonse/muon-momentum-prefill` (student g1r2-alphonse)
+- Hypothesis: Prefill body-Muon momentum buffer with `α × first_grad` instead of zeros, eliminating zero-init startup bias. Step-1 effective gradient scale moves from 0.2775× → 0.6388× (α=0.5) → 1.0× (α=1.0). Arm A=α=0.5 + Arm B=α=1.0. **FIRST momentum-buffer INIT test in 250+ PRs**.
+
+| Run | Mechanism | val@500 | val@1000 | val@3000 | terminal val | ffs | Outcome |
+|---|---|---:|---:|---:|---:|---:|---|
+| Disabled-check `jhq0zq4q` | PREFILL=0.0 | val@200=4.0789 ✓ | — | — | — | — | plumbing OK |
+| Arm A (α=0.5) `xzzzb27z` | half-prefill | 3.8021 ✓ | 3.6595 ✓ | 3.2813 ✓ | **3.27009** ❌ | 3025 | floor cluster close-miss |
+| Arm B (α=1.0) `ufi39kvr` | full-prefill | 3.8035 ✓ | 3.6605 ✓ | 3.2813 ✓ | **3.27010** ❌ | 3025 | floor cluster close-miss |
+| Reference baseline (PR #613) | zero-init | ~3.79 | ~3.55 | ~3.28 | 3.26776 | 3000 | n=2 statsig 4.33× |
+
+**Side-by-side Δ between arms** (Arm B − Arm A across full trajectory):
+
+| step | Arm A val | Arm B val | Δ (B−A) |
+|---|---:|---:|---:|
+| 500 | 3.80207 | 3.80352 | +0.00145 |
+| 1000 | 3.65945 | 3.66049 | +0.00104 |
+| 1500 | 3.53273 | 3.53250 | −0.00023 |
+| 2000 | 3.43007 | 3.42975 | −0.00032 |
+| 2500 | 3.34600 | 3.34609 | +0.00009 |
+| 3000 | 3.28132 | 3.28132 | 0.00000 |
+| **3175** | **3.27009** | **3.27010** | **+0.00001** |
+| ffs | 3025 | 3025 | 0 |
+
+**Mechanistic reading (student alphonse's analysis, advisor concurrence)**:
+
+1. **The patch worked as intended.** Disabled-check matches baseline (4.0789 ≈ 4.085 ± 0.005). With α>0, the body-Muon momentum buffer is born at `α × first_grad` instead of 0. The intervention reaches the optimizer.
+
+2. **ZERO-SLOPE axis at floor cluster.** Arm A and Arm B produce essentially identical trajectories from step 500 onward (max |Δ| ~0.0015 val) and identical terminals (Δ=+0.00001 val, Δ=0 ffs). The α-axis has zero slope in this regime — there is no sweet spot to find.
+
+3. **Why bias-elimination didn't translate to lift**: MU_WARMUP_STEPS=200 with MU_WARMUP_START=0.85 already compensates for cold-momentum bias adequately. NS5 polar projection's scale-invariance absorbs step-1 scale changes (0.28→0.64→1.0×). Buffer's directional EMA converges within warmup window regardless of init scale → downstream NS5 output sees a directionally-aligned momentum estimate by step ~50-100 in either case.
+
+4. **Floor-cluster close-miss, not refuted-as-broken**: Both arms reach floor-cluster band — they do not diverge, do not crash, do not overshoot. Intervention is benign but ineffective at this stack.
+
+5. **Momentum-buffer mechanism class characterization across 4 orthogonal probes after this PR**:
+   - INIT at step 0 (#1017 prefill α=0.5/1.0 — refuted, zero slope)
+   - CONTINUOUS rescale (#983 grad-tracking — refuted, catastrophic kill step 500)
+   - CONTINUOUS dropout (#991 stochastic zeroing — refuted, all variants worse than baseline)
+   - ONE-TIME RESET (#1029 mid-training reset at warmup end step 200 — IN FLIGHT, measures inverse of prefill)
+
+**Disposition**: CLOSED as 97th refuted axis. Momentum-buffer-INIT lifecycle is exhausted at floor cluster; if #1029 RESET also refutes, the buffer's entire LIFECYCLE is exhausted as an intervention surface.
+
+---
+
 ## 2026-05-24 10:30 UTC — PR #1019: BODY_MUON_USE_SVD (CLOSED, 96th refuted — NS5 approximation error IS beneficial implicit regularization, SVD-full 2.34× slower, NS5 polynomial layer COMPLETELY CHARACTERIZED across SHAPE/ITER/FAMILY/INPUT_NORM)
 
 - Branch: `g1r2-thorfinn/body-muon-use-svd` (student g1r2-thorfinn)
