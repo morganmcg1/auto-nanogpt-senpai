@@ -64,6 +64,10 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--confidence_penalty", type=float, default=0.0,
+                        help="Confidence penalty coefficient beta for the -beta*H(p) entropy "
+                             "regularization term added to the training loss. 0=disabled. "
+                             "Validation loss is always hard CE regardless (benchmark contract).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -446,13 +450,28 @@ class GPT(nn.Module):
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
 
-    def forward(self, inputs: Tensor, targets: Tensor):
+    def forward(self, inputs: Tensor, targets: Tensor,
+                confidence_penalty: float = 0.0, return_aux: bool = False):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
         logits = self.proj(self.norm2(x)).float()
         logits = 15 * logits * (logits.square() + 15**2).rsqrt()
-        return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
+        flat_logits = logits.view(targets.numel(), -1)
+        flat_targets = targets.view(-1)
+        # Validation always uses hard CE (benchmark contract): callers omit confidence_penalty.
+        ce_loss = F.cross_entropy(flat_logits, flat_targets, reduction="sum")
+        if confidence_penalty > 0.0:
+            log_p = F.log_softmax(flat_logits, dim=-1)
+            entropy_per_token = -(log_p.exp() * log_p).sum(dim=-1)
+            entropy_sum = entropy_per_token.sum()
+            loss = ce_loss - confidence_penalty * entropy_sum
+            if return_aux:
+                return loss, ce_loss.detach(), entropy_sum.detach()
+            return loss
+        if return_aux:
+            return ce_loss, ce_loss.detach(), ce_loss.new_zeros(())
+        return ce_loss
 
 
 ########################################
@@ -720,6 +739,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "confidence_penalty": args.confidence_penalty,
+            "confidence_penalty_active": int(args.confidence_penalty > 0.0),
         },
     )
 
@@ -941,8 +962,19 @@ for trial_idx in range(args.num_trials):
         # accumulate across microbatches in case we are running with fewer than 8 gpus
         assert len(inputs) % mbs == 0
         step_loss = torch.zeros((), device=device)
+        cp_active = args.confidence_penalty > 0.0
+        step_ce_sum = torch.zeros((), device=device) if cp_active else None
+        step_entropy_sum = torch.zeros((), device=device) if cp_active else None
         for i in range(len(inputs) // mbs):
-            loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
+            if cp_active:
+                loss, ce_sum_mb, ent_sum_mb = model(
+                    inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs],
+                    confidence_penalty=args.confidence_penalty, return_aux=True,
+                )
+                step_ce_sum += ce_sum_mb
+                step_entropy_sum += ent_sum_mb
+            else:
+                loss = model(inputs[i*mbs:(i+1)*mbs], targets[i*mbs:(i+1)*mbs])
             step_loss += loss.detach()
             loss.backward()
         for name, p in model.named_parameters():
@@ -950,6 +982,9 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
         dist.all_reduce(step_loss, op=dist.ReduceOp.SUM)
         train_loss = float((step_loss / batch_size).item())
+        if cp_active:
+            dist.all_reduce(step_ce_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(step_entropy_sum, op=dist.ReduceOp.SUM)
         # set optimization hyperparameters and take a step
         sched_progress, sched_cooldown_progress, sched_eta = set_hparams(step)
         train_step = step + 1
@@ -978,6 +1013,19 @@ for trial_idx in range(args.num_trials):
                 train_steps=train_steps,
                 wandb_step=wandb_step,
             )
+            if cp_active:
+                ce_per_token = float((step_ce_sum / batch_size).item())
+                entropy_per_token_mean = float((step_entropy_sum / batch_size).item())
+                entropy_penalty_total = -args.confidence_penalty * float(step_entropy_sum.item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "train/loss_ce_only": ce_per_token,
+                    "train/entropy_per_token_mean": entropy_per_token_mean,
+                    "train/entropy_penalty": entropy_penalty_total,
+                    "train/loss_composite": train_loss,
+                    "hyperparams/confidence_penalty": args.confidence_penalty,
+                }, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # EMA buffer update on body-Muon matrix params.
