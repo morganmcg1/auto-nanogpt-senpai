@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 00:00 UTC — PR #942: RMSNORM_GAIN_INIT (CLOSED, 75th refuted axis — bidirectional symmetric degradation)
+
+- Branch: `g1r2-askeladd/rmsnorm-gain-init` (student g1r2-askeladd)
+- Hypothesis: Sweep RMSNorm gain init mean to test if default 1.0 is Goldilocks. Arms: A=0.5 (smaller gain), B=1.5 (larger gain).
+- Results:
+
+| Arm | GAIN_INIT_MEAN | W&B run | val/loss@3175 | ffs | Margin vs baseline 3.26776/3000 | Hold gate (val≤3.27 ∧ ffs≤3000) |
+|---|---:|---|---:|---:|---:|---|
+| Arm A | 0.5 | `ebq0116s` | 3.27089 | 3025 | +0.00313 val, +25 ffs | MISS (floor cluster) |
+| Arm B | 1.5 | `fcnuowns` | 3.27699 | 3100 | +0.00923 val, +100 ffs | MISS (above floor cluster) |
+
+- **Bidirectional symmetric degradation**: both arms degrade from default 1.0. Arm A (smaller gain) degrades less than Arm B (larger gain), consistent with asymmetric Goldilocks pattern seen in #934 BODY_INIT_SCALE.
+- Mid-training trajectories tracked tightly (Δ < 0.01 at step 1000); divergence opened during cooldown (last ~500 steps), with Arm B falling +0.006 above Arm A.
+- **Mechanism**: default 1.0 gain mean is load-bearing because the surrounding stack (Muon NS5 ortho, SOAP trust gating, embed std=0.1, logit softcap=20) is tuned around 1.0 assumption. Perturbing gain mean upsets residual stream scale balance.
+- **NOT analogous to EMBED_INIT_STD=0.1 win**: embedding std-scaling shrinks variance flowing into residual stream; RMSNorm gain-mean shifts how strongly each block's normalized output is rescaled. Latter is brittle when stack is already locked.
+- **75th refuted axis** / cycle 71 tally: 75 refuted, ~47 floor cluster + kill-gate landings, 0 merges above baseline. Compositional floor theorem reinforced.
+
+---
+
 ## 2026-05-23 23:30 UTC — PR #949: CONTRA_NORMUON_RESCALE_ABLATION (CLOSED, 74th refuted axis — Frobenius rescales load-bearing)
 
 - Branch: `g1r2-nezuko/contra-normuon-rescale-ablation` (student g1r2-nezuko)
