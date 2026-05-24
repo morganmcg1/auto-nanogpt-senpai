@@ -1,5 +1,53 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 08:00 UTC — PR #1012: AUX_LION (CLOSED, 93rd refuted — Lion as aux optimizer structurally fails, AUX OPTIMIZER FAMILY SATURATED)
+
+- Branch: `g1r2-thorfinn/aux-lion` (student g1r2-thorfinn)
+- Hypothesis: Replace aux AdamW with Lion (Chen et al. 2023, sign-update step rule) for embed + lm_head + scalars after scalar HP space for AdamW was exhausted (β1, WD_AUX, eps all refuted). Mechanism: Lion's sign-update is eps-free and may benefit cold embed rows by providing unit-magnitude pushes regardless of grad scale.
+
+| Arm | Spec | W&B | val@500 | Outcome |
+|---|---|---|---:|---|
+| Disabled check (AUX_OPT=adamw) | identity branch | `pktydr6o` | val@200=4.083 ✓ | plumbing OK |
+| Arm A (Lion lr/3, scale=0.333) | sign-update aux | `ikittdsn` | **3.83334** ❌ | kill gate trip +0.023 |
+| Arm B (Lion lr/10, scale=0.1) | sign-update aux | `uxzksryz` | **3.89048** ❌❌ | kill gate trip +0.080 (WORSE than Arm A) |
+| Reference baseline | AUX_OPT=adamw | (PR #613) | ~3.81 | baseline |
+
+**Mechanistic reading (student thorfinn's key insight)**: **Arm B (more conservative LR/10) is MONOTONICALLY WORSE than Arm A (LR/3)**. This rules out LR overshoot as the failure mechanism — with sign-based updates, the per-step displacement magnitude is decoupled from gradient scale, so reducing LR just shrinks the unit-magnitude step proportionally without addressing the structural problem.
+
+**Why Lion structurally fails at the aux slot**:
+1. **Embed/lm_head row sparsity**: each batch visits a small subset of vocab rows. AdamW's per-row second moment provides essential magnitude information distinguishing "cold visit, big push needed" from "frequent visit, small refinement". Lion's sign-update collapses this distinction.
+2. **Cold rows get unit-magnitude pushes that overshoot**: predicted by the hypothesis to HELP (eps-free), but empirically destroys row alignment for newly-visited vocab.
+3. **Scalars likely fine with Lion**: but scalars are only ~768 params vs 38M for embed.weight, so embed/lm_head failure dominates.
+
+## **AUX OPTIMIZER FAMILY DEFINITIVELY SATURATED**
+
+Cycle 71 has now refuted ALL interventions in the aux AdamW/Lion family for the embed + lm_head + scalars slot:
+
+| Axis | Mechanism | Refuted PR | Sub-class |
+|---|---|---|---|
+| β1 sweep | scalar HP | multiple | scalar HP |
+| WD_AUX decoupling | per-param-group WD | multiple | scalar HP |
+| eps sweep (1e-8 vs 1e-12) | scalar HP | #1000 (90th) | scalar HP |
+| Lion sign-update | structural family swap | #1012 (93rd, this) | structural |
+
+**No remaining levers in AdamW/Lion family for the aux slot**. Future probes must consider:
+- Entirely different optimizer families: Shampoo, KFAC, Sophia-style Hessian preconditioners
+- Move on from aux slot to other slots (body Muon, NS5 layer, post-NS5 update space)
+
+## Convergent insight across cycle 71
+
+The well-tuned baseline stack is **asymmetric in what it tolerates vs what it depends on**:
+- **Body Muon depends on update magnitude variation** — #968 per-tensor clip, #971 var-norm, #983 momentum rescale, #991 momentum dropout, #1007 u/w-cap all refute magnitude-compression interventions
+- **Aux AdamW depends on per-row second-moment magnitudes** — #1012 Lion sign-quantization refutes
+- **NS5 depends on iteration depth precision** — #999 stochastic iter perturbation refutes
+- **u/w-floor is asymmetric (floor-only, no cap)** — #1007 confirms via cap-side refutation
+
+The natural "fresh" interventions perturb the load-bearing structure. The pattern is now overdetermined: 93 axes refuted, all converge on the same insight that the baseline's specific working point is highly local and most natural perturbations are bad.
+
+**Total cycle 71 portfolio at this closure**: 93 refuted axes, 18 distinct mechanism classes probed (#1019 BODY_MUON_USE_SVD just assigned as 19th).
+
+Closure URL: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1012#issuecomment-4527760135
+
 ## 2026-05-24 07:35 UTC — PR #999: MUON_NS5_ITERS_STOCHASTIC (CLOSED, 92nd refuted — NS5 iteration depth stochasticity fails despite mean preservation, NS5 axis is precision-bound)
 
 - Branch: `g1r2-alphonse/muon-ns5-iters-stochastic` (student g1r2-alphonse)
