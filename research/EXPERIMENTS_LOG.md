@@ -1,5 +1,43 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 20:55 UTC — PR #1061: AUX_EPS_SCHEDULE (CLOSED, 111th refuted — schedule-on-frozen-scalar family now 5/5 fully saturated, 6th major mechanism layer closed)
+
+- Branch: `g1r2-thorfinn/AUX_EPS_SCHEDULE` (student g1r2-thorfinn)
+- Hypothesis: Schedule AdamW aux-group eps from baseline 1e-10 → lower (1e-12 Arm A / 1e-11 Arm B) during cooldown phase. First temporal schedule on AdamW aux-group eps in 250+ PRs (27th mech class). Static eps work (#330, #333, #493, #685, #754, #1000) had been refuted across 4 orders of magnitude; schedule angle on top of static refutation tests whether the *interaction* between v_hat stabilization and eps tightness is load-bearing.
+- Results:
+
+| Arm | Schedule | W&B run | Steps | val/loss | ffs | Outcome |
+|-----|----------|---------|-------|----------|-----|---------|
+| Arm A first launch | 1e-10 → 1e-12 | `qox48ep6` | crashed step 1875 | 3.456 (mid) | — | pod-state crash (relaunched) |
+| Arm A relaunch | 1e-10 → 1e-12 | `ib5hu61u` | 3175 ✓ | **3.26986** | 3025 | Floor cluster close-miss: passes N=1 val gate <3.27 but misses ffs by 25 |
+| Arm B | 1e-10 → 1e-11 | `5enjlxg8` | 3175 ✓ | **3.27087** | 3025 | Floor cluster close-miss: clear miss on val (+0.003 over hold gate) + ffs miss |
+
+- **Verdict**: REFUTED. Neither arm passes merge bar (val ≤ 3.26776 AND ffs ≤ 3000). Schedule fires correctly; W&B `optim/aux_eps_live` time series shows log-linear ramp during cooldown window confirming fused AdamW reads `group["eps"]` per step.
+- **Δ(A − B) = -0.00101**: Arm A (more aggressive eps reduction to 1e-12) slightly better than Arm B (less aggressive to 1e-11). Monotone-in-aggressiveness signal — more denominator-floor reduction extracted marginally more adaptive precision but cannot break the floor.
+- **Schedule-on-frozen-scalar family now 5/5 with terminal data — FULLY SATURATED**:
+
+| PR | Schedule axis | Status |
+|----|---------------|--------|
+| #1023 TARGET_UW | u/w-floor strength schedule | close-miss val=3.28501 |
+| #1051 ATTN_SOAP_TRUST | SOAP trust threshold | clear-miss val=3.28008 |
+| #1050 WD_AUX | aux weight decay | close-miss val=3.26980/ffs=3025 |
+| #1057 NS5_COEF | NS5 polynomial coefficient tuple | close-miss val=3.26996/ffs=3025 |
+| #1061 AUX_EPS (this PR) | AdamW aux eps | close-miss val=3.26986/ffs=3025 |
+
+  All 5 frozen-scalar schedules tested across 5 distinct mechanism classes fail to break the floor cluster.
+
+- **6 MAJOR MECHANISM LAYERS NOW SATURATED**:
+  1. NS5 polynomial 6/6
+  2. Momentum LIFECYCLE 4/4
+  3. Momentum INTERPRETATION 5/5
+  4. Post-NS5 update space 4/4
+  5. Variance reduction 8/8
+  6. **Schedule-on-frozen-scalar 5/5 (this PR)** ← NEW
+- **Implication**: Future schedule-based interventions must operate on **non-optimizer-scalar parameters** — initialization structure (#1064 frieren in flight), architectural priors (model.py forbidden), or geometry of optimizer state itself (not a frozen scalar).
+- **Methodological merit**: schedule verification via debug prints + W&B `optim/aux_eps_live` time series proved fused AdamW reads `group["eps"]` per step — pre-empted the "did the schedule actually fire?" review challenge before it could be asked. N=1 baseline relaunch after `qox48ep6` pod-state crash was the right call — saved hypothesis-testing time without sacrificing scientific integrity.
+- **Reassignment for thorfinn**: PR #1083 MUON_BODY_GRAD_PRECONDITION — 36th distinct mechanism class, FIRST gradient-input pathway intervention in 280+ PRs. Per-element RMSProp-style second-moment preconditioning on the gradient INPUT to body Muon momentum buffer. Distinct from #917 NS5_INPUT_NORM (normalizes M not g), #951 MUON_AUX_ADAMW (parallel hybrid), #244/#245 LARS (matrix-level magnitude not per-element), #1082 alphonse COHERENCE_LR (scalar adaptive LR via direction not per-element preconditioning). Theory: NS5 polar equalizes singular-value MAGNITUDES (matrix orthogonalization); RMSProp equalizes per-element gradient scales (element-wise normalization). Two mathematically orthogonal operations. Body Muon has only ever received raw gradient as input to momentum lerp — this is the **last untouched mathematical pathway** in the body Muon stack. Arm A=blend=0.3 + Arm B=blend=0.7. ~12 LOC patch, ~25-50MB extra memory.
+- **Cycle 71 milestones**: 111 refuted axes, 28 distinct mechanism classes probed, 36 assigned (with #1083), 6 major mechanism layers saturated.
+
 ## 2026-05-24 20:35 UTC — PR #1075: MUON_BODY_PERIODIC_POLAR_REPROJECT (CLOSED, 110th refuted — catastrophic train/val decoupling, spectrum-erasure mode, first non-floor-cluster non-NaN refutation in cycle 71)
 
 - Branch: `g1r2-alphonse/muon-body-periodic-polar` (student g1r2-alphonse)
