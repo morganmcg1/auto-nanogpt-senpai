@@ -82,6 +82,14 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # H104: Polyak-Ruppert EMA of model weights used at evaluation time ONLY.
+    # Training trajectory is bit-identical to baseline when alpha=0.0. When > 0,
+    # an EMA buffer is updated after every optimizer step (post outer step too) and
+    # the validation pass swaps to EMA params, then restores fast weights. The
+    # primary `val/loss` reported is the EMA-eval loss. Diagnostic logs both.
+    parser.add_argument("--ema_eval_alpha", type=float, default=float(os.environ.get("EMA_EVAL_ALPHA", "0.0")),
+                        help="If > 0, maintain a Polyak-Ruppert EMA of model weights used only at eval. "
+                             "ema = alpha*ema + (1-alpha)*fast each step. 0.0 disables (bit-identical to baseline).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -724,6 +732,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if args.ema_eval_alpha > 0:
+    print0(f"EMA-eval ENABLED: alpha={args.ema_eval_alpha} (training unchanged; eval swaps to EMA weights)", console=True)
+else:
+    print0("EMA-eval DISABLED (alpha=0; bit-identical to baseline)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +792,7 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "ema_eval_alpha": args.ema_eval_alpha,
         },
     )
 
@@ -919,6 +932,15 @@ for trial_idx in range(args.num_trials):
     for p in model.parameters():
         dist.broadcast(p.detach(), 0)
 
+    # H104 EMA-eval Polyak-Ruppert averaging: maintain a fp32 EMA of model weights
+    # used at evaluation time only. Stored in fp32 so alpha values close to 1.0 do
+    # not lose precision on bf16 embed weight. Initialized from current model
+    # parameters (after broadcast) so all ranks agree on the initial buffer state.
+    if args.ema_eval_alpha > 0:
+        ema_state = {n: p.data.detach().float().clone() for n, p in model.named_parameters()}
+    else:
+        ema_state = None
+
     # MuLoCo outer Nesterov SGD state (Algorithm 1, K=1). Snapshot after broadcast
     # so all ranks agree on the anchor. Velocity starts at zero. Wraps ALL
     # trainable params so the outer pull is applied uniformly across MuonH-SI
@@ -958,6 +980,23 @@ for trial_idx in range(args.num_trials):
             last_val_step = step
             training_time += time_since_last_val
             model.eval()
+            # H104: when EMA is active, first compute val on FAST weights for the
+            # diagnostic comparison, then swap fast→EMA for the primary val pass.
+            # When alpha=0, ema_state is None and this branch is a no-op (baseline).
+            val_loss_fast_float = None
+            if ema_state is not None:
+                val_loss_fast = torch.zeros((), device=device)
+                with torch.no_grad():
+                    assert len(val_inputs) % mbs == 0
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_fast += model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_fast, op=dist.ReduceOp.SUM)
+                val_loss_fast /= val_tokens
+                val_loss_fast_float = float(val_loss_fast.item())
+                fast_backup = {n: p.data.detach().clone() for n, p in model.named_parameters()}
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(ema_state[n])
             val_loss = torch.zeros((), device=device)
             with torch.no_grad():
                 assert len(val_inputs) % mbs == 0
@@ -966,6 +1005,11 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            if ema_state is not None:
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        p.data.copy_(fast_backup[n])
+                del fast_backup
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -986,6 +1030,9 @@ for trial_idx in range(args.num_trials):
                     "time/train_seconds": training_time,
                     "time/step_avg_ms": 1000 * step_avg,
                 }
+                if ema_state is not None:
+                    metrics["ema/eval_loss_ema"] = val_loss_float
+                    metrics["ema/eval_loss_fast"] = val_loss_fast_float
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
@@ -1144,6 +1191,37 @@ for trial_idx in range(args.num_trials):
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
                     "train/muloco/velocity_rms": velocity_rms,
+                }, step=wandb_step)
+
+        # H104 EMA-eval averaging: update EMA buffer from the post-step model
+        # parameters (after both inner opt.step and any MuLoCo outer step).
+        # Stored fp32 for stability with alpha values close to 1. No-op when
+        # ema_state is None (alpha=0 → bit-identical to baseline).
+        if ema_state is not None:
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    ema_state[n].mul_(args.ema_eval_alpha).add_(
+                        p.data.float(), alpha=1.0 - args.ema_eval_alpha,
+                    )
+            if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == 1):
+                ema_norms = []
+                fast_norms = []
+                diff_norms = []
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        fast = p.data.float()
+                        f_norm = float(fast.norm().item())
+                        e_norm = float(ema_state[n].norm().item())
+                        d_norm = float((ema_state[n] - fast).norm().item()) / max(f_norm, 1e-12)
+                        fast_norms.append(f_norm)
+                        ema_norms.append(e_norm)
+                        diff_norms.append(d_norm)
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "ema/ema_weight_norm_avg": sum(ema_norms) / len(ema_norms),
+                    "ema/fast_weight_norm_avg": sum(fast_norms) / len(fast_norms),
+                    "ema/ema_fast_diff_norm": sum(diff_norms) / len(diff_norms),
                 }, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
