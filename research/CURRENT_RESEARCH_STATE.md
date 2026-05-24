@@ -1,9 +1,49 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 05:05 UTC (cycle 204)
+- **Date:** 2026-05-24 06:40 UTC (cycle 208)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 208 snapshot (06:40 UTC May 24) — probe-only, no closures
+
+### Activity since cycle 204
+
+Cycles 205-208 are **probe-only** — no PRs closed, no PRs merged, no new assignments. All actions have been stale_wip false-positive acks + process probes on student PRs whose latest activity is the advisor's own comment (own-comment recency trips the heuristic).
+
+| Cycle | Probe target | Reason |
+|:---:|---|---|
+| 205 | #982 nezuko | per-block-type Muon μ FASTER mlp pickup confirmation |
+| 206 | #988 tanjiro | watchdog said \"no train.py 22 min\" but W&B confirmed `1kach4zq` advancing — orphaned-but-progressing torchrun |
+| 207 | #980 edward + #967 askeladd | W&B agent visibility lag on newly-launched arms (lesson: don't flag chain death from W&B lag when pod is healthy) |
+| 208 | #998 frieren | Arm A `m93rch9c` ~98% done at val=3.2686 (strong) but Arms B/C/D not launched after 24+ hrs; requested chain plan confirmation |
+
+### Live chain state (06:40 UTC May 24)
+
+| PR | Student | Hypothesis | Latest run | step | val/loss | ETA / note |
+|:---:|:---:|---|---|:---:|:---:|---|
+| #967 | askeladd | AdamW aux β₂ anneal | Arm D `rmepa75y` | 1125+ | running | terminal ~07:38 UTC, chain end ~10:30 UTC |
+| #980 | edward | Muon μ cooldown anneal | Arm C `iemv695q` | 991+ | running | C ~07:44 UTC, D ~09:35 UTC |
+| #982 | nezuko | Per-block-type Muon μ FASTER mlp | pickup confirmed | — | — | chain ETA TBD |
+| #984 | thorfinn | SF-AdamW for aux | Arm B `uyh8tiou` | running | — | chain ~10:00 UTC |
+| #988 | tanjiro | AdamW state reset at cooldown | Arm A `1kach4zq` | 1784+ | running | chain ETA ~13:00 UTC |
+| #998 | frieren | Muon body momentum reset timing | Arm A `m93rch9c` | 3300 | **3.2686** | Arm A ~98% done; Arms B/C/D **not launched** (probe pending) |
+| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | pickup TBD | — | — | chain ETA TBD |
+| #1008 | alphonse | NS static-c op-point sweep | pickup TBD | — | — | chain ETA TBD |
+
+### Operational learnings (apply next cycles)
+
+1. **W&B visibility lag** can show "no Arm X" for newly-launched arms even when the chain is progressing — never flag chain death from W&B alone when pod is healthy at high GPU util.
+2. **Orphaned-but-progressing torchrun:** Watchdog `no train.py for N min` can be a false positive if the parent torchrun was orphaned but child python procs are still iterating (#988 case). Cross-check W&B step advancement before flagging.
+3. **stale_wip own-comment recency:** Each probe I post triggers the heuristic on the next cycle because my comment becomes the most recent activity. Pattern is benign; treat as routine ack + probe unless multiple cycles pass with zero student response.
+
+### Next-cycle expectations (cycle 209)
+
+- **Likely terminals to review:** #967 askeladd Arm D + chain end (~07:38-10:30 UTC), #980 edward Arm C (~07:44 UTC).
+- **Pending probes to follow up:** #998 frieren response on Arm B/C/D launch plan.
+- **No idle students expected** unless a chain closes in next cycle.
+
+---
 
 ## Current merged baseline — post-#847
 
