@@ -71,6 +71,13 @@ def parse_args():
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
                              "never ablated. ~20K params total in this model.")
+    parser.add_argument("--lr_embed", type=float, default=0.3,
+                        help="LR for AdamW adam_embed group (model.embed.weight). "
+                             "Default 0.3 — historical hardcoded value, never ablated.")
+    parser.add_argument("--lr_lm_head", type=float, default=1.0/320.0,
+                        help="LR for AdamW adam_lm_head group (model.proj.weight, "
+                             "the output projection). Default 1/320 ≈ 0.003125 — "
+                             "historical hardcoded value, never ablated.")
     parser.add_argument(
         "--depth_init_mode",
         type=str,
@@ -764,6 +771,8 @@ if dist.get_rank() == 0:
             "wd_attn": args.wd_attn,
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
+            "lr_embed": args.lr_embed,
+            "lr_lm_head": args.lr_lm_head,
             "depth_init_mode": args.depth_init_mode,
         },
     )
@@ -837,8 +846,8 @@ for trial_idx in range(args.num_trials):
     print0(f"[init] mode={args.depth_init_mode}  L={NUM_LAYERS}  block_residual_attn.proj_std={_ex_resid_std:.6f}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head"),
+    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=args.lr_embed, name="adam_embed"),
+                        dict(params=[model.proj.weight], lr=args.lr_lm_head, name="adam_lm_head"),
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=args.lr_scalars, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     named_blocks = [(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2]
