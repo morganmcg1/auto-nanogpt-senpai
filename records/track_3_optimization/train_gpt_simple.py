@@ -593,6 +593,16 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Post-training weight averaging (Polyak / SWA-style; separate buffer, no feedback to optimizer).
+# Mode: "off" (baseline, bit-identical), "swa" (uniform average over window), "ema" (exponential moving average).
+NANOGPT_WEIGHT_AVG_MODE = os.environ.get("NANOGPT_WEIGHT_AVG_MODE", "off")
+NANOGPT_EMA_DECAY = float(os.environ.get("NANOGPT_EMA_DECAY", "0.999"))
+NANOGPT_WEIGHT_AVG_START_FRAC = float(os.environ.get("NANOGPT_WEIGHT_AVG_START_FRAC", "0.7"))
+_VALID_WEIGHT_AVG_MODES = ("off", "swa", "ema")
+if NANOGPT_WEIGHT_AVG_MODE not in _VALID_WEIGHT_AVG_MODES:
+    raise ValueError(
+        f"NANOGPT_WEIGHT_AVG_MODE={NANOGPT_WEIGHT_AVG_MODE!r}, must be one of {_VALID_WEIGHT_AVG_MODES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +834,10 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"WEIGHT_AVG: mode={NANOGPT_WEIGHT_AVG_MODE} ema_decay={NANOGPT_EMA_DECAY} "
+       f"start_frac={NANOGPT_WEIGHT_AVG_START_FRAC} "
+       f"({'ACTIVE' if NANOGPT_WEIGHT_AVG_MODE != 'off' else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -847,6 +861,17 @@ val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/finew
 
 model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
 model.compile(dynamic=False)
+
+# Weight averaging buffer: parallel copy of model params for post-training Polyak/SWA/EMA
+# averaging. Only allocated when NANOGPT_WEIGHT_AVG_MODE != "off". The buffer is a separate
+# GPT module never trained or optimizer-managed; per-step updates are in-place tensor ops
+# that do not touch model.parameters() or any optimizer state. Compile it so validation
+# forward passes on the averaged model are as fast as the primary model's val forward.
+weight_avg_model = None
+if NANOGPT_WEIGHT_AVG_MODE != "off":
+    weight_avg_model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+    weight_avg_model.eval()
+    weight_avg_model.compile(dynamic=False)
 
 module_types = param_module_types(model)
 if dist.get_rank() == 0:
@@ -896,6 +921,9 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_weight_avg_mode": NANOGPT_WEIGHT_AVG_MODE,
+            "nanogpt_ema_decay": NANOGPT_EMA_DECAY,
+            "nanogpt_weight_avg_start_frac": NANOGPT_WEIGHT_AVG_START_FRAC,
         },
     )
 
@@ -1027,6 +1055,17 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # Weight-averaging per-trial state. start_step depends on this trial's train_steps;
+    # count resets each trial so the buffer re-syncs to current model when count == 0.
+    weight_avg_count = 0
+    weight_avg_start_step = int(NANOGPT_WEIGHT_AVG_START_FRAC * train_steps)
+    best_val_loss_avg = float("inf")
+    best_val_step_avg = -1
+    first_step_to_target_avg = -1
+    last_val_loss_avg_float = float("nan")
+    if weight_avg_model is not None and dist.get_rank() == 0:
+        print0(f"WEIGHT_AVG: trial={trial_idx} start_step={weight_avg_start_step} "
+               f"(window=[{weight_avg_start_step},{train_steps}])", console=True)
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1049,6 +1088,18 @@ for trial_idx in range(args.num_trials):
             dist.all_reduce(val_loss, op=dist.ReduceOp.SUM)
             val_loss /= val_tokens
             val_loss_float = float(val_loss.item())
+            # Second val pass on weight-averaged model (#1055). Only when averaging is
+            # active and at least one snapshot has been accumulated. Reuses val_inputs/
+            # val_targets so the averaged metric sees identical evaluation tokens.
+            val_loss_avg_float = None
+            if weight_avg_model is not None and weight_avg_count > 0:
+                val_loss_avg = torch.zeros((), device=device)
+                with torch.no_grad():
+                    for i in range(len(val_inputs) // mbs):
+                        val_loss_avg += weight_avg_model(val_inputs[i*mbs:(i+1)*mbs], val_targets[i*mbs:(i+1)*mbs])
+                dist.all_reduce(val_loss_avg, op=dist.ReduceOp.SUM)
+                val_loss_avg /= val_tokens
+                val_loss_avg_float = float(val_loss_avg.item())
             if dist.get_rank() == 0:
                 val_loss_history.append((step, val_loss_float))
                 if val_loss_float < best_val_loss:
@@ -1070,8 +1121,37 @@ for trial_idx in range(args.num_trials):
                     "time/step_avg_ms": 1000 * step_avg,
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
+                if val_loss_avg_float is not None:
+                    if val_loss_avg_float < best_val_loss_avg:
+                        best_val_loss_avg = val_loss_avg_float
+                        best_val_step_avg = step
+                    if first_step_to_target_avg < 0 and val_loss_avg_float <= TARGET_VAL_LOSS:
+                        first_step_to_target_avg = step
+                    last_val_loss_avg_float = val_loss_avg_float
+                    # L2 buffer drift between averaged buffer and current model params.
+                    # All ranks hold identical params after the per-step deterministic
+                    # update, so a rank-0-only computation is safe and skips a comm.
+                    with torch.no_grad():
+                        drift_sq = torch.zeros((), device=device, dtype=torch.float32)
+                        for p_avg, p in zip(weight_avg_model.parameters(), model.parameters()):
+                            drift_sq += (p_avg.data.float() - p.data.float()).square().sum()
+                        buffer_drift = float(drift_sq.sqrt().item())
+                    metrics.update({
+                        "val/loss_avg": val_loss_avg_float,
+                        "val/avg_target_margin": TARGET_VAL_LOSS - val_loss_avg_float,
+                        "val/avg_single_run_stat_sig_margin": TARGET_VAL_LOSS - val_loss_avg_float - STAT_SIG_DELTA,
+                        "val/avg_best_loss": best_val_loss_avg,
+                        "val/avg_best_step": best_val_step_avg,
+                        "speedrun/avg_first_step_to_target": first_step_to_target_avg,
+                        "speedrun/avg_reached_target": int(first_step_to_target_avg >= 0),
+                        "weight_avg/count": weight_avg_count,
+                        "weight_avg/buffer_drift": buffer_drift,
+                    })
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
-            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
+            avg_log = (
+                f" val_loss_avg:{val_loss_avg_float:.5f}" if val_loss_avg_float is not None else ""
+            )
+            print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f}{avg_log} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
             # start the clock again
@@ -1221,6 +1301,29 @@ for trial_idx in range(args.num_trials):
                             alpha=lr_embed * NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
                         )
                         break
+        # Post-training weight averaging update (#1055). Runs AFTER the optimizer step
+        # and AFTER the embed init-anchor hook so the buffer captures fully-updated
+        # post-step weights. The training trajectory is unmodified — this buffer has
+        # no feedback to model params or optimizer state. At step == start_step (when
+        # count == 0), the buffer is re-synced to the current model so SWA/EMA both
+        # start from current-weights (the buffer's allocation-time state is stale).
+        if weight_avg_model is not None and step >= weight_avg_start_step:
+            with torch.no_grad():
+                if weight_avg_count == 0:
+                    for p_avg, p in zip(weight_avg_model.parameters(), model.parameters()):
+                        p_avg.data.copy_(p.data)
+                if NANOGPT_WEIGHT_AVG_MODE == "swa":
+                    n = weight_avg_count
+                    inv_n_plus_1 = 1.0 / (n + 1)
+                    n_over_n_plus_1 = n * inv_n_plus_1
+                    for p_avg, p in zip(weight_avg_model.parameters(), model.parameters()):
+                        p_avg.data.mul_(n_over_n_plus_1).add_(p.data, alpha=inv_n_plus_1)
+                elif NANOGPT_WEIGHT_AVG_MODE == "ema":
+                    decay = NANOGPT_EMA_DECAY
+                    one_minus_decay = 1.0 - decay
+                    for p_avg, p in zip(weight_avg_model.parameters(), model.parameters()):
+                        p_avg.data.mul_(decay).add_(p.data, alpha=one_minus_decay)
+                weight_avg_count += 1
         # Per-100-step embed AdamW step-direction norm ||m_hat / (sqrt(v_hat) + eps)||.
         # This is the *direction* (pre-LR) so it captures whether the schedule change
         # is modulating the bias-corrected Adam update magnitude on the embed group.
@@ -1354,13 +1457,30 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
-        wandb.log({
+        final_metrics = {
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
-        }, step=(trial_idx + 1) * (train_steps + 1) - 1)
+        }
+        if weight_avg_model is not None:
+            final_metrics.update({
+                "speedrun/final_val_loss_avg": last_val_loss_avg_float,
+                "speedrun/final_best_val_loss_avg": best_val_loss_avg,
+                "speedrun/final_best_val_step_avg": best_val_step_avg,
+                "speedrun/final_avg_first_step_to_target": first_step_to_target_avg,
+                "speedrun/final_avg_reached_target": int(first_step_to_target_avg >= 0),
+                "speedrun/final_weight_avg_count": weight_avg_count,
+            })
+            print0(
+                f"trial:{trial_idx} val_loss_avg(final):{last_val_loss_avg_float:.5f} "
+                + f"best_val_loss_avg:{best_val_loss_avg:.5f} best_val_step_avg:{best_val_step_avg} "
+                + f"avg_first_step_to_target:{first_step_to_target_avg} "
+                + f"weight_avg_count:{weight_avg_count}",
+                console=True,
+            )
+        wandb.log(final_metrics, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
     wandb.finish()
