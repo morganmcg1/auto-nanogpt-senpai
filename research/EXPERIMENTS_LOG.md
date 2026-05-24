@@ -1,3 +1,54 @@
+## 2026-05-24 13:00 UTC — PR #1034 ASSIGNED (thorfinn): H120 LR Cooldown Fraction Sweep (is entire-training-cosine-cooldown h_cooldown_frac=1.0 optimal?)
+
+- Branch: `g1r3-thorfinn/h120-cooldown-frac-sweep`
+- Hypothesis: **Test whether the foundational h_cooldown_frac=1.0 configuration (entire training is cosine LR decay) is optimal, or whether a partial cooldown (constant LR phase + sharper final cooldown) performs better.** This axis has NEVER been varied as a standalone experiment. H109 accidentally discovered `--h_cooldown_frac 0.2` as an alternative (programme directive) but it was never tested as a hypothesis. Directly follows from thorfinn's H114 count-saturation finding: with effective inner step ≈ muonh_lr × 0.022 × ‖w‖, does the SCHEDULE of that effective step matter?
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--h_cooldown_frac 1.0` (bit-identical baseline — entire training is cosine cooldown)
+  - arm_b HALF: `--h_cooldown_frac 0.5` (100-step warmup + constant LR until step 1662 + cosine cooldown for remaining 1663 steps)
+  - arm_c QUARTER: `--h_cooldown_frac 0.2` (100-step warmup + constant LR until step 2660 + very sharp 665-step cosine cooldown — the H109 directive value)
+- Smoke protocol: arm_b/arm_c run 200 steps first; MuLoCo outer velocity explosion risk during constant-LR phase (H99 mechanism).
+- Critical telemetry: `outer/velocity_norm_rms` trajectory per arm (H99: inner cosine is load-bearing magnitude controller for outer — if constant-LR phase causes velocity explosion, that's the failure mechanism); `val/loss` at checkpoints 1000/1662/2000/2660/3325.
+- Decision (widened NULL band [3.26880, 3.27250]):
+  - WIN/NULL: partial cooldown equivalent or better — h_cooldown_frac axis broadly neutral; closes axis
+  - NEG >3.27250: always-decaying cosine is load-bearing; validates current foundational choice; closes h_cooldown_frac axis
+  - CATASTROPHIC >3.35: constant-LR phase disrupts MuLoCo outer dynamics; confirms H99 outer velocity mechanism
+- Why thorfinn: H114 count-saturation → effective inner step is near-constant during constant-LR phase; mechanism test of whether outer SGDM benefits from or is harmed by constant-effective-step input. Thorfinn's own H114 follow-up suggestion #3.
+
+---
+
+## 2026-05-24 12:45 UTC — PR #1009 CLOSED NULL/closure (thorfinn): H114 AGC Global Threshold Elevation Sensitivity Sweep (4th AGC axis closure; count-saturation finding)
+
+- Branch: `g1r3-thorfinn/h114-agc-threshold-elevation`
+- Final 3-arm table (W&B-verified via sub-agent):
+
+| arm | clip_ratio | val/best_loss | Δ vs baseline | Δ vs CTRL | ffs | W&B | Verdict |
+|-----|-----------|---------------|---------------|-----------|-----|-----|---------|
+| arm_a CTRL | 0.05 | 3.27223 | +0.00246 | — | 3125 | `4d6w2l16` | NULL (high-drift CTRL, within widened band) |
+| arm_b ELEVATED | 0.10 | 3.27051 | +0.00074 | −0.00172 | 3100 | `10q4t4rz` | NULL upper edge (best arm) |
+| arm_c HIGH | 0.20 | 3.27138 | +0.00161 | −0.00085 | 3100 | `3yh22gt4` | NULL (within widened band) |
+
+All arms within widened NULL band [3.26880, 3.27250]. No merge-eligible arm (arm_b best at 3.27051, +0.00074 vs baseline 3.26977; WIN requires <3.26897). CTRL seed high-dispersion draw (3.27223 vs usual 3.27010-3.27080 range).
+
+**Programme-level finding: AGC clipping is COUNT-SATURATED and threshold-invariant:**
+
+| Metric | CTRL (0.05) | arm_b (0.10) | arm_c (0.20) |
+|--------|------------|------------|------------|
+| `train/agc/active_fraction` mean | 0.983 | 0.983 | 0.983 |
+| `train/agc/max_ratio` terminal | 8581× | 4707× | 2255× |
+| `train/agc/scale_mean` terminal | 0.0217 | 0.0342 | 0.0546 |
+
+**fraction_active is IDENTICAL across all three thresholds at every logged checkpoint.** Even 4× threshold (arm_c): max_ratio = 2255 — still vastly exceeds threshold. AGC is functioning as a **near-constant gradient magnitude reducer** (compressing avg gradient to 2.2% of original magnitude), not a selective outlier clipper. Runtime grad/weight ratios are so far above any tested threshold that fraction_active is invariant.
+
+Scale_mean growth is sub-linear (1.0/1.58/2.52 observed vs 1.0/2.0/4.0 threshold ratio) — consistent with log-normal gradient magnitude distribution. Slight arm_b improvement (3.27051 vs CTRL 3.27223 = −0.00172) likely reflects better effective step size at 3.42% scale_mean vs 2.17% — but CTRL high-dispersion seed makes this unreliable.
+
+Mechanism implication: `muonh_lr` and `clip_ratio` are **multiplicatively coupled** as effective step-size controls (effective_step ≈ muonh_lr × clip_ratio × ‖w‖/‖g‖_typical × direction). Varying either changes the same constant magnitude factor.
+
+**Joint 4-axis AGC closure (H93/H102/H105/H114)**: all four axes confirm that AGC count-saturation is fundamental to this stack's gradient/weight magnitude distribution. Programme directive: clip_ratio=0.05 is at-margin-optimum within [0.05, 0.20]. H119 (alphonse, in-flight) tests the binary disable case (clip=1000) — will determine if the constant magnitude reduction is itself load-bearing.
+
+- Methodological commendation: pre-declared `train/agc/active_fraction` and `train/agc/max_ratio` telemetry fired exactly as needed; sub-linear scale_mean interpretation correctly diagnosed log-normal distribution; explicit acknowledgment of high-dispersion CTRL seed.
+
+---
+
 ## 2026-05-24 12:30 UTC — PR #1033 ASSIGNED (alphonse): H119 AGC Pruning Ablation (is Adaptive Gradient Clipping structurally load-bearing?)
 
 - Branch: `g1r3-alphonse/h119-agc-pruning-ablation`
