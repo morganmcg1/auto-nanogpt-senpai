@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Mid-training one-time reset of body Muon momentum buffer (PR #1029).
+# RESET_AT_STEP=-1 disables; otherwise the buffer is multiplied by RESET_SCALE
+# at the start of optimizer step() when self.global_step == RESET_AT_STEP.
+MUON_MOMENTUM_RESET_AT_STEP = int(os.environ.get("MUON_MOMENTUM_RESET_AT_STEP", "-1"))
+MUON_MOMENTUM_RESET_SCALE = float(os.environ.get("MUON_MOMENTUM_RESET_SCALE", "0.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -655,9 +660,16 @@ class Muon(torch.optim.Optimizer):
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
+        self.global_step = 0
 
     @torch.no_grad()
     def step(self):
+        # Mid-training momentum reset (PR #1029, one-time at MUON_MOMENTUM_RESET_AT_STEP)
+        if MUON_MOMENTUM_RESET_AT_STEP >= 0 and self.global_step == MUON_MOMENTUM_RESET_AT_STEP:
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if "momentum" in self.state[p]:
+                        self.state[p]["momentum"].mul_(MUON_MOMENTUM_RESET_SCALE)
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -719,6 +731,7 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        self.global_step += 1
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +879,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_momentum_reset_at_step": MUON_MOMENTUM_RESET_AT_STEP,
+            "optimizer/muon_momentum_reset_scale": MUON_MOMENTUM_RESET_SCALE,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
