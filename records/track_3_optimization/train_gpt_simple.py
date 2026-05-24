@@ -55,6 +55,16 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # Hybrid sync schedule (H126): delay outer optimizer activation until train_step
+    # reaches outer_start_step. Before activation, anchor/velocity are NOT updated
+    # and no outer pull is applied — the model trains as inner-only. At the first
+    # sync boundary with train_step >= outer_start_step (and outer_start_step > 0),
+    # anchor refreshes to current weights and velocity zeros — necessary to avoid
+    # a shock from a stale anchor. outer_start_step=0 = baseline behavior.
+    parser.add_argument("--outer_start_step", type=int, default=int(os.environ.get("OUTER_START_STEP", "0")),
+                        help="train_step at which the outer Nesterov SGD activates. "
+                             "0 = baseline (active from first sync). When > 0, the outer "
+                             "anchor/velocity are lazily re-initialized at first activation.")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -725,7 +735,8 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval} "
+           f"outer_start_step={args.outer_start_step}", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -785,6 +796,7 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "muloco_outer_start_step": args.outer_start_step,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -972,6 +984,12 @@ for trial_idx in range(args.num_trials):
         outer_anchor = None
         outer_velocity = None
     outer_applied_steps = 0
+    # H126 hybrid sync schedule: outer activation tracker. Flips True at the first
+    # sync boundary with train_step >= outer_start_step. The lazy re-init runs once
+    # on that boundary when outer_start_step > 0 — refreshes the anchor to current
+    # weights and zeros velocity, so the first pullback uses a fresh reference
+    # instead of a stale step-0 snapshot.
+    outer_activated = False
 
     # start the clock
     training_time = 0
@@ -1158,33 +1176,50 @@ for trial_idx in range(args.num_trials):
         # ``param.norm()`` at that step and preserves the new norm. Acceptable
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
+            outer_is_active = (train_step >= args.outer_start_step)
             log_outer = (dist.get_rank() == 0)
+            outer_metrics: dict[str, float] = {
+                "trial": trial_idx,
+                "train/step": train_step,
+                "outer/active": int(outer_is_active),
+            }
+            if outer_is_active:
+                # H126 first-activation lazy re-init. Fires once per trial and only
+                # when outer_start_step > 0 — preserves bit-identical behavior for
+                # the baseline (outer_start_step=0). Refresh anchor to current
+                # weights so the first delta = 0, and zero velocity so the buffer
+                # starts fresh in the post-warmup regime.
+                if not outer_activated and args.outer_start_step > 0:
+                    with torch.no_grad():
+                        for n, p in model.named_parameters():
+                            outer_anchor[n].copy_(p.data)
+                            outer_velocity[n].zero_()
+                    outer_metrics["outer/activation_event"] = 1
+                outer_activated = True
+                if log_outer:
+                    delta_sq = torch.zeros((), device=device)
+                    velocity_sq = torch.zeros((), device=device)
+                    total_count = 0
+                with torch.no_grad():
+                    for n, p in model.named_parameters():
+                        delta = outer_anchor[n] - p.data
+                        outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                            total_count += delta.numel()
+                outer_applied_steps += 1
+                if log_outer:
+                    delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
+                    velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                    outer_metrics["train/muloco/outer_step"] = outer_applied_steps
+                    outer_metrics["train/muloco/delta_rms"] = delta_rms
+                    outer_metrics["train/muloco/velocity_rms"] = velocity_rms
             if log_outer:
-                delta_sq = torch.zeros((), device=device)
-                velocity_sq = torch.zeros((), device=device)
-                total_count = 0
-            with torch.no_grad():
-                for n, p in model.named_parameters():
-                    delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
-                    if log_outer:
-                        delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
-                        total_count += delta.numel()
-            outer_applied_steps += 1
-            if log_outer:
-                delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
-                velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
-                    "trial": trial_idx,
-                    "train/step": train_step,
-                    "train/muloco/outer_step": outer_applied_steps,
-                    "train/muloco/delta_rms": delta_rms,
-                    "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                wandb.log(outer_metrics, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
