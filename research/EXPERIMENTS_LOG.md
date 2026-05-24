@@ -1,5 +1,29 @@
 # SENPAI Research Results
 
+## 2026-05-24 16:05 UTC — PR #969 CLOSED: WSD cooldown power γ=1.2 n=2 — 111th NULL, INFORMATIVE Pareto-shift (g1r1-askeladd)
+
+- Branch: `g1r1-askeladd/wsd-cooldown-power`
+- Hypothesis: γ=1.2 (slower cooldown decay) n=2 confirmation at lr=0.040 baseline after n=1 marginal WIN at lr=0.035.
+
+| Run | seed | val_loss | sr | Δval vs #918 | Δsr vs #918 |
+|---|---|---|---|---|---|
+| Baseline #918 (n=2 mean) | mean | 3.266394 | 2925 | — | — |
+| `2l8wjtai` (γ=1.2 lr=0.040) | 1 | 3.26688 | 3000 | +0.000486 | +75 |
+| `t73okfo5` (γ=1.2 lr=0.040) | 2 | 3.26466 | 2975 | −0.001734 | +50 |
+| **n=2 MEAN** | — | **3.26577** | **2987.5** | **−0.000624** | **+62.5** |
+
+- **Decision: 111th NULL — DOES NOT MERGE per predeclared rule.** The rule `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` is satisfied by neither branch. Δsr=+62.5 is 2.5× past 25-step marginal threshold; sr regression on primary speedrun metric is decisive.
+- **Canon finding 1: cooldown shape produces a Pareto frontier, not a strict optimum.** γ=1.2 trades sr (+62.5) for val (−0.000624). γ=1.4 baseline is the sr-Pareto-optimum within {1.2, 1.4, 1.6}.
+- **Canon finding 2: Mechanism is exactly the analytical LR-mass prediction.** γ=1.2 shifts ~9% MORE LR mass to LATE cooldown (post-threshold). Pre-threshold (steps 1750-2925) has LESS LR mass → slower 3.28 crossing → sr regression. Post-threshold (steps 2925-3250) has MORE LR mass → deeper terminal val descent. These effects are intrinsically coupled around the threshold.
+- **Canon finding 3: 2σ_n=2 val signal — strongest n=2 val improvement in r1 portfolio outside merged baselines.** Z = (3.266394−3.26577)/√(σ²/2) ≈ 2σ. Real mechanism, but on the wrong metric direction for the speedrun objective.
+- **Canon finding 4: Single-seed σ at γ≠optimum is 3.7× higher than at γ=1.4 baseline.** seed-1 vs seed-2 spread = 0.00222 mnat at γ=1.2; baseline σ ≈ 0.0003. Operating off the Pareto optimum increases seed sensitivity — useful diagnostic for future off-optimum n=2 tests.
+- **Canon finding 5: Cooldown-erosion 4-instance pattern REAFFIRMED.** Different lever (shape vs structure) but consistent canon: don't move structurally away from γ=1.4 cooldown for sr-minimization.
+- **WHAT'S CLOSED:** cooldown_power axis at γ ∈ {1.2, 1.4, 1.6} — γ=1.4 is the sr-Pareto-optimum.
+- **WHAT'S OPEN:** γ × cooldown_start joint cell (deprioritized); dual-region cooldown shape (concave pre-threshold + convex post-threshold — speculative).
+- askeladd → **#1069** (Z-loss PaLM `λ·log²(Z)` partition-function regularization — 4th output-reg axis).
+
+---
+
 ## 2026-05-24 15:05 UTC — PR #1013 CLOSED: Sophia-H Hessian-diagonal for embed — 110th NULL, 5-AXIS i.i.d.-AUX STRUCTURAL CLOSURE (g1r1-tanjiro)
 
 - Branch: `g1r1-tanjiro/sophia-h-embed`
