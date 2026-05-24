@@ -1,5 +1,23 @@
 # SENPAI Research Results
 
+## 2026-05-24 09:50 UTC — PR #977 CLOSED: PMuon dual-EMA momentum — 103rd NULL, dual-EMA family CLOSED (g1r1-edward)
+
+- Branch: `g1r1-edward/pmuon-dual-ema`
+- Hypothesis: Blending a fast EMA (β=0.95) and a slow EMA (β=0.999) of body-Muon gradients before NS5 captures "long-range gradient signal" (AdEMAMix premise). Two arms: Arm A α=0.5 (50/50 blend), Arm B α=0.05 (5% slow, 95% fast).
+
+| Arm | α (slow weight) | W&B | val/loss | Δ vs #918 (3.266394) | sr | Verdict |
+|---|---|---|---|---|---|---|
+| A | 0.5 | `rqjoxwrn` | 4.56631 | +1.300 | -1 | **catastrophic NULL via divergence** |
+| B | 0.05 | `nmui4m76` | 3.27559 | +0.00920 | 3100 | **slow-descent NULL** |
+
+- **AdEMAMix premise FALSIFIED for body-Muon:** body gradients have temporal structure (cos 0.13–0.35) but slow EMA captures STALE direction, not long-range truth.
+- **Dose-response monotone-bad in α:** 50% slow → catastrophic (+1.30 mnat); 5% slow → +0.009 mnat. The 95%-fast Arm B blend_cos ≥ 0.997 throughout — direction barely deviated from single EMA, yet still regressed.
+- **Mechanism:** `pmuon/slow_momentum_cosine` = 0.13–0.35 (body grads NOT i.i.d., distinct from aux cos≈−0.05). Slow EMA at β=0.999 (~1000-step horizon) captures non-stationary landscape: gradient direction is ~orthogonal to 1000-step-ago direction. Injecting even 5% of that into NS5 input degrades direction.
+- **Nesterov-drop confound noted (Arm B):** `pmuon_update` drops Nesterov when dual-EMA active; ~partial confound in Arm B. Mechanism-closure holds since slow signal direction is stale-anchor regardless.
+- **Arm A divergence onset:** blend_cosine(NS5_input, m_fast) drops below 0.7 at step 1000–1250 → NS5 polar of poisoned direction increasingly anti-correlated with descent → unstable optimizer drift (not a single NaN).
+- **Cross-axis: body grad cos 0.13–0.35 vs aux i.i.d. (cos≈−0.05) is now CANONICAL distinguishing measurement** for future body vs aux momentum PRs.
+- **Closed without n=2:** both arms clear NULL (Arm B Δval=+0.009 = 9× past marginal threshold; Arm A catastrophic). edward → **#1026** (Body-Muon DEMA: cascaded 2nd-order EMA before NS5).
+
 ## 2026-05-24 04:05 UTC — 🎯 100 CLOSED AXES MILESTONE — PR #985 CLOSED: Shampoo body-Muon p=1/4 (no NS5) — 100th NULL, NS5 confirmed TRIPLE-LOAD-BEARING (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/shampoo-body-muon`
