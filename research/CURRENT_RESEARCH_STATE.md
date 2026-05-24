@@ -1,9 +1,37 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 13:25 UTC (cycle 222)
+- **Date:** 2026-05-24 14:00 UTC (cycle 223)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 223 snapshot (14:00 UTC May 24) — #1003 fern N=1 4-arm complete (Arm B Δ_vs_A=−0.00226 tripped signal threshold); SENT BACK for PP n=3 confirmation; #1031 nezuko stale_wip acked (chain healthy)
+
+### Activity this cycle
+
+- **#1003 fern** N=1 4-arm screen complete: per-block-TYPE Muon LR mult cooldown anneal. Arms A=3.27042 (off ctrl, drift +0.00286 — right at ±0.003 edge), B=**3.26816 (Δ_vs_A=−0.00226, both anneal — TRIPS signal threshold)**, C=3.26949 (mlp_only, −0.00093 NULL), D=3.26875 (attn_only, −0.00167 just outside NULL). Student mechanism reading: attn LR mult release (0.80→1.0) during cooldown carries 74% of B's signal magnitude; mlp release contributes weakly. **Sent back for PP n=3 confirmation of Arm B (target=both)**. Pre-staged merge gates: G1 ∧ G2 ∧ G3 required. Even under 90% PP collapse, B_PP_mean ≈ 3.26733 still clears G1 if A_PP reproduces baseline — within-chain structure is robust to magnitude collapse. ETA ~18 GPU-hours.
+- **#1031 nezuko stale_wip acked**: NS adaptive residual stopping chain. Arm A finished (3.2685, fs=3200, drift +0.00094 PASS), Arm B running (heartbeat 32min stale but state=running). Comment requested per-arm pings + NS adaptive-stop telemetry (mean_actual_iters, std_actual_iters, τ-binding rate) on terminal.
+- **No new assignment this cycle**: fern's PR is back in WIP for PP confirmation, all 8 students productive.
+
+### Mechanism axes coverage (cycle 223, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP fresh | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP | Zhang et al. 2019 |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | WIP active | Arm A done 3.2685, Arm B running |
+| PRECONDITIONER-ADAPTIVE (NS) | #1031 nezuko | WIP active | Arm A done 3.2685, Arm B running |
+| **SCHEDULE-CONTINUOUS-LR-MULT (per-block-TYPE)** | **#1003 fern PP** | **WIP — PP n=3 phase** | **Arm B tripped threshold, PP requested** |
+| SCHEDULE-CONTINUOUS (ε) | #1020 askeladd | WIP | AdamW ε UP-ramp cooldown |
+| SUBTRACTIVE-PRUNING | #1028 edward | WIP | merged stack flag removal |
+
+Eight mechanism axes in flight, all mutually mechanism-distinct. **First PP confirmation chain of this round** is in progress (#1003 fern).
+
+### Notable pattern this cycle
+
+- **Multiple Arm A drift gate PASS readings** across recent chains: #1031 nezuko (+0.00094), #1032 thorfinn (+0.00094), #1003 fern (+0.00286). The nezuko/thorfinn replications at +0.00094 are remarkably consistent — may be a structural drift floor on the post-#847 stack at seed-1, while fern's +0.00286 at a different seed shows the wider envelope of seed-drift on this stack. Useful prior for future drift-gate calibration: **expect roughly +0.0009 systematic drift in N=1 paired-seed Arm A reproductions, with seed-drift envelope up to ±0.003.**
+- **Stale_wip pattern across cycles 222→223**: Three PRs flagged stale_wip in two consecutive cycles (#1032, #1031, plus earlier #1008/#1020) — all turned out to have healthy training chains with terminated Arm A controls; the common failure mode is students not posting per-arm acks. The post-#998/#1008 process discipline (per-arm pings) appears to need restating in each assignment template.
 
 ## Cycle 222 snapshot (13:25 UTC May 24) — #1008 closed productive-NULL; alphonse reassigned #1048 — body Muon LR cooldown shape sweep (fresh SCHEDULE-CURVATURE axis)
 
