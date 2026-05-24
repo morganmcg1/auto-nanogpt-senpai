@@ -457,6 +457,7 @@ MU_WARMUP_START = float(os.environ.get("MU_WARMUP_START", "0.85"))
 MUON_LR = float(os.environ.get("MUON_LR", "0.0375"))
 MUON_WEIGHT_DECAY = 0.025  # nominal; Muon.step does not apply explicit wd (u/w-floor replaces it)
 TARGET_UW = 0.35
+MUON_UW_CAP = float(os.environ.get("MUON_UW_CAP", "0.0"))  # 0.0 disables cap; >0 enforces upper bound on update.norm() / p.norm() AFTER u/w-floor
 NORMUON_BETA2 = 0.95
 SOAP_BETA2 = 0.90
 SOAP_PRECOND_FREQ = 10
@@ -708,6 +709,12 @@ class Muon(torch.optim.Optimizer):
                     cur_uw = u_fro / p_fro
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
+                    # u/w-cap: scale down if u/w > MUON_UW_CAP after floor (symmetric upper bound).
+                    if MUON_UW_CAP > 0:
+                        u_fro_post = update.float().norm().clamp_min(1e-8)
+                        cur_uw_post = u_fro_post / p_fro
+                        cap_scale = torch.where(cur_uw_post > MUON_UW_CAP, MUON_UW_CAP * p_fro / u_fro_post, torch.ones_like(p_fro))
+                        update = update * cap_scale.to(update.dtype)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
@@ -858,6 +865,7 @@ if dist.get_rank() == 0:
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
+            "optimizer/muon_uw_cap": MUON_UW_CAP,
             "optimizer/normuon_beta2": NORMUON_BETA2,
             "optimizer/soap_beta2": SOAP_BETA2,
             "optimizer/soap_precond_freq": SOAP_PRECOND_FREQ,
