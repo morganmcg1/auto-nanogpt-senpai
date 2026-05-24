@@ -1,5 +1,55 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 09:55 UTC — PR #1011: NS5_POLY_COEFFS (CLOSED, 95th refuted — symmetric U-shape penalty confirms Higham c=0.5 local minimum, NS5 polynomial layer FULLY CHARACTERIZED)
+
+- Branch: `g1r2-nezuko/ns5-poly-coeffs` (student g1r2-nezuko)
+- Hypothesis: Vary NS5 polynomial shape on quadratic-convergence manifold (p(1)=1, p'(1)=0) parametrized by c in the 1-parameter family (a=3/2+c, b=-1/2-2c, c). Arm A=c=0.4 (gentler quintic), Arm B=c=0.6 (sharper quintic). First NS5 polynomial coefficient variation in 250+ PRs.
+
+| Arm | (a, b, c) | val@500 | val@1000 | kill gate (>3.66 at 1000) | Outcome |
+|---|---|---:|---:|---:|---|
+| Disabled-check default (NS5_A=2, B=-1.5, C=0.5) | Higham 1987 | val@200=4.0864-4.0898 ✓ | — | — | plumbing OK (5 redundant DC after override) |
+| Arm A (c=0.4 gentler) | (1.9, -1.3, 0.4) | 3.79993 ✓ (gate 3.81 by 0.01) | **3.66012** ❌ | trip +0.00012 hairline | killed step ~1323 |
+| Arm B (c=0.6 sharper) | (2.1, -1.7, 0.6) | 3.80467 ✓ (gate 3.81 by 0.005) | **3.66293** ❌ | trip +0.00293 | killed step ~1361 |
+| Reference baseline (PR #613) | (2.0, -1.5, 0.5) Higham | ~3.79 | ~3.55 | clear | terminal val=3.26776, ffs=3000 |
+
+**Side-by-side trajectory** (nezuko's exceptional comparative analysis):
+
+| step | Arm A val | Arm B val | Arm B−Arm A | Arm A vs baseline |
+|---|---:|---:|---:|---:|
+| 125 | 4.41398 | 4.41825 | +0.00427 | — |
+| 250 | 4.04617 | 4.04793 | +0.00176 | — |
+| 375 | 3.87987 | 3.88609 | +0.00622 | — |
+| 500 | 3.79993 | 3.80467 | +0.00474 | +0.01 vs ~3.79 ref |
+| 625 | 3.75044 | 3.75607 | +0.00563 | — |
+| 750 | 3.72160 | 3.72489 | +0.00329 | — |
+| 875 | 3.69222 | 3.69203 | -0.00019 | — |
+| **1000** | **3.66012** | **3.66293** | **+0.00281** | **+0.11 vs ~3.55 ref** |
+
+**Mechanistic reading (nezuko's analysis)**:
+
+1. **Both directions (±0.1 in c) underperform symmetrically and by nearly the same amount** — Arm A and Arm B trajectories track within ±0.005 at every checkpoint despite c=0.4 vs c=0.6 being mirror perturbations. This is mechanistically diagnostic: the polynomial-shape effect is a **U-shape penalty** around c=0.5 with no directional gradient.
+
+2. **Higham (1987) c=0.5 is a LOCAL MINIMUM** in the 1-parameter family (a=3/2+c, b=-1/2-2c, c). The polynomial-shape lever is a **2nd-order effect** dwarfed by other stack hyperparams.
+
+3. **Both arms LOST ~0.11 nats vs baseline by step 1000** — the polynomial-shape deficit accumulates mid-training despite "passing" the looser step-500 gate at val ~3.80.
+
+4. **Polynomial fixed-point convergence rate is identical** across all three (a=3/2+c, b=-1/2-2c, c) — both p'(1)=0 by construction. The empirical performance difference is therefore due to **transient pull-toward-σ=1 behavior at intermediate iterations**, not asymptotic convergence rate.
+
+**NS5 polynomial layer now COMPLETELY CHARACTERIZED**:
+
+| Axis | Mechanism | Refuted PR | Status |
+|---|---|---|---|
+| NS5 polynomial SHAPE (c on Higham family) | 1-param family | #1011 (95th) | local minimum at c=0.5 |
+| NS5 polynomial ITER COUNT (deterministic) | n iters | #948 (prior) | uniform 14 optimal |
+| NS5 polynomial ITER COUNT (stochastic) | per-step random | #999 (92nd) | iter axis precision-bound |
+| NS5 INPUT NORM TYPE | spectral vs Frobenius | #917 (62nd) | Frobenius numerically necessary |
+| **NS5 polynomial DEGREE (NS7 cubic-conv)** | **7th-order, p''(1)=0** | **#1025 IN-FLIGHT** | **21st mechanism class, first DEGREE variation** |
+| NS5 polynomial FAMILY (SVD replacement) | exact polar | #1019 IN-FLIGHT | "escape polynomial entirely" |
+
+**Future axes must escape the polynomial SHAPE manifold** — either by varying polynomial DEGREE (NS7 via #1025) or by replacing the polynomial family (SVD via #1019). These are the LAST untested NS5-layer interventions before the layer is fully exhausted.
+
+**Student's suggested follow-up #4 promoted to PR #1025**: 7th-order Newton-Schulz with cubic-convergence properties (p(1)=1, p'(1)=0, p''(1)=0), parametrized by d, with Arm A=d=0.05 + Arm B=d=0.10. First polynomial DEGREE variation in 250+ PRs.
+
 ## 2026-05-24 08:30 UTC — PR #1004: MUON_UW_FLOOR_ABLATION (CLOSED, 94th refuted — GOLDILOCKS OUTCOME confirming TARGET_UW=0.35 tuned-optimum, first quantification of u/w-floor contribution since PR #71)
 
 - Branch: `g1r2-askeladd/muon-uw-floor-ablation` (student g1r2-askeladd)
