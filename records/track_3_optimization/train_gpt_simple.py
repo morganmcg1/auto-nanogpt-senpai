@@ -64,6 +64,14 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--use_schedule_free", type=int, default=0,
+                        help="0=baseline Polyak EMA averaging, "
+                             "1=Schedule-Free c_t=gamma^2_t/Sum(gamma^2_i) weighting "
+                             "(Defazio et al. 2024, arxiv:2405.15682).")
+    parser.add_argument("--sf_no_cooldown", type=int, default=0,
+                        help="When --use_schedule_free 1: also disable WSD cooldown "
+                             "(constant lr_mult=1.0 across the whole run). SF averaging "
+                             "becomes the only convergence mechanism.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +728,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "use_schedule_free": int(args.use_schedule_free),
+            "sf_no_cooldown": int(args.sf_no_cooldown),
         },
     )
 
@@ -776,11 +786,17 @@ for trial_idx in range(args.num_trials):
     if args.ema_beta > 0:
         ema_params = [p.detach().float().clone() for p in optimizer2.param_groups[0]["params"]]
 
+    # Schedule-Free state: cumulative Sum(gamma^2_i) used to compute c_t = gamma^2_t / Sum.
+    # Only updated post-warmup; pre-warmup tracks live params (no averaging) like baseline.
+    sf_lr_sq_sum = 0.0
+
     # learning rate schedule: stable then power-law cooldown (gamma = COOLDOWN_POWER)
     def compute_lr_mult(step, cooldown_frac=0.7):
         """Pure: LR multiplier (eta) at `step`. Matches set_hparams."""
         if step >= train_steps:
             return 0.0
+        if args.use_schedule_free and args.sf_no_cooldown:
+            return 1.0
         progress = step / train_steps
         if progress < 1 - cooldown_frac:
             return 1.0
@@ -804,7 +820,11 @@ for trial_idx in range(args.num_trials):
     def set_hparams(step, cooldown_frac=0.7):
         progress = step / train_steps
         assert 0 <= progress < 1
-        if progress < 1 - cooldown_frac:
+        if args.use_schedule_free and args.sf_no_cooldown:
+            # SF no-cooldown mode: constant lr throughout (no WSD decay).
+            eta = 1.0
+            cooldown_progress = 0.0
+        elif progress < 1 - cooldown_frac:
             eta = 1.0
             cooldown_progress = 0.0
         else:
@@ -987,16 +1007,28 @@ for trial_idx in range(args.num_trials):
         # After warmup: lerp at (1 - β_t) where β_t is the dynamic cooldown-aware β.
         ema_beta_t_now = float("nan")
         ema_lr_mult_now = float("nan")
+        sf_c_t_now = float("nan")
         if ema_params is not None:
             if step < args.ema_warmup_steps:
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.copy_(p.detach().float())
                 ema_beta_t_now = args.ema_beta
                 ema_lr_mult_now = compute_lr_mult(step)
+                # Reset SF accumulator: averaging starts at ema_warmup_steps.
+                sf_lr_sq_sum = 0.0
             else:
                 ema_lr_mult_now = compute_lr_mult(step)
-                ema_beta_t_now = compute_ema_beta_t(step)
-                lerp_w = 1.0 - ema_beta_t_now
+                if args.use_schedule_free:
+                    # SF weighting: c_t = gamma^2_t / Sum(gamma^2_i) (Defazio et al. 2024).
+                    gamma_t = ema_lr_mult_now * args.muon_lr
+                    sf_lr_sq_sum += gamma_t ** 2
+                    c_t = (gamma_t ** 2) / max(sf_lr_sq_sum, 1e-12)
+                    lerp_w = c_t
+                    sf_c_t_now = c_t
+                    ema_beta_t_now = 1.0 - c_t  # equivalent beta for telemetry
+                else:
+                    ema_beta_t_now = compute_ema_beta_t(step)
+                    lerp_w = 1.0 - ema_beta_t_now
                 for ema_p, p in zip(ema_params, optimizer2.param_groups[0]["params"]):
                     ema_p.lerp_(p.detach().float(), lerp_w)
         if dist.get_rank() == 0 and telemetry_due:
@@ -1053,6 +1085,16 @@ for trial_idx in range(args.num_trials):
                     "ema/active_train": int(step >= args.ema_warmup_steps),
                     "ema/ramp_enabled": int(args.ema_beta_target is not None),
                 }, step=wandb_step)
+                if args.use_schedule_free:
+                    wandb.log({
+                        "trial": trial_idx,
+                        "train/step": train_step,
+                        "sf/lr_sq_sum": sf_lr_sq_sum,
+                        "sf/c_t": (sf_c_t_now if step >= args.ema_warmup_steps else 0.0),
+                        "sf/gamma_t": (ema_lr_mult_now * args.muon_lr),
+                        "sf/no_cooldown": int(args.sf_no_cooldown),
+                        "sf/use_schedule_free": int(args.use_schedule_free),
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and (train_step % 100 == 0 or train_step == train_steps):
             spec = pmuon_spectral_diag(optimizer2, PMUON_GAMMA)
             if spec:
