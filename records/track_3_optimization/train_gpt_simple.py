@@ -722,7 +722,8 @@ if dist.get_rank() == 0:
             "slope_fraction": SLOPE_FRACTION,
             # PMuon (bilateral covariance preconditioning, record #18) hyperparameters.
             "muon_lr": args.muon_lr,
-            "muon_weight_decay": 0.025,
+            "muon_weight_decay": args.muon_weight_decay,
+            "muon_wd_form": args.muon_wd_form,
             "pmuon_beta_cov": 0.95,
             "pmuon_gamma": PMUON_GAMMA,
             "pmuon_gamma_power": PMUON_GAMMA,
