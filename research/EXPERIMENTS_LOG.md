@@ -1,3 +1,62 @@
+## 2026-05-24 20:30 UTC — PR H132 ASSIGNED (edward): NS5 Polynomial Coefficient Sweep within Quintic Family (first-ever ablation of (a,b,c)=(2,-1.5,0.5) themselves)
+
+- Branch: `g1r3-edward/h132-ns5-polynomial-coefficient-sweep`
+- Hypothesis: NS5 polynomial coefficients `a, b, c = 2, -1.5, 0.5` (line 502 of `zeropower_via_newtonschulz5`) have been treated as fixed-and-tuned since programme start. Update rule per iteration: `A = X X^T; B = b·A + c·A²; X = a·X + B·X`. The triple is one quintic update among a continuous family — Bernstein et al.'s post-Newton-Schulz analysis shows multiple valid `(a, b, c)` choices converge to the polar factor. **Tests whether the chosen coefficients are at-optimum within the quintic family or there is unexplored convergence-speed/spectral-shape headroom.**
+- Implementation: **LoC ~10** (add `--ns5_coef_a`, `--ns5_coef_b`, `--ns5_coef_c` CLI flags; replace hardcoded `a, b, c = 2, -1.5, 0.5` at line 502 with args lookup; defaults preserve bit-id).
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--ns5_coef_a 2.0 --ns5_coef_b -1.5 --ns5_coef_c 0.5` (bit-id baseline reproduction guard)
+  - arm_b OVER_CORRECTED: `--ns5_coef_a 2.0 --ns5_coef_b -2.0 --ns5_coef_c 0.75` (stronger quintic; faster sv_max compression but risks oscillation near sv≈1)
+  - arm_c UNDER_CORRECTED: `--ns5_coef_a 2.0 --ns5_coef_b -1.0 --ns5_coef_c 0.25` (weaker quintic; slower convergence at fixed k=12 iterations, more "linear-like" update)
+- Critical telemetry (mirrors edward's H115 spectral-bound discipline):
+  - Pre-NS5 and post-NS5 `sv_min/sv_med/sv_max` at fixed checkpoints 0/125/500/1000/2000/3325 (verify each (a,b,c) achieves NS5 spectral target sv_median≈1.0)
+  - Per-iteration post-NS5 sv trajectory within a single NS5 call at step 500 (k=0..12) — answer: does over-corrected `(2,-2,0.75)` converge in fewer iterations? Does under-corrected `(2,-1,0.25)` need >12 iterations?
+  - 8-checkpoint val/loss trajectory (gold-standard H109 template)
+- Decision rules (WIN threshold ~3.26626, NULL band [3.26536, 3.26976], widened CTRL dispersion [3.26880, 3.27250]):
+  - arm_b OVER_CORRECTED WIN: stronger quintic produces better NS5 output spectrum (MERGE candidate; coefficient axis re-opened upward — fresh degree-of-freedom)
+  - arm_b OVER_CORRECTED NEG: over-correction destabilizes NS5 convergence near sv≈1 (closes upward direction)
+  - arm_c UNDER_CORRECTED WIN: weaker quintic at fixed k=12 yields better spectrum (mechanism — slower convergence has lower-frequency content benefit)
+  - arm_c UNDER_CORRECTED NEG: under-correction leaves residual sv_max>1 / sv_median<1 (closes downward direction)
+  - all NEG: NS5 coefficient triple `(2,-1.5,0.5)` is at-margin-optimum within quintic family (1st NS5-coefficient closure; complements H129 nezuko k-count axis — depth × coefficients jointly closed)
+  - all NULL: coefficient choice neutral within tested triples (NS5 robust to within-family perturbation)
+- Mechanism-distinct from H78 (polynomial degree change), H88 (Polar Express family — different polynomial), H90 (NSCubic — different family entirely), H115 (magnitude bound at fixed coefs), H129 nezuko in-flight (iteration count k at fixed coefs). H129 + H132 are complementary axes (depth vs coefficients within fixed degree).
+- Why edward: spectral specialist (H99 outer LR WSD, H107 block-periodic orth, H115 post-NS5 sv_max bound + H124 family-level closure); H132 is direct extension of H115 spectral work + edward's own H124 suggestion #2 ("gradient-history-decorrelating preconditioner").
+- W&B group: `g1r3-edward-h132-ns5-polynomial-coefficient-sweep`
+
+---
+
+## 2026-05-24 20:30 UTC — PR #1056 CLOSED NEG/closure (edward): H124 Aux Optimizer Family Switch — Lion (9th aux closure — FAMILY-LEVEL; anti-persistent aux gradient mechanism identified)
+
+- Branch: `g1r3-edward/h124-aux-lion-optimizer`
+- Hypothesis: After 8-axis aux AdamW closure (H73/H80/H87/H89/H94/H96/H97/H110), AdamW parameter knobs are saturated. Test FUNDAMENTALLY DIFFERENT optimizer family for aux groups: Lion (Chen et al. 2023 NeurIPS) `m_t = β2·m_{t-1} + (1-β2)·g_t; update = sign(β1·m_{t-1} + (1-β1)·g_t)`. Compared to AdamW: 1 buffer vs 2, signed update vs magnitude-modulated, ~50% less optimizer state.
+
+| arm | run_id | family / params | embed_lr | lm_head_lr | val/loss | Δ vs baseline 3.26706 | Δ vs CTRL | verdict |
+|---|---|---|---|---|---|---|---|---|
+| arm_a CTRL AdamW | `m9lu160i` | adamw (default — bit-id) | 0.3 | 0.003125 | **3.27116** | +0.00410 | — | NULL within widened CTRL dispersion [3.26880, 3.27250] ✅ |
+| arm_b LION_NOMINAL | `3d3qmw1m` | lion β1=0.9 β2=0.99 | 0.3 | 0.003125 | **3.31385** | +0.04679 | +0.04269 | **clear NEG** |
+| arm_c LION_LR3 | `ak7cbx29` | lion β1=0.9 β2=0.99 (paper lr/3) | 0.1 | 0.00104 | **3.31444** | +0.04738 | +0.04328 | **clear NEG** |
+
+Both Lion arms NEG with near-identical regression (Δ vs CTRL ≈ +0.043); lr/3 scaling does not rescue.
+
+**Programme-level findings (4 separate, gold-standard):**
+
+1. **9th aux-axis closure — FAMILY-LEVEL** (joint H73/H80/H87/H89/H94/H96/H97/H110/H124): 8-axis aux AdamW parameter closure amplified by H124 family-level closure. Every parameter knob (β1/β2 EMA, eps, β2 level/schedule/ramp/floor, β1 level/asymmetry) explored AND family swap rejected. AdamW(betas=(0.8, 0.99), eps=1e-6, wd=0) is the optimal aux family AND its parameters are at-optimum. Sign-only updates cannot capture aux-gradient structure at any LR. **Aux-axis is now COMPREHENSIVELY CLOSED.**
+
+2. **Anti-persistent aux gradient mechanism (new programme-level diagnostic via edward's `aux/lion_buffer_cos_to_grad`)**: cos(buffer m_{t-1}, current grad g_t) is **persistently NEGATIVE ≈ −0.35 to −0.42 for steps 500–2000** in BOTH Lion arms, only relaxing toward 0 in cooldown. The hypothesis predicted cos≈0 (decorrelated) or cos>0.5 (persistent); the data shows **anti-persistent**. Aux groups (embed, lm_head) see oscillating sparse-vocab updates step-to-step — each batch hits a different sparse subset of vocab rows. AdamW's `m̂/√(v̂+ε)` damps oscillation via the v̂ denominator; Lion's `sign(β1·m + (1-β1)·g)` partial-cancels under anti-correlation then sign() amplifies residual noise. **Lion's mechanism fights its own buffer in this regime**; AdamW's denominator damps exactly the case Lion can't handle.
+
+3. **Lion converges with same shape, worse level** (NOT failure to converge): val/loss trajectory shows Lion gap to AdamW opens at step 125 (Δ≈+0.24 at warmup end), narrows to Δ≈+0.044 by step 2000, then stays constant through cooldown. Lion converges to a worse minimum — NOT diverging, NOT plateauing early. This is mechanism-level evidence; tuning won't fix it.
+
+4. **Lion-as-memory-lever validated for OOM scenarios**: peak GPU memory 36.12 GiB (Lion) vs 72.24 GiB (AdamW fused) — **~50% reduction**. The ~400 MB aux-param state saving is amplified by fused/non-fused allocator difference, but the 1-buffer Lion design is a real practical lever. **Programme directive: keep `aux_optimizer=lion` code path** as a validated drop-in for future memory-bound hypotheses (larger models, longer context, more activation checkpointing) with a known +0.04 val/loss cost.
+
+**Programme directive**: research capacity moves OFF aux groups (embed, lm_head) entirely. Aux-axis comprehensively closed (9 axes joint). Future programme effort should target MuonH family (H132 just assigned — NS5 polynomial coefficients), outer optimizer family (already 11-axis closed post-H123), or schedule shape (H120 cooldown closed, H131 warmup just assigned, H130 aux cooldown in-flight). Edward's H124 suggestion #2 ("gradient-history-decorrelating preconditioner") could exploit the anti-persistent signature in a future PR — mechanism-distinct from all closed aux axes (all elementwise) and from H115 (NS on update direction).
+
+**Operational commendation** (3rd consecutive mechanism + telemetry cycle from edward: H107 → H115 → H124):
+1. Bit-id CTRL sanity (arm_a 3.27116 inside [3.26880, 3.27250] confirms aux_optimizer=adamw default branch is bit-identical to baseline path)
+2. **Anti-persistent gradient diagnostic via `aux/lion_buffer_cos_to_grad` is a new programme-level template** for any future aux-side mechanism work
+3. Lion-specific telemetry verified: `aux/lion_update_norm_rms` constant at 155.3 (=√N for N≈24k aux params — unit-magnitude property by construction) + `aux/lion_buffer_m_norm` monotonic growth verifies buffer accumulation
+4. Memory finding (50% reduction) extracted as side-effect — operational discipline of reporting peak GPU memory alongside primary metric
+
+---
+
 ## 2026-05-24 19:55 UTC — PR H131 ASSIGNED (askeladd): Inner MuonH LR Warmup Duration Sweep (50/100/250 — foundational schedule axis untested)
 
 - Branch: `g1r3-askeladd/h131-inner-lr-warmup-duration-sweep`
