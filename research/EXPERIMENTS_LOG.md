@@ -1,5 +1,51 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 21:25 UTC — PR #1073: MUON_BODY_SPECTRAL_CAP (CLOSED, 112th refuted — second catastrophic parameter-side spectral refutation joining #1075)
+
+- Branch: `g1r2-askeladd/muon-body-spectral-cap` (student g1r2-askeladd)
+- Hypothesis: Per-step power-iteration estimates σ_max(body matrix), caps via `p *= threshold/σ_max(p)` if σ_max > threshold. Tests whether unconstrained σ_max growth during 3175-step training is the load-bearing factor in the bias-limited floor. Theory: Miyato et al. 2018 Spectral Normalization for GANs.
+- Results:
+
+| Arm | cap_threshold | W&B run | Step killed | val@500 | cap_fired_fraction | Outcome |
+|-----|---------------|---------|-------------|---------|---------------------|---------|
+| disabled-check | — | `1wn0fnxy` | full | 4.08027 @200 | 0.0 | ✓ patch bytewise inert verified |
+| Arm A (loose) | 2.0 | `7597kaqq` | step ~525 | **4.01641** | 0.667 (48/72) | ❌ kill-gate +0.207 over 3.81 |
+| Arm B (tight) | 1.0 | `rfxvcz6b` | step ~885 | **4.09477** | 0.667 (48/72) | ❌ kill-gate +0.285 over 3.81 |
+
+- **Verdict**: REFUTED catastrophic. Both arms killed before step 1000 with kill-gate breach at step 500. Best val_loss across all spectral-cap runs = 4.01277 (Arm B @ step 875) vs. baseline ≈3.55 expected at step 1500.
+- **Key mechanistic findings**:
+  - **Identical cap_fired_fraction=0.667 across both thresholds** — same 48/72 body 2D tensors trigger the rescale at both cap=2.0 AND cap=1.0, confirming body weight σ_max ≫ 2.0 on 2/3 of tensors. The cap operation itself is the load-bearing mechanism, NOT the threshold value (the lower threshold just makes the destruction faster).
+  - **Multiplicative compounding**: Arm B fires at 2.5%/step on fired tensors, compounding to ∼12× cumulative shrinkage by step 100.
+  - **nonfinite_count=0 throughout** — no NaN, this is classical destructive shrinkage not numerical instability.
+  - **Train monotonically improved while val diverged** — identical train/val decoupling signature to #1075 catastrophic refutation (same family).
+- **Mechanistic interpretation**: Spectral cap `p *= threshold/σ_max(p)` rescales the FULL matrix uniformly shrinking ALL singular values to enforce a top-σ constraint. This is incompatible with Muon's design assumption that NS5 acts on the UPDATE not the PARAMETER. Multiplicative shrinkage on `p` crushes representational scale on every singular direction (not just top), compounds geometrically across steps, and conflicts with NS5's σ_i(update)≈1 assumption that already produces well-conditioned step.
+- **Weight-spectrum trifecta status (post-#1073)**:
+  - #1075 polar reproject (full spectrum equalization) → REFUTED catastrophic mid-182
+  - #1073 σ_max cap (uniform multiplicative shrinkage) → REFUTED catastrophic this PR
+  - #1067 isotropic shrinkage (preserves σ_i ratios) → Arm A close-miss val=3.27063, Arm B running
+
+  **Trifecta now 2/3 catastrophic refuted.** Only mildest variant (isotropic shrinkage = uniform multiplicative scaling preserving σ_i ratios) remains. Spectrum-erasure mode AND σ_max constraint mode both contraindicated for any future parameter-side intervention.
+
+## 2026-05-24 21:25 UTC — PR #1064: ORTHOGONAL_BODY_INIT (CLOSED, 113th refuted — strongest "axis-is-irrelevant" signal in cycle 71)
+
+- Branch: `g1r2-frieren/orthogonal-body-init` (student g1r2-frieren)
+- Hypothesis: Replace fan-in Gaussian init `w.normal_(std=sqrt(0.33/in))` with `torch.nn.init.orthogonal_(w, gain=g)` for body weights q/k/v/fc. Theory: Saxe et al. 2014 (orthogonal init → depth-independent learning) + Pennington et al. 2017/2018 (dynamical isometry / spectral universality). First INIT-side axis in cycle 71.
+- Results:
+
+| Arm | gain | W&B run | Steps | val/loss | ffs | Outcome |
+|-----|------|---------|-------|----------|-----|---------|
+| disabled-check | — | `ldt3obf8` | partial | 4.0832 @200 | — | ✓ baseline trajectory verified |
+| Arm A | 1.0 (Glorot ortho) | `qbtqfhqo` | 3175 ✓ | **3.27125** | 3025 | floor cluster touch |
+| Arm B | √2 (He ortho) | `855noqgi` | 3175 ✓ | **3.27125** | 3025 | floor cluster touch |
+
+- **Verdict**: REFUTED (floor cluster touch). Both arms miss merge bar val ≤ 3.26776 by 0.00349 and miss N=1 hold gate val ≤ 3.27 by 0.00125. ffs_A = ffs_B = 3025.
+- **Key finding — strongest "irrelevance" signal in cycle 71**:
+  - **val_A = val_B = 3.27125 to three decimals**, Δ(A−B) = 0.00000.
+  - Body weight init structure (orthogonal vs Gaussian, gain=1 vs gain=√2) has effectively zero influence on the bias-limited floor.
+  - 3-decimal exact match across two qualitatively different init scales is more emphatic than any close-miss observed in 113 prior refutations.
+- **Combined picture (init + parameter-side spectrum)**: Body weight spectral structure is load-bearing at TRAINING time (any destructive intervention catastrophic — #1075 + #1073), but body weight init structure is IRRELEVANT (any non-pathological init lands floor cluster — #1064). Spectrum at training-time ≠ spectrum at init-time in load-bearing-ness for the floor.
+- **Note**: No student SENPAI-RESULT marker posted; advisor close based on W&B terminal data directly. First INIT-structure axis tested with terminal data in cycle 71.
+
 ## 2026-05-24 20:55 UTC — PR #1061: AUX_EPS_SCHEDULE (CLOSED, 111th refuted — schedule-on-frozen-scalar family now 5/5 fully saturated, 6th major mechanism layer closed)
 
 - Branch: `g1r2-thorfinn/AUX_EPS_SCHEDULE` (student g1r2-thorfinn)
