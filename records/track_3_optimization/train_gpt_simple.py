@@ -64,6 +64,11 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--logit_soft_cap", type=float, default=0.0,
+                        help="Soft-cap logit magnitudes via tanh: logits = tanh(logits/cap)*cap. "
+                             "0 (default) preserves baseline sqrt-clip soft-cap @15. "
+                             "When >0, REPLACES the baseline sqrt-clip with tanh-cap at the given magnitude. "
+                             "Gemma 2 uses 30.0.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -239,6 +244,20 @@ def log_training_telemetry(
         "train/grad/nonfinite_count": grad_stats.get("nonfinite_count", 0.0),
         "train/weight/global_norm_pre_update": weight_stats.get("norm", 0.0),
     }
+    pre_max_abs_mean = float(model._logit_pre_max_abs_mean.item())
+    post_max_abs_mean = float(model._logit_post_max_abs_mean.item())
+    pre_abs_max = float(model._logit_pre_abs_max.item())
+    post_abs_max = float(model._logit_post_abs_max.item())
+    soft_cap_value = float(model.logit_soft_cap) if model.logit_soft_cap > 0.0 else 15.0
+    metrics["logit/pre_cap_max_abs_mean"] = pre_max_abs_mean
+    metrics["logit/pre_cap_rms"] = float(model._logit_pre_rms.item())
+    metrics["logit/post_cap_max_abs_mean"] = post_max_abs_mean
+    metrics["logit/pre_cap_abs_max"] = pre_abs_max
+    metrics["logit/post_cap_abs_max"] = post_abs_max
+    metrics["logit/cap_attenuation_max"] = pre_abs_max / (post_abs_max + 1e-8)
+    metrics["logit/cap_attenuation_mean"] = pre_max_abs_mean / (post_max_abs_mean + 1e-8)
+    metrics["logit/soft_cap_value"] = soft_cap_value
+    metrics["logit/soft_cap_active"] = 1.0 if model.logit_soft_cap > 0.0 else 0.0
     weight_norm = weight_stats.get("norm", 0.0)
     if weight_norm:
         metrics["train/grad/grad_to_weight_norm"] = grad_stats.get("norm", 0.0) / weight_norm
@@ -438,20 +457,37 @@ class Block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size: int, num_layers: int, model_dim: int):
+    def __init__(self, vocab_size: int, num_layers: int, model_dim: int, logit_soft_cap: float = 0.0):
         super().__init__()
         self.embed = nn.Embedding(vocab_size, model_dim).bfloat16()
         self.blocks = nn.ModuleList([Block(model_dim) for _ in range(num_layers)])
         self.proj = Linear(model_dim, vocab_size)
         self.norm1 = RMSNorm(model_dim)
         self.norm2 = RMSNorm(model_dim)
+        self.logit_soft_cap = float(logit_soft_cap)
+        self.register_buffer("_logit_pre_max_abs_mean", torch.zeros((), dtype=torch.float32))
+        self.register_buffer("_logit_pre_rms", torch.zeros((), dtype=torch.float32))
+        self.register_buffer("_logit_post_max_abs_mean", torch.zeros((), dtype=torch.float32))
+        self.register_buffer("_logit_pre_abs_max", torch.zeros((), dtype=torch.float32))
+        self.register_buffer("_logit_post_abs_max", torch.zeros((), dtype=torch.float32))
 
     def forward(self, inputs: Tensor, targets: Tensor):
         x = self.norm1(self.embed(inputs))
         for block in self.blocks:
             x = block(x)
-        logits = self.proj(self.norm2(x)).float()
-        logits = 15 * logits * (logits.square() + 15**2).rsqrt()
+        logits_pre = self.proj(self.norm2(x)).float()
+        if self.logit_soft_cap > 0.0:
+            logits = torch.tanh(logits_pre / self.logit_soft_cap) * self.logit_soft_cap
+        else:
+            logits = 15 * logits_pre * (logits_pre.square() + 15**2).rsqrt()
+        with torch.no_grad():
+            pre_abs = logits_pre.abs()
+            post_abs = logits.abs()
+            self._logit_pre_max_abs_mean.copy_(pre_abs.amax(dim=-1).mean())
+            self._logit_pre_rms.copy_(logits_pre.pow(2).mean().sqrt())
+            self._logit_post_max_abs_mean.copy_(post_abs.amax(dim=-1).mean())
+            self._logit_pre_abs_max.copy_(pre_abs.amax())
+            self._logit_post_abs_max.copy_(post_abs.amax())
         return F.cross_entropy(logits.view(targets.numel(), -1), targets.view(-1), reduction="sum")
 
 
@@ -670,7 +706,8 @@ batch_size = 8 * 64 * 1024
 mbs = 64
 val_inputs, val_targets = next(distributed_data_generator("data/fineweb10B/fineweb_val_*.bin", val_tokens))
 
-model = GPT(vocab_size=50304, num_layers=12, model_dim=768).cuda()
+model = GPT(vocab_size=50304, num_layers=12, model_dim=768,
+            logit_soft_cap=args.logit_soft_cap).cuda()
 model.compile(dynamic=True)
 
 module_types = param_module_types(model)
@@ -720,6 +757,8 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "logit_soft_cap": args.logit_soft_cap,
+            "logit_soft_cap_form": "tanh" if args.logit_soft_cap > 0.0 else "sqrt15_baseline",
         },
     )
 
