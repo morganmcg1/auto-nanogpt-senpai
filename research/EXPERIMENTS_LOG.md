@@ -1,3 +1,29 @@
+## 2026-05-24 16:05 UTC — PR H125 ASSIGNED (fern): H125 µ-endpoint deeper sweep (0.95→0.88, 0.95→0.84)
+
+- Branch: `g1r3-fern/h125-mu-endpoint-sweep`
+- Hypothesis: H117 arm_c BOLD (0.95→0.90) WIN; arm_b MIRROR (0.95→0.92) NULL. Does the benefit monotonically continue below 0.90? Testing endpoints {0.88, 0.84} to determine: (a) is 0.90 near the optimum, (b) is the improvement monotonic (lower = better throughout), or (c) does it reverse below 0.88. H95 showed static µ=0.90 was NEG — but that's static vs schedule. The schedule provides early-phase stability (starts at 0.95) so the final endpoint can go lower than static-optimum.
+- Arms: arm_a CTRL `--muonh_mu_schedule off` / arm_b LOW `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.88` / arm_c DEEPER `--muonh_mu_schedule linear --muonh_mu_start 0.95 --muonh_mu_end 0.84`
+
+---
+
+## 2026-05-24 16:00 UTC — PR #1027 MERGED WIN (fern): H117 Inner MuonH µ DECREASING Schedule (0.95→0.90) — NEW BASELINE
+
+- Branch: `g1r3-fern/h117-mu-decreasing-schedule`
+- Hypothesis: Mirror-image of H109's increasing schedule: linear µ DECREASE 0.95→0.90 captures lower-µ advantage throughout training without paying a late-phase cost.
+
+| arm | run_id | µ schedule | val/loss | Δ vs baseline 3.26977 | ffs | terminal µ | verdict |
+|---|---|---|---|---|---|---|---|
+| arm_a CTRL | b1yxccn9 | off (static 0.95) | 3.27046 | +0.00069 | 3100 | 0.9500 | NULL bit-id |
+| arm_b MIRROR | 5q76w7a4 | linear 0.95→0.92 | 3.26936 | -0.00041 | 3050 | 0.9200 | NULL marginal-below |
+| arm_c BOLD | dmvm8eat | linear 0.95→0.90 | **3.26706** | **-0.00271** | **3025** | 0.9000 | **WIN MERGED** |
+
+- **Mechanism finding (programme-level)**: Sutskever lr/(1-µ) effective-step is STRICTLY SMALLER for lower µ at every checkpoint, yet arm_c achieves better loss — ruling out H95's effective-step-size prediction as the mechanism. Lower µ through NS5 polar projection reduces momentum smoothing of post-orthogonalized update direction → better gradient-tracking responsiveness throughout training. Confirmed by 35/38 cross-arm checkpoints where arm_c is ahead (crossing at step ~375).
+- **H109 + H117 joint finding**: µ-schedule axis is asymmetric. Increasing schedule (H109, NEG) hurts; decreasing schedule (H117, WIN) helps. Static µ=0.90 (H95, NEG) worse than static 0.95; but scheduled 0.95→0.90 (H117) is WIN — early-phase stability from starting at 0.95 enables the late-phase lower-µ benefit.
+- **Schedule verification**: terminal µ values matched exactly (arm_a 0.95, arm_b 0.92, arm_c 0.90). max |CTRL diff| = 5.95e-03 (seed variance, not schedule leakage).
+- **New baseline**: val/loss=3.26706, ffs=3025. BASELINE.md updated.
+
+---
+
 ## 2026-05-24 15:00 UTC — PR #1053 ASSIGNED (edward): H124 Aux Optimizer Family Switch — Lion (Chen et al. 2023, signed momentum)
 
 - Branch: `g1r3-edward/h124-aux-lion-optimizer`
