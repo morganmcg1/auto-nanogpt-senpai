@@ -55,6 +55,18 @@ def parse_args():
     parser.add_argument("--outer_lr", type=float, default=float(os.environ.get("OUTER_LR", "0.7")))
     parser.add_argument("--outer_momentum", type=float, default=float(os.environ.get("OUTER_MOMENTUM", "0.5")))
     parser.add_argument("--sync_interval", type=int, default=int(os.environ.get("SYNC_INTERVAL", "30")))
+    # H101: Schedule-Free outer primal averaging replaces heavy-ball SGDM
+    # aggregation. slow = (1 - sf_alpha_t)*slow + sf_alpha_t*fast where
+    # sf_alpha_t = sf_outer_beta / (1 + sf_outer_beta * outer_step_count).
+    # Removes the outer momentum buffer entirely. outer_lr/outer_momentum
+    # ignored when --outer_schedule_free 1.
+    parser.add_argument("--outer_schedule_free", type=int,
+                        default=int(os.environ.get("OUTER_SCHEDULE_FREE", "0")),
+                        choices=[0, 1],
+                        help="Replace MuLoCo outer Nesterov-SGDM with Schedule-Free primal averaging.")
+    parser.add_argument("--sf_outer_beta", type=float,
+                        default=float(os.environ.get("SF_OUTER_BETA", "0.9")),
+                        help="Schedule-Free outer beta coefficient (Defazio paper recommends 0.9).")
     # AGC (Brock et al. 2021): per-parameter adaptive gradient clipping applied to
     # AdamW aux groups (embed, lm_head, scalars). Clips grad to clip_ratio * |param|.
     # Default 0.0 disables (no-op for bit-identical baseline).
@@ -711,9 +723,16 @@ print0("="*100)
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}"
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 if args.use_outer_optimizer:
-    print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
-           f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.outer_schedule_free:
+        print0(f"MuLoCo outer optimizer ENABLED in SCHEDULE-FREE mode: "
+               f"sf_outer_beta={args.sf_outer_beta} sync_interval={args.sync_interval} "
+               f"(outer_lr/outer_momentum unused in SF arm)", console=True)
+    else:
+        print0(f"MuLoCo outer optimizer ENABLED in HEAVY-BALL SGDM mode: outer_lr={args.outer_lr} "
+               f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
 else:
+    if args.outer_schedule_free:
+        raise ValueError("--outer_schedule_free 1 requires --use_outer_optimizer 1")
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
 if args.aux_agc_clip_ratio > 0:
@@ -772,6 +791,8 @@ if dist.get_rank() == 0:
             "muloco_outer_lr": args.outer_lr,
             "muloco_outer_momentum": args.outer_momentum,
             "muloco_sync_interval": args.sync_interval,
+            "outer_schedule_free": bool(args.outer_schedule_free),
+            "sf_outer_beta": args.sf_outer_beta,
             "aux_agc_clip_ratio": args.aux_agc_clip_ratio,
             "aux_agc_eps": args.aux_agc_eps,
             "muonh_agc_clip_ratio": args.muonh_agc_clip_ratio,
@@ -926,9 +947,14 @@ for trial_idx in range(args.num_trials):
     # gains. Inner optimizer state (MuonH momentum, AdamW exp_avg) is NOT reset
     # at outer-step boundaries — matches public ref #13 and closed PR #55.
     use_outer = bool(args.use_outer_optimizer)
+    use_outer_sf = bool(args.outer_schedule_free) and use_outer
     if use_outer:
         outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
-        outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        # SF primal averaging has no momentum buffer — skip the velocity allocation.
+        if use_outer_sf:
+            outer_velocity = None
+        else:
+            outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
     else:
         outer_anchor = None
         outer_velocity = None
@@ -1119,32 +1145,63 @@ for trial_idx in range(args.num_trials):
         # behavior — the goal is trajectory smoothing, not strict norm invariance.
         if use_outer and train_step % args.sync_interval == 0 and train_step < train_steps:
             log_outer = (dist.get_rank() == 0)
+            # outer_step_count for this firing — used by SF coefficient (starts at 1).
+            sf_step = outer_applied_steps + 1
+            sf_alpha_t = args.sf_outer_beta / (1.0 + args.sf_outer_beta * sf_step)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
                 velocity_sq = torch.zeros((), device=device)
+                slow_sq = torch.zeros((), device=device)
+                fast_sq = torch.zeros((), device=device)
+                slow_dot_fast = torch.zeros((), device=device)
                 total_count = 0
             with torch.no_grad():
                 for n, p in model.named_parameters():
-                    delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
+                    # outer_anchor[n] is the previous "slow" weight; p.data is the
+                    # current "fast" weight (post-inner-K-step).
+                    delta = outer_anchor[n] - p.data  # slow - fast
                     if log_outer:
+                        slow_f = outer_anchor[n].float()
+                        fast_f = p.data.float()
                         delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                        slow_sq = slow_sq + slow_f.square().sum()
+                        fast_sq = fast_sq + fast_f.square().sum()
+                        slow_dot_fast = slow_dot_fast + (slow_f * fast_f).sum()
                         total_count += delta.numel()
+                    if use_outer_sf:
+                        # SF primal averaging: slow = (1 - alpha) * slow + alpha * fast
+                        #   = slow + alpha * (fast - slow) = slow - alpha * delta
+                        # No momentum buffer, no per-step accumulation.
+                        p.data.copy_(outer_anchor[n] - sf_alpha_t * delta)
+                    else:
+                        # Heavy-ball SGDM (arm_a CTRL / default baseline).
+                        outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                        if log_outer:
+                            velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                    outer_anchor[n].copy_(p.data)
             outer_applied_steps += 1
             if log_outer:
-                delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
-                velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                delta_sq_v = delta_sq.item()
+                slow_sq_v = slow_sq.item()
+                fast_sq_v = fast_sq.item()
+                slow_dot_fast_v = slow_dot_fast.item()
+                delta_rms = (delta_sq_v / max(1, total_count)) ** 0.5
+                log_dict = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
-                    "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                    "outer/sf_alpha_t": sf_alpha_t,
+                    "outer/sf_effective_lr": args.outer_lr * sf_alpha_t,
+                    "outer/delta_norm": delta_sq_v ** 0.5,
+                    "outer/slow_fast_norm_ratio": (slow_sq_v ** 0.5) / max(1e-30, fast_sq_v ** 0.5),
+                    "outer/slow_fast_cos": slow_dot_fast_v / max(1e-30, (slow_sq_v * fast_sq_v) ** 0.5),
+                }
+                if not use_outer_sf:
+                    log_dict["train/muloco/velocity_rms"] = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                wandb.log(log_dict, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
