@@ -47,6 +47,19 @@ def parse_args():
                         help="Extend SOAP preconditioning to attention projections with trust gate")
     parser.add_argument("--soap_trust_threshold", type=float, default=0.0,
                         help="Cosine similarity threshold below which SOAP update falls back to plain Muon (when --soap_attn)")
+    parser.add_argument("--soap_attn_side", type=str, default="both",
+                        choices=["both", "left", "right", "none"],
+                        help="Per-scope SOAP eigenbasis projection for ATTN params: "
+                             "both=full Q_row^T @ U @ Q_col (current); "
+                             "left=Q_row only (Q_row^T @ U); "
+                             "right=Q_col only (U @ Q_col); "
+                             "none=skip SOAP (plain Muon). "
+                             "exp_avg_sq scaling kept on projected update for left/right; dropped for none. "
+                             "Norm-preservation kept for non-none sides. Requires --soap_attn.")
+    parser.add_argument("--soap_mlp_side", type=str, default="both",
+                        choices=["both", "left", "right", "none"],
+                        help="Per-scope SOAP eigenbasis projection for MLP params. "
+                             "Same semantics as --soap_attn_side but for MLP scope.")
     parser.add_argument("--lr_mlp", type=float, default=0.035,
                         help="Muon learning rate for MLP weights (.mlp.fc.weight / .mlp.proj.weight)")
     parser.add_argument("--wd_mlp", type=float, default=0.025,
@@ -540,14 +553,27 @@ def soap_basis_qr(row_gg, col_gg, q_row, q_col, exp_avg_sq):
     return q_row, q_col, exp_avg_sq
 
 
-def soap_precondition_momentum(update, state, beta2=SOAP_BETA2, eps=1e-8):
+def soap_precondition_momentum(update, state, side="both", beta2=SOAP_BETA2, eps=1e-8):
     update_f = update.float()
     if state["q_row"] is None:
         return update
     q_row, q_col = state["q_row"], state["q_col"]
-    projected = q_row.T @ update_f @ q_col
+    if side == "both":
+        projected = q_row.T @ update_f @ q_col
+    elif side == "left":
+        projected = q_row.T @ update_f
+    elif side == "right":
+        projected = update_f @ q_col
+    else:
+        raise ValueError(f"unknown SOAP side: {side}")
     state["exp_avg_sq"].mul_(beta2).add_(projected.square(), alpha=1 - beta2)
-    precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
+    scaled = projected / state["exp_avg_sq"].sqrt().add(eps)
+    if side == "both":
+        precond = q_row @ scaled @ q_col.T
+    elif side == "left":
+        precond = q_row @ scaled
+    else:  # "right"
+        precond = scaled @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
 
@@ -571,7 +597,8 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0,
+                 soap_attn_side="both", soap_mlp_side="both"):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -584,13 +611,26 @@ class Muon(torch.optim.Optimizer):
             groups_raw = [{"named_params": named_params, "lr": lr, "weight_decay": weight_decay, "mu": mu}]
             all_named = named_params
 
-        soap_suffixes = self.SOAP_MLP_SUFFIXES + (self.SOAP_ATTN_SUFFIXES if soap_attn else ())
-        self.soap_params = {
-            p for n, p in all_named
-            if any(n.endswith(suf) for suf in soap_suffixes)
-        }
+        # Determine per-param SOAP side ("both"/"left"/"right") for params that should run SOAP.
+        # MLP params follow soap_mlp_side; attn params follow soap_attn_side (only when soap_attn=True).
+        # side="none" → param is excluded from soap_params and runs plain Muon.
+        self.param_soap_side: dict[int, str] = {}
+        for n, p in all_named:
+            is_mlp = any(n.endswith(suf) for suf in self.SOAP_MLP_SUFFIXES)
+            is_attn = any(n.endswith(suf) for suf in self.SOAP_ATTN_SUFFIXES)
+            if is_mlp:
+                side = soap_mlp_side
+            elif is_attn and soap_attn:
+                side = soap_attn_side
+            else:
+                side = None
+            if side is not None and side != "none":
+                self.param_soap_side[id(p)] = side
+        self.soap_params = {p for _, p in all_named if id(p) in self.param_soap_side}
         self.param_names = {id(p): n for n, p in all_named}
         self.soap_attn = soap_attn
+        self.soap_attn_side = soap_attn_side
+        self.soap_mlp_side = soap_mlp_side
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
@@ -634,9 +674,10 @@ class Muon(torch.optim.Optimizer):
                             state["q_col"] = None
                             state["soap_step"] = 0
                     if use_soap:
+                        side = self.param_soap_side[id(p)]
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
-                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
+                        precond_nesterov = soap_precondition_momentum(raw_nesterov, state, side=side)
                         u_soap = soap_ns_step(precond_nesterov)
                         if self.use_trust_gate:
                             u_muon = soap_ns_step(raw_nesterov)
@@ -758,6 +799,8 @@ if dist.get_rank() == 0:
             "ns_iter": NS_ITER,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
+            "soap_attn_side": args.soap_attn_side,
+            "soap_mlp_side": args.soap_mlp_side,
             "lr_mlp": args.lr_mlp,
             "wd_mlp": args.wd_mlp,
             "lr_attn": args.lr_attn,
@@ -853,6 +896,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        soap_attn_side=args.soap_attn_side, soap_mlp_side=args.soap_mlp_side,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
