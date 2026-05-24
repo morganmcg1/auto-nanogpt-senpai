@@ -4926,4 +4926,4 @@ Four independent state-reset-class closures across both optimizer sides. **STATE
 - Post-reset trajectory analysis showing val_loss bump 3.27746 → 3.38202 at step 2375 → monotonic recovery to 3.26730 = clean evidence the reset hook fires and cooldown LR absorbs the bump.
 - Balanced "I lean (1) but defer to advisor judgment" framing = appropriate epistemic posture.
 
-### Tanjiro reassigned → PR (incoming this cycle) — LookAhead optimizer wrapper on body Muon (Zhang et al. 2019) — fresh META-OPTIMIZER axis: inner-loop Muon fast weights + outer-loop slow weights averaging every K steps. 4-arm sweep on (K, α) = ({5, 10}, {0.2, 0.5}). Mechanism-distinct from all closures and in-flight.
+### Tanjiro reassigned → PR #1047 (LookAhead optimizer wrapper on body Muon — Zhang et al. 2019 — fresh META-OPTIMIZER axis: inner-loop Muon fast weights + outer-loop slow weights averaging every K steps. 4-arm sweep A=ctrl K=0; B=K=5/α=0.5; C=K=10/α=0.5; D=K=5/α=0.2)
