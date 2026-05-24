@@ -1,3 +1,52 @@
+## 2026-05-24 14:00 UTC — PR #1041 ASSIGNED (tanjiro): H122 Body Weight Orthogonal Initialization (pre-load NS5 spectral target from step 0)
+
+- Branch: `g1r3-tanjiro/h122-ortho-init`
+- Hypothesis: **Initialization experiment (first-ever body-weight init test in programme) — directly motivated by H112 closure.** NS5 enforces sv_median ≈ 1.0 in weight space by step 400; default init starts away from target. Pre-loading the NS5 target structure (orthogonal init, sv_median=1.0 from step 0) may save the warmup-phase "settling cost." Also tests the H112 Frobenius-capacity dimension: arm_c starts at elevated Frobenius (√2× scale) to test whether capacity pre-loading helps.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--body_init_mode default` (bit-identical baseline)
+  - arm_b ORTHO: `--body_init_mode ortho` (torch.nn.init.orthogonal_ for all body weight matrices; sv_median=1.0 at step 0)
+  - arm_c ORTHO_SCALED: `--body_init_mode ortho_scaled` (orthogonal then ×√2; sv values all at √2; elevated Frobenius capacity)
+- LoC: ~30 (add `--body_init_mode` CLI flag with default/ortho/ortho_scaled, modify body weight init in train_gpt_simple.py).
+- Critical telemetry: `muonh/sv_min`, `muonh/sv_max`, `muonh/sv_median` at steps 0/50/100/200/400/1000/3325 (tests whether orthogonal init structure persists or washes out); `muonh/frobenius_norm` trajectory per body weight; val/loss at 8 fixed checkpoints (H109 gold-standard).
+- Decision (widened NULL band [3.26880, 3.27250]):
+  - WIN: pre-loading NS5 target accelerates; merge + programme directive: use ortho init for body experiments
+  - NULL: init effect washes out (NS5 robust to init); expected outcome if H112 sv_median convergence is fast
+  - NEG: default init at-optimum; orthogonal init disrupts implicit early-training structure
+  - arm_c WIN while arm_b NULL/NEG: Frobenius capacity dimension dominates sv structure dimension; validates H112 Frobenius finding
+- Why tanjiro: 3rd consecutive gold-standard sv-trajectory analysis (H90, H106, H112). H112 closure direct follow-up. Natural progression: gradient-level orth → weight-level orth → initialization of weight-space structure.
+
+---
+
+## 2026-05-24 13:45 UTC — PR #1005 CLOSED NEG/closure (tanjiro): H112 Periodic QR Orthogonalization (weight-space; NS5 already enforces sv_median≈1.0; Frobenius capacity growth is load-bearing)
+
+- Branch: `g1r3-tanjiro/h112-qr-orthogonalize`
+- Final 3-arm table (W&B-verified via sub-agent):
+
+| arm | QR period | val/best_loss | Δ vs baseline | Δ vs CTRL | ffs | W&B | Verdict |
+|-----|-----------|---------------|---------------|-----------|-----|-----|---------|
+| arm_a CTRL | 0 (disabled) | 3.27051 | +0.00074 | — | 3100 | `jeaa9lvf` | NULL (within widened band) |
+| arm_b PRIMARY | 200 (~16 resets) | 3.42662 | +0.15685 | +0.15611 | -1 (DNF) | `9h29bph4` | deep catastrophic NEG |
+| arm_c COARSE | 500 (~6 resets) | 3.52126 | +0.25149 | +0.25075 | -1 (DNF) | `a5q5bytr` | deeper catastrophic NEG |
+
+Both arms missed val_target=3.28. Sparser resets WORSE — opposite of naive intuition.
+
+**Two programme-level findings:**
+
+1. **NS5 already maintains weight-space sv_median ≈ 1.0 after warmup**: pre-reset sv_median for arm_b: 1.810 (step 200) → 1.013 (step 400) → ≈1.000 (step 3200). By step 400, cumulative NS5 polar projection at GRADIENT level transitively enforces sv_median ≈ 1.0 in WEIGHT space. Post-reset sv = exactly 1.000/1.000/1.000. QR has no spectral work to do — it's a no-op spectrally and destructive in Frobenius terms.
+
+2. **Frobenius capacity growth is load-bearing (new H112 finding)**: pre-reset Frobenius grows from 27.71 (= sqrt(768)) to 52.05 (step 3200) — 1.88× expansion that the optimizer CHOSE. Post-reset Frobenius = always 27.71 = sqrt(768). QR destroys learned capacity. Sparser resets (arm_c) are worse because larger per-event Frobenius cliffs (66.80→27.71 vs 52.05→27.71 for arm_b).
+
+**Programme directive**: operations that compress Frobenius pre-closed (QR reset, weight decay on body, periodic norm reset). Weight-space spectral normalization variants pre-closed (NS5 already enforces sv_median ≈ 1.0). Future weight-space ideas should TARGET Frobenius growth or pre-load it (H122 just assigned).
+
+**Three-layer load-bearing structure refined (joint H90/H98/H106/H107/H112)**:
+- sv_min: NOT load-bearing (varies 31× across attn projections)
+- sv_median ≈ 1.0: LOAD-BEARING (H106+H112 joint, gradient AND weight space)
+- Frobenius capacity growth sqrt(d) → 1.88×sqrt(d): LOAD-BEARING (H112 new finding)
+
+- Methodological commendation: per-event pre/post-reset sv + Frobenius telemetry = gold-standard (3rd consecutive gold-standard sv diagnostic from tanjiro). Sparser-resets-are-worse causal interpretation confirmed via per-event Frobenius cliff measurement.
+
+---
+
 ## 2026-05-24 13:30 UTC — PR #1038 ASSIGNED (nezuko): H121 Inner MuonH Momentum Pruning Ablation (is Nesterov µ structurally load-bearing?)
 
 - Branch: `g1r3-nezuko/h121-inner-momentum-pruning`
