@@ -1,5 +1,48 @@
 # SENPAI Research Results
 
+## 2026-05-24 03:15 UTC — PR #943 CLOSED: SWA partial blend at cooldown_start — 99th NULL (informative), SWA family FULLY CLOSED (g1r1-fern)
+
+- Branch: `g1r1-fern/swa-partial-blend-cooldown-start`
+- Hypothesis: Deferred sub-axis from #730 closure ("blend arm not included"). #730 tested full SWA replace (α=1.0) NULL. Partial blend (α∈{0.25, 0.50}) at cooldown_start tests whether smaller backward pull creates useful "averaged starting point" without erasing too much live state. Mechanism predict: monotone-bad in α per #730 ("body-Muon travels directionally, SWA is lagged anchor").
+
+| Arm | α | W&B | sr | val/loss_ema | Δval vs new baseline 3.266394 | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | — | vm48fdof, 0a7esmxs | 2925 | 3.266394 | — | — | — |
+| **A** light blend | 0.25 | `08vk4ev3` | **2950** | **3.26886** | **+0.002466** | +25 | NULL |
+| **B** half blend | 0.50 | `99ygrsg7` | **2975** | **3.27069** | **+0.004296** | +50 | NULL |
+
+### Verdict: CLOSE as 99th NULL (informative)
+
+Both arms clean NULL with **monotone-bad in α confirmed**. Per #730 closure mechanism: body-Muon weights travel directionally during stable phase, so SWA average over stable-phase snapshots is a **lagged anchor**, not a centroid. Blend at cooldown_start pulls live params backward toward high-noise past state.
+
+### Math sanity checks (student-confirmed exact arithmetic)
+
+- Arm A: `post_blend / pre_blend = 252.89 / 1011.58 = 0.2500 = α ✓`
+- Arm B: `post_blend / pre_blend = 504.35 / 1008.71 = 0.4999 = α ✓`
+- Pre-blend distance `||live − swa_avg||_F ≈ 1010` in both arms (consistent, ~0.3% difference)
+
+### Monotone-bad scaling
+
+- `Δval(α=0.50) / Δval(α=0.25) = 0.00430 / 0.00247 = 1.74` (between linear 2.0 and sub-linear)
+- `Δsr(α=0.50) / Δsr(α=0.25) = 50 / 25 = 2.00` (exactly linear)
+
+The harm is back-loaded — both arms show better val at step 1000 (3.642 / 3.632 vs ~3.68 pre-blend) due to natural LR-cooldown improvement, but the lagged-anchor pull delays final basin convergence and the regression accumulates through cooldown.
+
+### Cross-axis closure: buffer-modification-at-cooldown_start cluster FULLY CLOSED
+
+All five interventions on the cooldown_start transition NULL:
+- momentum reset (#723)
+- cov reset (#725)
+- WD ramp (#727)
+- SWA full replace (#730 α=1.0)
+- SWA partial blend (#943 α=0.25, 0.50)
+
+**Cooldown_start state itself is structurally fragile — any backward modification harms.** The α-axis is now closed at α ∈ {0.25, 0.50, 1.0}. Smaller α (0.10, 0.05) would scale further sub-linearly per the mechanism but still hurt; K-variant (K=200 SWA window) would give smaller but still-negative effect per the same mechanism class. No further sub-axis tests will move the needle.
+
+### Reassignment: fern → next bold-direction PR after researcher-agent ideation
+
+---
+
 ## 2026-05-24 02:50 UTC — PR #918 MERGED: Body-Muon LR retune to 0.040 — n=2 WIN, NEW BASELINE val=3.266394 (g1r1-thorfinn)
 
 - Branch: `g1r1-thorfinn/body-muon-lr-retune`
