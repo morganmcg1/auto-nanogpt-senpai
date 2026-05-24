@@ -1,5 +1,26 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 16:00 UTC — PR #1051: ATTN_SOAP_TRUST_SCHEDULE (CLOSED, 105th refuted — clear-miss above floor cluster top, SOAP gate firing dynamics implicated)
+
+- Branch: `g1r2-frieren/attn-soap-trust-schedule` (student g1r2-frieren)
+- Hypothesis: Schedule the SOAP-vs-AdamW gating threshold across training instead of holding constant at 0.85. Arm A=linear UP 0.5→0.95 (warmup safety = more AdamW fallback when SOAP 2nd-moment cold; cooldown precision = max SOAP trust when well-converged). Arm B=linear DOWN 0.95→0.5 (opposite direction bracket). Gates between two optimizer styles (AdamW vs SOAP) — categorically distinct from prior 6 in-flight axes which modify within one style.
+- Results:
+
+| Arm | Schedule | W&B run | Steps | Terminal val | FFS | Outcome |
+|-----|----------|---------|-------|--------------|-----|---------|
+| disabled-check | constant 0.85 | `xl3iff9d` | 200 | 4.09083 | — | OK baseline preserved |
+| Arm A | linear_up 0.5→0.95 | `zk1z7kad` | 3175 ✓ | **3.28008** | **-1** | Clear-miss, +0.01232 above merge bar |
+| Arm B | linear_down 0.95→0.5 | NOT LAUNCHED | — | — | — | Not run — advisor decision tree no-launched after Arm A clear-miss |
+
+- **Verdict**: REFUTED CLEAR-MISS. Arm A terminated at val=3.28008/ffs=-1 sitting +0.01232 above merge bar, +0.007 above floor cluster top (3.273), +0.010 above N=1 hold gate (3.27). Schedule fired correctly (terminal `cur_attn_soap_trust=0.9499`).
+- **Mechanistic finding via W&B telemetry**: `train/attn_soap_trust_gate/on_fraction = 0.0` at terminal for Arm A vs `0.958` for the disabled-check constant=0.85 run. **The SOAP trust gate effectively turned OFF in cooldown** despite trust ramping to 0.95. Two interpretations:
+  1. The cosine-similarity threshold becomes harder to satisfy at trust→0.95 (the gate has been calibrated empirically around trust=0.85)
+  2. The asymmetric mid-training preconditioning history affected the gate's downstream conditioning
+- Either way, the linear-up schedule made SOAP fall back to AdamW during the exact cooldown phase the schedule was designed to maximize SOAP precision in. **Constant trust=0.85 is locally optimal partly through gate-firing dynamics**, not just static-trust calibration.
+- **Arm B not launched**: Symmetric Arm B (linear_down 0.95→0.5) would suffer opposite phase-cost: high SOAP trust during cold warmup = MORE erratic preconditioning early; low trust during cooldown = MORE AdamW fallback when SOAP would be most useful. Two-sided phase-cost analysis: Arm B theoretically worse than Arm A. No information gain from running it.
+- **Cycle 71 portfolio milestone**: Schedule-on-frozen-scalar family status update — #1023 TARGET_UW close-miss + #1051 ATTN_SOAP_TRUST clear-miss. Two of two SCHEDULE arms with terminal data have failed to beat baseline. The remaining three schedule probes (#1057 NS5_COEF, #1050 WD_AUX, #1061 AUX_EPS) are the gating tests for whether the schedule-on-frozen-scalar family contains any viable axis.
+- **Reassignment for frieren**: PR #1064 ORTHOGONAL_BODY_INIT — first orthogonal initialization in 280+ PRs (30th distinct mechanism class). Replaces fan-in Gaussian init with `torch.nn.init.orthogonal_` for q/k/v/fc body weights. Saxe et al. 2014 / Pennington et al. 2017 establish that orthogonal init produces depth-independent learning dynamics and equalizes Jacobian singular values; crucially, Muon's NS5 polynomial *also* projects updates to the orthogonal manifold — starting from an already-orthogonal state means NS5 has less work to do during early training. First intervention in cycle 71 that doesn't touch the optimizer at all.
+
 ## 2026-05-24 14:55 UTC — PR #1044: MUON_BIAS_CORRECT (CLOSED, 104th refuted — floor cluster touch +0.003 close-miss, momentum-INTERPRETATION layer now saturated)
 
 - Branch: `g1r2-thorfinn/muon-bias-correct` (student g1r2-thorfinn)
