@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+ORTHOGONAL_BODY_INIT = os.environ.get("ORTHOGONAL_BODY_INIT", "off")  # off, on — orthogonal init for body weights (q/k/v/fc)
+ORTHOGONAL_BODY_INIT_GAIN = float(os.environ.get("ORTHOGONAL_BODY_INIT_GAIN", "1.0"))  # gain multiplier for orthogonal init
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -867,6 +869,8 @@ if dist.get_rank() == 0:
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
+            "body_init/structure": "orthogonal" if ORTHOGONAL_BODY_INIT == "on" else "fan_in_gaussian",
+            "body_init/gain": ORTHOGONAL_BODY_INIT_GAIN if ORTHOGONAL_BODY_INIT == "on" else None,
         },
     )
 
@@ -889,7 +893,10 @@ for trial_idx in range(args.num_trials):
             elif "embed" in name:
                 w.normal_(std=EMBED_INIT_STD)
             else:
-                w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
+                if ORTHOGONAL_BODY_INIT == "on":
+                    torch.nn.init.orthogonal_(w, gain=ORTHOGONAL_BODY_INIT_GAIN)
+                else:
+                    w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
             w.zero_()
         elif name.endswith("gains"):
