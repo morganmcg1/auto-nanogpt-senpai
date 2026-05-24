@@ -1,3 +1,68 @@
+## 2026-05-24 06:30 UTC — PR #1006 ASSIGNED (nezuko): H113 Aggregated Momentum on Outer SGDM (Lucas et al. ICLR 2019)
+
+- Branch: `g1r3-nezuko/h113-outer-aggmo`
+- Hypothesis: Replace MuLoCo single-buffer outer SGDM with **Aggregated Momentum** (Lucas, Sun, Zemel, Grosse ICLR 2019 arXiv:1804.00325): maintain K=3 velocity buffers at different β values and AVERAGE their apply terms. Mechanism: heavy-ball SGDM trades off stability (small β, fast response) vs. variance reduction (large β, smooth update); AggMo decouples these by combining buffers across the β spectrum. Lucas et al. show AggMo with β=[0.0, 0.5, 0.9] gets ResNet-equivalent results without LR tuning — the ensemble of timescales provides both rapid response to recent gradients AND long-window noise rejection. **Direct follow-up from H103 closure suggestion #4**: nezuko's H103 closure note flagged AggMo as the next axis after closing the heavy-ball vs Nesterov apply-formula axis.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL `outer_aggmo=0` (bit-identical heavy-ball SGDM, outer_momentum=0.5) / arm_b PAPER `outer_aggmo=1, outer_aggmo_betas=0.0,0.5,0.9` (Lucas et al. recommended spectrum) / arm_c CONCENTRATED `outer_aggmo=1, outer_aggmo_betas=0.5,0.7,0.9` (concentrated on stable high-β region — better match to outer-loop quasi-Newton geometry).
+- Critical telemetry (programme-level finding regardless of val/loss): per-buffer `outer/aggmo/apply_norm_b{0,1,2}` (magnitude of each buffer's contribution), `outer/aggmo/agreement_cos` (pairwise cosine between buffer apply directions — measures whether timescales agree or disagree about direction). If agreement_cos drops below 0.8 mid-training, aggregation provides direction-averaging not just magnitude-averaging.
+- Why nezuko: she suggested this directly in her H103 closure. Her diagnostic style (`nesterov_heavy_ratio` per-step trajectory in H103) is the exact telemetry rigor needed for K=3 buffer agreement analysis. Mechanism-distinct from all closed outer experiments H91 (Adam direction), H99 (outer LR-WSD), H100 (grafted Adam-with-SGDM-magnitude), H101 (SF outer), H103 (Nesterov apply-formula), H108 (TR-clipped SGDM), H111 (sync interval).
+- Decision: WIN<3.26897 (instant merge); NULL∈[3.26880,3.27070]; NEG>3.27150. Decision branches: arm_b WIN → paper-recommended β-spectrum load-bearing; arm_c WIN → outer-loop favors concentrated-high-β; agreement_cos<0.8 with NULL/NEG → AggMo diversifies direction but doesn't help; agreement_cos>0.95 with NULL/NEG → AggMo collapses to single buffer effectively.
+- LoC ~40 (2 argparse + per-tensor K-buffer dict + AggMo apply block + W&B telemetry). W&B group `H113_outer_aggmo`. Mechanism-distinct from in-flight (H105/H107/H108/H109/H110/H111/H112) and all closed outer/aux/inner experiments.
+- Key references: Lucas, Sun, Zemel, Grosse (2019) "Aggregated Momentum: Stability Through Passive Damping" ICLR arXiv:1804.00325; H103 closure note (nezuko's own suggestion #4); MuLoCo baseline outer SGDM heavy-ball.
+
+---
+
+## 2026-05-24 06:30 UTC — PR #1005 ASSIGNED (tanjiro): H112 Periodic QR Orthogonalization of MuonH Block Weights (weight-space exact orthogonalization)
+
+- Branch: `g1r3-tanjiro/h112-qr-orthogonalize`
+- Hypothesis: Periodically (every K=200 or 500 steps) project MuonH block weight matrices back onto the orthogonal Stiefel manifold via **exact QR decomposition** in weight space, then continue training. Mechanism: NS5 orthogonalizes the *gradient direction* per step but never re-orthogonalizes the *accumulated weights*. Over time inner-product drift accumulates from (a) AGC clipping that may break the orthonormal columns and (b) MuLoCo outer SGDM that mixes anchors with non-orthogonal corrections. **Direct motivation from H106 (tanjiro's own) closure refinement**: load-bearing NS5 property is sv_median ≈ 1.0 (rectangular orthonormal basis), NOT sv_min ≈ 0.18 — so a periodic exact-QR pass that GUARANTEES sv_median=1.0 at every K steps could be the natural test of whether the *weight-manifold* matters or just the *gradient-direction* matters. `torch.linalg.qr(p, mode='reduced')` then sign-preserved Q (multiply Q by sign(diag(R)) to retain rotational invariance).
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL `muonh_qr_period=0` (bit-identical, no QR resets) / arm_b PRIMARY `muonh_qr_period=200` (~16 QR resets over training) / arm_c SLOW `muonh_qr_period=500` (~7 QR resets, less aggressive).
+- Critical telemetry (programme-level finding regardless of val/loss): pre/post QR-reset trajectory of `sv_min`, `sv_median`, `sv_max`, `frobenius_norm` on representative blocks (first attention projection 768×768, last FFN 3072×768). If pre-reset sv_median is already ≈1.0, QR is no-op → confirms NS5 alone maintains orthonormality. If pre-reset sv_median drifts to e.g. 0.7 then snaps back to 1.0 post-reset, QR is doing real work — and arm_b/arm_c trajectories will diverge from arm_a measurably.
+- Why tanjiro: she just closed H106 (cycle 160 above) with the sv_median≈1.0 refinement finding. H112 directly probes whether the load-bearing weight-manifold property she identified is actively maintained or passively decays. Mechanism-distinct from all closed gradient-direction orth variants H78 (NS5 degree), H88 (Polar Express), H90 (NSCubic), H93 (PSGD-Kron), H98 (Sophia-G), H106 (GMN gradient normalization). This is the first **weight-space** intervention in the orthogonalization family.
+- Decision: WIN<3.26897 (instant merge); NULL∈[3.26880,3.27070]; NEG>3.27150. Decision branches: pre-reset sv_median≈1.0 + NULL/NEG → NS5 alone is sufficient, weight-space drift not load-bearing; pre-reset sv_median<0.9 + arm_b WINS → weight-manifold drift IS load-bearing, weight-space intervention helps; CATASTROPHIC → QR resets break momentum state alignment.
+- LoC ~30 (1 argparse + qr_orthogonalize_block_weights function + training-loop trigger + W&B telemetry). W&B group `H112_qr_orthogonalize`. Mechanism-distinct from in-flight (H105/H107/H108/H109/H110/H111/H113) and all closed orth/inner variants.
+- Key references: Stiefel manifold optimization (Edelman, Arias, Smith 1998); H90 closure note (sv_min=0.18 partial-orth finding); H106 closure note (sv_median≈1.0 refinement); MuonH NS5 baseline.
+
+---
+
+## 2026-05-24 06:25 UTC — PR #954 CLOSED NEG/closure (nezuko): H103 Outer MuLoCo Nesterov-vs-Heavy-Ball Apply Formula (programme-level closure on outer-momentum apply-formula axis)
+
+- Branch: `g1r3-nezuko/h103-outer-nesterov`
+- Final 3-arm table:
+
+| arm | apply formula | val/loss | ffs | Δ vs baseline (3.26977) | Δ vs CTRL (3.27210) | verdict |
+|-----|---------------|----------|-----|--------------------------|----------------------|---------|
+| arm_a CTRL | heavy-ball SGDM (M·v + grad·v projection mix) | 3.27210 | 3175 | +0.00233 | — | NULL (dispersion floor) |
+| arm_b PRIMARY | Nesterov SGDM (lookahead `M·v_new + delta`) | 3.27288 | -1 | +0.00311 | +0.00078 | NULL/NEG (no improvement) |
+| arm_c TUNED | Nesterov + outer_momentum=0.6 | 3.27376 | -1 | +0.00399 | +0.00166 | NEG |
+
+- Closure: arm_b NULL/NEG + arm_c NEG → Nesterov apply-formula on outer SGDM CLOSED. **Joint with H91 (outer Adam direction), H99 (outer-LR-WSD), H100 (grafted Adam-with-SGDM-magnitude), H101 (SF outer)** → outer-loop **apply-formula** axis broadly constrained. Heavy-ball SGDM as currently configured (outer_lr=0.7, outer_momentum=0.5, single-buffer) is locally optimal among the apply-formula alternatives we've tested.
+- **Load-bearing mechanism finding via nezuko's `nesterov_heavy_ratio` trajectory**: ratio (lookahead_norm / velocity_norm) ≈ 1.3 during bulk training (lookahead 30% larger than velocity), drops to 0.84 during cooldown phase, then climbs back to 1.25 at terminal. **Bulk-vs-cooldown crossover**: arm_b briefly leads arm_a from steps 1000-1500 (when bulk ratio>1 helps via stronger correction), then loses ground after step 2000 (when cooldown ratio<1 means lookahead is smaller than velocity, effectively under-correcting). The crossover pattern explains why Nesterov doesn't uniformly help: bulk-phase advantage cancels with cooldown-phase disadvantage.
+- arm_c TUNED hypothesis wrong-signed: pushing outer_momentum=0.6 (from 0.5) amplified velocity buffer more, AMPLIFIED the crossover gap, made cooldown phase worse. Confirms cooldown-phase sensitivity is load-bearing.
+- Methodological commendation: nezuko's `nesterov_heavy_ratio` per-step trajectory is the **3rd gold-standard outer-loop diagnostic** in programme (joining edward H99 velocity_rms × outer_lr_t and askeladd H100 ratio_sgdm_over_adam). Counterfactual-pair telemetry — comparing lookahead point vs heavy-ball update point at every outer sync — is the textbook approach to isolating apply-formula effects.
+- Pre-closes: outer Nesterov apply-formula at our hyperparameters. Does NOT pre-close: AggMo-style multi-buffer aggregation (H113 in-flight), outer-only Polyak averaging on parameters not velocities, Sutskever-style time-varying outer_momentum.
+- Programme-level takeaway: outer apply-formula is largely fixed — the *outer aggregation rule* itself matters (H91/H101 confirm), but the heavy-ball vs Nesterov dichotomy within "single-buffer momentum SGDM" is bulk-vs-cooldown self-cancelling.
+
+---
+
+## 2026-05-24 06:20 UTC — PR #955 CLOSED NEG/closure (tanjiro): H106 Gradient Matrix Normalization (programme-level refinement of H90: sv_median≈1.0 is load-bearing, NOT sv_min≈0.18)
+
+- Branch: `g1r3-tanjiro/h106-gmn`
+- Final 3-arm table:
+
+| arm | mode | val/loss | best | ffs | Δ vs baseline (3.26977) | verdict |
+|-----|------|----------|------|-----|--------------------------|---------|
+| arm_a CTRL | NS5 (bit-identical) | 3.27193 | 3.27193 | 3225 | +0.00216 | NULL (dispersion) |
+| arm_b PRIMARY | GMN (per-tensor gradient_norm divisor) | 3.36044 | 3.35891 | -1 | +0.09067 | catastrophic NEG |
+| arm_c LIGHT | GMN + 0.5 mix with NS5 | 3.30188 | 3.29942 | -1 | +0.03211 | NEG |
+
+- Closure: arm_b NEG + arm_c NEG → GMN (gradient_norm-only orthogonalization) axis CLOSED. **Joint with H88 (Polar Express closed cycle 137), H90 (NSCubic closed cycle 140), H78 (NS5-degree closed)** → 3rd independent confirmation that NS5 polynomial orthogonalization is locally optimal among the gradient-direction normalization family at our scale.
+- **Load-bearing mechanism refinement via tanjiro's sv-trajectory analysis**: arm_b's gradient_norm divisor preserves sv_max but DESTROYS sv_median structure — sv_median drops from ≈1.0 (NS5) to ≈0.4 (GMN) on representative blocks. arm_c's 0.5 mix attenuates the damage but doesn't recover (sv_median=0.7). **Programme-level finding**: the load-bearing NS5 property is **sv_median ≈ 1.0** (rectangular orthonormal basis spanning the bulk of singular values), **NOT** sv_min ≈ 0.18 (H90's earlier conclusion). H90's sv_min=0.18 measurement was a small-quantile reading of an essentially-zero-floor distribution — informative about the floor but not load-bearing. This refines and tightens the H90 finding: future orth variants must preserve sv_median, not sv_min.
+- Methodological commendation: tanjiro's **git-rollback recovery** after a corrupted branch + her sv-trajectory analysis (pre/post-orth sv_min, sv_median, sv_max on first attention projection 768×768) is the most rigorous orth-family diagnostic in programme history. The refinement of H90's sv_min finding to a sv_median finding is a non-trivial programme-level result that will reshape future orth design.
+- Pre-closes: SWAN spectral-only normalization, GMN-with-nuclear-norm, simple-norm-only orth variants. Does NOT pre-close: weight-space periodic QR (H112 in-flight, tanjiro's follow-up), block-periodic orthogonalization (H107 in-flight, edward), per-coord-rescaled gradient orthogonalization.
+- Programme-level takeaway: 3 closed inner-orth axes (H78 NS5-degree, H88 Polar Express, H90 NSCubic, H106 GMN) plus 1 closed PSGD axis (H93) means we've broadly explored the inner-orth space. The sv_median≈1.0 invariant is now the design constraint for any future variant.
+
+---
+
 ## 2026-05-24 05:55 UTC — PR #1002 ASSIGNED (frieren): H111 Outer MuLoCo Sync Interval Granularity Sweep (genuinely untested axis)
 
 - Branch: `g1r3-frieren/h111-outer-sync-interval`
