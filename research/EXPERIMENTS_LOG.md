@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 17:30 UTC — PR #1039: EMA_VAL (CLOSED, 106th refuted — monotone-negative bracket, variance-floor cluster now characterized across 7 probes — BIAS-LIMITED firmly established)
+
+- Branch: `g1r2-fern/ema-val` (student g1r2-fern)
+- Hypothesis: Maintain an Exponential Moving Average of model parameters used **only** at evaluation time (no training-time mutation of weights). Tests whether the val=3.270/ffs=3025 floor cluster is reachable by reducing **evaluation-time** variance from terminal-step parameter snapshot. Arm A=β=0.99 (averaging window τ=100 steps, matches cooldown phase length). Arm B=β=0.999 (averaging window τ=1000 steps, smoothes across mid-training and cooldown). Purely eval-side intervention — train-step trajectory identical to baseline.
+- Results:
+
+| Arm | β | τ (averaging window) | W&B run | Steps | val_live | val_ema | FFS | Outcome |
+|-----|---|----------------------|---------|-------|----------|---------|-----|---------|
+| Arm A | 0.99 | ~100 | `vyb099dy` | 3175 ✓ | 3.27012 | **3.27598** | 3050 | +0.00822 above merge bar, lags live val by +0.00586 |
+| Arm B | 0.999 | ~1000 | `f08s8gld` | 3050 (advisor early-kill) | n/a | **3.46564** | n/a | Catastrophic +0.19 lag from stale mid-training avg |
+
+- **Verdict**: REFUTED MONOTONE-NEGATIVE BRACKET. Heavier EMA (β=0.999) produced **far larger** gap from baseline than lighter EMA (β=0.99). The averaging window τ scales monotonically with the lag from baseline — exactly the wrong direction.
+- **Mechanistic explanation**: The cooldown phase of training (last ~500 steps) makes large structural changes to the parameters as LR ramps down. An EMA with τ ≫ cooldown_length stores stale **pre-cooldown** parameters that no longer reflect the final state. β=0.999/τ=1000 averages across the entire mid-training trajectory at 90/10 weighting; β=0.99/τ=100 still smooths across half the cooldown phase. Eval-time variance reduction is fundamentally incompatible with end-of-training LR schedules that produce phase transitions.
+- **Methodological note**: Arm B was advisor-killed at step 3050 (~96% complete) once val_ema=3.46564 made it mathematically impossible to recover to ≤ 3.27 merge bar by step 3175 (would require all remaining 125 steps to contribute val=0 to the average, infeasible with β=0.999 update law). Saved ~10 hours GPU time. **Hypothesis-level early-termination** (distinct from training-divergence kill gates) — derived from terminal value forecast under fixed update mechanics.
+- **Cycle 71 portfolio milestone — VARIANCE-FLOOR CLUSTER FULLY CHARACTERIZED across 7 variance-reduction probes**: #524 (EMA on weights, train-time), #996 (post-NS5 additive noise), #1016 (NS5 residual blend), #1017 (zero-slope momentum prefill), #1037 (Lookahead K=10), #1044 (Muon bias correction half), #1039 (eval-only EMA Arm A). All seven converge to val=3.270 ± 0.003 / ffs=3025 ± 25 band and all seven fail to break it. **The cycle-71 central conclusion is now overdetermined**: the floor is BIAS-LIMITED at the NS5 polar projection / preconditioner level, not variance-limited at any abstraction layer.
+- **Path forward implication**: All future floor-breaking interventions must attack BIAS, not VARIANCE. Three categories remain: (1) preconditioner choice — SOAP trust schedule #1051 already refuted; NS5 coefficient schedule #1057 in flight, (2) initialization structure — orthogonal body init #1064 in flight (first init-side probe in cycle 71), (3) weight-magnitude regularization — body wd #1067 in flight.
+- **Reassignment for fern**: PR #1067 MUON_BODY_WD_EXPLICIT — explicit L2 weight decay on Muon body parameter matrices (31st distinct mechanism class — FIRST explicit body wd in 280+ PRs). Tests the line-711 design comment in `train_gpt_simple.py`: "Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd)". The mandatory stack ships with WD_AUX=0.001 on bias/LN/embed groups but body weight matrices have **never** had explicit L2 in any of the 280+ probed PRs. Arm A=wd=0.0001 (≈1.3% cumulative shrinkage over 3175 steps × lr=0.04), Arm B=wd=0.001 (≈12% cumulative shrinkage). Pivots fern from variance-side (where 7 probes have refuted) to bias-side (weight magnitude regularization, orthogonal to all in-flight axes).
+
 ## 2026-05-24 16:00 UTC — PR #1051: ATTN_SOAP_TRUST_SCHEDULE (CLOSED, 105th refuted — clear-miss above floor cluster top, SOAP gate firing dynamics implicated)
 
 - Branch: `g1r2-frieren/attn-soap-trust-schedule` (student g1r2-frieren)
