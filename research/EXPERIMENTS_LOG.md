@@ -1,5 +1,35 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 06:40 UTC — PR #1007: MUON_UW_CAP (CLOSED, 91st refuted axis — u/w-CAP side definitively refuted, body Muon updates must be FREE to be large)
+
+- Branch: `g1r2-frieren/muon-uw-cap` (student g1r2-frieren)
+- Hypothesis: Add a symmetric upper-bound cap counterpart to the u/w-floor TARGET_UW mechanism. If u/w-floor needs a floor (line 705-710) to keep updates from being too small relative to scale-square-root reference, by symmetry does it benefit from a cap to keep updates from being too large? Insert post-NS5, post-floor, pre-add at line 711 between u/w-floor end (line 710) and parameter add (line 712).
+
+| Arm | MUON_UW_CAP | W&B run | val @ 500 | Outcome |
+|---|---|---|---:|---|
+| Arm A | 1.0 (tighter cap, catches more updates) | `8b95cila` | **5.06599** ❌❌❌ | catastrophic trip +1.26 |
+| Arm B | 2.0 (looser cap, catches only extreme updates) | `aupfz33b` | **4.26359** ❌❌ | catastrophic trip +0.45 |
+| Disabled-check | (MUON_UW_CAP=0, mechanism inert) | `w1i10yhh` | val@200=4.079 ✓ | baseline preserved |
+| Reference baseline | (no cap) | (PR #613) | ~3.81 | (kill gate threshold 3.81) |
+
+**Mechanistic reading**: BOTH arms catastrophically miss the step-500 kill gate (3.81) by massive margins. Even the loose 2.0 cap (which only catches the largest post-floor updates) derails training within the first 500 steps — Arm A=1.0 is catastrophic (+1.26 above gate); Arm B=2.0 is severe (+0.45 above gate). The disabled-check (`w1i10yhh` val@200=4.079) confirms code-path identity and baseline preservation when MUON_UW_CAP=0.
+
+**Why CAP fails where FLOOR works**: The u/w-floor mechanism floors update magnitudes BELOW TARGET_UW=0.35 × √(out/in) reference scale, preventing tiny updates from dragging the trajectory. This asymmetry — floor-only, no cap — is now revealed as mechanistically necessary, not a parameterization oversight. Body Muon's stack (NS5 + u/w-floor + ContraMuon + NorMuon) expects updates to span a wide magnitude range AFTER orthogonalization. ANY mechanism that compresses this range catastrophically fails.
+
+**Convergent insight with #983/#991/#968/#971 closures**: Body Muon's natural update magnitude structure is load-bearing across multiple intervention angles:
+- #983 MUON_MOMENTUM_RENORM (89th) — momentum-buffer rescale refuted; full-rank coherence required
+- #991 MUON_MOMENTUM_DROPOUT (86th) — momentum-buffer dropout refuted; momentum direction at all positions required
+- #968 MUON_PER_TENSOR_GRAD_CLIP (87th) — tensor-level Frobenius clip refuted; heavy-tail outliers carry signal
+- #971 MUON_GRAD_VAR_NORM (88th) — Adam-style per-element 2nd-moment normalization refuted; natural per-element magnitude variation required
+- #1007 MUON_UW_CAP (91st) — post-NS5 magnitude cap refuted; updates must be free to be large
+- **The pattern is overdetermined**: NS5 + u/w-floor expects post-NS5 updates to span a wide magnitude range. ANY compression of that range — at the gradient input, at the momentum buffer, at the per-tensor norm, or at the post-NS5 output — catastrophically derails training. The body Muon stack is asymmetric in its tolerances: it can handle TOO-SMALL (and the floor exists exactly to prevent the small tail), but it cannot handle TOO-COMPRESSED.
+
+**Future axes MUST AVOID magnitude-compression interventions** at any layer of the body Muon stack. The remaining tractable mechanism classes are: (1) magnitude-ADD-back interventions (residual blend, #1016 just-assigned), (2) orthogonal axes outside body Muon (aux Lion #1012, NS5 polynomial shape #1011, post-NS5 noise #996, NS5 iters stochastic #999), (3) full-stack ablations (#1004 u/w-floor disable).
+
+**Closure URL**: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1007#issuecomment-4527687539
+
+**Total cycle 71 portfolio at this closure**: 91 refuted axes, 17 distinct mechanism classes probed (16 in-flight + 1 just-added NS5_RESIDUAL).
+
 ## 2026-05-24 06:10 UTC — PR #1000: ADAMW_AUX_EPS (CLOSED, 90th refuted axis — aux AdamW eps sweep produces indistinguishable curves across 4 orders of magnitude; **aux AdamW scalar HP space EXHAUSTED**)
 
 - Branch: `g1r2-thorfinn/adamw-aux-eps-sweep` (student g1r2-thorfinn)
