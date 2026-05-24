@@ -4759,3 +4759,38 @@ NS orthogonalization relies on accumulated momentum direction for stable update 
 **Body-side momentum cooldown DOWN-anneal axis closed on post-#847 stack.** The inverse direction (mu UP-anneal cooldown) remains technically untested but is deprioritized — directive specifies avoiding scalar HP search.
 
 ### Edward reassigned → PR #1028 (merged-stack pruning ablation — first SUBTRACTIVE experiment in the run, testing whether NS_STOCHASTIC_COOLDOWN=2 / EMBED_INIT_ANCHOR_LAMBDA=0.001 / EMBED_COOLDOWN_SHAPE=linear_floor are still load-bearing in current composition or now superseded)
+
+## 2026-05-24 10:20 — PR #982: Per-block-TYPE Muon momentum — μ_attn vs μ_mlp 4-arm sweep (CLOSED productive-NULL/NEG bidirectional)
+- g1r4-nezuko/muon-blocktype-mu
+- **Hypothesis:** Split shared Muon μ=0.95 into per-block-TYPE μ_attn and μ_mlp. #674 (CLOSED) had tested slower-mlp direction (μ_mlp=0.99 regressed strongly); this PR tests faster-mlp (μ_mlp=0.90) for the first time on the post-#847 stack.
+
+### Results
+
+| Arm | μ_attn | μ_mlp | run_id | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step_to_target |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0.95 | 0.95 | `ej2af780` | **3.26802** | — | +0.00046 | 3200 |
+| B | 0.90 | 0.95 | `e4hqopjo` | 3.27016 | +0.00214 | +0.00260 | 3225 |
+| C | 0.95 | 0.90 | `qurezx9d` | 3.27234 | **+0.00432** | +0.00478 | 3250 |
+| D | 0.90 | 0.90 | `07rhjcoj` | 3.27270 | **+0.00468** | +0.00514 | 3250 |
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL/NEG — per-block-TYPE Muon μ axis closes bidirectionally.**
+
+- Drift gate Arm A: +0.00046 (well within ±0.003 envelope) → PASS.
+- Signal threshold (Δ ≤ −0.0020): NOT MET (Arm A best; B/C/D all regress).
+- Regression threshold (Δ ≥ +0.0015): MET by Arms C (+0.00432) and D (+0.00468); B (+0.00214) borderline.
+- All-within-±0.0010 productive-NULL band: NOT MET.
+
+**Mechanism reading:** Combined with #674 (slower mlp μ=0.99 regressed +0.00863), this PR finds *faster* mlp μ=0.90 also regresses (+0.00432). Bidirectional closure: shared μ=0.95 is at/near optimum for both block types. MLP's load-bearing μ benefit is variance-reduction at the longer averaging window, not faster-window responsiveness. Attn-side μ ∈ [0.90, 0.95] appears approximately neutral at N=1.
+
+**Cross-stack reproducibility (Arm B):** Sign-flipped vs #674 (−0.00057 on #579-tip stack → +0.00214 on post-#847 stack). Both inside ±0.003 single-seed noise band → not a stack-interaction bug; noise floor swamps sub-threshold structure. Validates n≥3 paired-pod requirement for any future μ work.
+
+**Muon momentum mechanism axes status post-#982:**
+- Static per-block-TYPE μ split: CLOSED bidirectional (this PR + #674).
+- Temporal μ cooldown anneal DOWN: CLOSED productive-NEG monotone-regressive (#980).
+- Muon momentum coefficient is **no longer a productive lever** at the static-split or DOWN-anneal mechanism granularity on the current merged stack.
+
+Future Muon-mechanism PRs should target NS polynomial coefficients (alphonse #1008 in-flight), NS iteration counts, NS shape schedules, momentum-buffer one-shot operations (#998 in-flight), or fundamentally new preconditioner shapes — not momentum-coefficient values.
+
+### Nezuko reassigned → PR #1031 (NS adaptive residual stopping — per-matrix early-stop on ‖XX^T−I‖_F/√m < τ; first PRECONDITIONER-axis adaptive-iteration test; mechanism-distinct from #710 per-depth, #724 per-type, #145 sigmoid-collapse modes)

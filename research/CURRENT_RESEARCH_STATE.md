@@ -1,11 +1,47 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 10:00 UTC (cycle 214)
+- **Date:** 2026-05-24 10:40 UTC (cycle 216)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Cycle 214 snapshot (10:00 UTC May 24) — #980 closed productive-NEG; edward reassigned #1028 (first SUBTRACTIVE experiment)
+## Cycle 216 snapshot (10:40 UTC May 24) — #982 closed productive-NULL/NEG; nezuko reassigned #1031 (first PRECONDITIONER-axis adaptive-iteration test)
+
+### Activity this cycle
+
+- **#982 nezuko** CLOSED productive-NULL/NEG bidirectional: Per-block-TYPE Muon μ — μ_attn vs μ_mlp 4-arm sweep. Arm A=3.26802 (drift +0.00046 PASS); B (μ_attn=0.90)=3.27016 (Δ+0.00214); C (μ_mlp=0.90 — the novel test)=**3.27234 (Δ+0.00432)**; D (both 0.90)=3.27270 (Δ+0.00468). Combined with #674 (μ_mlp=0.99 regressed +0.00863), **per-block-TYPE static Muon μ axis CLOSED BIDIRECTIONAL** on post-#847 stack: shared μ=0.95 at/near optimum both attn and mlp; faster-mlp (0.90) and slower-mlp (0.99) both regress, ruling out window-size sensitivity in either direction. Cross-stack Arm-B sign-flip vs #674 inside ±0.003 noise — validates n≥3 requirement for future μ work.
+- **PR #1031 nezuko** assigned: **NS adaptive residual stopping** — per-matrix early-stop on `‖XX^T − I‖_F / √m < τ`. First PRECONDITIONER-axis adaptive-iteration count test on this stack. Mechanism-distinct from #710 (per-depth static), #724 (per-type static), #145 (sigmoid-collapse via denom-scaling bug — different mechanism class). 4 arms: A=ctrl (NS_ADAPTIVE=0); B=adaptive τ=0.05 / MAX={16,20}; C=adaptive τ=0.05 / MAX={12,16} **iso-budget** (pure allocation rebalancing); D=adaptive τ=0.02 / MAX={16,20} (tighter threshold). Arm C is load-bearing mechanism arm. Includes diagnostic W&B telemetry (`mean_actual / std_actual` per step) — interprets τ activation regardless of outcome.
+- **Muon momentum mechanism axes summary post-#982:** static per-block-TYPE μ split CLOSED bidirectional (#982 + #674); temporal μ cooldown anneal DOWN CLOSED productive-NEG (#980). Muon momentum coefficient no longer productive at static-split or DOWN-anneal mechanism granularity → future Muon work must target NS polynomial coefficients (#1008 in flight), NS iteration counts (#1031 now in flight), NS shape schedules, momentum-buffer one-shot ops (#998 in flight), or fundamentally new preconditioner shapes — NOT momentum coefficient values.
+
+### Live chain state (10:40 UTC May 24) — 8 chains active
+
+| PR | Student | Hypothesis | Status | Note |
+|:---:|:---:|---|:---:|---|
+| #982 | nezuko | Per-block-TYPE Muon μ | **CLOSED productive-NULL/NEG** | bidirectional with #674 |
+| #984 | thorfinn | SF-AdamW aux | mid-flight | Arm C terminal 3.27396 (+0.00474), Arm D pending |
+| #988 | tanjiro | AdamW state reset at cooldown | mid-flight | Arm B terminal 3.26905 (+0.00007), more arms pending |
+| #998 | frieren | Muon body momentum buffer one-shot RESET | mid-flight | Arm B terminal 3.26881 (+0.00226), Arm C `nioj7kvn` early |
+| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | mid-flight | post race-condition cleanup; arms re-spawning |
+| #1008 | alphonse | NS static-c op-point sweep | mid-flight | Arm B terminal 3.26886 (−0.00001 tied), Arm C `7t99gpnm` running |
+| #1020 | askeladd | AdamW ε UP-ramp cooldown | running | Arm A in progress, GPU 100% |
+| #1028 | edward | Merged-stack pruning ablation (SUBTRACTIVE) | running | picked up 10:15Z |
+| **#1031** | **nezuko** | **NS adaptive residual stopping** | **just assigned** | first PRECONDITIONER adaptive-iter test |
+
+### Mechanism axes backlog post-cycle 216
+
+- **CLOSED (recent):** β-schedule on AdamW aux (full family via #967, #514, #599, #919, #236); Muon body μ cooldown DOWN-anneal (#980); per-block-TYPE Muon μ bidirectional (#982 + #674); AdamW ε DOWN-ramp (#652); per-depth static NS_ITERS (#710); per-block-TYPE static NS_ITERS_COOLDOWN (#724); per-layer sigmoid-adaptive NS (#145, bug-mode).
+- **IN FLIGHT (8):** NS static-c sweep (#1008); NS adaptive residual stopping (#1031, NEW); pruning ablation (#1028); AdamW ε UP-ramp (#1020); per-block Muon LR mult anneal (#1003); Muon momentum buffer one-shot reset (#998); AdamW state reset (#988); SF-AdamW aux (#984).
+- **Likely terminals next 3-6 hours:** #984 (Arm D pending), #988 (multi-arm chain still progressing), #998 (Arm C early), several others.
+- **Mu UP-anneal during cooldown (inverse of #980):** deprioritized (scalar HP search per directive); axis closed in the load-bearing direction.
+
+### Open mechanism axes to consider for future assignments
+
+- **Preconditioner shape**: Shampoo/KFAC partial application (head or first layer only — compute budget permitting); Compass/Lion-style sign-aware updates; AdamW v_min multiplicative second-moment floor (distinct from #1020 additive ε floor).
+- **Initialization** (under-explored per directive): WAVE5-3 Haar-measure orthogonal init for body Muon matrices; LSUV-style layer-wise scaling; near-zero residual init for deep blocks.
+- **Schedule shape**: WSD with non-linear stable→decay curvature; cyclic re-warmup mid-training; AdamW LR-mult-by-curvature.
+- **Loss-side** (not yet attempted broadly): WAVE5-1 Zipf-frequency-weighted CE; WAVE5-6 path-norm regularization (loss-form, mechanism distinct from focal/PWCE which closed).
+
+
 
 ### Activity this cycle
 
