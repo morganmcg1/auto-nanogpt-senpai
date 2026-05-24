@@ -82,6 +82,12 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    parser.add_argument("--body_init_mode", type=str,
+                        default=os.environ.get("BODY_INIT_MODE", "default"),
+                        choices=["default", "ortho", "ortho_scaled"],
+                        help="Body weight matrix initialization for attn q/k/v/proj and mlp fc/proj. "
+                             "'default' = baseline normal_(); 'ortho' = orthogonal_ gain=1.0 (sv=1); "
+                             "'ortho_scaled' = orthogonal_ then ×sqrt(2) (sv=√2, elevated Frobenius).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -335,6 +341,38 @@ def log_histograms(
         if sample.numel() > 0:
             metrics[f"train/weight_hist_param/{clean_name}"] = wandb.Histogram(sample.numpy())
     wandb.log(metrics, step=wandb_step)
+
+
+def log_sv_telemetry(model: nn.Module, trial_idx: int, train_step: int, wandb_step: int,
+                     num_blocks: int):
+    """Log singular-value and Frobenius statistics on 4 representative body weight
+    matrices (H122). Triggered at predeclared milestones (steps 0, 50, 100, 200,
+    400, 1000, terminal). Tests whether orthogonal init's sv structure (=1.0 for
+    arm_b, =√2 for arm_c) persists or washes out under NS5 polar projection."""
+    repr_names = [
+        "blocks.0.attn.q.weight",                    # early square 768x768
+        "blocks.0.mlp.fc.weight",                    # early non-square 3072x768
+        f"blocks.{max(0, num_blocks // 2)}.attn.proj.weight",  # mid square
+        f"blocks.{num_blocks - 1}.mlp.proj.weight",  # late non-square 768x3072
+    ]
+    params = dict(model.named_parameters())
+    metrics = {"trial": trial_idx, "train/step": train_step}
+    for name in repr_names:
+        if name not in params:
+            continue
+        w = params[name].data.detach()
+        w32 = w.to(torch.float32)
+        try:
+            svals = torch.linalg.svdvals(w32)
+        except Exception:
+            continue
+        clean = clean_metric_name(name)
+        metrics[f"muonh/sv_min/{clean}"] = float(svals.min().item())
+        metrics[f"muonh/sv_max/{clean}"] = float(svals.max().item())
+        metrics[f"muonh/sv_median/{clean}"] = float(svals.median().item())
+        metrics[f"muonh/frobenius_norm/{clean}"] = float(w32.norm().item())
+    if len(metrics) > 2:
+        wandb.log(metrics, step=wandb_step)
 
 
 ########################################
@@ -821,6 +859,26 @@ for trial_idx in range(args.num_trials):
         else:
             raise Exception(f"Uninitialized parameter: {name}")
 
+    # H122: orthogonal body weight init. Overwrites the per-module normal_() init
+    # above for body 2D weights (attn q/k/v/proj, mlp fc/proj) inside blocks only.
+    # Embedding, LM head, RMSNorm gains, biases are untouched (preserves zero
+    # initial logits invariant via proj.weight=0). 'ortho' targets sv=1 for square
+    # matrices (NS5 spectral target from H112 closure); 'ortho_scaled' pre-loads
+    # elevated Frobenius via ×sqrt(2). For non-square matrices (e.g. 3072x768 MLP)
+    # torch.nn.init.orthogonal_ produces a semi-orthogonal matrix.
+    if args.body_init_mode != "default":
+        scale = (2.0 ** 0.5) if args.body_init_mode == "ortho_scaled" else 1.0
+        for name, p in model.named_parameters():
+            if not name.startswith("blocks."):
+                continue
+            if not name.endswith("weight"):
+                continue
+            if p.ndim < 2:
+                continue
+            torch.nn.init.orthogonal_(p.data, gain=1.0)
+            if scale != 1.0:
+                p.data.mul_(scale)
+
     # create the optimizer(s)
     # MuonH replaces plain Muon on the hidden 2D weights: hard hyperball projection
     # after each step (R = initial Frobenius norm * budget_mult), wd=0 since the
@@ -944,6 +1002,20 @@ for trial_idx in range(args.num_trials):
     slope_window_steps = max(100, slope_interval)
     train_loss_history: list[tuple[int, float]] = []
     val_loss_history: list[tuple[int, float]] = []
+    # H122 SV telemetry milestones (train_step values). step=0 is logged separately
+    # below as the init-state snapshot, before any optimizer step has run.
+    sv_milestones = {50, 100, 200, 400, 1000, 2000, train_steps}
+    # H122: log initial-weight SV snapshot before any optimizer step. Verifies init
+    # signature: arm_a CTRL off-target, arm_b ORTHO at sv=1.0, arm_c ORTHO_SCALED at
+    # sv=√2. wandb_step is aligned with the step=0 validation event below.
+    if dist.get_rank() == 0:
+        log_sv_telemetry(
+            model=model,
+            trial_idx=trial_idx,
+            train_step=0,
+            wandb_step=trial_idx * (train_steps + 1),
+            num_blocks=len(model.blocks),
+        )
     dist.barrier()
     t0 = time.perf_counter()
     for step in range(train_steps + 1):
@@ -1052,6 +1124,16 @@ for trial_idx in range(args.num_trials):
         )
         for opt in optimizers:
             opt.step()
+        # H122 SV milestone log (post-opt.step). Captures sv structure persistence
+        # under NS5 polar projection — 4 representative body weights × 4 stats.
+        if dist.get_rank() == 0 and train_step in sv_milestones:
+            log_sv_telemetry(
+                model=model,
+                trial_idx=trial_idx,
+                train_step=train_step,
+                wandb_step=wandb_step,
+                num_blocks=len(model.blocks),
+            )
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
         # afterwards) so we capture the warmup curve at high resolution. Cheap since
         # it's just two floats.
