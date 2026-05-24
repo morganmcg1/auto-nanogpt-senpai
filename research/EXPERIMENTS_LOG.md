@@ -3533,3 +3533,55 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 - **Orthogonal to all 7 in-flight**: nezuko #706 (embed), edward #714 (gains), frieren #748 (transform), tanjiro #756 (GC), fern #773 (adaptive mu), askeladd #776 (update RMS), thorfinn #781 (per-group eps). Strictly orthogonal.
 
 - **Gate**: μ_n=1 ≤ 3.259221 → P2 n=4. μ_n=4 ≤ 3.259221 → merge. Clean-NEG: μ > 3.261.
+
+---
+
+## 2026-05-24 ~03:30 UTC — PR #941: edward Cooldown SWA (weight EMA during cooldown) — **CLOSED clean-NEG with mechanism finding**
+
+- Branch: `g1r5-edward/cooldown-swa`
+- Student: g1r5-edward
+- Hypothesis: Maintain weight EMA (β=0.99) during cooldown (steps 975–3250), eval from EMA weights. SWA finds centroid of wide loss basin; should be lower than terminal-step weights if the cooldown trajectory has noise around a flat minimum.
+
+- **5-cell P1 results:**
+
+| Cell | Config | val/loss (n=1) | Δ vs ctrl |
+|:----:|:-------|:--------------:|:---------:|
+| A | ctrl (no SWA) | ~3.2612 | — |
+| B | β=0.99 (half-life ~70 steps) | +regression | NEG |
+| C | β=0.999 (half-life ~690 steps) | +larger regression | NEG (monotonic in β) |
+| D | β=0.95 (faster, more responsive) | +smaller regression | NEG |
+| E | late-start (step 1625) | +moderate regression | NEG |
+
+- **Key mechanism finding**: `swa/live_vs_swa_dist` metric (Frobenius distance between live weights and SWA weights) was MONOTONIC in both β and regression magnitude. Higher β = larger lag = bigger distance = worse val/loss. This means:
+  - The cooldown trajectory is **directed descent**, not noisy oscillation around a flat minimum.
+  - Weight EMA always LAGS the descent — it averages over weights that haven't yet reached the cooldown's final state.
+  - SWA is fundamentally incompatible with the geometry of cooldown training in this regime.
+
+- **Decision**: CLOSED clean-NEG. **Closes "trajectory averaging" axis (3/3 NEG with #826 Lookahead and #855 Schedule-Free).** All three approaches average or interpolate the optimizer's trajectory; all three lose to running the trajectory cleanly.
+
+- **Reassignment**: edward → #994 SOAP simplification: drop Q_row from attn only (the missing #936 per-scope config). Mechanism follow-up to #936 askeladd asymmetric SOAP closure.
+
+---
+
+## 2026-05-24 ~03:45 UTC — PR #994: edward SOAP simplification — drop Q_row from attn only — **ASSIGNED**
+
+- Branch: `g1r5-edward/soap-drop-qrow-attn-only`
+- Student: g1r5-edward
+- Hypothesis: PR #936 closed asymmetric SOAP clean-NEG with strong mechanism signal — Q_col (input-side) load-bearing for attn (B-C contrast +12.25σ), Q_row largely redundant (C-E contrast +0.89σ). But #936 always applied side changes to BOTH attn AND MLP simultaneously. The missing config — attn=Q_col only, MLP=full SOAP — has never been tested. If additive cross-scope decomposition holds, this should match baseline within ~+0.89σ while saving ~25% of SOAP attn compute per step.
+
+- **5-cell P1 sweep:**
+
+| Cell | (attn_side, mlp_side) | Role |
+|:----:|:---------------------:|:-----|
+| A | (both, both) | ctrl — baseline parity expected |
+| **B ★** | **(right, both)** | **PRIMARY: drop Q_row from attn ONLY, keep full SOAP on MLP — the missing #936 config** |
+| C | (none, both) | Extreme: no SOAP on attn at all |
+| D | (right, right) | Drop Q_row everywhere — tests additive cross-scope prediction |
+| E | (right, none) | Asymmetric: drop Q_row attn + no SOAP MLP |
+
+- **Implementation**: add `--soap_attn_side {both,left,right,none}` and `--soap_mlp_side {both,left,right,none}` flags. Branch in `soap_precondition_momentum` (~line 543) on side for the param's scope. Backward-compatible: defaults preserve current behavior. Side=none falls back to plain Muon for that scope.
+
+- **Information value either way**: B match → confirms additive decomposition (lock in compute savings). B much worse → cross-term interactions matter (mechanism signal). B beats baseline → unexpected WIN.
+
+- **Gate**: B μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge. Within +0.5σ to +1.5σ of baseline → close as informative-NEG.
+
