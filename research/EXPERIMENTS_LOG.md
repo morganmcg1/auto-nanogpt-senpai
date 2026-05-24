@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-24 22:32 UTC — PR #1059 CLOSED: Embed init std ablation (σ=0.04 vs σ=0.5) — 116th NULL, monotone-toward-baseline, init-state-surface canon (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/embed-init-std`
+- Hypothesis: Embed baseline init σ=1.0 (PyTorch default) is unusually wide vs GPT-2 canonical σ=0.02. RMSNorm makes forward output invariant to σ, but backward gradient scales as 1/σ; Adam equilibration delay creates an effective LR difference. Mirror axis of #1015 lm_head ε (input-side vs output-side readout). Two arms: A σ=0.04 (25× smaller, near GPT-2 canonical), B σ=0.5 (2× smaller, intermediate).
+
+| Arm | σ | W&B | val/loss | sr | Δval vs #918 (3.266394) | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 1.0 | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | — | reference |
+| A (small) | 0.04 | `0h9ym90h` | **3.26831** | 2950 | +0.001916 (~6.4σ) | +25 | Marginal NULL |
+| B (moderate) | 0.5 | `zefhhcfm` | **3.26716** | 2950 | +0.000766 (~2.6σ) | +25 | Marginal NULL |
+
+Single-seed σ ≈ 0.0003 (established #958). Both fail predeclared merge rule `sr ≤ 2912.5 OR (sr=2925 AND val<3.266394)` — sr=2950 disqualifies the val conjunct.
+
+**Finding 1: Monotone-toward-baseline pattern.** Both arms regress vs σ=1.0 baseline; magnitude scales with σ-distance (Arm A 25× shrink → Δval ~1.9 mnat; Arm B 2× shrink → Δval ~0.8 mnat). Direction consistent across both arms with identical sr=2950. Axis is effectively flat within seed noise but with a weak directional gradient favoring σ ≥ 1.0.
+
+**Finding 2: BF16 quantization floor ruled out.** Row-L2 distribution at σ=0.04 shows no truncation (min/max ratio = 1.22, healthy spread). The 19.5%-relative-BF16-precision concern was NOT the gating factor. Init validation matched analytic predictions to 3 sig figs in both arms (Frob 248.589 vs predicted 248.4 for Arm A; 3108.572 vs 3105.6 for Arm B).
+
+**Finding 3: Adam variance equilibration transient is plausibly load-bearing.** Smaller σ shortens the early-step variance-warmup phase (~30 steps for σ=0.04 vs ~100 for σ=1.0). The shorter transient leaves the embed in a slightly worse state — suggests the baseline's longer transient phase is mildly beneficial, not just neutral.
+
+**Finding 4: Full readout-pair init-state surface canon.** Combined with #1015 lm_head ε (5× scan, sub-noise flat → Δ ≈ +0.000140 mnat = 10× below noise floor):
+- lm_head ε: flat (5× scan, sub-noise)  
+- embed σ: mildly tilted toward σ≥1.0 (25× scan, marginal NULL with monotone-toward-baseline gradient)
+- Conclusion: **the full readout-pair init-state surface is approximately flat with a mild preference for the baseline configuration. Load-bearing levers are dynamics constraints (LR/WD/cooldown/preconditioner), not init state.**
+
+**Student's closure recommendations:**
+- Constraint-based interventions: spectral norm bounding on `proj.weight`, row-wise WD scheduling, embed/proj coupling
+- σ=2.0 test would confirm whether trend continues monotone above baseline (low ROI, predicted Δval ±0.0008, needs n=2)
+- No structural fix to baseline init recommended
+
+**116th closed axis.** Embed init std axis CLOSED at σ=1.0. nezuko → **#1099** (decoupled AdamW cooldown shape: γ_adamw=2.0 vs 1.0, body Muon fixed at γ=1.4).
+
 ## 2026-05-24 20:30 UTC — PR #1043 CLOSED: Label smoothing ε=0.05 vs ε=0.10 — 115th NULL, CATASTROPHIC dose-response (g1r1-fern)
 
 - Branch: `g1r1-fern/label-smoothing`
