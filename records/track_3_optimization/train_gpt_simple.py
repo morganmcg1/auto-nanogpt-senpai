@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Stateless heavy-tail log compression on body Muon gradient INPUT pathway (PR #1086).
+# When blend > 0, replace grad with blend*sign(g)*log1p(|g|/eps) + (1-blend)*g BEFORE momentum lerp.
+# Default 0.0 = bytewise inert.
+MUON_BODY_GRAD_LOG_COMPRESS = float(os.environ.get("MUON_BODY_GRAD_LOG_COMPRESS", "0.0"))
+MUON_BODY_GRAD_LOG_COMPRESS_EPS = float(os.environ.get("MUON_BODY_GRAD_LOG_COMPRESS_EPS", "1.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -660,6 +665,9 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Per-step accumulator for body grad log-compression ratio telemetry.
+        self._last_grad_log_compress_ratio_sum: float = 0.0
+        self._last_grad_log_compress_ratio_count: int = 0
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -692,8 +700,38 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
-                    state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # Stateless heavy-tail log compression on body Muon gradient INPUT (PR #1086).
+                    if MUON_BODY_GRAD_LOG_COMPRESS > 0.0:
+                        g_compressed = torch.sign(grad) * torch.log1p(grad.abs() / MUON_BODY_GRAD_LOG_COMPRESS_EPS)
+                        grad_effective = MUON_BODY_GRAD_LOG_COMPRESS * g_compressed + (1.0 - MUON_BODY_GRAD_LOG_COMPRESS) * grad
+                        # Per-tensor mean ratio |grad_effective| / |grad| for W&B telemetry.
+                        denom = grad.abs().mean().clamp_min(1e-12)
+                        ratio = (grad_effective.abs().mean() / denom).item()
+                        self._last_grad_log_compress_ratio_sum += ratio
+                        self._last_grad_log_compress_ratio_count += 1
+                        # One-time debug verification on first optimizer step.
+                        if not getattr(self, "_grad_log_compress_debug_done", False):
+                            try:
+                                g0 = grad.flatten()[0].item()
+                                ge0 = grad_effective.flatten()[0].item()
+                                print(
+                                    f"[MUON_BODY_GRAD_LOG_COMPRESS DEBUG] blend={MUON_BODY_GRAD_LOG_COMPRESS} "
+                                    f"eps={MUON_BODY_GRAD_LOG_COMPRESS_EPS} shape={tuple(grad.shape)} "
+                                    f"grad[0]={g0:.6e} grad_effective[0]={ge0:.6e} ratio_tensor={ratio:.6f}",
+                                    flush=True,
+                                )
+                            except Exception:
+                                pass
+                    else:
+                        grad_effective = grad
+                        if not getattr(self, "_grad_log_compress_debug_done", False):
+                            print(
+                                f"[MUON_BODY_GRAD_LOG_COMPRESS DEBUG] blend={MUON_BODY_GRAD_LOG_COMPRESS} "
+                                f"eps={MUON_BODY_GRAD_LOG_COMPRESS_EPS} DISABLED (bytewise inert path)",
+                                flush=True,
+                            )
+                    state["momentum"].lerp_(grad_effective, 1 - group["mu"])
+                    momentum_update = grad_effective.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -719,6 +757,19 @@ class Muon(torch.optim.Optimizer):
                                      use_trust_gate=True,
                                      trust_threshold=ATTN_SOAP_TRUST_THRESHOLD)
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
+        # Mark first-step debug print done so we only print once total.
+        self._grad_log_compress_debug_done = True
+
+    def grad_log_compress_stats(self) -> dict[str, float]:
+        """Return mean |grad_effective|/|grad| ratio across body 2D tensors for the last step."""
+        if self._last_grad_log_compress_ratio_count == 0:
+            return {}
+        return {
+            "ratio_mean": self._last_grad_log_compress_ratio_sum / self._last_grad_log_compress_ratio_count,
+            "tensor_count": float(self._last_grad_log_compress_ratio_count),
+            "blend": MUON_BODY_GRAD_LOG_COMPRESS,
+            "eps": MUON_BODY_GRAD_LOG_COMPRESS_EPS,
+        }
 
     def trust_gate_stats(self) -> dict[str, float]:
         """Return aggregate + per-weight-type trust-gate telemetry across attention SOAP params.
@@ -866,6 +917,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_grad_log_compress": MUON_BODY_GRAD_LOG_COMPRESS,
+            "optimizer/muon_body_grad_log_compress_eps": MUON_BODY_GRAD_LOG_COMPRESS_EPS,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -1059,6 +1112,10 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "grad_log_compress_stats"):
+                    glc_stats = opt.grad_log_compress_stats()
+                    if glc_stats:
+                        wandb.log(prefixed("optim/grad_log_compress", glc_stats), step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
