@@ -25,7 +25,7 @@ TARGET_VAL_LOSS = 3.28
 STAT_SIG_DELTA = 0.004
 SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
-PRECOND_FREQ = 16
+PRECOND_FREQ = 16  # overridden by args.soap_precond_freq at module load
 NS_ITER = 12  # overridden by args.ns_iter at module load
 
 
@@ -67,6 +67,10 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--soap_precond_freq", type=int, default=16,
+                        help="SOAP eigenbasis refresh frequency in steps (default 16, current hardcoded value). "
+                             "Lower = more frequent eigendecomp (better tracking, more compute); "
+                             "higher = staler basis (less compute).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +97,7 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+PRECOND_FREQ = args.soap_precond_freq
 
 
 def clean_metric_name(name: str) -> str:
