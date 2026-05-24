@@ -82,11 +82,25 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # Aggregated Momentum (Lucas et al. ICLR 2019, arXiv:1804.00325) on the MuLoCo
+    # outer SGDM: maintain K velocity buffers at different damping coefficients and
+    # average their (Nesterov-form) apply terms each outer sync. K=1 fallback is
+    # bit-identical to the single-buffer baseline.
+    parser.add_argument("--outer_aggmo", type=int, default=int(os.environ.get("OUTER_AGGMO", "0")),
+                        choices=[0, 1],
+                        help="Enable Aggregated Momentum (Lucas et al. 2019) for the outer SGDM. "
+                             "0 = single-buffer Nesterov (baseline). 1 = K-buffer ensemble.")
+    parser.add_argument("--outer_aggmo_betas", type=str, default=os.environ.get("OUTER_AGGMO_BETAS", "0.0,0.5,0.9"),
+                        help="Comma-separated list of K outer-momentum coefficients for AggMo. "
+                             "Default: '0.0,0.5,0.9' (instantaneous, current, long-scale).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     if args.telemetry_interval < 1 or args.histogram_interval < 1:
         raise ValueError("--telemetry_interval and --histogram_interval must be positive")
+    args.outer_aggmo_betas_list = [float(b) for b in args.outer_aggmo_betas.split(",") if b.strip()]
+    if args.outer_aggmo and not args.outer_aggmo_betas_list:
+        raise ValueError("--outer_aggmo_betas must list at least one beta when --outer_aggmo 1")
     return args
 
 
@@ -713,6 +727,11 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
 if args.use_outer_optimizer:
     print0(f"MuLoCo outer optimizer ENABLED: outer_lr={args.outer_lr} "
            f"outer_momentum={args.outer_momentum} sync_interval={args.sync_interval}", console=True)
+    if args.outer_aggmo:
+        print0(f"AggMo (Lucas et al. 2019) ENABLED on outer SGDM: "
+               f"K={len(args.outer_aggmo_betas_list)} betas={args.outer_aggmo_betas_list}", console=True)
+    else:
+        print0("AggMo DISABLED (single-buffer Nesterov baseline)", console=True)
 else:
     print0("MuLoCo outer optimizer DISABLED", console=True)
 print0(f"MuonH mode={args.muonh_mode} lr={args.muonh_lr} budget_mult={args.muonh_budget_mult} cooldown_shape={args.muonh_cooldown_shape}", console=True)
@@ -780,6 +799,9 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "outer_aggmo": int(args.outer_aggmo),
+            "outer_aggmo_betas": args.outer_aggmo_betas,
+            "outer_aggmo_K": len(args.outer_aggmo_betas_list) if args.outer_aggmo else 1,
         },
     )
 
@@ -925,13 +947,25 @@ for trial_idx in range(args.num_trials):
     # (block 2D weights), AdamW (embed / lm_head / scalars), and any biases or
     # gains. Inner optimizer state (MuonH momentum, AdamW exp_avg) is NOT reset
     # at outer-step boundaries — matches public ref #13 and closed PR #55.
+    # AggMo (H113): when args.outer_aggmo == 1 we maintain K parallel velocity
+    # dicts (one per damping coefficient) and average their Nesterov-form applies.
     use_outer = bool(args.use_outer_optimizer)
+    aggmo_betas = args.outer_aggmo_betas_list if args.outer_aggmo else None
     if use_outer:
         outer_anchor = {n: p.detach().clone() for n, p in model.named_parameters()}
-        outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+        if args.outer_aggmo:
+            outer_velocity_aggmo = [
+                {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+                for _ in range(len(aggmo_betas))
+            ]
+            outer_velocity = None
+        else:
+            outer_velocity = {n: torch.zeros_like(p) for n, p in model.named_parameters()}
+            outer_velocity_aggmo = None
     else:
         outer_anchor = None
         outer_velocity = None
+        outer_velocity_aggmo = None
     outer_applied_steps = 0
 
     # start the clock
@@ -1121,30 +1155,85 @@ for trial_idx in range(args.num_trials):
             log_outer = (dist.get_rank() == 0)
             if log_outer:
                 delta_sq = torch.zeros((), device=device)
-                velocity_sq = torch.zeros((), device=device)
                 total_count = 0
+                if args.outer_aggmo:
+                    K = len(aggmo_betas)
+                    # per-buffer squared L2 norms, all-pairs dot products, and
+                    # squared norm of the averaged apply. Computed in fp32.
+                    aggmo_apply_sq = torch.zeros(K, device=device, dtype=torch.float64)
+                    aggmo_apply_dot = torch.zeros(K, K, device=device, dtype=torch.float64)
+                    aggmo_apply_avg_sq = torch.zeros((), device=device, dtype=torch.float64)
+                else:
+                    velocity_sq = torch.zeros((), device=device)
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     delta = outer_anchor[n] - p.data
-                    outer_velocity[n].mul_(args.outer_momentum).add_(delta)
-                    p.data.copy_(outer_anchor[n] - args.outer_lr *
-                                 (args.outer_momentum * outer_velocity[n] + delta))
-                    outer_anchor[n].copy_(p.data)
-                    if log_outer:
-                        delta_sq = delta_sq + delta.float().square().sum()
-                        velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
-                        total_count += delta.numel()
+                    if args.outer_aggmo:
+                        # Aggregated Momentum: K buffers at distinct dampings;
+                        # average Nesterov-form applies. Per-buffer per-step:
+                        #   v^(k) <- beta_k * v^(k) + delta
+                        #   apply_k = beta_k * v^(k) + delta     (Nesterov apply)
+                        # Apply average: (1/K) * sum_k apply_k.
+                        apply_terms = []
+                        for k, beta_k in enumerate(aggmo_betas):
+                            outer_velocity_aggmo[k][n].mul_(beta_k).add_(delta)
+                            apply_terms.append(beta_k * outer_velocity_aggmo[k][n] + delta)
+                        apply_avg = sum(apply_terms) / float(len(aggmo_betas))
+                        p.data.copy_(outer_anchor[n] - args.outer_lr * apply_avg)
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            total_count += delta.numel()
+                            apply_terms_fp = [a.detach().double() for a in apply_terms]
+                            for k in range(K):
+                                aggmo_apply_sq[k] = aggmo_apply_sq[k] + apply_terms_fp[k].square().sum()
+                                for j in range(k + 1, K):
+                                    aggmo_apply_dot[k, j] = aggmo_apply_dot[k, j] + (apply_terms_fp[k] * apply_terms_fp[j]).sum()
+                            aggmo_apply_avg_sq = aggmo_apply_avg_sq + apply_avg.double().square().sum()
+                    else:
+                        outer_velocity[n].mul_(args.outer_momentum).add_(delta)
+                        p.data.copy_(outer_anchor[n] - args.outer_lr *
+                                     (args.outer_momentum * outer_velocity[n] + delta))
+                        outer_anchor[n].copy_(p.data)
+                        if log_outer:
+                            delta_sq = delta_sq + delta.float().square().sum()
+                            velocity_sq = velocity_sq + outer_velocity[n].float().square().sum()
+                            total_count += delta.numel()
             outer_applied_steps += 1
             if log_outer:
                 delta_rms = (delta_sq.item() / max(1, total_count)) ** 0.5
-                velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
-                wandb.log({
+                outer_metrics = {
                     "trial": trial_idx,
                     "train/step": train_step,
                     "train/muloco/outer_step": outer_applied_steps,
                     "train/muloco/delta_rms": delta_rms,
-                    "train/muloco/velocity_rms": velocity_rms,
-                }, step=wandb_step)
+                }
+                if args.outer_aggmo:
+                    K = len(aggmo_betas)
+                    apply_norms = [aggmo_apply_sq[k].item() ** 0.5 for k in range(K)]
+                    for k, beta_k in enumerate(aggmo_betas):
+                        rms_k = (aggmo_apply_sq[k].item() / max(1, total_count)) ** 0.5
+                        outer_metrics[f"train/muloco/aggmo/beta{k}_apply_rms"] = rms_k
+                        outer_metrics[f"train/muloco/aggmo/beta{k}_apply_norm"] = apply_norms[k]
+                    outer_metrics["train/muloco/aggmo/apply_avg_rms"] = (
+                        aggmo_apply_avg_sq.item() / max(1, total_count)
+                    ) ** 0.5
+                    # pairwise cosine similarity between buffers' applies
+                    cos_pairs = []
+                    for k in range(K):
+                        for j in range(k + 1, K):
+                            denom = max(apply_norms[k] * apply_norms[j], 1e-30)
+                            cos_kj = aggmo_apply_dot[k, j].item() / denom
+                            outer_metrics[f"train/muloco/aggmo/cos_b{k}_b{j}"] = cos_kj
+                            cos_pairs.append(cos_kj)
+                    if cos_pairs:
+                        outer_metrics["train/muloco/aggmo/agreement_cos_mean"] = sum(cos_pairs) / len(cos_pairs)
+                        outer_metrics["train/muloco/aggmo/agreement_cos_min"] = min(cos_pairs)
+                        outer_metrics["train/muloco/aggmo/agreement_cos_max"] = max(cos_pairs)
+                else:
+                    velocity_rms = (velocity_sq.item() / max(1, total_count)) ** 0.5
+                    outer_metrics["train/muloco/velocity_rms"] = velocity_rms
+                wandb.log(outer_metrics, step=wandb_step)
 
         approx_training_time = training_time + (time.perf_counter() - t0)
         print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time:.3f}s"
