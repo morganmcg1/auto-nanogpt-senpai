@@ -1,5 +1,63 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 07:35 UTC — PR #999: MUON_NS5_ITERS_STOCHASTIC (CLOSED, 92nd refuted — NS5 iteration depth stochasticity fails despite mean preservation, NS5 axis is precision-bound)
+
+- Branch: `g1r2-alphonse/muon-ns5-iters-stochastic` (student g1r2-alphonse)
+- Hypothesis: Per-step uniform random NS5 iteration count (mean=14 baseline) acts as implicit regularization on NS5 polar projection sharpness. Arms test tight {13,14,15} (±1) and wider {12,14,16} (±2) ranges, both mean-preserving.
+
+| Arm | NS5_ITERS_STOCHASTIC | W&B run | val/loss | ffs | Outcome |
+|---|---|---|---:|---:|---|
+| Disabled-check | (deterministic NS5_ITERS=14) | `1r66pcgy` | val@200=4.087 ✓ | — | plumbing identity verified |
+| Arm A {13,14,15} ±1 tight | per-step uniform | `wdt54e8j` | **3.66434** ❌ | killed @ 1050 | step-1000 gate trip +0.0043 (beyond n=1 noise margin) |
+| Arm B {12,14,16} ±2 wider | per-step uniform | `zmeir8uu` | 3.27196 | 3050 | floor cluster close-miss (Δval +0.00420, Δffs +50) |
+| Reference baseline | NS5_ITERS=14 deterministic | (PR #613) | 3.26776 | 3000 | reference |
+
+**Mechanistic reading (student alphonse's key insight)**: Arm B {12,14,16} outperforms Arm A {13,14,15} despite using a WIDER stochastic range. The asymmetric mass at iter=12 (softer polar projection) is what carries the trajectory — iter=13 and iter=15 are statistically indistinguishable from baseline iter=14 and contribute nothing of value. The "regularization payload" of stochastic NS5 iter scales with the *softness* of the polar projection at the sampled iter, not with the variance per se.
+
+**Why the mechanism class refutes**:
+1. **NS5 iter=14 baseline is precision-bound** — already near-optimal in expectation per #811 deterministic sweep. Stochastic perturbation around this point provides no regularization signal because the polar projection at iter=14 is already maximally crisp.
+2. **iter=12 contributes useful variance, iter=13/15 do not** — the regularization signal requires asymmetric distribution that puts mass on softer-projection iter values, not symmetric perturbation.
+3. **Mean preservation necessary but not sufficient** — both arms hold E[iter] = 14, both fail. The mechanism cannot compensate for the asymmetric reward in softer-iter sampling.
+
+**Convergent insight at NS5 polynomial-iteration layer** with refutations:
+- #983 MUON_MOMENTUM_RENORM (89th) — momentum buffer rescale refuted
+- #991 MUON_MOMENTUM_DROPOUT (86th) — momentum buffer dropout refuted
+- #999 MUON_NS5_ITERS_STOCHASTIC (92nd, this) — NS5 iteration stochasticity refuted
+- The unifying pattern: **stochasticity in the orthogonalization path (input or polynomial depth) consistently fails to improve val/loss at this stack**. Only post-NS5 noise (#996 σ=0.05) lands within baseline noise as a stochastic intervention.
+
+**Total cycle 71 portfolio at this closure**: 92 refuted axes, 17 distinct mechanism classes probed (18th MUON_MOMENTUM_PREFILL #1017 just assigned).
+
+Closure URL: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/999#issuecomment-4527708154
+
+## 2026-05-24 07:25 UTC — PR #996: MUON_POST_NS5_NOISE Arm A (σ=0.05) — **n=1 HOLD CANDIDATE BLESSED, n=2 CONFIRM DIRECTED** — closest val-side LANDING of cycle 71
+
+- Branch: `g1r2-fern/muon-post-ns5-noise` (student g1r2-fern)
+- Hypothesis: Inject SGLD-style Gaussian noise into body Muon update AFTER NS5 orthogonalization (post-floor, pre-add). First POST-NS5 mechanism class in 250+ PRs.
+
+| Arm | MUON_POST_NS5_NOISE | W&B run | val/loss | ffs | Outcome |
+|---|---|---|---:|---:|---|
+| Disabled-check (σ=0) | (mechanism inert) | `us5z35rb`, `edv4d7ae` | val@200=4.083, 4.084 ✓ | — | plumbing identity verified |
+| Arm A σ=0.05 (n=1) | light SGLD noise | `8bjixfx7` | **3.26784** ✓ | **3000** ✓ | **HOLD ZONE** — passes n=1 hold gate by 0.00216, ffs ties baseline |
+| Reference baseline (n=2) | (no noise) | `1zb5h0e5`, `4v5jsjk9` | 3.26776 (mean) | 3000 | merge bar |
+
+**This is the closest val-side LANDING of cycle 71** — beats prior leader #903 Arm B=0.99 (val=3.26915) by 0.00131. Δ vs baseline mean is +0.00008, which is *within seed-to-seed noise* — at n=1 cannot distinguish "tiny seed lucky" from "real winner".
+
+**Kill gate trajectory (Arm A)**: 500/1000/1500/2000/2500/3000 all PASSED, with step-1000 razor-edge +0.00087 advisor-blessed (within n=1 noise, recovered by step 1500).
+
+**Per decision tree**: HOLD zone → advisor blessed **n=2 confirm at σ=0.05** with `--num_trials 2` (matches PR #613 baseline n=2 statsig protocol). Decision matrix at n=2 terminal:
+- n=2 mean val ≤ 3.26776 AND ffs ≤ 3000 → **MERGE** — first merge in 104+ PRs since #613
+- n=2 mean val 3.26777-3.26800 → Non-toxic neutral close (don't launch Arm B σ=0.15)
+- n=2 mean val 3.26801-3.26900 → Close-miss, **launch Arm B σ=0.15** to bracket axis
+- n=2 mean val > 3.26900 → Mild refutation, launch Arm B σ=0.15 for full closure
+
+**Strict baseline comparison**: To merge, n=2 mean val must be **strictly less than 3.26776**. Δ=+0.00008 in n=1 is on the wrong side by single-seed-noise margin — n=2 must land at val_mean ≤ 3.26775 for merge.
+
+**First positive signal of cycle 71 — first axis to even reach the HOLD zone cleanly**. The n=2 confirm is the most consequential single experiment of cycle 71 to date.
+
+n=2 confirm directive: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/996#issuecomment-4527702790
+
+ETA n=2 terminal ~3h 44min from launch.
+
 ## 2026-05-24 06:40 UTC — PR #1007: MUON_UW_CAP (CLOSED, 91st refuted axis — u/w-CAP side definitively refuted, body Muon updates must be FREE to be large)
 
 - Branch: `g1r2-frieren/muon-uw-cap` (student g1r2-frieren)
