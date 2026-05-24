@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--embed_init_std", type=float, default=1.0,
+                        help="Standard deviation for embed.weight init (default 1.0 = torch.normal_() "
+                             "baseline; canonical GPT-2 = 0.02)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -720,6 +723,7 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "embed_init_std": args.embed_init_std,
         },
     )
 
@@ -740,7 +744,7 @@ for trial_idx in range(args.num_trials):
             if "proj" in name:
                 w.zero_()
             elif "embed" in name:
-                w.normal_()  # default torch init
+                w.normal_(mean=0.0, std=args.embed_init_std)
             else:
                 w.normal_(std=0.33**0.5 / w.size(-1)**0.5)  # default torch init
         elif name.endswith("bias"):
@@ -749,6 +753,21 @@ for trial_idx in range(args.num_trials):
             w.normal_(mean=1, std=0)
         else:
             raise Exception(f"Uninitialized parameter: {name}")
+
+    # Init validation logging (rank 0 only): verify embed init magnitudes match
+    # the analytic prediction for the chosen --embed_init_std before optimizer
+    # creation. Logged at step=0 in trial 0 only to avoid clobbering later steps.
+    if dist.get_rank() == 0 and trial_idx == 0:
+        embed_w = model.embed.weight.data
+        embed_f = embed_w.float()
+        embed_row_l2 = embed_f.norm(dim=1)
+        wandb.log({
+            "init/embed_weight_frob_norm": float(embed_f.norm().item()),
+            "init/embed_weight_row_l2_mean": float(embed_row_l2.mean().item()),
+            "init/embed_weight_row_l2_max": float(embed_row_l2.max().item()),
+            "init/embed_weight_row_l2_min": float(embed_row_l2.min().item()),
+            "init/embed_init_std": args.embed_init_std,
+        }, step=0)
 
     # create the optimizer(s)
     optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed"),
