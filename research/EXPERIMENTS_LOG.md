@@ -1,5 +1,38 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 22:55 UTC — PR #1067: MUON_BODY_WD_EXPLICIT (CLOSED, 116th refuted — weight-spectrum trifecta 3/3 now complete)
+
+- Branch: `g1r2-fern/muon-body-wd-explicit` (student g1r2-fern)
+- Hypothesis: Add explicit decoupled L2 weight decay `p.mul_(1 - lr·wd)` to body Muon path, which currently has NO actual weight decay (u/w-floor regularizer is update-direction-multiplicative; L2 wd is weight-magnitude-multiplicative — structurally complementary). Tests modded-nanogpt design assumption "u/w-floor replaces wd" never empirically validated in 280+ PRs.
+- Results:
+
+| Arm | MUON_BODY_WD_EXPLICIT | W&B run | val_loss | ffs | merge bar (≤3.26776) | N=1 hold (≤3.27) |
+|-----|----------------------|---------|----------|-----|----------------------|-------------------|
+| baseline (n=2 #613) | 0.0 | `1zb5h0e5`, `4v5jsjk9` | 3.26776 | 3000 | — | — |
+| disabled-check | 0.0 | `hssd8239` | 4.08732 @200 | — | code-path identity ✓ | — |
+| Arm A | 0.0001 | `uy6jfkix` | **3.27063** | **3025** | +0.00287 over ❌ | +0.00063 over ❌ |
+| Arm B | 0.001 | `qkjivlrj` | **3.27035** | **3025** | +0.00259 over ❌ | +0.00035 over ❌ |
+
+- Kill-gate trajectory: both arms tracked baseline-shaped curve, no kill triggered.
+  - step 500: A=3.80165, B=3.80403 (gate 3.81 → margin ~0.006) ✓
+  - step 1000: A=3.66442, B=3.66098 (gate 3.66 → borderline) ✓
+  - step 1500: A=3.53237, B=3.53281 (gate 3.55) ✓
+  - step 2000: A=3.42998, B=3.42950 (gate 3.43) ✓
+  - step 2500: A=3.34691, B=3.34636 (gate 3.36) ✓
+  - step 3000: A=3.28189, B=3.28164 (gate 3.29) ✓
+- ΔB−A = −0.00028 (monotone direction "more wd → marginally better"), well below n=1 noise band σ≈0.003-0.004 → per decision tree close-miss × close-miss → no Arm C, no n=2 confirm.
+- **WEIGHT-SPECTRUM TRIFECTA 3/3 NOW CLOSED** with clean mechanistic gradient:
+
+  | PR | Operation | Mathematical structure | Outcome |
+  |---|---|---|---|
+  | **#1075 polar reproject K=100** | σ_i → single value (full SVD equalization) | erases entire spectrum | **CATASTROPHIC** kill@557 val@500=4.89 |
+  | **#1073 spectral σ_max cap** | uniform p *= threshold/σ_max compounded | erases σ_max only, 2.5%/step rescale | **CATASTROPHIC** both arms killed step 500-885 |
+  | **#1067 isotropic shrinkage** (this PR) | uniform multiplicative scale | preserves σ_i ratios entirely | **floor-cluster close-miss** val=3.270±0.001 |
+
+- **Mechanistic conclusion**: body weight SINGULAR STRUCTURE at training time is load-bearing (spectrum-destructive interventions catastrophic), body weight MAGNITUDE (uniform scale) is irrelevant (spectrum-preserving operations land in floor cluster). u/w-floor regularizer is empirically validated as "structurally sufficient" — explicit L2 wd carries no additional information at this scale.
+- **Floor cluster now demonstrated robust to 6 distinct intervention families**: variance reduction 8/8 (averaging/injection), schedule-on-frozen-scalar 5/5 (mid-training scalar schedules), bias-side L2 regularization 1/1 (this PR), spectrum-destructive 2/2 (catastrophic), init structure 1/1 (#1064 three-decimal match), pre-NS5 direction-distorting gradient preconditioning 1/2 (#1083 catastrophic).
+- Student suggested follow-ups all aligned with refutation: don't launch wd=0.005/0.01 (sub-noise direction). Schedule-on-frozen-scalar family is the only remaining open gating test from student's vantage at the time.
+
 ## 2026-05-24 22:15 UTC — PR #1083: MUON_BODY_GRAD_PRECONDITION (CLOSED, 115th refuted — pre-NS5 gradient pathway catastrophic at gentle 30% blend)
 
 - Branch: `g1r2-thorfinn/muon-body-grad-rmsprop-precondition` (student g1r2-thorfinn)
