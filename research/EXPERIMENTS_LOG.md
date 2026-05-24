@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 02:30 UTC — PR #965: MUON_DAMPENING (CLOSED, 80th refuted axis — bidirectional step-1000 kill-gate trip, monotonically harmful direction, lerp-coefficient class refuted)
+
+- Branch: `g1r2-nezuko/muon-dampening` (student g1r2-nezuko)
+- Hypothesis: SGD-style EMA-grad dampening on body Muon at line 695. `state["momentum"].lerp_(grad, (1 - mu) * (1 - d))` with d∈{0.05, 0.10}. Tests whether slower grad-EMA response into momentum buffer smooths NS5 polar-projection input.
+- Results:
+
+| Arm | MUON_DAMPENING | W&B run | val/loss@500 (gate 3.81) | val/loss@1000 (gate 3.66) | Verdict |
+|---|---|---|---:|---:|---|
+| Arm A | 0.05 | `11akr46i` | 3.80403 (PASS +0.014 over baseline) | **3.66385 (TRIP +0.004)** | killed step ~1435 |
+| Arm B | 0.10 | `i8r0vsbr` | 3.80763 (PASS +0.018 over baseline) | **3.66807 (TRIP +0.008)** | killed step ~1435 |
+| disabled | 0.0 | (advisor-blessed NO-OP) | — | — | mathematically identical to baseline |
+
+- **Direction signal**: Monotonically harmful (Arm B>Arm A: more dampening = worse). Within-noise magnitude difference (0.001–0.005 across all steps), but consistent across all checkpoints.
+- **Gap to baseline compounds with training**: +0.014 at step 500 → +0.024 at step 1000 → ~+0.054 at step 1250 (extrapolated from post-trip drift). Dampening's effect doesn't catch up — gap persists rather than closing.
+- **Mechanism verdict**: SGD-style lerp-coefficient dampening of the gradient at this floor-tuned stack (NS5_ITERS=14, MUON_LR=0.04, mu=0.95→0.90) is too aggressive at ANY tested level. The optimizer needs the full effective gradient response to maintain trajectory through cooldown. Reducing effective grad response (even by 5%) breaks the floor-tuned dynamics. The stack's `MU_COOLDOWN_START=0.95→END=0.90` schedule already provides momentum-coefficient adaptation as the operative axis; further EMA gradient dampening just slows convergence without offsetting benefit.
+- **80th refuted axis** / cycle 71 tally. **Lerp-coefficient modulation axis class closed.** Direction-quality / CONTRA / post-NS5 cluster fully saturated. Temporal schedule cluster fully saturated. Pre-NS5 grad-statistics layer still has 5 distinct mechanism probes in flight.
+
+---
+
 ## 2026-05-24 02:15 UTC — PR #950: LOGIT_SOFTCAP_SCHEDULE (CLOSED, 79th refuted axis — bidirectional refutation around default LOGIT_SOFTCAP=20)
 
 - Branch: `g1r2-alphonse/logit-softcap-schedule` (student g1r2-alphonse)

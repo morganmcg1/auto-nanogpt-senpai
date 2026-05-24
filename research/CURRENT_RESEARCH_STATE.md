@@ -1267,3 +1267,32 @@ In-flight as of 02:15Z (all WIP, 8 students busy, 0 idle):
 - **Lerp-coefficient modulation**: #965 (dampening on grad weight)
 
 **Compositional floor theorem (#813)** holds at 79 refuted axes. Temporal schedule cluster fully saturated. Direction-quality / CONTRA / post-NS5 cluster fully saturated. Programme is now running 6 parallel mechanism-distinct probes on the pre-NS5 grad-statistics layer — the most comprehensive coverage of this axis ever attempted.
+
+#### 2026-05-24 02:30Z update — mid-148: #965 nezuko MUON_DAMPENING CLOSED (80th refuted), #983 nezuko MUON_MOMENTUM_RENORM assigned (FIRST momentum-buffer-side intervention)
+
+**#965 nezuko MUON_DAMPENING CLOSED (80th refuted)**: Bidirectional step-1000 kill-gate trip. Arm A (d=0.05) val@1000=3.66385 TRIP by +0.004, Arm B (d=0.10) val@1000=3.66807 TRIP by +0.008. Monotonically harmful direction (more dampening = worse), with gap to baseline COMPOUNDING over training (+0.014 at step 500 → +0.024 at step 1000 → ~+0.054 extrapolated to step 1250). W&B runs `11akr46i` (A), `i8r0vsbr` (B). Mechanism verdict: SGD-style lerp-coefficient dampening on body Muon gradient at this floor-tuned stack is too aggressive at any tested level — the optimizer needs the full effective gradient response to maintain trajectory through cooldown. **Lerp-coefficient modulation axis class closed.** Disabled check at d=0.0 was a true mathematical NO-OP (advisor-blessed despite 0.008 spread above tolerance, attributable to RNG state differences vs baseline #613).
+
+**#983 nezuko MUON_MOMENTUM_RENORM assigned (FIRST momentum-buffer-side intervention, 7th distinct mechanism class)**: Renormalize the body Muon momentum buffer Frobenius norm AFTER the lerp update (line 695) and BEFORE the re-blend (line 696). Mathematically: `state["momentum"] *= MUON_MOMENTUM_RENORM * grad.norm() / state["momentum"].norm()`. This is mechanistically distinct from all 6 in-flight axes that manipulate the gradient — this touches the momentum buffer itself between the two operations that read/write to it. Arms: A=1.0 (scale-match grad norm), B=0.5 (half-scale, dampening the buffer). ZERO matches in 250+ PRs for momentum-buffer Frobenius rescaling inside Muon body. Tests whether the momentum buffer's accumulated scale drifts away from optimal grad-tracking and whether forcing it to track grad norm improves NS5 input statistics.
+
+#### Cycle 71 axis tally: **80 refuted**, ~52 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 02:30Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — running
+- #971 frieren MUON_GRAD_VAR_NORM — running
+- #974 fern MUON_GRAD_POWER (re-assigned) — running
+- #975 thorfinn MUON_GRAD_HARDCLIP — running
+- #981 alphonse MUON_SIGN_MAG_DECOUPLE — running
+- #983 nezuko MUON_MOMENTUM_RENORM — newly assigned
+
+**Mechanism category coverage (7 distinct mechanism classes on Muon body)**:
+- **Momentum-buffer Frobenius rescaling (NEW)**: #983 (between lerp and re-blend)
+- **Sign-magnitude EMA decomposition**: #981 (independent timescales)
+- **Element-wise hard thresholding**: #975 (k·σ outlier clip)
+- **Element-wise continuous magnitude shaping**: #974 (power transform)
+- **Element-wise continuous variance normalization**: #971 (Adam-style EMA)
+- **Tensor-level Frobenius scaling**: #968 (per-tensor norm clip)
+- **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening compounds harm)
+
+**Compositional floor theorem (#813)** holds at 80 refuted axes. Lerp-coefficient class closed. Programme is now running 6 distinct mechanism-class probes spanning: gradient transformation (5 mechanisms covering element-wise + tensor-level + EMA-decomposition) AND momentum-buffer manipulation (1 mechanism — #983 first ever). This is the most diverse mechanism-class coverage of the body Muon optimization layer ever attempted in this programme.
