@@ -1,5 +1,76 @@
 # SENPAI Research Results
 
+## 2026-05-24 02:30 UTC — PR #940 CLOSED: Frobenius-normalized NS output — 98th NULL (informative TIE), literal Frob-rescale family CLOSED at both endpoints (g1r1-alphonse)
+
+- Branch: `g1r1-alphonse/polar-frob-norm`
+- Hypothesis: Decouple NS5 polar magnitude from input rank/conditioning by forcing Frobenius normalization on either the post-NS polar (Arm A) or pre-NS m_pre (Arm B). Cross-axis to #898 rank-deficiency residual finding.
+
+| Arm | W&B | sr | val/loss_ema | Δsr | Δval vs baseline 3.266826 | Verdict |
+|---|---|---|---|---|---|---|
+| Baseline #864 (n=2) | — | 2925 | 3.266826 | — | — | — |
+| **A post-NS** | `6c4y3v4w` | **−1** | **3.295062** | n/a | **+0.028236** | NULL — catastrophic |
+| **B pre-NS** | `6dh4xs4k` | **2925** | **3.267769** | TIE | **+0.000943** | NULL — marginal LOSS, mechanistically no-op |
+
+### Verdict: CLOSE as 98th NULL (informative TIE), no n=2 needed
+
+The marginal rule (Δval ≤ 0.001 → request n=2) applies to marginal WINS where mechanism is unclear. Arm B is a marginal LOSS (Δ+0.000943 above baseline) with **clear mechanism: NS5 absorbs pre-NS scale**. Seed-2 unlikely to find strict win given the no-op mechanism; GPU on n=2 is wasted.
+
+### Mechanism finding — Arm A vs Arm B asymmetry
+
+**Arm A (post-NS) catastrophic NULL:**
+- `polar/frob_post_rms ≈ 1.002` (normalization works exactly as designed — per-element RMS forced to 1)
+- Inflation factor: 1.0 / 0.018 ≈ 55.6× per-element RMS (matches √max(m,n) prediction for 3072×768 tensor)
+- `polar/ortho_residual` = 1.38 terminal (trajectory 27.7→3.34→2.60→2.08→1.38, never drops to healthy ~0.05)
+- `pmuon/lcov_eigh_ratio` = 2.9e7, `rcov_eigh_ratio` = 1.7e8 (covariance estimates blow up due to update propagation feedback)
+- Final val 3.295 (Δ+0.028) — catastrophic over-step that cooldown only partially absorbs
+
+**Arm B (pre-NS) near-no-op:**
+- `polar/frob_pre_norm` = 27.7 (NS5 absorbs √(m·n)-scale input and emits unit-RMS orthonormal output)
+- `polar/frob_pre_rms` = 0.01804 (== baseline RMS)
+- `polar/frob_post_rms` = 0.01804 (== pre, no post-norm in Arm B)
+- `polar/ortho_residual` = 0.144 terminal (MORE orthonormal than Arm A by terminal, healthier than baseline trajectory)
+- `pmuon/lcov_eigh_ratio` = 715.7, `rcov_eigh_ratio` = 1637.4 (mid-flight 982/2305; terminal ~30% lower — cov ill-conditioning resolved through cooldown)
+- Final val 3.268 (Δ+0.000943) — marginal LOSS in seed-noise band
+
+### Asymmetric NS5 scale response (recording for future reference)
+
+| Quantity | Baseline | Arm A | Arm B |
+|---|---|---|---|
+| `polar/frob_pre_norm` | 27.7 | 27.6 | 27.7 |
+| `polar/frob_post_rms` | 0.018 | 1.002 | 0.018 |
+| `polar/ortho_residual` | ~0.05 | 1.38 | 0.144 |
+| Inflation factor | 1× | 55.6× | 1× |
+
+**The cubic NS map `p(X) = (3/2)X − (1/2)X³` is NOT symmetric in scale response:**
+- Collapses scale toward orthogonal manifold for large-norm inputs (Arm B works)
+- Cannot inflate scale once below orthogonal manifold (Arm A passes through to body)
+
+This recording motivates the **norm-preserving direction-only Frobenius variant** as a follow-up (deferred for now — bigger-swing Shampoo replacement assigned instead).
+
+### Cross-axis closures
+
+- **Literal Frobenius-rescale family CLOSED** at both polar-pipeline endpoints (Arm A post-NS + Arm B pre-NS).
+- Combined with **#898 alphonse (rank-deficiency residual structurally bounded at √(m−rank(X)) ≈ √dim_min)** and **#931 askeladd (sign-mask family CLOSED at both endpoints)**: all literal pre-NS magnitude/sign interventions on m_pre are now characterized. Either reabsorbed by NS5 (Arm B Frob, #893 BC) or destructively over-stepped (Arm A Frob, #931 sign-mask, #896 cautious-Muon).
+- Only remaining open question on this axis: **norm-preserving direction-only** Frobenius correction (rescale polar to ||·||_F = √min(m,n) canonical target). Filed for later; prioritized #985 Shampoo bigger-swing investment.
+
+### Advisor PR-design lesson (2nd consecutive — #937 + #940 same root cause)
+
+Both #937 (SOAP `R_neg ~ grad^(-1/2)` post-multiply damps by 30-60×) and #940 (Frobenius pre/post inflates by 27-55×) had the **same root cause: I didn't compute the analytical magnitude budget before assigning**. Future preconditioner/NS-perturbation PRs MUST include explicit:
+1. Baseline `||update||_F` for the operation being modified
+2. New construction's analytical `||update||_F`
+3. Ratio + per-element RMS comparison
+4. Whether the change is scale-coupled (direction+magnitude test) or direction-only (isolated direction test)
+
+This is now applied to #985 PR body (Shampoo replacement).
+
+### Student diagnostic excellence
+
+g1r1-alphonse's mid-flight 19:05 UTC scale derivation correctly identified the 55× over-step within the first 525 steps from `polar/frob_pre_rms ≈ 0.018, not 0.7-1.3` telemetry. Predicted final cell ("Arm A regress + Arm B TIE") confirmed across both arms. Gold-standard diagnostic discipline — saved hours of wasted GPU by enabling the closure narrative pre-terminal.
+
+### Reassignment: alphonse → #985 Shampoo body-Muon (no NS5, p=1/4): Arm A momentum vs Arm B raw gradient
+
+---
+
 ## 2026-05-24 01:05 UTC — PR #893 CLOSED: PMuon momentum first-moment BC — n=2 informative-NULL, 97th axis (g1r1-edward)
 
 - Branch: `g1r1-edward/pmuon-momentum-bc`
