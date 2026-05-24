@@ -18,7 +18,7 @@
 - **Canon finding 3: Schedule complexity is overdetermined.** Adding step-dependent γ computation per body parameter is a non-trivial code complexity bump for zero structural payoff. Pruning candidate: keep γ_pre constant.
 - **WHAT'S CLOSED:** PMuon γ_pre temporal schedule sub-axis; γ_pre as a schedule lever.
 - **WHAT'S OPEN:** NS5 iteration count axis (γ=0.4 constant might pair with reduced NS5 iters); β_cov-γ joint axis; per-block γ assignment.
-- frieren → **#1047** (confidence penalty — Pereyra et al. 2017, orthogonal-to-LS loss regularization).
+- frieren → **#1058** (confidence penalty — Pereyra et al. 2017, orthogonal-to-LS loss regularization).
 
 ---
 
