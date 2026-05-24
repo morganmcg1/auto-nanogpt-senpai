@@ -27,6 +27,15 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_DEGREE = 5  # overridden by args.ns_degree at module load
+# Per-degree NS polynomial coefficients (lowest-order first).
+# Each set satisfies p(1)=1 (consistency at the orthogonal limit). Quintic and
+# septic additionally satisfy p'(1)=0; the septic triple-root variant also
+# satisfies p''(1)=0 for cubic convergence near x=1.
+NS_COEFFS_D3 = (1.5, -0.5)              # Heron's cubic: p(x)=1.5x - 0.5x^3
+NS_COEFFS_D5 = (2.0, -1.5, 0.5)         # classic quintic: p(x)=2x - 1.5x^3 + 0.5x^5
+NS_COEFFS_D7 = (2.125, -2.0, 1.125, -0.25)  # triple-root septic at c7=-0.25
+NS_COEFFS = NS_COEFFS_D5  # overridden at module load based on degree
 
 
 def parse_args():
@@ -67,6 +76,15 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_degree", type=int, default=5, choices=[3, 5, 7],
+                        help="Degree of the Newton-Schulz polynomial used per iteration. "
+                             "3=cubic (1.5x - 0.5x^3, Heron); "
+                             "5=classic quintic (2x - 1.5x^3 + 0.5x^5, default); "
+                             "7=triple-root septic (2.125x - 2x^3 + 1.125x^5 - 0.25x^7). "
+                             "Higher degree = more convergence per iter, more matmuls per iter.")
+    parser.add_argument("--ns_poly_d7_coeffs", type=str, default="2.125,-2.0,1.125,-0.25",
+                        help="Override septic coefficients (c1,c3,c5,c7 comma-separated). "
+                             "Default is triple-root with c7=-0.25 satisfying p(1)=1, p'(1)=0, p''(1)=0.")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +111,16 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_DEGREE = args.ns_degree
+if NS_DEGREE == 3:
+    NS_COEFFS = NS_COEFFS_D3
+elif NS_DEGREE == 5:
+    NS_COEFFS = NS_COEFFS_D5
+elif NS_DEGREE == 7:
+    NS_COEFFS = tuple(float(x) for x in args.ns_poly_d7_coeffs.split(","))
+    assert len(NS_COEFFS) == 4, f"--ns_poly_d7_coeffs must have 4 values, got {len(NS_COEFFS)}"
+else:
+    raise ValueError(f"Unsupported --ns_degree {NS_DEGREE}")
 
 
 def clean_metric_name(name: str) -> str:
@@ -481,6 +509,13 @@ class GPT(nn.Module):
 ########################################
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
+    """Newton-Schulz orthogonalization via a polynomial of degree NS_DEGREE.
+
+    The polynomial p(x) is applied iteratively to the singular values of X
+    after Frobenius-norm normalization. NS_DEGREE and NS_COEFFS are module
+    globals set from CLI args; the degree-dispatch is hoisted out of the
+    inner loop so torch.compile specializes on a single code path.
+    """
     assert G.ndim >= 2
     X = G.bfloat16()
     if G.size(-2) > G.size(-1):
@@ -489,11 +524,24 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
-    for _ in range(NS_ITER):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if NS_DEGREE == 3:
+        a, b = NS_COEFFS
+        for _ in range(NS_ITER):
+            A = X @ X.mT
+            X = a * X + b * (A @ X)
+    elif NS_DEGREE == 5:
+        a, b, c = NS_COEFFS
+        for _ in range(NS_ITER):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+    else:  # NS_DEGREE == 7
+        a, b, c, d = NS_COEFFS
+        for _ in range(NS_ITER):
+            A = X @ X.mT
+            A2 = A @ A
+            B = b * A + c * A2 + d * (A2 @ A)
+            X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -756,6 +804,8 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_degree": NS_DEGREE,
+            "ns_coeffs": ",".join(f"{c:g}" for c in NS_COEFFS),
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
