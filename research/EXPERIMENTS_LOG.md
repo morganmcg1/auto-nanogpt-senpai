@@ -3,6 +3,36 @@
 Log of completed/reviewed experiment PRs in chronological order. Wave 1
 results pending student execution.
 
+## 2026-05-24 ~12:00 UTC — PR #979: thorfinn SOAP exp_avg_sq scaling ablation — **CLOSED clean-NEG (mechanism finding)**
+
+- Branch: `g1r5-thorfinn/soap-exp-avg-sq-ablation`
+- Student: g1r5-thorfinn
+- Hypothesis: Test whether SOAP's per-element Adam-in-basis `exp_avg_sq` scaling component is load-bearing or vestigial. SOAP component pruning ablation distinct from #936 (Q matrix structure) and #914 (Q refresh schedule).
+
+- **5-cell sweep results (n=1 each, 3250 steps, group `g1r5-thorfinn/soap-exp-avg-sq-ablation`):**
+
+| Cell | Config | val/loss | Δ vs μ=3.261221 | σ_single units | ffs | wandb_run |
+|:----:|:-------|:---------|:----------------|:--------------:|:---:|:----------|
+| A | (ctrl, full SOAP) | 3.260850 | −0.000371 | −0.6σ | 3025 | `kkuyozrx` |
+| **B ★** | `--soap_no_adam_scale` | **3.316221** | **+0.055000** | **+93σ** | −1 | `zikol4bs` |
+| C | `--soap_no_adam_scale --soap_no_norm_preserve` | 3.318312 | +0.057091 | +96σ | −1 | `14u2g29g` |
+| D | `--soap_exp_avg_sq_init 1.0 --soap_exp_avg_sq_freeze` | 3.319598 | +0.058377 | +98σ | −1 | `r4ho5dhw` |
+| E | `--soap_exp_avg_sq_no_ema` | 3.265869 | +0.004648 | +7σ | 3075 | `kq0exwcp` |
+
+- **Decision: CLOSED clean-NEG with two mechanism findings.**
+
+- **Mechanism finding #1: Per-element direction-warping in eigenbasis is load-bearing.** Pure Q-basis projection + re-projection + norm preservation cannot recover what the per-element scaling does to update *shape*. The norm-preservation handles magnitude (Cell C matches B class, falsifying 'norm-preserve saves us'), but the SOAP signal is in how it reshapes the per-coordinate distribution within Q. Cell D (frozen exp_avg_sq=1.0, mechanistically ≈ Cell B with norm-preserve still active) confirms the regression class is from removing direction-warping, not numerical drift.
+
+- **Mechanism finding #2: EMA accumulation of exp_avg_sq is mostly inessential.** Cell E (drop the EMA state, recompute `projected.square()` instantaneously) lands at +7σ — measurably above baseline but ~12× closer than B/C/D. The *shape* matters; the temporal smoothing of that shape contributes ~0.005 loss. Consistent with Q being refreshed every 16 steps anyway.
+
+- **Why parity Cell-E follow-up not worth running:** n=1 at +7σ above μ. With σ_sample at n=4 ≈ 0.5×σ_single = 0.000297 (SE 0.000148), Cell E would need n=4 μ ≤ 3.261521 for parity within 1 SE. The n=1 at 3.265869 ⇒ likely n=4 μ near 3.265, ~12σ above parity threshold. Won't merge as memory savings.
+
+- **Closure context:** Combined with #936 (asymmetric Q ablation), this maps which SOAP components are load-bearing. Cell-D mechanism (frozen uniform scaling ≈ no scaling) is a clean falsifier closing 'norm-preserve saves us' hypothesis. SOAP-internals pruning is now well-explored — exp_avg_sq cannot be dropped or simplified to constant.
+
+- thorfinn reassigned → **PR #1042 Soft NS mixing** (fresh per-step output-mixing axis: `update = α·NS(x) + (1−α)·x_scaled`; distinct from #776 RMS-clamp/global rescale, #815 NS-iter warmup, #932 per-layer NS iter). Informed by #932 finding that fewer NS iters tolerated at certain depths.
+
+---
+
 ## 2026-05-24 ~11:45 UTC — PR #1036: nezuko SOAP precond_freq ablation — **ASSIGNED**
 
 - **Branch:** `g1r5-nezuko/soap-precond-freq`
