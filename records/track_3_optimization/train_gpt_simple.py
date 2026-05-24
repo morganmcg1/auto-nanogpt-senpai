@@ -27,6 +27,9 @@ SLOPE_FRACTION = 0.10
 SOAP_BETA2 = 0.90
 PRECOND_FREQ = 16
 NS_ITER = 12  # overridden by args.ns_iter at module load
+NS_POLY_A = 2.0  # overridden by args.ns_poly_a at module load
+NS_POLY_B = -1.5  # overridden by args.ns_poly_b at module load
+NS_POLY_C = 0.5  # overridden by args.ns_poly_c at module load
 
 
 def parse_args():
@@ -67,6 +70,12 @@ def parse_args():
     parser.add_argument("--ns_iter", type=int, default=12,
                         help="Number of Newton-Schulz iterations in zeropower_via_newtonschulz5. "
                              "Default 12 (current hardcoded value). Lower = less orthogonal but faster.")
+    parser.add_argument("--ns_poly_a", type=float, default=2.0,
+                        help="NS polynomial linear coefficient (default 2.0).")
+    parser.add_argument("--ns_poly_b", type=float, default=-1.5,
+                        help="NS polynomial cubic coefficient (default -1.5).")
+    parser.add_argument("--ns_poly_c", type=float, default=0.5,
+                        help="NS polynomial quintic coefficient (default 0.5).")
     parser.add_argument("--lr_scalars", type=float, default=0.01,
                         help="LR for AdamW adam_scalars group (RMSNorm gains; "
                              "params with ndim < 2). Default 0.01 — hardcoded, "
@@ -93,6 +102,9 @@ def parse_args():
 
 args = parse_args()
 NS_ITER = args.ns_iter
+NS_POLY_A = args.ns_poly_a
+NS_POLY_B = args.ns_poly_b
+NS_POLY_C = args.ns_poly_c
 
 
 def clean_metric_name(name: str) -> str:
@@ -489,7 +501,7 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    a, b, c = NS_POLY_A, NS_POLY_B, NS_POLY_C
     for _ in range(NS_ITER):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -713,6 +725,36 @@ print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.ve
        + f" on {torch.cuda.get_device_name(device)} with world_size {dist.get_world_size()}")
 print0("="*100)
 
+# NS polynomial sanity diagnostic
+def _ns_poly_diagnostic(a: float, b: float, c: float) -> str:
+    import numpy as np
+    p_at_1 = a + b + c
+    p_at_05 = a * 0.5 + b * 0.125 + c * 0.03125
+    # Real positive fixed points of p(x) = x i.e. a*x + b*x^3 + c*x^5 = x
+    # Equivalent: x * (a - 1 + b*x^2 + c*x^4) = 0 (and the trivial root at 0)
+    # Solve quartic in y = x^2: c*y^2 + b*y + (a - 1) = 0
+    fixed = [0.0]
+    if abs(c) < 1e-12:
+        if abs(b) > 1e-12:
+            y = -(a - 1) / b
+            if y > 0:
+                fixed.append(float(np.sqrt(y)))
+    else:
+        disc = b * b - 4 * c * (a - 1)
+        if disc >= 0:
+            for sign in (1.0, -1.0):
+                y = (-b + sign * np.sqrt(disc)) / (2 * c)
+                if y > 1e-12:
+                    fixed.append(float(np.sqrt(y)))
+    fixed_str = ", ".join(f"{x:.4f}" for x in sorted(fixed))
+    return (
+        f"[ns_poly] a={a}, b={b}, c={c} | p(1)={p_at_1:.5f} | "
+        f"p(0.5)={p_at_05:.5f} | real positive fixed points: {{{fixed_str}}}"
+    )
+
+print0(_ns_poly_diagnostic(NS_POLY_A, NS_POLY_B, NS_POLY_C), console=True)
+print0("="*100)
+
 val_tokens = 20 * 524288
 batch_size = 8 * 64 * 1024
 mbs = 64
@@ -756,6 +798,9 @@ if dist.get_rank() == 0:
             "soap_beta2": SOAP_BETA2,
             "soap_precond_freq": PRECOND_FREQ,
             "ns_iter": NS_ITER,
+            "ns_poly_a": NS_POLY_A,
+            "ns_poly_b": NS_POLY_B,
+            "ns_poly_c": NS_POLY_C,
             "soap_attn_enabled": bool(args.soap_attn),
             "soap_trust_threshold": float(args.soap_trust_threshold),
             "lr_mlp": args.lr_mlp,
@@ -1026,6 +1071,9 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["optim/ns_poly_a"] = NS_POLY_A
+                per_group_metrics["optim/ns_poly_b"] = NS_POLY_B
+                per_group_metrics["optim/ns_poly_c"] = NS_POLY_C
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
