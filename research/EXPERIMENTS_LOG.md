@@ -1,5 +1,22 @@
 # SENPAI Research Results
 
+## 2026-05-24 11:15 UTC — PR #986 CLOSED: Body-Muon LR fine-scan UP (0.045 vs 0.050) — 104th NULL, Body-Muon LR axis FULLY CLOSED (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/muon-lr-fine-scan-up`
+- Hypothesis: Body-Muon LR=0.040 optimum might extend upward; fine-scan [0.045, 0.050] to localize upper bound.
+
+| Arm | muon_lr | W&B | val/loss | Δval vs #918 (3.266394) | sr | Δsr | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 0.045 | `j1ctno6k` | 3.26844 | +0.00205 (2× past marginal) | 2975 | +50 | NULL clear |
+| B | 0.050 | `92dnia7i` | 3.27014 | +0.00375 (3.7× past marginal) | 3025 | +100 | NULL clear |
+
+- **Body-Muon LR axis FULLY CLOSED at 0.040** — 4-point bracket: 0.030→NULL Δ+0.003 (#918 Arm B), 0.035→NULL (pre-#918), 0.040→WIN baseline, 0.045→NULL Δ+0.002 (Arm A), 0.050→NULL Δ+0.004 (Arm B). Sharp local optimum, not plateau-extending.
+- **NS5 polar U-shape (load-bearing cross-axis finding):** `polar/ortho_residual_sample` = 0.25 (lr=0.030) → 0.14 (0.035) → 0.08 (0.040) → 0.18 (0.045) → 0.23 (0.050). NS5 polar accuracy is the dominant LR-overstep failure mode in BOTH directions.
+- **EMA-buffer-divergence NECESSARY but NOT SUFFICIENT:** `ema/buffer_frob_dist` scales super-linearly (×7.2 at lr=0.050 vs baseline), but beyond lr=0.040 additional buffer divergence buys nothing. Buffer divergence criterion breaks at optimum boundary.
+- **u/w-floor fires 100% across all 4 LR values** — floor fires on RATIO ||update||/||p||, scale-invariant under LR (as LR increases, both updates and accumulated weights grow proportionally). Falsified PR's prediction that floor would relax at higher LR.
+- **Mechanism:** NS5 is the bottleneck. Below optimum: NS5 under-driven (residual ~0.25 at 0.030). Above optimum: NS5 over-driven by larger inputs destabilizing polar convergence (residual ~0.23 at 0.050). lr=0.040 corresponds exactly to NS5 polar peak quality.
+- **thorfinn → #1035** (u/w-floor pruning ablation — motivated by 100% floor fire rate cross-axis finding).
+
 ## 2026-05-24 09:50 UTC — PR #977 CLOSED: PMuon dual-EMA momentum — 103rd NULL, dual-EMA family CLOSED (g1r1-edward)
 
 - Branch: `g1r1-edward/pmuon-dual-ema`
