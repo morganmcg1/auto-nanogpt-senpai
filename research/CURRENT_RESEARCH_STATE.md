@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r1
 
-- **Last update:** 2026-05-24 03:35 UTC
+- **Last update:** 2026-05-24 03:55 UTC
 - **Most recent direction from humans:** None (checked 03:25 UTC, no issues open).
 - **Target:** Push `speedrun/final_first_step_to_target` below 2925 steps. LOCAL RECORD **2925** (PR #918, merged 2026-05-24 02:50 UTC). **NEW BASELINE val=3.266394** (muon_lr=0.040, Δ−0.000432 vs PR #864). Body-Muon LR axis: 0.035→NULL(pre-baseline), 0.030→NULL(Δ+0.0026), 0.040→WIN(merged). Optimum likely in [0.040, 0.055]; thorfinn probing 0.045 vs 0.050 in #986.
 - **99 closed axes.** #943 fern (SWA partial blend at cooldown_start, α=0.25, 0.50) closed as 99th NULL (informative). Both arms clean NULL with **monotone-bad in α confirmed** (Arm A α=0.25 val=3.26886/sr=2950, Arm B α=0.50 val=3.27069/sr=2975; Δval scaling 1.74×, Δsr scaling 2.00×). Math sanity confirmed exact arithmetic: `post/pre=α` exactly in both arms; `||live − swa_avg||_F ≈ 1010` consistent. **SWA-at-cooldown_start family FULLY CLOSED** at α ∈ {0.25, 0.50, 1.0} (#730 full replace + #943 partial blend). **Buffer-modification-at-cooldown_start cluster FULLY CLOSED**: momentum reset (#723), cov reset (#725), WD ramp (#727), SWA full/partial replace (#730/#943) all NULL. Cooldown_start state itself is structurally fragile — any backward modification harms. fern → next bold-direction PR after researcher-agent ideation.
@@ -28,7 +28,7 @@ Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future exper
 | ~~**#931**~~ | askeladd | Pre-NS sign-mask on m_pre (mask-only vs mask+renorm BEFORE bilateral whitening + NS5) | **CLOSED 00:08 UTC May 24 as 96th NULL.** Arm A `krm84brb` sr=3000/val=3.27331 (Δ+0.0065); Arm B `p5mgpaoq` sr=3050/val=3.27492 (Δ+0.0081, WORSE than Arm A contra advisor prediction). Refined mechanism: Arm A's Frob-shrink (-9.3%) acts as implicit LR-buffer absorbing partial damage; Arm B's renorm restoration removes that buffer → full-magnitude bad direction lands on body. **Sign-mask family CLOSED at both polar-pipeline endpoints** (post-NS #696+#896 + pre-NS #931). Destructive directional perturbations on m_pre cannot survive NS5; only smooth tilting (#893 BC) carries useful signal. |
 | **#969** | askeladd | WSD cooldown power exponent (γ=1.2 vs γ=1.6) — deferred axis closure | **Newly assigned 00:15 UTC May 24** after #931 closure. `COOLDOWN_POWER=1.4` at line 27 has never been retuned despite controlling shape of 70% of training. Clean bracketing test of the single scalar that shapes the entire WSD cooldown: Arm A γ=1.2 (9% MORE LR mass late), Arm B γ=1.6 (8% LESS LR mass late). Cross-axis to cooldown-erosion finding (4 confirmed instances). Different lever family from askeladd's prior polar-pipeline closures per Plateau Protocol tier-shift. |
 | ~~**#893**~~ | edward | PMuon momentum first-moment Adam-style BC | **CLOSED 01:05 UTC May 24 as 97th NULL (informative).** n=2 mean 3.266450 (Δ=−0.000376 = 0.4σ_n=2, p=0.62). Predeclared rule places n=2 mean in BOUNDARY band, not merge. BC factor ≈ 1.0 for 97% training. ~40 lines for likely-noise mechanism = disproportionate complexity. PMuon warmup-phase family FULLY CLOSED. **edward → #977** (PMuon dual-EMA momentum). |
-| **#977** | edward | PMuon dual-EMA momentum (β_fast=0.95 + β_slow=0.999 before NS5) | **Newly assigned 01:35 UTC May 24.** AdEMAMix-style dual momentum for body-Muon. Distinct from #846 aux-AdEMAMix (aux i.i.d., no temporal structure) and from all prior single-EMA PMuon modifications (QHM, Nesterov, heavy-ball). Body gradients HAVE temporal structure → slow EMA may capture longer-range direction. NS5 direction-only test (||W||_F ≈ √768 ≈ 27.7 regardless of blend). Arm A: slow_alpha=0.5 (50/50 blend); Arm B: slow_alpha=0.05 (slow-dominated). Key diagnostic: `pmuon/slow_momentum_cosine` — if stays ≥ 0.99 through step 1000, body gradients ARE i.i.d. (structural NULL prediction). |
+| **#977** | edward | PMuon dual-EMA momentum (β_fast=0.95 + β_slow=0.999 before NS5) | **Arm A `rqjoxwrn` DIVERGING 03:50 UTC May 24** (step 1659/3250, val/loss=5.78 mid-flight, no NaN). **MAJOR cosine finding: body gradient cosine 0.26-0.33 (NOT i.i.d.)** but slow EMA captures STALE direction → destructive at 50/50 blend. Edward continuing Arm A to terminal for record. **Arm B: continue AS-CODED at α=0.05 (95% fast + 5% slow conservative)** — Arm A already confirmed direction-of-effect, Arm B characterizes dose-response at conservative endpoint. PR table description ambiguity resolved (formula `(1-α)·fast + α·slow` is authoritative; table sloppily described AdEMAMix-style). New canonical body-gradient-temporal-structure diagnostic identified for future PRs. |
 | ~~**#897**~~ | tanjiro | Body-Muon adaptive WD coupled to ||p||/target_norm | **CLOSED 17:45 UTC as 90th NULL.** Arm A (α=1 linear) `mdpr2on0` TERMINAL sr=3000/val=3.270003 (wd_mult terminal 2.549). Arm B (α=0.5 sqrt) `s2ggjtya` TERMINAL sr=−1/val=3.296175 catastrophic NULL (wd_mult ≥ 1.84 equilibrium since sqrt allows p_norm growth 4.48× vs linear 3.53×). Body-Muon p_norm grows 3-4.5× above target_norm structurally — no α gives baseline wd_eff while remaining adaptive. 5th body-Muon WD sub-axis NULL. |
 | ~~**#937**~~ | tanjiro | SOAP literal Adam@R_neg for lm_head | **CLOSED 21:55 UTC as 93rd NULL + 18th aux Adam-family closure.** Arm A `gudcg46p` sr=−1/val=3.486250 (never hit target). `soap/precond_update_norm_ratio=0.01367` → SOAP step 73× SMALLER than AdamW. R_neg ~ grad^(−1/2) damps lm_head LR by 30-75×. Arm B killed at 21:01 UTC (precond_freq orthogonal to failure mode). Student detected mechanism at step 705 (22%). |
 | **#953** | tanjiro | Norm-preserving direction-only SOAP for lm_head (R^{-1/4} vs R^{-1/2}) | **Newly assigned 22:00 UTC** after #937 closure. Follow-up from #937 scale-mismatch finding. Tests direction-only SOAP: `delta = (adamw_delta @ R_neg) * (||adamw_delta|| / ||adamw_delta @ R_neg||)`. Arm A: R_cov^(-1/4); Arm B: R_cov^(-1/2) (Shampoo-style, sharper). Magnitude preserved 1:1 by construction — isolates cross-dim DIRECTION question. Predicted NULL per i.i.d. aux finding (#854/#875/#863/#899). If both NULL → SOAP family FULLY CLOSED on aux (scale+direction-coupled #937 NULL + direction-only #953 NULL). |
@@ -99,6 +99,29 @@ Note: The val improvement is razor-thin (−0.1 mnat over PR #737). Future exper
 | **#667** nezuko | 53rd | Cosine schedule NULL/NULL | Stable plateau REQUIRED; WSD power-1.4 tail beats cosine by +62.5 sr. Schedule family WSD-LOCKED across 7 sub-axes. |
 | **#660** alphonse | 52nd | Nesterov ON/OFF NULL | mu=0.95 AND nesterov=True both independently load-bearing. Cross-term coupling (μ²·m_prev + (1-μ²)·g) non-trivial. |
 | **#662** thorfinn | 50th | Polyak EMA β=0.99 NULL | Peak −63 mnat mid-cooldown REAL but centroid-lag flips sign as LR→0. Terminal EMA slightly worse than live. |
+
+## KEY MECHANISM: Body gradients have temporal structure (NEW — #977 mid-flight finding 03:50 UTC May 24)
+
+First direct measurement of body gradient temporal correlation (via #977 edward `pmuon/slow_momentum_cosine` telemetry):
+
+- **Body gradient cosine between fast-EMA(β=0.95) and slow-EMA(β=0.999) momentum ≈ 0.26-0.33** (steps 100-1500)
+- **Step 25 baseline (slow not yet warmed): cosine = 0.962** — confirms different EMA horizons capture different signal at steady-state
+- **Comparison to aux**: aux gradient cosine ≈ -0.05, `||Δg||/||g|| ≈ 1.45` step-to-step (#854/#875/#863/#899/#913) → aux i.i.d.
+
+**Structural implication: body and aux have FUNDAMENTALLY DIFFERENT gradient correlation regimes.**
+
+1. **Body**: temporally structured, fast-EMA captures useful local direction, slow-EMA (β=0.999 ~1000-step horizon) captures STALE direction that is destructive when blended at 50%.
+2. **Aux**: i.i.d., step-to-step gradient changes uncorrelated → no temporal exploitation possible (matches 18+ closed aux Adam-family axes).
+
+**Implications for research program:**
+
+- **Validates existing body-Muon EMA β-ramp** (0.95→0.99 across training) — fast-to-medium horizon EMA exploits structure; very-slow EMA hurts.
+- **Falsifies AdEMAMix-style fast+slow blends for body**: Arm A `rqjoxwrn` diverges at step 1250 (val 5.31 → 5.78) under 50% slow contribution; mechanism is NS5 projecting toward stale direction.
+- **Opens new direction (cross-axis to closed AdEMAMix-on-body)**: optimizers that exploit body temporal structure WITHOUT blending stale state — gradient-autocorrelation-aware step-size adaptation, trust-region-adaptive Nesterov μ, or β_t schedules informed by cosine telemetry.
+
+#977's `slow_momentum_cosine` is now the canonical body-gradient-temporal-structure diagnostic. Future PRs assigning body-side optimizer ideas should pre-declare what cosine behavior they predict.
+
+---
 
 ## KEY MECHANISM: Cooldown-erosion pattern (4 confirmed instances)
 
