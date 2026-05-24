@@ -1,5 +1,30 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 19:50 UTC — PR #1057: NS5_COEF_SCHEDULE (CLOSED, 108th refuted — both arms floor cluster touch, NS5 polynomial layer now 6/6 fully saturated)
+
+- Branch: `g1r2-alphonse/ns5-coef-schedule` (student g1r2-alphonse)
+- Hypothesis: Schedule the NS5 polynomial COEFFICIENT TUPLE (a,b,c) across training from standard Chebyshev minimax-optimal (2, -1.5, 0.5) toward Halley-approximant (1.5, -0.5, 0.0) which is more accurate on the concentrated-spectrum late-training gradients. First temporal schedule on coefficient tuple in 280+ PRs (29th distinct mechanism class). Both polynomials share σ=1 fixed point and contraction rate f'(1)=0.5 — schedule modifies approximation quality without changing iter count/degree/input norm. Arm A=linear blend over first 50% then hold at Halley + Arm B=linear blend over full run reaching Halley at final step.
+- Results:
+
+| Arm | blend_fraction | W&B run | Steps | val/loss | ffs | Outcome |
+|-----|----------------|---------|-------|----------|-----|---------|
+| Arm A | 0.5 (first half blend then hold Halley) | `vcy38m7w` | 3175 ✓ | **3.26996** | 3025 | Floor cluster touch, val gate pass (3.26996 < 3.27), ffs miss by 25 |
+| Arm B | 1.0 (full-run blend) | `8ctsqjyo` | 3175 ✓ | **3.27013** | 3025 | Floor cluster touch, val miss by 0.00013, ffs miss by 25 |
+
+- **Verdict**: REFUTED. Both arms land in floor cluster band (val=3.270 ± 0.003 / ffs=3025-3075) — 9th and 10th probes to converge here. Δ(A − B) = -0.00017 → essentially indistinguishable. Neither beats merge bar (val ≤ 3.26776 AND ffs ≤ 3000).
+- **Mechanistic interpretation**: The 14-iter NS5 has effectively over-converged for the σ→1 target. The σ=1 fixed point and contraction rate f'(1)=0.5 are identical between Chebyshev (2, -1.5, 0.5) and Halley (1.5, -0.5, 0.0), so the polynomial choice at this iteration depth is **not the binding constraint** on the floor cluster. Polynomial coefficient choice is a 2nd-order effect at NS5_ITERS=14 — dwarfed by other stack hyperparams.
+- **Cycle 71 portfolio milestone — NS5 POLYNOMIAL LAYER NOW FULLY SATURATED across 6 orthogonal probes**:
+  1. SHAPE — PR #1011 (refuted, symmetric U-shape penalty)
+  2. ITER COUNT — PR #948/#999 (refuted)
+  3. INPUT NORM — PR #917 (refuted)
+  4. FAMILY (SVD vs polynomial) — PR #1019 (refuted, SVD also worse + 2.34× slower)
+  5. DEGREE (quintic vs septic) — PR #1025 (refuted, local optimum)
+  6. **COEFFICIENT TUPLE (this PR)** — refuted at first-order schedule shape
+
+  Combined with momentum buffer LIFECYCLE 4/4 + Momentum INTERPRETATION 5/5 + Post-NS5 update space 4/4 + Variance reduction 7/7 = **FIVE major mechanism layers now saturated**. The bias-limited floor is robust to all intra-NS5 interventions and all upstream/downstream variance interventions.
+- **Methodological merit**: Student alphonse's prediction-then-test framing — Arms A and B were explicitly designed as monotone-in-blend-fraction (heavier schedule = more Halley) and a falsifying signature (A ≈ B ≈ baseline → coefficient tuple doesn't control floor). The data matched the falsifying signature exactly. Clean experimental design.
+- **Reassignment for alphonse**: PR #1075 MUON_BODY_PERIODIC_POLAR_REPROJECT — 33rd distinct mechanism class, FIRST PERIODIC PARAMETER-SPACE POLAR PROJECTION in 280+ PRs. Every K optimizer steps, apply NS5 polar projection to body weight matrix `W` (not update `dW`) with Frobenius-norm preservation. Categorically distinct from #1064 (init only, no maintenance), #1073 (σ_max cap only), #1067 (isotropic shrinkage). Tests whether maintaining the orthogonal-spectrum property of `W` itself (Saxe / Pennington dynamical isometry) prevents rank collapse from accumulated u/w-floor lower-bounded updates. Arm A=K=100 (frequent, ~31 reprojections), Arm B=K=500 (sparse, ~6). ~10 LOC patch reusing existing `zeropower_via_newtonschulz5(W)` function. Closes the trifecta of "weight spectrum" interventions: σ_max constraint (#1073) + isotropic shrinkage (#1067) + full spectrum equalization (#1075).
+
 ## 2026-05-24 19:30 UTC — PR #1050: WD_AUX_SCHEDULE (CLOSED, 107th refuted — both arms close-miss in floor cluster, schedule axis zero-slope at WD_AUX=0.001 constant optimum)
 
 - Branch: `g1r2-askeladd/wd-aux-schedule` (student g1r2-askeladd)
