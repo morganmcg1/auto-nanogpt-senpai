@@ -466,6 +466,7 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+MUON_BODY_WD_EXPLICIT = float(os.environ.get("MUON_BODY_WD_EXPLICIT", "0.0"))  # explicit decoupled L2 wd on body Muon path; 0.0 = baseline (u/w-floor only)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -708,6 +709,8 @@ class Muon(torch.optim.Optimizer):
                     cur_uw = u_fro / p_fro
                     scale = torch.where(cur_uw < TARGET_UW, TARGET_UW * p_fro / u_fro, torch.ones_like(p_fro))
                     update = update * scale.to(update.dtype)
+                    if MUON_BODY_WD_EXPLICIT > 0.0:
+                        p.mul_(1.0 - group["lr"] * MUON_BODY_WD_EXPLICIT)
                     # Explicit weight decay intentionally omitted (matches record #14; u/w-floor replaces wd).
                     p.add_(update, alpha=-group["lr"])
                     # Refresh SOAP state with the raw grad (after applying the step).
@@ -866,6 +869,7 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_body_wd_explicit": MUON_BODY_WD_EXPLICIT,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
