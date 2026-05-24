@@ -3,6 +3,57 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 23:00 UTC — PR #1048: Body Muon LR cooldown shape sweep (alphonse) — CLOSED productive-NEG/mixed; SCHEDULE-CURVATURE (body Muon) 1-closure observation
+
+- Branch: `g1r4-alphonse/body-muon-cooldown-shape`
+- Hypothesis: Alternative cooldown curvatures for body Muon (linear/cosine/sqrt/linear_floor) compose with merged `late_peak` NS schedule. Linear baseline; cosine front-loaded; sqrt and linear_floor back-loaded (higher LR late).
+
+| arm | shape | run_id | val/loss | Δ_vs_A | fs | val@2500 | Δ@2500 |
+|:---:|:---|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | linear | `0a0lh121` | 3.27043 | — | 3225 | 3.36890 | — |
+| **B** | **cosine** | `nc7ukw0c` | **3.26966** | **−0.00077** (SUB-THRESHOLD by 61%) | **3075** (Δ_fs=−150) | 3.35226 | −0.01664 |
+| C | sqrt | `9vzmmp7z` | 3.28454 | +0.01411 PRODUCTIVE-NEG | −1 | 3.40410 | +0.03520 |
+| D | linear_floor | `3fpkwz2b` | 3.28483 | +0.01440 PRODUCTIVE-NEG | −1 | 3.38229 | +0.01339 |
+
+All 4 W&B runs exact match (8/8 values to 5 decimal places). Arm A drift PASS +0.00287 (just within ±0.003 gate). 
+
+**Decision: CLOSE, no PP escalation.** Arm B sub-threshold (61% short of −0.002 winner boundary, within n=1 σ~0.0013 noise). Arms C/D PRODUCTIVE-NEG. Standard −0.002 threshold pattern.
+
+**Mechanism reading:**
+1. **Body Muon needs full linear LR decay to zero.** Higher LR late-cooldown (sqrt at 2.16× linear at step 2847, linear_floor at 1.55×) is decisively worse. NS=20 precision boost in `late_peak` is consumed by reducing residual error, NOT enabled by larger steps.
+2. **Front-loaded shape (cosine) is marginally favorable, sub-noise.** Cosine reaches near-zero LR slightly sooner mid-cooldown; binding constraint is convergence-via-LR-zero on body.
+3. **Asymmetry with adam_embed merged shape (`linear_floor` at #235 for embed) is the most diagnostic.** Same shape hurts body Muon. Different param-group geometry: embed has much smaller base LR (boosted by 1.5× mult to compensate); body Muon already has effective LR boost (0.80/1.20 multipliers). Floor-at-0.15 helps starved embed, hurts non-starved body.
+
+**SCHEDULE-CURVATURE (body Muon cooldown shape) axis 1-closure observation.** Combined with the embed-cooldown-shape merge (#235 linear_floor), the cooldown-shape class is now well-characterized asymmetrically: embed:linear_floor / body:linear. Variants holding body LR high late unlikely to recover.
+
+Alphonse reassigned → PR #1091 (Body Muon decoupled weight decay — fresh BODY-MUON-WEIGHT-DECAY axis).
+
+## 2026-05-24 23:00 UTC — PR #1047: LookAhead wrapper on body Muon — 4-arm (K, α) sweep (tanjiro) — CLOSED productive-NEG; META-OPTIMIZER (body Muon) 1-closure observation
+
+- Branch: `g1r4-tanjiro/lookahead-body-muon`
+- Hypothesis: LookAhead (Zhang et al. 2019) wraps body Muon — inner K steps of fast-weight Muon, then slow←(1−α)·slow + α·fast; fast←slow outer sync. Slow-weight averaging may smooth noisy NS-preconditioned trajectory oscillations.
+
+| arm | K | α | run_id | val/loss | Δ_vs_A | fs | lookahead/slow_fast_l2 final | lookahead/slow_fast_rms final |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 0 | — | `osqg264j` | 3.26947 | — | 3200 | — | — |
+| B | 5 | 0.5 | `b8p55r84` | 3.28532 | +0.01585 PRODUCTIVE-NEG | −1 | 0.05570 | 6.04e-6 |
+| C | 10 | 0.5 | `jnlinb23` | 3.28055 | +0.01108 PRODUCTIVE-NEG | −1 | 0.20277 | 2.2e-5 |
+| D | 5 | 0.2 | `5u9b5mgm` | **3.33008** | **+0.06061 PRODUCTIVE-NEG (worst)** | −1 | 0.05573 | 6.05e-6 |
+
+All 4 W&B runs verified (Arm D slow_fast_rms minor transcription nit, 6.05e-6 not 1.0e-5). Arm A drift PASS +0.00191.
+
+**Decision: CLOSE productive-NEG. No PP.** All 3 LookAhead arms ≥+0.005. None reached 3.28 target.
+
+**Mechanism finding is the headline contribution — clean and high-info:**
+1. **LookAhead is HELPFUL pre-cooldown.** B/C both AHEAD of A through step 2500–2750: Δ@2500 (B)=−0.00759, Δ@2500 (C)=−0.01586. Paper's smoothing claim is observable on the flat-LR phase.
+2. **LookAhead is HARMFUL during cooldown.** All arms cross over at ~step 3000. The slow-weight anchor pulls fast back toward an older preconditioned trajectory, undoing the aggressive late-stage NS=20 corrections that do the most work in this stack.
+3. **α=0.2 (Arm D) is the WORST because smaller α means LARGER pullback.** Canonical formula: fast retains (1−α) of K-step drift NOT, fast loses (1−α) of K-step drift per sync. α=0.2 wipes 80% of drift; α=0.5 wipes 50%. Counter-intuitive but Arm D's val=3.33 confirms cleanly.
+4. **K predicts slow_fast L2 (~3.6× B→C at fixed α), α does NOT** — matches predicted "longer inner trajectory before pullback" scaling. Diagnostics clean.
+
+**META-OPTIMIZER (body Muon) axis 1-closure observation.** The slow-anchor-disrupts-cooldown mechanism is robust across the K×α grid. Continuous-sync variants (EMA-on-fast, Polyak-during-training) likely share this structural issue with this stack's late_peak NS cooldown. Axis not fully fenced but constrained: any slow-weight anchor pulling back during cooldown is likely productive-NEG on this stack.
+
+Tanjiro reassigned → PR #1092 (Per-group AdamW β1 differentiation across aux groups — fresh DECOUPLED-AUX-PRECONDITIONER axis).
+
 ## 2026-05-24 22:30 UTC — PR #1045: LION optimizer on aux groups — first OPTIMIZER-CLASS axis test (frieren) — CLOSED productive-NEG; AdamW v-buffer LOAD-BEARING on aux
 
 - Branch: `g1r4-frieren/lion-aux-optimizer-class`

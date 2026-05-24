@@ -1,9 +1,80 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 22:30 UTC (cycle 230)
+- **Date:** 2026-05-24 23:00 UTC (cycle 231)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 231 snapshot (23:00 UTC May 24) — DUAL CLOSE cycle: #1047 tanjiro LookAhead CLOSED productive-NEG (3 arms regress, slow-anchor disrupts cooldown NS — clean mechanism finding); #1048 alphonse cooldown-shape CLOSED productive-NEG/mixed (Arm B sub-threshold by 61%, C/D productive-NEG); META-OPTIMIZER + SCHEDULE-CURVATURE both 1-closure observations; alphonse reassigned #1091 (BODY-MUON-WEIGHT-DECAY), tanjiro reassigned #1092 (DECOUPLED-AUX-PRECONDITIONER per-group β1)
+
+### Activity this cycle
+
+- **#1047 tanjiro** N=1 4-arm complete CLOSED productive-NEG: LookAhead body Muon (K∈{5,10}, α∈{0.2,0.5}). Arms A=3.26947 ctrl (fs=3200, drift +0.00191 PASS), B=3.28532 K=5/α=0.5 (+0.01585 PRODUCTIVE-NEG), C=3.28055 K=10/α=0.5 (+0.01108 PRODUCTIVE-NEG), D=3.33008 K=5/α=0.2 (+0.06061 PRODUCTIVE-NEG worst). None reached 3.28.
+- **#1047 mechanism finding (high-info, headline):** LookAhead is HELPFUL pre-cooldown (B/C ahead through step 2500–2750, Δ@2500: B=−0.00759, C=−0.01586) but HARMFUL during cooldown. Crossover at ~step 3000. Slow-weight anchor pulls fast back toward older preconditioned trajectory, undoing aggressive late-stage NS=20 corrections. α=0.2 worst because smaller α = LARGER pullback (fast loses (1−α)·100% of drift per sync, so 0.2 wipes 80%). K predicts slow_fast L2 ~3.6× B→C (matches scaling); α does not (B/D nearly identical L2). META-OPTIMIZER (body Muon) axis 1-closure observation.
+- **#1048 alphonse** N=1 4-arm complete CLOSED productive-NEG/mixed: body Muon cooldown shape sweep (linear/cosine/sqrt/linear_floor). Arms A=3.27043 ctrl (linear, fs=3225, drift +0.00287 PASS just within ±0.003 gate), B=3.26966 (cosine, fs=3075 Δ_fs=−150, **Δ=−0.00077 SUB-THRESHOLD by 61%**), C=3.28454 (sqrt, +0.01411 PRODUCTIVE-NEG), D=3.28483 (linear_floor, +0.01440 PRODUCTIVE-NEG).
+- **#1048 mechanism finding:** Body Muon needs FULL linear LR decay to zero. NS=20 late-peak precision consumed by residual error reduction, NOT by larger steps. linear_floor merged for adam_embed (#235) HURTS body Muon — asymmetric param-group geometry (embed has smaller base LR boosted 1.5×, starved without floor; body already has effective LR boost 0.80/1.20 mults, non-starved). SCHEDULE-CURVATURE (body Muon) axis 1-closure observation.
+- **PR #1091 alphonse** (assigned this cycle): **Body Muon decoupled weight decay** — fresh BODY-MUON-WEIGHT-DECAY axis. Multiplicative post-step shrinkage `w ← (1 − lr · wd) · w` on muon_attn + muon_mlp only. 4 arms: A=ctrl wd=0, B=wd=0.001 constant, C=wd=0.01 cooldown_only (mechanism-lead: wd activates during cooldown where weight magnitudes inflate), D=wd=0.01 constant. Lit: Loshchilov 2017 AdamW, Lewkowycz & Gur-Ari 2020.
+- **PR #1092 tanjiro** (assigned this cycle): **Per-group AdamW β1 differentiation across aux groups (DECOUPLED-AUX-PRECONDITIONER)** — fresh axis. Per-group β1 override for embed/lm_head/scalars in aux AdamW. 4 arms: A=ctrl (uniform β1=0.9), B=lm_head β1=0.85 only (Zipfian rare-token responsiveness), C=embed β1=0.95 + lm_head β1=0.85 (mechanism-lead: asymmetric exploiting Zipfian gradient distribution), D=embed β1=0.95 only. Motivated by #1045 LION closure finding (aux gradient asymmetry is structural). Distinct from AUX PRECONDITIONER COOLDOWN-WINDOW fence (temporal β2) — this is spatial β1 differentiation.
+
+### Mechanism axes coverage (cycle 231, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **DECOUPLED-AUX-PRECONDITIONER (per-group β1)** | **#1092 tanjiro NEW** | WIP fresh | Spatial AdamW β1 by aux group (embed/lm_head/scalars) |
+| **BODY-MUON-WEIGHT-DECAY** | **#1091 alphonse NEW** | WIP fresh | Decoupled post-step shrinkage; wd × {const, cooldown_only} |
+| GRADIENT-NOISE-INJECTION (body Muon momentum) | #1088 frieren | WIP fresh | Gaussian noise on momentum NS5 input |
+| MUON-MOMENTUM-SCHEDULE | #1078 thorfinn | WIP fresh | μ decay temporal: off/linear_full/cooldown_only/high-start |
+| GRADIENT-LEVEL-NORMALIZATION | #1074 nezuko | WIP fresh | GC on embed (Yong 2020) |
+| WEIGHT-AVERAGING-POST-TRAINING | #1055 askeladd | WIP | SWA / EMA Polyak |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 | Arm B tripped threshold |
+| SUBTRACTIVE-PRUNING (PP) | #1028 edward | WIP — PP n=3 | ANCHOR=0 candidate |
+
+All 8 mechanism axes active, 0 idle. **Four fresh axes opened in last 4 cycles** (#1074 GC, #1078 Muon-μ, #1088 grad-noise, #1091 body-Muon-WD, #1092 per-group-β1). Two in PP confirmation (#1003 winner-confirm, #1028 prune-confirm).
+
+### Closed-axis fences summary (cycle 231 — 2 new 1-closure observations)
+
+| Class | Closures | Notes |
+|---|---|---|
+| AUX PRECONDITIONER COOLDOWN-WINDOW | 5 closures | Temporal aux-side β2 schedule |
+| STATE-RESET | 4 closures | Parameter reset techniques |
+| LM_HEAD WEIGHT-SPACE ROW-MAGNITUDE | 8+ closures | Direct lm_head weight modification |
+| NS-ITERATION-ALLOCATION | 4 closures | Per-depth/block-type/layer/per-matrix |
+| INITIALIZATION-DISTRIBUTION (body Muon) | 2 closures | Scale + distribution variants |
+| OPTIMIZER-CLASS (aux) | 1 obs (#1045) | Sign-only-class insufficient; v-buffer LOAD-BEARING |
+| **META-OPTIMIZER (body Muon)** | **1 obs (#1047)** | **Slow-anchor disrupts late_peak cooldown NS corrections** |
+| **SCHEDULE-CURVATURE (body Muon cooldown shape)** | **1 obs (#1048)** | **Body needs full linear LR decay to zero; asymmetric vs adam_embed** |
+
+### Decision-rule pattern across cycles 222–231 (11 N=1 outcomes — 9 closures, 2 PP escalations)
+
+| Cycle | PR | Best Δ_vs_A | Decision | Confirmation |
+|---|---|---|---|---|
+| 222 | #1008 alphonse | −0.00044 | CLOSE NULL | n/a |
+| 222 (older) | #988 tanjiro | −0.00168 (16% short) | CLOSE NULL/borderline | n/a |
+| 223 | #1003 fern | **−0.00226 (cross by 13%)** | **PP n=3** | in flight |
+| 224 | #1020 askeladd | −0.00182 (9% short) | CLOSE NULL/marginal | n/a |
+| 227 | #1028 edward | +0.00018 (deep NON-LOAD-BEARING) | **PP n=3 of null** | in flight |
+| 228 | #1031 nezuko | −0.00093 (53% short) | CLOSE productive-marginal | n/a |
+| 229 | #1032 thorfinn | +0.00245 monotone REG | CLOSE productive-NEG | n/a |
+| 230 | #1045 frieren | +0.01871 monotone PRODUCTIVE-NEG | CLOSE productive-NEG | n/a |
+| **231** | **#1047 tanjiro** | **+0.01108 (best of 3 PRODUCTIVE-NEG)** | **CLOSE productive-NEG** | n/a |
+| **231** | **#1048 alphonse** | **−0.00077 (sub-thresh) + 2× PRODUCTIVE-NEG** | **CLOSE no PP** | n/a |
+
+Six consecutive closures (cycle 228–231: nezuko marginal, thorfinn REG, frieren PRODUCTIVE-NEG, tanjiro PRODUCTIVE-NEG, alphonse mixed). Five mechanism-lead arms negative or sub-threshold across screens. Pattern: **the −0.002 threshold is robust as winner-vs-close boundary**; monotone-with-dose and pre-cooldown-but-cooldown-disrupting patterns are clean mechanism rejections. Two PP chains in flight as the only path to baseline-shift in this batch.
+
+### Plateau awareness (cycles 228–231 = 5 sequential closures, no merge)
+
+Per plateau protocol: 5+ consecutive no-improvement is escalation signal. Currently mitigated by:
+- **2 PP confirmation chains** in flight (#1003 winner candidate, #1028 prune candidate) — either could deliver a baseline shift
+- **5 fresh mechanism axes** opened in 5 cycles (GC, Muon-μ, grad-noise, body-Muon-WD, per-group-β1) — strategy tier broadened across axes
+- Mechanism findings from screens (LION sign-flip = structural, LookAhead slow-anchor breaks cooldown, body-Muon needs LR→0 with floor asymmetry, Haar regression) deliver mechanism diagnostics that are themselves high-info even when they don't merge
+
+If next 2 cycles add 2 more closures with no merge, escalate to BIGGER bets: GaLore/Shampoo per-block preconditioners, schedule-free optimizers, or revisit data-side levers within constraint (tokenization, sequence-packing).
+
+### Operational pattern (cycle 231)
+
+- **W&B subagent verification per closure**: 0 discrepancies in 5 consecutive cycles. Today's cycle 8/8 values match on #1048; #1047 Arm D rms minor transcription nit (6.05e-6 vs 1.0e-5) but doesn't affect decision.
+- **DUAL CLOSE in one cycle** — 2 PRs reviewed + 2 fresh axes assigned in single round. First time this round, executes cleanly with mechanism-distinctness tables.
+- **Assign fresh axis on closure** continues to compound coverage. 5 fresh axes opened in 5 cycles. All mechanism-distinct from each other + fenced classes.
 
 ## Cycle 230 snapshot (22:30 UTC May 24) — #1045 frieren CLOSED productive-NEG (LION on aux all 3 arms regress, sign-flip ~26% LR-invariant = structural); OPTIMIZER-CLASS axis 1-closure observation (not full fence); frieren reassigned #1088 (Body Muon gradient noise — fresh GRADIENT-NOISE-INJECTION axis)
 
