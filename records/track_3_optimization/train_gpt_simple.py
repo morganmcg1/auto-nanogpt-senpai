@@ -593,6 +593,15 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Per-matrix residual-stopping adaptive NS iteration (#1031 nezuko).
+# NS_ADAPTIVE=0 -> bit-identical to merged stack (path skipped entirely).
+# NS_ADAPTIVE=1 -> route Muon NS through an eager adaptive twin that stops per-matrix
+# when ‖X Xᵀ − I‖_F / √m < tau, between [NS_ADAPTIVE_MIN, NS_ADAPTIVE_MAX{_COOLDOWN}].
+NS_ADAPTIVE = int(os.environ.get("NANOGPT_NS_ADAPTIVE", "0"))
+NS_ADAPTIVE_TAU = float(os.environ.get("NANOGPT_NS_ADAPTIVE_TAU", "0.05"))
+NS_ADAPTIVE_MIN = int(os.environ.get("NANOGPT_NS_ADAPTIVE_MIN", "5"))
+NS_ADAPTIVE_MAX = int(os.environ.get("NANOGPT_NS_ADAPTIVE_MAX", "12"))
+NS_ADAPTIVE_MAX_COOLDOWN = int(os.environ.get("NANOGPT_NS_ADAPTIVE_MAX_COOLDOWN", "16"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -691,6 +700,43 @@ def zeropower_via_newtonschulz5(G: Tensor, ns_iters: int) -> Tensor:
         X = X.mT
     return X
 
+
+def zeropower_via_newtonschulz5_adaptive(
+    G: Tensor, max_steps: int, min_steps: int, tau: float
+) -> tuple[Tensor, int]:
+    """NS5 with per-matrix residual early-stop. Returns (X_orthogonalized, actual_iters_used).
+    Uses the same coefficient table as zeropower_via_newtonschulz5 for the FULL max_steps budget,
+    so coefficients are schedule-consistent regardless of when we stop."""
+    assert G.ndim >= 2
+    X = G.bfloat16()
+    transposed = G.size(-2) > G.size(-1)
+    if transposed:
+        X = X.mT
+    X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
+    coef_table = get_ns_coef_table(max_steps)
+    actual = max_steps
+    for k in range(max_steps):
+        a, b, c = coef_table[k]
+        A = X @ X.mT
+        B = b * A + c * (A @ A)
+        X = a * X + B @ X
+        # Check residual AFTER iter k, only once we've hit min_steps.
+        if (k + 1) >= min_steps and (k + 1) < max_steps:
+            m = X.shape[-2]  # minor dim — orthogonality target X @ X.mT = I_m
+            XXt = X @ X.mT
+            eye = torch.eye(m, device=X.device, dtype=X.dtype)
+            resid = (XXt - eye).norm(dim=(-2, -1)) / (m ** 0.5)
+            # For batched G, resid may be a vector — take max so we don't stop while any
+            # sub-matrix is still un-orthogonalized. For 2D G, resid is a scalar.
+            resid_max = resid.max() if resid.ndim > 0 else resid
+            if float(resid_max) < tau:
+                actual = k + 1
+                break
+    if transposed:
+        X = X.mT
+    return X.to(G.dtype), actual
+
+
 @torch.compile
 def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
@@ -701,6 +747,22 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+
+def muon_update_adaptive(grad, momentum, v, ns_iters_max: int, min_steps: int, tau: float,
+                          mu=0.95, beta2=0.999, eps=1e-8, nesterov=True):
+    """Eager (non-compiled) twin of muon_update for use when NS_ADAPTIVE=1.
+    Data-dependent control flow in the adaptive NS would graph-break torch.compile, so this
+    sibling stays eager. Returns (update, actual_iters_used) for telemetry."""
+    momentum.lerp_(grad, 1 - mu)
+    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    v.mul_(beta2).addcmul_(update, update, value=1 - beta2)
+    update = update / (v.sqrt() + eps)
+    update, actual = zeropower_via_newtonschulz5_adaptive(
+        update, max_steps=ns_iters_max, min_steps=min_steps, tau=tau
+    )
+    update *= max(1, grad.size(-2) / grad.size(-1))**0.5
+    return update, actual
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -722,7 +784,16 @@ class Muon(torch.optim.Optimizer):
         super().__init__(params, defaults)
         # Step-dependent NS iteration count. Set by the training loop before each step()
         # using `set_ns_iters_this_step()`. Defaults to the static NS_ITERS env var.
+        # In adaptive mode (set_adaptive_config(True, ...)) this value is interpreted as
+        # the per-step max budget passed to muon_update_adaptive.
         self.ns_iters_this_step = NS_ITERS
+        # Per-matrix adaptive NS (#1031). When active, step() dispatches to
+        # muon_update_adaptive and records the per-param actual iteration counts
+        # in self.adaptive_actual_iters for the training loop to log.
+        self.adaptive_mode: bool = False
+        self.adaptive_min_steps: int = 0
+        self.adaptive_tau: float = 0.0
+        self.adaptive_actual_iters: list[int] = []
         # Optional reference to the parameter whose orthogonalized update we
         # log spectral statistics for (e.g. blocks[0].attn.q.weight). When set,
         # `step()` populates `self.spectral_stats` with svd-based metrics that
@@ -733,6 +804,11 @@ class Muon(torch.optim.Optimizer):
     def set_ns_iters_this_step(self, ns_iters: int) -> None:
         self.ns_iters_this_step = int(ns_iters)
 
+    def set_adaptive_config(self, active: bool, min_steps: int = 0, tau: float = 0.0) -> None:
+        self.adaptive_mode = bool(active)
+        self.adaptive_min_steps = int(min_steps)
+        self.adaptive_tau = float(tau)
+
     @torch.no_grad()
     def step(self):
         world_size = dist.get_world_size()
@@ -742,6 +818,8 @@ class Muon(torch.optim.Optimizer):
         # Reset spectral_stats at the start of each step; only the rank that
         # owns the tracked parameter on this round-robin shard will repopulate.
         self.spectral_stats = None
+        # Reset adaptive-iter accumulator; populated only in adaptive_mode.
+        self.adaptive_actual_iters = []
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -752,9 +830,21 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["momentum"] = torch.zeros_like(p)
                         state["v"] = torch.zeros_like(p)
-                    update = muon_update(p.grad, state["momentum"], state["v"],
-                                         ns_iters=ns_iters,
-                                         mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                    if self.adaptive_mode:
+                        update, _actual = muon_update_adaptive(
+                            p.grad, state["momentum"], state["v"],
+                            ns_iters_max=ns_iters,
+                            min_steps=self.adaptive_min_steps,
+                            tau=self.adaptive_tau,
+                            mu=group["mu"], beta2=group["beta2"], eps=group["eps"],
+                        )
+                        self.adaptive_actual_iters.append(int(_actual))
+                        ns_iters_for_telemetry = int(_actual)
+                    else:
+                        update = muon_update(p.grad, state["momentum"], state["v"],
+                                             ns_iters=ns_iters,
+                                             mu=group["mu"], beta2=group["beta2"], eps=group["eps"])
+                        ns_iters_for_telemetry = int(ns_iters)
                     if spectral_target is not None and p is spectral_target:
                         # Singular values of the orthogonalized (post-NS) update.
                         # Multiplied by max(1, fan_in/fan_out)**0.5 inside muon_update;
@@ -769,7 +859,7 @@ class Muon(torch.optim.Optimizer):
                                 "u_singular_mean": float(svals.mean().item()),
                                 "u_singular_range": float((svals.max() - svals.min()).item()),
                                 "u_singular_std": float(svals.std(unbiased=False).item()),
-                                "ns_iters_used": float(ns_iters),
+                                "ns_iters_used": float(ns_iters_for_telemetry),
                             }
                         except Exception:
                             self.spectral_stats = None
@@ -838,6 +928,11 @@ for _probe_iters in (NS_ITERS, NS_ITERS_COOLDOWN if NS_ITERS_COOLDOWN > 0 else N
     _avg_c = sum(t[2] for t in _table) / len(_table)
     print0(f"  ns_iters={_probe_iters}: c=[{','.join(map(str, _c_vals))}] avg_c={_avg_c:.4f}",
            console=True)
+if NS_ADAPTIVE:
+    print0(f"NS_ADAPTIVE: tau={NS_ADAPTIVE_TAU} min={NS_ADAPTIVE_MIN} "
+           f"max={NS_ADAPTIVE_MAX} max_cooldown={NS_ADAPTIVE_MAX_COOLDOWN} ACTIVE", console=True)
+else:
+    print0(f"NS_ADAPTIVE: disabled (using fixed NS_ITERS schedule)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -896,6 +991,11 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_ns_adaptive": NS_ADAPTIVE,
+            "nanogpt_ns_adaptive_tau": NS_ADAPTIVE_TAU,
+            "nanogpt_ns_adaptive_min": NS_ADAPTIVE_MIN,
+            "nanogpt_ns_adaptive_max": NS_ADAPTIVE_MAX,
+            "nanogpt_ns_adaptive_max_cooldown": NS_ADAPTIVE_MAX_COOLDOWN,
         },
     )
 
@@ -959,6 +1059,11 @@ for trial_idx in range(args.num_trials):
     # Track orthogonalized-update spectrum on first block's attention q.weight
     # to surface NS-schedule effects in W&B telemetry.
     optimizer2.spectral_telemetry_param = model.blocks[0].attn.q.weight
+    # Per-matrix adaptive NS (#1031). When NS_ADAPTIVE=0 this is a no-op and Muon.step
+    # dispatches to the compiled muon_update path unchanged.
+    optimizer2.set_adaptive_config(active=bool(NS_ADAPTIVE),
+                                   min_steps=NS_ADAPTIVE_MIN,
+                                   tau=NS_ADAPTIVE_TAU)
     cooldown_start_step = int(train_steps * NS_COOLDOWN_START_FRAC)
     ns_iters_history: list[int] = []
     ns_cumulative_iters = 0
@@ -1178,10 +1283,18 @@ for trial_idx in range(args.num_trials):
             step, train_steps, NS_ITERS, NS_ITERS_COOLDOWN,
             NS_COOLDOWN_START_FRAC, NS_COOLDOWN_SHAPE,
         )
+        # In adaptive mode (#1031) we override the deterministic count with the
+        # adaptive MAX (and apply stochastic spread around the new mean, preserving
+        # #787 mechanism). The optimizer interprets this as a max budget and stops
+        # per-matrix when ‖XXᵀ−I‖_F/√m < tau.
+        ns_in_cooldown = NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
+        if NS_ADAPTIVE:
+            ns_iters_deterministic = (
+                NS_ADAPTIVE_MAX_COOLDOWN if ns_in_cooldown else NS_ADAPTIVE_MAX
+            )
         # Per-step uniform stochastic sampling around the deterministic mean. Phase
         # is detected from the same boost_start used by get_ns_iters so spread
         # applies in lockstep with the deterministic schedule.
-        ns_in_cooldown = NS_ITERS_COOLDOWN > 0 and step >= cooldown_start_step
         ns_spread = NANOGPT_NS_STOCHASTIC_COOLDOWN if ns_in_cooldown else NANOGPT_NS_STOCHASTIC_MID
         if ns_spread > 0:
             # Deterministic RNG keyed by (SENPAI_SEED?, trial_idx, step) so runs
@@ -1296,6 +1409,25 @@ for trial_idx in range(args.num_trials):
             if optimizer2.spectral_stats is not None:
                 for k, v in optimizer2.spectral_stats.items():
                     ns_metrics[f"train/ns_schedule/{k}"] = v
+            # Per-matrix adaptive NS telemetry (#1031): only populated when NS_ADAPTIVE=1.
+            # mean/min/max/std across the ~72 Muon params this step. Heterogeneous (high std)
+            # means the residual-stopping mechanism is firing; mean≈max with low std means
+            # tau never triggered.
+            if NS_ADAPTIVE and optimizer2.adaptive_actual_iters:
+                _actuals = optimizer2.adaptive_actual_iters
+                _n = len(_actuals)
+                _mean = sum(_actuals) / _n
+                _min = min(_actuals)
+                _max = max(_actuals)
+                _var = sum((x - _mean) ** 2 for x in _actuals) / _n
+                _std = _var ** 0.5
+                ns_metrics["train/ns_adaptive/mean_actual"] = float(_mean)
+                ns_metrics["train/ns_adaptive/min_actual"] = int(_min)
+                ns_metrics["train/ns_adaptive/max_actual"] = int(_max)
+                ns_metrics["train/ns_adaptive/std_actual"] = float(_std)
+                ns_metrics["train/ns_adaptive/num_params"] = int(_n)
+                ns_metrics["train/ns_adaptive/budget_max"] = int(ns_iters_this_step)
+                ns_metrics["train/ns_adaptive/saved_iters_vs_max"] = float(ns_iters_this_step - _mean)
             # Per-iter NS coefficient telemetry (probes 3 representative iters).
             current_ns_iters = ns_iters_this_step
             a0, b0, c0 = get_ns_coef_at_iter(0, current_ns_iters, NS_COEF_SCHEDULE)
