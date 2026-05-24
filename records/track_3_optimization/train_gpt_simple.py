@@ -61,6 +61,15 @@ def parse_args():
                              "--ema_beta_target during cooldown, coupling β to the LR schedule. "
                              "Requires --ema_beta>0. β_t = ema_beta + (ema_beta_target - ema_beta) "
                              "× (1 - lr_mult_t).")
+    parser.add_argument("--pmuon_slow_beta", type=float, default=None,
+                        help="If set, maintain a slow EMA buffer for body-Muon with this β "
+                             "(e.g. 0.999). Blended with fast buffer (β=mu=0.95) before NS5. "
+                             "Disabled by default.")
+    parser.add_argument("--pmuon_slow_alpha", type=float, default=0.5,
+                        help="Blend weight on SLOW EMA in the fast+slow blend: "
+                             "m_blend = (1-alpha)*m_fast + alpha*m_slow. "
+                             "alpha=0.5: equal blend. alpha→1: slow-dominated (AdEMAMix-style). "
+                             "Only used when --pmuon_slow_beta is set.")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -497,6 +506,9 @@ def pmuon_update(
     ns_b: float = NS_B,
     ns_c: float = NS_C,
     polar_diag: dict | None = None,
+    slow_momentum: Tensor | None = None,
+    slow_beta: float = 0.999,
+    slow_alpha: float = 0.5,
 ) -> Tensor:
     # Streaming raw (unnormalized) bilateral covariance EMAs in fp32.
     g32 = grad.detach().float()
@@ -504,7 +516,31 @@ def pmuon_update(
     R_cov.mul_(beta_cov).add_(g32.T @ g32)
 
     momentum.lerp_(grad, 1 - mu)
-    update = grad.lerp_(momentum, mu) if nesterov else momentum
+    if slow_momentum is not None:
+        # Slow EMA buffer stored in FP32 (β_slow=0.999 → (1-β)=0.001 underflows BF16).
+        slow_momentum.mul_(slow_beta).add_(g32, alpha=(1.0 - slow_beta))
+        m_fast_fp32 = momentum.float()
+        m_blend_fp32 = (1.0 - slow_alpha) * m_fast_fp32 + slow_alpha * slow_momentum
+        if polar_diag is not None:
+            # Per-param cosines kept as GPU scalars; .item() deferred to logger.
+            mf = m_fast_fp32.reshape(-1)
+            ms = slow_momentum.reshape(-1)
+            mb = m_blend_fp32.reshape(-1)
+            mf_n = mf.norm().clamp_min(1e-12)
+            ms_n = ms.norm().clamp_min(1e-12)
+            mb_n = mb.norm().clamp_min(1e-12)
+            cos_fast_slow_t = (mf @ ms) / (mf_n * ms_n)
+            cos_blend_fast_t = (mb @ mf) / (mb_n * mf_n)
+            if "slow_cos_fast_slow_sum_t" in polar_diag:
+                polar_diag["slow_cos_fast_slow_sum_t"] = polar_diag["slow_cos_fast_slow_sum_t"] + cos_fast_slow_t
+                polar_diag["slow_cos_blend_fast_sum_t"] = polar_diag["slow_cos_blend_fast_sum_t"] + cos_blend_fast_t
+            else:
+                polar_diag["slow_cos_fast_slow_sum_t"] = cos_fast_slow_t
+                polar_diag["slow_cos_blend_fast_sum_t"] = cos_blend_fast_t
+            polar_diag["slow_cos_count"] = polar_diag.get("slow_cos_count", 0) + 1
+        update = m_blend_fp32.to(momentum.dtype)
+    else:
+        update = grad.lerp_(momentum, mu) if nesterov else momentum
 
     L_neg = matrix_neg_power(L_cov, gamma, eps)
     R_neg = matrix_neg_power(R_cov, gamma, eps)
@@ -532,11 +568,13 @@ def pmuon_update(
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta_cov=0.95, gamma=PMUON_GAMMA,
-                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C):
+                 ns_a=NS_A, ns_b=NS_B, ns_c=NS_C,
+                 slow_beta=None, slow_alpha=0.5):
         assert isinstance(params, list) and len(params) >= 1 and isinstance(params[0], torch.nn.Parameter)
         params = sorted(params, key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu, beta_cov=beta_cov, gamma=gamma,
-                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c)
+                        ns_a=ns_a, ns_b=ns_b, ns_c=ns_c,
+                        slow_beta=slow_beta, slow_alpha=slow_alpha)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -559,6 +597,8 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"] = torch.zeros_like(p)
                         state["L"] = torch.zeros(p.shape[0], p.shape[0], device=p.device, dtype=torch.float32)
                         state["R"] = torch.zeros(p.shape[1], p.shape[1], device=p.device, dtype=torch.float32)
+                    if group["slow_beta"] is not None and "slow_momentum" not in state:
+                        state["slow_momentum"] = torch.zeros_like(p, dtype=torch.float32)
                     update = pmuon_update(
                         p.grad,
                         state["momentum"],
@@ -571,6 +611,9 @@ class Muon(torch.optim.Optimizer):
                         ns_b=group["ns_b"],
                         ns_c=group["ns_c"],
                         polar_diag=polar_diag,
+                        slow_momentum=state.get("slow_momentum"),
+                        slow_beta=group["slow_beta"] if group["slow_beta"] is not None else 0.999,
+                        slow_alpha=group["slow_alpha"],
                     )
                     floor_eligible_count += 1
                     w_norm = p.norm()
@@ -717,6 +760,9 @@ if dist.get_rank() == 0:
             "ema_warmup_steps": args.ema_warmup_steps,
             "ema_beta_target": args.ema_beta_target if args.ema_beta_target is not None else 0.0,
             "ema_dynamic_ramp_active": int(args.ema_beta_target is not None and args.ema_beta > 0),
+            "pmuon_slow_beta": args.pmuon_slow_beta if args.pmuon_slow_beta is not None else 0.0,
+            "pmuon_slow_alpha": args.pmuon_slow_alpha,
+            "pmuon_dual_ema_active": int(args.pmuon_slow_beta is not None),
         },
     )
 
@@ -753,7 +799,8 @@ for trial_idx in range(args.num_trials):
                         dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.025, name="adam_scalars")],
                        betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([p for p in model.blocks.parameters() if p.ndim >= 2],
-                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA)
+                      lr=0.035, weight_decay=0.025, beta_cov=0.95, gamma=PMUON_GAMMA,
+                      slow_beta=args.pmuon_slow_beta, slow_alpha=args.pmuon_slow_alpha)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1025,6 +1072,19 @@ for trial_idx in range(args.num_trials):
                     "polar/ns_coef_a": NS_A,
                     "polar/ns_coef_b": NS_B,
                     "polar/ns_coef_c": NS_C,
+                }, step=wandb_step)
+            if polar_diag and polar_diag.get("slow_cos_count", 0) > 0:
+                slow_n = polar_diag["slow_cos_count"]
+                cos_fs_mean = float((polar_diag["slow_cos_fast_slow_sum_t"] / slow_n).item())
+                cos_bf_mean = float((polar_diag["slow_cos_blend_fast_sum_t"] / slow_n).item())
+                wandb.log({
+                    "trial": trial_idx,
+                    "train/step": train_step,
+                    "pmuon/slow_momentum_cosine": cos_fs_mean,
+                    "pmuon/blend_fast_slow_cosine": cos_bf_mean,
+                    "pmuon/slow_cos_sample_count": slow_n,
+                    "pmuon/slow_beta": args.pmuon_slow_beta if args.pmuon_slow_beta is not None else 0.0,
+                    "pmuon/slow_alpha": args.pmuon_slow_alpha,
                 }, step=wandb_step)
             wandb.log({
                 "trial": trial_idx,
