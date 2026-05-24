@@ -1,31 +1,38 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 07:15 UTC (cycle 209)
+- **Date:** 2026-05-24 08:07 UTC (cycle 211)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
 
-## Cycle 209 snapshot (07:15 UTC May 24) — all chains mid-flight, no terminals yet
+## Cycle 211 snapshot (08:07 UTC May 24) — #967 closed NULL; askeladd reassigned #1020
 
 ### Activity this cycle
+
+- **#967 askeladd** CLOSED productive-NULL: AdamW aux β₂ cooldown anneal. All 4 arms |Δ_vs_A| ≤ 0.00017. Symmetric tie B(+0.00008) vs C(+0.00014) testing opposite directions is the canonical non-load-bearing signal. **β-schedule axis on AdamW aux now fully exhausted.** Mechanism insight: v_t already converged by cooldown start; ε floor more likely the active lever → motivates PR #1020.
+- **PR #1020 askeladd** assigned: **AdamW ε UP-ramp cooldown** — linear ramp eps from 1e-10 → {1e-8, 1e-6, 1e-4} over cooldown window. Fresh axis: #652 (DOWN direction, closed NULL) tested opposite; ε UP-ramp at cooldown is genuinely untested.
+- **Mechanism insight from #967:** β₂ NULL suggests aux v_t is converged by step 2345 (cooldown start) — the denominator floor ε is the active lever, not EMA rate. This insight directly motivated #1020 hypothesis design.
+
+### Cycle 209 (carryover — chains all mid-flight)
 
 - **#1008 alphonse** stale_wip ack + probe. Arm A `lp81hhew` finished at val=3.2689 (n=1, +0.00134 drift PASS); Arm B `u4jdeu7l` running at step 200. Chain healthy.
 - **W&B chain survey** confirmed all 7 other students have active arms. No idle GPU, no stalls.
 
-### Live chain state (07:15 UTC May 24) — Arm-A controls + currently-running arms
+### Live chain state (08:07 UTC May 24) — Arm-A controls + last-known-running arms
 
 Most Arm A controls reproduce baseline well (n=1 noise envelope ~±0.002-0.003). **Notable Arm-A reproductions:** frieren=3.2665, edward=3.2678, nezuko=3.2680, askeladd=3.2685, alphonse=3.2689, tanjiro=3.2690, thorfinn=3.2692. fern Arm-A still mid-chain at step 3225 val=3.2783 (terminal pending).
 
-| PR | Student | Hypothesis | Arm A (ctrl) val | Latest arm | Run | Step | Val |
+| PR | Student | Hypothesis | Arm A (ctrl) val | Latest arm | Run | Step (last) | Val |
 |:---:|:---:|---|:---:|:---:|---|:---:|:---:|
-| #967 | askeladd | AdamW aux β₂ cooldown anneal | 3.2685 | D | `rmepa75y` | 2525 | 3.367 |
-| #980 | edward | Muon μ cooldown anneal | 3.2678 | C (mu0.70) | `iemv695q` | 2300 | 3.375 |
-| #982 | nezuko | Per-block-type Muon μ FASTER mlp | 3.2680 | C (attn0.95/mlp0.90) | `qurezx9d` | 1625 | 3.496 |
-| #984 | thorfinn | SF-AdamW aux | 3.2692 | C (scope-scalars) | `pctoxsoc` | 400 | 3.921 |
-| #988 | tanjiro | AdamW state reset at cooldown | 3.2690 | B (lm_head_scalars) | `xlzd0p2g` | 1375 | 3.541 |
-| #998 | frieren | Muon body momentum one-shot reset | **3.2665** | B (mom-reset) | `23xkxrwz` | 1250 | 3.565 |
-| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | 3.2783 mid | A (ctrl) | `qcwdptmu` | 3225 | 3.278 |
-| #1008 | alphonse | NS static-c op-point sweep | 3.2689 | B (static_c=0.65) | `u4jdeu7l` | 200 | 4.608 |
+| #967 | askeladd | AdamW aux β₂ cooldown anneal | 3.2685 | **CLOSED NULL** | — | all 4 arms done | — |
+| #980 | edward | Muon μ cooldown anneal | 3.2678 | C (mu0.70) | `iemv695q` | ~2300 | 3.375 |
+| #982 | nezuko | Per-block-type Muon μ FASTER mlp | 3.2680 | C (attn0.95/mlp0.90) | `qurezx9d` | ~1975 | 3.455 |
+| #984 | thorfinn | SF-AdamW aux | 3.2692 | C (scope-scalars) | `pctoxsoc` | ~400+ | early |
+| #988 | tanjiro | AdamW state reset at cooldown | 3.2690 | B (lm_head_scalars) | `xlzd0p2g` | ~1375+ | 3.541 |
+| #998 | frieren | Muon body momentum one-shot reset | **3.2665** | B (mom-reset) | `23xkxrwz` | ~1250+ | 3.565 |
+| #1003 | fern | Per-block-TYPE Muon LR mult cooldown anneal | 3.2783 mid | A (ctrl) | `qcwdptmu` | ~3350 | terminal |
+| #1008 | alphonse | NS static-c op-point sweep | 3.2689 | B (static_c=0.65) | `u4jdeu7l` | ~200+ | early |
+| **#1020** | **askeladd** | **AdamW ε UP-ramp cooldown (NEW)** | — | pending pickup | — | — | — |
 
 ### Notable observations
 
@@ -148,10 +155,10 @@ Adds **#956 (lm_head per-row max-norm soft-clamp, productive-NEG monotone-regres
 - D-Adaptation (Muon-side theoretical baggage)
 - Prodigy adaptive LR
 - NS coefficient static-c value sweep → **#1008 IN FLIGHT** (alphonse)
-- Per-tensor adaptive NS iteration count based on spectral residual ← next candidate
+- Per-tensor adaptive NS iteration count based on spectral residual ← candidate
 - Alternative NS polynomial families (Chebyshev-derived, higher-order) ← fresh structural axis
 - LR-coupled momentum decay (μ ∝ lr(t))
-- AdamW eps cooldown anneal UP (opposite of closed #652 DOWN)
+- AdamW eps cooldown anneal UP → **#1020 IN FLIGHT** (askeladd) — linear ramp 1e-10 → {1e-8/1e-6/1e-4}
 - Lion/Tiger for embed-only group (Lion-on-embed never specifically isolated)
 
 ### Closed prior cycles (still relevant context)

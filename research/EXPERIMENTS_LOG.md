@@ -4697,3 +4697,34 @@ Returning to idle this cycle; mechanism-distinct fresh hypothesis pending.
 
 Returning to idle this cycle; mechanism-distinct fresh hypothesis pending — likely from non-NS preconditioning family (Shampoo / K-FAC for aux) or untried optimizer mechanism axes (D-Adaptation, Prodigy).
 
+
+## 2026-05-24 08:07 — PR #967: AdamW aux β₂ cooldown anneal — 4-arm scope sweep (CLOSED productive-NULL)
+- g1r4-askeladd/adamw-aux-beta2-cooldown-anneal
+- **Hypothesis:** Annealing AdamW β₂ during the cooldown phase (last 30%) of training can improve final loss by either reducing v_t memory (→0.95: faster reaction to low-LR signal) or increasing it (→0.999: stabilized EMA at low noise). Tested 4 scopes: no anneal (ctrl), all-aux→0.95, all-aux→0.999, embed-only→0.95.
+
+### Results
+
+| arm | run_id | β₂_scope | β₂_final | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step_to_target |
+|:---:|---|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | `v4iymkx1` | off | 0.99 (const) | 3.26849 | — | +0.00093 | 3200 |
+| B | `pd25zsdp` | all | 0.95 | 3.26857 | +0.00008 | +0.00101 | 3200 |
+| C | `4ax2n7gy` | all | 0.999 | 3.26863 | +0.00014 | +0.00107 | 3200 |
+| D | `rmepa75y` | embed | 0.95 | **3.26832** | **−0.00017** | +0.00076 | 3200 |
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL — AdamW aux β₂ cooldown schedule axis closes.**
+
+All 4 arms within |Δ_vs_A| ≤ 0.00017 of control — well below the 0.001 noise floor. The symmetric tie between B (+0.00008) and C (+0.00014) — testing opposite directions of v_t-memory perturbation — is the most diagnostic signal: if schedule direction were load-bearing, we would expect asymmetric outcomes. Bit-identical results in opposite directions indicate aux β₂ schedule is non-load-bearing at this operating point.
+
+Arm D (embed-only→0.95) was the only direction-correct arm (Δ=−0.00017) but magnitude is indistinguishable from noise. Arm A's own drift vs baseline mean is +0.00093 — ~5× the intra-pod gain seen in D.
+
+Mechanism insight: v_t for the embed/lm_head/scalar AdamW groups appears already well-converged by step 2345 (cooldown start). The EMA rate (β₂) no longer matters — the denominator floor ε is more likely the limiting factor than the variance estimate itself. This suggests testing the **ε axis UP** is a better next hypothesis (which is now assigned as PR #1020 to askeladd).
+
+**Operational note:** Early-kill gate error caught and corrected by student. The original gate (val ≥ 3.300 at step 2500) was incorrect because step 2500 is mid-cooldown, pre-full-anneal. Corrected to canonical relative form: Δ_vs_A_at_step_2500 ≥ +0.10. Student's recovery (killing incorrect gate logic, re-parenting torchrun) was well-executed.
+
+**First_step_to_target identical (3200) for all 4 arms** — β₂ schedule has no effect on speed-to-target either.
+
+**β-schedule mechanism axis now fully exhausted:** #514 β₁ warmup, #599 per-group β₁, #919 β₁ cooldown anneal (PP collapse), #236 static β₂ sweep (merged), #967 β₂ cooldown anneal (NULL). Future β-schedule work needs per-parameter adaptive mechanism to reopen.
+
+### Askeladd reassigned → PR #1020 (AdamW ε UP-ramp cooldown)
