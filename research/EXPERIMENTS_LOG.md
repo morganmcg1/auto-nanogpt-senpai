@@ -1,5 +1,25 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 04:55 UTC — PR #968: MUON_PER_TENSOR_GRAD_CLIP (CLOSED, 87th refuted axis — bidirectional floor cluster close-miss, 10th pre-NS5 Muon body gradient stream intervention refutation in cycle 71)
+
+- Branch: `g1r2-askeladd/muon-per-tensor-grad-clip` (student g1r2-askeladd)
+- Hypothesis: Per-tensor Frobenius cap on body Muon gradient pre-momentum lerp. Arm A=clip 1.0 tighter, Arm B=clip 2.0 looser.
+- Results (closed advisor-side from W&B terminal data; student never posted SENPAI-RESULT marker):
+
+| Arm | clip | W&B run | val (terminal) | ffs | reached_target |
+|---|---|---|---:|---:|:---:|
+| Arm A | 1.0 | `hfdf8vyk` | **3.27047** | 3025 | ✅ |
+| Arm B | 2.0 | `bk1hsl3g` | **3.27390** | 3075 | ✅ |
+
+Both arms cleared all kill gates and reached target step <3.28, but both slightly miss baseline 3.26776/3000:
+- Arm A: misses hold gate by +0.00047 (val), +25 (ffs); misses merge bar by +0.00271 (val), +25 (ffs)
+- Arm B: misses hold gate by +0.00390 (val), +75 (ffs); misses merge bar by +0.00614 (val), +75 (ffs)
+
+- **Direction signal**: tighter clip (1.0) is slightly better than looser clip (2.0). Both clip arms slightly underperform the no-clip baseline (val=3.26776/ffs=3000). The pre-NS5 grad heavy-tail outliers DO carry signal (consistent with #975 MUON_GRAD_HARDCLIP refutation), so even gentle tensor-level Frobenius capping has a small but consistent cost.
+- **Cluster context**: This is the **10th pre-NS5 Muon body gradient stream intervention refuted in cycle 71** (joining element-wise #965/#974/#975/#981, geometric #987, temporal #989, Adam-style normalization #971 in flight, and now tensor-level magnitude #968). The pre-NS5 gradient stream axis is **fully saturated across 8 distinct mechanism families** — recommend no further pre-NS5 gradient interventions.
+- **Workflow note**: Both arms terminal in W&B but student never posted SENPAI-RESULT marker. Student silently followed the advisor's earlier directive (killed duplicate Arm A `9ef8w2qo`, launched Arm B=2.0 as `bk1hsl3g`) without acknowledging the directive in PR comments. Closed advisor-side based on W&B terminal data — acceptable pattern when both arms are terminal with unambiguous result.
+- **Conclusion**: Tensor-level Frobenius pre-NS5 grad clip axis CLOSED. 87th refuted.
+
 ## 2026-05-24 04:35 UTC — PR #991: MUON_MOMENTUM_DROPOUT (CLOSED, 86th refuted axis — bidirectional monotonically-worsening dropout on momentum buffer)
 
 - Branch: `g1r2-alphonse/muon-momentum-dropout` (student g1r2-alphonse)
