@@ -1,9 +1,65 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 21:30 UTC (cycle 229)
+- **Date:** 2026-05-24 22:30 UTC (cycle 230)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 230 snapshot (22:30 UTC May 24) — #1045 frieren CLOSED productive-NEG (LION on aux all 3 arms regress, sign-flip ~26% LR-invariant = structural); OPTIMIZER-CLASS axis 1-closure observation (not full fence); frieren reassigned #1088 (Body Muon gradient noise — fresh GRADIENT-NOISE-INJECTION axis)
+
+### Activity this cycle
+
+- **#1045 frieren** N=1 4-arm complete CLOSED productive-NEG: LION optimizer on aux (embed, lm_head, scalars) at 3 LR ratios. Arms A=3.26926 (ctrl AdamW, drift +0.00170 PASS), B=3.29644 (lion 0.10× paper, +0.02718 PRODUCTIVE-NEG), C=3.30581 (lion 0.05× conservative, +0.03655 PRODUCTIVE-NEG), D=3.28797 (lion 0.20× aggressive, +0.01871 PRODUCTIVE-NEG best LION). All LION arms miss val_loss≤3.28 target. Monotone in LR ratio (C<B<D — more LR is better but ceiling is +0.019). Sign-flip rate ~25.6–25.8% LR-invariant — structural property of aux gradients, not tunable. W&B verified all 4 runs exact match.
+- **Mechanism interpretation (high info):** AdamW v-buffer (RMS-shaping via exp_avg_sq) is LOAD-BEARING on aux for this stack. Zipfian lm_head (50304 output dim) demands per-coordinate magnitude shaping that LION's uniform ±lr cannot express. The sign-only update class is structurally insufficient on this aux setup regardless of LR tuning.
+- **OPTIMIZER-CLASS axis 1-closure observation (not full fence).** Other optimizer classes (Adafactor, Sophia, Adan, Tiger, schedule-free) remain mechanistically distinct and unexplored — but the structural insight constrains the family: aux optimizers MUST preserve coordinate-wise magnitude info from gradients. Variants without v-buffer-like component unlikely to recover.
+- **PR #1088 frieren** (assigned this cycle): **Body Muon momentum-buffer gradient-noise injection** — fresh GRADIENT-NOISE-INJECTION axis. Hypothesis: inject Gaussian noise into body Muon momentum buffer (post-EMA, pre-NS5) as SGLD-style exploration. The β1=0.95 EMA gives ~20-step smoothing — may over-dampen exploration. RMS-scaled noise on NS5 input each step, momentum buffer never written-back with noise. 4 arms: A=ctrl, B=σ=0.01 constant, C=σ=0.05 cosine-decayed (mechanism-lead — aligns with late_peak NS cooldown), D=σ=0.05 constant. Mechanism-distinct from #1074 (deterministic GC on embed, stochastic noise on body) and #1078 (β1 schedule, separate from buffer-input perturbation).
+
+### Mechanism axes coverage (cycle 230, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **GRADIENT-NOISE-INJECTION (body Muon)** | **#1088 frieren NEW** | WIP fresh | Gaussian noise on momentum buffer NS5 input |
+| MUON-MOMENTUM-SCHEDULE | #1078 thorfinn | WIP fresh | μ decay: off/linear_full/cooldown_only/high-start |
+| GRADIENT-LEVEL-NORMALIZATION | #1074 nezuko | WIP fresh | GC on embed (Yong 2020) |
+| WEIGHT-AVERAGING-POST-TRAINING | #1055 askeladd | WIP | SWA / EMA Polyak |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP | Zhang et al. 2019 |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 | Arm B tripped threshold |
+| SUBTRACTIVE-PRUNING (PP) | #1028 edward | WIP — PP n=3 | ANCHOR=0 candidate |
+
+All 8 mechanism axes active, 0 idle. Three fresh axes started in last 3 cycles (#1074 GC, #1078 Muon-μ, #1088 grad-noise). Two in PP confirmation (#1003 winner-confirm, #1028 prune-confirm).
+
+### Closed-axis fences summary (cycle 230)
+
+| Class | Closures | Notes |
+|---|---|---|
+| AUX PRECONDITIONER COOLDOWN-WINDOW | 5 closures | Temporal aux-side schedule |
+| STATE-RESET | 4 closures | Parameter reset techniques |
+| LM_HEAD WEIGHT-SPACE ROW-MAGNITUDE | 8+ closures | Direct lm_head weight modification |
+| NS-ITERATION-ALLOCATION | 4 closures | Per-depth/block-type/layer/per-matrix |
+| INITIALIZATION-DISTRIBUTION (body Muon) | 2 closures | Scale + distribution variants |
+| OPTIMIZER-CLASS (aux) | 1 obs (#1045) | Sign-only-class insufficient; axis open for v-buffer-preserving variants |
+
+### Decision-rule pattern across cycles 222–230 (9 N=1 outcomes)
+
+| Cycle | PR | Best Δ_vs_A | Decision | Confirmation |
+|---|---|---|---|---|
+| 222 | #1008 alphonse | −0.00044 (sub-noise) | CLOSE NULL | n/a |
+| 222 (older) | #988 tanjiro | −0.00168 (miss by 16%) | CLOSE NULL/borderline | n/a |
+| 223 | #1003 fern | **−0.00226 (cross by 13%)** | **PP n=3** | in flight |
+| 224 | #1020 askeladd | −0.00182 (miss by 9%) | CLOSE NULL/marginal | n/a |
+| 227 | #1028 edward | +0.00018 (deep NON-LOAD-BEARING) | **PP n=3 of null** | in flight |
+| 228 | #1031 nezuko | −0.00093 (sub-threshold by 53%) | CLOSE productive-marginal | n/a |
+| 229 | #1032 thorfinn | +0.00245 (monotone REGRESSION) | CLOSE productive-NEG | n/a |
+| **230** | **#1045 frieren** | **+0.01871 (monotone PRODUCTIVE-NEG)** | **CLOSE productive-NEG** | n/a |
+
+Three consecutive productive-NEG closures (#1031 marginal, #1032 REG, #1045 PRODUCTIVE-NEG). Pattern confirmed: the −0.002 threshold remains a robust winner-vs-close boundary; |Δ|≤0.0005 prune boundary; ≥+0.005 productive-NEG band; monotone-with-dose REGRESSION (#1032, #1045) cleanly identifies mechanism-rejection.
+
+### Operational pattern (cycle 230)
+
+- **Stale_wip ack-with-W&B-check** workflow still standard. W&B subagent verification of all 4 student-reported numbers each closure — 0 discrepancies in 3 consecutive closures.
+- **Assign fresh axis on closure** continues to compound mechanism-axis coverage. Three fresh axes opened in 3 cycles (228 GC, 229 Muon-μ, 230 grad-noise). All mechanism-distinct from each other + from fenced classes.
+- **PP confirmation chains** (#1003 winner, #1028 prune) still in flight — provides decision-rule calibration data once they land.
 
 ## Cycle 229 snapshot (21:30 UTC May 24) — #1032 thorfinn CLOSED productive-NEG (Haar-orthogonal init REGRESSION, monotone A<C<B<D, Arm D never reaches 3.28); thorfinn reassigned #1078 (Body Muon momentum schedule — fresh MUON-MOMENTUM-SCHEDULE axis)
 

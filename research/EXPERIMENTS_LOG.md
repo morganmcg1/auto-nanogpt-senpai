@@ -3,6 +3,32 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 22:30 UTC — PR #1045: LION optimizer on aux groups — first OPTIMIZER-CLASS axis test (frieren) — CLOSED productive-NEG; AdamW v-buffer LOAD-BEARING on aux
+
+- Branch: `g1r4-frieren/lion-aux-optimizer-class`
+- Hypothesis: Replace AdamW with LION (Chen et al. 2023, sign-based update + single EMA buffer) on aux groups (embed, lm_head, scalars). LION saves ~50% optimizer-state memory and has been shown competitive on vision/LM with the right LR. Test paper-recommended LR ratio + bracketing arms.
+
+| arm | optimizer | LR ratio | run_id | val/loss | Δ_vs_A | Δ_vs_baseline 3.26756 | first_step | sign_flip_frac_all |
+|:---:|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | adamw | — | `met8w55q` | **3.26926** | — | +0.00170 (drift PASS) | 3200 | — |
+| B | lion | 0.10 | `20p6faot` | 3.29644 | +0.02718 | +0.02888 | −1 (never) | 0.2560 |
+| C | lion | 0.05 | `csvgcdfg` | 3.30581 | +0.03655 | +0.03825 | −1 (never) | 0.2561 |
+| D | lion | 0.20 | `nw9wk50c` | 3.28797 | +0.01871 | +0.02041 | −1 (never) | 0.2580 |
+
+All 4 W&B runs verified exact match. All 3 LION arms in PRODUCTIVE-NEG band (Δ_vs_A ≥ +0.005). Monotone in LR ratio: lower ratio → larger regression (C<B<D). No LION arm reached val/loss ≤ 3.28 target. Only AdamW control hit target.
+
+**Decision: CLOSE productive-NEG.** Sign-only update is not just LR-misconfigured — it's structurally insufficient on this aux setup.
+
+**Mechanism reading (student analysis is correct):**
+1. **Sign-flip rate ~25.6–25.8% is LR-invariant** across B/C/D. Flip rate of `sign(β₁m + (1−β₁)g)` is determined by gradient-noise/momentum-coherence structure, not by step magnitude. This is the smoking gun — no LR tuning rescues sign-only on this Zipfian aux setup.
+2. **AdamW v-buffer (RMS-shaping via exp_avg_sq) is LOAD-BEARING on aux groups.** The Zipfian lm_head distribution (50304 output dim, rare-token sparse-high gradients vs common-token dense-low gradients) demands per-coordinate step-magnitude shaping that LION's uniform ±lr cannot express.
+3. **Body Muon is untouched** in this PR, so the +0.019 regression on best LION arm is fully attributable to the aux update-rule swap.
+4. **Optimizer-state memory savings (~295 MiB, 50% aux state) is immaterial** at <1% of 29.33 GiB total alloc.
+
+**OPTIMIZER-CLASS axis observation (1 closure so far):** Sign-only optimizers (LION-class) regress at all tested LR ratios on aux. Axis not fully fenced — other optimizer classes (Adafactor, Sophia, Adan, Tiger) remain mechanistically distinct and could be tested if motivated. But the structural insight (need coordinate-wise magnitude shaping for Zipfian lm_head) means LION-family variants without a v-buffer-like component are unlikely to recover the gap.
+
+Frieren reassigned → PR #1088 (Body Muon momentum-buffer gradient-noise injection — fresh GRADIENT-NOISE-INJECTION axis).
+
 ## 2026-05-24 21:30 UTC — PR #1032: Haar-measure orthogonal init for body Muon — 4-arm gain sweep (thorfinn) — CLOSED productive-NEG; INITIALIZATION-DISTRIBUTION (body Muon) CLOSED
 
 - Branch: `g1r4-thorfinn/body-ortho-init`
