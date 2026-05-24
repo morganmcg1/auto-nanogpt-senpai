@@ -468,6 +468,9 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+NS5_COEF_SCHEDULE_KIND = os.environ.get("NS5_COEF_SCHEDULE_KIND", "constant")  # "constant" | "linear"
+NS5_COEF_BLEND_FRACTION = float(os.environ.get("NS5_COEF_BLEND_FRACTION", "1.0"))  # transition over first X of training
+_NS5_CURRENT_STEP_FRAC = [0.0]  # mutable module-level cell, updated each training step
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -478,8 +481,16 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
 
     # Ensure spectral norm is at most 1
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
-    # Perform the NS iterations, not optimizing for wallclock speed
-    a, b, c = 2, -1.5, 0.5
+    # Schedule (a, b, c) coefficients: standard Chebyshev (2, -1.5, 0.5)
+    # → Halley-approximant (1.5, -0.5, 0.0) as the linear blend progresses.
+    if NS5_COEF_SCHEDULE_KIND == "linear":
+        t_raw = _NS5_CURRENT_STEP_FRAC[0] / max(NS5_COEF_BLEND_FRACTION, 1e-8)
+        t = max(0.0, min(1.0, t_raw))
+        a = 2.0 * (1 - t) + 1.5 * t
+        b = -1.5 * (1 - t) + (-0.5) * t
+        c = 0.5 * (1 - t) + 0.0 * t
+    else:
+        a, b, c = 2, -1.5, 0.5
     for _ in range(NS5_ITERS):
         A = X @ X.mT
         B = b * A + c * A @ A
@@ -865,6 +876,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_precond_freq": ATTN_SOAP_PRECOND_FREQ,
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
+            "optimizer/ns5_coef_schedule_kind": NS5_COEF_SCHEDULE_KIND,
+            "optimizer/ns5_coef_blend_fraction": NS5_COEF_BLEND_FRACTION,
             "optimizer/wd_aux": WD_AUX,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
@@ -1025,6 +1038,7 @@ for trial_idx in range(args.num_trials):
         train_loss = float((step_loss / batch_size).item())
         # set optimization hyperparameters and take a step
         set_hparams(step)
+        _NS5_CURRENT_STEP_FRAC[0] = step / max(train_steps, 1)
         train_step = step + 1
         telemetry_due = (step == 0 or (step + 1) % args.telemetry_interval == 0 or step + 1 == train_steps)
         histogram_due = (step == 0 or (step + 1) % args.histogram_interval == 0 or step + 1 == train_steps)
@@ -1037,6 +1051,7 @@ for trial_idx in range(args.num_trials):
                 "trial": trial_idx,
                 "train/step": train_step,
                 "train/slope/window_target_steps": slope_window_steps,
+                "optimizer/ns5_coef_step_frac": _NS5_CURRENT_STEP_FRAC[0],
             }
             slope_metrics.update(prefixed("train/slope", loss_slope_stats(train_loss_history, slope_window_steps)))
             wandb.log(slope_metrics, step=wandb_step)
