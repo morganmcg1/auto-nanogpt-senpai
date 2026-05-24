@@ -1,3 +1,24 @@
+## 2026-05-24 16:35 UTC — PR #1030 CLOSED NEG/closure (frieren): H118 MuLoCo Outer Pruning Ablation (10-axis outer-aggregation closure)
+
+- Branch: `g1r3-frieren/h118-no-outer-ablation`
+- Hypothesis: Test whether MuLoCo outer SGDM is structurally load-bearing or vestigial subsystem.
+- Result: NEG/closure — outer SGDM is structurally load-bearing.
+
+| arm | run_id | val/loss | Δ vs CTRL | ffs | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL | sayq1ut0 | 3.27058 | — | 3100 | NULL bit-id vs OLD baseline |
+| arm_b NO_OUTER | e3g2vpr1 | 3.27883 | +0.00825 | 3250 | NEG |
+| arm_c NO_OUTER_LR_BOOST (1.4×) | k5ek4jde | 3.28100 | +0.01042 | -1 (target NOT reached!) | NEG |
+
+- **Joint 10-axis outer-aggregation closure** (H91/H99/H100/H101/H103/H108/H111/H113/H116/H118): outer SGDM with Nesterov heavy-ball + anchor pullback at outer_lr=0.7, momentum=0.5, sync=30 is at-optimum across every documented variant including total ablation.
+- **Mechanism finding 1 — Form matters, not magnitude**: arm_c's 1.4× muonh_lr boost worsened arm_b's gap (+0.010 vs +0.008). The anchor-pullback structure cannot be replaced by raw step-size scaling.
+- **Mechanism finding 2 — Outer is implicit gradient regularization**: arm_b grad/global_norm 69,499 vs CTRL 24,089 (2.88×). Slow-moving anchor keeps params in calmer gradient regime.
+- **Mechanism finding 3 — Cooldown is where outer earns its keep**: arm_b led CTRL from step 625-2625 (peak −0.034 at step 1500); cosine cooldown reversed this entirely. Mid-run "WIN signal" illusory.
+- Programme directive: future outer-axis work has bounded upside ~+0.008 gap to fill.
+- Methodological commendation: gradient-norm regime telemetry + honest correction of mid-run "MAJOR FINDING" heartbeat after cooldown reversal.
+
+---
+
 ## 2026-05-24 16:05 UTC — PR H125 ASSIGNED (fern): H125 µ-endpoint deeper sweep (0.95→0.88, 0.95→0.84)
 
 - Branch: `g1r3-fern/h125-mu-endpoint-sweep`
