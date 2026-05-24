@@ -4871,4 +4871,4 @@ Future Muon-mechanism PRs should target NS polynomial coefficients (alphonse #10
 - `_pr998_train_gpt_simple.py` untracked-file copy to survive branch flips = correct workflow for chain races.
 - Step-2500 trajectory analysis revealing Arm D pre-reset drift evidencing σ≈0.005 single-seed noise = high-quality measurement.
 
-### Frieren reassignment incoming → see next cycle (cycle 220) entry
+### Frieren reassigned → PR #1045 (LION optimizer on aux groups — first OPTIMIZER-CLASS axis: sign-bounded update replacing AdamW RMS-normalized direction on embed + lm_head + scalars; 4-arm LR-ratio sweep {0.1x, 0.05x, 0.20x} vs ctrl AdamW)
