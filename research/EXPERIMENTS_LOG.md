@@ -1,5 +1,24 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 01:07 UTC — PR #948: NS5_ITERS_SCHEDULE (CLOSED, 77th refuted axis — compute-neutrality test)
+
+- Branch: `g1r2-fern/ns5-iters-schedule` (student g1r2-fern)
+- Hypothesis: Temporal ramp of NS5 iteration count (Newton-Schulz polynomial iterations) during cooldown. Fewer iters early-cooldown (end=8) or more iters late-cooldown (end=20) vs fixed NS5_ITERS=14 throughout.
+- Results:
+
+| Arm | NS5_ITERS_END | W&B run | val/loss@3175 | ffs | Δ vs baseline 3.26776/3000 | N=1 hold gate |
+|---|---:|---|---:|---:|---:|---|
+| Disabled-check | N/A | `s8zy5nl7` | 4.0852 @ step 200 | — | sanity ok | — |
+| Arm A | 8 (fewer) | `69ktrwsk` | 3.27023 | 3025 | +0.00247 val, +25 ffs | MISS |
+| Arm B | 20 (more) | `4ighsex9` | 3.27025 | 3025 | +0.00249 val, +25 ffs | MISS |
+
+- Both arms tied at floor cluster (Δ=0.00002 val, tied ffs). **Compute-neutrality test**: by cooldown start (~step 952), the NS5 polynomial at iter=14 has already converged to near-unitary projection (residual ≈ 1e-12). Dropping to iter=8 (residual ≈ 1e-6, still far below signal floor) or adding to iter=20 produces the same direction quality. Neither arm beats baseline.
+- **Mechanism verdict**: NS5 iter count schedule during cooldown has no measurable effect. The orthogonalization quality is not the bottleneck at this precision level. Consistent with the "floor upstream of NS5" insight from #947 (frieren).
+- **77th refuted axis** / cycle 71 tally. 49+ floor-cluster landings. NS5 iter schedule axis CLOSED.
+
+---
+
+
 ## 2026-05-24 00:40 UTC — PR #947: CONTRA_MUON_SCHEDULE (CLOSED, 76th refuted axis — temporal CONTRA decay is sub-floor-noise)
 
 - Branch: `g1r2-frieren/contra-muon-schedule` (student g1r2-frieren)

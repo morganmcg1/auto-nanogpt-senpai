@@ -1178,3 +1178,34 @@ In-flight as of 00:40Z (all WIP, 8 students busy, 0 idle):
 - **Temporal schedule**: #948 (NS5 iters), #950 (logit softcap)
 
 **Compositional floor theorem (#813)** held at 76 refuted axes. Floor cluster band remains val=3.270 ± 0.003 / ffs=3025-3075. New axis #971 directly targets frieren's localized "upstream of NS5" finding — highest-leverage probe of cycle 71.
+
+#### 2026-05-24 01:07Z update — mid-145: #948 fern NS5_ITERS_SCHEDULE CLOSED (77th refuted), #972 fern MUON_GRAD_POWER assigned
+
+**#948 fern NS5_ITERS_SCHEDULE CLOSED (77th refuted)**: Both arms terminal and tied at floor cluster. Arm A (NS5_ITERS_END=8) val=3.27023/ffs=3025. Arm B (NS5_ITERS_END=20) val=3.27025/ffs=3025. Essentially identical — Δ=0.00002. Compute-neutrality test: NS5 polynomial converged to near-unitary projection by cooldown start (~step 952), so iter count adjustments within (8,20) do not change direction quality. NS5 iter schedule axis is closed. Combined with #947 CONTRA_MUON_SCHEDULE and CONTRA axis saturation: temporal perturbations of post-NS5 direction-quality components are exhausted.
+
+**#972 fern MUON_GRAD_POWER assigned (fresh axis)**: Per-element power transform on body Muon gradient BEFORE momentum lerp (line 695): `g_new = sign(g) * |g|^alpha`. Reshapes gradient magnitude distribution — alpha<1 compresses toward sign-like, alpha>1 expands. Arms: A=0.5 (sqrt compression), B=0.7 (mild compression). ZERO matches in 250+ PRs. Distinct from all in-flight: #968 (per-tensor Frobenius clip), #971 (Adam-style EMA variance normalization), #965 (dampening). First test of magnitude-distribution shaping at pre-NS5 layer.
+
+**#950 alphonse LOGIT_SOFTCAP_SCHEDULE**: Arm B (end=30) at step 1650/3175 val=3.5119, terminal ~01:40Z.
+**#961 thorfinn CONTRA_TYPE_SPLIT**: Arm B (attn=0.5, mlp=1.5) at step 2875/3175 val=3.2953, approaching cooldown, terminal ~01:18Z. Strong trajectory — floor-cluster or near-baseline result expected.
+
+#### Cycle 71 axis tally: **77 refuted**, ~49 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 01:07Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold (heartbeat #13 due ~01:55Z)
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (heartbeat #14 due ~01:53Z)
+- #950 alphonse LOGIT_SOFTCAP_SCHEDULE — Arm B (end=30) step 1650, terminal ~01:40Z
+- #961 thorfinn CONTRA_TYPE_SPLIT — Arm B (attn=0.5/mlp=1.5) step 2875 val=3.295, terminal ~01:18Z
+- #965 nezuko MUON_DAMPENING — Arm A running
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — running
+- #971 frieren MUON_GRAD_VAR_NORM — running
+- #972 fern MUON_GRAD_POWER — just assigned
+
+**Mechanism category coverage (active)**:
+- **Pre-NS5 magnitude distribution shaping (NEW)**: #972 (power transform)
+- **Pre-NS5 per-element variance**: #971 (Adam-style 2nd-moment)
+- **Pre-momentum grad-magnitude conditioning**: #968 (Frobenius clip per-tensor)
+- **Pre-momentum grad-EMA dampening**: #965 (lerp coef modulation)
+- **Layer-type CONTRA differentiation**: #961 (LAST open contra-axis)
+- **Temporal schedule**: #950 (logit softcap ramp)
+
+**Compositional floor theorem (#813)** holds at 77 refuted axes. Temporal schedule and post-NS5 direction perturbations exhausted. Portfolio concentrated on pre-NS5 grad-statistics layer (#965, #968, #971, #972) per frieren's localized floor insight.
