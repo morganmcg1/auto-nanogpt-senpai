@@ -83,6 +83,16 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--anomaly_reset_mu", action="store_true", default=False,
+                        help="Enable gradient-norm-anomaly-driven Muon momentum reset (PR #993).")
+    parser.add_argument("--anomaly_reset_threshold", type=float, default=3.0,
+                        help="Reset trigger: ||grad|| > threshold * EMA(||grad||).")
+    parser.add_argument("--anomaly_reset_fraction", type=float, default=0.5,
+                        help="Reset intensity: momentum *= (1 - fraction) when triggered.")
+    parser.add_argument("--anomaly_reset_ema_beta", type=float, default=0.95,
+                        help="EMA decay for per-parameter gradient-norm tracker.")
+    parser.add_argument("--anomaly_reset_warmup", type=int, default=50,
+                        help="Skip anomaly-reset detection for first N steps (EMA needs to warm up).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -613,6 +623,12 @@ class Muon(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         self.cos_sims_buffer = {}
+        self.anomaly_buffer = {}
+        anomaly_on = bool(getattr(args, "anomaly_reset_mu", False))
+        ar_threshold = float(getattr(args, "anomaly_reset_threshold", 3.0))
+        ar_fraction = float(getattr(args, "anomaly_reset_fraction", 0.5))
+        ar_ema_beta = float(getattr(args, "anomaly_reset_ema_beta", 0.95))
+        ar_warmup = int(getattr(args, "anomaly_reset_warmup", 50))
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         for group in self.param_groups:
@@ -633,6 +649,27 @@ class Muon(torch.optim.Optimizer):
                             state["q_row"] = None
                             state["q_col"] = None
                             state["soap_step"] = 0
+                        if anomaly_on:
+                            state["grad_norm_ema"] = torch.tensor(0.0, device=p.device, dtype=torch.float32)
+                            state["grad_norm_step"] = 0
+                    if anomaly_on and "grad_norm_ema" in state:
+                        g_norm = p.grad.float().norm()
+                        state["grad_norm_step"] += 1
+                        if state["grad_norm_step"] > ar_warmup:
+                            ema_t = state["grad_norm_ema"]
+                            trigger_mask = ((g_norm > ar_threshold * ema_t) & (ema_t > 1e-8)).float()
+                            scale = 1.0 - ar_fraction * trigger_mask
+                            state["momentum"].mul_(scale)
+                            if state.get("exp_avg_sq", None) is not None:
+                                state["exp_avg_sq"].mul_(scale)
+                        else:
+                            trigger_mask = torch.zeros((), device=p.device, dtype=torch.float32)
+                        self.anomaly_buffer[self.param_names[id(p)]] = {
+                            "grad_norm": g_norm.detach(),
+                            "grad_norm_ema": state["grad_norm_ema"].detach().clone(),
+                            "triggered": trigger_mask.detach(),
+                        }
+                        state["grad_norm_ema"].lerp_(g_norm, 1.0 - ar_ema_beta)
                     if use_soap:
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
@@ -1027,6 +1064,40 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
                 wandb.log(per_group_metrics, step=wandb_step)
+        if dist.get_rank() == 0 and getattr(optimizer2, "anomaly_buffer", None):
+            ab = optimizer2.anomaly_buffer
+            ab_names = list(ab.keys())
+            ab_gn = torch.stack([ab[n]["grad_norm"] for n in ab_names]).detach().cpu().tolist()
+            ab_ema = torch.stack([ab[n]["grad_norm_ema"] for n in ab_names]).detach().cpu().tolist()
+            ab_tr = torch.stack([ab[n]["triggered"] for n in ab_names]).detach().cpu().tolist()
+            anomaly_metrics: dict = {"trial": trial_idx, "train/step": train_step}
+            total_triggered = 0.0
+            total_params = 0
+            mlp_triggered = 0.0
+            attn_triggered = 0.0
+            mlp_count = 0
+            attn_count = 0
+            for ab_name, gn_v, ema_v, tr_v in zip(ab_names, ab_gn, ab_ema, ab_tr):
+                cname = clean_metric_name(ab_name)
+                anomaly_metrics[f"anomaly_reset/grad_norm/{cname}"] = gn_v
+                anomaly_metrics[f"anomaly_reset/grad_norm_ema/{cname}"] = ema_v
+                anomaly_metrics[f"anomaly_reset/triggered/{cname}"] = tr_v
+                total_triggered += tr_v
+                total_params += 1
+                if any(ab_name.endswith(suf) for suf in Muon.SOAP_ATTN_SUFFIXES):
+                    attn_triggered += tr_v
+                    attn_count += 1
+                else:
+                    mlp_triggered += tr_v
+                    mlp_count += 1
+            if total_params:
+                anomaly_metrics["anomaly_reset/trigger_ratio/all_params"] = total_triggered / total_params
+                anomaly_metrics["anomaly_reset/triggered_count/all_params"] = total_triggered
+            if mlp_count:
+                anomaly_metrics["anomaly_reset/trigger_ratio/mlp"] = mlp_triggered / mlp_count
+            if attn_count:
+                anomaly_metrics["anomaly_reset/trigger_ratio/attn"] = attn_triggered / attn_count
+            wandb.log(anomaly_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
             cs_tensors = list(optimizer2.cos_sims_buffer.values())
