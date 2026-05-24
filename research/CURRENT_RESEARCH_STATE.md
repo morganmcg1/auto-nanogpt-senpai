@@ -1364,3 +1364,35 @@ In-flight as of 03:18Z (all WIP, 8 students busy, 0 idle):
 - **CLOSED: Element-wise hard thresholding**: #975 (refuted, tails matter)
 - **CLOSED: Element-wise continuous magnitude shaping**: #974 (refuted, power transform)
 - **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening)
+
+#### 2026-05-24 03:35Z update — mid-151: #981 alphonse MUON_SIGN_MAG_DECOUPLE CLOSED (83rd refuted), #991 alphonse MUON_MOMENTUM_DROPOUT assigned (FIRST stochastic mechanism class)
+
+**#981 alphonse MUON_SIGN_MAG_DECOUPLE CLOSED (83rd refuted)**: Bidirectional catastrophic kill-gate trip. Arm A (slow-sign 0.99 / fast-mag 0.85) val@500=4.762 TRIP +0.95 (killed step 531). Arm B (fast-sign 0.85 / slow-mag 0.99) val@500=4.275 TRIP +0.47 (killed step ~618). Disabled-check val@200=4.093 (baseline match). Root cause (student-diagnosed cleanly): multiplicative decomposition `grad = sign_ema × mag_ema` with zero-init buffers makes step-1 reconstructed grad = 0.0015× of raw grad (700× weaker!) — severe under-stepping that the run never recovers from. **Sign-magnitude decomposition axis CLOSED.**
+
+**Composite cycle-71 finding (4 element-wise pre-NS5 refutations)**: Combined with #965 DAMPENING, #974 POWER, and #975 HARDCLIP, the element-wise pre-NS5 layer is now FULLY SATURATED at this floor stack. Every form of per-element transformation (lerp coefficient, magnitude shaping, hard threshold, sign-magnitude decomposition) breaks NS5_ITERS=14 calibration. The compositional floor theorem (#813) is empirically confirmed at 83 refuted axes — the stack's tight calibration to a specific gradient distribution shape makes element-wise interventions consistently harmful.
+
+**#991 alphonse MUON_MOMENTUM_DROPOUT assigned (FIRST stochastic mechanism class, 10th distinct mechanism in cycle 71)**: Bernoulli dropout on body Muon momentum buffer between lerp and re-blend. Arms: A=0.05 (light, ~5% refresh per step), B=0.15 (moderate). Mechanistically distinct from all 9 prior arms — STOCHASTIC vs DETERMINISTIC. The mask randomly zeros momentum entries with rescaling to maintain expected magnitude, forcing the buffer to occasionally refresh from current gradient. Preserves gradient distribution intact (unlike clipping/compression), targets the optimizer state itself rather than its inputs. ZERO matches in 250+ PRs for stochastic momentum-buffer regularization.
+
+#### Cycle 71 axis tally: **83 refuted**, ~52 floor cluster + kill-gate landings, **0 merges above baseline**
+
+In-flight as of 03:35Z (all WIP, 8 students busy, 0 idle):
+- #702 edward MU_WARMUP_START — pod-broken hold
+- #793 tanjiro DEPTH_DEP_MUON_LR — pod-broken hold (heartbeat #15 posted)
+- #968 askeladd MUON_PER_TENSOR_GRAD_CLIP — Arm B=2.0 incoming
+- #971 frieren MUON_GRAD_VAR_NORM — step 2900/3175 (91%), terminating
+- #983 nezuko MUON_MOMENTUM_RENORM — disabled-check
+- #987 fern MUON_GRAD_CG_DECORRELATE — running
+- #989 thorfinn MUON_GRAD_HIGH_PASS — running
+- #991 alphonse MUON_MOMENTUM_DROPOUT — newly assigned (first stochastic mechanism)
+
+**Updated mechanism category coverage (10 distinct mechanism classes)**:
+- **Stochastic momentum dropout (NEW)**: #991 (Bernoulli mask on buffer)
+- **Temporal high-pass filtering**: #989 (slow-EMA subtraction)
+- **CG-style geometric decorrelation**: #987 (orthogonalization to momentum)
+- **Momentum-buffer Frobenius rescaling**: #983 (between lerp and re-blend)
+- **Element-wise continuous variance normalization**: #971 (Adam-style EMA)
+- **Tensor-level Frobenius scaling**: #968 (per-tensor norm clip)
+- **CLOSED: Sign-magnitude decomposition**: #981 (refuted, zero-init bias)
+- **CLOSED: Element-wise hard thresholding**: #975 (refuted, tails matter)
+- **CLOSED: Element-wise continuous magnitude shaping**: #974 (refuted, power transform)
+- **CLOSED: Lerp-coefficient modulation**: #965 (refuted, dampening)

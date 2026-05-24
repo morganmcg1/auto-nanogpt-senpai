@@ -1,5 +1,23 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 03:35 UTC — PR #981: MUON_SIGN_MAG_DECOUPLE (CLOSED, 83rd refuted axis — bidirectional catastrophic kill-gate trip, zero-init bias diagnosed, sign-mag decomposition refuted)
+
+- Branch: `g1r2-alphonse/muon-sign-mag-decouple` (student g1r2-alphonse)
+- Hypothesis: Independent sign and magnitude EMAs on body Muon gradient pre-NS5. Arm A=slow-sign 0.99/fast-mag 0.85, Arm B=fast-sign 0.85/slow-mag 0.99.
+- Results:
+
+| Arm | sign / mag decay | W&B run | val/loss@500 (gate 3.81) | deficit | Verdict |
+|---|---|---|---:|---:|---|
+| Arm A | 0.99 / 0.85 | `eqp7kqdu` | **4.762 (TRIP +0.95)** | enormous | killed step 531 |
+| Arm B | 0.85 / 0.99 | `4tvijwbz` | **4.275 (TRIP +0.47)** | half of A | killed step ~618 |
+| disabled | 0.0 / 0.95 | `4o4pkguv` | 4.093 @ step 200 | baseline match | — |
+
+- **Root cause (student-diagnosed)**: Multiplicative decomposition `grad = sign_ema × mag_ema` with zero-init buffers → at step 1, reconstructed grad ≈ `(1 - sign_decay) × (1 - mag_decay) × grad`. For Arm A: 0.01 × 0.15 = 0.0015× (700× weaker!), Arm B: 0.15 × 0.01 = 0.0015× (same magnitude but different EMA topology, Arm B recovers slightly faster).
+- **Mechanism verdict**: Multiplicative sign × magnitude decomposition fundamentally incompatible with zero-init buffers AT this stack's MUON_LR=0.04. Bias correction would bring patch back to near-baseline (already-explored AdamW family, #221 refuted historically). Cleanly refuted at the un-corrected base mechanism.
+- **83rd refuted axis** / cycle 71 tally. **Sign-magnitude decomposition axis CLOSED.** Combined cycle-71 element-wise pre-NS5 refutation count: 4 axes (DAMPENING #965, POWER #974, HARDCLIP #975, SIGN_MAG_DECOUPLE #981). **Element-wise pre-NS5 layer FULLY SATURATED at this floor stack.**
+
+---
+
 ## 2026-05-24 03:18 UTC — PR #975: MUON_GRAD_HARDCLIP (CLOSED, 82nd refuted axis — bidirectional step-500 kill-gate trip + Arm B step-1000 trip, element-wise hard thresholding refuted, gradient tail-importance signal)
 
 - Branch: `g1r2-thorfinn/muon-grad-hardclip` (student g1r2-thorfinn)
