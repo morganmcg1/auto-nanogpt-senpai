@@ -593,6 +593,16 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# AdamW state reset at cooldown boundary (#988). One-shot zero of exp_avg/exp_avg_sq
+# (and step counter, so bias correction restarts) for selected aux groups at
+# step == int(cooldown_frac * train_steps). Embed is intentionally never reset
+# (init-anchor pull at #847 depends on intact moments). "off" => bit-identical no-op.
+NANOGPT_ADAMW_RESET_SCOPE = os.environ.get("NANOGPT_ADAMW_RESET_SCOPE", "off")
+_VALID_ADAMW_RESET_SCOPES = ("off", "lm_head", "scalars", "lm_head_scalars")
+if NANOGPT_ADAMW_RESET_SCOPE not in _VALID_ADAMW_RESET_SCOPES:
+    raise ValueError(
+        f"NANOGPT_ADAMW_RESET_SCOPE={NANOGPT_ADAMW_RESET_SCOPE!r}, must be one of {_VALID_ADAMW_RESET_SCOPES}"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +834,9 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"ADAMW_RESET_SCOPE: {NANOGPT_ADAMW_RESET_SCOPE} "
+       f"({'ACTIVE one-shot moment reset at cooldown onset' if NANOGPT_ADAMW_RESET_SCOPE != 'off' else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +909,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_adamw_reset_scope": NANOGPT_ADAMW_RESET_SCOPE,
         },
     )
 
@@ -1008,6 +1022,42 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+
+        # AdamW state reset at cooldown boundary (#988). One-shot zero of
+        # exp_avg / exp_avg_sq / step counter for selected aux groups so v_hat
+        # re-estimates under cooldown-regime gradient statistics. Embed is
+        # excluded — init-anchor pull (#847) depends on intact moments.
+        if NANOGPT_ADAMW_RESET_SCOPE != "off" and step == int(cooldown_frac * train_steps):
+            if NANOGPT_ADAMW_RESET_SCOPE == "lm_head":
+                _reset_targets = {"adam_lm_head"}
+            elif NANOGPT_ADAMW_RESET_SCOPE == "scalars":
+                _reset_targets = {"adam_scalars"}
+            elif NANOGPT_ADAMW_RESET_SCOPE == "lm_head_scalars":
+                _reset_targets = {"adam_lm_head", "adam_scalars"}
+            else:
+                _reset_targets = set()
+            _reset_params = 0
+            for group in optimizer1.param_groups:
+                if group.get("name") not in _reset_targets:
+                    continue
+                for p in group["params"]:
+                    st = optimizer1.state.get(p)
+                    if st is None:
+                        continue
+                    if "exp_avg" in st:
+                        st["exp_avg"].zero_()
+                    if "exp_avg_sq" in st:
+                        st["exp_avg_sq"].zero_()
+                    if "step" in st:
+                        # fused=True stores step as a 0-dim CUDA tensor; the
+                        # fused kernel can hold the reference, so zero in-place.
+                        if torch.is_tensor(st["step"]):
+                            st["step"].zero_()
+                        else:
+                            st["step"] = 0
+                    _reset_params += 1
+            print0(f"ADAMW_STATE_RESET: step={step} scope={NANOGPT_ADAMW_RESET_SCOPE} "
+                   f"groups={sorted(_reset_targets)} params_reset={_reset_params}", console=True)
 
 
     ########################################
