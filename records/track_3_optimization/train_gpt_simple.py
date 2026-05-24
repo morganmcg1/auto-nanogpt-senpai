@@ -593,6 +593,15 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Gradient centralization on embed AdamW group (#1074, env-var-gated).
+# 0=off (bit-identical), 1=row-center (per-token, dim=1),
+# 2=col-center (per-embedding-dim across in-batch vocab, dim=0), 3=both.
+# Applied to optimizer1.param_groups[0] (adam_embed) ONLY — lm_head and scalars are untouched.
+EMBED_GRAD_CENTRING = int(os.environ.get("NANOGPT_EMBED_GRAD_CENTRING", "0"))
+if EMBED_GRAD_CENTRING not in (0, 1, 2, 3):
+    raise ValueError(
+        f"NANOGPT_EMBED_GRAD_CENTRING={EMBED_GRAD_CENTRING}, must be 0/1/2/3"
+    )
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +833,13 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+_EMBED_GC_MODE_NAMES = {
+    0: "disabled",
+    1: "row-center (per-token, dim=1) ACTIVE",
+    2: "col-center (per-dim, dim=0) ACTIVE",
+    3: "both (row+col) ACTIVE",
+}
+print0(f"EMBED_GRAD_CENTRING: {_EMBED_GC_MODE_NAMES[EMBED_GRAD_CENTRING]}", console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +912,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_embed_grad_centring": EMBED_GRAD_CENTRING,
         },
     )
 
@@ -1205,6 +1222,33 @@ for trial_idx in range(args.num_trials):
             if len(ns_iters_history) > 100:
                 del ns_iters_history[:-100]
             ns_cumulative_iters += ns_iters_this_step
+        # Gradient centralization on embed AdamW group (#1074, env-var-gated).
+        # Subtracts the row-mean and/or column-mean of the embed weight gradient
+        # immediately before the AdamW step so the centered gradient enters Adam's
+        # first/second moments. Applied to optimizer1.param_groups[0] (adam_embed)
+        # ONLY — lm_head and scalars are untouched. When EMBED_GRAD_CENTRING=0 the
+        # block short-circuits and behavior is bit-identical to the merged stack.
+        if EMBED_GRAD_CENTRING > 0:
+            embed_gc_metrics: dict[str, float] = {}
+            log_gc_telemetry = dist.get_rank() == 0 and telemetry_due
+            for p in optimizer1.param_groups[0]["params"]:
+                if p.grad is None or p.grad.ndim < 2:
+                    continue
+                g = p.grad
+                if EMBED_GRAD_CENTRING in (1, 3):
+                    row_mean = g.mean(dim=1, keepdim=True)
+                    if log_gc_telemetry:
+                        embed_gc_metrics["train/embed_gc_row_mean_norm"] = float(row_mean.norm().item())
+                    g.sub_(row_mean)
+                if EMBED_GRAD_CENTRING in (2, 3):
+                    col_mean = g.mean(dim=0, keepdim=True)
+                    if log_gc_telemetry:
+                        embed_gc_metrics["train/embed_gc_col_mean_norm"] = float(col_mean.norm().item())
+                    g.sub_(col_mean)
+            if log_gc_telemetry and embed_gc_metrics:
+                embed_gc_metrics["trial"] = trial_idx
+                embed_gc_metrics["train/step"] = train_step
+                wandb.log(embed_gc_metrics, step=wandb_step)
         for opt in optimizers:
             opt.step()
         # Init-anchored WD on embed (#847, env-var-gated). After both optimizers
