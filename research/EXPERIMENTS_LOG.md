@@ -1,5 +1,36 @@
 # SENPAI Research Results
 
+## 2026-05-24 01:05 UTC — PR #893 CLOSED: PMuon momentum first-moment BC — n=2 informative-NULL, 97th axis (g1r1-edward)
+
+- Branch: `g1r1-edward/pmuon-momentum-bc`
+- Hypothesis: Adam-style bias correction `1/(1-μ^t)` on PMuon's first-moment buffer `m_pre` during warmup phase. BC factor = 20.0 at t=1, 1.006 at t=100, ≈1.0 past t=200 — mathematically identity for 97% of training.
+
+| Seed | W&B | sr | val/loss_ema | Δval vs baseline 3.266826 |
+|---|---|---|---|---|
+| Seed-1 | `cmoc8opp` | 2925 (TIE) | 3.267106 | +0.000280 |
+| Seed-2 | `54wsfo21` | 2925 (TIE) | 3.265793 | −0.001033 |
+| **n=2 mean** | — | **2925** | **3.266450** | **−0.000376** |
+
+### Verdict: CLOSE as informative-NULL (97th axis). n=2 mean Δ=−0.000376 = 0.4σ_n=2; P(|Δ|≥observed | H0:Δ=0) ≈ 0.62.
+
+### Why NOT merge despite numerical n=2 win (5 reasons)
+
+1. **Predeclared 17:02 UTC rule:** MERGE if μ_n2 ≤ 3.266326; n=3 BOUNDARY if μ_n2 ∈ [3.266326, 3.266826]; NULL if μ_n2 ≥ 3.266826. n=2 mean 3.266450 sits in BOUNDARY band, not merge band. Predeclared strict rule supersedes looser 23:35 UTC restatement.
+2. **Mechanism math:** BC factor ≈ 1.0 for 97% of training. t=1: 20.0; t=100: 1.006; t=200: 1.000035; t=500+: ~1.0 (machine precision). Real persistent effect would require early-warmup direction change (t=1-100) to persist through cooldown — plausible but mechanistically unsupported.
+3. **Statistical noise:** Δ=0.4σ_n=2 at p=0.62. Not distinguishable from seed noise.
+4. **Code complexity vs gain:** ~40 lines added (2 CLI flags, 4 function params, BC block, telemetry) for likely-noise improvement at 97% structural identity. Per CLAUDE.md exception: "only reason to reject is disproportionate complexity for tiny gain."
+5. **Plateau Protocol:** GPU time better on fresh axes. Marginal-noise n=3 confirmation lower EV than fresh-axis screening.
+
+### What this PR contributed
+
+- **Cross-axis with #822 alphonse (second-moment BC):** #822 closed L_cov/R_cov BC null via NS5 absorption. #893 closes m_pre first-moment BC with marginal-signal (0.4σ). Asymmetry: NS5 absorbs cov-rescaling more aggressively than momentum-rescaling.
+- **Cross-axis with #931 (sign-mask):** Smooth BC tilting (0.4σ) vs destructive sign-mask (+6.5 mnat). m_pre is well-protected by NS5 against smooth tilting AND destructive masking; neither provides useful body-Muon signal.
+- **PMuon warmup-phase intervention family FULLY CLOSED:** Both first-moment BC (#893) and second-moment BC (#822) confirmed closed. Warmup-only interventions cannot produce statistically meaningful signal through the cooldown phase.
+
+### Reassignment: edward → #977 PMuon dual-EMA momentum (β_fast=0.95 + β_slow=0.999 before NS5)
+
+---
+
 ## 2026-05-24 00:08 UTC — PR #931 CLOSED: Pre-NS sign-mask on m_pre — both NULL, 96th axis, sign-mask family fully closed at both polar-pipeline endpoints (g1r1-askeladd)
 
 - Branch: `g1r1-askeladd/pre-ns-sign-mask`
