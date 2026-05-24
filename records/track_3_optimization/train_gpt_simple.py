@@ -577,6 +577,19 @@ NANOGPT_ADAMW_SCALAR_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_SCALAR_LR_MUL
 # Per-block-type Muon LR multipliers (1.0 = bit-identical to single-group baseline).
 NANOGPT_MUON_ATTN_LR_MULT = float(os.environ.get("NANOGPT_MUON_ATTN_LR_MULT", "1.0"))
 NANOGPT_MUON_MLP_LR_MULT = float(os.environ.get("NANOGPT_MUON_MLP_LR_MULT", "1.0"))
+# Per-block-TYPE Muon LR mult cooldown anneal (#1003). When set to one of
+# "both"/"mlp_only"/"attn_only", the muon attn/mlp LR multipliers linearly
+# anneal toward 1.0 across the NS cooldown window (last 1-NS_COOLDOWN_START_FRAC
+# of training). "off" (default) keeps the mults constant — bit-identical fallback.
+NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET = os.environ.get(
+    "NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET", "off"
+)
+_VALID_MUON_LR_MULT_COOLDOWN_TARGETS = ("off", "both", "mlp_only", "attn_only")
+if NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET not in _VALID_MUON_LR_MULT_COOLDOWN_TARGETS:
+    raise ValueError(
+        f"NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET={NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET!r}, "
+        f"must be one of {_VALID_MUON_LR_MULT_COOLDOWN_TARGETS}"
+    )
 NS_COEF_SCHEDULE = os.environ.get("NANOGPT_NS_COEF_SCHEDULE", "constant")
 # Stochastic NS iter count: per-step uniform sampling around the deterministic mean.
 # spread=0 -> deterministic (default, bit-identical to merged stack).
@@ -821,6 +834,8 @@ print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADA
 print0(f"  Effective base LRs: embed={0.3*NANOGPT_ADAMW_EMBED_LR_MULT:.4f} lm_head={(1/320)*NANOGPT_ADAMW_LM_HEAD_LR_MULT:.6f} scalar={0.01*NANOGPT_ADAMW_SCALAR_LR_MULT:.4f}", console=True)
 print0(f"MUON_LR_MULT: attn={NANOGPT_MUON_ATTN_LR_MULT:.3f} mlp={NANOGPT_MUON_MLP_LR_MULT:.3f}", console=True)
 print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} mlp={0.035*NANOGPT_MUON_MLP_LR_MULT:.5f}", console=True)
+print0(f"MUON_LR_MULT_COOLDOWN_TARGET: {NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET} "
+       f"(cooldown starts at frac {NS_COOLDOWN_START_FRAC}, anneals toward 1.0)", console=True)
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
@@ -891,6 +906,7 @@ if dist.get_rank() == 0:
             "nanogpt_adamw_scalar_lr_mult": NANOGPT_ADAMW_SCALAR_LR_MULT,
             "nanogpt_muon_attn_lr_mult": NANOGPT_MUON_ATTN_LR_MULT,
             "nanogpt_muon_mlp_lr_mult": NANOGPT_MUON_MLP_LR_MULT,
+            "nanogpt_muon_lr_mult_cooldown_target": NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET,
             "nanogpt_ns_coef_schedule": NS_COEF_SCHEDULE,
             "nanogpt_ns_stochastic_mid": NANOGPT_NS_STOCHASTIC_MID,
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
@@ -950,8 +966,10 @@ for trial_idx in range(args.num_trials):
     muon_mlp_params = [p for n, p in model.blocks.named_parameters()
                        if p.ndim >= 2 and ".mlp." in n]
     optimizer2 = Muon(
-        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn"),
-         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp")],
+        [dict(params=muon_attn_params, lr=0.035 * NANOGPT_MUON_ATTN_LR_MULT, name="muon_attn",
+              muon_base_mult=NANOGPT_MUON_ATTN_LR_MULT),
+         dict(params=muon_mlp_params,  lr=0.035 * NANOGPT_MUON_MLP_LR_MULT,  name="muon_mlp",
+              muon_base_mult=NANOGPT_MUON_MLP_LR_MULT)],
         weight_decay=0.025,
     )
     print0(f"MUON_PARAM_COUNTS: attn={len(muon_attn_params)} mlp={len(muon_mlp_params)} "
@@ -1008,6 +1026,25 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        # Per-block-TYPE Muon LR mult cooldown anneal (#1003). Linearly drives
+        # the per-TYPE attn/mlp multiplier from its base value toward 1.0
+        # across the NS cooldown window (last 1-NS_COOLDOWN_START_FRAC fraction
+        # of training). The bake-in factor on initial_lr is the *base* mult
+        # (group["muon_base_mult"]), so the time-varying ratio is mult_t/base.
+        if NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET != "off" and progress >= NS_COOLDOWN_START_FRAC:
+            anneal_p = (progress - NS_COOLDOWN_START_FRAC) / (1.0 - NS_COOLDOWN_START_FRAC)
+            for group in optimizer2.param_groups:
+                gname = group.get("name")
+                anneal_this = (
+                    (gname == "muon_attn" and NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET in ("both", "attn_only"))
+                    or (gname == "muon_mlp" and NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET in ("both", "mlp_only"))
+                )
+                if anneal_this:
+                    base_mult = group["muon_base_mult"]
+                    mult_t = base_mult + anneal_p * (1.0 - base_mult)
+                    # group["lr"] currently has the bake-in base_mult factored in.
+                    # Replace base_mult with mult_t via the ratio mult_t/base_mult.
+                    group["lr"] *= mult_t / base_mult
 
 
     ########################################
@@ -1274,6 +1311,60 @@ for trial_idx in range(args.num_trials):
                 step=train_step,
                 wandb_step=wandb_step,
             )
+        # Per-TYPE Muon LR mult telemetry (#1003). Logs the current time-varying
+        # mult and the underlying body-Muon param-group LRs. Logged for all arms
+        # (including target=="off") so paired-arm comparisons share the schema.
+        muon_mult_due = (train_step % 100 == 0 or train_step == train_steps)
+        if dist.get_rank() == 0 and muon_mult_due:
+            muon_mult_log = {
+                "trial": trial_idx,
+                "train/step": train_step,
+            }
+            for group in optimizer2.param_groups:
+                gname = group.get("name")
+                base_mult = group.get("muon_base_mult", float("nan"))
+                # Reverse-engineer the *effective* mult currently in force on this group:
+                # group["lr"] = 0.035 * mult_t * eta_default; initial_lr = 0.035 * base_mult.
+                # So mult_t = base_mult * (group["lr"] / group["initial_lr"]) / eta_default.
+                if gname == "muon_attn":
+                    muon_mult_log["muon/attn_lr"] = group["lr"]
+                    muon_mult_log["muon/attn_lr_mult_base"] = base_mult
+                elif gname == "muon_mlp":
+                    muon_mult_log["muon/mlp_lr"] = group["lr"]
+                    muon_mult_log["muon/mlp_lr_mult_base"] = base_mult
+            # Derive eta_default the same way set_hparams does so we can report
+            # the *current* effective mult cleanly (independent of LR cooldown).
+            progress = step / train_steps
+            cooldown_frac = 0.7
+            if progress < 1 - cooldown_frac:
+                eta_default = 1.0
+            else:
+                eta_default = (1 - progress) / cooldown_frac
+            attn_base = NANOGPT_MUON_ATTN_LR_MULT
+            mlp_base = NANOGPT_MUON_MLP_LR_MULT
+            if NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET != "off" and progress >= NS_COOLDOWN_START_FRAC:
+                anneal_p = (progress - NS_COOLDOWN_START_FRAC) / (1.0 - NS_COOLDOWN_START_FRAC)
+                attn_mult_t = (
+                    attn_base + anneal_p * (1.0 - attn_base)
+                    if NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET in ("both", "attn_only")
+                    else attn_base
+                )
+                mlp_mult_t = (
+                    mlp_base + anneal_p * (1.0 - mlp_base)
+                    if NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET in ("both", "mlp_only")
+                    else mlp_base
+                )
+            else:
+                attn_mult_t = attn_base
+                mlp_mult_t = mlp_base
+            muon_mult_log["muon/attn_lr_mult_current"] = attn_mult_t
+            muon_mult_log["muon/mlp_lr_mult_current"] = mlp_mult_t
+            muon_mult_log["muon/eta_default_current"] = eta_default
+            muon_mult_log["muon/in_lr_mult_cooldown"] = int(
+                NANOGPT_MUON_LR_MULT_COOLDOWN_TARGET != "off"
+                and progress >= NS_COOLDOWN_START_FRAC
+            )
+            wandb.log(muon_mult_log, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
