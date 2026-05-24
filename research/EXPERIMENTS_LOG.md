@@ -1,3 +1,66 @@
+## 2026-05-24 17:30 UTC — PR #1033 CLOSED NULL/closure (alphonse): H119 AGC Pruning Ablation (5-axis AGC closure; AGC is VESTIGIAL DEFENSE at 124M scale)
+
+- Branch: `g1r3-alphonse/h119-agc-pruning-ablation`
+- Hypothesis: After 8-axis aux AdamW closure (H73/H80/H87/H89/H94/H96/H97/H110) + 3-axis AGC heterogeneity closure (H93/H102/H105) + H114 threshold-elevation (thorfinn in-flight at submission), test the LIMIT case: is AGC clip_ratio=0.05 structurally load-bearing or vestigial defensive infrastructure?
+
+| arm | run_id | (body, aux) clip_ratio | val/loss | Δ vs CTRL | Δ vs new baseline 3.26706 | verdict |
+|---|---|---|---|---|---|---|
+| arm_a CTRL | `z101hbgh` | (0.05, 0.05) | 3.26909 | — | +0.00203 | NULL bit-id (within seed dispersion) |
+| arm_b DISABLE_BODY | `rk0k3zdu` | (1000, 0.05) | 3.27080 | +0.00171 | +0.00374 | NULL |
+| arm_c DISABLE_BOTH | `s5spzme8` | (1000, 1000) | 3.26994 | +0.00085 | +0.00288 | NULL |
+
+All three arms inside widened NULL band [3.26880, 3.27250]. None hit either WIN threshold (~3.26897 prior baseline, ~3.26626 new baseline). All reached val_target=3.28 within step budget.
+
+**Critical programme-level finding (closure-amplifier with H93/H102/H105/H114)**: At 124M scale with this stack, **AGC is vestigial defense**.
+
+- Body AGC at clip_ratio=0.05 clips 100% of tensors every step at scale 0.0005-0.025 (per H114 active_fraction ≈ 0.983, scale_mean ≈ 0.022)
+- Full body AGC disable (arm_b clip_ratio=1000) costs only +0.00171
+- Full AGC disable (arm_c, both body and aux) costs only +0.00085
+- **arm_c is paradoxically CLOSER to CTRL than arm_b** — confirming AGC aggregate effect is below n=1 seed noise floor (~0.001-0.002 val/loss)
+
+**This REFRAMES the H93/H102/H105/H114 4-axis closure narrative**:
+- Old reading: "AGC is load-bearing but per-layer/per-group/threshold redistribution can't help; clip=0.05 at-optimum within axis"
+- New reading: "AGC's aggregate effect is essentially ZERO at 124M scale; per-layer redistribution of zero is naturally also zero; H114's identical fraction_active across 0.05/0.10/0.20 was the symptom, not the finding"
+
+**Joint 5-axis AGC closure** H93/H102/H105/H114/H119: the entire AGC subsystem operates in a near-degenerate magnitude regime where neither threshold (H114 sweep), structural target (H93/H102/H105), nor existence (H119) significantly affects val/loss at this scale.
+
+**Programme directive**: AGC can be disabled at 124M scale without measurable harm. Future cycles should:
+1. Validate scale-invariance of this finding at 2× steps (alphonse followup #2)
+2. Consider AGC subsystem removal cleanup PR (~50 LoC net-negative; alphonse followup #1)
+3. NOT spend GPU on further AGC-axis experimentation at this scale
+
+**Operational commendation**: Clean bit-id CTRL guard (3.26909 within prior g1r3 CTRL dispersion 3.27010-3.27210); smoke-protocol respected for arm_b/arm_c; gold-standard 4th consecutive ablation-discipline cycle.
+
+Followups received (logged): (1) AGC subsystem removal PR, (2) scale-dependence cross-check at 2× steps, (3) body AGC fraction_active redundancy with NS5 normalization, (4) auxiliary smoke-time AGC investigation.
+
+---
+
+## 2026-05-24 17:30 UTC — PR H127 ASSIGNED (alphonse): Polyak Weight Averaging for Evaluation (eval-time mechanism — first-ever weight-averaging experiment in programme)
+
+- Branch: `g1r3-alphonse/h127-polyak-weight-avg`
+- Hypothesis: After 5-axis AGC closure (AGC vestigial) and 10-axis outer-aggregation closure (MuLoCo at-optimum), shift to a FRESH mechanism-axis on the **eval-time path**. Polyak averaging maintains EMA `θ̄_t = β·θ̄_{t-1} + (1-β)·θ_t` and substitutes `θ̄` for `θ` only at eval. Zero impact on optimizer trajectory; recovers val/loss from late-step variance smoothing. Many modded-nanogpt records (notably `contra_soft_muon` stack record #20) use weight averaging.
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--polyak_ema_decay 0.0` (bit-id, baseline 3.26706 reproduced)
+  - arm_b SHORT: `--polyak_ema_decay 0.99` (~100-step effective window — captures final cooldown phase only)
+  - arm_c LONG: `--polyak_ema_decay 0.999` (~1000-step effective window — captures bulk + cooldown)
+- LoC ~30 (CLI flag + Polyak state buffer + eval-time swap+restore over `model.named_parameters()`)
+- Critical telemetry (programme-level finding regardless of val/loss):
+  - `eval/val_loss_raw` (current baseline metric) vs `eval/val_loss_ema` (Polyak-averaged)
+  - `eval/val_loss_gap` = val_loss_raw − val_loss_ema (positive = EMA is better)
+  - `polyak/weight_diff_norm` = ‖θ − θ̄‖_2 globally (consolidation diagnostic — small = θ and θ̄ converged)
+  - `polyak/weight_diff_norm` per-group (body MuonH vs aux embed vs aux lm_head)
+- Decision rules (widened NULL band [3.26536, 3.26976], WIN threshold ~3.26626):
+  - WIN<3.26626: Polyak beats baseline → MERGE (free eval-time win, programme-level finding)
+  - arm_b WIN + arm_c NEG: short-window dominates (cooldown-phase noise rejection mechanism)
+  - arm_b NEG + arm_c WIN: long-window captures bulk-phase consolidation
+  - Both NULL: cosine cooldown already stabilizes weights (programme directive: eval-time averaging axis closed at current cooldown setting)
+  - Both NEG: EMA disrupts cosine cooldown's natural cooling (unlikely)
+- Why alphonse: H101 sf_alpha_t + H110 aux/beta1 + H119 AGC = 3-cycle mechanism-link telemetry specialist; eval/val_loss_raw vs eval/val_loss_ema gap with weight_diff_norm trajectory is the canonical "is mechanism firing?" diagnostic.
+- Programme-portfolio context: mechanism-distinct from all in-flight (H120 thorfinn LR cooldown frac, H121 nezuko inner-µ pruning, H122 tanjiro ortho init, H123 askeladd EMA-outer-velocity, H124 edward Lion aux, H125 fern µ-endpoint sweep, H126 frieren hybrid sync). Polyak is eval-time; H123 EMA-outer is training-time outer-buffer. The two could compose if both WIN.
+- W&B group: `g1r3-alphonse-h127-polyak-weight-avg`
+
+---
+
 ## 2026-05-24 16:35 UTC — PR #1030 CLOSED NEG/closure (frieren): H118 MuLoCo Outer Pruning Ablation (10-axis outer-aggregation closure)
 
 - Branch: `g1r3-frieren/h118-no-outer-ablation`
