@@ -3,6 +3,45 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 04:35 UTC — PR #919: AdamW aux-group β₁ cooldown annealing (fern) — CLOSED productive-NULL via N=1→PP magnitude collapse (203rd cycle)
+
+- Branch: `g1r4-fern/adamw-aux-beta1-cooldown-anneal`
+- Hypothesis: anneal AdamW aux-group β₁ DOWN during last 30% of training (cooldown window). N=1 4-arm screen showed D=embed-only β₁ 0.8→0.70 winning Δ_vs_A=−0.00168 (within-pod). PP n=3 confirmation requested.
+- Result: **canonical N=1 → PP magnitude collapse + sign-flip.**
+
+| Pod | Seed | Run ID | val/loss | first_step_to_target | Δ_vs_baseline 3.26756 | direction |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|
+| 0 | 1 | `64ye4aib` | 3.26880 | 3200 | +0.00124 | WRONG |
+| 1 | 2 | `ofm1da08` | 3.27077 | 3225 | +0.00321 | WRONG |
+| 2 | 3 | `89l7tmds` | 3.26883 | 3200 | +0.00127 | WRONG |
+| **mean(n=3)** | — | — | **3.26947** | **3208.33** | **+0.00191** | — |
+
+**4-gate evaluation:**
+- G1 (mean ≤ 3.26756): **FAIL** by +0.00191
+- G2 (stat-rule): PASS at 0.01824
+- G3 (≥2/3 dir-correct): **FAIL** at 0/3
+- G4 (drift envelope): 2/3 within
+
+**Conjunctive merge gate G1 ∧ G2 ∧ G3: FAIL.**
+
+**Mechanism reading**: β₁ cooldown anneal at the merged init β₁=0.8 is mechanism-direction-ambiguous. N=1 monotone-favorable pattern (D > B > A > C) reflected within-pod seed-drift inflation rather than robust mechanism signal. The 0.8→0.70 anneal magnitude is small (Δβ₁ = -0.10) relative to baseline noise on this stack.
+
+**Canonical magnitude collapse precedent — joins the N=1 → PP collapse pattern:**
+- #880 Muon² β₂=0.9999: N=1 −0.00243 → Pod 2 +0.00009 (sign-flip)
+- #845 embed-grad freq rescale: N=1 −0.00302 → n=3 −0.00024 (90% collapse)
+- #919 β₁ cooldown anneal D: N=1 −0.00168 → n=3 +0.00191 (full collapse + sign-flip)
+
+**Axis closure**: AdamW aux β₁ cooldown anneal axis CLOSED productive-NULL on r4 post-#847 stack. Related axes:
+- #514 β₁ warmup (closed NEG, opposite direction)
+- #599 per-group β₁ (closed NEG)
+- #919 β₁ cooldown anneal (closed NULL via magnitude collapse) ← this PR
+
+**Execution quality**: Excellent. Fern ran N=1 chain cleanly, accepted send-back, ran PP n=3 cleanly with no crashes, all 3 pods completed, transparent SENPAI-RESULT with full 4-gate evaluation.
+
+**Follow-up**: fern reassigned **#1003 Per-block-TYPE Muon LR mult cooldown anneal (4-arm sweep)**. Tests whether the merged #579 per-TYPE asymmetry (attn=0.80×, mlp=1.20×) should collapse toward 1.0 during cooldown. Fresh axis — never tested. 4 arms: A=off, B=both anneal, C=mlp_only, D=attn_only.
+
+W&B runs: 7nvjseq2 (A N=1), 5mkteulp (B N=1), fivhmphf (C N=1), adljastj (D N=1), 64ye4aib (PP seed 1), ofm1da08 (PP seed 2), 89l7tmds (PP seed 3). Group `g1r4-fern/adamw-aux-beta1-cooldown-anneal*`.
+
 ## 2026-05-24 04:30 UTC — PR #963: Post-NS element-wise variance normalization v_post (frieren) — CLOSED productive-NEG (202nd cycle)
 
 - Branch: `g1r4-frieren/post-ns-vpost`

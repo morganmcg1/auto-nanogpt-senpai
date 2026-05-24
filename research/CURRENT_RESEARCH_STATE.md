@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 04:30 UTC (cycle 202)
+- **Date:** 2026-05-24 04:50 UTC (cycle 203)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -45,6 +45,70 @@ NANOGPT_EMBED_INIT_ANCHOR_LAMBDA=0.001   ← NEW post-#847: post-AdamW hook, emb
 | #708 | Per-group grad-clip BODY=10/AUX=5 | 3.27036 (3) | 3.27036 |
 | #787 | Stochastic NS cooldown spread=2 | 3.26944 (3) | 3.26944 |
 | **#847** | **Embed init-anchor WD λ=0.001** | **3.26756 (3)** | **3.26756** ← CURRENT |
+
+---
+
+## Cycle 203 snapshot (04:50 UTC May 24)
+
+### Closed this cycle (1)
+
+- **#919 fern** CLOSED productive-NULL via canonical N=1→PP magnitude collapse: AdamW aux-group β₁ cooldown anneal Arm D paired-pod n=3 terminal. mean(n=3)=3.26947, +0.00191 vs baseline. All 3 pods direction-WRONG (3.26880, 3.27077, 3.26883). N=1 D-arm Δ_D_vs_A=−0.00168 → PP n=3 Δ_vs_baseline=+0.00191 (full collapse + sign-flip). Joins the canonical N=1→PP collapse precedent line (#880, #845). **AdamW aux β₁ cooldown anneal axis CLOSED.**
+
+### Ack-only this cycle (1)
+
+- **#984 thorfinn stale_wip ACK**: Arm A first attempt `2x1nrg9w` crashed at step 600 (mode TBD). Retry `hz7n0ex8` launched 33min later, running step 2450/3350 val=3.383 (healthy descent). ETA Arm A terminal ~05:25 UTC. Requested student post crash mode + Arm A terminal + sequential B/C/D launch confirmations.
+
+### New assignments this cycle (1)
+
+- **PR #1003 fern** — **Per-block-TYPE Muon LR mult cooldown anneal (4-arm sweep)**. Genuinely fresh axis (grep-verified untested) — tests whether the merged #579 per-TYPE asymmetry (attn=0.80×, mlp=1.20×) should collapse toward 1.0 during cooldown. Mechanism conjecture: per-TYPE asymmetry helpful mid-training (block-differential dynamics) but sub-optimal in late convergence (uniform LR may be better). 4 arms: A=off, B=both anneal, C=mlp_only, D=attn_only. Mechanism-distinct from #674 (per-TYPE μ closed NULL), #724 (per-TYPE NS_ITERS_COOLDOWN closed NEG), #980 (global Muon μ cooldown anneal in flight), #919 (just-closed aux β₁ cooldown anneal).
+
+### Active chains (as of 04:50 UTC May 24, cycle 203)
+
+| PR | Student | Hypothesis | Run | state | step | val/loss | ETA |
+|:---:|:---:|---|---|:---:|:---:|:---:|:---:|
+| #956 | alphonse | lm_head max-norm Arm D | `1xyvay46` | running | ~870 | 3.79 | D ~04:42 UTC (overdue, check) |
+| #967 | askeladd | AdamW aux β₂ anneal Arm B (re-parented) | `pd25zsdp` | running | ~2400 | 3.38 | B ~05:00 UTC, C+D thereafter |
+| #980 | edward | Muon μ cooldown anneal Arm B | `344uvcwt` | running | early | initializing | B ~05:55, C ~07:45, D ~09:35 UTC |
+| #982 | nezuko | Per-block-type Muon μ | pending | — | — | — | pickup imminent |
+| **#984** | **thorfinn** | **SF-AdamW for aux Arm A retry** | `hz7n0ex8` | running | ~2450 | 3.38 | A ~05:25 UTC, chain ~10:00 UTC |
+| **#988** | **tanjiro** | **AdamW state reset at cooldown** | pending | — | — | — | pickup imminent |
+| **#998** | **frieren** | **Muon body momentum reset timing** | pending | — | — | — | pickup imminent |
+| **#1003** | **fern** | **Per-block-TYPE Muon LR mult cooldown anneal (NEW)** | pending | — | — | — | pickup imminent |
+
+### Imminent terminals (next ~3h)
+
+- **#967 Arm B** `pd25zsdp` step ~2400 → ETA terminal ~05:00 UTC. β₂ cooldown anneal direction-gate.
+- **#984 Arm A retry** `hz7n0ex8` step ~2450 → ETA terminal ~05:25 UTC. SF-AdamW Arm A drift gate.
+- **#956 Arm D** `1xyvay46` step ~870 → may finish or be overdue; check W&B.
+- **#980 Arm B** terminal ~05:55 UTC.
+
+### Mechanism axes CLOSED through cycle 203
+
+Adds **#919 (AdamW aux β₁ cooldown anneal, productive-NULL via PP magnitude collapse)** to closed list. Cumulative closed in this run still relevant: body-Muon GC (#944 NEG), path-norm body velocity (#933), Muon² body v_t β₂ (#880), post-NS v_post (#963 NEG monotone-worsening), AdamW v_t multiplicative floor (#929), embed-grad freq-rescale (#845), per-block-DEPTH Muon LR (#753), NS_ITERS per-DEPTH/TYPE/COOLDOWN (#710/#724), per-block-TYPE Muon WD/β₂/μ (#669/#632/#674), Schedule-Free MUON (#62), Lion/Adafactor/Yogi for aux (#77/#180/#516), AggMo/AdaBelief (#711), AdamW eps cooldown DOWN (#652), AdamW β₁ warmup (#514) + cooldown anneal (#919), per-group β₁ (#599), Cautious AdamW/sign-mask, init scaling (#374), lm_head init-anchor (#938), NS-on-lm_head-grad (#618), Polyak weight-EMA (#104, #436), Lookahead (#120, #434), AdEMAMix (#399), DMR periodic (#163), LARS trust-ratio (#755), ratio-EMA magnitude (#688), cos-EMA direction (#628), body Muon LR cooldown shape (#520, #335), per-group cooldown_frac decoupling (#568).
+
+### Mechanism axes EXPLICITLY UNTESTED (durable backlog after cycle 203)
+
+- D-Adaptation (Muon-side theoretical baggage)
+- Prodigy adaptive LR
+- AdamW state reset at cooldown boundary → **#988 (in flight)**
+- SF-AdamW for aux → **#984 (in flight)**
+- Per-block-TYPE Muon μ with FASTER mlp → **#982 (in flight)** (#674 tested slower-mlp NULL)
+- Muon body momentum one-shot reset timing → **#998 (in flight)** (#163 periodic-DMR closed)
+- Per-block-TYPE Muon LR mult cooldown anneal → **#1003 (in flight)** (just assigned)
+- NS coefficient static value sweep (only schedule ramp-down tested in #290)
+- Adaptive NS iteration count based on per-matrix spectral residual
+- LR-coupled momentum decay (μ ∝ lr(t))
+- AdamW eps cooldown anneal UP (opposite of closed #652 DOWN)
+
+### Closed prior cycles (still relevant context)
+
+- **#929 edward** CLOSED productive-NULL. Reassigned → #980.
+- **#845 askeladd** CLOSED productive-NULL. Reassigned → #967.
+- **#933 nezuko** CLOSED productive-NULL. Reassigned → #982.
+- **#880 thorfinn** CLOSED productive-NULL with canonical magnitude-collapse. Reassigned → #984.
+- **#944 tanjiro** CLOSED productive-NEG. Reassigned → #988.
+- **#963 frieren** CLOSED productive-NEG (monotone-worsening). Reassigned → #998.
+- **#919 fern** [this cycle] CLOSED productive-NULL (canonical N=1→PP magnitude collapse). Reassigned → #1003.
 
 ---
 
