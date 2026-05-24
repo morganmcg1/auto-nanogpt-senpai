@@ -466,6 +466,11 @@ ATTN_SOAP_PRECOND_FREQ = 10
 ATTN_SOAP_TRUST_THRESHOLD = float(os.environ.get("ATTN_SOAP_TRUST_THRESHOLD", "0.9"))
 NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
+# PR #981 MUON_SIGN_MAG_DECOUPLE: independent sign-EMA and magnitude-EMA buffers
+# applied to the body Muon grad pre-NS5. MUON_SIGN_DECAY=0.0 disables (no-op),
+# matching the prior single-EMA momentum path exactly.
+MUON_SIGN_DECAY = float(os.environ.get("MUON_SIGN_DECAY", "0.0"))
+MUON_MAG_DECAY = float(os.environ.get("MUON_MAG_DECAY", "0.95"))
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
 
@@ -692,6 +697,13 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_row"] = 1.0
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
+                    if MUON_SIGN_DECAY > 0:
+                        if "sign_ema" not in state:
+                            state["sign_ema"] = torch.zeros_like(grad)
+                            state["mag_ema"] = torch.zeros_like(grad)
+                        state["sign_ema"].lerp_(grad.sign(), 1 - MUON_SIGN_DECAY)
+                        state["mag_ema"].lerp_(grad.abs(), 1 - MUON_MAG_DECAY)
+                        grad = state["sign_ema"] * state["mag_ema"]
                     state["momentum"].lerp_(grad, 1 - group["mu"])
                     momentum_update = grad.lerp(state["momentum"], group["mu"])
                     use_soap = p in self.soap_params
@@ -866,6 +878,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/muon_sign_decay": MUON_SIGN_DECAY,
+            "optimizer/muon_mag_decay": MUON_MAG_DECAY,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
