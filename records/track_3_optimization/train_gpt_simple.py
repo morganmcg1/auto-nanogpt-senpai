@@ -593,6 +593,11 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Muon body momentum buffer one-shot reset (#998). When set in (0.0, 1.0), zero
+# optimizer2's `momentum` and `v` buffers exactly once at
+# step == int(NANOGPT_MUON_MOMENTUM_RESET_FRAC * train_steps). Sentinel -1.0 = disabled
+# (bit-identical to merged stack). Mirror of #988 AdamW state reset on the Muon side.
+NANOGPT_MUON_MOMENTUM_RESET_FRAC = float(os.environ.get("NANOGPT_MUON_MOMENTUM_RESET_FRAC", "-1.0"))
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -824,6 +829,9 @@ print0(f"  Effective Muon base LRs: attn={0.035*NANOGPT_MUON_ATTN_LR_MULT:.5f} m
 print0(f"EMBED_INIT_ANCHOR_LAMBDA: {NANOGPT_EMBED_INIT_ANCHOR_LAMBDA} "
        f"({'ACTIVE' if NANOGPT_EMBED_INIT_ANCHOR_LAMBDA > 0 else 'INACTIVE (bit-identical fallback)'})",
        console=True)
+print0(f"MUON_MOMENTUM_RESET_FRAC: {NANOGPT_MUON_MOMENTUM_RESET_FRAC} "
+       f"({'ACTIVE (one-shot momentum+v zero at int(frac*train_steps))' if NANOGPT_MUON_MOMENTUM_RESET_FRAC > 0 else 'INACTIVE (bit-identical fallback)'})",
+       console=True)
 if NS_ITERS_COOLDOWN > 0:
     print0(f"NS_SCHEDULE: ns_iters={NS_ITERS} -> ns_iters_cooldown={NS_ITERS_COOLDOWN} "
            f"at fraction {NS_COOLDOWN_START_FRAC} of train_steps "
@@ -896,6 +904,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_muon_momentum_reset_frac": NANOGPT_MUON_MOMENTUM_RESET_FRAC,
         },
     )
 
@@ -1008,6 +1017,36 @@ for trial_idx in range(args.num_trials):
                     group["lr"] = group["initial_lr"] * eta_embed
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
+        # Muon body momentum buffer one-shot reset (#998). At reset_step, zero
+        # optimizer2's momentum (pre-NS Nesterov m_t) and v (Muon^2 second-moment)
+        # buffers exactly once. Mirror of #988 AdamW-state-reset on the Muon side.
+        if NANOGPT_MUON_MOMENTUM_RESET_FRAC > 0:
+            reset_step = int(NANOGPT_MUON_MOMENTUM_RESET_FRAC * train_steps)
+            if step == reset_step:
+                reset_param_count = 0
+                for group in optimizer2.param_groups:
+                    for p in group["params"]:
+                        if p in optimizer2.state:
+                            st = optimizer2.state[p]
+                            if "momentum" in st:
+                                st["momentum"].zero_()
+                            if "v" in st:
+                                st["v"].zero_()
+                            reset_param_count += 1
+                print0(
+                    f"MUON_MOMENTUM_RESET fired at step {step} "
+                    f"(frac={NANOGPT_MUON_MOMENTUM_RESET_FRAC}, "
+                    f"reset_param_count={reset_param_count})",
+                    console=True,
+                )
+                if dist.get_rank() == 0:
+                    wandb.log(
+                        {
+                            "muon/momentum_reset_step": step,
+                            "muon/momentum_reset_param_count": reset_param_count,
+                        },
+                        step=trial_idx * (train_steps + 1) + step,
+                    )
 
 
     ########################################
