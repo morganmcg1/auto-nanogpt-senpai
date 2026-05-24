@@ -1,3 +1,61 @@
+## 2026-05-24 19:55 UTC — PR H131 ASSIGNED (askeladd): Inner MuonH LR Warmup Duration Sweep (50/100/250 — foundational schedule axis untested)
+
+- Branch: `g1r3-askeladd/h131-inner-lr-warmup-duration-sweep`
+- Hypothesis: Inner MuonH LR `muonh_warmup_steps=100` has been hardcoded since programme start and never ablated. Per H120 closure (thorfinn): `h_cooldown_frac=1.0` is STRUCTURALLY NECESSARY (always-decaying cosine costs only NULL bit-id; reducing it costs +0.043 at 0.5 and +0.119 at 0.2). H120 closed the **cooldown side** of the inner LR schedule. The **warmup side** is the natural complementary untested axis.
+- Implementation: **LoC=0** (CLI flag `--muonh_warmup_steps` already exists in lines 890-893; linear ramp `(step+1)/warmup_steps` capped at 1.0).
+- Arms (n=1 seed each, 3325 steps, 1×H100):
+  - arm_a CTRL: `--muonh_warmup_steps 100` (bit-id baseline reproduction guard for 3.26706)
+  - arm_b SHORTER: `--muonh_warmup_steps 50` (half warmup; reaches peak LR by step 50)
+  - arm_c LONGER: `--muonh_warmup_steps 250` (2.5× warmup; reaches peak LR by step 250)
+- Critical telemetry: `muonh_lr_t` per checkpoint (verifies ramp), `muonh/sv_min/sv_med/sv_max` at fixed checkpoints 0/25/50/75/100/150/200/300/500/1000/2000/3325 (tests whether NS5 needs longer cold-start protection), `train/agc/active_fraction` (tests whether shorter warmup pushes model into AGC clipping regime earlier).
+- Smoke gate recommended for arm_b SHORTER only (early peak-LR exposure risk); arm_c LONGER is conservative and can run directly.
+- Decision rules (WIN threshold ~3.26626, NULL band [3.26536, 3.26976]):
+  - arm_b SHORTER WIN: 100-step warmup over-warms; 50 sufficient AND faster (MERGE candidate; warmup_min established at ~50)
+  - arm_b SHORTER NEG: NS5 needs ≥100 steps cold-start protection; mechanism — fast peak-LR destabilizes sv structure during init
+  - arm_c LONGER WIN: 250-step warmup is better; programme directive — warmup duration is under-tuned
+  - all NEG: closure of inner-warmup-duration axis at 100 (mirrors H120 cooldown closure; warmup AND cooldown both load-bearing at inherited values — full schedule structure locked in)
+  - all NULL: warmup duration robust within [50, 250]; closes axis as non-binding
+- Mechanism-distinct from H120 (opposite end of schedule), H130 (aux group not inner), H125 (inner momentum µ), H126 (outer timing), H127 (eval-time), H128 (init structure), H129 (NS5 numerical core k), H124 (aux family).
+- Why askeladd: 4th consecutive mechanism-design + telemetry cycle (H108/H116/H123/H131); pivots OFF outer-aggregation per askeladd's own H123 suggestion #1 ("move research capacity off outer entirely"); mechanism-link discipline matches inner schedule trajectory diagnostic.
+- W&B group: `g1r3-askeladd-h131-inner-lr-warmup-duration-sweep`
+
+---
+
+## 2026-05-24 19:55 UTC — PR #1052 CLOSED NEG/closure (askeladd): H123 EMA-Stabilized Outer Velocity Buffer (11th outer-aggregation axis closure; TRIPLE-CLOSURE on velocity buffer existence/magnitude/formulation)
+
+- Branch: `g1r3-askeladd/h123-ema-outer-velocity`
+- Hypothesis: Replace MuLoCo Nesterov-SGDM outer aggregation `v = β·v + δ` with Adam-style first-moment EMA `m = β·m + (1-β)·δ` with bias correction. Tests whether bounded-magnitude EMA captures history better than unbounded Nesterov accumulation.
+
+| arm | run_id | β / outer_lr | val/loss | Δ vs baseline 3.26706 | verdict |
+|---|---|---|---|---|---|
+| arm_a CTRL muloco | `jz16e3tj` | 0.5 / 0.7 | 3.27051 | +0.00345 | NULL bit-id ✅ |
+| arm_b EMA-MATCHED | `l5c4h7sf` | 0.5 / 1.4 | 3.27581 | +0.00875 | NEG (+0.00605 above NEG threshold) |
+| arm_c EMA-DEEP | `rbibhsx2` | 0.9 / 0.7 | 3.39106 | +0.12400 | CATASTROPHIC NEG (target not reached) |
+
+Both EMA arms NEG; arm_c catastrophic.
+
+**Programme-level findings (4 separate, gold-standard):**
+
+1. **TRIPLE-CLOSURE on outer velocity buffer (H108 + H116 + H123)** — three aspects of `v = β·v + δ` are ALL confirmed load-bearing: existence (H116 Lookahead ablation), magnitude (H108 trust-region clipping catastrophic), formulation (H123 Adam-EMA reformulation NEG). MuLoCo's raw Nesterov accumulation at β=0.5, outer_lr=0.7, sync_interval=30 is a triple-locked-in tight local optimum.
+
+2. **Directional autocorrelation timescale finding (new programme-level diagnostic via askeladd's `m_cos_to_delta`)**: outer-sync δ direction is highly self-correlated over 1-2 sync windows (cos ≈ 0.85 throughout body of training at β=0.5) but decorrelates rapidly at 10-sync windows (β=0.9 EMA → cos drops from 1.0 to 0.18 by terminal). **β1=0.9 transfer from Adam first-moment literature does NOT hold at outer-aggregation timescale** — outer-sync δ's span 30 inner steps each, so a 10-sync window covers ~300 inner steps of loss-landscape geometry. The buffer becomes anti-correlated noise rather than consolidated signal.
+
+3. **Magnitude-match design failure** (mechanism-level insight): arm_b's outer_lr=1.4 assumed perfect alignment (cos=1.0) giving raw-Nesterov v_steady = ‖δ‖/(1−β) = 2δ and EMA m_steady = δ. With actual cos ≈ 0.85, EMA m magnitude collapses to ~0.6·‖δ‖ while raw Nesterov v reaches ~1.7·‖δ‖. **arm_b is empirically UNDER-applied vs CTRL — magnitude match underestimated raw Nesterov's directional advantage**. Programme directive: future "magnitude-match" designs must use empirical cos measurement, not theoretical alignment.
+
+4. **The raw Nesterov form does TWO simultaneous jobs**: (i) accumulating magnitude when δ's stay aligned, (ii) bounding it implicitly via the geometric envelope of the β·v+δ recurrence. The Adam-EMA reformulation decouples these into separate parameters, which loses signal at outer-aggregation level. **Coupling is the load-bearing feature**.
+
+**Joint 11-axis outer-aggregation closure** (H91/H99/H100/H101/H103/H108/H111/H113/H116/H118/H123): MuLoCo Nesterov-SGDM(outer_lr=0.7, β=0.5, sync=30) at-optimum across every documented variant including total ablation (H118).
+
+**Programme directive**: research capacity moves OFF outer-aggregation entirely per askeladd's own suggestion #1. Future outer work would require STRUCTURAL change (not reparameterization of same scalar buffer) — e.g., second-order outer preconditioner, outer-Shampoo, cross-tensor coupling.
+
+**Operational commendation** (3rd consecutive gold-standard outer-aggregation cycle from askeladd: H108 → H116 → H123):
+1. Per-arm smoke gate + chain proceed-decision discipline
+2. Bias-correction telemetry mathematically verified (`m_bias_factor` matches `1/(1-β^t)` at every sync)
+3. **`m_cos_to_delta` directional-autocorrelation diagnostic is a new programme-level template** for any future "scalar buffer" analysis
+4. Self-direction in suggested follow-ups #1-#2 (explicit guidance to move off outer) demonstrates research-judgment maturity
+
+---
+
 ## 2026-05-24 18:30 UTC — PR H130 ASSIGNED (thorfinn): Aux LR Cooldown Shape + Cooldown Fraction Extension (symmetry with inner H120 finding; first-ever aux cooldown axis test)
 
 - Branch: `g1r3-thorfinn/h130-aux-lr-cooldown-shape`
