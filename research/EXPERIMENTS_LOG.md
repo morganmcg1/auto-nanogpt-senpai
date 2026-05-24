@@ -1,3 +1,43 @@
+## 2026-05-24 05:55 UTC — PR #1002 ASSIGNED (frieren): H111 Outer MuLoCo Sync Interval Granularity Sweep (genuinely untested axis)
+
+- Branch: `g1r3-frieren/h111-outer-sync-interval`
+- Hypothesis: The `sync_interval=30` parameter (number of inner gradient steps between MuLoCo outer syncs, ~110 outer syncs over 3325 steps) has never been swept. Sync interval controls the outer orbit geometry: FINE (sync_interval=15, ~221 syncs) = more frequent outer pulls with smaller per-sync inner displacement; COARSE (sync_interval=60, ~55 syncs) = fewer, larger-displacement outer corrections. Mechanism: smaller sync_interval lets outer velocity accumulate more updates per unit time; larger lets inner explore more before anchor reset.
+- Arms (n=1 seed each, 3325 steps, 1xH100): arm_a CTRL sync_interval=30 (bit-identical baseline) / arm_b FINE sync_interval=15 (2x more outer syncs) / arm_c COARSE sync_interval=60 (half outer syncs).
+- Critical telemetry: `outer/delta_norm_rms` (per-sync norm of inner displacement — should be ~0.5x for arm_b, ~2x for arm_c vs arm_a), `outer/velocity_norm_rms` (outer velocity magnitude trajectory), `outer/outer_step_count` (sanity check).
+- Mechanism-distinct from all prior outer experiments: H91 outer-Adam (formula), H99 outer-LR-WSD (magnitude schedule), H100 grafted-Adam (step formula), H101 SF outer (removed momentum), H103 outer-Nesterov (heavy-ball vs Nesterov form), H108 outer-TR-SGDM (clip magnitude per tensor). Sync granularity axis untouched in programme history.
+- Decision: WIN<3.26897 (merge); NULL: send back for outer_lr-rescaled variant (isolate granularity from magnitude); NEG>3.27150: sync_interval axis closed at current outer_lr.
+- Provenance: PR #1001 (H111 AdaBelief, same cycle) closed immediately as inadvertent duplicate of PR #731 H46 — AdaBelief on aux was catastrophically NEG at β1=0.8 (val=3.42924 Δ+0.156, mechanism pre-closes: g-m is high-variance noise at low β1). Outer sync interval is the replacement fresh-axis assignment.
+
+---
+
+## 2026-05-24 05:50 UTC — PR #1001 CLOSED (immediate: pre-duplicate of H46 AdaBelief): H111 inadvertent re-test
+
+- Closed without running: inadvertent duplicate of PR #731 H46 (frieren, early programme) which tested AdaBelief on aux with catastrophic NEG: val=3.42924 vs ctrl 3.27336, delta+0.156 ~30x past NEG threshold.
+- Mechanism pre-closes at β1=0.8: (g_t - m_t) = 0.8*(g_t - m_{t-1}) is essentially current gradient at low β1 → s_t = EMA[(g-m)^2] tracks raw-gradient-like noise → denominator too large → effective LR collapse on aux groups. Unchanged by AGC or outer SGDM.
+- Exception pathway: if H110 (alphonse, in-flight) shows β1=0.9 wins, AdaBelief+β1=0.9 worth retrying.
+
+
+## 2026-05-24 05:30 UTC — PR #959 CLOSED NEG/closure (frieren): H104 EMA-eval Polyak-Ruppert Averaging (programme-level closure on weight-averaging family)
+
+- Branch: `g1r3-frieren/h104-ema-eval`
+- Final 3-arm table:
+
+| arm | mode | α | val/loss | EMA-vs-fast gap (terminal) | ffs | verdict |
+|-----|------|---|----------|---------------------------|-----|---------|
+| arm_a CTRL | fast weights only | — | 3.27081 | — | 3100 | NULL (seed noise) |
+| arm_b PRIMARY | EMA-eval | 0.999 | 3.27198 | 0.10 | -1 | NEG |
+| arm_c SLOW | EMA-eval | 0.9999 | 3.27459 | 2.75 | -1 | NEG |
+
+- Closure: arm_b NEG + arm_c NEG → EMA-eval weight averaging axis CLOSED. **Joint programme-level closure**: this is the 6th weight-averaging failure across different optimizer levels: H53 (model soup at term), H75 (SWA outer), H77 (LAWA, last-k avg), H85 (SF aux), H101 (SF outer), H104 (EMA-eval). Weight-averaging family is **broadly closed** at the 3325-step/110-outer-sync horizon.
+- **Load-bearing mechanism finding via frieren's EMA-vs-fast gap trajectory**: EMA-vs-fast gap is monotone-shrinking but never closes — arm_b (α=0.999) terminal gap=0.10, arm_c (α=0.9999) terminal gap=2.75. The gap trajectory reflects a time-constant mismatch: EMA window much slower than cosine-cooldown time-constant. Polyak-Ruppert asymptotic guarantee requires gap → 0, but logarithmic catch-up at α_t ∝ 1/t is structurally too slow for our horizon.
+- **Mechanism contrast with prior averaging failures**: H101 SF outer failure = under-aggression (slow weights 12-25% behind for 60-70% of training). H104 EMA-eval failure = SAME mechanism one level up — averaging-window time-constant mis-matched to cosine-cooldown. H85 SF on aux failed through instability (different channel). Three distinct failure modes documented across the weight-averaging family.
+- arm_c SLOWER hypothesis wrong-signed: α=0.9999 (slower EMA) gives 27.5× larger terminal gap vs arm_b (2.75 vs 0.10). Making the average slower to try to "keep more of fast weights" actually increases lag, not decreases it. Confirms time-constant mismatch as load-bearing mechanism.
+- Methodological commendation: frieren's EMA-vs-fast gap trajectory (monotone-shrinking but non-zero, gap at every validation step) is a gold-standard mechanism diagnostic. Directly confirms or refutes the Polyak-Ruppert convergence premise.
+- Pre-closes: EMA-eval Polyak-Ruppert at 3325-step horizon, SWA/LAWA/SF/averaging family broadly at this problem scale. Does NOT pre-close: cooldown-only EMA (gap might close if started at step 3000 for last 325 steps only), learned mixing weights (not averaging-by-position but by quality gate).
+- Programme-level takeaway: weight-averaging works asymptotically but 3325 steps with cosine cooldown is structurally too short. Fast weights at terminal checkpoint dominate — averaging dilutes information rather than adding it.
+
+---
+
 ## 2026-05-24 04:20 UTC — PR #997 ASSIGNED (alphonse): H110 Aux AdamW β1 Schedule (Level + Cooldown-Phase Asymmetry) — fresh untouched axis
 
 - Branch: `g1r3-alphonse/h110-aux-beta1-schedule`
