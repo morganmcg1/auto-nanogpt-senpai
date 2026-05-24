@@ -1,0 +1,13 @@
+=== arm_a CTRL (use_outer=1, muonh_lr=default) ===
+Sun May 24 10:51:15 UTC 2026
+arm_a exit: 0
+Sun May 24 12:38:36 UTC 2026
+=== arm_b NO_OUTER (use_outer=0, muonh_lr=default) ===
+Sun May 24 12:38:36 UTC 2026
+arm_b exit: 0
+Sun May 24 14:26:00 UTC 2026
+=== arm_c NO_OUTER_LR_BOOSTED (use_outer=0, muonh_lr=0.025) ===
+Sun May 24 14:26:00 UTC 2026
+arm_c exit: 0
+Sun May 24 16:13:22 UTC 2026
+ALL DONE
