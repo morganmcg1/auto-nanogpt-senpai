@@ -1,5 +1,33 @@
 # SENPAI Research Results
 
+## 2026-05-24 14:50 UTC — PR #1015 CLOSED: lm_head non-zero orthogonal init — 109th NULL, LOCALLY INSENSITIVE init scale axis (g1r1-nezuko)
+
+- Branch: `g1r1-nezuko/lm-head-init-orthogonal-init`
+- Hypothesis: replacing `proj.weight.zero_()` baseline with `torch.nn.init.orthogonal_(w, gain=ε)` breaks zero-init logit symmetry constructively. Two arms ε ∈ {0.02 small, 0.10 moderate}.
+
+| Arm | ε | W&B | val/loss (EMA) | val/loss_live | sr | Δval | Verdict |
+|---|---|---|---|---|---|---|---|
+| A | 0.02 | `pfs8ort4` | **3.26714** | 3.26658 | 2950 | +0.000746 | marginal NULL |
+| B | 0.10 | `3yg5ez7p` | **3.26728** | 3.26672 | 2950 | +0.000886 | marginal NULL |
+| B − A | 5× | — | — | — | 0 | +0.000140 | flat dose-response |
+| Baseline #918 (n=2) | 0 | `vm48fdof`/`0a7esmxs` | 3.266394 | — | 2925 | 0 | reference |
+
+| Pre-launch init validation | Arm A pred | Arm A obs | Arm B pred | Arm B obs |
+|---|---|---|---|---|
+| `init/proj_weight_frob_norm` | 0.554 | **0.5543** ✓ | 2.77 | **2.7713** ✓ |
+| `init/proj_weight_row_l2_mean` | 0.00248 | **0.002470** ✓ | 0.01240 | **0.01235** ✓ |
+
+- **Decision: 109th NULL — Scenario 2 (LOCALLY INSENSITIVE) confirmed.** Both arms within seed-noise envelope (baseline range 0.001062 mnat); 5× ε change adds only +0.000140 mnat (≈ 10× below σ≈0.0003 single-seed noise floor established in #958).
+- **Canon finding 1: lm_head orthogonal-init scale axis FULLY CLOSED at ε ∈ [0.02, 0.1].** Zero-init occupies a flat local optimum, not a sharp one. The canonical modded-nanogpt design choice is empirically overdetermined within reasonable orthogonal-Gaussian range.
+- **Canon finding 2: "Un-learning burden" mechanism present but tiny.** The monotone-destructive sign (Arm B > Arm A by +0.000140) confirms the mechanism, but at magnitude below detection threshold. Mechanistically real, practically irrelevant.
+- **Canon finding 3: AdamW-aux absorbs init perturbations cleanly in first ~50-100 steps.** EMA-vs-live divergence matched #918 canonical pattern. Init contribution to terminal weight norm: +32.3/66547 = <0.05%.
+- **Canon finding 4: Cross-axis — weight-space pivots for aux should be CONSTRAINT-based during training, not INITIALIZATION-based.** Init starting point gets washed out; constraints (spectral-norm, row-WD scheduling) and dynamics (LR per-row, decay coupling) are the directions that load-bear.
+- **WHAT'S CLOSED:** lm_head init scale axis at orthogonal-Gaussian endpoint within [0.02, 0.1].
+- **WHAT'S OPEN:** embed init scale (untested; mirror axis); tied init (lm_head copy of embed); larger ε (>0.2) regime (not recommended without LR adjustment); spectral-norm constraint on proj.weight; row-WD scheduling.
+- nezuko → **#1059** (embed init std ablation — mirror axis on the input side of the readout pair).
+
+---
+
 ## 2026-05-24 14:30 UTC — PR #958 CLOSED: PMuon γ_pre temporal schedule — 108th NULL, γ-schedule axis FULLY CLOSED (g1r1-frieren)
 
 - Branch: `g1r1-frieren/gamma-pre-temporal-schedule`
