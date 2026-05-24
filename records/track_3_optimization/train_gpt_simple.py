@@ -468,6 +468,8 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+AUX_OPT = os.environ.get("AUX_OPT", "adamw")  # "adamw" (default, baseline) or "lion"
+AUX_LION_LR_SCALE = float(os.environ.get("AUX_LION_LR_SCALE", "0.333"))  # 0.333 = lr/3, 0.1 = lr/10
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -624,6 +626,45 @@ def soap_precondition(update, state, beta2=SOAP_BETA2, eps=1e-8):
     precond = q_row @ (projected / state["exp_avg_sq"].sqrt().add(eps)) @ q_col.T
     precond.mul_(update_f.norm() / precond.norm().clamp_min(eps))
     return precond.to(update.dtype)
+
+
+class Lion(torch.optim.Optimizer):
+    """Lion optimizer (Chen et al. 2023, arxiv 2302.06675). Sign-based with EMA momentum.
+
+    Step rule per parameter:
+        c = beta1 * m + (1 - beta1) * grad
+        p -= lr * (sign(c) + weight_decay * p)
+        m = beta2 * m + (1 - beta2) * grad
+    """
+
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            beta1, beta2 = group["betas"]
+            lr = group["lr"]
+            wd = group["weight_decay"]
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                grad = p.grad
+                state = self.state[p]
+                if len(state) == 0:
+                    state["exp_avg"] = torch.zeros_like(p)
+                m = state["exp_avg"]
+                c = m.mul(beta1).add(grad, alpha=1.0 - beta1)
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                p.add_(c.sign_(), alpha=-lr)
+                m.mul_(beta2).add_(grad, alpha=1.0 - beta2)
+        return loss
 
 
 class Muon(torch.optim.Optimizer):
@@ -866,6 +907,8 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/aux_opt": AUX_OPT,
+            "optimizer/aux_lion_lr_scale": AUX_LION_LR_SCALE if AUX_OPT == "lion" else 1.0,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
@@ -898,10 +941,21 @@ for trial_idx in range(args.num_trials):
             raise Exception(f"Uninitialized parameter: {name}")
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
-                        dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
-                       betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
+    if AUX_OPT == "lion":
+        optimizer1 = Lion(
+            [
+                dict(params=[model.embed.weight], lr=0.3 * AUX_LION_LR_SCALE, name="lion_embed", weight_decay=WD_AUX),
+                dict(params=[model.proj.weight], lr=(1 / 320) * AUX_LION_LR_SCALE, name="lion_lm_head", weight_decay=WD_AUX),
+                dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * AUX_LION_LR_SCALE, name="lion_scalars"),
+            ],
+            betas=(0.9, 0.99),
+            weight_decay=0,
+        )
+    else:
+        optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3, name="adam_embed", weight_decay=WD_AUX),
+                            dict(params=[model.proj.weight], lr=1/320, name="adam_lm_head", weight_decay=WD_AUX),
+                            dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01, name="adam_scalars")],
+                           betas=(0.8, 0.95), eps=1e-10, weight_decay=0, fused=True)
     optimizer2 = Muon([(n, p) for n, p in model.blocks.named_parameters() if p.ndim >= 2],
                       lr=MUON_LR, weight_decay=MUON_WEIGHT_DECAY, mu=MU)
     optimizer2.param_groups[0]["name"] = "muon_blocks"
