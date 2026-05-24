@@ -1,5 +1,30 @@
 # SENPAI Research Results
 
+## 2026-05-24 22:50 UTC — PR #1058 CLOSED: Confidence penalty (Pereyra 2017) beta=0.05 vs 0.10 — 117th NULL, CLEAR + CATASTROPHIC super-linear dose-response, 2-axis loss-reg closure (g1r1-frieren)
+
+- Branch: `g1r1-frieren/confidence-penalty`
+- Hypothesis: Penalize over-peaked output distributions via `loss = ce - beta * H(p)` where H(p) is per-token entropy. Pereyra 2017 confidence penalty, orthogonal to label smoothing (#1043). Mechanism: encourage higher output entropy, fight over-confident predictions, regularize.
+
+| Arm | beta | W&B | val/loss | sr | Delta-val vs #918 (3.266394) | Delta-sr | Verdict |
+|---|---|---|---|---|---|---|---|
+| Baseline #918 (n=2) | 0.00 | `vm48fdof`/`0a7esmxs` | 3.266394 | 2925 | — | — | reference |
+| A (mild) | 0.05 | `rcyh71fo` | **3.27730** | 3125 | +0.01091 (11x past) | +200 (8x past) | CLEAR NULL |
+| B (strong) | 0.10 | `jx4exq3k` | **3.33492** | -1 | +0.06853 (69x past) | DNF | CATASTROPHIC NULL |
+
+Both arms fail predeclared merge rule. Super-linear dose-response: Delta-val/Delta-beta jumps from +0.013/0.05 (A) to +0.058/0.05 (B) — 4.5x acceleration in damage between halves of the beta range.
+
+**Finding 1: CP gradient SURVIVES NS5 polar orthogonalization.** Composite loss decreased monotonically; entropy-maximizing gradient was NOT annihilated by NS5. Falsifies the "NS5 absorbs auxiliary loss terms" intuition (contra modal prediction). Important negative finding for future loss-augmentation hypotheses.
+
+**Finding 2: Output entropy is NOT load-bearing for generalization in this regime.** Higher H(p) (Arm A: 3.626 nats; Arm B: 4.368 nats) -> strictly worse val/loss. Baseline already operates at near-optimal entropy plateau for 3250-step budget; pushing higher costs hard-CE accuracy.
+
+**Finding 3: `loss_composite < val_loss` signature.** Arm B composite=2.92 < val=3.33 -> optimizer descending on a loss whose minimum is NOT the true CE target. Optimizer well-behaved; regularizer mis-aligned with benchmark.
+
+**Finding 4: sqrt-clip at 15 already controls peakedness.** Baseline line 454 logit clip caps per-token confidence. Adding CP creates competing pressure: sqrt-clip is local (per-logit), CP is global (sum over vocab). NOT synergistic.
+
+**Cross-axis closure — 2-axis loss-regularization:** Combined with #1043 LS (115th NULL CATASTROPHIC linear dose-response, Delta-val approx 0.96*epsilon), two independent loss-objective interventions both NULL/catastrophic with monotone-bad dose-response. Loss-objective regularization at CE level structurally incompatible with body-Muon + EMA(0.95->0.99) at 3250 steps. Three more output-reg axes in flight: #1066 askeladd Z-loss, #1060 tanjiro soft-cap, #1090 fern focal loss.
+
+**117th closed axis.** Confidence penalty axis CLOSED. frieren -> **#1102** (NS5 input normalization mode test: spectral vs Frob/sqrt(n) vs Frobenius baseline, directly motivated by #1046 rank-deficiency canon).
+
 ## 2026-05-24 22:32 UTC — PR #1059 CLOSED: Embed init std ablation (σ=0.04 vs σ=0.5) — 116th NULL, monotone-toward-baseline, init-state-surface canon (g1r1-nezuko)
 
 - Branch: `g1r1-nezuko/embed-init-std`
