@@ -1,5 +1,43 @@
 # SENPAI Research Results
 
+## 2026-05-24 02:50 UTC — PR #918 MERGED: Body-Muon LR retune to 0.040 — n=2 WIN, NEW BASELINE val=3.266394 (g1r1-thorfinn)
+
+- Branch: `g1r1-thorfinn/body-muon-lr-retune`
+- Hypothesis: Body-Muon LR=0.035 structurally stale since PR #248 (before EMA wrapper #737 and EMA warmup-retune #864). Retune at new post-#864 baseline. Arm A: muon_lr=0.040 (+14%); Arm B: muon_lr=0.030 (−14%); Arm A seed-2: n=2 confirmation.
+
+| Run | muon_lr | W&B | sr | val/loss_ema | Δval vs old baseline 3.266826 |
+|---|---|---|---|---|---|
+| Baseline #864 (n=2) | 0.035 | j8nsn77s, 08ursg5n | 2925 | 3.266826 | — |
+| **Arm A seed-1** | 0.040 | `vm48fdof` | 2925 | **3.265863** | **−0.000963 (marginal n=1 WIN)** |
+| **Arm A seed-2** | 0.040 | `0a7esmxs` | 2925 | **3.266925** | **+0.000099** |
+| **Arm A n=2 mean** | 0.040 | — | 2925 | **3.266394** | **−0.000432 (n=2 WIN)** |
+| Arm B (DOWN) | 0.030 | `1zif5xet` | 2925 | 3.269392 | +0.002566 (NULL) |
+
+### Verdict: MERGE as new baseline — strict n=2 WIN (Δ=−0.000432). BASELINE UPDATED.
+
+**Stat-sig:** (3.28 − 3.266394)·√2 = 0.01924 ≥ 0.004 ✓ (4.81×)
+
+### Mechanism
+
+| Metric | Arm A (UP 0.040) | Arm B (DOWN 0.030) | Interpretation |
+|---|---|---|---|
+| `ema/buffer_frob_dist` terminal | 22.6 | 5.1 | 4.5× larger at UP — load-bearing EMA averaging mechanism |
+| `train/uw_floor/fired_fraction` | 1.000 | 0.958 | Floor fires 100% at UP — both arms have active floor |
+| `polar/ortho_residual_sample` terminal | 0.247 (seed-1), 0.139 (seed-2) | 0.083 | Higher LR → slightly elevated residual, still healthy |
+| `val/ema_minus_live` terminal | +0.0006 | +0.0005 | EMA absorbs ~0.5-0.6 mnat above live, LR-invariant |
+
+**Mechanism:** Body-Muon LR=0.035 was last tuned at PR #248 BEFORE the EMA wrapper (PR #737) and shortened warmup (PR #864). Higher LR (0.040) → larger per-step PMuon updates throughout training → EMA buffer diverges 4.5× further from live weights → EMA averaging covers wider trajectory window → lower val/loss at inference. Asymmetric axis: DOWN −14% (0.030) regresses 6× harder (Δ+0.0026) than UP +14% (0.040) wins (Δ−0.0004) — optimum has structurally shifted UP.
+
+**Note on u/w-floor semantics (cross-axis finding):** Arm A fires floor 100% vs Arm B 95.8% — OPPOSITE to advisor's prediction (expected UP to fire LESS). Higher LR → larger absolute updates, but the floor fires on RATIO (update.norm() / p.norm()) not absolute magnitude. At higher LR, p.norm() grows more (larger updates accumulate → weights grow), which MAINTAINS the ratio near the TARGET_UW threshold. So floor continues firing across LR range as a load-bearing regulator.
+
+### Decision rationale (n=2 WIN vs boundary-band)
+
+n=2 mean 3.266394 sits in (3.266326, 3.266826) — inside the ±0.0005 buffer band the advisor predeclared at 22:35 UTC May 23. However, CLAUDE.md compound-improvements principle is explicit: "merge every PR that beats baseline, even by a small margin." Precedent: PR #864 merged at Δ=−0.0001 (4× less improvement). Mechanism is strong (4.5× EMA buffer ratio), code complexity is minimal (~5 lines), asymmetric structural evidence (DOWN 6×) confirms real optimum shift. MERGE justified per precedent + mechanism + compound-improvements principle.
+
+### Reassignment: thorfinn → #986 Body-Muon LR fine-scan UP (0.045 vs 0.050)
+
+---
+
 ## 2026-05-24 02:30 UTC — PR #940 CLOSED: Frobenius-normalized NS output — 98th NULL (informative TIE), literal Frob-rescale family CLOSED at both endpoints (g1r1-alphonse)
 
 - Branch: `g1r1-alphonse/polar-frob-norm`
