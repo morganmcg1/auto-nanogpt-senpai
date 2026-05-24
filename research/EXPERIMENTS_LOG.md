@@ -1,5 +1,32 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 06:10 UTC — PR #1000: ADAMW_AUX_EPS (CLOSED, 90th refuted axis — aux AdamW eps sweep produces indistinguishable curves across 4 orders of magnitude; **aux AdamW scalar HP space EXHAUSTED**)
+
+- Branch: `g1r2-thorfinn/adamw-aux-eps-sweep` (student g1r2-thorfinn)
+- Hypothesis: Sweep aux AdamW eps from hardcoded 1e-10 to 1e-8 (PyTorch default, 100× looser) and 1e-12 (100× tighter). Mechanism: cold embed rows have tiny v second-moment EMA; eps stabilizes denominator and may control "warm-start" magnitude on cold-row visits.
+
+| Arm | eps | W&B run | val @ 500 | val @ 1000 | Outcome |
+|---|---|---|---:|---:|---|
+| Arm A | 1e-8 (100× looser) | `0tjbl757` | 3.80295 | **3.66043** ❌ | gate trip +0.0004 |
+| Arm B | 1e-12 (100× tighter) | `yrmyka0a` | 3.79954 | **3.66098** ❌ | gate trip +0.0010 |
+| Reference baseline | 1e-10 (hardcoded) | (PR #613) | ~3.81 | ~3.66 | (arms match within ±0.005) |
+
+**Mechanistic reading**: Max delta between arms at any step is ~0.005 (step 125 and 375), well within n=1 baseline-to-baseline seed noise. Both arms track baseline trajectory essentially identically through step 1000. The aux AdamW eps=1e-10 hardcoded value is NOT load-bearing at this scale — sweeping over 4 orders of magnitude produces no observable effect on training dynamics.
+
+**Why eps doesn't matter here**: Possible explanations:
+1. Cold-row count per batch is too small for eps to matter (most updates have non-trivial second-moment EMAs by step 100+)
+2. WD_AUX=0.001 dominates the denominator dynamics for cold rows (eps is masked by WD_AUX)
+3. Aux optimizer step magnitudes are gated by other downstream mechanisms (CONTRA, NorMuon scaling on body; AdamW is for embed/head only and the loss landscape there is well-conditioned)
+
+**Aux AdamW family progress at mid-157**:
+- β1 sweep (previous closures) — NOT load-bearing
+- WD_AUX decoupling (previous closures) — NOT load-bearing
+- eps sweep (#1000, this PR) — NOT load-bearing
+- **All three core AdamW HPs swept, aux AdamW scalar HP space EXHAUSTED**
+- Next axis in aux family must be structural (different optimizer entirely) — #1012 AUX_LION is the natural next probe
+
+Closure URL: https://github.com/morganmcg1/modded-nanogpt-senpai/pull/1000#issuecomment-4527564227
+
 ## 2026-05-24 05:40 UTC — PR #983: MUON_MOMENTUM_RENORM (CLOSED, 89th refuted axis — Frobenius rescale of body momentum buffer to grad-tracking target; **momentum-buffer-side mechanism class CLOSED** with 2 refutations total)
 
 - Branch: `g1r2-nezuko/muon-momentum-renorm` (student g1r2-nezuko)
