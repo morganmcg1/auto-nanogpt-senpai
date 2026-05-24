@@ -83,6 +83,11 @@ def parse_args():
              "muall=musoft + non-residual block 2D weights also scaled by 1/sqrt(L); "
              "smallconst=std=1e-3 depth-independent.",
     )
+    parser.add_argument("--ns_alpha", type=float, default=1.0,
+                        help="Mix of NS output vs pre-NS input: "
+                             "update = alpha*NS(x) + (1-alpha)*x_scaled, "
+                             "where x_scaled is Frobenius-norm-matched to NS(x). "
+                             "Default 1.0 = full NS (current behavior).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -500,17 +505,30 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     return X
 
 @torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def _ns_with_mix(nesterov_update: Tensor, ns_alpha: float = 1.0) -> Tensor:
+    ns_out = zeropower_via_newtonschulz5(nesterov_update)
+    if ns_alpha >= 1.0:
+        update = ns_out
+    else:
+        ns_norm = ns_out.float().norm().clamp_min(1e-7)
+        x_norm = nesterov_update.float().norm().clamp_min(1e-7)
+        x_scaled = nesterov_update * (ns_norm / x_norm).to(nesterov_update.dtype)
+        update = ns_alpha * ns_out + (1.0 - ns_alpha) * x_scaled
+    return update
+
+
+@torch.compile
+def muon_update(grad, momentum, mu=0.95, nesterov=True, ns_alpha: float = 1.0):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
-    update = zeropower_via_newtonschulz5(update)
+    update = _ns_with_mix(update, ns_alpha=ns_alpha)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
 
 
 @torch.compile
-def soap_ns_step(nesterov_update):
-    update = zeropower_via_newtonschulz5(nesterov_update)
+def soap_ns_step(nesterov_update, ns_alpha: float = 1.0):
+    update = _ns_with_mix(nesterov_update, ns_alpha=ns_alpha)
     update *= max(1, nesterov_update.size(-2) / nesterov_update.size(-1))**0.5
     return update
 
@@ -571,7 +589,7 @@ class Muon(torch.optim.Optimizer):
     SOAP_ATTN_SUFFIXES = (".attn.q.weight", ".attn.k.weight", ".attn.v.weight", ".attn.proj.weight")
 
     def __init__(self, named_params, lr=0.02, weight_decay=0, mu=0.95,
-                 soap_attn=False, trust_threshold=0.0):
+                 soap_attn=False, trust_threshold=0.0, ns_alpha: float = 1.0):
         # `named_params` can be either:
         #   (a) list of (name, param) tuples → single param group (legacy form)
         #   (b) list of dicts {"named_params": [(name, param), ...], "lr": ?, "weight_decay": ?, "mu": ?, "name": ?}
@@ -594,6 +612,17 @@ class Muon(torch.optim.Optimizer):
         self.trust_threshold = float(trust_threshold)
         self.use_trust_gate = soap_attn
         self.cos_sims_buffer: dict[str, Tensor] = {}
+        self.ns_alpha = float(ns_alpha)
+        # Pick one MLP proj weight as a per-step diagnostic target.
+        # Captures pre-NS / NS / mixed Frobenius norms once per step.
+        self._diag_param_id: int | None = None
+        self._diag_param_name: str | None = None
+        for n, p in all_named:
+            if n.endswith(".mlp.proj.weight"):
+                self._diag_param_id = id(p)
+                self._diag_param_name = n
+                break
+        self.ns_mix_diag_buffer: dict[str, float] = {}
 
         param_groups = []
         for g in groups_raw:
@@ -637,9 +666,11 @@ class Muon(torch.optim.Optimizer):
                         state["momentum"].lerp_(p.grad, 1 - group["mu"])
                         raw_nesterov = p.grad.lerp(state["momentum"], group["mu"])
                         precond_nesterov = soap_precondition_momentum(raw_nesterov, state)
-                        u_soap = soap_ns_step(precond_nesterov)
+                        if id(p) == self._diag_param_id:
+                            self._capture_ns_mix_diag(precond_nesterov)
+                        u_soap = soap_ns_step(precond_nesterov, ns_alpha=self.ns_alpha)
                         if self.use_trust_gate:
-                            u_muon = soap_ns_step(raw_nesterov)
+                            u_muon = soap_ns_step(raw_nesterov, ns_alpha=self.ns_alpha)
                             us = u_soap.float()
                             um = u_muon.float()
                             cos_sim_t = (us * um).sum() / (us.norm() * um.norm() + 1e-8)
@@ -649,13 +680,44 @@ class Muon(torch.optim.Optimizer):
                             update = u_soap
                         soap_update_preconditioner(p.grad, state)
                     else:
-                        update = muon_update(p.grad, state["momentum"], mu=group["mu"])
+                        if id(p) == self._diag_param_id:
+                            # Pure Muon path: replay the Nesterov to capture pre-NS input.
+                            mom_tmp = state["momentum"].clone()
+                            mom_tmp.lerp_(p.grad, 1 - group["mu"])
+                            pre_ns_input = p.grad.lerp(mom_tmp, group["mu"])
+                            self._capture_ns_mix_diag(pre_ns_input)
+                        update = muon_update(p.grad, state["momentum"], mu=group["mu"], ns_alpha=self.ns_alpha)
                     norm_sum.add_(update.float().norm())
                     p.mul_(1 - group["lr"] * group["weight_decay"])
                     p.add_(update, alpha=-group["lr"])
                 dist.all_gather(params_pad[base_i:base_i + world_size], params_pad[base_i + rank])
             group["_step_norm_sum"] = norm_sum
             group["_step_norm_count"] = len(params)
+
+    def _capture_ns_mix_diag(self, pre_ns_input: Tensor) -> None:
+        """Recompute NS + mix on the diag param to log the three Frobenius norms.
+
+        Adds one extra NS pass per step on a single MLP matrix; negligible vs.
+        the main training step. Always runs for the diag param so the alpha=1.0
+        control also produces a non-empty diagnostic.
+        """
+        x = pre_ns_input.detach()
+        ns_out = zeropower_via_newtonschulz5(x)
+        pre_norm = x.float().norm()
+        ns_norm = ns_out.float().norm()
+        if self.ns_alpha >= 1.0:
+            mixed_norm = ns_norm
+        else:
+            ns_norm_c = ns_norm.clamp_min(1e-7)
+            x_norm_c = pre_norm.clamp_min(1e-7)
+            x_scaled = x * (ns_norm_c / x_norm_c).to(x.dtype)
+            mixed = self.ns_alpha * ns_out + (1.0 - self.ns_alpha) * x_scaled
+            mixed_norm = mixed.float().norm()
+        self.ns_mix_diag_buffer = {
+            "pre_ns": float(pre_norm.item()),
+            "ns": float(ns_norm.item()),
+            "mixed": float(mixed_norm.item()),
+        }
 
     def get_step_update_norms(self) -> dict[str, float]:
         """Return per-group mean Frobenius norm of the most recent step's updates.
@@ -765,6 +827,7 @@ if dist.get_rank() == 0:
             "wd_schedule": args.wd_schedule,
             "lr_scalars": args.lr_scalars,
             "depth_init_mode": args.depth_init_mode,
+            "ns_alpha": args.ns_alpha,
         },
     )
 
@@ -853,6 +916,7 @@ for trial_idx in range(args.num_trials):
             dict(named_params=attn_named, lr=args.lr_attn, weight_decay=args.wd_attn, name="muon_attn"),
         ],
         soap_attn=args.soap_attn, trust_threshold=args.soap_trust_threshold,
+        ns_alpha=args.ns_alpha,
     )
     optimizers = [optimizer1, optimizer2]
     assert set(p for opt in optimizers for group in opt.param_groups
@@ -1026,6 +1090,13 @@ for trial_idx in range(args.num_trials):
                 per_group_metrics["train/wd_mlp_now"] = current_wds.get("muon_mlp", 0.0)
                 per_group_metrics["train/wd_attn_now"] = current_wds.get("muon_attn", 0.0)
                 per_group_metrics["train/wd_schedule_progress"] = train_step / train_steps
+                per_group_metrics["muon/ns_alpha"] = optimizer2.ns_alpha
+                if optimizer2.ns_mix_diag_buffer and optimizer2._diag_param_name is not None:
+                    diag = optimizer2.ns_mix_diag_buffer
+                    suf = clean_metric_name(optimizer2._diag_param_name)
+                    per_group_metrics[f"muon/update_pre_ns_norm/{suf}"] = diag["pre_ns"]
+                    per_group_metrics[f"muon/update_ns_norm/{suf}"] = diag["ns"]
+                    per_group_metrics[f"muon/update_mixed_norm/{suf}"] = diag["mixed"]
                 wandb.log(per_group_metrics, step=wandb_step)
         if dist.get_rank() == 0 and optimizer2.cos_sims_buffer:
             cs_names = list(optimizer2.cos_sims_buffer.keys())
