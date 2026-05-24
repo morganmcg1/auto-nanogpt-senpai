@@ -570,6 +570,14 @@ if NANOGPT_EMBED_COOLDOWN_SHAPE not in _VALID_EMBED_COOLDOWN_SHAPES:
     raise ValueError(
         f"NANOGPT_EMBED_COOLDOWN_SHAPE={NANOGPT_EMBED_COOLDOWN_SHAPE!r}, must be one of {_VALID_EMBED_COOLDOWN_SHAPES}"
     )
+# Per-group body Muon cooldown shape (applies to muon_attn and muon_mlp groups only).
+# options: "linear" (baseline), "cosine", "sqrt", "linear_floor"
+NANOGPT_BODY_COOLDOWN_SHAPE = os.environ.get("NANOGPT_BODY_COOLDOWN_SHAPE", "linear")
+_VALID_BODY_COOLDOWN_SHAPES = ("linear", "cosine", "sqrt", "linear_floor")
+if NANOGPT_BODY_COOLDOWN_SHAPE not in _VALID_BODY_COOLDOWN_SHAPES:
+    raise ValueError(
+        f"NANOGPT_BODY_COOLDOWN_SHAPE={NANOGPT_BODY_COOLDOWN_SHAPE!r}, must be one of {_VALID_BODY_COOLDOWN_SHAPES}"
+    )
 NANOGPT_ADAMW_BETA2 = float(os.environ.get("NANOGPT_ADAMW_BETA2", "0.95"))
 NANOGPT_ADAMW_EMBED_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_EMBED_LR_MULT", "1.0"))
 NANOGPT_ADAMW_LM_HEAD_LR_MULT = float(os.environ.get("NANOGPT_ADAMW_LM_HEAD_LR_MULT", "1.0"))
@@ -815,6 +823,8 @@ print0(f"GRAD_CLIP_PER_GROUP: body={NANOGPT_GRAD_CLIP_BODY} aux={NANOGPT_GRAD_CL
        console=True)
 print0(f"EMBED_COOLDOWN_SHAPE: {NANOGPT_EMBED_COOLDOWN_SHAPE} "
        f"(applies to adam_embed only; lm_head/scalars use linear)", console=True)
+print0(f"BODY_COOLDOWN_SHAPE: {NANOGPT_BODY_COOLDOWN_SHAPE} "
+       f"(applies to muon_attn and muon_mlp only)", console=True)
 print0(f"ADAMW_BETA2: {NANOGPT_ADAMW_BETA2} (effective memory ~{int(1/(1-NANOGPT_ADAMW_BETA2)) if NANOGPT_ADAMW_BETA2 < 1 else 'inf'} steps)",
        console=True)
 print0(f"ADAMW_LR_MULT: embed={NANOGPT_ADAMW_EMBED_LR_MULT} lm_head={NANOGPT_ADAMW_LM_HEAD_LR_MULT} scalar={NANOGPT_ADAMW_SCALAR_LR_MULT}", console=True)
@@ -885,6 +895,7 @@ if dist.get_rank() == 0:
             "nanogpt_ns_cooldown_start_frac": NS_COOLDOWN_START_FRAC,
             "nanogpt_ns_cooldown_shape": NS_COOLDOWN_SHAPE,
             "nanogpt_embed_cooldown_shape": NANOGPT_EMBED_COOLDOWN_SHAPE,
+            "nanogpt_body_cooldown_shape": NANOGPT_BODY_COOLDOWN_SHAPE,
             "nanogpt_adamw_beta2": NANOGPT_ADAMW_BETA2,
             "nanogpt_adamw_embed_lr_mult": NANOGPT_ADAMW_EMBED_LR_MULT,
             "nanogpt_adamw_lm_head_lr_mult": NANOGPT_ADAMW_LM_HEAD_LR_MULT,
@@ -989,6 +1000,7 @@ for trial_idx in range(args.num_trials):
         if progress < 1 - cooldown_frac:
             eta_default = 1.0
             eta_embed = 1.0
+            eta_body = 1.0
         else:
             eta_default = (1 - progress) / cooldown_frac
             cooldown_progress = 1.0 - eta_default  # 0 at cooldown start, 1 at end
@@ -1002,10 +1014,22 @@ for trial_idx in range(args.num_trials):
                 eta_embed = eta_default ** 2
             else:
                 raise ValueError(f"unknown shape: {NANOGPT_EMBED_COOLDOWN_SHAPE}")
+            if NANOGPT_BODY_COOLDOWN_SHAPE == "linear":
+                eta_body = eta_default
+            elif NANOGPT_BODY_COOLDOWN_SHAPE == "cosine":
+                eta_body = 0.5 * (1.0 + math.cos(math.pi * cooldown_progress))
+            elif NANOGPT_BODY_COOLDOWN_SHAPE == "sqrt":
+                eta_body = math.sqrt(eta_default)
+            elif NANOGPT_BODY_COOLDOWN_SHAPE == "linear_floor":
+                eta_body = 0.15 + 0.85 * eta_default  # decays from 1.0 to 0.15
+            else:
+                raise ValueError(f"unknown body shape: {NANOGPT_BODY_COOLDOWN_SHAPE}")
         for opt in optimizers:
             for group in opt.param_groups:
                 if group.get("name") == "adam_embed":
                     group["lr"] = group["initial_lr"] * eta_embed
+                elif group.get("name") in ("muon_attn", "muon_mlp"):
+                    group["lr"] = group["initial_lr"] * eta_body
                 else:
                     group["lr"] = group["initial_lr"] * eta_default
 
