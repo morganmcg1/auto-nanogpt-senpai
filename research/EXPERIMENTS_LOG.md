@@ -3585,3 +3585,67 @@ New assignment: PR #521 — gradient clipping sweep (first-ever clipping in this
 
 - **Gate**: B μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge. Within +0.5σ to +1.5σ of baseline → close as informative-NEG.
 
+
+---
+
+## 2026-05-24 ~05:50 UTC — PR #907: tanjiro Muon momentum reset at cooldown onset — **CLOSED clean-NEG (high info)**
+
+- Branch: `g1r5-tanjiro/momentum-reset-at-cooldown-onset`
+- Student: g1r5-tanjiro
+- Hypothesis: Zero or partially decay the Muon momentum buffer at cooldown onset (step 975) to eliminate stale steady-phase momentum bias. Cell E extends to joint reset of SOAP exp_avg_sq.
+
+- **n=1 screening results (poll #531-554):**
+
+| Cell | gamma | soap | val/loss | Δ vs A |
+|:----:|:-----:|:----:|---------:|-------:|
+| A ctrl | — | — | 3.26109 | — |
+| B ★ | 0.0 | F | 3.26139 | +0.00030 |
+| C | 0.1 | F | 3.26223 | +0.00114 |
+| D | 0.5 | F | 3.26175 | +0.00066 |
+| E | 0.0 | T (joint) | 3.26004 | **−0.00105** (−3.5σ_SE POS) |
+
+- **n=4 confirm of Cell E (this poll):**
+
+| Trial | val/loss |
+|------:|---------:|
+| 0 | 3.26167 |
+| 1 | 3.26027 |
+| 2 | 3.26267 |
+| 3 | 3.26201 |
+| **μ_n=4** | **3.261655** |
+| σ_single | **0.001012** (**1.71× baseline 0.000593**) |
+
+- **Verdict**: statsig = (3.261221 − 3.261655) × √4 = **−0.000868** → FAIL gate (need ≥ 0.004). μ_E above clean-NEG threshold (3.260828). **Axis closes.**
+
+- **Key mechanism finding (high info)**: The n=1 POS of 3.26004 was a favorable-tail draw from a distribution with **1.71× wider σ than baseline**. The reset injects variance without injecting mean improvement. 3/4 trials sit above baseline μ. **Generalized lesson: instantaneous discontinuities at step 975 inflate σ — watch for the same in #966 alphonse cooldown weight rescaling (another step-975 discontinuity).** The cooldown-calibration story is stronger with SMOOTH transitions (#925 fern linear μ ramp still in n=4 confirm) than abrupt resets.
+
+- **Decision**: CLOSED clean-NEG. Full `mu_reset_step / mu_reset_gamma / mu_reset_soap` family axis exhausted.
+
+- **Reassignment**: tanjiro → #1010 NS-iter-by-time (boost NS quality during cooldown — novel orthogonal axis).
+
+---
+
+## 2026-05-24 ~06:00 UTC — PR #1010: tanjiro NS-iter-by-time — boost NS quality during cooldown — **ASSIGNED**
+
+- Branch: `g1r5-tanjiro/ns-iter-by-time-cooldown`
+- Student: g1r5-tanjiro
+- Hypothesis: Cooldown wants higher NS orthogonalization quality. Cooldown LR is small relative to gradient noise — extracting a cleaner orthogonal direction from a noisier-relative gradient may improve descent quality. NS-iter-by-TIME is novel (vs #932 by-DEPTH closed, #815 by-EARLY-TIME closed).
+
+- **5-cell P1 sweep:**
+
+| Cell | --ns_iter_cooldown | ramp | Effective ns_iter at step 975+ |
+|:----:|:------------------:|:----:|:------------------------------:|
+| A | 0 (ctrl) | — | 6 throughout |
+| **B ★** | **8** | false | step-jump 6→8 at step 975 |
+| C | 10 | false | step-jump 6→10 |
+| D | 12 | false | step-jump 6→12 (boundary probe) |
+| E | 9 | true | linear ramp 6→9 from 975 to 3250 |
+
+- **Implementation**: add `--ns_iter_cooldown` (int default 0 = no change), `--ns_iter_cooldown_ramp` (bool flag). Plumb step counter into NS call. Log effective ns_iter per step.
+
+- **Falsifier**: all NEG → cooldown does not benefit from higher NS quality, NS_iter=6 sufficient under any LR regime. Closes NS-iter-by-time axis.
+
+- **Information value**: tests novel time-varying NS axis AND tests whether smooth ramp (Cell E) outperforms abrupt step-jump (Cell B/C/D) — generalizes #907 closure lesson about discontinuities inflating variance.
+
+- **Gate**: μ_n=1 ≤ 3.260 → P2 n=4. μ_n=4 ≤ 3.259221 → merge.
+
