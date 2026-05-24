@@ -1,3 +1,47 @@
+## 2026-05-24 01:45 UTC — PR #978 ASSIGNED (askeladd): H108 Outer Trust-Region Clipped SGDM (AGC-analogue at outer level, fresh axis)
+
+- Branch: `g1r3-askeladd/h108-outer-trust-region`
+- Hypothesis: Per-tensor norm clipping at outer-step application (AGC-analogue at outer-step granularity, not inner). Clip displacement to `||outer_step|| ≤ ρ * ||θ||`. Velocity buffer accumulation unchanged. Fresh axis — mechanism-distinct from all in-flight outer experiments (H101 SF, H103 Nesterov form) and all closed outer experiments (H91 Adam direction, H100 grafted magnitude, H99 LR schedule). Direct motivation from H100 closure: arm_c mid-training `sgdm_global_norm=269633` (15× explosion vs start=17374) at outer_step=56 — pure SGDM Nesterov velocity can swing wildly. Outer-level norm clipping was askeladd's own follow-up #2 + H91 not-closed list entry.
+- Arms (n=1 seed each, 3325 steps, 1×H100): arm_a CTRL bit-identical (outer_tr_enabled=0) / arm_b PRIMARY ρ=0.05 (matches inner AGC ratio) / arm_c LOOSE ρ=0.20 (much looser, mostly off).
+- Critical telemetry (per-outer-sync programme-level finding regardless of val/loss): `outer/tr_clipped_count`, `outer/tr_clipped_frac`, `outer/tr_ratio_pre_mean` (||step||/||θ|| before clip), `outer/tr_step_norm_pre/post_mean`. ratio_pre trajectory tells us whether outer step is naturally bounded or whether large excursions are routine.
+- Why askeladd: H100 closure was mechanism-driven via per-tensor ratio_sgdm_over_adam diagnostic at per-outer-sync granularity — gold-standard discipline. H108 needs same diagnostic applied to TR mechanism: clip frequency + ratio + step-norm pre/post trajectory.
+- Decision: WIN<3.26897 (instant merge); NULL∈[3.26880,3.27070] (outer step naturally within TR → composes-safely with H93 AGC story); NEG>3.27150 (large outer excursions are USEFUL recovery moves; clipping breaks consolidation — programme-level mechanism finding). Closure-amplifier: both NEG → outer TR axis CLOSED.
+- LoC ~30. W&B group `H108_outer_trust_region`. Mutually exclusive only with itself (compatible with all in-flight orthogonal mechanisms).
+- Key references: Brock et al. (2021) AGC arXiv:2102.06171 (inner version); Pascanu et al. (2013) gradient clipping arXiv:1211.5063 (TR family); H91/H100 not-closed lists; H93 PSGD-Kron AGC-100%-inner-clip finding.
+
+---
+
+## 2026-05-24 01:45 UTC — PR #945 CLOSED NEG/closure (askeladd): H100 Outer Grafted-Adam-with-SGDM-magnitude (programme-level closure on per-tensor direction/magnitude grafting family on outer, joint with H91 outer-Adam closure)
+
+- Branch: `g1r3-askeladd/h100-outer-grafted-adam`
+- Final 3-arm table:
+
+| arm | run_id | outer_optimizer | β1 | β2 | val/loss | ffs | Δ vs baseline | verdict |
+|-----|--------|-----------------|----|----|----------|-----|---------------|---------|
+| arm_a CTRL | 02su64m8 | sgdm Nesterov | — | — | 3.27037 | 3100 | +0.00060 | NULL baseline reproduce |
+| arm_b PRIMARY | itbpqhk0 | grafted_adam | 0.8 | 0.95 | **3.37600** | -1 | +0.10623 | NEG (~+130σ over threshold) |
+| arm_c HIGH-BETA | oeocjpjb | grafted_adam | 0.9 | 0.999 | **3.57678** | -1 | +0.30701 | NEG (~+380σ catastrophic) |
+
+- **Closure-amplifier triggered**: BOTH grafted arms NEG. Joint with H91 outer-Adam closure (raw `m̂/√v̂` direction, NEG val/loss=3.40089) → **direction-from-Adam-on-outer family comprehensively closed across raw (H91) and per-tensor-magnitude-grafted (H100) formulations**.
+- **Load-bearing mechanism finding (gold-standard diagnostic via askeladd's per-tensor ratio_sgdm_over_adam trajectory)**:
+
+| arm | phase | outer_step | sgdm_global_norm | adam_global_norm | grafted_global_norm | ratio mean | ratio max |
+|-----|-------|------------|------------------|------------------|---------------------|------------|-----------|
+| arm_b | start | 1 | 17300 | 12706 | 17300 | 0.061 | 2.82 |
+| arm_b | **mid** | 56 | 47655 | 6082 | 47655 | **2.94** | 13.44 |
+| arm_b | end | 110 | 375 | 622 | 375 | 0.307 | 1.54 |
+| arm_c | start | 1 | 17374 | 12706 | 17374 | 0.062 | 2.83 |
+| arm_c | **mid** | 56 | **269633** | 5831 | 269633 | **14.98** | **84.35** |
+| arm_c | end | 110 | 5931 | 1156 | 5931 | 1.43 | 18.56 |
+
+- Mechanism (per-tensor analogue of H91's per-coord pathology, one index up): Adam's per-coord direction is sign-like; small-|delta| coords get unit-magnitude direction. Per-tensor magnitude graft forces tensors with naturally-small Adam-direction (small gradient signal) to receive SGDM-scale magnitude matching arm_a step. Result: SGDM-scale magnitude × Adam-scale (sign-like) direction on small-signal tensors → off-manifold motion in slow-weight space. arm_c β2=0.999 amplifies this 3× more than arm_b: longer EMA → MORE sign-like direction; AND v̂ barely accumulates → ratio mean swings 24× (0.062 → 14.98 → 1.43) vs arm_b's 8× swing.
+- arm_c mid-training **sgdm_global_norm=269633** (15× larger than start) is smoking gun: SGDM velocity accumulated huge per-tensor step at outer_step=56, multiplied onto Adam's sign-like direction, pulled slow-weights off-manifold. Closure is mechanistically robust (mechanism-driven, not numerical).
+- Pre-closes: per-tensor direction/magnitude grafting on outer (this H100 mechanism), joint Adam-direction-on-outer closure across raw + grafted formulations.
+- Does NOT pre-close: **Trust-region clipped outer-SGDM** (H108 just assigned to askeladd as follow-up #2), Outer-Adafactor (factored 2nd moment sidesteps per-coord magnitude estimation; H97 closed on AUX but outer body weights have different rank structure per H90), per-coord grafting (orthogonal mechanism), Outer-Nesterov vs heavy-ball (H103 in-flight nezuko), Schedule-Free outer (H101 in-flight alphonse).
+- Methodological commendation: per-tensor `ratio_sgdm_over_adam_{mean,min,max}` at per-outer-sync granularity = gold-standard diagnostic. Cross-arm ratio inversion (arm_b: 0.31 end; arm_c: 14.98 mid) is textbook a-priori prediction confirmed by telemetry. Same caliber as edward H99 velocity_rms × outer_lr_t and H91 effective_step_rms decompositions.
+
+---
+
 ## 2026-05-24 00:30 UTC — PR #970 ASSIGNED (edward): H107 MuonBP Block-Periodic Orthogonalization (block-granularity axis, untouched in programme)
 
 - Branch: `g1r3-edward/h107-muonbp-block-periodic`
