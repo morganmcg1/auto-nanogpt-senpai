@@ -3,6 +3,38 @@
 This file logs experiment outcomes as PRs land. The historical track 3
 leaderboard is captured in `/BASELINE.md`.
 
+## 2026-05-24 02:00 UTC — PR #929: AdamW aux v_t second-moment floor sweep (edward) — CLOSED productive-NULL with regression tail (197th cycle)
+
+- Branch: `g1r4-edward/adamw-aux-vmin-floor`
+- Hypothesis: Adding an AMSGrad-inspired lower bound on AdamW's v_t second-moment estimate for aux groups (embed, lm_head, scalar) would stabilize step sizes for rare-token rows and improve convergence.
+
+**4-arm v_floor_frac sweep — post-#847 stack, n=1 per arm:**
+
+| Arm | Run ID | floor config | val/loss | Δ_vs_A (ctrl) | Δ_vs_baseline 3.26756 |
+|:---:|---|---|:---:|:---:|:---:|
+| A (ctrl) | `tm15vkbl` | off | 3.26981 | — | +0.00225 |
+| B | `gea1rxoq` | 1e-4 × median | 3.26990 | +0.00009 | +0.00234 |
+| C | `k4kpzure` | 1e-3 × median | 3.27123 | +0.00142 | +0.00367 |
+| D | `9h5tfm5h` | 1e-6 max_frac | 3.27128 | +0.00147 | +0.00372 |
+
+**Floor binding diagnostics (v_floor_active_frac at end-of-training):**
+- Arm B (1e-4 med): 0.64-0.76% binding — inert, floor rarely fires
+- Arm C (1e-3 med): 0.74-1.05% binding — 10× stronger floor, harmful when binding
+- Arm D (1e-6 max_frac): 3.47-4.47% binding — highest binding rate, similar regression to C
+
+**Analysis and conclusions:**
+- Gentlest floor (B) at noise floor (Δ_A=+0.00009): mechanism inert at productive end
+- Stronger floors (C, D) regress ~+0.0014: any meaningfully binding floor harms preconditioner adaptivity
+- The post-#847 stack (embed init-anchor WD + embed_lr_mult=1.5×) already conditions aux groups; v_t variance is not the bottleneck
+- Pattern: AMSGrad-style softer v_t floors structurally compress preconditioner adaptivity with no offsetting gain
+- All 4 arms fail merge Gate 1 (best Arm A=3.26981 >> 3.26756)
+
+**Verdict:** Axis closed productive-NULL with regression tail. High-confidence closure via v_floor binding-rate diagnostics — sweep covered both median_frac and max_frac semantics across 0.7-4% binding rates without productive region.
+
+**edward reassigned → PR #980: Muon mu cooldown anneal (4-arm: 0.95/0.85/0.70/0.50)**
+
+---
+
 ## 2026-05-23 07:25 UTC — PR #789: Cubic NS @ FLOP-equivalence (tanjiro) — SENT BACK for rebase + re-run on new stack (84th cycle)
 
 - Branch: `g1r4-tanjiro/ns-polynomial-degree`

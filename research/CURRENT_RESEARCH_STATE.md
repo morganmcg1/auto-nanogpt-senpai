@@ -1,6 +1,6 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 00:55 UTC (cycle 189)
+- **Date:** 2026-05-24 02:00 UTC (cycle 197)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
@@ -60,18 +60,19 @@ v2 paired-pod n=3 mean=3.26856 (+0.00100 above baseline), Gate 1 + Gate 3 FAIL. 
 - C: 0.99→0.999 last 30%, all aux
 - D: 0.99→0.95 last 30%, embed-only (mirrors #919's winning scope)
 
-### Active chains (as of 00:55 UTC May 24, cycle 189)
+### Active chains (as of 02:00 UTC May 24, cycle 197)
 
 | PR | Student | Hypothesis | Run | step | val/loss | ETA |
 |:---:|:---:|---|---|:---:|:---:|:---:|
-| #944 | tanjiro | gc Arm D (both) | `g32ouqhe` | step 0 | starting | D ~02:45 UTC |
-| #880 | thorfinn | Muon² body v_t Pod 2 D | `suqw6j4e` | 1800 | 3.4705 | Pod 2 D ~01:42 UTC; chain decision after |
-| #956 | alphonse | lm_head per-row max-norm Arm C | `pfusx38h` | step 0 | starting | C ~02:42 UTC, D ~04:30 UTC |
-| #963 | frieren | post-NS v_post Arm B | `355k8llh` | 425 | 4.58 (early) | full chain ~07:30 UTC |
-| #919 | fern | β₁ cooldown PP seed 2 | `ofm1da08` | 275 | 4.08 (early) | full chain ~05:30 UTC |
-| #929 | edward | AdamW aux v_t floor Arm D | `9h5tfm5h` | 1825 | 3.475 | ~04:30 UTC |
-| #933 | nezuko | path-norm body-weight velocity Arm D | `aqr7jjlm` | 1975 | 3.452 | ~04:30 UTC |
-| #967 | askeladd | AdamW aux β₂ cooldown anneal Arm A | `v4iymkx1` | 1675 | 3.49 | Arm A ~01:46 UTC, full chain ~08:30 UTC |
+| #944 | tanjiro | gc Arm D (both) | `g32ouqhe` | ~825 | 3.71 | D ~02:47 UTC |
+| #880 | thorfinn | Muon² body v_t Pod 2 D | `suqw6j4e` | ~3225 | 3.28 | ~01:48 UTC (near terminal) |
+| #956 | alphonse | lm_head max-norm Arm C | `pfusx38h` | ~850 | 3.69 | C ~02:47 UTC, D ~04:30 UTC |
+| #963 | frieren | post-NS v_post Arm B | `355k8llh` | ~1340 | 3.71 | full chain ~07:30 UTC |
+| #919 | fern | β₁ cooldown PP seed 2 | `ofm1da08` | ~1150 | 3.60 | full chain ~05:30 UTC |
+| #933 | nezuko | path-norm velocity Arm D **FINISHED** | `aqr7jjlm` | 3350 | **3.2689** | awaiting student terminal post |
+| #929 | edward | AdamW aux v_t floor | CLOSED | — | 3.26990 best arm (NULL) | PR #980 assigned |
+| #967 | askeladd | AdamW aux β₂ cooldown anneal Arm A | `v4iymkx1` | ~3100 | 3.29 | Arm A ~01:56 UTC |
+| #980 | edward | **NEW: Muon mu cooldown anneal** | pending | — | — | picking up ~01:56 UTC |
 
 ### #944 grad-centralization chain — 3/4 terminal (asymmetric pattern)
 
@@ -95,6 +96,7 @@ Arm A `kjrd1usm` finished val=**3.26765** (drift PASS Δ=+0.00009 essentially ba
 
 ### Closed this cycle
 
+- **#929 edward** CLOSED productive-NULL with regression tail (v_t floor mechanism: inert at low floor, regression-harmful at binding floor)
 - **#845 askeladd** CLOSED productive-NULL (composition-overlap with init-anchor WD)
 
 ---
