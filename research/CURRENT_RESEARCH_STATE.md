@@ -1,9 +1,44 @@
 # SENPAI Research State — auto-nanogpt-1gpu-r4
 
-- **Date:** 2026-05-24 14:00 UTC (cycle 223)
+- **Date:** 2026-05-24 14:30 UTC (cycle 224)
 - **Most recent research direction from human researcher team:** none on file
 - **Primary metric:** `val/loss` at 3350 steps (lower is better); `speedrun/final_first_step_to_target` secondary
 - **Statistical merge rule:** `(3.28 − μ) × √n ≥ 0.004` AND n mean ≤ current baseline
+
+## Cycle 224 snapshot (14:30 UTC May 24) — #1020 askeladd CLOSED productive-NULL/marginal; askeladd reassigned #1055 (Post-training weight averaging — fresh WEIGHT-AVERAGING-POST-TRAINING axis)
+
+### Activity this cycle
+
+- **#1020 askeladd** CLOSED productive-NULL/marginal: AdamW ε UP-ramp 4-arm magnitude sweep. Arms A=3.26959 (1e-10 ctrl, drift +0.00203 PASS), B=**3.26777** (1e-8, Δ_vs_A=**−0.00182 MARGINAL**), C=3.27249 (1e-6, +0.00290 REGRESSION), D=aborted (1e-4). Clean monotonic reversal-shaped curve; mechanism directionally confirmed (small ε floor at cooldown end useful, +4 orders oversoftens adaptive step). B misses signal threshold (−0.002) by 9%; B's val/loss = baseline + 0.00021, essentially recovers Arm A drift not improving on baseline. **Closed rather than escalated to PP**: distinct from #1003 fern's −0.00226 (which crossed threshold and was sent for PP).
+- **Cross-PR axis closure language:** AUX PRECONDITIONER COOLDOWN-WINDOW CLASS FENCED across 5 independent closures: #1020 ε UP-ramp + #652 ε DOWN-ramp NEG + #629 + #929 v_t floors + #919 β₁ anneal + #967 β₂ anneal. Post-#847 AdamW (β₂=0.99, ε=1e-10) is at the right preconditioner-adaptivity operating point. Future cooldown-window work must target other mechanisms or use structural changes (per-group ε, post-step averaging, different optimizer class).
+- **PR #1055 askeladd** (assigned this cycle): **Post-training weight averaging (SWA / EMA Polyak)** — fresh WEIGHT-AVERAGING-POST-TRAINING axis. Theoretical motivation: Polyak & Juditsky 1992; Izmailov et al. 2018 SWA. Mechanism-distinct from #1047 tanjiro LookAhead (LookAhead writes averaged weights back to fast optimizer, modifies training trajectory; SWA/EMA averages in separate buffer with no feedback, training unchanged) and from #711 Muon EMA structural mods (EMA inside momentum buffer; this is EMA of model weights). 4 arms: A=off ctrl, B=SWA uniform last-30%, C=EMA decay=0.999 last-30%, D=EMA decay=0.9999 last-30%.
+
+### Mechanism axes coverage (cycle 224, 8 chains active)
+
+| Axis | Active PR | Status | Notes |
+|---|:---:|:---:|---|
+| **WEIGHT-AVERAGING-POST-TRAINING** | **#1055 askeladd NEW** | WIP fresh | SWA / EMA Polyak (Izmailov 2018, Polyak 1992) |
+| SCHEDULE-CURVATURE (body Muon cooldown shape) | #1048 alphonse | WIP | linear/cosine/sqrt/linear_floor |
+| META-OPTIMIZER (body Muon LookAhead) | #1047 tanjiro | WIP | Zhang et al. 2019 |
+| OPTIMIZER-CLASS (aux replacement) | #1045 frieren | WIP | LION vs AdamW |
+| INITIALIZATION-DISTRIBUTION (body) | #1032 thorfinn | WIP | Haar orthogonal |
+| PRECONDITIONER-ADAPTIVE (NS) | #1031 nezuko | WIP | NS adaptive residual stop |
+| SCHEDULE-CONTINUOUS-LR-MULT (PP) | #1003 fern | WIP — PP n=3 phase | Arm B tripped threshold, PP requested |
+| SUBTRACTIVE-PRUNING | #1028 edward | WIP | merged stack flag removal |
+
+Eight mechanism axes in flight, all mutually mechanism-distinct. Weight-averaging-post-training is a genuinely fresh mechanism class — first time any model-output aggregation technique has been tested on this stack.
+
+### Decision-rule pattern reflection (cycles 222-224)
+
+Last 3 cycles closed three borderline N=1 results without PP escalation:
+- #1008 alphonse: max Δ_vs_A = −0.00044 (sub-noise) → closed NULL
+- #988 tanjiro: best Δ_vs_A = −0.00168 (misses by 16%) → closed NULL/borderline
+- #1020 askeladd: best Δ_vs_A = −0.00182 (misses by 9%) → closed NULL/marginal
+
+And sent one to PP:
+- #1003 fern: best Δ_vs_A = −0.00226 (crosses threshold by 13%) → PP n=3 requested
+
+**Pattern: the −0.002 signal threshold is functioning as the meaningful decision boundary** between close-vs-PP. Borderline misses by single-digit percent are closing without PP regardless of mechanism plausibility — this preserves GPU budget for fresh mechanism axes (which is the highest-EV use of student time per directive). #1003's PP is the first confirmation chain since the round started — its result will inform whether the threshold calibration is well-tuned.
 
 ## Cycle 223 snapshot (14:00 UTC May 24) — #1003 fern N=1 4-arm complete (Arm B Δ_vs_A=−0.00226 tripped signal threshold); SENT BACK for PP n=3 confirmation; #1031 nezuko stale_wip acked (chain healthy)
 

@@ -4978,3 +4978,43 @@ Four independent state-reset-class closures across both optimizer sides. **STATE
 - Suggested follow-ups (static c=0.28 missing arm; NS-coef × LR coupling; wider trajectory range) = high-quality next-step thinking.
 
 ### Alphonse reassigned → PR #1048 (Body Muon LR cooldown shape sweep — fresh SCHEDULE-CURVATURE axis. Mirror image of merged #235 embed-only floor: body Muon (`muon_attn` + `muon_mlp`) currently uses hardcoded linear cooldown — sweeps alternative cooldown curvatures against the merged NS=20 cooldown precision and late_peak NS shape. 4 arms: A=linear ctrl, B=cosine, C=sqrt (slower-decay), D=linear_floor at 0.15)
+
+## 2026-05-24 14:05 — PR #1020: AdamW ε UP-ramp in cooldown — 4-arm magnitude sweep (CLOSED productive-NULL/marginal)
+
+- Branch: `g1r4-askeladd/adamw-eps-cooldown-anneal-up`
+- Student: askeladd
+- Hypothesis: Linearly ramp AdamW ε UP during last 30% of training (cooldown window) as a dynamic trust-region floor selectively softening adaptive step on near-converged directions. 4 arms ε_target ∈ {1e-10 (off), 1e-8, 1e-6, 1e-4}. Literature framing: AdaBelief (Zhuang et al.) + Kunstner noise-vs-curvature.
+
+### Results
+
+| Arm | eps_target (cooldown peak) | run_id | val/loss | Δ_vs_A | Δ_vs_baseline | first_step_to_target | step-2500 val/loss |
+|:---:|:---:|---|:---:|:---:|:---:|:---:|:---:|
+| A (ctrl) | 1e-10 (no ramp) | `53q65jis` | **3.26959** | — | +0.00203 (drift PASS) | 3200 | 3.36792 |
+| B | 1e-8 (+2 orders) | `766p0nm9` | **3.26777** | **−0.00182** (MARGINAL) | +0.00021 | 3200 | 3.36609 |
+| C | 1e-6 (+4 orders) | `iyjkmfp6` | **3.27249** | +0.00290 (REGRESSION) | +0.00493 | 3225 | 3.36916 |
+| D | 1e-4 (+6 orders) | aborted | — | — | — | — | — |
+
+### Analysis and conclusions
+
+**Verdict: productive-NULL/marginal — ε UP-ramp axis closed across magnitudes [1e-10, 1e-4].**
+
+- Drift gate Arm A: 3.26959 − 3.26756 = +0.00203 → PASS (within ±0.003).
+- Signal threshold (Δ_vs_A ≤ −0.0020): NO arm crosses. B closest at −0.00182 (misses by 0.00018 = 9% short).
+- Productive-NEG (≥ +0.005): C trips at +0.00493 (just under threshold but well into REGRESSION ≥ +0.0015 band). Arm D aborted per pre-staged regression rule.
+- B's absolute val/loss 3.26777 = baseline 3.26756 + 0.00021 — essentially **recovers Arm A's drift, not improving on baseline mean**.
+
+**Clean monotonic reversal-shaped curve:** −0.00182 at +2 orders → +0.00290 at +4 orders → expected even worse at +6 orders. Direction-confirmed dual-mechanism literature framing (Zhuang AdaBelief / Kunstner noise-vs-curvature): small ε floor at cooldown peak acts as useful trust-region on near-converged directions, but past ~+2 orders the floor competes with sqrt(v_t) on directions still carrying gradient signal, oversoftening adaptive step and undoing cooldown precision-window benefit.
+
+**Cross-PR axis closure language:**
+
+> **AdamW ε cooldown-window ramp (UP-direction) — productive-NULL/marginal on this stack across [1e-10, 1e-4].** PR #1020 closes the ε-UP-ramp magnitude axis. Combined with #652 (ε DOWN-ramp NEG), #629 + #929 (v_t floor additive/multiplicative NULL), #919 (β₁ cooldown anneal NULL via PP collapse), #967 (β₂ cooldown anneal NULL): **AUX PRECONDITIONER COOLDOWN-WINDOW CLASS FENCED on this stack across 5 independent closures.** Post-#847 stack's AdamW (β₂=0.99, ε=1e-10) is at the right preconditioner-adaptivity operating point. Future cooldown-window work must target other mechanisms: body Muon LR shape (#1048 fresh, in-flight), body Muon momentum dynamics (closed), LookAhead meta-optimization (#1047 in-flight), or post-training weight averaging (#1055 fresh, just assigned).
+
+**Strengthening cross-PR meta-prior:** 5 independent closures on AdamW preconditioner-side cooldown-window interventions covering both direction (up/down) and form (additive/multiplicative/ramp/β-anneal). The merged AdamW configuration is robust to all tested cooldown-window-localized interventions; future productive AdamW-side work likely requires structural changes (per-group ε, post-step weight averaging, different optimizer class) rather than scalar-HP cooldown anneals.
+
+### Process commendation
+- Per-arm terminal pings with full diagnostics (run_id + val/loss + step-2500 early-kill check) = exemplary process.
+- Principled regression-rule abort of Arm D after Arm C tripped REGRESSION threshold = saved ~3 GPU-hours of clearly-doomed run.
+- Honest self-read: 'B's final val/loss 3.26777 essentially recovers the baseline; signal is below typical run-to-run drift (~±0.003)' — appropriate epistemic posture.
+- High-quality suggested follow-ups (finer-grained sweep around B, late-cooldown-only ramp shape, per-group ε, PP confirmation if requested) — last entry implicitly noted for future axes.
+
+### Askeladd reassigned → PR #1055 (Post-training weight averaging — SWA / EMA Polyak; fresh WEIGHT-AVERAGING-POST-TRAINING axis. Mechanism-distinct from #1047 LookAhead (which modifies training trajectory via outer-loop write-back) — SWA/EMA averages weights in a separate buffer with no feedback to optimizer. 4 arms: A=off ctrl, B=SWA uniform last-30%, C=EMA decay=0.999 last-30%, D=EMA decay=0.9999 last-30%)
