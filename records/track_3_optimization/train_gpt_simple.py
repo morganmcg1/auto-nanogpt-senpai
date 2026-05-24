@@ -468,6 +468,11 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# Adam-style bias correction on the body-Muon momentum buffer (PR #1044):
+# 'off' (default, identity), 'full' (m / (1 - mu_const^t)), 'half' (m / sqrt(1 - mu_const^t)).
+# Active mostly in the first ~50 steps where (1-mu_const^t) is materially below 1.
+MUON_BIAS_CORRECT = os.environ.get("MUON_BIAS_CORRECT", "off")
+MUON_BIAS_CORRECT_MU = float(os.environ.get("MUON_BIAS_CORRECT_MU", "0.95"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -660,6 +665,24 @@ class Muon(torch.optim.Optimizer):
     def step(self):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        # Bias-correction step counter (PR #1044): increment exactly ONCE per
+        # optimizer step, before the per-parameter loop. bias_t is 1-indexed so
+        # the first step's correction is (1 - MUON_BIAS_CORRECT_MU^1).
+        if not hasattr(self, "_bias_correct_step"):
+            self._bias_correct_step = 0
+        self._bias_correct_step += 1
+        if MUON_BIAS_CORRECT == "off":
+            bias_correction_factor = 1.0
+        else:
+            bias_denom_raw = 1.0 - MUON_BIAS_CORRECT_MU ** self._bias_correct_step
+            bias_denom = max(bias_denom_raw, 1e-8)
+            if MUON_BIAS_CORRECT == "full":
+                bias_correction_factor = 1.0 / bias_denom
+            elif MUON_BIAS_CORRECT == "half":
+                bias_correction_factor = 1.0 / (bias_denom ** 0.5)
+            else:
+                raise ValueError(f"Unknown MUON_BIAS_CORRECT={MUON_BIAS_CORRECT!r}; expected off/full/half")
+        self._last_bias_correction_factor = bias_correction_factor
         for group in self.param_groups:
             params = group["params"]
             params_pad = params + [torch.empty_like(params[-1])] * (world_size - len(params) % world_size)
@@ -693,7 +716,15 @@ class Muon(torch.optim.Optimizer):
                                 state["trust_cos_col"] = 1.0
                     grad = p.grad
                     state["momentum"].lerp_(grad, 1 - group["mu"])
-                    momentum_update = grad.lerp(state["momentum"], group["mu"])
+                    # Adam-style bias correction (PR #1044): scale the EMA by
+                    # 1/(1 - mu_const^t) (or sqrt thereof) without mutating the
+                    # buffer itself. When MUON_BIAS_CORRECT=='off' this is a
+                    # mathematical no-op (factor == 1.0).
+                    if MUON_BIAS_CORRECT != "off":
+                        momentum_for_update = state["momentum"] * bias_correction_factor
+                    else:
+                        momentum_for_update = state["momentum"]
+                    momentum_update = grad.lerp(momentum_for_update, group["mu"])
                     use_soap = p in self.soap_params
                     use_attn_soap = p in self.attn_soap_params
                     # SOAP precondition applied to momentum BEFORE NS5+contra+NorMuon
@@ -855,6 +886,8 @@ if dist.get_rank() == 0:
             "optimizer/mu_cooldown_end": MU_COOLDOWN_END,
             "optimizer/mu_warmup_steps": MU_WARMUP_STEPS,
             "optimizer/mu_warmup_start": MU_WARMUP_START,
+            "optimizer/muon_bias_correct": MUON_BIAS_CORRECT,
+            "optimizer/muon_bias_correct_mu": MUON_BIAS_CORRECT_MU,
             "optimizer/muon_lr": MUON_LR,
             "optimizer/muon_weight_decay_nominal": MUON_WEIGHT_DECAY,
             "optimizer/target_uw": TARGET_UW,
@@ -1059,6 +1092,11 @@ for trial_idx in range(args.num_trials):
                     stats = opt.trust_gate_stats()
                     if stats:
                         wandb.log(prefixed("train/attn_soap_trust_gate", stats), step=wandb_step)
+                if hasattr(opt, "_last_bias_correction_factor"):
+                    wandb.log({
+                        "optimizer/bias_correction_factor": opt._last_bias_correction_factor,
+                        "optimizer/bias_correct_step": getattr(opt, "_bias_correct_step", 0),
+                    }, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
             log_weight_telemetry(
                 model=model,
