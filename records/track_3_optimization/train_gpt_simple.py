@@ -340,6 +340,58 @@ def log_adamw_step_direction(
     wandb.log(metrics, step=wandb_step)
 
 
+@torch.no_grad()
+def log_lion_step_direction(
+    optimizer,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Lion telemetry: sign-flip fraction of the update direction (vs prior step),
+    per-group + overall; plus exp_avg norm/rms/max_abs per group. The sign-flip
+    fraction is the load-bearing mechanism diagnostic (#1045/#1034)."""
+    metrics = {"trial": trial_idx, "train/step": step}
+    summary = getattr(optimizer, "last_step_flip_summary", None)
+    if summary is not None:
+        for group_name, frac in summary.items():
+            if group_name == "__all__":
+                metrics["train/optimizer1_lion/sign_flip_frac_all"] = frac
+            else:
+                metrics[f"train/optimizer1_lion/sign_flip_frac/{group_name}"] = frac
+    grand_sq = 0.0
+    grand_n = 0
+    grand_max_abs = 0.0
+    for group in optimizer.param_groups:
+        group_name = group.get("name", "unknown")
+        sq_sum = 0.0
+        nel = 0
+        max_abs = 0.0
+        for p in group["params"]:
+            st = optimizer.state.get(p, {})
+            if "exp_avg" not in st:
+                continue
+            ea = st["exp_avg"]
+            sq = float((ea * ea).sum().item())
+            sq_sum += sq
+            nel += ea.numel()
+            m_abs = float(ea.abs().max().item())
+            if m_abs > max_abs:
+                max_abs = m_abs
+        if nel > 0:
+            metrics[f"train/optimizer1_lion/exp_avg_norm/{group_name}"] = sq_sum ** 0.5
+            metrics[f"train/optimizer1_lion/exp_avg_rms/{group_name}"] = (sq_sum / nel) ** 0.5
+            metrics[f"train/optimizer1_lion/exp_avg_max_abs/{group_name}"] = max_abs
+            grand_sq += sq_sum
+            grand_n += nel
+            if max_abs > grand_max_abs:
+                grand_max_abs = max_abs
+    if grand_n > 0:
+        metrics["train/optimizer1_lion/exp_avg_all_norm"] = grand_sq ** 0.5
+        metrics["train/optimizer1_lion/exp_avg_all_rms"] = (grand_sq / grand_n) ** 0.5
+        metrics["train/optimizer1_lion/exp_avg_all_max_abs"] = grand_max_abs
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_weight_telemetry(
     model: nn.Module,
     module_types: dict[str, str],
@@ -593,6 +645,15 @@ NANOGPT_SENPAI_SEED = int(_SENPAI_SEED_RAW) if _SENPAI_SEED_RAW != "" else None
 # `embed.weight -= lr_embed * lambda * (embed.weight - embed_init_snapshot)`.
 # At lambda=0 the hook is a no-op and behavior is bit-identical to the merged stack.
 NANOGPT_EMBED_INIT_ANCHOR_LAMBDA = float(os.environ.get("NANOGPT_EMBED_INIT_ANCHOR_LAMBDA", "0.0"))
+# Aux optimizer class selection (#1045 / hypothesis #1034). "adamw" (default) preserves
+# bit-identical behavior; "lion" swaps the aux optimizer (embed + lm_head + scalars) for
+# Chen et al. 2023's sign-momentum optimizer. LR is rescaled per group by NANOGPT_LION_LR_RATIO
+# (paper recommends ≈ 0.1× AdamW LR).
+NANOGPT_AUX_OPTIMIZER = os.environ.get("NANOGPT_AUX_OPTIMIZER", "adamw").lower()
+NANOGPT_LION_LR_RATIO = float(os.environ.get("NANOGPT_LION_LR_RATIO", "0.1"))
+assert NANOGPT_AUX_OPTIMIZER in ("adamw", "lion"), (
+    f"Unknown NANOGPT_AUX_OPTIMIZER={NANOGPT_AUX_OPTIMIZER!r}, must be 'adamw' or 'lion'"
+)
 
 
 def get_ns_coef_at_iter(iter_idx: int, total_iters: int, schedule: str) -> tuple[float, float, float]:
@@ -701,6 +762,77 @@ def muon_update(grad, momentum, v, ns_iters: int, mu=0.95, beta2=0.999, eps=1e-8
     update = zeropower_via_newtonschulz5(update, ns_iters=ns_iters)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+class Lion(torch.optim.Optimizer):
+    """LION: Evolved Sign Momentum — Chen et al. 2023 (https://arxiv.org/abs/2302.06675).
+    Update rule: w -= lr * sign(beta1*m + (1-beta1)*g); then m = beta2*m + (1-beta2)*g.
+    No v-buffer; step magnitude is bounded to exactly ±lr per parameter.
+    Recommended: lr ≈ 0.1 × AdamW_lr, betas=(0.9, 0.99), wd = 0.0 (or ~3-10× AdamW wd).
+    Tracks per-step sign-flip rate of the update direction (vs. previous step) in
+    `self.last_step_flip_summary` for the LION mechanism diagnostic (#1045/#1034).
+    """
+    def __init__(self, params, lr=1e-4, betas=(0.9, 0.99), weight_decay=0.0):
+        defaults = dict(lr=lr, betas=betas, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+        self.last_step_flip_summary: dict[str, float] | None = None
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        flip_diff_by_group: dict[str, torch.Tensor] = {}
+        flip_total_by_group: dict[str, int] = {}
+        for group in self.param_groups:
+            beta1, beta2 = group['betas']
+            lr = group['lr']
+            wd = group['weight_decay']
+            group_name = group.get('name', 'unknown')
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad.float()
+                if wd != 0:
+                    p.mul_(1.0 - lr * wd)
+                state = self.state[p]
+                if len(state) == 0:
+                    state['exp_avg'] = torch.zeros_like(p, dtype=torch.float32)
+                    state['prev_sign'] = torch.zeros_like(p, dtype=torch.int8)
+                    state['step'] = 0
+                exp_avg = state['exp_avg']
+                update = exp_avg.mul(beta1).add_(grad, alpha=1.0 - beta1).sign_()
+                new_sign_i8 = update.to(torch.int8)
+                if state['step'] > 0:
+                    diff = (new_sign_i8 != state['prev_sign']).sum()
+                    if group_name in flip_diff_by_group:
+                        flip_diff_by_group[group_name] = flip_diff_by_group[group_name] + diff
+                    else:
+                        flip_diff_by_group[group_name] = diff
+                    flip_total_by_group[group_name] = (
+                        flip_total_by_group.get(group_name, 0) + new_sign_i8.numel()
+                    )
+                state['prev_sign'] = new_sign_i8
+                state['step'] += 1
+                p.add_(update.to(p.dtype), alpha=-lr)
+                exp_avg.mul_(beta2).add_(grad, alpha=1.0 - beta2)
+        if flip_total_by_group:
+            group_names = list(flip_diff_by_group.keys())
+            diffs_host = torch.stack(
+                [flip_diff_by_group[n].to(torch.float64) for n in group_names]
+            ).tolist()
+            summary: dict[str, float] = {}
+            tot_diff = 0.0
+            tot_total = 0
+            for n, d in zip(group_names, diffs_host):
+                t = flip_total_by_group[n]
+                summary[n] = d / t
+                tot_diff += d
+                tot_total += t
+            summary['__all__'] = tot_diff / max(1, tot_total)
+            self.last_step_flip_summary = summary
+        return loss
+
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95, beta2=0.999, eps=1e-8):
@@ -896,6 +1028,8 @@ if dist.get_rank() == 0:
             "nanogpt_ns_stochastic_cooldown": NANOGPT_NS_STOCHASTIC_COOLDOWN,
             "senpai_seed": NANOGPT_SENPAI_SEED if NANOGPT_SENPAI_SEED is not None else -1,
             "nanogpt_embed_init_anchor_lambda": NANOGPT_EMBED_INIT_ANCHOR_LAMBDA,
+            "nanogpt_aux_optimizer": NANOGPT_AUX_OPTIMIZER,
+            "nanogpt_lion_lr_ratio": NANOGPT_LION_LR_RATIO if NANOGPT_AUX_OPTIMIZER == "lion" else None,
         },
     )
 
@@ -938,10 +1072,37 @@ for trial_idx in range(args.num_trials):
                f"snapshot_shape={tuple(embed_init_snapshot.shape)}", console=True)
 
     # create the optimizer(s)
-    optimizer1 = AdamW([dict(params=[model.embed.weight], lr=0.3 * NANOGPT_ADAMW_EMBED_LR_MULT, name="adam_embed"),
-                        dict(params=[model.proj.weight], lr=(1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT, name="adam_lm_head"),
-                        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT, name="adam_scalars")],
-                       betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True)
+    # Aux optimizer: AdamW (default) or Lion (#1045 OPTIMIZER-CLASS test). Group names preserve
+    # the "adam_*" prefix so existing per-group telemetry keys remain unchanged when swapping.
+    _aux_embed_lr = 0.3 * NANOGPT_ADAMW_EMBED_LR_MULT
+    _aux_lm_head_lr = (1/320) * NANOGPT_ADAMW_LM_HEAD_LR_MULT
+    _aux_scalars_lr = 0.01 * NANOGPT_ADAMW_SCALAR_LR_MULT
+    _aux_param_groups = [
+        dict(params=[model.embed.weight], lr=_aux_embed_lr, name="adam_embed"),
+        dict(params=[model.proj.weight], lr=_aux_lm_head_lr, name="adam_lm_head"),
+        dict(params=[p for p in model.parameters() if p.ndim < 2], lr=_aux_scalars_lr, name="adam_scalars"),
+    ]
+    if NANOGPT_AUX_OPTIMIZER == "lion":
+        for g in _aux_param_groups:
+            g['lr'] *= NANOGPT_LION_LR_RATIO
+        optimizer1 = Lion(_aux_param_groups, betas=(0.9, 0.99), weight_decay=0.0)
+        print0(
+            f"AUX_OPTIMIZER: lion | LION_LR_RATIO={NANOGPT_LION_LR_RATIO} "
+            f"| LRs embed={_aux_embed_lr * NANOGPT_LION_LR_RATIO:.5f} "
+            f"lm_head={_aux_lm_head_lr * NANOGPT_LION_LR_RATIO:.6f} "
+            f"scalars={_aux_scalars_lr * NANOGPT_LION_LR_RATIO:.5f}",
+            console=True,
+        )
+    else:
+        optimizer1 = AdamW(
+            _aux_param_groups,
+            betas=(0.8, NANOGPT_ADAMW_BETA2), eps=1e-10, weight_decay=0, fused=True,
+        )
+        print0(
+            f"AUX_OPTIMIZER: adamw | embed_LR={_aux_embed_lr:.4f} "
+            f"lm_head_LR={_aux_lm_head_lr:.6f} scalars_LR={_aux_scalars_lr:.4f}",
+            console=True,
+        )
     # Per-block-type Muon param split: attn (q/k/v/proj) vs mlp (fc/proj).
     # When both multipliers = 1.0, behavior is bit-identical to the prior single-group setup
     # (NS orthogonalization is per-matrix; the split only changes how groups are indexed).
@@ -1268,12 +1429,20 @@ for trial_idx in range(args.num_trials):
                 }, step=wandb_step)
         adamw_step_dir_due = (train_step % 100 == 0 or train_step == train_steps)
         if dist.get_rank() == 0 and adamw_step_dir_due:
-            log_adamw_step_direction(
-                optimizer=optimizer1,
-                trial_idx=trial_idx,
-                step=train_step,
-                wandb_step=wandb_step,
-            )
+            if NANOGPT_AUX_OPTIMIZER == "lion":
+                log_lion_step_direction(
+                    optimizer=optimizer1,
+                    trial_idx=trial_idx,
+                    step=train_step,
+                    wandb_step=wandb_step,
+                )
+            else:
+                log_adamw_step_direction(
+                    optimizer=optimizer1,
+                    trial_idx=trial_idx,
+                    step=train_step,
+                    wandb_step=wandb_step,
+                )
         if dist.get_rank() == 0 and telemetry_due:
             ns_metrics = {
                 "trial": trial_idx,
@@ -1354,12 +1523,24 @@ for trial_idx in range(args.num_trials):
             + f" first_step_to_target:{first_step_to_target}",
             console=True,
         )
+        peak_alloc_bytes = int(torch.cuda.max_memory_allocated())
+        peak_reserved_bytes = int(torch.cuda.max_memory_reserved())
+        peak_alloc_gib = peak_alloc_bytes / (1024 ** 3)
+        peak_reserved_gib = peak_reserved_bytes / (1024 ** 3)
+        print0(
+            f"trial:{trial_idx} peak_mem_alloc:{peak_alloc_gib:.3f}GiB "
+            f"peak_mem_reserved:{peak_reserved_gib:.3f}GiB "
+            f"aux_optimizer:{NANOGPT_AUX_OPTIMIZER}",
+            console=True,
+        )
         wandb.log({
             "trial": trial_idx,
             "speedrun/final_best_val_loss": best_val_loss,
             "speedrun/final_best_val_step": best_val_step,
             "speedrun/final_first_step_to_target": first_step_to_target,
             "speedrun/final_reached_target": int(first_step_to_target >= 0),
+            "speedrun/peak_mem_alloc_gib": peak_alloc_gib,
+            "speedrun/peak_mem_reserved_gib": peak_reserved_gib,
         }, step=(trial_idx + 1) * (train_steps + 1) - 1)
 
 if dist.get_rank() == 0:
