@@ -64,6 +64,9 @@ def parse_args():
     parser.add_argument("--muon_lr", type=float, default=0.035,
                         help="Base learning rate for body-Muon optimizer (matrix params in blocks). "
                              "Default 0.035 matches the merged baseline.")
+    parser.add_argument("--target_uw_floor", type=float, default=0.35,
+                        help="u/w-floor threshold; updates with ||u||_F/||w||_F < threshold are "
+                             "boosted to threshold. 0 disables (baseline=0.35).")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -547,7 +550,9 @@ class Muon(torch.optim.Optimizer):
         world_size = dist.get_world_size()
         rank = dist.get_rank()
         # Skylight u/w-floor: enforce ||u||_F / ||w||_F >= TARGET_UW per parameter.
-        TARGET_UW = 0.35
+        # CLI-configurable via --target_uw_floor; 0 disables (the `0 < ratio < TARGET_UW`
+        # gate is never True when TARGET_UW=0).
+        TARGET_UW = args.target_uw_floor
         floor_fired_count = 0
         floor_eligible_count = 0
         polar_diag: dict = {}
@@ -711,8 +716,8 @@ if dist.get_rank() == 0:
             "ns_coef_a": NS_A,
             "ns_coef_b": NS_B,
             "ns_coef_c": NS_C,
-            "target_uw_floor": 0.35,
-            "target_uw": 0.35,
+            "target_uw_floor": args.target_uw_floor,
+            "target_uw": args.target_uw_floor,
             "power_cooldown_gamma": COOLDOWN_POWER,
             "cooldown_frac": 0.7,
             "muon_method": MUON_METHOD,
