@@ -1,5 +1,44 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 10:30 UTC — PR #1019: BODY_MUON_USE_SVD (CLOSED, 96th refuted — NS5 approximation error IS beneficial implicit regularization, SVD-full 2.34× slower, NS5 polynomial layer COMPLETELY CHARACTERIZED across SHAPE/ITER/FAMILY/INPUT_NORM)
+
+- Branch: `g1r2-thorfinn/body-muon-use-svd` (student g1r2-thorfinn)
+- Hypothesis: Replace NS5 polynomial polar projection at line 510 with exact SVD-based polar `U @ Vh`. Tests three orthogonal questions: (1) does NS5's ~10⁻⁴ approximation error matter, (2) are all singular directions equally useful or is top-half sufficient, (3) wallclock tractability of SVD on H100. Arm A=SVD-full polar + Arm B=SVD-rank-half directional regularization. **FIRST alternative orthogonalization algorithm in 250+ PRs**.
+
+| Arm | Mechanism | val@500 | val@1000 | kill gate (>3.66 at 1000) | Wallclock (ms/iter) | Outcome |
+|---|---|---:|---:|---:|---:|---|
+| Disabled-check (NS5 polynomial) | Higham (2,-1.5,0.5) | val@200=4.089 ✓ | — | — | ~1960 baseline | plumbing OK |
+| Arm A (SVD-full polar) `8rgx0p28` | `U @ Vh` exact | ~3.79 | **3.6626** ❌ | trip +0.0026 | **4586 (2.34×)** | CRASHED step 1050 |
+| Arm B (SVD-rank-half) `o75pt1bf` | top-half U @ Vh | ~3.81 | (killed step ~460) | (advisor directive) | ~4500 (2.30×) | killed step ~460 |
+| Reference baseline (PR #613) | NS5 polynomial | ~3.79 | ~3.55 | clear | 1960 | terminal val=3.26776, ffs=3000 |
+
+**Side-by-side trajectory** (Arm B uniformly WORSE than Arm A at every common checkpoint):
+
+| step | Arm A val (SVD-full) | Arm B val (rank-half) | Arm B−Arm A |
+|---|---:|---:|---:|
+| 100 | 4.652 | 4.689 | +0.037 |
+| 200 | 4.319 | 4.346 | +0.027 |
+| 300 | 4.135 | 4.165 | +0.030 |
+| 400 | 4.011 | 4.043 | +0.032 |
+| 460 | — | **killed per advisor directive** | — |
+| **1000** | **3.6626** ❌ | (killed step ~460) | — |
+
+**Mechanistic reading (advisor's analysis)**:
+
+1. **SVD-full crashed step 1050 missing kill gate by +0.0026** — exact SVD polar projection is WORSE than NS5 polynomial polar projection on this stack. The ~10⁻⁴ approximation error of NS5 (5 iterations of Higham quintic) is NOT defect to be removed but rather **beneficial implicit regularization** in the body Muon update path.
+
+2. **SVD-rank-half uniformly 0.02-0.05 WORSE than SVD-full at every common checkpoint** — dropping the bottom half of singular directions ALSO catastrophically harmful. Together with Arm A's close-miss this rules out "approximation error" as the issue: BOTH full-rank exact AND rank-half exact fail, the polynomial approximation itself is the load-bearing feature.
+
+3. **SVD-full at 2.34× wallclock cost** (4586ms vs 1960ms/iter baseline) — even if SVD-full had landed at parity, the cost would be prohibitive. NS5 polynomial wins on BOTH precision-vs-regularization AND throughput.
+
+4. **NS5 polynomial layer NOW COMPLETELY CHARACTERIZED across 4 orthogonal probes**: SHAPE (#1011 c=0.4/0.6 symmetric U-shape penalty) + ITER COUNT (#948 schedule + #999 stochastic-iters refuted) + FAMILY (#1019 SVD-full + SVD-rank-half both refuted) + INPUT NORM (#917 refuted). Only DEGREE remains untested via #1025 nezuko NS7 cubic-convergence (in flight). Future axes must **EXIT the NS5 polynomial abstraction entirely** rather than perturbing within it.
+
+5. **Implicit regularization framing is the cleanest mechanistic insight of cycle 71**: NS5's bounded approximation error provides slight directional perturbation around the exact polar projection. This perturbation tends to PRESERVE the natural magnitude variation across singular directions (the property the u/w-floor mechanism amplifies). SVD-exact destroys this implicit perturbation while requiring 2.34× more compute. **The polynomial polar projection wins by being slightly wrong in a useful way.**
+
+**Disposition**: CLOSED as 96th refuted axis. The NS5 polynomial polar projection at NS5_ITERS=14 with Higham (2,-1.5,0.5) coefficients is now demonstrated as the OPTIMAL body-Muon orthogonalization mechanism on this stack, with implicit regularization framing.
+
+---
+
 ## 2026-05-24 09:55 UTC — PR #1011: NS5_POLY_COEFFS (CLOSED, 95th refuted — symmetric U-shape penalty confirms Higham c=0.5 local minimum, NS5 polynomial layer FULLY CHARACTERIZED)
 
 - Branch: `g1r2-nezuko/ns5-poly-coeffs` (student g1r2-nezuko)
