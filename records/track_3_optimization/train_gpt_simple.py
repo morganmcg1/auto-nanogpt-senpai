@@ -468,6 +468,12 @@ NS5_ITERS = int(os.environ.get("NS5_ITERS", "12"))
 WD_AUX = float(os.environ.get("WD_AUX", "0.0"))  # AdamW WD on embed + lm_head matrices (scalars stay at 0)
 EMBED_INIT_STD = float(os.environ.get("EMBED_INIT_STD", "1.0"))  # default preserves baseline N(0,1)
 LOGIT_SOFTCAP = float(os.environ.get("LOGIT_SOFTCAP", "15.0"))  # default = 15 (current hardcoded value); soft-cap value c in f(x) = c·x / sqrt(x^2+c^2)
+# CONTRA_TYPE_SPLIT (PR #961): per-layer-type CONTRA strength multipliers.
+# Effective contra strength for a body weight matrix = CONTRA_MUON * factor where factor is
+# CONTRA_ATTN_FACTOR for attn (q/k/v/proj) weights, CONTRA_MLP_FACTOR for mlp (fc/proj) weights,
+# and 1.0 otherwise. Defaults of 1.0 reproduce the global CONTRA_MUON behavior byte-equivalently.
+CONTRA_ATTN_FACTOR = float(os.environ.get("CONTRA_ATTN_FACTOR", "1.0"))
+CONTRA_MLP_FACTOR = float(os.environ.get("CONTRA_MLP_FACTOR", "1.0"))
 
 
 def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
@@ -504,13 +510,19 @@ def scale_to_unit_operator_norm(G: Tensor, eps: float = 1e-10) -> Tensor:
     return G / op_norm.to(G.dtype)
 
 
-def contra_normuon_update(momentum_update, second_moment, beta2=NORMUON_BETA2):
-    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize."""
+def contra_normuon_update(momentum_update, second_moment, contra_strength=None, beta2=NORMUON_BETA2):
+    """Contra-Muon + NorMuon-lite: NS5 -> contra subtraction -> per-row variance normalize.
+
+    contra_strength: optional override for the contra correction magnitude. Defaults to global CONTRA_MUON;
+    PR #961 uses per-layer-type overrides (CONTRA_MUON * CONTRA_ATTN_FACTOR or * CONTRA_MLP_FACTOR).
+    """
+    if contra_strength is None:
+        contra_strength = CONTRA_MUON
     normalized_grad = scale_to_unit_operator_norm(momentum_update.clone())
     update = zeropower_via_newtonschulz5(momentum_update)
     opower_fro = update.norm()
-    # Contra correction: subtract CONTRA_MUON / 2 * op-norm-normalized momentum.
-    update = update - CONTRA_MUON / 2 * normalized_grad
+    # Contra correction: subtract contra_strength / 2 * op-norm-normalized momentum.
+    update = update - contra_strength / 2 * normalized_grad
     update = update * opower_fro / torch.clamp(update.norm(), min=1e-10)
     update *= max(1, update.size(-2) / update.size(-1))**0.5
     # NorMuon-lite per-row (or per-col) variance EMA + renormalize back to original Frobenius norm.
@@ -652,6 +664,17 @@ class Muon(torch.optim.Optimizer):
                     self.attn_soap_kind[id(p)] = "v"
                 elif n.endswith(".attn.proj.weight"):
                     self.attn_soap_kind[id(p)] = "proj"
+        # PR #961 CONTRA_TYPE_SPLIT: per-param contra-strength factor, looked up at step() time.
+        # attn (q/k/v/proj) -> CONTRA_ATTN_FACTOR; mlp (fc/proj) -> CONTRA_MLP_FACTOR; else -> 1.0.
+        self.contra_factor_by_id: dict[int, float] = {}
+        for n, p in named_params:
+            if (n.endswith(".attn.q.weight") or n.endswith(".attn.k.weight")
+                    or n.endswith(".attn.v.weight") or n.endswith(".attn.proj.weight")):
+                self.contra_factor_by_id[id(p)] = CONTRA_ATTN_FACTOR
+            elif n.endswith(".mlp.fc.weight") or n.endswith(".mlp.proj.weight"):
+                self.contra_factor_by_id[id(p)] = CONTRA_MLP_FACTOR
+            else:
+                self.contra_factor_by_id[id(p)] = 1.0
         params = sorted([p for _, p in named_params], key=lambda x: x.size(), reverse=True)
         defaults = dict(lr=lr, weight_decay=weight_decay, mu=mu)
         super().__init__(params, defaults)
@@ -701,7 +724,10 @@ class Muon(torch.optim.Optimizer):
                     if use_soap or use_attn_soap:
                         momentum_update = soap_precondition(momentum_update, state)
                     # NS5 + contra + NorMuon row variance on (possibly SOAP-preconditioned) momentum.
-                    update = contra_normuon_update(momentum_update, state["second_moment"])
+                    # PR #961: per-layer-type contra strength (attn vs MLP).
+                    contra_strength = CONTRA_MUON * self.contra_factor_by_id.get(id(p), 1.0)
+                    update = contra_normuon_update(momentum_update, state["second_moment"],
+                                                   contra_strength=contra_strength)
                     # u/w-floor: scale up if u/w < TARGET_UW; leave alone otherwise.
                     p_fro = p.float().norm().clamp_min(1e-8)
                     u_fro = update.float().norm().clamp_min(1e-8)
@@ -866,6 +892,10 @@ if dist.get_rank() == 0:
             "optimizer/attn_soap_trust_threshold": ATTN_SOAP_TRUST_THRESHOLD,
             "optimizer/ns5_iters": NS5_ITERS,
             "optimizer/wd_aux": WD_AUX,
+            "optimizer/contra_attn_factor": CONTRA_ATTN_FACTOR,
+            "optimizer/contra_mlp_factor": CONTRA_MLP_FACTOR,
+            "optimizer/contra_attn_effective": CONTRA_MUON * CONTRA_ATTN_FACTOR,
+            "optimizer/contra_mlp_effective": CONTRA_MUON * CONTRA_MLP_FACTOR,
             "optimizer/recipe": "contra-muon + normuon-lite + soap-on-mlp + soap-on-attn-trust-gate (pre-NS5, record #14 + record #16)",
         },
     )
