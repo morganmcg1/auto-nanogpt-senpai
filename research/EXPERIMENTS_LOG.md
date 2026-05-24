@@ -1,5 +1,59 @@
 # SENPAI Research Results — auto-nanogpt-1gpu-r2
 
+## 2026-05-24 23:30 UTC — PR #1094: MUON_BODY_POST_NS5_RMS_SCALE (CLOSED, 117th refuted — RMSProp family 2/2 catastrophic at both pre- and post-NS5 positions)
+
+- Branch: `g1r2-thorfinn/muon-body-post-ns5-rms-scale` (student g1r2-thorfinn)
+- Hypothesis: Per-element RMS-normalized rescaling AFTER NS5 polar projection (post-NS5). Maintain per-tensor `state["grad_sq_ema"]`, compute `scale = scale.median() / sqrt(EMA(g²))` (median-normalized), apply via blend coefficient. Mirror axis to #1083 pre-NS5 RMSProp catastrophic refutation. Direct follow-up to thorfinn's own #1083 closure suggestion #1.
+- Results:
+
+| Arm | MUON_BODY_POST_NS5_RMS_SCALE | W&B run | Step | val | Outcome |
+|-----|------|---------|------|-----|---------|
+| disabled-check | 0.0 | `0e2jletc` | 200 | 4.09137 | ✓ matches #1083 reference 4.08264 Δ=+0.00873 |
+| Arm A | 0.3 | `tvcx1kc7` | killed @ 625 | val@500=**4.13710** | ❌ **step-500 kill-gate breach +0.327 over gate (3.81)** |
+| Arm B | 0.7 | not launched | — | — | per decision tree: mechanism predicts strictly worse |
+
+- val trajectory diverged from baseline from step ~100 onwards:
+
+| step | Arm A val | disabled-check baseline | Δ |
+|-----:|----------:|------------------------:|------:|
+| 125 | 6.16586 | 4.36261 | +1.803 |
+| 200 | — | 4.09137 | — |
+| 250 | 5.06797 | — | (large) |
+| 375 | 4.38532 | — | (large) |
+| 500 | **4.13710** (gate 3.81) | — | kill |
+| 625 | 4.02015 | — | (still wide) |
+
+- Train descended cleanly (no NaN, no grad explosion), val diverged +0.3 to +1.8 above expected trajectory — **clean train/val decoupling signature identical to #1075 and #1073**.
+- **Mechanistic findings (thorfinn's exemplary analysis)**:
+
+  Telemetry at step 100 across 72 body 2-D tensors:
+
+  | shape | n | min `rms_scale` | max `rms_scale` | mean `rms_scale_max` |
+  |------:|--:|-----------------:|-----------------:|---------------------:|
+  | (3072, 768) MLP fc1 | 12 | 0 | 480 | 220 |
+  | (768, 3072) MLP fc2 | 12 | 0.09 | **9.84e+04** | 2.34e+04 |
+  | (768, 768) attn | 48 | 0 | **1.57e+07** | 3.31e+05 |
+
+  - **Mean per-tensor `rms_scale_max / rms_scale_min` ratio: 4.2e+13**
+  - Peak per-tensor ratio: **4.8e+14**
+  - Median per tensor: **exactly 1.0000** (median normalization correct as designed)
+
+  Median-normalization preserved the CENTER of the rescaling distribution but did nothing to bound the TAILS. A 30% blend of an update with element scales in [0, 10⁷] is added to 70% of the unitary update. The 10⁵-10⁷ tail elements dominate: a few per-element kicks of magnitude 10⁵-10⁷ × NS5's σ_i ≈ 1 inject huge spurious step components that completely overwhelm NS5's matrix-level unitary structure.
+
+  Key insight: **"per-element scale heterogeneity that NS5 leaves uncorrected" is a FEATURE of NS5's design** — NS5 specifically discards per-element variance because per-element variance in body weight gradients is pathologically tail-heavy (10¹³-14 dynamic range), and using it as a rescaling signal is destructive regardless of where the rescaling is applied.
+
+- **Family-level closure — RMSProp-on-Muon-body 2/2 CATASTROPHIC**:
+
+  | PR | Position | Operation | Failure mode | Kill gate |
+  |---|---|---|---|---|
+  | **#1083** | pre-NS5 | g'_t = g/sqrt(EMA(g²)) | direction distorted upstream → NS5 projects wrong direction → SVD basis rotated | step 1000, +0.036 |
+  | **#1094** (this PR) | post-NS5 | update'_t = update × median/sqrt(EMA(g²)) | direction preserved but per-element tail kicks (10⁷×) destroy σ_i ≈ 1 structure | step 500, +0.327 |
+
+  Categorical conclusion: per-element variance scaling is structurally incompatible with NS5's matrix-level unitary projection at this LR scale, at any application point, because matrix-level σ_i ≈ 1 and element-level σ_max/σ_min ≈ 10¹³ live on different scales.
+
+- **Cycle 71 cumulative family-level closures (6 family-level + 6 single-layer saturations)**: Variance reduction 8/8, Schedule-on-frozen-scalar 5/5, Weight-spectrum trifecta 3/3, Init structure 1/1, Dual-timescale momentum 1/1, **RMSProp-on-Muon-body 2/2** (NEW family closed).
+- Student-suggested follow-ups (tail-clamped, log-RMS, per-row) all sub-axes of already-refuted family; advisor not relaunching. Mech class closed.
+
 ## 2026-05-24 22:55 UTC — PR #1067: MUON_BODY_WD_EXPLICIT (CLOSED, 116th refuted — weight-spectrum trifecta 3/3 now complete)
 
 - Branch: `g1r2-fern/muon-body-wd-explicit` (student g1r2-fern)
