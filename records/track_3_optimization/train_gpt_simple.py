@@ -82,6 +82,14 @@ def parse_args():
                         help="β2 at start of training (and constant β2 if schedule=constant).")
     parser.add_argument("--aux_beta2_end", type=float, default=float(os.environ.get("AUX_BETA2_END", "0.99")),
                         help="β2 at end of training (after cooldown). Only used if schedule=cooldown_ramp.")
+    # H115: intermediate sv_max bound applied DURING the NS5 polynomial iteration on
+    # the MuonH gradient direction. Power iteration estimates sv_max, then rescales X
+    # if it exceeds the bound. 0.0 = disabled (bit-identical baseline path).
+    parser.add_argument("--muonh_sv_max_bound", type=float, default=float(os.environ.get("MUONH_SV_MAX_BOUND", "0.0")),
+                        help="If > 0, apply intermediate sv_max bound during NS5 iteration "
+                             "(0=off, bit-identical CTRL)")
+    parser.add_argument("--muonh_sv_max_bound_every", type=int, default=int(os.environ.get("MUONH_SV_MAX_BOUND_EVERY", "4")),
+                        help="Apply sv_max bound every K NS5 iterations (default 4 → 3 bounds in k=12)")
     args = parser.parse_args()
     args.num_trials = args.num_trials if args.num_trials is not None else (args.legacy_num_trials or 1)
     args.wandb_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
@@ -91,6 +99,16 @@ def parse_args():
 
 
 args = parse_args()
+
+
+# H115: intermediate sv_max bound during NS5 polynomial iteration.
+# When _H115_SV_MAX_BOUND == 0.0 the NS5 function takes a bit-identical path and
+# torch.compile is applied to muon_update (matches baseline). When > 0, NS5 takes
+# the bounded path (with .item()-based stat collection), and muon_update runs in
+# eager mode so the Python-side stats accumulator is observable.
+_H115_SV_MAX_BOUND = float(args.muonh_sv_max_bound)
+_H115_SV_MAX_BOUND_EVERY = int(args.muonh_sv_max_bound_every)
+_H115_NS5_STATS = {"pre_sum": 0.0, "post_sum": 0.0, "active": 0, "total": 0}
 
 
 def clean_metric_name(name: str) -> str:
@@ -298,6 +316,44 @@ def log_weight_telemetry(
     wandb.log(metrics, step=wandb_step)
 
 
+def log_body_matrix_sv_stats(
+    model: nn.Module,
+    trial_idx: int,
+    step: int,
+    wandb_step: int,
+):
+    """Compute per-layer SVD stats on the 4 (768,768) attention body matrices and
+    log per-matrix-type averages. Used for H115 spectral diagnostics — analogous to
+    H107 in-run sv telemetry that established sv_max condition tracks val/loss."""
+    matrix_suffixes = [
+        "attn.k.weight", "attn.q.weight", "attn.v.weight", "attn.proj.weight",
+    ]
+    per_type = {s: {"min": [], "max": [], "mean": [], "ratio": []} for s in matrix_suffixes}
+    for name, p in model.named_parameters():
+        for suffix in matrix_suffixes:
+            if name.endswith(suffix):
+                w = p.data.detach().float()
+                sv = torch.linalg.svdvals(w)
+                sv_min = float(sv.min().item())
+                sv_max = float(sv.max().item())
+                sv_mean = float(sv.mean().item())
+                sv_ratio = sv_max / max(sv_min, 1e-20)
+                per_type[suffix]["min"].append(sv_min)
+                per_type[suffix]["max"].append(sv_max)
+                per_type[suffix]["mean"].append(sv_mean)
+                per_type[suffix]["ratio"].append(sv_ratio)
+                break
+    metrics = {"trial": trial_idx, "val/step": step}
+    for suffix, st in per_type.items():
+        clean = suffix.replace(".", "/")
+        for key, vals in st.items():
+            if vals:
+                metrics[f"sv/{clean}/{key}_mean"] = sum(vals) / len(vals)
+                metrics[f"sv/{clean}/{key}_max"] = max(vals)
+                metrics[f"sv/{clean}/{key}_min"] = min(vals)
+    wandb.log(metrics, step=wandb_step)
+
+
 def log_histograms(
     model: nn.Module,
     trial_idx: int,
@@ -487,22 +543,50 @@ def zeropower_via_newtonschulz5(G: Tensor) -> Tensor:
     X = X / (X.norm(dim=(-2, -1), keepdim=True) + 1e-7)
     # Perform the NS iterations, not optimizing for wallclock speed
     a, b, c = 2, -1.5, 0.5
-    for _ in range(12):
-        A = X @ X.mT
-        B = b * A + c * A @ A
-        X = a * X + B @ X
+    if _H115_SV_MAX_BOUND > 0.0:
+        bound = _H115_SV_MAX_BOUND
+        bound_every = _H115_SV_MAX_BOUND_EVERY
+        for i in range(12):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
+            # H115: intermediate sv_max bound via 2-step power iteration.
+            # Applied AFTER each NS5 step at iterations (bound_every, 2*bound_every, ...).
+            if (i + 1) % bound_every == 0:
+                v = torch.randn(X.size(-1), device=X.device, dtype=X.dtype)
+                for _ in range(2):
+                    v = X.mT @ (X @ v)
+                    v = v / (v.norm() + 1e-12)
+                sv_max_est = float((X @ v).norm().item())
+                _H115_NS5_STATS["pre_sum"] += sv_max_est
+                _H115_NS5_STATS["total"] += 1
+                if sv_max_est > bound:
+                    X = X * (bound / sv_max_est)
+                    _H115_NS5_STATS["active"] += 1
+                    _H115_NS5_STATS["post_sum"] += bound
+                else:
+                    _H115_NS5_STATS["post_sum"] += sv_max_est
+    else:
+        for _ in range(12):
+            A = X @ X.mT
+            B = b * A + c * A @ A
+            X = a * X + B @ X
 
     if G.size(-2) > G.size(-1):
         X = X.mT
     return X
 
-@torch.compile
-def muon_update(grad, momentum, mu=0.95, nesterov=True):
+def _muon_update_impl(grad, momentum, mu=0.95, nesterov=True):
     momentum.lerp_(grad, 1 - mu)
     update = grad.lerp_(momentum, mu) if nesterov else momentum
     update = zeropower_via_newtonschulz5(update)
     update *= max(1, grad.size(-2) / grad.size(-1))**0.5
     return update
+
+# Bit-identical CTRL path keeps the torch.compile decorator. Bound path stays in
+# eager mode so the Python-side _H115_NS5_STATS accumulator (which uses .item())
+# is observable without forcing graph breaks under compile.
+muon_update = _muon_update_impl if _H115_SV_MAX_BOUND > 0.0 else torch.compile(_muon_update_impl)
 
 class Muon(torch.optim.Optimizer):
     def __init__(self, params, lr=0.02, weight_decay=0, mu=0.95):
@@ -724,6 +808,10 @@ if args.muonh_agc_clip_ratio > 0:
     print0(f"AGC ENABLED on inner MuonH gradient: clip_ratio={args.muonh_agc_clip_ratio} eps={args.muonh_agc_eps}", console=True)
 else:
     print0("AGC DISABLED on inner MuonH gradient (clip_ratio=0)", console=True)
+if _H115_SV_MAX_BOUND > 0.0:
+    print0(f"H115: intermediate sv_max bound ENABLED inside NS5 — bound={_H115_SV_MAX_BOUND} every={_H115_SV_MAX_BOUND_EVERY} (muon_update in EAGER mode)", console=True)
+else:
+    print0("H115: intermediate sv_max bound DISABLED (bound=0, bit-identical CTRL — muon_update COMPILED)", console=True)
 print0("="*100)
 
 val_tokens = 20 * 524288
@@ -780,6 +868,8 @@ if dist.get_rank() == 0:
             "aux_beta2_schedule": args.aux_beta2_schedule,
             "aux_beta2_start": args.aux_beta2_start,
             "aux_beta2_end": args.aux_beta2_end,
+            "muonh_sv_max_bound": args.muonh_sv_max_bound,
+            "muonh_sv_max_bound_every": args.muonh_sv_max_bound_every,
         },
     )
 
@@ -988,6 +1078,14 @@ for trial_idx in range(args.num_trials):
                 }
                 metrics.update(prefixed("val/slope", loss_slope_stats(val_loss_history, slope_window_steps)))
                 wandb.log(metrics, step=trial_idx * (train_steps + 1) + step)
+                # H115: body-matrix sv telemetry. Diagnostic regardless of bound on/off —
+                # tracks sv_max trajectory across (768, 768) attention body matrices.
+                log_body_matrix_sv_stats(
+                    model=model,
+                    trial_idx=trial_idx,
+                    step=step,
+                    wandb_step=trial_idx * (train_steps + 1) + step,
+                )
             print0(f"step:{step}/{train_steps} val_loss:{val_loss:.5f} train_time:{training_time:.3f}s"
                    + f" step_avg:{1000*step_avg:.2f}ms", console=True)
             model.train()
@@ -1050,6 +1148,14 @@ for trial_idx in range(args.num_trials):
         muonh_agc_stats = adaptive_gradient_clip(
             muonh_params_for_agc, args.muonh_agc_clip_ratio, eps=args.muonh_agc_eps,
         )
+        # H115: reset NS5 stats accumulator BEFORE the optimizer step so the
+        # telemetry block reads only this step's bound applications. No-op when
+        # bound is disabled (totals stay at zero).
+        if _H115_SV_MAX_BOUND > 0.0:
+            _H115_NS5_STATS["pre_sum"] = 0.0
+            _H115_NS5_STATS["post_sum"] = 0.0
+            _H115_NS5_STATS["active"] = 0
+            _H115_NS5_STATS["total"] = 0
         for opt in optimizers:
             opt.step()
         # Log warmup telemetry every 10 steps during warmup (and at telemetry events
@@ -1087,6 +1193,21 @@ for trial_idx in range(args.num_trials):
                 muonh_metrics["train/muonh/agc/max_ratio"] = muonh_agc_stats["agc_max_ratio"]
                 muonh_metrics["train/muonh/agc/scale_min"] = muonh_agc_stats["agc_scale_min"]
                 muonh_metrics["train/muonh/agc/scale_mean"] = muonh_agc_stats["agc_scale_mean"]
+            # H115: per-step bound stats (active in this step, mean sv_max pre/post
+            # the intermediate bound, averaged across NS5 iterations and params).
+            if _H115_SV_MAX_BOUND > 0.0 and _H115_NS5_STATS["total"] > 0:
+                total = _H115_NS5_STATS["total"]
+                muonh_metrics["sv/sv_max_bound_active_frac"] = (
+                    _H115_NS5_STATS["active"] / total
+                )
+                muonh_metrics["sv/sv_max_pre_bound_mean"] = (
+                    _H115_NS5_STATS["pre_sum"] / total
+                )
+                muonh_metrics["sv/sv_max_post_bound_mean"] = (
+                    _H115_NS5_STATS["post_sum"] / total
+                )
+                muonh_metrics["sv/sv_max_bound_total_count"] = total
+                muonh_metrics["sv/sv_max_bound_active_count"] = _H115_NS5_STATS["active"]
             if len(muonh_metrics) > 2:
                 wandb.log(muonh_metrics, step=wandb_step)
         if dist.get_rank() == 0 and telemetry_due:
